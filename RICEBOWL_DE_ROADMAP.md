@@ -257,6 +257,16 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
 
 ### 3 — RiceSpice and RicePop
 
+- [x] Add a **first native RicePop audio OSD** to the existing resident
+  RicePlate layer-shell process. An opt-in recipe with native volume/mute
+  quick actions uses the verified WirePlumber post-action state (or an honest
+  failure/unavailable message), a bounded progress bar and a single transient
+  Overlay layer with an explicitly **empty pointer/touch input region**.
+  The existing Wayland event loop owns the 1.8-second timeout; no separate
+  helper, notification owner, periodic animation or private state store is
+  introduced. This does **not** intercept external multimedia keys or
+  third-party volume changes; accessibility/device QA is still open.
+
 - [x] Introduce the **on-demand RiceSpice settings window**, launched through
   a validated `settings` menu action or `ricebowl de settings`. It presents nine
   clearly separated settings categories. Real native controls cover reviewed

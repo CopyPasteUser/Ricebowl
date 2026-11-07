@@ -1,7 +1,7 @@
 //! Native RicePlate experiment: an input-capable, idle event-driven layer surface.
 //! No session takeover: launch only inside an already running Wayland session.
 
-use std::{error::Error, process::Command, sync::mpsc, time::Duration};
+use std::{error::Error, process::Command, sync::mpsc, time::{Duration, Instant}};
 
 use chrono::{Datelike, Local, Timelike};
 use font8x8::{UnicodeFonts, BASIC_FONTS};
@@ -10,6 +10,7 @@ mod desktop_layout;
 mod icon_positions;
 mod menu_pins;
 mod native_menu;
+mod osd;
 mod power;
 mod recipe;
 mod ricepop;
@@ -23,13 +24,13 @@ use system_status::{ControlAction, SystemStatus};
 
 enum StatusEvent {
     State(SystemStatus),
-    Control { success: bool, state: SystemStatus },
+    Control { action: ControlAction, success: bool, state: SystemStatus },
 }
 use calendar::{CalendarState, Hit as CalendarHit};
 use recipe::{Hit, PanelStyle, Widget};
 use task_navigation::Target as KeyboardTarget;
 use smithay_client_toolkit::{
-    compositor::{CompositorHandler, CompositorState, FrameCallbackData},
+    compositor::{CompositorHandler, CompositorState, FrameCallbackData, Region},
     delegate_registry,
     output::{OutputHandler, OutputState},
     reexports::{calloop::{channel, EventLoop}, calloop_wayland_source::WaylandSource},
@@ -244,6 +245,24 @@ fn main() -> Result<(), Box<dyn Error>> {
         surface.commit();
         CalendarLayer { surface, pool: None, configured: false, output: None }
     });
+    // A single lazily painted Overlay surface belongs to RicePlate itself.
+    // An EMPTY wl_region is essential: unlike a notification, an OSD must not
+    // steal pointer/touch input from the window underneath it.
+    let osd_layer = poll_audio.then(|| -> Result<OsdLayer, Box<dyn Error>> {
+        let surface = layer_shell.create_layer_surface(
+            &qh, compositor.create_surface(&qh), Layer::Overlay,
+            Some("ricepop-audio-osd"), None,
+        );
+        surface.set_anchor(Anchor::TOP | Anchor::RIGHT);
+        surface.set_size(osd::WIDTH, osd::HEIGHT);
+        surface.set_margin(osd_top_margin(&recipe), MAX_WIDTH as i32, 0, 0);
+        surface.set_exclusive_zone(-1);
+        surface.set_keyboard_interactivity(KeyboardInteractivity::None);
+        let empty_input = Region::new(&compositor)?;
+        surface.wl_surface().set_input_region(Some(empty_input.wl_region()));
+        surface.commit();
+        Ok(OsdLayer { surface, pool: None, configured: false })
+    }).transpose()?;
     let preview_secondary_calendar = preview_calendar
         && std::env::var("RICEBOWL_DE_NESTED").as_deref() == Ok("1")
         && std::env::var("RICEBOWL_DE_CALENDAR_OUTPUT").as_deref() == Ok("secondary");
@@ -263,6 +282,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         active_menu: None,
         preview_secondary_menu,
         calendar_layer,
+        osd_layer,
+        osd_state: osd::State::default(),
         calendar_mirrors: Vec::new(),
         active_calendar: None,
         preview_secondary_calendar,
@@ -315,11 +336,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             if let channel::Event::Msg(message) = event {
                 let status = match message {
                     StatusEvent::State(status) => status,
-                    StatusEvent::Control { success, state } => {
+                    StatusEvent::Control { action, success, state } => {
                         app.menu_state.notice = Some(if success {
                             "Action applied"
                         } else { "Unavailable or denied" });
                         if app.menu_state.visible { app.redraw_menu(&redraw_qh); }
+                        if app.osd_state.show(action, success, &state, Instant::now()) {
+                            app.redraw_osd();
+                        }
                         state
                     }
                 };
@@ -340,7 +364,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     Ok(action) => {
                         let success = action.apply();
                         let state = SystemStatus::read(poll_network, poll_audio);
-                        if sender.send(StatusEvent::Control { success, state }).is_err() { break; }
+                        if sender.send(StatusEvent::Control { action, success, state }).is_err() { break; }
                     }
                     Err(mpsc::RecvTimeoutError::Timeout) => {
                         if sender.send(StatusEvent::State(SystemStatus::read(poll_network, poll_audio)))
@@ -375,7 +399,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     while !app.closed {
         // Calloop sleeps on Wayland's fd and wakes at the next minute,
         // so the clock updates without any resident 1 Hz poll/frame loop.
-        event_loop.dispatch(Some(next_clock_timeout()), &mut app)?;
+        let osd_timeout = app.osd_state.timeout(Instant::now());
+        let timeout = osd_timeout.map_or_else(next_clock_timeout,
+            |remaining| remaining.min(next_clock_timeout()));
+        event_loop.dispatch(Some(timeout), &mut app)?;
+        if app.osd_state.expire(Instant::now()) { app.hide_osd(); }
         let current = clock_now();
         if app.clock != current {
             app.clock = current;
@@ -433,6 +461,16 @@ struct CalendarLayer {
     output: Option<wl_output::WlOutput>,
 }
 
+struct OsdLayer {
+    surface: LayerSurface,
+    pool: Option<SlotPool>,
+    configured: bool,
+}
+
+fn osd_top_margin(recipe: &PanelStyle) -> i32 {
+    if recipe.top { recipe.height as i32 + 16 } else { 16 }
+}
+
 struct PanelMirror {
     output: wl_output::WlOutput,
     surface: LayerSurface,
@@ -460,6 +498,8 @@ struct RicePlate {
     active_menu: Option<wl_surface::WlSurface>,
     preview_secondary_menu: bool,
     calendar_layer: Option<CalendarLayer>,
+    osd_layer: Option<OsdLayer>,
+    osd_state: osd::State,
     calendar_mirrors: Vec<CalendarLayer>,
     active_calendar: Option<wl_surface::WlSurface>,
     preview_secondary_calendar: bool,
@@ -1039,6 +1079,50 @@ impl RicePlate {
         layer.surface.commit();
     }
 
+    fn redraw_osd(&mut self) {
+        let Some(notice) = self.osd_state.current.as_ref() else { return };
+        let Some(layer) = self.osd_layer.as_mut() else { return };
+        if !layer.configured { return; }
+        if layer.pool.is_none() {
+            let bytes = (osd::WIDTH * osd::HEIGHT * 4 * 3) as usize;
+            match SlotPool::new(bytes, &self.shm) {
+                Ok(pool) => layer.pool = Some(pool),
+                Err(error) => {
+                    eprintln!("RicePop: OSD allocation failed: {error}");
+                    return;
+                }
+            }
+        }
+        let Some(pool) = layer.pool.as_mut() else { return };
+        let (buffer, canvas) = match pool.create_buffer(
+            osd::WIDTH as i32, osd::HEIGHT as i32,
+            (osd::WIDTH * 4) as i32, wl_shm::Format::Argb8888,
+        ) {
+            Ok(result) => result,
+            Err(error) => {
+                eprintln!("RicePop: deferring busy OSD buffer: {error}");
+                return;
+            }
+        };
+        paint_osd(canvas, &self.recipe, notice);
+        layer.surface.set_margin(osd_top_margin(&self.recipe), 16, 0, 0);
+        let surface = layer.surface.wl_surface();
+        surface.damage_buffer(0, 0, osd::WIDTH as i32, osd::HEIGHT as i32);
+        if let Err(error) = buffer.attach_to(surface) {
+            eprintln!("RicePop: OSD attach failed: {error}");
+            self.hide_osd();
+            return;
+        }
+        layer.surface.commit();
+    }
+
+    fn hide_osd(&mut self) {
+        if let Some(layer) = self.osd_layer.as_mut() {
+            layer.surface.set_margin(osd_top_margin(&self.recipe), MAX_WIDTH as i32, 0, 0);
+            layer.surface.commit();
+        }
+    }
+
     fn redraw_icon(&mut self, index: usize) {
         let Some(layer) = self.icon_layers.get_mut(index) else {
             return;
@@ -1367,6 +1451,23 @@ fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
                 }
             }
         }
+    }
+}
+
+fn paint_osd(canvas: &mut [u8], style: &PanelStyle, notice: &osd::Notice) {
+    let width = osd::WIDTH;
+    let height = osd::HEIGHT;
+    // Opaque, theme-consistent background; no compositor blur dependency.
+    for pixel in canvas.chunks_exact_mut(4) {
+        pixel.copy_from_slice(&style.background.to_le_bytes());
+    }
+    fill_rect(canvas, width, height, 0, 0, 4, height, style.active);
+    draw_text(canvas, width, height, 16, 10, notice.title, style.foreground);
+    draw_text(canvas, width, height, 16, 29, &notice.value, style.foreground);
+    if let Some(percent) = notice.fill {
+        fill_rect(canvas, width, height, 16, 54, width - 32, 5, style.active);
+        fill_rect(canvas, width, height, 16, 54,
+                  (width - 32) * u32::from(percent) / 100, 5, style.foreground);
     }
 }
 
@@ -1836,6 +1937,9 @@ impl LayerShellHandler for RicePlate {
             if self.active_calendar.as_ref() == Some(layer.wl_surface()) {
                 self.set_calendar_visible(false, qh);
             }
+        } else if self.osd_layer.as_ref().is_some_and(|osd|
+            osd.surface.wl_surface() == layer.wl_surface()) {
+            self.osd_layer = None;
         } else if let Some(icon) = self
             .icon_layers
             .iter_mut()
@@ -1877,6 +1981,19 @@ impl LayerShellHandler for RicePlate {
             mirror.height = height;
             mirror.configured = true;
             self.redraw_mirror(index, qh);
+            return;
+        }
+        if self.osd_layer.as_ref().is_some_and(|osd|
+            osd.surface.wl_surface() == layer.wl_surface()) {
+            if config.new_size != (osd::WIDTH, osd::HEIGHT) {
+                eprintln!("RicePop: compositor proposed invalid OSD size");
+                self.osd_layer = None;
+                return;
+            }
+            if let Some(osd_layer) = self.osd_layer.as_mut() {
+                osd_layer.configured = true;
+            }
+            self.redraw_osd();
             return;
         }
         if self.calendar_layer.as_ref().is_some_and(|calendar|
@@ -2692,6 +2809,27 @@ smithay_client_toolkit::delegate_dispatch2!(RicePlate);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ricepop_osd_renders_readback_volume_and_failure_distinctly() {
+        let style = recipe::load("classic").unwrap();
+        let mut filled = vec![0; (osd::WIDTH * osd::HEIGHT * 4) as usize];
+        let mut error = filled.clone();
+        paint_osd(&mut filled, &style, &osd::Notice {
+            title: "Volume", value: "58%".into(), fill: Some(58),
+        });
+        paint_osd(&mut error, &style, &osd::Notice {
+            title: "Volume", value: "Change failed".into(), fill: None,
+        });
+        assert_ne!(filled, error);
+        let bar_pixel = |canvas: &[u8], x: u32| {
+            let offset = ((54 * osd::WIDTH + x) * 4) as usize;
+            u32::from_le_bytes(canvas[offset..offset + 4].try_into().unwrap())
+        };
+        assert_eq!(bar_pixel(&filled, 18), style.foreground);
+        assert_eq!(bar_pixel(&filled, 220), style.active);
+        assert_eq!(bar_pixel(&error, 18), style.background);
+    }
 
     #[test]
     fn network_and_audio_status_pixels_follow_real_backend_results() {
