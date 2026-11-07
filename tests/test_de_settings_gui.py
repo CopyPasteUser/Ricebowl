@@ -34,6 +34,9 @@ class SettingsGuiTests(unittest.TestCase):
                     "current": "balanced", "supported": ("balanced", "power-saver"),
                     "battery": {"percent": 85, "charging": False, "label": "Discharging"},
                 }), \
+                mock.patch("macrice.de.settings_backend.timezone_snapshot", return_value={
+                    "current": "UTC", "zones": ("UTC",),
+                }), \
                 mock.patch("macrice.de.settings_backend.external_tool", return_value=None):
             Path(directory).chmod(0o700)
             window = settings.RiceSpiceWindow(Gtk, Gdk, GLib)
@@ -210,6 +213,48 @@ class SettingsGuiTests(unittest.TestCase):
             self.assertFalse(any(isinstance(child, Gtk.Button)
                                  and child.get_label() == "Enter password for Office"
                                  for child in window.content.get_children()))
+            GLib.timeout_add(30, lambda: (window.window.destroy(), False)[1])
+            Gtk.main()
+
+    def test_timezone_search_uses_supported_system_list_and_explicit_apply(self):
+        try:
+            Gtk, Gdk, GLib = settings._gtk_modules()
+        except (ImportError, ValueError):
+            self.skipTest("GTK introspection typelib is not installed")
+        if not Gtk.init_check([])[0]:
+            self.skipTest("GTK display is unavailable")
+        snapshot = {"current": "UTC", "zones": ("America/New_York", "Europe/Berlin", "UTC")}
+        with mock.patch("macrice.de.settings_backend.wifi_snapshot", return_value={
+                    "enabled": True, "networks": []}), \
+                mock.patch("macrice.de.settings_backend.timezone_snapshot",
+                           return_value=snapshot), \
+                mock.patch("macrice.de.settings_backend.external_tool", return_value=None), \
+                mock.patch("macrice.de.settings_backend.set_timezone",
+                           return_value="Europe/Berlin") as update:
+            window = settings.RiceSpiceWindow(Gtk, Gdk, GLib)
+            window._background = lambda work, done: done(work())
+            window.show_page("timezone")
+            search = next(child for child in window.content.get_children()
+                          if isinstance(child, Gtk.SearchEntry))
+            apply = next(child for child in window.content.get_children()
+                         if isinstance(child, Gtk.Button)
+                         and child.get_label() == "Apply system timezone")
+            self.assertFalse(apply.get_sensitive())
+            search.set_text("Ber")
+            choices = next(child for child in window.content.get_children()
+                           if isinstance(child, Gtk.Box))
+            berlin = next(child for child in choices.get_children()
+                          if isinstance(child, Gtk.Button) and child.get_label() == "Europe/Berlin")
+            berlin.clicked()
+            self.assertTrue(apply.get_sensitive())
+            apply.clicked()
+            update.assert_called_once_with("Europe/Berlin", expected="UTC")
+            search = next(child for child in window.content.get_children()
+                          if isinstance(child, Gtk.SearchEntry))
+            search.set_text("Not a timezone")
+            self.assertFalse(any(isinstance(child, Gtk.Button)
+                                 for child in next(child for child in window.content.get_children()
+                                                   if isinstance(child, Gtk.Box)).get_children()))
             GLib.timeout_add(30, lambda: (window.window.destroy(), False)[1])
             Gtk.main()
 

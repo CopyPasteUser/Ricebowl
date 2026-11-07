@@ -23,7 +23,7 @@ SECTIONS = (
     ("displays", "Displays", "Monitors, scaling and arrangement"),
     ("input", "Input", "Pointer and keyboard preferences"),
     ("accessibility", "Accessibility", "Assistive preferences"),
-    ("timezone", "Date & time", "System clock and timezone"),
+    ("timezone", "Date & time", "System clock and timezone preferences"),
     ("power", "Power & security", "Lock and suspend via system services"),
     ("appearance", "Rice & appearance", "Next-login shell recipe selection"),
 )
@@ -194,6 +194,8 @@ class RiceSpiceWindow:
             self._bluetooth()
         elif name == "power":
             self._power()
+        elif name == "timezone":
+            self._timezone()
         elif name == "appearance":
             self._appearance()
         else:
@@ -401,6 +403,73 @@ class RiceSpiceWindow:
             self._button("Open system settings…", lambda: self._background(
                 lambda: backend.open_external(page),
                 lambda _result: self._state("System settings launch requested")), primary=True)
+
+    def _timezone(self):
+        self._button("Refresh timezone", lambda: self.show_page("timezone"))
+        self._text("Changes to the system timezone require authorization from the OS.",
+                   css="ricespice-note")
+        if backend.external_tool("timezone") is not None:
+            self._button("Open alternate system date settings…",
+                         lambda: self._background(
+                             lambda: backend.open_external("timezone"),
+                             lambda _result: self._state("System settings launch requested")))
+
+        def present(snapshot):
+            current, zones = snapshot["current"], snapshot["zones"]
+            self._state("System timezone: " + current)
+            self._text("Search for a timezone", css="ricespice-section")
+            search = self.Gtk.SearchEntry()
+            search.set_placeholder_text("e.g. Europe/Berlin")
+            search.get_accessible().set_name("Search system timezones")
+            self.content.pack_start(search, False, False, 0)
+            chosen = {"name": current}
+            selected = self._label("Selected: " + current, css="ricespice-note")
+            self.content.pack_start(selected, False, False, 0)
+            choices = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=3)
+            self.content.pack_start(choices, False, False, 0)
+            visible = []
+
+            def apply():
+                name = chosen["name"]
+                if name == current:
+                    self._state("System timezone is already " + current)
+                    return
+                self._background(lambda: backend.set_timezone(name, expected=current),
+                                 lambda _result: self.show_page("timezone"))
+
+            apply_button = self._button("Apply system timezone", apply, primary=True)
+            apply_button.set_sensitive(False)
+
+            def choose(name):
+                chosen["name"] = name
+                selected.set_text("Selected: " + name)
+                apply_button.set_sensitive(name != current)
+
+            def update(_entry=None):
+                for child in tuple(choices.get_children()):
+                    child.destroy()
+                text = search.get_text().strip().casefold()
+                visible[:] = [name for name in zones if text in name.casefold()][:12] if text else []
+                if not text:
+                    choices.pack_start(self._label("Type to find a timezone; current selection is unchanged.",
+                                                   css="ricespice-note"), False, False, 0)
+                elif not visible:
+                    choices.pack_start(self._label("No matching system timezones.",
+                                                   css="ricespice-note"), False, False, 0)
+                else:
+                    for name in visible:
+                        self._button(name, lambda value=name: choose(value), parent=choices)
+                    if len([name for name in zones if text in name.casefold()]) > len(visible):
+                        choices.pack_start(self._label("More matches exist; refine the search.",
+                                                       css="ricespice-note"), False, False, 0)
+                choices.show_all()
+
+            search.connect("search-changed", update)
+            search.connect("activate", lambda _entry: choose(visible[0]) if visible else None)
+            update()
+            self.content.show_all()
+
+        self._background(backend.timezone_snapshot, present)
 
     def _power(self):
         self._button("Refresh power state", lambda: self.show_page("power"))

@@ -7,6 +7,7 @@ starts a service, a privileged helper or a user-selected executable.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 from typing import Any
@@ -22,6 +23,60 @@ EXTERNAL_PAGES = {
     "accessibility": (("gnome-control-center", "universal-access"),),
     "timezone": (("gnome-control-center", "datetime"),),
 }
+
+_TIMEZONE = re.compile(r"[A-Za-z0-9_+.-]+(?:/[A-Za-z0-9_+.-]+){0,4}\Z")
+
+
+def _timedatectl(*args: str) -> str:
+    """Bounded, locale-independent systemd-timedated query or policy action."""
+    binary = shutil.which("timedatectl")
+    if binary is None:
+        raise SettingsError("timedatectl is not installed")
+    try:
+        result = subprocess.run([binary, *args], stdin=subprocess.DEVNULL,
+                                capture_output=True, timeout=8, check=False,
+                                env={**os.environ, "LC_ALL": "C"})
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise SettingsError("System time service is unavailable or timed out") from exc
+    if result.returncode or len(result.stdout) > 96 * 1024:
+        raise SettingsError("System time service denied the request or returned invalid data")
+    try:
+        return result.stdout.decode("ascii").strip()
+    except UnicodeDecodeError as exc:
+        raise SettingsError("System time service returned invalid data") from exc
+
+
+def _timezone_name(name: str) -> bool:
+    return (type(name) is str and len(name) <= 80 and _TIMEZONE.fullmatch(name)
+            is not None and not any(part in (".", "..") for part in name.split("/")))
+
+
+def timezone_snapshot() -> dict[str, Any]:
+    """Read the actual system timezone and allowlisted timezones on demand."""
+    current = _timedatectl("show", "-p", "Timezone", "--value")
+    rows = _timedatectl("list-timezones", "--no-pager").splitlines()
+    if (not _timezone_name(current) or not 1 <= len(rows) <= 1000
+            or any(not _timezone_name(item) for item in rows)
+            or len(rows) != len(set(rows)) or current not in rows):
+        raise SettingsError("System timezone inventory is invalid or incomplete")
+    return {"current": current, "zones": tuple(sorted(rows))}
+
+
+def set_timezone(name: str, *, expected: str) -> str:
+    """Polkit-gated system timezone change with stale review and readback."""
+    if not _timezone_name(name) or not _timezone_name(expected):
+        raise SettingsError("Choose a supported timezone")
+    before = timezone_snapshot()
+    if before["current"] != expected:
+        raise SettingsError("System timezone changed; refresh before applying")
+    if name not in before["zones"]:
+        raise SettingsError("Choose a timezone from the current system list")
+    if name == expected:
+        return name
+    _timedatectl("set-timezone", name)
+    if _timedatectl("show", "-p", "Timezone", "--value") != name:
+        raise SettingsError("Timezone may have changed; verification failed")
+    return name
 
 
 def external_tool(page: str) -> tuple[str, ...] | None:
