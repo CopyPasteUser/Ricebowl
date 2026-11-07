@@ -18,7 +18,7 @@ modify global session settings.
 | Wallpaper / appearances | Original bundled wallpapers, composable panel groups, labels, gaps, tokens, original example rices | Full desktop widgets, rich layout primitives, complete cross-app window decorations |
 | Hardware indicators | Kernel-backed battery; NetworkManager connectivity and WirePlumber sink status on a bounded worker | Device picker, Bluetooth status, event subscriptions and finer status detail |
 | RiceSpice controls | Allowlisted native-menu Wi-Fi/volume/mute; on-demand GTK settings hub with audio sink/source defaults, MPRIS media transport controls, Wi-Fi scan/visible-network selection plus transient WPA-Personal password entry, BlueZ paired-device and adapter controls, power-profile selection/battery state, polkit-gated system timezone selection, lock/confirmed suspend and next-login rice choice | Wi-Fi enterprise/EAP enrollment, VPN/Ethernet editors, fully native display/input/accessibility editors (presently delegated), NTP/clock editing, per-stream routing and physical hardware/AT QA |
-| RicePop notifications | Opt-in native three-row Active/Past tabs in RicePlate, bounded keyboard/pointer selection, on-demand refresh and ID-bound dismissal **only** for active alerts, using Mako as the existing owner | OSD, rich actions, native notification owner and non-Mako backends; physical accessibility QA |
+| RicePop notifications/OSD | Opt-in native three-row Active/Past tabs in RicePlate, bounded keyboard/pointer selection, on-demand refresh and ID-bound dismissal **only** for active alerts, using Mako as the existing owner; transient input-transparent native volume OSD after explicitly selected RicePlate audio actions | External multimedia-key/volume-change OSD triggers, rich actions, native notification owner and non-Mako backends; physical accessibility QA |
 | Session safety | Opt-in session, user polkit agent when installed, optional Mako/swayidle/swaylock, compositor exit cleanup | Complete suspend/resume and hardware recovery acceptance |
 | Creator authoring | Schema-v1–v6 validation, offline private draft edits, reusable panel groups/labels/gaps/dividers, component catalog and API inventory, nested native render/capture and visual comparisons | Broad desktop composition, complete action/state bindings, high-fidelity mockup conversion |
 | RicePack exchange | Deterministic v2 bundled-asset archives or v3 with one SHA-256-addressed private PNG wallpaper; private import/re-export attribution, v1/v2 read compatibility, next-login staging and one-level rollback | Portable icon/font/multi-asset sets, multi-component live apply and transactional active-session rollback |
@@ -54,7 +54,11 @@ non-clickable; the separate validated native-menu actions perform changes.
   native menu queries active and past notifications only when opened/refreshed,
   displays history read-only and discards both sets of private messages when
   closed. Neither the menu nor CLI owns the notification bus name or replays
-  third-party actions.
+  third-party actions. Independently, RicePlate owns a single transient
+  layer-shell volume OSD: it appears only after its own explicit volume/mute
+  menu actions, uses actual WirePlumber readback and an 1.8-second event-loop
+  deadline, and has an empty pointer/touch input region. Hardware multimedia
+  keys and external volume changes do not yet trigger this OSD.
 - **Creator** is optional, on demand and offline. It never needs a model at
   runtime and must require an explicit user choice before an active desktop
   change. Current stage/rollback affects the *next* opt-in login only.
@@ -77,6 +81,7 @@ ricebowl de start --nested --panel native --recipe quick-controls
 # Open menu → Session → Notifications. Left/Right switches Active/Past;
 # Enter/Delete dismisses a selected ACTIVE item only. R refreshes, Esc returns.
 # A running Mako host is required.
+# Select Session → Volume +5%, Volume -5% or Mute for the native RicePop OSD.
 
 # Only inside a Wayland session with the Mako notification host:
 ricebowl de notifications --json
@@ -121,9 +126,10 @@ The next substantial release gates, in recommended order:
 2. Complete RiceSpice's remaining delegated system editors as native pages,
    then verify device selectors, permission/error recovery and suspend/lock on
    actual hardware (an on-demand settings hub already exists).
-3. RicePop OSD, richer notification presentation and accessibility semantics
-   without a duplicate owner or private-message replay; a read-only history
-   tab is available already.
+3. Hook the native RicePop volume OSD into hardware multimedia-key/external
+   volume events; enrich notification presentation and accessibility semantics
+   without a duplicate owner or private-message replay. The on-demand
+   Active/Past view and explicit RicePlate-action OSD are implemented.
 4. Complete safe RicePacks with licensed asset manifests, broader composition,
    reproducible visual/functional QA and **explicit transactional live
    apply/restore** across all affected components.
