@@ -94,7 +94,7 @@ class SettingsGuiTests(unittest.TestCase):
         if not Gtk.init_check([])[0]:
             self.skipTest("GTK display is unavailable")
         player = MediaPlayer("org.mpris.MediaPlayer2.browser", "browser", "Track", "Artist",
-                             "Playing", True, False, True)
+                             "Playing", True, True, False)
         inventory = {"outputs": [{"name": "out", "description": "Speakers", "default": True}],
                      "inputs": []}
         with mock.patch("macrice.de.settings_backend.wifi_snapshot", return_value={
