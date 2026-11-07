@@ -17,7 +17,7 @@ modify global session settings.
 | Desktop shortcuts | Schema-v5 native shortcut surfaces, drag repositioning, owner-private **per-named-output positions**, independent multi-output reflow, hotplug, Tab/Shift-Tab | Cross-monitor drag semantics, output identity without stable names and mixed-DPI/device tests |
 | Wallpaper / appearances | Original bundled wallpapers, composable panel groups, labels, gaps, tokens, original example rices | Full desktop widgets, rich layout primitives, complete cross-app window decorations |
 | Hardware indicators | Kernel-backed battery; NetworkManager connectivity and WirePlumber sink status on a bounded worker | Device picker, Bluetooth status, event subscriptions and finer status detail |
-| RiceSpice controls | Allowlisted native-menu Wi-Fi/volume/mute; on-demand GTK settings hub with real audio sink/source defaults, Wi-Fi radio, BlueZ paired-device and adapter controls, explicit lock/confirmed logind suspend and next-login rice choice | Fully native display/input/accessibility/timezone editors (presently delegated to installed system tools), per-stream routing, physical hardware/AT QA |
+| RiceSpice controls | Allowlisted native-menu Wi-Fi/volume/mute; on-demand GTK settings hub with real audio sink/source defaults, Wi-Fi radio, BlueZ paired-device and adapter controls, power-profile selection and read-only battery state, explicit lock/confirmed logind suspend and next-login rice choice | Fully native display/input/accessibility/timezone editors (presently delegated to installed system tools), per-stream routing, physical hardware/AT QA |
 | RicePop notifications | Opt-in native three-row Active/Past tabs in RicePlate, bounded keyboard/pointer selection, on-demand refresh and ID-bound dismissal **only** for active alerts, using Mako as the existing owner | OSD, rich actions, native notification owner and non-Mako backends; physical accessibility QA |
 | Session safety | Opt-in session, user polkit agent when installed, optional Mako/swayidle/swaylock, compositor exit cleanup | Complete suspend/resume and hardware recovery acceptance |
 | Creator authoring | Schema-v1–v5 validation, offline private draft edits, component catalog and API inventory, nested native render/capture and visual comparisons | Broad desktop composition, complete action/state bindings, high-fidelity mockup conversion |
@@ -36,7 +36,9 @@ non-clickable; the separate validated native-menu actions perform changes.
 - **RiceSpice** delegates ordinary controls to NetworkManager and WirePlumber
   through fixed arguments. Its on-demand GTK3 settings window uses the existing
   PulseAudio-compatible server via `pactl` for default sinks/sources and BlueZ
-  for Bluetooth, with explicit user actions and bounded workers. Display,
+  for Bluetooth, plus the optional `powerprofilesctl` service for energy
+  profiles and read-only kernel battery state, with explicit user actions and
+  bounded workers. Missing power-profile services are shown as unavailable. Display,
   input, timezone and accessibility pages currently hand off to installed
   system editors, reporting absent editors. No custom recipe commands or
   privileged daemon.

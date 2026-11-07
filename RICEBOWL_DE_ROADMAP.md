@@ -270,6 +270,12 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   system settings tools, with honest unavailable state. No privileged daemon,
   raw command injection, unconfirmed live rice apply or duplicate system owner.
   Fully native editors and actual hardware/keyboard/AT acceptance remain open.
+- [x] Extend RiceSpice's **on-demand power page** with the existing bounded
+  power-profiles-daemon adapter and read-only kernel battery inventory: show
+  only reported profiles, require an explicit selection with a stale-state
+  check, verify the changed profile and expose an honest unavailable state.
+  The existing lock/confirmed suspend controls remain separate. No daemon or
+  privileged helper is added; real battery, polkit and sleep/wake QA remains open.
 - [x] Expose **native read-only Mako history** in RicePlate's opt-in RicePop
   view as a second Active/Past tab with pointer and Left/Right keyboard access,
   bounded three-row navigation, on-demand refresh and explicit empty/error

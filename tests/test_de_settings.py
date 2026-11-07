@@ -84,6 +84,47 @@ class RiceSpiceSettingsTests(unittest.TestCase):
                 backend.power_action("reboot")
             run.assert_not_called()
 
+    def test_power_snapshot_shows_real_battery_and_missing_profile_service(self):
+        from macrice.hardware_status import BatteryState
+
+        with mock.patch("macrice.hardware_status.read_power_profiles",
+                        return_value=(None, ())), \
+                mock.patch("macrice.hardware_status.read_battery",
+                           return_value=BatteryState(71, True, "Charging")):
+            self.assertEqual(backend.power_snapshot(), {
+                "current": None, "supported": (),
+                "battery": {"percent": 71, "charging": True, "label": "Charging"},
+            })
+        with mock.patch("macrice.hardware_status.read_power_profiles",
+                        return_value=("balanced", ("balanced",))), \
+                mock.patch("macrice.hardware_status.read_battery", return_value=None):
+            self.assertIsNone(backend.power_snapshot()["battery"])
+
+    def test_power_profile_change_requires_fresh_supported_state_and_readback(self):
+        with mock.patch("macrice.hardware_status.read_power_profiles",
+                        side_effect=[("balanced", ("balanced", "power-saver")),
+                                     ("power-saver", ("balanced", "power-saver"))]), \
+                mock.patch("macrice.hardware_status.set_power_profile") as change:
+            self.assertEqual(backend.set_power_profile("power-saver", expected="balanced"),
+                             "power-saver")
+            change.assert_called_once_with("power-saver")
+        with mock.patch("macrice.hardware_status.read_power_profiles",
+                        return_value=("balanced", ("balanced", "power-saver"))), \
+                mock.patch("macrice.hardware_status.set_power_profile") as change:
+            with self.assertRaisesRegex(backend.SettingsError, "changed"):
+                backend.set_power_profile("power-saver", expected="performance")
+            with self.assertRaisesRegex(backend.SettingsError, "not supported"):
+                backend.set_power_profile("performance", expected="balanced")
+            with self.assertRaises(backend.SettingsError):
+                backend.set_power_profile(1, expected="balanced")
+            change.assert_not_called()
+        with mock.patch("macrice.hardware_status.read_power_profiles",
+                        side_effect=[("balanced", ("balanced", "power-saver")),
+                                     ("balanced", ("balanced", "power-saver"))]), \
+                mock.patch("macrice.hardware_status.set_power_profile"):
+            with self.assertRaisesRegex(backend.SettingsError, "verified"):
+                backend.set_power_profile("power-saver", expected="balanced")
+
     def test_native_and_fallback_settings_actions_use_fixed_command(self):
         original = json.loads(EXAMPLE.read_text())
         parsed = recipes.parse(json.dumps(original).encode())
