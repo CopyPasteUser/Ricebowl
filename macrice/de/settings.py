@@ -464,7 +464,8 @@ class RiceSpiceWindow:
                                                        css="ricespice-note"), False, False, 0)
                 choices.show_all()
 
-            search.connect("search-changed", update)
+            # Local filtering is immediate; SearchEntry's search-changed may be delayed.
+            search.connect("changed", update)
             search.connect("activate", lambda _entry: choose(visible[0]) if visible else None)
             update()
             self.content.show_all()
