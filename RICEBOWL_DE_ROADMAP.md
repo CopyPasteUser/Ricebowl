@@ -253,8 +253,9 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   degrade safely when D-Bus is absent. The fourth slot becomes an actual +N
   overflow selector when needed: a bounded output-local layer-shell popup
   offers mouse selection, keyboard Up/Down, paging, Enter and Escape, without
-  a helper daemon. DBusMenu protocol submenus and global activation coordinates
-  still need a native implementation; no full-tray/AT signoff is claimed.
+  a helper daemon. Mouse action coordinates are mapped from output-local
+  surfaces to compositor-reported global output geometry. DBusMenu protocol
+  submenus still need a native implementation; no full-tray/AT signoff is claimed.
   Requires Rust 1.88 and libdbus-1 for the host library.
 - [ ] Expose reusable, composable shell primitives and stable interaction/state
   bindings so substantially different rice layouts share core behavior.

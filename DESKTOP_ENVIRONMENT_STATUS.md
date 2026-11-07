@@ -131,8 +131,7 @@ signoff, a performance benchmark or proof of historical-OS visual fidelity.
 
 The next substantial release gates, in recommended order:
 
-1. Finish native SNI item-owned DBusMenu presentation, output-relative
-   activation coordinates and first-class panel tray keyboard/accessibility
+1. Finish native SNI item-owned DBusMenu presentation and first-class panel tray keyboard/accessibility
    focus; a live host, direct item actions and overflow popup now exist.
 2. Complete RiceSpice's remaining delegated system editors as native pages,
    then verify device selectors, permission/error recovery and suspend/lock on

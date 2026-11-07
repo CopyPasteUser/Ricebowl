@@ -1416,22 +1416,41 @@ impl RicePlate {
         true
     }
 
-    fn activate_tray_item(&mut self, slot: usize, button: u32) {
+    fn tray_screen_position(&self, surface: &wl_surface::WlSurface,
+                            position: (f64, f64)) -> (i32, i32) {
+        let popup = self.tray_popup_layer.as_ref().is_some_and(|layer|
+            layer.surface.wl_surface() == surface)
+            || self.tray_popup_mirrors.iter().any(|layer|
+                layer.surface.wl_surface() == surface);
+        let output = self.mirrors.iter().find(|panel|
+            panel.surface.wl_surface() == surface).map(|panel| &panel.output)
+            .or_else(|| self.tray_popup_mirrors.iter().find(|layer|
+                layer.surface.wl_surface() == surface).and_then(|layer| layer.output.as_ref()))
+            .or(self.primary_output.as_ref());
+        let Some(output) = output else { return (0, 0); };
+        let Some(info) = self.outputs.info(output) else { return (0, 0); };
+        let Some((output_width, output_height)) = self.logical_output_size(output) else {
+            return (0, 0);
+        };
+        tray::screen_coords(info.logical_position.unwrap_or((0, 0)),
+                            (output_width, output_height), self.recipe.height,
+                            self.recipe.top, popup, position)
+    }
+
+    fn activate_tray_item(&mut self, slot: usize, button: u32, position: (i32, i32)) {
         if self.tray_state.overflow_count() > 0 &&
             slot == tray::VISIBLE_ITEMS - 1 { return; }
         if self.tray_state.item_at(slot).is_none() { return; }
-        self.activate_tray_entry(slot, button);
+        self.activate_tray_entry(slot, button, position);
     }
 
-    fn activate_tray_entry(&mut self, index: usize, button: u32) {
+    fn activate_tray_entry(&mut self, index: usize, button: u32, position: (i32, i32)) {
         let Some(entry) = self.tray_state.entries.get(index) else { return };
         let Some(host) = self.tray_host.as_mut() else { return };
-        // The compositor owns actual global screen geometry; avoid
-        // inventing coordinates in a relative surface event.
         let result = if button == BTN_RIGHT || entry.is_menu {
-            host.item_context_menu(&entry.bus_name, 0, 0)
+            host.item_context_menu(&entry.bus_name, position.0, position.1)
         } else {
-            host.item_activate(&entry.bus_name, 0, 0)
+            host.item_activate(&entry.bus_name, position.0, position.1)
         };
         if let Err(error) = result {
             eprintln!("RicePlate: SNI item action failed: {error}");
@@ -2692,7 +2711,10 @@ impl KeyboardHandler for RicePlate {
                 Keysym::Next => self.tray_popup_state.page(1, count),
                 Keysym::Return | Keysym::KP_Enter | Keysym::space => {
                     let index = self.tray_popup_state.selected;
-                    self.activate_tray_entry(index, BTN_LEFT);
+                    let position = self.active_tray_popup.as_ref().map(|surface|
+                        self.tray_screen_position(surface, (44.0, 60.0)))
+                        .unwrap_or((0, 0));
+                    self.activate_tray_entry(index, BTN_LEFT, position);
                     self.set_tray_popup_visible(false, qh);
                     return;
                 }
@@ -2924,7 +2946,8 @@ impl PointerHandler for RicePlate {
                     let count = self.tray_state.entries.len();
                     match self.tray_popup_state.hit(event.position.0, event.position.1, count) {
                         Some(TrayHit::Item(index)) => {
-                            self.activate_tray_entry(index, button);
+                            let coords = self.tray_screen_position(&event.surface, event.position);
+                            self.activate_tray_entry(index, button, coords);
                             self.set_tray_popup_visible(false, qh);
                         }
                         Some(TrayHit::Previous) => {
@@ -3080,7 +3103,8 @@ impl PointerHandler for RicePlate {
                                 self.tray_state.overflow_count() > 0 {
                                 self.toggle_tray_popup_for_panel(mirror_index, qh);
                             } else {
-                                self.activate_tray_item(slot, button);
+                                let coords = self.tray_screen_position(&event.surface, event.position);
+                                self.activate_tray_item(slot, button, coords);
                             }
                         }
                         _ if button == BTN_RIGHT => {},

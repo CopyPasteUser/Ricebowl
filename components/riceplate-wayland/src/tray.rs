@@ -14,6 +14,19 @@ pub const POPUP_ROWS: usize = 5;
 pub const POPUP_ROW_TOP: u32 = 44;
 pub const POPUP_ROW_HEIGHT: u32 = 30;
 
+pub fn screen_coords(output_origin: (i32, i32), output_size: (u32, u32),
+                     panel_height: u32, top_panel: bool, popup: bool,
+                     local: (f64, f64)) -> (i32, i32) {
+    let left = if popup { output_size.0.saturating_sub(POPUP_WIDTH + 8) } else { 0 };
+    let top = if popup {
+        if top_panel { panel_height + 8 }
+        else { output_size.1.saturating_sub(panel_height + 8 + POPUP_HEIGHT) }
+    } else if top_panel { 0 }
+    else { output_size.1.saturating_sub(panel_height) };
+    (output_origin.0.saturating_add(left as i32).saturating_add(local.0 as i32),
+     output_origin.1.saturating_add(top as i32).saturating_add(local.1 as i32))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PopupHit {
     Item(usize),
@@ -199,6 +212,16 @@ mod tests {
         assert!((137..=139).contains(&canvas[0]));
         assert!((156..=158).contains(&canvas[1]));
         assert!((227..=229).contains(&canvas[2]));
+    }
+
+    #[test]
+    fn popup_coordinates_are_output_local_even_on_second_monitor() {
+        assert_eq!(screen_coords((1920, 0), (1920, 1080), 36, false, false,
+                                 (50.0, 18.0)), (1970, 1062));
+        assert_eq!(screen_coords((1920, 0), (1920, 1080), 36, false, true,
+                                 (10.0, 20.0)), (3554, 816));
+        assert_eq!(screen_coords((-1280, 0), (1280, 800), 44, true, true,
+                                 (10.0, 20.0)), (-286, 72));
     }
 
     #[test]
