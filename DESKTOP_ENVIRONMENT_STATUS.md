@@ -81,7 +81,7 @@ ricebowl de start --nested --panel native --recipe quick-controls
 # Open menu → Session → Notifications. Left/Right switches Active/Past;
 # Enter/Delete dismisses a selected ACTIVE item only. R refreshes, Esc returns.
 # A running Mako host is required.
-# Select Session → Volume +5%, Volume -5% or Mute for the native RicePop OSD.
+# Select Quick actions → Volume +5%, Volume -5% or Mute for the native RicePop OSD.
 
 # Only inside a Wayland session with the Mako notification host:
 ricebowl de notifications --json
