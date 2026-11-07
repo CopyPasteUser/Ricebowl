@@ -297,6 +297,13 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   independent failure states so one missing service does not suppress the
   other. No new polling process, player owner, persistence or recipe command.
   Real player/browser compatibility and keyboard/AT hardware QA remain open.
+- [x] Replace RiceSpice's timezone-only external handoff with a **native
+  searchable timezone selector** using the installed `timedatectl`/timedated
+  service. Read only genuine system-supported names; changes require a selected
+  listed timezone, stale-state check, polkit authorization and post-action
+  readback. Keep an installed external date-settings editor as optional
+  fallback. Clock/NTP configuration, cross-platform time services, real
+  authorization prompts and hardware QA remain open.
 - [x] Expose **native read-only Mako history** in RicePlate's opt-in RicePop
   view as a second Active/Past tab with pointer and Left/Right keyboard access,
   bounded three-row navigation, on-demand refresh and explicit empty/error

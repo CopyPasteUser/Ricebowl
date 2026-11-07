@@ -183,6 +183,43 @@ class RiceSpiceSettingsTests(unittest.TestCase):
             with self.assertRaisesRegex(backend.SettingsError, "verified"):
                 backend.set_power_profile("power-saver", expected="balanced")
 
+    def test_timezone_inventory_and_guarded_polkit_change(self):
+        rows = "Europe/Berlin\nUTC\nAmerica/New_York"
+        with mock.patch.object(backend, "_timedatectl", side_effect=["UTC", rows]) as call:
+            self.assertEqual(backend.timezone_snapshot(), {
+                "current": "UTC", "zones": ("America/New_York", "Europe/Berlin", "UTC")})
+            self.assertEqual(call.call_args_list, [
+                mock.call("show", "-p", "Timezone", "--value"),
+                mock.call("list-timezones", "--no-pager")])
+        with mock.patch.object(backend, "_timedatectl", side_effect=["UTC", rows,
+                                                                      "", "Europe/Berlin"]) as call:
+            self.assertEqual(backend.set_timezone("Europe/Berlin", expected="UTC"),
+                             "Europe/Berlin")
+            self.assertEqual(call.call_args_list[2], mock.call("set-timezone", "Europe/Berlin"))
+
+        with mock.patch.object(backend, "_timedatectl") as run:
+            for name in ("../../etc/passwd", "UTC; whoami", "No Such Zone", "x\x00", None):
+                if name == "No Such Zone":
+                    continue  # Valid syntax but not in the system inventory.
+                with self.assertRaises(backend.SettingsError):
+                    backend.set_timezone(name, expected="UTC")
+            run.assert_not_called()
+        with mock.patch.object(backend, "timezone_snapshot", return_value={
+                    "current": "Europe/Berlin", "zones": ("Europe/Berlin", "UTC")}), \
+                mock.patch.object(backend, "_timedatectl") as run:
+            with self.assertRaisesRegex(backend.SettingsError, "changed"):
+                backend.set_timezone("UTC", expected="America/New_York")
+            with self.assertRaisesRegex(backend.SettingsError, "system list"):
+                backend.set_timezone("America/New_York", expected="Europe/Berlin")
+            run.assert_not_called()
+        with mock.patch.object(backend, "_timedatectl", side_effect=["UTC", "UTC\nEurope/Berlin",
+                                                                      "", "UTC"]):
+            with self.assertRaisesRegex(backend.SettingsError, "verification"):
+                backend.set_timezone("Europe/Berlin", expected="UTC")
+        with mock.patch.object(backend, "_timedatectl", side_effect=["UTC", "UTC\n.."]):
+            with self.assertRaisesRegex(backend.SettingsError, "invalid"):
+                backend.timezone_snapshot()
+
     def test_native_and_fallback_settings_actions_use_fixed_command(self):
         original = json.loads(EXAMPLE.read_text())
         parsed = recipes.parse(json.dumps(original).encode())
