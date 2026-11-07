@@ -622,10 +622,14 @@ pub fn layout(style: &PanelStyle, screen_width: u32, tasks: usize) -> Vec<Placed
         Some((threshold, compact)) if screen_width <= *threshold => compact,
         _ => &style.sections,
     };
+    // A tray is an interactive region. Do not reserve fake hit targets on
+    // narrow displays where it would eliminate the only task slot.
+    let tray_enabled = screen_width >= style.widths.iter().sum::<u32>()
+        .saturating_add(crate::tray::WIDTH + 8);
     let fixed_width: u32 = sections
         .iter()
         .flatten()
-        .filter(|&&w| w != Widget::Tasks)
+        .filter(|&&w| w != Widget::Tasks && (w != Widget::Tray || tray_enabled))
         .map(|&w| width_for(style, w, 0))
         .sum();
     let optional = [Widget::Battery, Widget::Audio, Widget::Network];
@@ -654,6 +658,7 @@ pub fn layout(style: &PanelStyle, screen_width: u32, tasks: usize) -> Vec<Placed
         .min(MAX_TRACKED_TASKS)
         .min((screen_width.saturating_sub(effective_fixed + 8) / style.widths[1]) as usize);
     let is_visible = |widget: Widget| -> bool {
+        if widget == Widget::Tray { return tray_enabled; }
         if widget == Widget::Clock { return show_clock; }
         if let Some(index) = optional.iter().position(|&candidate| candidate == widget) {
             return show_status[index];
@@ -825,6 +830,7 @@ mod tests {
         assert!(layout(&b, 180, 20)
             .iter()
             .all(|item| item.widget != Widget::Clock));
+        assert!(layout(&b, 180, 20).iter().all(|item| item.widget != Widget::Tray));
     }
 
     #[test]
@@ -944,7 +950,8 @@ mod tests {
         let statuses: Vec<_> = overflow.iter().filter(|item| matches!(item.widget,
             Widget::Battery | Widget::Audio | Widget::Network)).collect();
         assert_eq!(statuses.len(), 2);
-        assert_eq!(statuses[0].widget, Widget::Battery);
+        assert_eq!(statuses.iter().map(|item| item.widget).collect::<Vec<_>>(),
+                   vec![Widget::Audio, Widget::Battery]);
         assert_eq!(task_view(&style, 800, 20, 0).unwrap().slots, 2);
     }
 

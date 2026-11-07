@@ -39,6 +39,7 @@ non-clickable; the separate validated native-menu actions perform changes.
   direct item Activate/ContextMenu calls. Missing pixmaps use an initial-letter
   placeholder. Four slots are reserved; when needed, the fourth opens an
   output-local overflow popup with keyboard/pointer paging and activation.
+  Very narrow panel layouts suppress the tray rather than cover task controls.
   Rich DBusMenu rendering is not yet implemented. Native
   tray needs Rust 1.88 and `libdbus-1` at build/run time; a failed bus
   connection leaves the rest of the panel usable.

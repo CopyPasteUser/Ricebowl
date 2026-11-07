@@ -53,8 +53,11 @@ impl Popup {
 
     pub fn page(&mut self, delta: isize, count: usize) {
         if count == 0 { return; }
-        let last = count.saturating_sub(POPUP_ROWS);
-        self.first = self.first.saturating_add_signed(delta * POPUP_ROWS as isize).min(last);
+        if (delta > 0 && self.first + POPUP_ROWS >= count) ||
+            (delta < 0 && self.first == 0) { return; }
+        let last = count - 1;
+        self.first = self.first.saturating_add_signed(delta.saturating_mul(POPUP_ROWS as isize))
+            .min(last);
         self.selected = self.first;
     }
 
@@ -226,7 +229,7 @@ mod tests {
         assert_eq!(popup.first, 8);
         assert_eq!(popup.hit(18.0, 44.0, 17), Some(PopupHit::Item(8)));
         popup.page(100, 17);
-        assert_eq!(popup.first, 12);
+        assert_eq!(popup.first, 16);
         popup.select(-99, 17);
         assert_eq!(popup.selected, 0);
         assert_eq!(popup.first, 0);
@@ -235,5 +238,9 @@ mod tests {
         assert_eq!(popup.hit(260.0, 8.0, 17), Some(PopupHit::Close));
         popup.close();
         assert!(!popup.visible);
+
+        popup.open(4);
+        popup.page(1, 4);
+        assert_eq!(popup.first, 3, "no phantom next page past a short final page");
     }
 }
