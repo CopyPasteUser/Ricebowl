@@ -18,6 +18,7 @@ mod system_status;
 mod task_groups;
 mod task_navigation;
 mod tray;
+use tray::PopupHit as TrayHit;
 use native_menu::{Hit as MenuHit, MenuState};
 use power::PowerStatus;
 use ricepop::{Request as NotificationRequest, State as NotificationState};
@@ -271,6 +272,24 @@ fn main() -> Result<(), Box<dyn Error>> {
         && std::env::var("RICEBOWL_DE_NESTED").as_deref() == Ok("1")
         && std::env::var("RICEBOWL_DE_CALENDAR_OUTPUT").as_deref() == Ok("secondary");
 
+    let tray_popup_layer = use_tray.then(|| {
+        let surface = layer_shell.create_layer_surface(
+            &qh, compositor.create_surface(&qh), Layer::Top,
+            Some("riceplate-native-tray-overflow"), None,
+        );
+        surface.set_anchor((if recipe.top { Anchor::TOP } else { Anchor::BOTTOM }) | Anchor::RIGHT);
+        surface.set_size(tray::POPUP_WIDTH, tray::POPUP_HEIGHT);
+        surface.set_margin(
+            if recipe.top { recipe.height as i32 + 8 } else { 0 },
+            MAX_WIDTH as i32,
+            if recipe.top { 0 } else { recipe.height as i32 + 8 }, 0,
+        );
+        surface.set_exclusive_zone(-1);
+        surface.set_keyboard_interactivity(KeyboardInteractivity::None);
+        surface.commit();
+        TrayPopupLayer { surface, pool: None, configured: false, output: None }
+    });
+
     // A real StatusNotifier host/watcher is only connected when a native
     // recipe requests a tray; Waybar continues owning its own fallback tray.
     let tray_host = if use_tray {
@@ -319,6 +338,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         system_status: SystemStatus::default(),
         tray_host,
         tray_state: tray::State::default(),
+        tray_popup_layer,
+        tray_popup_mirrors: Vec::new(),
+        active_tray_popup: None,
+        tray_popup_state: tray::Popup::default(),
+        tray_popup_focused: false,
         control_sender: None,
         pointer: None,
         keyboard: None,
@@ -502,6 +526,13 @@ struct OsdLayer {
     configured: bool,
 }
 
+struct TrayPopupLayer {
+    surface: LayerSurface,
+    pool: Option<SlotPool>,
+    configured: bool,
+    output: Option<wl_output::WlOutput>,
+}
+
 fn osd_top_margin(recipe: &PanelStyle) -> i32 {
     if recipe.top { recipe.height as i32 + 16 } else { 16 }
 }
@@ -549,6 +580,11 @@ struct RicePlate {
     system_status: SystemStatus,
     tray_host: Option<status_notifier::Host>,
     tray_state: tray::State,
+    tray_popup_layer: Option<TrayPopupLayer>,
+    tray_popup_mirrors: Vec<TrayPopupLayer>,
+    active_tray_popup: Option<wl_surface::WlSurface>,
+    tray_popup_state: tray::Popup,
+    tray_popup_focused: bool,
     control_sender: Option<mpsc::SyncSender<ControlAction>>,
     pointer: Option<wl_pointer::WlPointer>,
     keyboard: Option<wl_keyboard::WlKeyboard>,
@@ -817,6 +853,41 @@ impl RicePlate {
                 self.preview_secondary_calendar = false;
             }
         }
+        self.tray_popup_mirrors.retain(|popup|
+            popup.output.as_ref().is_some_and(|output| outputs.contains(output)));
+        if self.tray_popup_layer.is_some() {
+            for output in &outputs {
+                if self.tray_popup_mirrors.iter().any(|popup|
+                    popup.output.as_ref() == Some(output)) { continue; }
+                let surface = self.layer_shell.create_layer_surface(
+                    qh, self.compositor.create_surface(qh), Layer::Top,
+                    Some("riceplate-output-tray-overflow"), Some(output),
+                );
+                surface.set_anchor((if self.recipe.top { Anchor::TOP } else { Anchor::BOTTOM })
+                    | Anchor::RIGHT);
+                surface.set_size(tray::POPUP_WIDTH, tray::POPUP_HEIGHT);
+                surface.set_margin(
+                    if self.recipe.top { self.recipe.height as i32 + 8 } else { 0 },
+                    MAX_WIDTH as i32,
+                    if self.recipe.top { 0 } else { self.recipe.height as i32 + 8 }, 0,
+                );
+                surface.set_exclusive_zone(-1);
+                surface.set_keyboard_interactivity(KeyboardInteractivity::None);
+                surface.commit();
+                self.tray_popup_mirrors.push(TrayPopupLayer {
+                    surface, pool: None, configured: false, output: Some(output.clone()),
+                });
+            }
+        }
+        if self.active_tray_popup.as_ref().is_some_and(|surface|
+            self.tray_popup_layer.as_ref().is_none_or(|root|
+                root.surface.wl_surface() != surface)
+            && !self.tray_popup_mirrors.iter().any(|popup|
+                popup.surface.wl_surface() == surface)) {
+            self.active_tray_popup = None;
+            self.tray_popup_state.close();
+            self.tray_popup_focused = false;
+        }
         if self.focused_panel.as_ref().is_some_and(|surface|
             self.panel_geometry(surface).is_none()) {
             self.focused_panel = None;
@@ -889,6 +960,7 @@ impl RicePlate {
         if !self.menu_layer.iter().chain(self.menu_mirrors.iter()).any(|menu|
             menu.surface.wl_surface() == &surface) { return; }
         if self.calendar_state.visible { self.set_calendar_visible(false, qh); }
+        if self.tray_popup_state.visible { self.set_tray_popup_visible(false, qh); }
         self.menu_state.open();
         self.notification_state.close();
         self.menu_focused = false;
@@ -1037,6 +1109,7 @@ impl RicePlate {
         if !self.calendar_layer.iter().chain(self.calendar_mirrors.iter()).any(|calendar|
             calendar.surface.wl_surface() == &surface) { return; }
         if self.menu_state.visible { self.set_menu_visible(false, qh); }
+        if self.tray_popup_state.visible { self.set_tray_popup_visible(false, qh); }
         self.calendar_state.open(Local::now().date_naive());
         self.calendar_focused = false;
         self.active_calendar = Some(surface.clone());
@@ -1323,19 +1396,35 @@ impl RicePlate {
             eprintln!("RicePlate: SNI host disconnected: {error}");
             self.tray_host = None;
             self.tray_state = tray::State::default();
+            self.set_tray_popup_visible(false, qh);
             self.request_redraw(qh);
             return false;
         }
         let updated = tray::State::from_items(host.get_all_items());
         if self.tray_state != updated {
             self.tray_state = updated;
+            if self.tray_popup_state.visible {
+                if self.tray_state.overflow_count() == 0 {
+                    self.set_tray_popup_visible(false, qh);
+                } else {
+                    self.tray_popup_state.select(0, self.tray_state.entries.len());
+                    self.redraw_tray_popup();
+                }
+            }
             self.request_redraw(qh);
         }
         true
     }
 
     fn activate_tray_item(&mut self, slot: usize, button: u32) {
-        let Some(entry) = self.tray_state.item_at(slot) else { return };
+        if self.tray_state.overflow_count() > 0 &&
+            slot == tray::VISIBLE_ITEMS - 1 { return; }
+        if self.tray_state.item_at(slot).is_none() { return; }
+        self.activate_tray_entry(slot, button);
+    }
+
+    fn activate_tray_entry(&mut self, index: usize, button: u32) {
+        let Some(entry) = self.tray_state.entries.get(index) else { return };
         let Some(host) = self.tray_host.as_mut() else { return };
         // The compositor owns actual global screen geometry; avoid
         // inventing coordinates in a relative surface event.
@@ -1347,6 +1436,110 @@ impl RicePlate {
         if let Err(error) = result {
             eprintln!("RicePlate: SNI item action failed: {error}");
         }
+    }
+
+    fn set_tray_popup_visible(&mut self, visible: bool, qh: &QueueHandle<Self>) {
+        if !visible {
+            self.tray_popup_state.close();
+            self.tray_popup_focused = false;
+            self.active_tray_popup = None;
+            for layer in self.tray_popup_layer.iter().chain(self.tray_popup_mirrors.iter()) {
+                layer.surface.set_keyboard_interactivity(KeyboardInteractivity::None);
+                layer.surface.set_margin(
+                    if self.recipe.top { self.recipe.height as i32 + 8 } else { 0 },
+                    MAX_WIDTH as i32,
+                    if self.recipe.top { 0 } else { self.recipe.height as i32 + 8 }, 0,
+                );
+                layer.surface.commit();
+            }
+            return;
+        }
+        if let Some(surface) = self.tray_popup_layer.as_ref()
+            .map(|layer| layer.surface.wl_surface().clone()) {
+            self.show_tray_popup_at(surface, qh);
+        }
+    }
+
+    fn show_tray_popup_at(&mut self, surface: wl_surface::WlSurface,
+                          qh: &QueueHandle<Self>) {
+        if self.tray_state.overflow_count() == 0 || !self.tray_popup_layer.iter()
+            .chain(self.tray_popup_mirrors.iter())
+            .any(|layer| layer.surface.wl_surface() == &surface) { return; }
+        if self.menu_state.visible { self.set_menu_visible(false, qh); }
+        if self.calendar_state.visible { self.set_calendar_visible(false, qh); }
+        self.tray_popup_state.open(self.tray_state.entries.len());
+        self.tray_popup_focused = false;
+        self.active_tray_popup = Some(surface.clone());
+        for layer in self.tray_popup_layer.iter().chain(self.tray_popup_mirrors.iter()) {
+            let active = layer.surface.wl_surface() == &surface;
+            layer.surface.set_keyboard_interactivity(if active {
+                KeyboardInteractivity::OnDemand
+            } else { KeyboardInteractivity::None });
+            layer.surface.set_margin(
+                if self.recipe.top { self.recipe.height as i32 + 8 } else { 0 },
+                if active { 8 } else { MAX_WIDTH as i32 },
+                if self.recipe.top { 0 } else { self.recipe.height as i32 + 8 }, 0,
+            );
+            layer.surface.commit();
+        }
+        self.redraw_tray_popup();
+    }
+
+    fn toggle_tray_popup_for_panel(&mut self, mirror: Option<usize>,
+                                    qh: &QueueHandle<Self>) {
+        let target = match mirror {
+            Some(index) => self.mirrors.get(index).and_then(|panel|
+                self.tray_popup_mirrors.iter().find(|popup|
+                    popup.output.as_ref() == Some(&panel.output)))
+                .map(|popup| popup.surface.wl_surface().clone()),
+            None => self.tray_popup_layer.as_ref()
+                .map(|popup| popup.surface.wl_surface().clone()),
+        };
+        let Some(target) = target else { return; };
+        if self.tray_popup_state.visible && self.active_tray_popup.as_ref() == Some(&target) {
+            self.set_tray_popup_visible(false, qh);
+        } else {
+            self.show_tray_popup_at(target, qh);
+        }
+    }
+
+    fn redraw_tray_popup(&mut self) {
+        let Some(active) = self.active_tray_popup.as_ref() else { return; };
+        let layer = self.tray_popup_layer.as_mut().filter(|layer|
+            layer.surface.wl_surface() == active)
+            .or_else(|| self.tray_popup_mirrors.iter_mut().find(|layer|
+                layer.surface.wl_surface() == active));
+        let Some(layer) = layer else { return; };
+        if !layer.configured || !self.tray_popup_state.visible { return; }
+        if layer.pool.is_none() {
+            let bytes = (tray::POPUP_WIDTH * tray::POPUP_HEIGHT * 4 * 3) as usize;
+            match SlotPool::new(bytes, &self.shm) {
+                Ok(pool) => layer.pool = Some(pool),
+                Err(error) => {
+                    eprintln!("RicePlate: tray popup allocation failed: {error}");
+                    return;
+                }
+            }
+        }
+        let Some(pool) = layer.pool.as_mut() else { return; };
+        let (buffer, canvas) = match pool.create_buffer(
+            tray::POPUP_WIDTH as i32, tray::POPUP_HEIGHT as i32,
+            (tray::POPUP_WIDTH * 4) as i32, wl_shm::Format::Argb8888,
+        ) {
+            Ok(result) => result,
+            Err(error) => {
+                eprintln!("RicePlate: tray popup buffer unavailable: {error}");
+                return;
+            }
+        };
+        paint_tray_popup(canvas, &self.recipe, &self.tray_state, &self.tray_popup_state);
+        let surface = layer.surface.wl_surface();
+        surface.damage_buffer(0, 0, tray::POPUP_WIDTH as i32, tray::POPUP_HEIGHT as i32);
+        if let Err(error) = buffer.attach_to(surface) {
+            eprintln!("RicePlate: tray popup attach failed: {error}");
+            return;
+        }
+        layer.surface.commit();
     }
 
     fn request_redraw(&mut self, qh: &QueueHandle<Self>) {
@@ -1572,6 +1765,49 @@ fn paint_osd(canvas: &mut [u8], style: &PanelStyle, notice: &osd::Notice) {
         fill_rect(canvas, width, height, 16, 54,
                   (width - 32) * u32::from(percent) / 100, 5, style.foreground);
     }
+}
+
+fn paint_tray_popup(canvas: &mut [u8], style: &PanelStyle,
+                    tray_state: &tray::State, popup: &tray::Popup) {
+    let width = tray::POPUP_WIDTH;
+    let height = tray::POPUP_HEIGHT;
+    for pixel in canvas.chunks_exact_mut(4) {
+        pixel.copy_from_slice(&style.background.to_le_bytes());
+    }
+    fill_rect(canvas, width, height, 0, 0, width, 36, style.active);
+    draw_text(canvas, width, height, 12, 13,
+              &format!("Tray icons ({})", tray_state.entries.len()), style.foreground);
+    draw_text(canvas, width, height, width - 24, 13, "X", style.foreground);
+    for (row, entry) in tray_state.entries.iter().skip(popup.first)
+        .take(tray::POPUP_ROWS).enumerate() {
+        let top = tray::POPUP_ROW_TOP + row as u32 * tray::POPUP_ROW_HEIGHT;
+        if popup.selected == popup.first + row {
+            fill_rounded_rect(canvas, width, height, 6, top + 1,
+                width - 12, tray::POPUP_ROW_HEIGHT - 2, style.task_radius, style.active);
+        }
+        if let Some(icon) = &entry.icon {
+            tray::paint_icon(canvas, width, height, 12, top + 5, icon);
+        } else {
+            let initial = entry.title.chars().find(|c| c.is_ascii_alphanumeric())
+                .map(|c| c.to_ascii_uppercase()).unwrap_or('?');
+            draw_text(canvas, width, height, 18, top + 10,
+                      &initial.to_string(), style.foreground);
+        }
+        let title: String = entry.title.chars().take(26).collect();
+        draw_text(canvas, width, height, 42, top + 11, &title, style.foreground);
+        if entry.needs_attention {
+            fill_rect(canvas, width, height, width - 12, top + 10, 4, 9,
+                      style.foreground);
+        }
+    }
+    let footer_top = 201;
+    fill_rect(canvas, width, height, 0, footer_top, width, 1, style.active);
+    let previous = popup.first > 0;
+    let next = popup.first + tray::POPUP_ROWS < tray_state.entries.len();
+    draw_text(canvas, width, height, 12, 216,
+              if previous { "< Previous" } else { "  First page" }, style.foreground);
+    draw_text(canvas, width, height, 169, 216,
+              if next { "Next >" } else { "Last page" }, style.foreground);
 }
 
 fn paint_focus_border(canvas: &mut [u8], width: u32, height: u32,
@@ -2043,6 +2279,18 @@ impl LayerShellHandler for RicePlate {
         } else if self.osd_layer.as_ref().is_some_and(|osd|
             osd.surface.wl_surface() == layer.wl_surface()) {
             self.osd_layer = None;
+        } else if self.tray_popup_layer.as_ref().is_some_and(|popup|
+            popup.surface.wl_surface() == layer.wl_surface()) {
+            self.tray_popup_layer = None;
+            if self.active_tray_popup.as_ref() == Some(layer.wl_surface()) {
+                self.set_tray_popup_visible(false, qh);
+            }
+        } else if let Some(index) = self.tray_popup_mirrors.iter().position(|popup|
+            popup.surface.wl_surface() == layer.wl_surface()) {
+            self.tray_popup_mirrors.remove(index);
+            if self.active_tray_popup.as_ref() == Some(layer.wl_surface()) {
+                self.set_tray_popup_visible(false, qh);
+            }
         } else if let Some(icon) = self
             .icon_layers
             .iter_mut()
@@ -2097,6 +2345,34 @@ impl LayerShellHandler for RicePlate {
                 osd_layer.configured = true;
             }
             self.redraw_osd();
+            return;
+        }
+        if self.tray_popup_layer.as_ref().is_some_and(|popup|
+            popup.surface.wl_surface() == layer.wl_surface())
+            || self.tray_popup_mirrors.iter().any(|popup|
+                popup.surface.wl_surface() == layer.wl_surface()) {
+            if config.new_size != (tray::POPUP_WIDTH, tray::POPUP_HEIGHT) {
+                eprintln!("RicePlate: compositor proposed invalid SNI overflow size");
+                if self.tray_popup_layer.as_ref().is_some_and(|popup|
+                    popup.surface.wl_surface() == layer.wl_surface()) {
+                    self.tray_popup_layer = None;
+                } else {
+                    self.tray_popup_mirrors.retain(|popup|
+                        popup.surface.wl_surface() != layer.wl_surface());
+                }
+                if self.active_tray_popup.as_ref() == Some(layer.wl_surface()) {
+                    self.set_tray_popup_visible(false, qh);
+                }
+                return;
+            }
+            if let Some(popup) = self.tray_popup_layer.as_mut().filter(|popup|
+                popup.surface.wl_surface() == layer.wl_surface()) {
+                popup.configured = true;
+            } else if let Some(popup) = self.tray_popup_mirrors.iter_mut().find(|popup|
+                popup.surface.wl_surface() == layer.wl_surface()) {
+                popup.configured = true;
+            }
+            self.redraw_tray_popup();
             return;
         }
         if self.calendar_layer.as_ref().is_some_and(|calendar|
@@ -2334,6 +2610,8 @@ impl KeyboardHandler for RicePlate {
             && self.active_menu.as_ref() == Some(surface);
         self.calendar_focused = self.calendar_state.visible
             && self.active_calendar.as_ref() == Some(surface);
+        self.tray_popup_focused = self.tray_popup_state.visible
+            && self.active_tray_popup.as_ref() == Some(surface);
         if let Some((mirror, width, offset)) = self.panel_geometry(surface) {
             let groups = self.grouped_tasks();
             let active = groups.iter().position(|group| group.active);
@@ -2380,6 +2658,9 @@ impl KeyboardHandler for RicePlate {
         if self.active_calendar.as_ref() == Some(surface) && self.calendar_focused {
             self.set_calendar_visible(false, qh);
         }
+        if self.active_tray_popup.as_ref() == Some(surface) && self.tray_popup_focused {
+            self.set_tray_popup_visible(false, qh);
+        }
         if self.keyboard_icon_surface.as_ref() == Some(surface) {
             self.keyboard_icon_surface = None;
             if let Some(index) = self.focused_icon.take() {
@@ -2402,6 +2683,28 @@ impl KeyboardHandler for RicePlate {
         _: u32,
         event: KeyEvent,
     ) {
+        if self.tray_popup_state.visible && self.tray_popup_focused {
+            let count = self.tray_state.entries.len();
+            match event.keysym {
+                Keysym::Up | Keysym::ISO_Left_Tab => self.tray_popup_state.select(-1, count),
+                Keysym::Down | Keysym::Tab => self.tray_popup_state.select(1, count),
+                Keysym::Prior => self.tray_popup_state.page(-1, count),
+                Keysym::Next => self.tray_popup_state.page(1, count),
+                Keysym::Return | Keysym::KP_Enter | Keysym::space => {
+                    let index = self.tray_popup_state.selected;
+                    self.activate_tray_entry(index, BTN_LEFT);
+                    self.set_tray_popup_visible(false, qh);
+                    return;
+                }
+                Keysym::Escape => {
+                    self.set_tray_popup_visible(false, qh);
+                    return;
+                }
+                _ => return,
+            }
+            self.redraw_tray_popup();
+            return;
+        }
         if self.calendar_state.visible && self.calendar_focused {
             match event.keysym {
                 Keysym::Left => self.calendar_state.move_selection(-1),
@@ -2615,6 +2918,29 @@ impl PointerHandler for RicePlate {
         events: &[PointerEvent],
     ) {
         for event in events {
+            if self.active_tray_popup.as_ref() == Some(&event.surface) {
+                if let PointerEventKind::Press { button, .. } = event.kind {
+                    if button != BTN_LEFT && button != BTN_RIGHT { continue; }
+                    let count = self.tray_state.entries.len();
+                    match self.tray_popup_state.hit(event.position.0, event.position.1, count) {
+                        Some(TrayHit::Item(index)) => {
+                            self.activate_tray_entry(index, button);
+                            self.set_tray_popup_visible(false, qh);
+                        }
+                        Some(TrayHit::Previous) => {
+                            self.tray_popup_state.page(-1, count);
+                            self.redraw_tray_popup();
+                        }
+                        Some(TrayHit::Next) => {
+                            self.tray_popup_state.page(1, count);
+                            self.redraw_tray_popup();
+                        }
+                        Some(TrayHit::Close) => self.set_tray_popup_visible(false, qh),
+                        None => {}
+                    }
+                }
+                continue;
+            }
             if self.active_calendar.as_ref() == Some(&event.surface) {
                 if let PointerEventKind::Press { button: BTN_LEFT, .. } = event.kind {
                     match self.calendar_state.hit(event.position.0, event.position.1) {
@@ -2750,7 +3076,12 @@ impl PointerHandler for RicePlate {
                         &self.recipe,
                     ) {
                         Some(Hit::Tray(slot)) => {
-                            self.activate_tray_item(slot, button);
+                            if slot == tray::VISIBLE_ITEMS - 1 &&
+                                self.tray_state.overflow_count() > 0 {
+                                self.toggle_tray_popup_for_panel(mirror_index, qh);
+                            } else {
+                                self.activate_tray_item(slot, button);
+                            }
                         }
                         _ if button == BTN_RIGHT => {},
                         Some(Hit::Launcher) => {
@@ -2942,6 +3273,29 @@ mod tests {
         assert_ne!(&canvas[painted..painted + 4], &style.background.to_le_bytes());
         assert_eq!(recipe::hit((region.x + 4 * tray::SLOT_WIDTH + 1) as f64,
                                width, 0, 0, &style), None);
+    }
+
+    #[test]
+    fn tray_overflow_popup_draws_distinct_pages_and_selection() {
+        let style = recipe::load("classic").unwrap();
+        let mut state = tray::State::default();
+        for index in 0..12 {
+            state.entries.push(tray::Entry {
+                bus_name: format!("org.test.Item{index}"), title: format!("App {index}"),
+                icon: None, is_menu: false, needs_attention: index == 7,
+            });
+        }
+        let mut popup = tray::Popup::default();
+        popup.open(state.entries.len());
+        let mut first = vec![0; (tray::POPUP_WIDTH * tray::POPUP_HEIGHT * 4) as usize];
+        let mut second = first.clone();
+        paint_tray_popup(&mut first, &style, &state, &popup);
+        popup.page(1, state.entries.len());
+        paint_tray_popup(&mut second, &style, &state, &popup);
+        assert_ne!(first, second);
+        assert_eq!(popup.hit(16.0, 44.0, state.entries.len()),
+                   Some(TrayHit::Item(8)));
+        assert_eq!(&second[..4], &style.active.to_le_bytes());
     }
 
     #[test]

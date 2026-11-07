@@ -43,7 +43,8 @@ class ComponentCatalogTests(unittest.TestCase):
         self.assertFalse(components["audio"]["interactive"])
         self.assertEqual(components["tray"]["native"], "experimental-sni")
         self.assertEqual(components["tray"]["visible_slots"], 4)
-        self.assertFalse(components["tray"]["overflow_navigation"])
+        self.assertEqual(components["tray"]["overflow_navigation"],
+                         "native-output-local-popup")
         self.assertEqual(components["battery"]["status_backend"],
                          "read-only-linux-sysfs-power-supply")
         self.assertFalse(components["battery"]["interactive"])

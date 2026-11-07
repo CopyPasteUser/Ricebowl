@@ -13,7 +13,7 @@ modify global session settings.
 | Component | Verified implementation | Important gap |
 | --- | --- | --- |
 | Session / compositor | Opt-in labwc session, nested preview, Waybar fallback, startup supervision and cleanup | Physical login/relogin, recovery and power-use acceptance |
-| RicePlate panel | Native Rust layer-shell, per-output panels, window discovery and grouped task activation, launcher, menu with fixed-action search/private per-rice pins, calendar, keyboard task navigation, compact layouts and **experimental SNI tray** with live pixmaps and direct clicks | Native tray overflow navigation/DBusMenu presentation, dynamic installed-app menu search, full accessibility and real-world focus QA |
+| RicePlate panel | Native Rust layer-shell, per-output panels, window discovery and grouped task activation, launcher, menu with fixed-action search/private per-rice pins, calendar, keyboard task navigation, compact layouts and **experimental SNI tray** with live pixmaps, direct clicks and output-local overflow popup | Native DBusMenu presentation, dynamic installed-app menu search, full accessibility and real-world focus QA |
 | Desktop shortcuts | Schema-v5 native shortcut surfaces, drag repositioning, owner-private **per-named-output positions**, independent multi-output reflow, hotplug, Tab/Shift-Tab | Cross-monitor drag semantics, output identity without stable names and mixed-DPI/device tests |
 | Wallpaper / appearances | Original bundled wallpapers, composable panel groups, labels, gaps, tokens, original example rices | Full desktop widgets, rich layout primitives, complete cross-app window decorations |
 | Hardware indicators | Kernel-backed battery; NetworkManager connectivity and WirePlumber sink status on a bounded worker | Device picker, Bluetooth status, event subscriptions and finer status detail |
@@ -37,8 +37,9 @@ non-clickable; the separate validated native-menu actions perform changes.
   protocol when a recipe includes `tray`, listens on the bus fd (no polling
   thread), draws size-checked SNI pixmaps, ignores Passive items and dispatches
   direct item Activate/ContextMenu calls. Missing pixmaps use an initial-letter
-  placeholder. Four slots are reserved, with overflow indicated but navigation
-  of overflow items and rich DBusMenu rendering not yet implemented. Native
+  placeholder. Four slots are reserved; when needed, the fourth opens an
+  output-local overflow popup with keyboard/pointer paging and activation.
+  Rich DBusMenu rendering is not yet implemented. Native
   tray needs Rust 1.88 and `libdbus-1` at build/run time; a failed bus
   connection leaves the rest of the panel usable.
 - **RiceSpice** delegates ordinary controls to NetworkManager and WirePlumber
@@ -129,9 +130,9 @@ signoff, a performance benchmark or proof of historical-OS visual fidelity.
 
 The next substantial release gates, in recommended order:
 
-1. Finish native SNI overflow navigation, real item-owned DBusMenu presentation,
-   output-relative activation coordinates and tray keyboard/accessibility
-   focus; a live host and basic mouse actions now exist.
+1. Finish native SNI item-owned DBusMenu presentation, output-relative
+   activation coordinates and first-class panel tray keyboard/accessibility
+   focus; a live host, direct item actions and overflow popup now exist.
 2. Complete RiceSpice's remaining delegated system editors as native pages,
    then verify device selectors, permission/error recovery and suspend/lock on
    actual hardware (an on-demand settings hub already exists).

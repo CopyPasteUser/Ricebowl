@@ -140,7 +140,7 @@ def describe() -> dict[str, object]:
              "keyboard_navigation": False},
             {"id": "tray", "native": "experimental-sni", "waybar": "host-tray",
              "behavior": "live-sni-pixmaps-and-item-clicks", "keyboard_navigation": False,
-             "visible_slots": 4, "overflow_navigation": False},
+             "visible_slots": 4, "overflow_navigation": "native-output-local-popup"},
         ],
         "shell_components": [
             {"id": "native-menu", "since_schema": 4,
@@ -209,7 +209,7 @@ def describe() -> dict[str, object]:
             "Battery indicator is read-only with minute refresh; no UPower events",
             "Network/audio indicators are non-clickable; RiceSpice offers verified controls",
             "Waybar/labwc menu omits native-only RiceSpice quick actions instead of displaying fake controls",
-            "Native SNI tray lacks overflow menu and keyboard focus",
+            "Native SNI tray lacks DBusMenu, panel keyboard focus",
             "RicePop Mako inbox, action-only OSD; external keys, AT and other hosts missing",
             "RiceSpice edits timezone natively; display/input/accessibility are delegated",
             "Calendar has no events/localization or panel keyboard focus",

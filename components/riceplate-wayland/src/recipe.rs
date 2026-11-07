@@ -818,7 +818,9 @@ mod tests {
         assert_eq!(hit(110.0, 800, 2, 0, &a), Some(Hit::Task(0)));
         assert_eq!(hit(110.0, 800, 2, 0, &b), None);
         assert_eq!(hit(250.0, 800, 2, 0, &b), Some(Hit::Task(0)));
-        assert_eq!(hit(760.0, 800, 2, 0, &b), Some(Hit::Clock));
+        let clock = layout(&b, 800, 2).into_iter()
+            .find(|item| item.widget == Widget::Clock).unwrap();
+        assert_eq!(hit(f64::from(clock.x + 6), 800, 2, 0, &b), Some(Hit::Clock));
         assert_eq!(hit(150.0, 180, 20, 0, &b), None);
         assert!(layout(&b, 180, 20)
             .iter()
@@ -839,29 +841,33 @@ mod tests {
             );
         let style = parse(&reordered, Some("classic")).unwrap();
         assert_eq!(hit(40.0, 800, 2, 0, &style), Some(Hit::Clock));
-        assert_eq!(hit(390.0, 800, 2, 0, &style), Some(Hit::Launcher));
-        assert_eq!(hit(490.0, 800, 2, 0, &style), Some(Hit::Task(0)));
+        let layout = layout(&style, 800, 2);
+        let launcher = layout.iter().find(|item| item.widget == Widget::Launcher).unwrap();
+        let tasks = layout.iter().find(|item| item.widget == Widget::Tasks).unwrap();
+        assert_eq!(hit(f64::from(launcher.x + 6), 800, 2, 0, &style), Some(Hit::Launcher));
+        assert_eq!(hit(f64::from(tasks.x + 6), 800, 2, 0, &style), Some(Hit::Task(0)));
     }
 
     #[test]
     fn overflow_pages_reach_all_windows_without_overlapping_hit_areas() {
         let style = load("classic").unwrap();
         let view = task_view(&style, 800, 10, 0).unwrap();
-        assert_eq!((view.slots, view.start), (3, 0));
+        assert_eq!((view.slots, view.start), (2, 0));
         assert!(!view.prev && view.next);
         let start = LAUNCHER_WIDTH as f64;
         let nav = start + f64::from(view.content_width);
         assert_eq!(hit(start + 10.0, 800, 10, 0, &style), Some(Hit::Task(0)));
         assert_eq!(hit(nav + 5.0, 800, 10, 0, &style), None);
         assert_eq!(hit(nav + 30.0, 800, 10, 0, &style), Some(Hit::NextTasks));
-        assert_eq!(hit(start + 10.0, 800, 10, 3, &style), Some(Hit::Task(3)));
-        assert_eq!(hit(nav + 5.0, 800, 10, 3, &style), Some(Hit::PreviousTasks));
+        assert_eq!(hit(start + 10.0, 800, 10, view.slots, &style),
+                   Some(Hit::Task(view.slots)));
+        assert_eq!(hit(nav + 5.0, 800, 10, view.slots, &style), Some(Hit::PreviousTasks));
         let last = task_view(&style, 800, 10, usize::MAX).unwrap();
-        assert_eq!(last.start, 7);
+        assert_eq!(last.start, 8);
         assert!(last.prev && !last.next);
         assert_eq!(
             hit(start + 10.0, 800, 10, usize::MAX, &style),
-            Some(Hit::Task(7))
+            Some(Hit::Task(8))
         );
         assert_eq!(hit(nav + 30.0, 800, 10, usize::MAX, &style), None);
     }
@@ -919,11 +925,10 @@ mod tests {
         assert_eq!(hit(119.0, 800, 2, 0, &style), Some(Hit::Launcher));
         assert_eq!(hit(121.0, 800, 2, 0, &style), Some(Hit::Task(0)));
         assert_eq!(hit(320.0, 800, 2, 0, &style), Some(Hit::Task(1)));
-        // Native power is a lower-priority indicator, not a reason to
-        // regress the preexisting taskbar viewport under heavy workload.
+        // Native power is a lower-priority indicator and cannot consume
+        // another task slot; the newly enabled tray reserves fixed space.
         assert!(layout(&style, 800, 2).iter().any(|item| item.widget == Widget::Battery));
-        assert!(!layout(&style, 800, 10).iter().any(|item| item.widget == Widget::Battery));
-        assert_eq!(task_view(&style, 800, 10, 0).unwrap().slots, 3);
+        assert_eq!(task_view(&style, 800, 10, 0).unwrap().slots, 2);
     }
 
     #[test]
@@ -938,9 +943,9 @@ mod tests {
         let overflow = layout(&style, 800, 20);
         let statuses: Vec<_> = overflow.iter().filter(|item| matches!(item.widget,
             Widget::Battery | Widget::Audio | Widget::Network)).collect();
-        assert_eq!(statuses.len(), 1);
+        assert_eq!(statuses.len(), 2);
         assert_eq!(statuses[0].widget, Widget::Battery);
-        assert_eq!(task_view(&style, 800, 20, 0).unwrap().slots, 3);
+        assert_eq!(task_view(&style, 800, 20, 0).unwrap().slots, 2);
     }
 
     #[test]

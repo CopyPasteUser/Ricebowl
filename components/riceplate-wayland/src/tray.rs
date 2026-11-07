@@ -8,6 +8,75 @@ pub const WIDTH: u32 = 112;
 pub const SLOT_WIDTH: u32 = 28;
 pub const VISIBLE_ITEMS: usize = 4;
 pub const MAX_ITEMS: usize = 32;
+pub const POPUP_WIDTH: u32 = 288;
+pub const POPUP_HEIGHT: u32 = 240;
+pub const POPUP_ROWS: usize = 5;
+pub const POPUP_ROW_TOP: u32 = 44;
+pub const POPUP_ROW_HEIGHT: u32 = 30;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PopupHit {
+    Item(usize),
+    Previous,
+    Next,
+    Close,
+}
+
+#[derive(Debug, Default)]
+pub struct Popup {
+    pub visible: bool,
+    pub first: usize,
+    pub selected: usize,
+}
+
+impl Popup {
+    pub fn open(&mut self, entries: usize) {
+        self.visible = true;
+        self.first = (VISIBLE_ITEMS - 1).min(entries.saturating_sub(1));
+        self.selected = self.first;
+    }
+
+    pub fn close(&mut self) {
+        self.visible = false;
+        self.first = 0;
+        self.selected = 0;
+    }
+
+    pub fn select(&mut self, delta: isize, count: usize) {
+        if count == 0 { return; }
+        self.selected = self.selected.saturating_add_signed(delta).min(count - 1);
+        if self.selected < self.first { self.first = self.selected; }
+        if self.selected >= self.first + POPUP_ROWS {
+            self.first = self.selected + 1 - POPUP_ROWS;
+        }
+    }
+
+    pub fn page(&mut self, delta: isize, count: usize) {
+        if count == 0 { return; }
+        let last = count.saturating_sub(POPUP_ROWS);
+        self.first = self.first.saturating_add_signed(delta * POPUP_ROWS as isize).min(last);
+        self.selected = self.first;
+    }
+
+    pub fn hit(&self, x: f64, y: f64, count: usize) -> Option<PopupHit> {
+        if !x.is_finite() || !y.is_finite() || x < 0.0 || y < 0.0 ||
+            x >= f64::from(POPUP_WIDTH) || y >= f64::from(POPUP_HEIGHT) { return None; }
+        if y < 36.0 && x >= f64::from(POPUP_WIDTH - 44) {
+            return Some(PopupHit::Close);
+        }
+        if y >= f64::from(POPUP_ROW_TOP) &&
+            y < f64::from(POPUP_ROW_TOP + POPUP_ROWS as u32 * POPUP_ROW_HEIGHT) {
+            let index = self.first + ((y as u32 - POPUP_ROW_TOP) / POPUP_ROW_HEIGHT) as usize;
+            return (index < count).then_some(PopupHit::Item(index));
+        }
+        if y >= 202.0 {
+            return Some(if x < f64::from(POPUP_WIDTH / 2) {
+                PopupHit::Previous
+            } else { PopupHit::Next });
+        }
+        None
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Icon {
@@ -144,5 +213,27 @@ mod tests {
         assert_eq!(state.overflow_count(), 2);
         assert_eq!(state.item_at(0).unwrap().bus_name, "org.test.Item5");
         assert!(state.item_at(3).is_none());
+    }
+
+    #[test]
+    fn overflow_popup_paginates_and_rejects_out_of_bounds_actions() {
+        let mut popup = Popup::default();
+        popup.open(17);
+        assert!(popup.visible);
+        assert_eq!(popup.first, 3);
+        assert_eq!(popup.hit(18.0, 44.0, 17), Some(PopupHit::Item(3)));
+        popup.page(1, 17);
+        assert_eq!(popup.first, 8);
+        assert_eq!(popup.hit(18.0, 44.0, 17), Some(PopupHit::Item(8)));
+        popup.page(100, 17);
+        assert_eq!(popup.first, 12);
+        popup.select(-99, 17);
+        assert_eq!(popup.selected, 0);
+        assert_eq!(popup.first, 0);
+        assert_eq!(popup.hit(18.0, 44.0, 0), None);
+        assert_eq!(popup.hit(f64::NAN, 20.0, 17), None);
+        assert_eq!(popup.hit(260.0, 8.0, 17), Some(PopupHit::Close));
+        popup.close();
+        assert!(!popup.visible);
     }
 }
