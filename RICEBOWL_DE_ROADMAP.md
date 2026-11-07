@@ -243,9 +243,18 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
 - [ ] Populate tasks/windows through a supported foreign-toplevel protocol.
 - [ ] Implement launchers, task groups, tray, calendar, menus and keyboard
   navigation; avoid invisible or fake controls. Native task/menu keyboard
-  controls, output-aware calendars and menus are partially implemented; tray,
-  events/localization, global accessibility and full interaction parity
-  are still missing.
+  controls, output-aware calendars and menus are partially implemented;
+  native SNI overflow, full DBusMenu and tray keyboard focus, events/localization,
+  global accessibility and interaction parity are still missing.
+- [x] Establish an opt-in **real native SNI host/watcher** in RicePlate for
+  recipes with a tray: share the Wayland event loop via the D-Bus fd, honor
+  existing watchers, show bounded active/attention icon pixmaps with validated
+  ARGB dimensions, dispatch actual item activation/context-menu requests and
+  degrade safely when D-Bus is absent. Four slots, only the first three
+  activatable when more items exist. The current +N indicator is **not yet
+  an overflow selector** and the DBusMenu protocol still needs a native popup;
+  no full-tray or accessibility signoff is claimed. Requires Rust 1.88 and
+  libdbus-1 for the host library.
 - [ ] Expose reusable, composable shell primitives and stable interaction/state
   bindings so substantially different rice layouts share core behavior.
 - [ ] Render wallpapers and desktop icons with correct layer, focus, hit tests,

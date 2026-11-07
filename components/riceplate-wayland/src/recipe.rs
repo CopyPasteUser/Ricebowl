@@ -53,6 +53,7 @@ pub enum Widget {
     Battery,
     Network,
     Audio,
+    Tray,
     Gap(u32),
     Divider(u32),
     Label(u8),
@@ -72,6 +73,7 @@ pub enum Hit {
     Task(usize),
     PreviousTasks,
     NextTasks,
+    Tray(usize),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -318,7 +320,7 @@ fn expand_layout(
                 "network" => rendered.push(Widget::Network),
                 "audio" => rendered.push(Widget::Audio),
                 // Known but unsupported native controls remain Waybar-only.
-                "tray" => {}
+                "tray" => rendered.push(Widget::Tray),
                 _ => return Err("Unsupported panel widget or action".into()),
             }
         }
@@ -423,7 +425,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
                         "battery" => sections[index].push(Widget::Battery),
                         "network" => sections[index].push(Widget::Network),
                         "audio" => sections[index].push(Widget::Audio),
-                        "tray" => {}
+                        "tray" => sections[index].push(Widget::Tray),
                         _ => return Err("Unsupported RicePlate widget or action".into()),
                     }
                 }
@@ -605,6 +607,7 @@ fn width_for(style: &PanelStyle, widget: Widget, tasks: usize) -> u32 {
         Widget::Launcher => style.widths[0],
         Widget::Clock => style.widths[2],
         Widget::Battery | Widget::Network | Widget::Audio => 64,
+        Widget::Tray => crate::tray::WIDTH,
         Widget::Tasks => tasks as u32 * style.widths[1],
         Widget::Gap(width) => width,
         Widget::Divider(width) => width,
@@ -756,6 +759,8 @@ pub fn hit(
                 }
             }
             Widget::Clock => Some(Hit::Clock),
+            Widget::Tray => Some(Hit::Tray(((x - f64::from(item.x)) /
+                f64::from(crate::tray::SLOT_WIDTH)) as usize)),
             Widget::Battery | Widget::Network | Widget::Audio => None,
             Widget::Gap(_) | Widget::Divider(_) | Widget::Label(_) => None,
         };

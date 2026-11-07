@@ -35,12 +35,15 @@ class ComponentCatalogTests(unittest.TestCase):
         self.assertEqual({part["id"] for part in info["components"]}, recipes.WIDGETS)
         implemented = {part["id"] for part in info["components"]
                        if part["native"] != "unavailable"}
-        self.assertEqual(implemented, {"launcher", "tasks", "clock", "battery", "network", "audio"})
+        self.assertEqual(implemented, {"launcher", "tasks", "clock", "battery", "network", "audio", "tray"})
         components = {part["id"]: part for part in info["components"]}
         self.assertEqual(components["network"]["status_backend"], "bounded-nmcli-worker")
         self.assertEqual(components["audio"]["status_backend"], "bounded-wpctl-worker")
         self.assertFalse(components["network"]["interactive"])
         self.assertFalse(components["audio"]["interactive"])
+        self.assertEqual(components["tray"]["native"], "experimental-sni")
+        self.assertEqual(components["tray"]["visible_slots"], 4)
+        self.assertFalse(components["tray"]["overflow_navigation"])
         self.assertEqual(components["battery"]["status_backend"],
                          "read-only-linux-sysfs-power-supply")
         self.assertFalse(components["battery"]["interactive"])
@@ -62,6 +65,7 @@ class ComponentCatalogTests(unittest.TestCase):
         self.assertTrue(shell["native-menu"]["close_on_output_removal"])
         self.assertEqual(shell["native-menu"]["notifications"]["action"], "notifications")
         self.assertTrue(shell["native-menu"]["notifications"]["dismiss_one"])
+        self.assertEqual(shell["native-menu"]["notifications"]["osd"], "native-audio-actions")
         self.assertEqual(shell["native-menu"]["notifications"]["history_ui"],
                          "read-only-past-tab")
         self.assertEqual(shell["native-menu"]["settings"]["action"], "settings")

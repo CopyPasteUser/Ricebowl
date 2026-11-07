@@ -1,7 +1,7 @@
 //! Native RicePlate experiment: an input-capable, idle event-driven layer surface.
 //! No session takeover: launch only inside an already running Wayland session.
 
-use std::{error::Error, process::Command, sync::mpsc, time::{Duration, Instant}};
+use std::{error::Error, os::fd::AsFd, process::Command, sync::mpsc, time::{Duration, Instant}};
 
 use chrono::{Datelike, Local, Timelike};
 use font8x8::{UnicodeFonts, BASIC_FONTS};
@@ -17,6 +17,7 @@ mod ricepop;
 mod system_status;
 mod task_groups;
 mod task_navigation;
+mod tray;
 use native_menu::{Hit as MenuHit, MenuState};
 use power::PowerStatus;
 use ricepop::{Request as NotificationRequest, State as NotificationState};
@@ -33,7 +34,8 @@ use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState, FrameCallbackData, Region},
     delegate_registry,
     output::{OutputHandler, OutputState},
-    reexports::{calloop::{channel, EventLoop}, calloop_wayland_source::WaylandSource},
+    reexports::{calloop::{channel, generic::Generic, EventLoop, Interest, Mode, PostAction},
+                calloop_wayland_source::WaylandSource},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
     seat::{
@@ -65,6 +67,7 @@ const MAX_WIDTH: u32 = 16384;
 const MAX_HEIGHT: u32 = 256;
 const MAX_OUTPUT_PANELS: usize = 8;
 const BTN_LEFT: u32 = 0x110;
+const BTN_RIGHT: u32 = 0x111;
 
 fn clock_now() -> String {
     Local::now().format("%H:%M").to_string()
@@ -131,6 +134,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         || menu_controls.contains(&ControlAction::WifiToggle);
     let poll_audio = status_present(Widget::Audio) || menu_controls.iter().any(|action|
         matches!(action, ControlAction::AudioMute | ControlAction::AudioUp | ControlAction::AudioDown));
+    let use_tray = status_present(Widget::Tray);
     if preview_calendar && !clock_present {
         return Err("Calendar preview requires a native clock widget".into());
     }
@@ -267,6 +271,23 @@ fn main() -> Result<(), Box<dyn Error>> {
         && std::env::var("RICEBOWL_DE_NESTED").as_deref() == Ok("1")
         && std::env::var("RICEBOWL_DE_CALENDAR_OUTPUT").as_deref() == Ok("secondary");
 
+    // A real StatusNotifier host/watcher is only connected when a native
+    // recipe requests a tray; Waybar continues owning its own fallback tray.
+    let tray_host = if use_tray {
+        match status_notifier::Host::new() {
+            Ok(host) => Some(host),
+            Err(error) => {
+                eprintln!("RicePlate: native SNI tray unavailable: {error}");
+                None
+            }
+        }
+    } else { None };
+    let tray_fd = tray_host.as_ref().and_then(|host| {
+        host.as_fd().try_clone_to_owned().map_err(|error| {
+            eprintln!("RicePlate: cannot observe SNI connection: {error}");
+        }).ok()
+    });
+
     let mut app = RicePlate {
         compositor,
         layer_shell,
@@ -296,6 +317,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         clock: clock_now(),
         power: PowerStatus::current(),
         system_status: SystemStatus::default(),
+        tray_host,
+        tray_state: tray::State::default(),
         control_sender: None,
         pointer: None,
         keyboard: None,
@@ -324,6 +347,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     if preview_menu && !preview_secondary_menu { app.set_menu_visible(true, &qh); }
     if preview_calendar && !preview_secondary_calendar {
         app.set_calendar_visible(true, &qh);
+    }
+    if let Some(fd) = tray_fd {
+        let redraw_qh = qh.clone();
+        event_loop.handle().insert_source(
+            Generic::new(fd, Interest::READ, Mode::Level),
+            move |_, _, app: &mut RicePlate| {
+                Ok(if app.refresh_tray(&redraw_qh) {
+                    PostAction::Continue
+                } else { PostAction::Remove })
+            },
+        )?;
+        app.refresh_tray(&qh);
     }
     if poll_network || poll_audio {
         let (sender, receiver) = channel::channel::<StatusEvent>();
@@ -512,6 +547,8 @@ struct RicePlate {
     clock: String,
     power: PowerStatus,
     system_status: SystemStatus,
+    tray_host: Option<status_notifier::Host>,
+    tray_state: tray::State,
     control_sender: Option<mpsc::SyncSender<ControlAction>>,
     pointer: Option<wl_pointer::WlPointer>,
     keyboard: Option<wl_keyboard::WlKeyboard>,
@@ -811,7 +848,7 @@ impl RicePlate {
             }
         };
         paint_panel(canvas, mirror.width, mirror.height, &self.recipe, &groups,
-                    &self.clock, &self.power, &self.system_status,
+                    &self.clock, &self.power, &self.system_status, &self.tray_state,
                     mirror.task_offset, selected);
         surface.damage_buffer(0, 0, mirror.width as i32, mirror.height as i32);
         if let Err(error) = buffer.attach_to(surface) {
@@ -1273,6 +1310,45 @@ impl RicePlate {
         )
     }
 
+    /// The SNI connection is registered with calloop's fd source, never a
+    /// polling timer. Fatal bus errors remove the source and leave the shell
+    /// usable with a visually empty tray.
+    fn refresh_tray(&mut self, qh: &QueueHandle<Self>) -> bool {
+        let Some(host) = self.tray_host.as_mut() else { return false };
+        if let Err(error) = host.process_events(
+            |_, _, _| {},
+            |error| eprintln!("RicePlate: SNI item error: {error}"),
+            Some(Duration::ZERO),
+        ) {
+            eprintln!("RicePlate: SNI host disconnected: {error}");
+            self.tray_host = None;
+            self.tray_state = tray::State::default();
+            self.request_redraw(qh);
+            return false;
+        }
+        let updated = tray::State::from_items(host.get_all_items());
+        if self.tray_state != updated {
+            self.tray_state = updated;
+            self.request_redraw(qh);
+        }
+        true
+    }
+
+    fn activate_tray_item(&mut self, slot: usize, button: u32) {
+        let Some(entry) = self.tray_state.item_at(slot) else { return };
+        let Some(host) = self.tray_host.as_mut() else { return };
+        // The compositor owns actual global screen geometry; avoid
+        // inventing coordinates in a relative surface event.
+        let result = if button == BTN_RIGHT || entry.is_menu {
+            host.item_context_menu(&entry.bus_name, 0, 0)
+        } else {
+            host.item_activate(&entry.bus_name, 0, 0)
+        };
+        if let Err(error) = result {
+            eprintln!("RicePlate: SNI item action failed: {error}");
+        }
+    }
+
     fn request_redraw(&mut self, qh: &QueueHandle<Self>) {
         self.needs_redraw = true;
         if !self.frame_pending {
@@ -1348,7 +1424,7 @@ impl RicePlate {
             }
         };
         paint_panel(canvas, width, height, &self.recipe, &groups,
-                    &self.clock, &self.power, &self.system_status,
+                    &self.clock, &self.power, &self.system_status, &self.tray_state,
                     self.task_offset, selected);
         surface.damage_buffer(0, 0, width as i32, height as i32);
         if let Err(error) = buffer.attach_to(surface) {
@@ -1365,7 +1441,7 @@ impl RicePlate {
 
 fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
                style: &PanelStyle, groups: &[TaskGroup], clock: &str,
-               power: &PowerStatus, status: &SystemStatus, offset: usize,
+               power: &PowerStatus, status: &SystemStatus, tray_state: &tray::State, offset: usize,
                selected: Option<KeyboardTarget>) {
     for pixel in canvas.chunks_exact_mut(4) {
         pixel.copy_from_slice(&style.background.to_le_bytes());
@@ -1437,6 +1513,33 @@ fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
                 draw_text(canvas, width, height,
                           placed.x + placed.width.saturating_sub(label.len() as u32 * 8) / 2,
                           height / 2 - 4, &label, style.foreground);
+            }
+            Widget::Tray => {
+                for (index, entry) in tray_state.entries.iter()
+                    .take(tray_state.visible_count()).enumerate() {
+                    let x = placed.x + index as u32 * tray::SLOT_WIDTH;
+                    if entry.needs_attention {
+                        fill_rounded_rect(canvas, width, height, x, 3,
+                            tray::SLOT_WIDTH, height.saturating_sub(6),
+                            style.task_radius, style.active);
+                    }
+                    if let Some(icon) = &entry.icon {
+                        tray::paint_icon(canvas, width, height, x + 4,
+                            height.saturating_sub(20) / 2, icon);
+                    } else {
+                        // Missing pixmap: label fallback is explicit, no
+                        // guessed icon assets or untrusted path traversal.
+                        let symbol = entry.title.chars().find(|c| c.is_ascii_alphanumeric())
+                            .map(|c| c.to_ascii_uppercase()).unwrap_or('?');
+                        draw_text(canvas, width, height, x + 10,
+                            height.saturating_sub(8) / 2, &symbol.to_string(), style.foreground);
+                    }
+                }
+                let overflow = tray_state.overflow_count();
+                if overflow > 0 {
+                    draw_text(canvas, width, height, placed.x + tray::WIDTH - 27,
+                        height.saturating_sub(8) / 2, &format!("+{overflow}"), style.foreground);
+                }
             }
             Widget::Gap(_) => {}
             Widget::Divider(_) => {
@@ -2634,7 +2737,7 @@ impl PointerHandler for RicePlate {
                 (self.width, self.height, self.task_offset)
             } else { continue; };
             if let PointerEventKind::Press { button, .. } = event.kind {
-                if button == BTN_LEFT
+                if (button == BTN_LEFT || button == BTN_RIGHT)
                     && event.position.1 >= 0.0
                     && event.position.1 < f64::from(panel_height)
                 {
@@ -2646,6 +2749,10 @@ impl PointerHandler for RicePlate {
                         panel_offset,
                         &self.recipe,
                     ) {
+                        Some(Hit::Tray(slot)) => {
+                            self.activate_tray_item(slot, button);
+                        }
+                        _ if button == BTN_RIGHT => {},
                         Some(Hit::Launcher) => {
                             if self.focused_panel.as_ref() == Some(&event.surface) {
                                 self.focused_target = Some(KeyboardTarget::Launcher);
@@ -2654,7 +2761,9 @@ impl PointerHandler for RicePlate {
                             self.activate_launcher(mirror_index, qh);
                         }
                         Some(Hit::Clock) => {
-                            self.toggle_calendar_for_panel(mirror_index, qh);
+                            if button == BTN_LEFT {
+                                self.toggle_calendar_for_panel(mirror_index, qh);
+                            }
                         }
                         Some(Hit::Task(index)) => {
                             if self.focused_panel.as_ref() == Some(&event.surface) {
@@ -2811,6 +2920,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn native_tray_paints_live_pixmap_and_reserves_real_hit_regions() {
+        let style = recipe::load("classic").unwrap();
+        let width = 1024;
+        let height = style.height;
+        let mut canvas = vec![0; (width * height * 4) as usize];
+        let view = tray::State { entries: vec![tray::Entry {
+            bus_name: "org.test.SNI".into(), title: "Test".into(),
+            icon: Some(tray::Icon { width: 1, height: 1,
+                argb: vec![255, 33, 88, 199] }),
+            is_menu: false, needs_attention: false,
+        }] };
+        paint_panel(&mut canvas, width, height, &style, &[], "12:00",
+                    &PowerStatus::NotPresent, &SystemStatus::default(), &view, 0, None);
+        let region = recipe::layout(&style, width, 0).into_iter()
+            .find(|placed| placed.widget == Widget::Tray).unwrap();
+        assert_eq!(region.width, tray::WIDTH);
+        assert_eq!(recipe::hit((region.x + 4) as f64, width, 0, 0, &style),
+                   Some(Hit::Tray(0)));
+        let painted = ((height / 2 * width + region.x + 4) * 4) as usize;
+        assert_ne!(&canvas[painted..painted + 4], &style.background.to_le_bytes());
+        assert_eq!(recipe::hit((region.x + 4 * tray::SLOT_WIDTH + 1) as f64,
+                               width, 0, 0, &style), None);
+    }
+
+    #[test]
     fn ricepop_osd_renders_readback_volume_and_failure_distinctly() {
         let style = recipe::load("classic").unwrap();
         let mut filled = vec![0; (osd::WIDTH * osd::HEIGHT * 4) as usize];
@@ -2839,13 +2973,13 @@ mod tests {
         let mut unavailable = vec![0; (width * height * 4) as usize];
         let mut connected = unavailable.clone();
         paint_panel(&mut unavailable, width, height, &style, &[], "12:00",
-                    &PowerStatus::NotPresent, &SystemStatus::default(), 0, None);
+                    &PowerStatus::NotPresent, &SystemStatus::default(), &tray::State::default(), 0, None);
         let current = SystemStatus {
             network: system_status::Network::Global,
             audio: system_status::Audio::Volume(58),
         };
         paint_panel(&mut connected, width, height, &style, &[], "12:00",
-                    &PowerStatus::NotPresent, &current, 0, None);
+                    &PowerStatus::NotPresent, &current, &tray::State::default(), 0, None);
         for widget in [Widget::Network, Widget::Audio] {
             let region = recipe::layout(&style, width, 0).into_iter()
                 .find(|item| item.widget == widget).unwrap();
@@ -2867,10 +3001,10 @@ mod tests {
         let mut without = vec![0; len];
         let mut charging = vec![0; len];
         paint_panel(&mut without, width, height, &style, &[], "12:00",
-                    &PowerStatus::NotPresent, &SystemStatus::default(), 0, None);
+                    &PowerStatus::NotPresent, &SystemStatus::default(), &tray::State::default(), 0, None);
         paint_panel(&mut charging, width, height, &style, &[], "12:00",
                     &PowerStatus::Battery { percent: 73, charging: true },
-                    &SystemStatus::default(), 0, None);
+                    &SystemStatus::default(), &tray::State::default(), 0, None);
         let region = recipe::layout(&style, width, 0).into_iter()
             .find(|item| item.widget == Widget::Battery).unwrap();
         assert_eq!(region.width, 64);
@@ -2893,9 +3027,9 @@ mod tests {
         let mut first = vec![0_u8; (width * height * 4) as usize];
         let mut second = vec![0_u8; (width * height * 4) as usize];
         paint_panel(&mut first, width, height, &style, &[], "12:00",
-                    &PowerStatus::NotPresent, &SystemStatus::default(), 0, None);
+                    &PowerStatus::NotPresent, &SystemStatus::default(), &tray::State::default(), 0, None);
         paint_panel(&mut second, width, height, &style, &[], "12:00",
-                    &PowerStatus::NotPresent, &SystemStatus::default(), 0, None);
+                    &PowerStatus::NotPresent, &SystemStatus::default(), &tray::State::default(), 0, None);
         assert_eq!(first, second);
         assert_eq!(&first[(width * (height / 2) + 400) as usize * 4..][..4],
                    &style.background.to_le_bytes());
@@ -2912,9 +3046,9 @@ mod tests {
         let mut normal = vec![0; len];
         let mut selected = vec![0; len];
         paint_panel(&mut normal, width, height, &style, &[], "12:00",
-                    &PowerStatus::NotPresent, &SystemStatus::default(), 0, None);
+                    &PowerStatus::NotPresent, &SystemStatus::default(), &tray::State::default(), 0, None);
         paint_panel(&mut selected, width, height, &style, &[], "12:00",
-                    &PowerStatus::NotPresent, &SystemStatus::default(), 0,
+                    &PowerStatus::NotPresent, &SystemStatus::default(), &tray::State::default(), 0,
                     Some(KeyboardTarget::Launcher));
         assert_ne!(normal, selected);
         let launcher = recipe::layout(&style, width, 0).into_iter()
