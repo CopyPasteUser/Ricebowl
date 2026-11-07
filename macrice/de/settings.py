@@ -11,12 +11,14 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
+from macrice.riceware import media
+
 from . import audio_devices, recipes, settings_backend as backend
 
 
 SECTIONS = (
     ("network", "Network", "NetworkManager connectivity and Wi-Fi radio"),
-    ("audio", "Sound", "Playback and recording devices"),
+    ("audio", "Sound", "Audio devices and media playback"),
     ("bluetooth", "Bluetooth", "Adapter and paired devices"),
     ("displays", "Displays", "Monitors, scaling and arrangement"),
     ("input", "Input", "Pointer and keyboard preferences"),
@@ -124,13 +126,14 @@ class RiceSpiceWindow:
     def _text(self, message: str, *, css: str = ""):
         self.content.pack_start(self._label(message, css=css), False, False, 0)
 
-    def _button(self, label: str, callback: Callable[[], None], *, primary: bool = False):
+    def _button(self, label: str, callback: Callable[[], None], *, primary: bool = False,
+                parent=None):
         button = self.Gtk.Button(label=label)
         button.get_accessible().set_name(label)
         if primary:
             button.get_style_context().add_class("ricespice-action")
         button.connect("clicked", lambda _button: callback())
-        self.content.pack_start(button, False, False, 0)
+        (parent or self.content).pack_start(button, False, False, 0)
         return button
 
     def _state(self, message: str):
@@ -283,38 +286,82 @@ class RiceSpiceWindow:
         self._background(lambda: backend.wifi_snapshot(rescan=rescan), present)
 
     def _audio(self):
-        self._button("Refresh audio devices", lambda: self.show_page("audio"))
+        self._button("Refresh devices and players", lambda: self.show_page("audio"))
 
-        def present(inventory):
-            self._state("Devices from the active PulseAudio-compatible server")
-            for kind, key, title in (("sink", "outputs", "Output"),
-                                     ("source", "inputs", "Microphone")):
-                self._text(title, css="ricespice-section")
-                options = inventory[key]
-                if not options:
-                    self._text("No devices available", css="ricespice-note")
-                    continue
-                combo = self.Gtk.ComboBoxText()
-                for option in options:
-                    combo.append(option["name"], option["description"] or option["name"])
-                current = next((item["name"] for item in options if item["default"]), None)
-                if current:
-                    combo.set_active_id(current)
-                self.content.pack_start(combo, False, False, 0)
+        def collect():
+            # Both services are optional; failure of one must not hide the other.
+            def read(reader):
+                try:
+                    return reader()
+                except Exception as exc:
+                    return exc
 
-                def apply(kind=kind, widget=combo, before=current):
-                    name = widget.get_active_id()
-                    if name is None:
-                        self._state("Select an available device first")
-                        return
-                    self._background(
-                        lambda: audio_devices.set_default(kind, name, expected_current=before),
-                        lambda _result: self.show_page("audio"))
+            return read(audio_devices.inspect), read(media.read_media_players)
 
-                self._button(f"Set default {title.lower()}", apply, primary=True)
+        def present(snapshot):
+            inventory, players = snapshot
+            self._state("Current audio and media state")
+            self._text("Playback and recording devices", css="ricespice-section")
+            if isinstance(inventory, Exception):
+                self._text(f"Audio devices unavailable: {inventory}", css="ricespice-note")
+            else:
+                for kind, key, title in (("sink", "outputs", "Output"),
+                                         ("source", "inputs", "Microphone")):
+                    self._text(title, css="ricespice-section")
+                    options = inventory[key]
+                    if not options:
+                        self._text("No devices available", css="ricespice-note")
+                        continue
+                    combo = self.Gtk.ComboBoxText()
+                    for option in options:
+                        combo.append(option["name"], option["description"] or option["name"])
+                    current = next((item["name"] for item in options if item["default"]), None)
+                    if current:
+                        combo.set_active_id(current)
+                    self.content.pack_start(combo, False, False, 0)
+
+                    def apply(kind=kind, widget=combo, before=current):
+                        name = widget.get_active_id()
+                        if name is None:
+                            self._state("Select an available device first")
+                            return
+                        self._background(
+                            lambda: audio_devices.set_default(kind, name, expected_current=before),
+                            lambda _result: self.show_page("audio"))
+
+                    self._button(f"Set default {title.lower()}", apply, primary=True)
+
+            self._text("Now playing", css="ricespice-section")
+            if isinstance(players, Exception):
+                self._text("Media session unavailable: " + str(players), css="ricespice-note")
+            elif not players:
+                self._text("No MPRIS-compatible media player is running.",
+                           css="ricespice-note")
+            else:
+                for player in players:
+                    description = f"{player.label} · {player.title}"
+                    if player.artist:
+                        description += f" — {player.artist}"
+                    self._text(description + f" · {player.status}")
+                    controls = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL,
+                                            spacing=8)
+                    self.content.pack_start(controls, False, False, 0)
+                    for title, command, enabled in (
+                        ("Previous", "Previous", player.can_previous),
+                        ("Pause" if player.status == "Playing" else "Play",
+                         "PlayPause", player.can_play_pause),
+                        ("Next", "Next", player.can_next),
+                    ):
+                        button = self._button(
+                            f"{title} · {player.label}",
+                            lambda bus=player.bus_name, action=command: self._background(
+                                lambda: media.media_action(bus, action),
+                                lambda _result: self.show_page("audio")),
+                            parent=controls)
+                        button.set_sensitive(enabled)
             self.content.show_all()
 
-        self._background(audio_devices.inspect, present)
+        self._background(collect, present)
 
     def _bluetooth(self):
         self._button("Refresh Bluetooth devices", lambda: self.show_page("bluetooth"))

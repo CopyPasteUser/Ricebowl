@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest import mock
 
 from macrice.de import settings
+from macrice.riceware.media import MediaPlayer
 
 
 class SettingsGuiTests(unittest.TestCase):
@@ -82,6 +83,62 @@ class SettingsGuiTests(unittest.TestCase):
                          and child.get_label() == "Apply energy profile")
             apply.clicked()
             change.assert_called_once_with("power-saver", expected="balanced")
+            GLib.timeout_add(30, lambda: (window.window.destroy(), False)[1])
+            Gtk.main()
+
+    def test_audio_page_controls_real_mpris_players_and_degrades_independently(self):
+        try:
+            Gtk, Gdk, GLib = settings._gtk_modules()
+        except (ImportError, ValueError):
+            self.skipTest("GTK introspection typelib is not installed")
+        if not Gtk.init_check([])[0]:
+            self.skipTest("GTK display is unavailable")
+        player = MediaPlayer("org.mpris.MediaPlayer2.browser", "browser", "Track", "Artist",
+                             "Playing", True, False, True)
+        inventory = {"outputs": [{"name": "out", "description": "Speakers", "default": True}],
+                     "inputs": []}
+        with mock.patch("macrice.de.settings_backend.wifi_snapshot", return_value={
+                    "enabled": True, "networks": [],
+                }), \
+                mock.patch("macrice.de.audio_devices.inspect", return_value=inventory) as devices, \
+                mock.patch("macrice.riceware.media.read_media_players",
+                           return_value=(player,)) as players, \
+                mock.patch("macrice.riceware.media.media_action",
+                           return_value=(player,)) as action:
+            window = settings.RiceSpiceWindow(Gtk, Gdk, GLib)
+            window._background = lambda work, done: done(work())
+            window.show_page("audio")
+            buttons = [child for row in window.content.get_children()
+                       if isinstance(row, Gtk.Box)
+                       for child in row.get_children()
+                       if isinstance(child, Gtk.Button)]
+            self.assertEqual([button.get_label() for button in buttons], [
+                "Previous · browser", "Pause · browser", "Next · browser"])
+            self.assertFalse(buttons[0].get_sensitive())
+            self.assertTrue(buttons[1].get_sensitive())
+            buttons[1].clicked()
+            action.assert_called_once_with("org.mpris.MediaPlayer2.browser", "PlayPause")
+            self.assertGreaterEqual(players.call_count, 2)
+            devices.assert_called()
+
+            # Missing audio service must not remove independently working media controls.
+            with mock.patch("macrice.de.audio_devices.inspect",
+                            side_effect=RuntimeError("pactl unavailable")):
+                window.show_page("audio")
+            labels = [child.get_text() for child in window.content.get_children()
+                      if isinstance(child, Gtk.Label)]
+            self.assertTrue(any("Audio devices unavailable" in label for label in labels))
+            self.assertTrue(any("Track" in label for label in labels))
+
+            # Missing MPRIS must still allow normal default-device selection.
+            with mock.patch("macrice.riceware.media.read_media_players",
+                            side_effect=RuntimeError("bus unavailable")):
+                window.show_page("audio")
+            self.assertTrue(any(isinstance(child, Gtk.ComboBoxText)
+                                for child in window.content.get_children()))
+            labels = [child.get_text() for child in window.content.get_children()
+                      if isinstance(child, Gtk.Label)]
+            self.assertTrue(any("Media session unavailable" in label for label in labels))
             GLib.timeout_add(30, lambda: (window.window.destroy(), False)[1])
             Gtk.main()
 
