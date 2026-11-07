@@ -50,6 +50,36 @@ class SettingsGuiTests(unittest.TestCase):
             Gtk.main()
             self.assertTrue(window.closed)
 
+    def test_power_page_offers_only_actual_profiles_and_applies_explicit_selection(self):
+        try:
+            Gtk, Gdk, GLib = settings._gtk_modules()
+        except (ImportError, ValueError):
+            self.skipTest("GTK introspection typelib is not installed")
+        if not Gtk.init_check([])[0]:
+            self.skipTest("GTK display is unavailable")
+        with mock.patch("macrice.de.settings_backend.wifi_state", return_value=True), \
+                mock.patch("macrice.de.settings_backend.power_snapshot", return_value={
+                    "current": "balanced", "supported": ("balanced", "power-saver"),
+                    "battery": {"percent": 54, "charging": False, "label": "Discharging"},
+                }), \
+                mock.patch("macrice.de.settings_backend.set_power_profile",
+                           return_value="power-saver") as change:
+            window = settings.RiceSpiceWindow(Gtk, Gdk, GLib)
+            # Complete the mocked worker on this GTK thread to test actual UI bindings.
+            window._background = lambda work, done: done(work())
+            window.show_page("power")
+            combo = next(child for child in window.content.get_children()
+                         if isinstance(child, Gtk.ComboBoxText))
+            self.assertEqual(combo.get_active_id(), "balanced")
+            combo.set_active_id("power-saver")
+            apply = next(child for child in window.content.get_children()
+                         if isinstance(child, Gtk.Button)
+                         and child.get_label() == "Apply energy profile")
+            apply.clicked()
+            change.assert_called_once_with("power-saver", expected="balanced")
+            GLib.timeout_add(30, lambda: (window.window.destroy(), False)[1])
+            Gtk.main()
+
 
 if __name__ == "__main__":
     unittest.main()
