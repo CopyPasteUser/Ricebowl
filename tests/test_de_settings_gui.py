@@ -26,6 +26,10 @@ class SettingsGuiTests(unittest.TestCase):
                     "outputs": [{"name": "output.1", "description": "USB speakers", "default": True}],
                     "inputs": [{"name": "input.1", "description": "USB mic", "default": True}],
                 }), \
+                mock.patch("macrice.de.settings_backend.power_snapshot", return_value={
+                    "current": "balanced", "supported": ("balanced", "power-saver"),
+                    "battery": {"percent": 85, "charging": False, "label": "Discharging"},
+                }), \
                 mock.patch("macrice.de.settings_backend.external_tool", return_value=None):
             Path(directory).chmod(0o700)
             window = settings.RiceSpiceWindow(Gtk, Gdk, GLib)

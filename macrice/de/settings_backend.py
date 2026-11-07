@@ -162,3 +162,38 @@ def power_action(action: str, *, nested: bool = False) -> None:
                 raise SettingsError("logind denied suspend; authorization may be required")
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise SettingsError("Power service could not complete the request") from exc
+
+
+def power_snapshot() -> dict[str, Any]:
+    """Read existing power-profile and battery services without changing state."""
+    from macrice import hardware_status
+
+    current, supported = hardware_status.read_power_profiles()
+    battery = hardware_status.read_battery()
+    return {"current": current, "supported": supported,
+            "battery": None if battery is None else {
+                "percent": battery.percent, "charging": battery.charging,
+                "label": battery.label}}
+
+
+def set_power_profile(name: str, *, expected: str) -> str:
+    """Reject stale or unsupported selections and verify the service's result."""
+    from macrice import hardware_status
+
+    if type(name) is not str or type(expected) is not str:
+        raise SettingsError("Select a supported power profile")
+    current, supported = hardware_status.read_power_profiles()
+    if current != expected or current not in supported:
+        raise SettingsError("Power profile changed; refresh before applying")
+    if name not in supported:
+        raise SettingsError("Power profile is not supported by this device")
+    if name == current:
+        return name
+    try:
+        hardware_status.set_power_profile(name)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise SettingsError("Power profile change was denied or could not be verified") from exc
+    actual, _ = hardware_status.read_power_profiles()
+    if actual != name:
+        raise SettingsError("Power profile change could not be verified")
+    return name

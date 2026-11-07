@@ -284,6 +284,38 @@ class RiceSpiceWindow:
                 lambda _result: self._state("System settings launch requested")), primary=True)
 
     def _power(self):
+        self._button("Refresh power state", lambda: self.show_page("power"))
+
+        def present(snapshot):
+            battery = snapshot["battery"]
+            self._text("Battery: " + (f"{battery['percent']}% · {battery['label']}"
+                                      if battery is not None else "No battery detected"),
+                       css="ricespice-note")
+            current, supported = snapshot["current"], snapshot["supported"]
+            self._text("Energy profile", css="ricespice-section")
+            if current not in supported:
+                self._text("No supported power-profile service or active profile available.",
+                           css="ricespice-note")
+            else:
+                combo = self.Gtk.ComboBoxText()
+                for profile in supported:
+                    combo.append(profile, profile.replace("-", " ").title())
+                combo.set_active_id(current)
+                self.content.pack_start(combo, False, False, 0)
+
+                def apply():
+                    selected = combo.get_active_id()
+                    if selected is None:
+                        self._state("Select a power profile first")
+                        return
+                    self._background(
+                        lambda: backend.set_power_profile(selected, expected=current),
+                        lambda _result: self.show_page("power"))
+
+                self._button("Apply energy profile", apply, primary=True)
+            self.content.show_all()
+
+        self._background(backend.power_snapshot, present)
         self._text("Lock the current desktop or request a system suspend.",
                    css="ricespice-note")
         self._button("Lock screen", lambda: self._background(
