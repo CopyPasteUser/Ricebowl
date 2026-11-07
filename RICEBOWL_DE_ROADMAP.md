@@ -283,6 +283,13 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   before replacing an active Wi-Fi connection and report missing credentials
   or an unavailable scan instead of claiming success. Password/enterprise
   onboarding, VPN/Ethernet editors and real roaming/hardware QA remain open.
+- [x] Add an **explicit masked WPA-Personal password dialog** for visible
+  networks, reusing RiceBowl's existing fixed-argument NetworkManager stdin
+  adapter. Reject invalid passphrases, stale/hidden SSIDs and unsupported
+  EAP/802.1X types before invoking a connection; clear the entry after the
+  dialog, do not log/store credentials or put them in process arguments, and
+  preserve the confirmation when switching an active network. Actual WPA2/3
+  authentication, policy/permissions and reconnect QA are still hardware gates.
 - [x] Expose **native read-only Mako history** in RicePlate's opt-in RicePop
   view as a second Active/Past tab with pointer and Left/Right keyboard access,
   bounded three-row navigation, on-demand refresh and explicit empty/error

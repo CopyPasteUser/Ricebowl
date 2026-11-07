@@ -87,6 +87,28 @@ class RiceSpiceSettingsTests(unittest.TestCase):
             with self.assertRaisesRegex(backend.SettingsError, "verified"):
                 backend.connect_visible_wifi("Guest")
 
+    def test_wpa_password_stays_with_stdin_adapter_and_rejects_unsupported_networks(self):
+        personal = {"enabled": True, "networks": [
+            {"ssid": "Home", "signal": 78, "security": "WPA2", "connected": False}]}
+        with mock.patch.object(backend, "wifi_snapshot", return_value=personal), \
+                mock.patch("macrice.hardware_status.connect_wifi_secured",
+                           return_value=True) as join:
+            self.assertTrue(backend.connect_secure_visible_wifi("Home", "correct-passphrase"))
+            join.assert_called_once_with("Home", "correct-passphrase")
+            for invalid in ("short", "line\nbreaks", "x" * 64, None):
+                with self.assertRaises(backend.SettingsError):
+                    backend.connect_secure_visible_wifi("Home", invalid)
+            with self.assertRaisesRegex(backend.SettingsError, "scan again"):
+                backend.connect_secure_visible_wifi("Unknown", "correct-passphrase")
+            join.assert_called_once()
+        unsupported = {"enabled": True, "networks": [
+            {"ssid": "Office", "signal": 70, "security": "WPA2 802.1X", "connected": False}]}
+        with mock.patch.object(backend, "wifi_snapshot", return_value=unsupported), \
+                mock.patch("macrice.hardware_status.connect_wifi_secured") as join:
+            with self.assertRaisesRegex(backend.SettingsError, "external authentication"):
+                backend.connect_secure_visible_wifi("Office", "correct-passphrase")
+            join.assert_not_called()
+
     def test_bluetooth_unpaired_or_stale_devices_are_not_mutated(self):
         fixture = {"powered": True, "adapter": "/org/bluez/hci0", "devices": [
             {"address": "AA:BB:CC:DD:EE:FF", "paired": False,

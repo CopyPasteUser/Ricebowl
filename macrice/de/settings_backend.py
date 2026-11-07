@@ -98,10 +98,7 @@ def wifi_snapshot(*, rescan: bool = False) -> dict[str, Any]:
          "connected": item.connected} for item in networks]}
 
 
-def connect_visible_wifi(ssid: str) -> bool:
-    """Join only a currently visible SSID; passwords remain with NetworkManager."""
-    from macrice import hardware_status
-
+def _visible_wifi(ssid: str) -> dict[str, Any]:
     if type(ssid) is not str or not ssid or "\x00" in ssid:
         raise SettingsError("Select a visible Wi-Fi network")
     try:
@@ -110,14 +107,42 @@ def connect_visible_wifi(ssid: str) -> bool:
     except UnicodeEncodeError as exc:
         raise SettingsError("Wi-Fi network name is invalid") from exc
     snapshot = wifi_snapshot()
-    if not snapshot["enabled"] or not any(
-            entry["ssid"] == ssid and not entry["connected"]
-            for entry in snapshot["networks"]):
+    selected = next((entry for entry in snapshot["networks"]
+                     if entry["ssid"] == ssid and not entry["connected"]), None)
+    if not snapshot["enabled"] or selected is None:
         raise SettingsError("Wi-Fi network changed; scan again before connecting")
+    return selected
+
+
+def connect_visible_wifi(ssid: str) -> bool:
+    """Join only a currently visible SSID; saved credentials stay with NetworkManager."""
+    from macrice import hardware_status
+
+    _visible_wifi(ssid)
     try:
         verified = hardware_status.connect_wifi(ssid)
     except (OSError, RuntimeError, ValueError) as exc:
         raise SettingsError("Wi-Fi connection failed; saved credentials may be missing") from exc
+    if not verified:
+        raise SettingsError("Wi-Fi may have changed; connection could not be verified")
+    return True
+
+
+def connect_secure_visible_wifi(ssid: str, password: str) -> bool:
+    """Send a transient WPA-Personal passphrase through the existing stdin adapter."""
+    from macrice import hardware_status
+
+    if (type(password) is not str or not 8 <= len(password) <= 63
+            or any(character in password for character in ("\r", "\n", "\x00"))):
+        raise SettingsError("WPA passphrase must be 8–63 characters without line breaks")
+    network = _visible_wifi(ssid)
+    security = network["security"].upper()
+    if "WPA" not in security or "802.1X" in security or "EAP" in security:
+        raise SettingsError("This network requires an external authentication editor")
+    try:
+        verified = hardware_status.connect_wifi_secured(ssid, password)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise SettingsError("Wi-Fi authentication failed; check password or network settings") from exc
     if not verified:
         raise SettingsError("Wi-Fi may have changed; connection could not be verified")
     return True
