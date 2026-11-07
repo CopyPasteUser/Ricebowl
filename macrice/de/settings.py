@@ -223,7 +223,7 @@ class RiceSpiceWindow:
                 if network["connected"]:
                     continue
 
-                def connect(target=ssid):
+                def confirm_switch(target):
                     active = next((entry["ssid"] for entry in networks
                                    if entry["connected"]), None)
                     if active is not None:
@@ -235,11 +235,49 @@ class RiceSpiceWindow:
                         approved = dialog.run() == self.Gtk.ResponseType.YES
                         dialog.destroy()
                         if not approved:
-                            return
+                            return False
+                    return True
+
+                def connect(target=ssid):
+                    if not confirm_switch(target):
+                        return
                     self._background(lambda: backend.connect_visible_wifi(target),
                                      lambda _result: self.show_page("network"))
 
                 self._button(f"Connect to {ssid}", connect)
+                security = network["security"].upper()
+                if "WPA" in security and "802.1X" not in security and "EAP" not in security:
+                    def connect_password(target=ssid):
+                        if not confirm_switch(target):
+                            return
+                        dialog = self.Gtk.Dialog(title="Wi-Fi password",
+                                                 transient_for=self.window,
+                                                 flags=self.Gtk.DialogFlags.MODAL)
+                        dialog.add_buttons("Cancel", self.Gtk.ResponseType.CANCEL,
+                                           "Connect", self.Gtk.ResponseType.OK)
+                        dialog.get_content_area().add(self._label(f"Password for {target}"))
+                        entry = self.Gtk.Entry()
+                        entry.set_visibility(False)
+                        entry.set_input_purpose(self.Gtk.InputPurpose.PASSWORD)
+                        entry.set_max_length(63)
+                        entry.set_activates_default(True)
+                        entry.get_accessible().set_name("Wi-Fi password")
+                        dialog.get_content_area().add(entry)
+                        dialog.set_default_response(self.Gtk.ResponseType.OK)
+                        dialog.show_all()
+                        password = entry.get_text() if dialog.run() == self.Gtk.ResponseType.OK else None
+                        entry.set_text("")
+                        dialog.destroy()
+                        if password is None:
+                            return
+                        if not 8 <= len(password) <= 63:
+                            self._state("WPA password must contain 8–63 characters")
+                            return
+                        self._background(
+                            lambda: backend.connect_secure_visible_wifi(target, password),
+                            lambda _result: self.show_page("network"))
+
+                    self._button(f"Enter password for {ssid}", connect_password)
             self.content.show_all()
 
         self._background(lambda: backend.wifi_snapshot(rescan=rescan), present)

@@ -111,6 +111,48 @@ class SettingsGuiTests(unittest.TestCase):
             refresh.clicked()
             self.assertTrue(any(call.kwargs.get("rescan") is True
                                 for call in scan.call_args_list))
+            snapshot["networks"] = [{"ssid": "Home", "signal": 85,
+                                     "security": "WPA2", "connected": False}]
+            window.show_page("network")
+            self.assertTrue(any(isinstance(child, Gtk.Button)
+                                and child.get_label() == "Enter password for Home"
+                                for child in window.content.get_children()))
+            password_button = next(child for child in window.content.get_children()
+                                   if isinstance(child, Gtk.Button)
+                                   and child.get_label() == "Enter password for Home")
+
+            visibility = []
+
+            def enter_password():
+                dialog = next(widget for widget in Gtk.Window.list_toplevels()
+                              if isinstance(widget, Gtk.Dialog)
+                              and widget.get_title() == "Wi-Fi password")
+                entry = next(child for child in dialog.get_content_area().get_children()
+                             if isinstance(child, Gtk.Entry))
+                visibility.append(entry.get_visibility())
+                entry.set_text("correct-passphrase")
+                dialog.response(Gtk.ResponseType.OK)
+                return False
+
+            def cancel_stuck_dialog():
+                for widget in Gtk.Window.list_toplevels():
+                    if isinstance(widget, Gtk.Dialog) and widget.get_title() == "Wi-Fi password":
+                        widget.response(Gtk.ResponseType.CANCEL)
+                return False
+
+            with mock.patch("macrice.de.settings_backend.connect_secure_visible_wifi",
+                            return_value=True) as secure_join:
+                GLib.idle_add(enter_password)
+                GLib.timeout_add(1000, cancel_stuck_dialog)
+                password_button.clicked()
+                secure_join.assert_called_once_with("Home", "correct-passphrase")
+                self.assertEqual(visibility, [False])
+            snapshot["networks"] = [{"ssid": "Office", "signal": 85,
+                                     "security": "WPA2 802.1X", "connected": False}]
+            window.show_page("network")
+            self.assertFalse(any(isinstance(child, Gtk.Button)
+                                 and child.get_label() == "Enter password for Office"
+                                 for child in window.content.get_children()))
             GLib.timeout_add(30, lambda: (window.window.destroy(), False)[1])
             Gtk.main()
 
