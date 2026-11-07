@@ -290,6 +290,13 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   dialog, do not log/store credentials or put them in process arguments, and
   preserve the confirmation when switching an active network. Actual WPA2/3
   authentication, policy/permissions and reconnect QA are still hardware gates.
+- [x] Add **on-demand MPRIS media controls** to RiceSpice's Sound page, reusing
+  the existing bounded session-bus adapter: show actual player/title/artist/
+  playback state, offer only permitted Previous/Play-Pause/Next actions, and
+  re-read after each command. Audio-device inventory and MPRIS discovery have
+  independent failure states so one missing service does not suppress the
+  other. No new polling process, player owner, persistence or recipe command.
+  Real player/browser compatibility and keyboard/AT hardware QA remain open.
 - [x] Expose **native read-only Mako history** in RicePlate's opt-in RicePop
   view as a second Active/Past tab with pointer and Left/Right keyboard access,
   bounded three-row navigation, on-demand refresh and explicit empty/error
