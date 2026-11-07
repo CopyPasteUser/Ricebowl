@@ -183,6 +183,11 @@ def _parse_layout_node(raw: Any, depth: int, counts: list[int], widgets: list[st
         if type(raw["width"]) is not int or not 4 <= raw["width"] <= 64:
             raise RecipeError("Panel gap width must be 4-64 logical pixels")
         return LayoutNode(kind, raw["width"])
+    if kind == "divider":
+        _strict_keys(raw, {"type", "width"}, "Divider node")
+        if type(raw["width"]) is not int or not 6 <= raw["width"] <= 32:
+            raise RecipeError("Panel divider width must be 6-32 logical pixels")
+        return LayoutNode(kind, raw["width"])
     if kind == "label":
         _strict_keys(raw, {"type", "text"}, "Label node")
         text = raw["text"]
@@ -226,6 +231,8 @@ def layout_node_json(node: LayoutNode) -> dict[str, Any]:
         return {"type": "widget", "id": node.value}
     if node.kind == "label":
         return {"type": "label", "text": node.value}
+    if node.kind == "divider":
+        return {"type": "divider", "width": node.value}
     return {"type": "gap", "width": node.value}
 
 
@@ -736,6 +743,12 @@ def waybar_config(recipe: PanelRecipe, *, screen_width: int | None = None) -> tu
                 key = f"custom/rice-gap-{index}"
                 generated_modules[key] = {"format": "", "tooltip": False}
                 generated_css.append(f"#custom-rice-gap-{index} {{ min-width: {node.value}px; padding: 0; }}")
+            elif node.kind == "divider":
+                key = f"custom/rice-divider-{index}"
+                generated_modules[key] = {"format": "", "tooltip": False}
+                generated_css.append(
+                    f"#custom-rice-divider-{index} {{ min-width: {node.value}px; "
+                    f"border-left: 1px solid {recipe.colors[1]}; margin: 8px 0; padding: 0; }}")
             else:
                 key = f"custom/rice-label-{index}"
                 generated_modules[key] = {"format": str(node.value), "tooltip": False}
