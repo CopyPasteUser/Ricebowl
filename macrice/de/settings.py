@@ -298,6 +298,7 @@ class RiceSpiceWindow:
                            css="ricespice-note")
             else:
                 combo = self.Gtk.ComboBoxText()
+                combo.get_accessible().set_name("Energy profile")
                 for profile in supported:
                     combo.append(profile, profile.replace("-", " ").title())
                 combo.set_active_id(current)
