@@ -19,6 +19,9 @@ class SettingsGuiTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, \
                 mock.patch.dict("os.environ", {"XDG_CONFIG_HOME": directory}), \
                 mock.patch("macrice.de.settings_backend.wifi_state", return_value=True), \
+                mock.patch("macrice.de.settings_backend.wifi_snapshot", return_value={
+                    "enabled": True, "networks": [],
+                }), \
                 mock.patch("macrice.de.settings_backend.bluetooth_snapshot", return_value={
                     "powered": True, "adapter": "/org/bluez/hci0", "devices": [],
                 }), \
@@ -57,7 +60,9 @@ class SettingsGuiTests(unittest.TestCase):
             self.skipTest("GTK introspection typelib is not installed")
         if not Gtk.init_check([])[0]:
             self.skipTest("GTK display is unavailable")
-        with mock.patch("macrice.de.settings_backend.wifi_state", return_value=True), \
+        with mock.patch("macrice.de.settings_backend.wifi_snapshot", return_value={
+                    "enabled": True, "networks": [],
+                }), \
                 mock.patch("macrice.de.settings_backend.power_snapshot", return_value={
                     "current": "balanced", "supported": ("balanced", "power-saver"),
                     "battery": {"percent": 54, "charging": False, "label": "Discharging"},
@@ -77,6 +82,35 @@ class SettingsGuiTests(unittest.TestCase):
                          and child.get_label() == "Apply energy profile")
             apply.clicked()
             change.assert_called_once_with("power-saver", expected="balanced")
+            GLib.timeout_add(30, lambda: (window.window.destroy(), False)[1])
+            Gtk.main()
+
+    def test_network_page_connects_selected_visible_wifi_without_password_leaks(self):
+        try:
+            Gtk, Gdk, GLib = settings._gtk_modules()
+        except (ImportError, ValueError):
+            self.skipTest("GTK introspection typelib is not installed")
+        if not Gtk.init_check([])[0]:
+            self.skipTest("GTK display is unavailable")
+        snapshot = {"enabled": True, "networks": [
+            {"ssid": "Guest", "signal": 70, "security": "", "connected": False}]}
+        with mock.patch("macrice.de.settings_backend.wifi_snapshot", return_value=snapshot) as scan, \
+                mock.patch("macrice.de.settings_backend.connect_visible_wifi",
+                           return_value=True) as join:
+            window = settings.RiceSpiceWindow(Gtk, Gdk, GLib)
+            window._background = lambda work, done: done(work())
+            window.show_page("network")
+            connect = next(child for child in window.content.get_children()
+                           if isinstance(child, Gtk.Button)
+                           and child.get_label() == "Connect to Guest")
+            connect.clicked()
+            join.assert_called_once_with("Guest")
+            refresh = next(child for child in window.content.get_children()
+                           if isinstance(child, Gtk.Button)
+                           and child.get_label() == "Refresh visible networks")
+            refresh.clicked()
+            self.assertTrue(any(call.kwargs.get("rescan") is True
+                                for call in scan.call_args_list))
             GLib.timeout_add(30, lambda: (window.window.destroy(), False)[1])
             Gtk.main()
 

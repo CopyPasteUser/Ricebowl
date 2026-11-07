@@ -85,6 +85,44 @@ def set_wifi(enabled: bool, *, expected: bool) -> bool:
     return enabled
 
 
+def wifi_snapshot(*, rescan: bool = False) -> dict[str, Any]:
+    """Read NetworkManager's bounded visible-SSID inventory on demand."""
+    from macrice import hardware_status
+
+    if type(rescan) is not bool:
+        raise SettingsError("Wi-Fi scan selection must be explicit")
+    enabled = wifi_state()
+    networks = hardware_status.read_wifi_networks(rescan=rescan) if enabled else ()
+    return {"enabled": enabled, "networks": [
+        {"ssid": item.ssid, "signal": item.signal, "security": item.security,
+         "connected": item.connected} for item in networks]}
+
+
+def connect_visible_wifi(ssid: str) -> bool:
+    """Join only a currently visible SSID; passwords remain with NetworkManager."""
+    from macrice import hardware_status
+
+    if type(ssid) is not str or not ssid or "\x00" in ssid:
+        raise SettingsError("Select a visible Wi-Fi network")
+    try:
+        if len(ssid.encode("utf-8")) > 32:
+            raise SettingsError("Wi-Fi network name is invalid")
+    except UnicodeEncodeError as exc:
+        raise SettingsError("Wi-Fi network name is invalid") from exc
+    snapshot = wifi_snapshot()
+    if not snapshot["enabled"] or not any(
+            entry["ssid"] == ssid and not entry["connected"]
+            for entry in snapshot["networks"]):
+        raise SettingsError("Wi-Fi network changed; scan again before connecting")
+    try:
+        verified = hardware_status.connect_wifi(ssid)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise SettingsError("Wi-Fi connection failed; saved credentials may be missing") from exc
+    if not verified:
+        raise SettingsError("Wi-Fi may have changed; connection could not be verified")
+    return True
+
+
 def bluetooth_snapshot() -> dict[str, Any]:
     from macrice import bluetooth_dbus
 

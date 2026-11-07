@@ -51,6 +51,42 @@ class RiceSpiceSettingsTests(unittest.TestCase):
         with self.assertRaises(backend.SettingsError):
             backend.set_wifi(1, expected=True)
 
+    def test_network_inventory_is_bounded_by_existing_networkmanager_reader(self):
+        from macrice.hardware_status import WifiNetwork
+
+        rows = (WifiNetwork("Home", 90, "WPA2", True),
+                WifiNetwork("Guest", 62, "", False))
+        with mock.patch.object(backend, "wifi_state", return_value=True), \
+                mock.patch("macrice.hardware_status.read_wifi_networks", return_value=rows) as scan:
+            self.assertEqual(backend.wifi_snapshot(rescan=True)["networks"], [
+                {"ssid": "Home", "signal": 90, "security": "WPA2", "connected": True},
+                {"ssid": "Guest", "signal": 62, "security": "", "connected": False},
+            ])
+            scan.assert_called_once_with(rescan=True)
+        with mock.patch.object(backend, "wifi_state", return_value=False), \
+                mock.patch("macrice.hardware_status.read_wifi_networks") as scan:
+            self.assertEqual(backend.wifi_snapshot(), {"enabled": False, "networks": []})
+            scan.assert_not_called()
+        with self.assertRaises(backend.SettingsError):
+            backend.wifi_snapshot(rescan="yes")
+
+    def test_connect_wifi_requires_fresh_visible_selection_and_readback(self):
+        network = {"enabled": True, "networks": [
+            {"ssid": "Guest", "signal": 62, "security": "", "connected": False}]}
+        with mock.patch.object(backend, "wifi_snapshot", return_value=network), \
+                mock.patch("macrice.hardware_status.connect_wifi", return_value=True) as join:
+            self.assertTrue(backend.connect_visible_wifi("Guest"))
+            join.assert_called_once_with("Guest")
+            with self.assertRaisesRegex(backend.SettingsError, "scan again"):
+                backend.connect_visible_wifi("Absent")
+            with self.assertRaises(backend.SettingsError):
+                backend.connect_visible_wifi("bad\x00ssid")
+            join.assert_called_once()
+        with mock.patch.object(backend, "wifi_snapshot", return_value=network), \
+                mock.patch("macrice.hardware_status.connect_wifi", return_value=False):
+            with self.assertRaisesRegex(backend.SettingsError, "verified"):
+                backend.connect_visible_wifi("Guest")
+
     def test_bluetooth_unpaired_or_stale_devices_are_not_mutated(self):
         fixture = {"powered": True, "adapter": "/org/bluez/hci0", "devices": [
             {"address": "AA:BB:CC:DD:EE:FF", "paired": False,

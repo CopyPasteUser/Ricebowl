@@ -163,7 +163,7 @@ class RiceSpiceWindow:
 
         future.add_done_callback(complete)
 
-    def show_page(self, name: str):
+    def show_page(self, name: str, *, rescan: bool = False):
         if name not in self.nav_buttons:
             return
         self.generation += 1
@@ -184,7 +184,7 @@ class RiceSpiceWindow:
         self.status = self._label("", css="ricespice-state")
         self.content.pack_end(self.status, False, False, 0)
         if name == "network":
-            self._network()
+            self._network(rescan=rescan)
         elif name == "audio":
             self._audio()
         elif name == "bluetooth":
@@ -197,18 +197,52 @@ class RiceSpiceWindow:
             self._external(name)
         self.content.show_all()
 
-    def _network(self):
+    def _network(self, *, rescan: bool = False):
         self._text("Turning Wi-Fi off can disconnect an active network session.", css="ricespice-note")
-        self._button("Refresh connection state", lambda: self.show_page("network"))
+        self._button("Refresh visible networks", lambda: self.show_page("network", rescan=True))
 
-        def present(enabled):
+        def present(snapshot):
+            enabled = snapshot["enabled"]
             self._state("Wi-Fi radio: enabled" if enabled else "Wi-Fi radio: disabled")
             self._button("Disable Wi-Fi" if enabled else "Enable Wi-Fi", lambda: self._background(
                 lambda: backend.set_wifi(not enabled, expected=enabled),
                 lambda _result: self.show_page("network")), primary=True)
+            self._text("Visible networks", css="ricespice-section")
+            networks = snapshot["networks"]
+            if not enabled:
+                self._text("Enable Wi-Fi to look for networks.", css="ricespice-note")
+            elif not networks:
+                self._text("No networks reported. Try Refresh; scanning may be unavailable.",
+                           css="ricespice-note")
+            for network in networks:
+                ssid = network["ssid"]
+                description = f"{ssid} · {network['signal']}% signal · {network['security'] or 'Open'}"
+                if network["connected"]:
+                    description += " · Connected"
+                self._text(description)
+                if network["connected"]:
+                    continue
+
+                def connect(target=ssid):
+                    active = next((entry["ssid"] for entry in networks
+                                   if entry["connected"]), None)
+                    if active is not None:
+                        dialog = self.Gtk.MessageDialog(
+                            transient_for=self.window, modal=True,
+                            message_type=self.Gtk.MessageType.QUESTION,
+                            buttons=self.Gtk.ButtonsType.YES_NO,
+                            text=f"Switch Wi-Fi from {active} to {target}?")
+                        approved = dialog.run() == self.Gtk.ResponseType.YES
+                        dialog.destroy()
+                        if not approved:
+                            return
+                    self._background(lambda: backend.connect_visible_wifi(target),
+                                     lambda _result: self.show_page("network"))
+
+                self._button(f"Connect to {ssid}", connect)
             self.content.show_all()
 
-        self._background(backend.wifi_state, present)
+        self._background(lambda: backend.wifi_snapshot(rescan=rescan), present)
 
     def _audio(self):
         self._button("Refresh audio devices", lambda: self.show_page("audio"))

@@ -276,6 +276,13 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   check, verify the changed profile and expose an honest unavailable state.
   The existing lock/confirmed suspend controls remain separate. No daemon or
   privileged helper is added; real battery, polkit and sleep/wake QA remains open.
+- [x] Expand the **on-demand RiceSpice Network page** beyond the Wi-Fi radio:
+  show a bounded list of actual NetworkManager SSIDs, signal/security and
+  connection state; provide an explicit rescan and verified connection to a
+  still-visible network using existing credentials or an open network. Ask
+  before replacing an active Wi-Fi connection and report missing credentials
+  or an unavailable scan instead of claiming success. Password/enterprise
+  onboarding, VPN/Ethernet editors and real roaming/hardware QA remain open.
 - [x] Expose **native read-only Mako history** in RicePlate's opt-in RicePop
   view as a second Active/Past tab with pointer and Left/Right keyboard access,
   bounded three-row navigation, on-demand refresh and explicit empty/error
