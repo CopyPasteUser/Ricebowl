@@ -54,6 +54,7 @@ pub enum Widget {
     Network,
     Audio,
     Gap(u32),
+    Divider(u32),
     Label(u8),
 }
 
@@ -215,6 +216,7 @@ struct LayoutSections {
 enum LayoutNode {
     Widget { id: String },
     Gap { width: u32 },
+    Divider { width: u32 },
     Label { text: String },
     Group { gap: u32, children: Vec<LayoutNode> },
 }
@@ -325,6 +327,12 @@ fn expand_layout(
                 return Err("Panel gap width invalid".into());
             }
             rendered.push(Widget::Gap(*width));
+        }
+        LayoutNode::Divider { width } => {
+            if !(6..=32).contains(width) {
+                return Err("Panel divider width invalid".into());
+            }
+            rendered.push(Widget::Divider(*width));
         }
         LayoutNode::Label { text } => {
             if !safe_label(text, 24) {
@@ -599,6 +607,7 @@ fn width_for(style: &PanelStyle, widget: Widget, tasks: usize) -> u32 {
         Widget::Battery | Widget::Network | Widget::Audio => 64,
         Widget::Tasks => tasks as u32 * style.widths[1],
         Widget::Gap(width) => width,
+        Widget::Divider(width) => width,
         Widget::Label(index) => {
             style.labels[index as usize].len() as u32 * 8 + style.label_padding * 2
         }
@@ -748,7 +757,7 @@ pub fn hit(
             }
             Widget::Clock => Some(Hit::Clock),
             Widget::Battery | Widget::Network | Widget::Audio => None,
-            Widget::Gap(_) | Widget::Label(_) => None,
+            Widget::Gap(_) | Widget::Divider(_) | Widget::Label(_) => None,
         };
     }
     None
@@ -967,6 +976,24 @@ mod tests {
         assert_eq!(hit(120.0, 800, 2, 0, &style), None);
         assert_eq!(hit(189.0, 800, 2, 0, &style), Some(Hit::Task(0)));
         assert_eq!(hit(705.0, 800, 2, 0, &style), Some(Hit::Clock));
+    }
+
+    #[test]
+    fn v3_divider_is_bounded_visible_geometry_without_click_action() {
+        let mut data: serde_json::Value = serde_json::from_str(NESTED).unwrap();
+        data["panel"]["layout"]["start"].as_array_mut().unwrap()
+            .push(serde_json::json!({"type": "divider", "width": 12}));
+        let style = parse(&data.to_string(), None).unwrap();
+        let divider = layout(&style, 1000, 1).into_iter()
+            .find(|node| node.widget == Widget::Divider(12)).unwrap();
+        assert_eq!(divider.width, 12);
+        assert_eq!(hit(f64::from(divider.x + 5), 1000, 1, 0, &style), None);
+        for bad in [serde_json::json!(5), serde_json::json!(33),
+                    serde_json::json!(true)] {
+            data["panel"]["layout"]["start"].as_array_mut().unwrap().last_mut().unwrap()
+                ["width"] = bad;
+            assert!(parse(&data.to_string(), None).is_err());
+        }
     }
 
     #[test]

@@ -1355,6 +1355,11 @@ fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
                           height / 2 - 4, &label, style.foreground);
             }
             Widget::Gap(_) => {}
+            Widget::Divider(_) => {
+                let line_height = height.saturating_sub(16);
+                fill_rect(canvas, width, height, placed.x + placed.width / 2,
+                          (height - line_height) / 2, 1, line_height, style.foreground);
+            }
             Widget::Label(index) => {
                 if let Some(label) = style.labels.get(index as usize) {
                     draw_text(canvas, width, height, placed.x + style.label_padding,

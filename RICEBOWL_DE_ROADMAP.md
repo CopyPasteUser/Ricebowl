@@ -389,6 +389,12 @@ depend on the XFCE session.
   Cover both renderers with a common fixture and real headless labwc smoke.
   This milestone is **panel-only**: full desktop regions, responsive layout
   constraints, tokenized visual states and source-image conversion remain open.
+- [x] Extend schema-v3–v6 panel composition with a **bounded, noninteractive
+  divider** (`type: divider`, width 6–32px). Python validation, Rust native
+  geometry/painting, the Waybar CSS fallback and Creator discovery/review share
+  this same data-only primitive. Reject unknown properties and keep the divider
+  out of clickable hit regions. This does not yet cover portable icons/fonts,
+  rich desktop components or full mockup-to-rice conversion.
 - [x] Introduce **opt-in schema-v4 shell composition** as a vertical slice:
   validated grouped root-menu actions compiled to a private labwc menu,
   allowlisted bundled wallpaper applied through swaybg, actual native task

@@ -41,6 +41,7 @@ class NestedPanelTests(unittest.TestCase):
                 {"type": "group", "gap": 4, "children": [
                     {"type": "label", "text": "WORKSPACE 01"},
                     {"type": "gap", "width": 20},
+                    {"type": "divider", "width": 12},
                 ]},
                 {"type": "widget", "id": "tasks"},
             ]},
@@ -57,10 +58,12 @@ class NestedPanelTests(unittest.TestCase):
         self.assertEqual(modules[-1], "wlr/taskbar")
         self.assertIn("custom/rice-label-", " ".join(modules))
         self.assertIn("custom/rice-gap-", " ".join(modules))
+        self.assertIn("custom/rice-divider-", " ".join(modules))
         label = next(key for key in modules if key.startswith("custom/rice-label-"))
         self.assertEqual(config[label]["format"], "WORKSPACE 01")
         self.assertNotIn("exec", config[label])
         self.assertIn("min-width: 20px", css)
+        self.assertIn("border-left: 1px solid", css)
         self.assertEqual(config["spacing"], 0)
 
     def test_init_v3_and_creator_edit_preserve_identity_and_runtime_schema(self):
@@ -116,6 +119,10 @@ class NestedPanelTests(unittest.TestCase):
             {"type": "widget", "id": "launcher", "on_click": "rm -rf"},
             {"type": "gap", "width": True},
             {"type": "gap", "width": 1000},
+            {"type": "divider", "width": 5},
+            {"type": "divider", "width": True},
+            {"type": "divider", "width": 33},
+            {"type": "divider", "width": 12, "exec": "unsafe"},
             {"type": "group", "gap": -1, "children": [{"type": "widget", "id": "launcher"}]},
             {"type": "group", "gap": 5, "children": []},
             {"type": "unknown", "payload": "ignore"},
@@ -156,7 +163,7 @@ class NestedPanelTests(unittest.TestCase):
         self.assertEqual(nested["max_nodes"], recipes.MAX_LAYOUT_NODES)
         self.assertEqual(nested["max_depth"], recipes.MAX_LAYOUT_DEPTH)
         self.assertEqual({item["id"] for item in result["layout_primitives"]},
-                         {"label", "group", "gap"})
+                         {"label", "group", "gap", "divider"})
         self.assertTrue(set(("/panel/layout/start", "/panel/layout/center",
                              "/panel/layout/end")).issubset(
                                  set(result["authoring"]["draft_edit"]["editable_paths"])))
