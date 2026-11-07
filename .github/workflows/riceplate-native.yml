@@ -57,7 +57,7 @@ jobs:
       - name: Install native Wayland and keyboard build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libxkbcommon-dev labwc grim wlr-randr swaybg python3-pil dbus-user-session dbus-x11
+          sudo apt-get install -y libxkbcommon-dev libdbus-1-dev pkg-config labwc grim wlr-randr swaybg python3-pil dbus-user-session dbus-x11
       - name: Build and test native RicePlate
         run: |
           cargo test --manifest-path components/riceplate-wayland/Cargo.toml

@@ -53,6 +53,7 @@ pub enum Widget {
     Battery,
     Network,
     Audio,
+    Tray,
     Gap(u32),
     Divider(u32),
     Label(u8),
@@ -72,6 +73,7 @@ pub enum Hit {
     Task(usize),
     PreviousTasks,
     NextTasks,
+    Tray(usize),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -318,7 +320,7 @@ fn expand_layout(
                 "network" => rendered.push(Widget::Network),
                 "audio" => rendered.push(Widget::Audio),
                 // Known but unsupported native controls remain Waybar-only.
-                "tray" => {}
+                "tray" => rendered.push(Widget::Tray),
                 _ => return Err("Unsupported panel widget or action".into()),
             }
         }
@@ -423,7 +425,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
                         "battery" => sections[index].push(Widget::Battery),
                         "network" => sections[index].push(Widget::Network),
                         "audio" => sections[index].push(Widget::Audio),
-                        "tray" => {}
+                        "tray" => sections[index].push(Widget::Tray),
                         _ => return Err("Unsupported RicePlate widget or action".into()),
                     }
                 }
@@ -605,6 +607,7 @@ fn width_for(style: &PanelStyle, widget: Widget, tasks: usize) -> u32 {
         Widget::Launcher => style.widths[0],
         Widget::Clock => style.widths[2],
         Widget::Battery | Widget::Network | Widget::Audio => 64,
+        Widget::Tray => crate::tray::WIDTH,
         Widget::Tasks => tasks as u32 * style.widths[1],
         Widget::Gap(width) => width,
         Widget::Divider(width) => width,
@@ -619,10 +622,14 @@ pub fn layout(style: &PanelStyle, screen_width: u32, tasks: usize) -> Vec<Placed
         Some((threshold, compact)) if screen_width <= *threshold => compact,
         _ => &style.sections,
     };
+    // A tray is an interactive region. Do not reserve fake hit targets on
+    // narrow displays where it would eliminate the only task slot.
+    let tray_enabled = screen_width >= style.widths.iter().sum::<u32>()
+        .saturating_add(crate::tray::WIDTH + 8);
     let fixed_width: u32 = sections
         .iter()
         .flatten()
-        .filter(|&&w| w != Widget::Tasks)
+        .filter(|&&w| w != Widget::Tasks && (w != Widget::Tray || tray_enabled))
         .map(|&w| width_for(style, w, 0))
         .sum();
     let optional = [Widget::Battery, Widget::Audio, Widget::Network];
@@ -651,6 +658,7 @@ pub fn layout(style: &PanelStyle, screen_width: u32, tasks: usize) -> Vec<Placed
         .min(MAX_TRACKED_TASKS)
         .min((screen_width.saturating_sub(effective_fixed + 8) / style.widths[1]) as usize);
     let is_visible = |widget: Widget| -> bool {
+        if widget == Widget::Tray { return tray_enabled; }
         if widget == Widget::Clock { return show_clock; }
         if let Some(index) = optional.iter().position(|&candidate| candidate == widget) {
             return show_status[index];
@@ -756,6 +764,8 @@ pub fn hit(
                 }
             }
             Widget::Clock => Some(Hit::Clock),
+            Widget::Tray => Some(Hit::Tray(((x - f64::from(item.x)) /
+                f64::from(crate::tray::SLOT_WIDTH)) as usize)),
             Widget::Battery | Widget::Network | Widget::Audio => None,
             Widget::Gap(_) | Widget::Divider(_) | Widget::Label(_) => None,
         };
@@ -813,11 +823,14 @@ mod tests {
         assert_eq!(hit(110.0, 800, 2, 0, &a), Some(Hit::Task(0)));
         assert_eq!(hit(110.0, 800, 2, 0, &b), None);
         assert_eq!(hit(250.0, 800, 2, 0, &b), Some(Hit::Task(0)));
-        assert_eq!(hit(760.0, 800, 2, 0, &b), Some(Hit::Clock));
+        let clock = layout(&b, 800, 2).into_iter()
+            .find(|item| item.widget == Widget::Clock).unwrap();
+        assert_eq!(hit(f64::from(clock.x + 6), 800, 2, 0, &b), Some(Hit::Clock));
         assert_eq!(hit(150.0, 180, 20, 0, &b), None);
         assert!(layout(&b, 180, 20)
             .iter()
             .all(|item| item.widget != Widget::Clock));
+        assert!(layout(&b, 180, 20).iter().all(|item| item.widget != Widget::Tray));
     }
 
     #[test]
@@ -834,29 +847,33 @@ mod tests {
             );
         let style = parse(&reordered, Some("classic")).unwrap();
         assert_eq!(hit(40.0, 800, 2, 0, &style), Some(Hit::Clock));
-        assert_eq!(hit(390.0, 800, 2, 0, &style), Some(Hit::Launcher));
-        assert_eq!(hit(490.0, 800, 2, 0, &style), Some(Hit::Task(0)));
+        let layout = layout(&style, 800, 2);
+        let launcher = layout.iter().find(|item| item.widget == Widget::Launcher).unwrap();
+        let tasks = layout.iter().find(|item| item.widget == Widget::Tasks).unwrap();
+        assert_eq!(hit(f64::from(launcher.x + 6), 800, 2, 0, &style), Some(Hit::Launcher));
+        assert_eq!(hit(f64::from(tasks.x + 6), 800, 2, 0, &style), Some(Hit::Task(0)));
     }
 
     #[test]
     fn overflow_pages_reach_all_windows_without_overlapping_hit_areas() {
         let style = load("classic").unwrap();
         let view = task_view(&style, 800, 10, 0).unwrap();
-        assert_eq!((view.slots, view.start), (3, 0));
+        assert_eq!((view.slots, view.start), (2, 0));
         assert!(!view.prev && view.next);
         let start = LAUNCHER_WIDTH as f64;
         let nav = start + f64::from(view.content_width);
         assert_eq!(hit(start + 10.0, 800, 10, 0, &style), Some(Hit::Task(0)));
         assert_eq!(hit(nav + 5.0, 800, 10, 0, &style), None);
         assert_eq!(hit(nav + 30.0, 800, 10, 0, &style), Some(Hit::NextTasks));
-        assert_eq!(hit(start + 10.0, 800, 10, 3, &style), Some(Hit::Task(3)));
-        assert_eq!(hit(nav + 5.0, 800, 10, 3, &style), Some(Hit::PreviousTasks));
+        assert_eq!(hit(start + 10.0, 800, 10, view.slots, &style),
+                   Some(Hit::Task(view.slots)));
+        assert_eq!(hit(nav + 5.0, 800, 10, view.slots, &style), Some(Hit::PreviousTasks));
         let last = task_view(&style, 800, 10, usize::MAX).unwrap();
-        assert_eq!(last.start, 7);
+        assert_eq!(last.start, 8);
         assert!(last.prev && !last.next);
         assert_eq!(
             hit(start + 10.0, 800, 10, usize::MAX, &style),
-            Some(Hit::Task(7))
+            Some(Hit::Task(8))
         );
         assert_eq!(hit(nav + 30.0, 800, 10, usize::MAX, &style), None);
     }
@@ -914,11 +931,10 @@ mod tests {
         assert_eq!(hit(119.0, 800, 2, 0, &style), Some(Hit::Launcher));
         assert_eq!(hit(121.0, 800, 2, 0, &style), Some(Hit::Task(0)));
         assert_eq!(hit(320.0, 800, 2, 0, &style), Some(Hit::Task(1)));
-        // Native power is a lower-priority indicator, not a reason to
-        // regress the preexisting taskbar viewport under heavy workload.
+        // Native power is a lower-priority indicator and cannot consume
+        // another task slot; the newly enabled tray reserves fixed space.
         assert!(layout(&style, 800, 2).iter().any(|item| item.widget == Widget::Battery));
-        assert!(!layout(&style, 800, 10).iter().any(|item| item.widget == Widget::Battery));
-        assert_eq!(task_view(&style, 800, 10, 0).unwrap().slots, 3);
+        assert_eq!(task_view(&style, 800, 10, 0).unwrap().slots, 2);
     }
 
     #[test]
@@ -933,9 +949,10 @@ mod tests {
         let overflow = layout(&style, 800, 20);
         let statuses: Vec<_> = overflow.iter().filter(|item| matches!(item.widget,
             Widget::Battery | Widget::Audio | Widget::Network)).collect();
-        assert_eq!(statuses.len(), 1);
-        assert_eq!(statuses[0].widget, Widget::Battery);
-        assert_eq!(task_view(&style, 800, 20, 0).unwrap().slots, 3);
+        assert_eq!(statuses.len(), 2);
+        assert_eq!(statuses.iter().map(|item| item.widget).collect::<Vec<_>>(),
+                   vec![Widget::Audio, Widget::Battery]);
+        assert_eq!(task_view(&style, 800, 20, 0).unwrap().slots, 2);
     }
 
     #[test]
