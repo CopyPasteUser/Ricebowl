@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import unittest
 
-from macrice.de import recipes, review
+from macrice.de import recipes, review, pack
 
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples/wayland"
@@ -48,6 +48,57 @@ class CreatorExamplesTests(unittest.TestCase):
         self.assertNotEqual(classic.layout, original.layout)
         self.assertNotEqual(classic.colors, original.colors)
         self.assertNotEqual(classic.compact, original.compact)
+
+    def test_two_modern_examples_are_distinct_validated_v10_rices(self):
+        classic = recipes.parse((EXAMPLES / "heritage-modern-v10.json").read_bytes())
+        original = recipes.parse((EXAMPLES / "orbit-studio-v10.json").read_bytes())
+        self.assertEqual((classic.schema_version, original.schema_version), (10, 10))
+        self.assertEqual(classic.position, "bottom")
+        self.assertEqual(original.position, "top")
+        self.assertEqual(classic.menu_presentation, "tabs")
+        self.assertEqual(original.menu_presentation, "sidebar")
+        self.assertNotEqual(classic.layout, original.layout)
+        self.assertNotEqual(classic.colors, original.colors)
+        self.assertNotEqual(classic.compact, original.compact)
+        self.assertNotEqual(classic.appearance, original.appearance)
+        self.assertEqual((classic.appearance.font_scale, classic.appearance.font_weight),
+                         (1, "regular"))
+        self.assertEqual((original.appearance.font_scale, original.appearance.font_weight),
+                         (2, "bold"))
+        self.assertEqual(classic.composition.widgets[0].kind, "text")
+        self.assertEqual(original.composition.widgets[0].kind, "text")
+        self.assertTrue(all(comp.role in ("status", "action") for comp in classic.components))
+        self.assertTrue(all(comp.role in ("status", "action") for comp in original.components))
+        self.assertEqual({comp.binding for comp in classic.components if comp.role == "action"},
+                         {"wifi-toggle"})
+        self.assertEqual({comp.binding for comp in original.components if comp.role == "action"},
+                         {"wifi-toggle"})
+        self.assertNotEqual(review._semantic_hash(review._manifest(classic)),
+                            review._semantic_hash(review._manifest(original)))
+        for recipe in (classic, original):
+            with self.subTest(recipe=recipe.recipe_id):
+                wide, css = recipes.waybar_config(recipe, screen_width=1366)
+                compact, _ = recipes.waybar_config(recipe, screen_width=640)
+                status_module = ("pulseaudio" if recipe.recipe_id == "heritage-modern-v10"
+                                 else "network")
+                self.assertIn(f'"{status_module}"', wide)
+                self.assertIn('"wlr/taskbar"', compact)
+                self.assertNotIn('"on-click": "nmcli', wide)
+                self.assertIn("window#waybar", css)
+
+    def test_modern_examples_roundtrip_as_safe_ricepacks(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            for name in ("heritage-modern-v10", "orbit-studio-v10"):
+                with self.subTest(recipe=name):
+                    source = Path(folder) / f"{name}.json"
+                    source.write_bytes((EXAMPLES / f"{name}.json").read_bytes())
+                    source.chmod(0o600)
+                    archive = Path(folder) / f"{name}.ricepack"
+                    pack.export_pack(str(source), archive)
+                    inspected = pack.inspect_pack(archive)
+                    self.assertTrue(inspected["ok"])
+                    self.assertFalse(inspected["applied"])
 
 
 if __name__ == "__main__":
