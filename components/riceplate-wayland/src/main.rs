@@ -862,6 +862,12 @@ impl RicePlate {
                     model.add(20_100 + index as u64, 20_000, group_role,
                               group.title.clone(), Some(Target::MenuGroup(index)));
                 }
+                if let Some(sections) = self.menu_state.composed_sections(menu) {
+                    for (index, section) in sections.iter().enumerate() {
+                        model.add(20_300 + index as u64, 20_000, AccessibleRole::Label,
+                                  section.title.to_string(), None);
+                    }
+                }
                 for (index, action) in self.menu_state.actions(menu).into_iter().enumerate()
                     .skip(self.menu_state.first_action_row()).take(native_menu::VISIBLE_ACTIONS) {
                     let enabled = action != "logout" || logout_available();
@@ -2580,6 +2586,49 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
         draw_text(canvas, width, height, content_x, 91,
                   &format!("Saved actions: {}", state.actions(menu).len()), style.foreground);
     }
+    if let Some(sections) = state.composed_sections(menu) {
+        for section in sections {
+            draw_text(canvas, width, height, content_x, section.top + 3,
+                      section.title, style.foreground);
+            if section.items.is_empty() {
+                let empty = match section.kind {
+                    recipe::MenuContentKind::Favorites => "No favorites yet",
+                    recipe::MenuContentKind::AppsList | recipe::MenuContentKind::AppsGrid =>
+                        "No installed apps",
+                    recipe::MenuContentKind::Actions => "No actions",
+                };
+                draw_text(canvas, width, height, content_x + 5,
+                          section.top + 28, empty, style.foreground);
+            }
+            for tile in section.items {
+                if tile.index == state.selected {
+                    fill_rounded_rect(canvas, width, height, tile.x + 2, tile.y + 2,
+                                      tile.width.saturating_sub(4), tile.height.saturating_sub(4),
+                                      style.task_radius, style.active);
+                }
+                let label = if tile.action == "logout" && !logout_available() {
+                    "Log out (unavailable)"
+                } else { state.label(tile.action) };
+                let pinned = state.pins.iter().any(|pin| pin.as_str() == tile.action);
+                if tile.grid {
+                    // A compact letter tile, not a promise of themed app icons.
+                    let initial: String = label.chars().next().unwrap_or('?').to_uppercase().collect();
+                    draw_text(canvas, width, height, tile.x + 9, tile.y + 9,
+                              &initial, style.foreground);
+                    let short: String = label.chars().take(9).collect();
+                    draw_text(canvas, width, height, tile.x + 9, tile.y + 27,
+                              &short, style.foreground);
+                } else {
+                    let cap = if sidebar { if pinned { 18 } else { 20 } }
+                              else if pinned { 32 } else { 34 };
+                    let short: String = label.chars().take(cap).collect();
+                    draw_text(canvas, width, height, tile.x + 10, tile.y + 12,
+                              &format!("{}{}", if pinned { "* " } else { "" }, short),
+                              style.foreground);
+                }
+            }
+        }
+    } else {
     let actions = state.actions(menu);
     if actions.is_empty() {
         draw_text(canvas, width, height, content_x, 135,
@@ -2616,6 +2665,7 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                       &format!("{}{}", if pinned { "* " } else { "" }, short_label),
                       style.foreground);
         }
+    }
     }
     draw_text(
         canvas,
@@ -3651,11 +3701,11 @@ impl KeyboardHandler for RicePlate {
                 None
             }
             Keysym::Left => {
-                self.menu_state.group_by(menu, -1);
+                self.menu_state.horizontal_by(menu, -1);
                 None
             }
             Keysym::Right => {
-                self.menu_state.group_by(menu, 1);
+                self.menu_state.horizontal_by(menu, 1);
                 None
             }
             Keysym::space if self.menu_state.view == native_menu::View::Search => {
@@ -4144,6 +4194,26 @@ mod tests {
         assert_eq!(pixel(&sidebar_frame, 140, 50), &sidebar.background.to_le_bytes());
         assert_eq!(pixel(&sidebar_frame, 2, 50), &sidebar.active.to_le_bytes());
         assert_ne!(tabs_frame, sidebar_frame);
+    }
+
+    #[test]
+    fn composed_menu_paints_headers_and_real_app_grid_tiles() {
+        let source = include_str!("../../../tests/fixtures/riceplate-composed-v6.json");
+        let style = recipe::parse(source, Some("mockup-composed")).unwrap();
+        let mut state = native_menu::MenuState::default();
+        state.apps.push(installed_apps::App { action: "desktop:test.desktop".into(),
+            name: "Test Editor".into(), search_text: "test editor".into(),
+            path: "/usr/share/applications/test.desktop".into() });
+        state.open();
+        let mut frame = vec![0; (native_menu::WIDTH * native_menu::HEIGHT * 4) as usize];
+        paint_menu(&mut frame, style.menu.as_ref().unwrap(), &style, &state);
+        let first = (212 * native_menu::WIDTH + 200) as usize * 4;
+        assert_eq!(&frame[first..first + 4], &style.background.to_le_bytes());
+        state.select_by(style.menu.as_ref().unwrap(), 2);
+        let mut selected = frame.clone();
+        paint_menu(&mut selected, style.menu.as_ref().unwrap(), &style, &state);
+        assert_eq!(&selected[first..first + 4], &style.active.to_le_bytes());
+        assert_ne!(frame, selected);
     }
 
     #[test]

@@ -219,8 +219,18 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   navigation, fixed actions, installed-app search, keyboard handling and
   private pins; expose the variant in Creator catalog, draft-edit, semantic
   review and Rust/Python tests. The native headless smoke captures both
-  presentations. Pixel-perfect OS menus, custom grids, responsive menu sizing
+  presentations. Pixel-perfect OS menus, icon-rich grids, responsive menu sizing
   and on-device keyboard/AT acceptance remain open.
+- [x] Add **schema-v6 composable native menu content**: group-local optional
+  sections for fixed actions, private favorites and installed XDG launchers
+  as a list or two-column initial-letter tile grid. Strictly validate section
+  titles, source kinds, 1–2 sections and at most four visible items in both
+  Python Creator and Rust RicePlate; one geometry model drives paint, pointer
+  hits and flattened keyboard/accessibility actions. Keep existing groups,
+  search, pins and Waybar fallback unchanged when no `content` is present.
+  Document Creator edits/semantic review and capture a native composed-menu
+  screenshot in CI. Historical OS iconography, larger responsive content
+  layouts and physical keyboard/Orca QA remain separate release gates.
 - [x] Show a **real, read-only native battery percentage** in RicePlate from
   Linux's fixed `/sys/class/power_supply`, with charging state, explicit
   no-battery/unknown labels, multi-battery handling and bounded once-per-minute
@@ -543,8 +553,9 @@ depend on the XFCE session.
 - [ ] Implement visually configurable, truly interactive native start menus
   (beyond the initial functional labwc fallback menu), including navigation,
   searching, pinning and the per-rice layout variants required by XP/7/etc.
-  Action search and pins, plus the v6 tab/sidebar structural choice, work; the
-  deeper XP/7-specific compositions, icon/typography tokens and device QA do not.
+  Action search and pins, v6 tab/sidebar navigation and bounded group content
+  composition work; historically faithful XP/7 start menus, extended icon and
+  typography tokens, flexible size/layout and device QA still do not.
 - [ ] Make responsive shell layouts live across every backend and surface,
   including Waybar fallback and multi-monitor hotplug; expand reusable design
   tokens to typography, states, iconography, spacing and motion.

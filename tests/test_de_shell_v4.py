@@ -13,6 +13,7 @@ from macrice.de import catalog, drafts, recipes, review, session
 
 FIXTURE = Path(__file__).parent / "fixtures/riceplate-shell-v4.json"
 SIDEBAR_V6 = Path(__file__).parent / "fixtures/riceplate-sidebar-v6.json"
+COMPOSED_V6 = Path(__file__).parent / "fixtures/riceplate-composed-v6.json"
 
 
 def _fixture():
@@ -20,6 +21,71 @@ def _fixture():
 
 
 class ShellV4Tests(unittest.TestCase):
+    def test_v6_composed_menu_roundtrips_with_bounded_sections(self):
+        sample = json.loads(COMPOSED_V6.read_text(encoding="utf-8"))
+        parsed = recipes.parse(COMPOSED_V6.read_bytes())
+        self.assertEqual(review._manifest(parsed), sample)
+        self.assertEqual(parsed.menu[1][0].content[1].kind, "apps-grid")
+        self.assertEqual(parsed.menu[1][1].content[0].kind, "favorites")
+        capability = next(item for item in catalog.describe()["shell_components"]
+                          if item["id"] == "native-menu")
+        self.assertEqual(capability["content"]["sources"],
+                         ["actions", "favorites", "apps-list", "apps-grid"])
+        changed = json.loads(json.dumps(sample))
+        changed["menu"]["groups"][0]["content"][1]["type"] = "apps-list"
+        self.assertEqual(recipes.parse(json.dumps(changed).encode()).menu[1][0].content[1].kind,
+                         "apps-list")
+
+    def test_v6_menu_content_rejects_unbounded_and_executable_sources(self):
+        sample = json.loads(COMPOSED_V6.read_text(encoding="utf-8"))
+        for field, value in (
+            ("type", "shell-command"), ("type", None),
+            ("title", "Unsafe; command"), ("limit", True),
+            ("limit", 5), ("limit", 0), ("limit", None)):
+            with self.subTest(field=field, value=value):
+                changed = json.loads(json.dumps(sample))
+                changed["menu"]["groups"][0]["content"][0][field] = value
+                with self.assertRaises(recipes.RecipeError):
+                    recipes.parse(json.dumps(changed).encode())
+        for mutation in ("repeated", "excessive", "extra-field", "empty", "null", "old-schema"):
+            with self.subTest(mutation=mutation):
+                changed = json.loads(json.dumps(sample))
+                content = changed["menu"]["groups"][0]["content"]
+                if mutation == "repeated":
+                    content[1]["type"] = "actions"
+                elif mutation == "excessive":
+                    content[0]["limit"] = 3
+                    content[1]["limit"] = 3
+                elif mutation == "extra-field":
+                    content[0]["command"] = "rm -rf /"
+                elif mutation == "empty":
+                    changed["menu"]["groups"][0]["content"] = []
+                elif mutation == "null":
+                    changed["menu"]["groups"][0]["content"] = None
+                elif mutation == "old-schema":
+                    changed["schema_version"] = 5
+                    changed["menu"].pop("presentation")
+                with self.assertRaises(recipes.RecipeError):
+                    recipes.parse(json.dumps(changed).encode())
+
+    def test_creator_can_edit_composed_menu_without_mutating_source(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source, edit, output = [Path(folder) / name for name in
+                                    ("source.json", "edit.json", "result.json")]
+            sample = json.loads(COMPOSED_V6.read_text(encoding="utf-8"))
+            source.write_text(json.dumps(sample), encoding="utf-8")
+            source.chmod(0o600)
+            groups = sample["menu"]["groups"]
+            groups[0]["content"][1]["type"] = "apps-list"
+            edit.write_text(json.dumps({"edit_version": 1, "operations": [
+                {"op": "set", "path": "/menu/groups", "value": groups}]}), encoding="utf-8")
+            result = drafts.create_edit(recipe_token=str(source), edit_source=edit,
+                                        destination=output)
+            self.assertEqual(result["changes"][0]["path"], "/menu/groups")
+            self.assertEqual(recipes.load(str(output)).menu[1][0].content[1].kind, "apps-list")
+            self.assertEqual(json.loads(source.read_text())["menu"]["groups"][0]
+                             ["content"][1]["type"], "apps-grid")
+
     def test_v6_sidebar_menu_roundtrip_and_version_gate(self):
         sample = json.loads(SIDEBAR_V6.read_text(encoding="utf-8"))
         parsed = recipes.parse(SIDEBAR_V6.read_bytes())

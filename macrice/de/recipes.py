@@ -71,9 +71,17 @@ class LayoutNode:
 
 
 @dataclass(frozen=True)
+class MenuContent:
+    kind: str
+    title: str
+    limit: int
+
+
+@dataclass(frozen=True)
 class MenuGroup:
     title: str
     actions: tuple[str, ...]
+    content: tuple[MenuContent, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -127,7 +135,10 @@ def _parse_menu(value: Any, *, schema_version: int = 4) -> tuple[str, tuple[Menu
     result: list[MenuGroup] = []
     seen: set[str] = set()
     for value in groups:
-        group = _strict_keys(value, {"title", "actions"}, "Menu group")
+        if isinstance(value, dict) and "content" in value and schema_version >= 6:
+            group = _strict_keys(value, {"title", "actions", "content"}, "Menu group")
+        else:
+            group = _strict_keys(value, {"title", "actions"}, "Menu group")
         actions = group["actions"]
         if (not _safe_label(group["title"]) or not isinstance(actions, list)
                 or not 1 <= len(actions) <= 4 or any(type(action) is not str
@@ -135,7 +146,27 @@ def _parse_menu(value: Any, *, schema_version: int = 4) -> tuple[str, tuple[Menu
                 or len(actions) != len(set(actions))):
             raise RecipeError("Menu group uses unsupported or duplicate actions")
         seen.update(actions)
-        result.append(MenuGroup(group["title"], tuple(actions)))
+        content = None
+        if "content" in group:
+            sections = group["content"]
+            if not isinstance(sections, list) or not 1 <= len(sections) <= 2:
+                raise RecipeError("Menu content requires one or two sections")
+            parsed: list[MenuContent] = []
+            sources: set[str] = set()
+            for section in sections:
+                section = _strict_keys(section, {"type", "title", "limit"}, "Menu content")
+                kind = section["type"]
+                if (type(kind) is not str or kind not in
+                    ("actions", "favorites", "apps-list", "apps-grid")
+                    or kind in sources or not _safe_label(section["title"])
+                    or type(section["limit"]) is not int or not 1 <= section["limit"] <= 4):
+                    raise RecipeError("Invalid or repeated menu content source")
+                sources.add(kind)
+                parsed.append(MenuContent(kind, section["title"], section["limit"]))
+            if sum(section.limit for section in parsed) > 4:
+                raise RecipeError("Menu content exceeds four visible items")
+            content = tuple(parsed)
+        result.append(MenuGroup(group["title"], tuple(actions), content))
     return data["title"], tuple(result)
 
 

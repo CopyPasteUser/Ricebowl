@@ -41,7 +41,9 @@ def _manifest(recipe: recipes.PanelRecipe) -> dict[str, Any]:
         assert recipe.menu is not None and recipe.tokens is not None
         assert recipe.compact is not None and recipe.wallpaper is not None
         result["menu"] = {"title": recipe.menu[0], "groups": [
-            {"title": group.title, "actions": list(group.actions)}
+            {**{"title": group.title, "actions": list(group.actions)},
+             **({"content": [{"type": item.kind, "title": item.title, "limit": item.limit}
+                             for item in group.content]} if group.content is not None else {})}
             for group in recipe.menu[1]]}
         if recipe.schema_version >= 6 and recipe.menu_presentation != "tabs":
             result["menu"]["presentation"] = recipe.menu_presentation

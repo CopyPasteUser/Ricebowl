@@ -1,0 +1,40 @@
+{
+  "schema_version": 6,
+  "id": "mockup-composed",
+  "name": "Composable RicePlate start menu",
+  "panel": {
+    "position": "top", "height": 40,
+    "metrics": {"launcher_width": 104, "task_width": 164, "clock_width": 96},
+    "layout": {
+      "start": [{"type": "group", "gap": 8, "children": [
+        {"type": "widget", "id": "launcher"},
+        {"type": "label", "text": "Y2K"},
+        {"type": "gap", "width": 20},
+        {"type": "widget", "id": "tasks"}
+      ]}],
+      "center": [], "end": [{"type": "widget", "id": "clock"}]
+    }
+  },
+  "colors": {"background": "#203c59", "foreground": "#f3f7fa", "active": "#4179aa"},
+  "menu": {"title": "Y2K Desktop", "presentation": "sidebar", "groups": [
+    {"title": "Programs", "actions": ["applications", "terminal"], "content": [
+      {"type": "actions", "title": "Quick Links", "limit": 2},
+      {"type": "apps-grid", "title": "Installed Apps", "limit": 2}
+    ]},
+    {"title": "Session", "actions": ["lock", "logout"], "content": [
+      {"type": "favorites", "title": "Pinned", "limit": 2},
+      {"type": "actions", "title": "Session Actions", "limit": 2}
+    ]}
+  ]},
+  "desktop": {"wallpaper": "luna-hills", "icons": [
+    {"label": "Applications", "action": "applications", "x": 32, "y": 96},
+    {"label": "Terminal", "action": "terminal", "x": 32, "y": 208},
+    {"label": "Lock", "action": "lock", "x": 152, "y": 96}
+  ]},
+  "tokens": {"label_padding": 12, "task_radius": 6},
+  "responsive": {"compact_max_width": 720, "compact_layout": {
+    "start": [{"type": "widget", "id": "launcher"}],
+    "center": [{"type": "widget", "id": "tasks"}],
+    "end": [{"type": "widget", "id": "clock"}]
+  }}
+}
