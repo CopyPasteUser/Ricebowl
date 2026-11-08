@@ -1,7 +1,9 @@
 //! Bounded, input-independent navigation for a real native RicePlate menu.
 //! Every row maps to a validated recipe action; labels never become commands.
 
-use crate::recipe::NativeMenu;
+use std::time::{Duration, Instant};
+
+use crate::{installed_apps::{self, App}, recipe::NativeMenu};
 
 pub const WIDTH: u32 = 320;
 pub const HEIGHT: u32 = 304;
@@ -11,6 +13,7 @@ pub const ACTION_TOP: u32 = 108;
 pub const ACTION_HEIGHT: u32 = 42;
 pub const VISIBLE_ACTIONS: usize = 4;
 pub const MAX_PINS: usize = 8;
+const APP_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
 
 pub fn action_label(action: &str) -> &'static str {
     match action {
@@ -52,9 +55,30 @@ pub struct MenuState {
     pub view: View,
     pub search: String,
     pub pins: Vec<String>,
+    pub apps: Vec<App>,
+    last_app_refresh: Option<Instant>,
 }
 
 impl MenuState {
+    /// Refresh the bounded application index when the menu is opened, never on
+    /// keypress or during rendering. Changes are picked up on the next opening.
+    pub fn refresh_apps(&mut self) {
+        if self.last_app_refresh.is_some_and(|last| last.elapsed() < APP_REFRESH_INTERVAL) {
+            return;
+        }
+        self.apps = installed_apps::discover();
+        self.last_app_refresh = Some(Instant::now());
+    }
+
+    pub fn label<'a>(&'a self, action: &'a str) -> &'a str {
+        self.apps.iter().find(|app| app.action == action)
+            .map_or_else(|| action_label(action), |app| app.name.as_str())
+    }
+
+    pub fn app_path(&self, action: &str) -> Option<&std::path::Path> {
+        self.apps.iter().find(|app| app.action == action).map(|app| app.path.as_path())
+    }
+
     pub fn open(&mut self) {
         self.visible = true;
         self.group = 0;
@@ -86,16 +110,23 @@ impl MenuState {
         self.search.clear();
     }
 
-    pub fn actions<'a>(&self, menu: &'a NativeMenu) -> Vec<&'a str> {
+    pub fn actions<'a>(&'a self, menu: &'a NativeMenu) -> Vec<&'a str> {
         let all = || menu.groups.iter().flat_map(|group|
             group.actions.iter().map(String::as_str));
         match self.view {
             View::Groups => menu.groups.get(self.group).into_iter()
                 .flat_map(|group| group.actions.iter().map(String::as_str)).collect(),
             View::Search => {
-                let query = self.search.to_ascii_lowercase();
-                all().filter(|action| action_label(action)
-                    .to_ascii_lowercase().contains(&query)).collect()
+                let query = self.search.to_lowercase();
+                let mut result: Vec<_> = all().filter(|action| action_label(action)
+                    .to_lowercase().contains(&query)).collect();
+                // Empty search retains the old action list and does not dump
+                // every installed application into the four-row menu.
+                if !query.trim().is_empty() {
+                    result.extend(self.apps.iter().filter(|app| app.matches(&query))
+                                  .map(|app| app.action.as_str()));
+                }
+                result
             }
             View::Saved => all().filter(|action|
                 self.pins.iter().any(|pin| pin.as_str() == *action)).collect(),
@@ -113,8 +144,9 @@ impl MenuState {
     }
 
     pub fn search_input(&mut self, text: &str) -> bool {
-        if text.chars().count() != 1 || self.search.len() >= 24
-            || !text.chars().all(|c| c.is_ascii_alphanumeric() || c == ' ' || c == '-') {
+        if text.chars().count() != 1 || self.search.chars().count() >= 32
+            || self.search.len() + text.len() > 96
+            || !text.chars().all(|c| c.is_alphanumeric() || c == ' ' || c == '-') {
             return false;
         }
         if self.view != View::Search { self.start_search(); }
@@ -146,6 +178,9 @@ impl MenuState {
 
     pub fn toggle_pin(&mut self, menu: &NativeMenu) -> bool {
         let Some(action) = self.current_action(menu).map(str::to_owned) else { return false; };
+        // A pin is a validated recipe action. Installed apps are searchable,
+        // but are not persisted in the recipe-action pin format.
+        if !menu.groups.iter().any(|group| group.actions.contains(&action)) { return false; }
         if let Some(index) = self.pins.iter().position(|item| *item == action) {
             self.pins.remove(index);
         } else if self.pins.len() < MAX_PINS {
@@ -299,5 +334,46 @@ mod tests {
         state.close();
         state.open();
         assert!(state.pins.is_empty());
+    }
+
+    #[test]
+    fn installed_apps_are_searchable_and_never_masquerade_as_recipe_actions() {
+        let data = menu();
+        let mut state = MenuState::default();
+        state.apps = vec![App {
+            action: "desktop:org.example.Editor.desktop".into(),
+            name: "Example Editor".into(),
+            search_text: "example editor writing".into(),
+            path: "/usr/share/applications/org.example.Editor.desktop".into(),
+        }];
+        state.open();
+        state.start_search();
+        assert_eq!(state.actions(&data), vec!["applications", "terminal", "lock", "logout"]);
+        for character in ["w", "r", "i"] { assert!(state.search_input(character)); }
+        assert_eq!(state.current_action(&data), Some("desktop:org.example.Editor.desktop"));
+        assert_eq!(state.label("desktop:org.example.Editor.desktop"), "Example Editor");
+        assert!(state.app_path("desktop:org.example.Editor.desktop").is_some());
+        assert!(!state.toggle_pin(&data));
+        assert!(state.pins.is_empty());
+        state.back();
+        assert_eq!(state.current_action(&data), Some("applications"));
+    }
+
+    #[test]
+    fn search_supports_international_app_names_without_unbounded_input() {
+        let data = menu();
+        let mut state = MenuState::default();
+        state.apps.push(App {
+            action: "desktop:schreibwerk.desktop".into(),
+            name: "Schreibwerk".into(),
+            search_text: "schreibwerk büro".into(),
+            path: "/usr/share/applications/schreibwerk.desktop".into(),
+        });
+        state.open();
+        assert!(state.search_input("ü"));
+        assert_eq!(state.current_action(&data), Some("desktop:schreibwerk.desktop"));
+        for _ in 0..31 { assert!(state.search_input("a")); }
+        assert!(!state.search_input("a"));
+        assert!(state.backspace());
     }
 }

@@ -197,13 +197,22 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   two-output labwc smoke captures exactly one visible menu and verifies
   unplug/replug; physical mouse/keyboard and assistive QA remain open.
 - [x] Add **bounded native Start-menu action search and per-rice favorites**:
-  type-to-filter only validated fixed action labels (24 ASCII bytes maximum),
+  type-to-filter validated fixed action labels (up to 32 Unicode characters),
   F2 pin/unpin, F3 saved-action view, four-row keyboard/pointer paging, and
   at most eight pins stored in a private atomic file separate from the recipe.
   Reject symlinks, foreign permissions, unknown/duplicate actions and stale
-  rice IDs; nested Creator previews do not load or save preferences. Neither
-  dynamic installed-app search nor personalized OS-specific menu layouts or
-  assistive-technology/physical keyboard acceptance are complete.
+  rice IDs; nested Creator previews do not load or save preferences.
+- [x] **Search installed applications inside the native RicePlate menu**:
+  read a bounded, deduplicated XDG desktop-entry catalog on opening the menu
+  (at most every 30 seconds), including valid nested desktop IDs, user-level
+  hidden-entry masking and `OnlyShowIn`/`NotShowIn`/`TryExec` rules. Search
+  visible app names, generic names and keywords without interpreting `Exec`;
+  start a selected app through `gio launch` with the verified desktop-file
+  path. Keep recipe-action pins separate, show no unfiltered app flood, and
+  preserve external fuzzel as the `applications` shortcut/fallback. Real
+  installed-app, desktop-localization, assistive-technology and physical
+  keyboard acceptance remain open; personalized OS-specific menu structures
+  are not yet complete.
 - [x] Show a **real, read-only native battery percentage** in RicePlate from
   Linux's fixed `/sys/class/power_supply`, with charging state, explicit
   no-battery/unknown labels, multi-battery handling and bounded once-per-minute
