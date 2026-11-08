@@ -148,9 +148,19 @@ does not consume pointer input. Also change the default sink through pavucontrol
 or another mixer and confirm that the OSD updates, repeated unchanged states
 do not flash, and per-application stream-volume changes do not trigger it.
 Repeat with no `pactl`, unavailable default sink, suspend/resume and a restarted
-Pulse/PipeWire service; the monitor currently requires relogin after its
-subscriber process exits. XFCE/X11 and global labwc keybindings must remain
-unchanged. Nested previews intentionally do not spawn the event subscriber.
+Pulse/PipeWire service. RicePlate checks a dead subscriber every five seconds
+and attempts to reattach without a relogin; verify this really works on the
+target device. XFCE/X11 and global labwc keybindings must remain unchanged.
+Nested previews intentionally do not spawn the event subscriber.
+
+RicePop brightness OSD: if `/sys/class/backlight/` contains a real backlight,
+press brightness up/down in a **full native session** with `brightnessctl`
+installed. The private labwc bindings update the hardware, and RicePlate reads
+actual kernel brightness (approximately 800 ms response interval) before
+showing the existing input-transparent overlay. Confirm that neither an
+unavailable backlight nor a missing `brightnessctl` creates a false OSD;
+an external brightness change should appear too. No backlight means this
+optional feature is unsupported, not a fake 0% display.
 
 Manual RiceSpice acceptance before 1.0:
 
@@ -622,9 +632,16 @@ bounded active inventory and checks the ID and action key before calling Mako;
 expired notifications, changed actions, duplicate IDs and invalid data are
 rejected. Delete is a separate active-only dismissal, never an Enter shortcut.
 The **Past** tab cannot invoke or dismiss a saved entry. Escape from a detail
-returns to the list; Escape again returns to the native menu. Keyboard/AT-SPI
+returns to the list; Escape again returns to the native menu. Longer bodies
+have two-line pages: Left/Right (or click left/right inside the body) moves
+between pages, while AT-SPI announces the complete original text. The inbox
+refreshes every three seconds only while open; on a host error, it retains
+the read-only view, disables stale actions and retries after 12 seconds.
+On replacement or changed action keys, the selection must not silently invoke
+a different action. The built-in 8×8 renderer supports Latin, Greek and
+Hiragana; other scripts currently show replacement glyphs. Keyboard/AT-SPI
 and pointer behavior, action result, long text, stale alerts and multi-output
-focus require real-device checks. App actions may have consequences determined
+focus still require real-device checks. App actions may have consequences determined
 by their originating app; only explicitly select actions you recognize.
 
 The corresponding non-automatic diagnostic command is:

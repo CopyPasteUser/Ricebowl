@@ -18,7 +18,7 @@ modify global session settings.
 | Wallpaper / appearances | Original bundled wallpapers, composable panel groups, labels, gaps, tokens, original example rices | Full desktop widgets, rich layout primitives, complete cross-app window decorations |
 | Hardware indicators | Kernel-backed battery; NetworkManager connectivity and WirePlumber sink status on a bounded worker | Device picker, Bluetooth status, event subscriptions and finer status detail |
 | RiceSpice controls | Native-menu Wi-Fi/volume/mute; GTK settings hub with audio defaults, MPRIS and verified per-app sink/volume/mute; Wi-Fi scan/WPA-Personal, saved Ethernet/Wi-Fi/VPN profile activation, secure PEAP/TTLS creation/one-time EAP credentials and OpenVPN/WireGuard configuration import; BlueZ/power/timezone/NTP/manual clock, lock/suspend and next-login rice; wlroots mode/scale/X-Y trials with independent rollback and private manually recalled presets; labwc input, GTK cursor/text/high-contrast and supervised optional Orca launch | EAP-TLS client-certificate/manual vendor VPN authoring (delegated editor), automatic monitor preset restore at login and physical network/audio/monitor/AT QA |
-| RicePop notifications/OSD | Opt-in native Active/Past tabs and detail pages in RicePlate; paginated keyboard/pointer/AT-SPI action selection and fresh Mako-validated one-ID/one-action invocation only for current active alerts, plus independent explicit dismissal; transient input-transparent native OSD after native and external verified sink changes, private labwc XF86Audio bindings and bounded `pactl subscribe` monitor | Physical action/Orca/multimedia-key checks, audio-server restart recovery, brightness OSD, live notification updates, richer long-text glyph layout, native notification owner and non-Mako backends |
+| RicePop notifications/OSD | Native Mako-backed Active/Past lists and paged details; verified active-only actions/dismissal, open-only refresh with stale/reused-ID protection, Latin/Greek/Hiragana glyph coverage; input-transparent sink/backlight OSD, private hardware keys and reconnecting `pactl` observer | Real Mako/action/Orca/media-key/backlight/restart and resource QA; universal-script fonts and separate notification owners are post-1.0 options |
 | Session safety | Opt-in session, user polkit agent when installed, optional Mako/swayidle/swaylock, compositor exit cleanup | Complete suspend/resume and hardware recovery acceptance |
 | Creator authoring | Schema-v1–v6 validation, offline private draft edits, reusable panel groups/labels/gaps/dividers, component catalog and API inventory, nested native render/capture and visual comparisons | Broad desktop composition, complete action/state bindings, high-fidelity mockup conversion |
 | RicePack exchange | Deterministic v2 bundled-asset archives or v3 with one SHA-256-addressed private PNG wallpaper; private import/re-export attribution, v1/v2 read compatibility, next-login staging and one-level rollback | Portable icon/font/multi-asset sets, multi-component live apply and transactional active-session rollback |
@@ -95,15 +95,15 @@ non-clickable; the separate validated native-menu actions perform changes.
   No global XFCE or labwc user configuration is changed; neither complete
   assistive technology nor cross-toolkit scaling is claimed. No custom recipe commands or
   privileged daemon.
-- **RicePop** delegates delivery to the installed Mako host. The optional
-  native menu queries active and past notifications only when opened/refreshed,
-  displays history read-only and discards both sets of private messages when
-  closed. Neither the menu nor CLI owns the notification bus name or replays
-  third-party actions. Independently, RicePlate owns a single transient
-  layer-shell volume OSD: it appears only after its own explicit volume/mute
-  menu actions, uses actual WirePlumber readback and an 1.8-second event-loop
-  deadline, and has an empty pointer/touch input region. Hardware multimedia
-  keys and external volume changes do not yet trigger this OSD.
+- **RicePop** leaves notification delivery to the installed Mako host. Its
+  native inbox reads active/past alerts on open and refreshes only while open,
+  retries with stale actions disabled and clears private bodies on close.
+  Single-ID dismissals and application actions are verified against the host.
+  Paged text uses built-in Latin/Greek/Hiragana 8×8 fonts, with visible fallback
+  for unsupported scripts. One 1.8-second input-transparent OSD handles
+  verified audio and hardware-backlight changes. The optional `pactl subscribe`
+  observer restarts after exiting. Private labwc multimedia bindings never
+  alter XFCE or the user's global configuration.
 - **Creator** is optional, on demand and offline. It never needs a model at
   runtime and must require an explicit user choice before an active desktop
   change. Current stage/rollback affects the *next* opt-in login only.

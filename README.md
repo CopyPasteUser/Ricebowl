@@ -37,10 +37,13 @@ actions and focus. These capabilities still require physical Orca and device QA.
 
 The native RicePop volume OSD also reacts to real default-sink volume/mute
 changes from other audio controls. In a full labwc session, private XF86Audio
-shortcuts drive WirePlumber; an optional event-driven Pulse-compatible monitor
-feeds the existing input-transparent OSD. Neither path changes XFCE shortcuts.
+shortcuts drive WirePlumber; an optional reconnecting Pulse-compatible monitor
+feeds the existing input-transparent OSD. An exposed kernel backlight also
+enables a brightness OSD with optional private `brightnessctl` keybindings.
+The Mako inbox refreshes only while it is open, and long messages are paged.
+Neither path changes XFCE shortcuts.
 
-**It is not yet a complete replacement desktop.** Physical Orca/AT-SPI and tray/focus validation, automatic/safe monitor layout restoration, certificate-based EAP-TLS and manual provider-specific VPN authoring, hardware/media-key acceptance, live notification delivery and native notification ownership, brightness OSD, portable icon/font/multi-asset packs, live rice switching with rollback and real-device QA remain open. The existing seven-style XFCE/X11 environment remains the default. See the [honest feature and release-gate matrix](DESKTOP_ENVIRONMENT_STATUS.md).
+**It is not yet a complete replacement desktop.** Physical Orca/AT-SPI and tray/focus validation, automatic/safe monitor layout restoration, certificate-based EAP-TLS and manual provider-specific VPN authoring, RicePop Mako/action/hardware-key/backlight acceptance, broad international font coverage, portable icon/font/multi-asset packs, live rice switching with rollback and real-device QA remain open. Mako intentionally remains the notification owner for RicePop 1.0. The existing seven-style XFCE/X11 environment remains the default. See the [honest feature and release-gate matrix](DESKTOP_ENVIRONMENT_STATUS.md).
 
 ## Try it
 

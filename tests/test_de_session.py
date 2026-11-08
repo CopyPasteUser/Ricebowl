@@ -359,6 +359,10 @@ class WaylandSessionTests(unittest.TestCase):
                          "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-")
         self.assertEqual(keybindings["XF86AudioMute"],
                          "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle")
+        self.assertEqual(keybindings["XF86MonBrightnessUp"],
+                         "brightnessctl --class=backlight set 5%+")
+        self.assertEqual(keybindings["XF86MonBrightnessDown"],
+                         "brightnessctl --class=backlight set 5%-")
 
     def test_root_menu_has_terminal_and_safe_logout(self):
         menu = ET.parse(session.resources() / "labwc/menu.xml").getroot()

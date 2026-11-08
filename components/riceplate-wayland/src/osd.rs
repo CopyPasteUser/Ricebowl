@@ -49,6 +49,12 @@ pub struct State {
 }
 
 impl State {
+    pub fn show_brightness(&mut self, percent: u16, now: Instant) {
+        self.current = Some(Notice {
+            title: "Brightness", value: format!("{percent}%"), fill: Some(percent.min(100)),
+        });
+        self.deadline = Some(now + LIFETIME);
+    }
     pub fn show_external(&mut self, previous: &Audio, current: &Audio,
                          now: Instant) -> bool {
         // Never display a spurious OSD at startup, after missing services or
@@ -143,5 +149,15 @@ mod tests {
         assert!(state.show_external(&Audio::Volume(55), &Audio::Muted, now));
         assert_eq!(state.current.as_ref().unwrap().value, "Muted");
         assert_eq!(state.timeout(now), Some(LIFETIME));
+    }
+
+    #[test]
+    fn brightness_uses_the_existing_input_transparent_osd_and_expiration() {
+        let now = Instant::now();
+        let mut state = State::default();
+        state.show_brightness(37, now);
+        assert_eq!(state.current.as_ref().unwrap().title, "Brightness");
+        assert_eq!(state.current.as_ref().unwrap().fill, Some(37));
+        assert!(state.expire(now + LIFETIME));
     }
 }

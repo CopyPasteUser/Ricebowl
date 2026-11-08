@@ -5,8 +5,9 @@ use std::{error::Error, os::fd::AsFd, process::Command, sync::mpsc, time::{Durat
 
 use chrono::{Datelike, Local, Timelike};
 use accesskit::{ActionRequest, Role as AccessibleRole};
-use font8x8::{UnicodeFonts, BASIC_FONTS};
+use font8x8::{UnicodeFonts, BASIC_FONTS, LATIN_FONTS, GREEK_FONTS, HIRAGANA_FONTS, MISC_FONTS};
 mod accessibility;
+mod brightness;
 mod calendar;
 mod desktop_layout;
 mod icon_positions;
@@ -408,6 +409,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         )?;
         app.refresh_tray(&qh);
     }
+    let mut audio_observer_sender = None;
+    let mut audio_reconnect_after = Instant::now() + Duration::from_secs(5);
+    let mut backlight = if full_session { brightness::Watcher::detect() } else { None };
+    let mut next_backlight_check = Instant::now() + Duration::from_millis(800);
     if poll_network || poll_audio {
         let (sender, receiver) = channel::channel::<StatusEvent>();
         // Zero-capacity rendezvous: repeated clicks cannot queue a burst of
@@ -446,6 +451,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         })?;
         if poll_audio && full_session {
+            audio_observer_sender = Some(sender.clone());
             let observed = sender.clone();
             app.audio_watcher = system_status::AudioWatcher::start(move |audio| {
                 observed.send(StatusEvent::ObservedAudio(audio)).is_ok()
@@ -500,10 +506,47 @@ fn main() -> Result<(), Box<dyn Error>> {
     while !app.closed {
         // Calloop sleeps on Wayland's fd and wakes at the next minute,
         // so the clock updates without any resident 1 Hz poll/frame loop.
+        // RicePop's short refresh interval exists *only while its UI is open*.
         let osd_timeout = app.osd_state.timeout(Instant::now());
-        let timeout = osd_timeout.map_or_else(next_clock_timeout,
-            |remaining| remaining.min(next_clock_timeout()));
+        let reconnect_timeout = (poll_audio && full_session).then(||
+            audio_reconnect_after.saturating_duration_since(Instant::now()));
+        let backlight_timeout = backlight.as_ref().map(|_| next_backlight_check
+            .saturating_duration_since(Instant::now()));
+        let timeout = [Some(next_clock_timeout()), osd_timeout, reconnect_timeout, backlight_timeout,
+                       app.notification_state.refresh_timeout(Instant::now())]
+            .into_iter().flatten().min().unwrap_or_else(next_clock_timeout);
         event_loop.dispatch(Some(timeout), &mut app)?;
+        if backlight.is_some() && Instant::now() >= next_backlight_check {
+            if let Some(percent) = backlight.as_mut().and_then(brightness::Watcher::changed) {
+                app.osd_state.show_brightness(percent, Instant::now());
+                app.redraw_osd();
+            }
+            next_backlight_check = Instant::now() + Duration::from_millis(800);
+        }
+        if poll_audio && full_session && Instant::now() >= audio_reconnect_after {
+            if !app.audio_watcher.as_mut().is_some_and(system_status::AudioWatcher::running) {
+                app.audio_watcher.take();
+                if let Some(sender) = audio_observer_sender.as_ref() {
+                    let observed = sender.clone();
+                    app.audio_watcher = system_status::AudioWatcher::start(move |audio| {
+                        observed.send(StatusEvent::ObservedAudio(audio)).is_ok()
+                    });
+                }
+                if app.audio_watcher.is_some() {
+                    eprintln!("RicePop: volume observer reconnected");
+                }
+            }
+            // No process spawning on every compositor frame, even when audio
+            // has gone away. A silent 5s liveness check is sufficient.
+            audio_reconnect_after = Instant::now() + Duration::from_secs(5);
+        }
+        if let Some(revision) = app.notification_state.begin_background(Instant::now()) {
+            let queued = app.notification_sender.as_ref().is_some_and(|sender|
+                sender.try_send(NotificationRequest::Refresh(revision)).is_ok());
+            if !queued {
+                app.notification_state.update(revision, Err("RicePop worker busy"));
+            }
+        }
         if app.accessibility.is_some() {
             let model = app.accessibility_model();
             if let Some(bridge) = app.accessibility.as_mut() {
@@ -743,6 +786,10 @@ impl RicePlate {
                               format!("Past notifications: {}", self.notification_state.history.len()),
                               Some(Target::NotificationTab(true)));
                 }
+                if self.notification_state.sync_error {
+                    model.add(22_151, 22_000, AccessibleRole::Status,
+                              "Notification host unavailable; retrying", None);
+                }
                 if self.notification_state.loading {
                     model.add(22_150, 22_000, AccessibleRole::Status, "Loading notifications", None);
                 } else if let Some(error) = self.notification_state.error {
@@ -752,6 +799,12 @@ impl RicePlate {
                               format!("Notification from {}", detail.app_name), None);
                     model.add(22_161, 22_160, AccessibleRole::Label, detail.summary.clone(), None);
                     model.add(22_162, 22_160, AccessibleRole::Label, detail.body.clone(), None);
+                    if self.notification_state.body_page_count() > 1 {
+                        model.add(22_163, 22_160, AccessibleRole::Button,
+                                  "Previous message page", Some(Target::NotificationBodyPage(-1)));
+                        model.add(22_164, 22_160, AccessibleRole::Button,
+                                  "Next message page", Some(Target::NotificationBodyPage(1)));
+                    }
                     if !self.notification_state.show_history {
                         for (index, action) in detail.actions.iter().enumerate()
                             .skip(self.notification_state.first_action_row())
@@ -792,6 +845,7 @@ impl RicePlate {
                             22_300 + self.notification_state.selected_action as u64
                         } else { 22_900 }
                     } else if !self.notification_state.visible_notices().is_empty()
+                        && self.notification_state.selected < self.notification_state.visible_notices().len()
                         && !self.notification_state.loading && self.notification_state.error.is_none() {
                         22_200 + self.notification_state.selected as u64
                     } else { 22_900 };
@@ -961,6 +1015,10 @@ impl RicePlate {
             }
             Target::NotificationSelect(index) => {
                 self.notification_state.open_detail(index);
+                self.redraw_menu(qh);
+            }
+            Target::NotificationBodyPage(delta) => {
+                self.notification_state.change_body_page(delta);
                 self.redraw_menu(qh);
             }
             Target::NotificationInvoke(id, key) => {
@@ -2552,7 +2610,7 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
 }
 
 fn notification_glyphs(value: &str, limit: usize) -> String {
-    value.chars().map(|c| if c.is_ascii() && !c.is_ascii_control() { c } else { '?' })
+    value.chars().map(|c| if c.is_control() { ' ' } else { c })
         .take(limit).collect()
 }
 
@@ -2564,6 +2622,9 @@ fn paint_notifications(canvas: &mut [u8], style: &PanelStyle, state: &Notificati
     }
     fill_rect(canvas, width, height, 0, 0, width, 38, style.active);
     draw_text(canvas, width, height, 14, 15, "Notifications", style.foreground);
+    if state.sync_error {
+        draw_text(canvas, width, height, 250, 15, "Offline", style.foreground);
+    }
     if state.detail_id.is_none() {
         let selected_tab_x = if state.show_history { 164 } else { 4 };
         fill_rounded_rect(canvas, width, height, selected_tab_x, 41, 152, 42,
@@ -2585,11 +2646,17 @@ fn paint_notifications(canvas: &mut [u8], style: &PanelStyle, state: &Notificati
                   style.foreground);
         draw_text(canvas, width, height, 14, 72,
                   &notification_glyphs(&notice.summary, 36), style.foreground);
-        draw_text(canvas, width, height, 14, 103,
-                  &notification_glyphs(&notice.body, 38), style.foreground);
-        draw_text(canvas, width, height, 14, 119,
-                  &notification_glyphs(&notice.body.chars().skip(38).collect::<String>(), 38),
-                  style.foreground);
+        let lines = ricepop::body_lines(&notice.body);
+        let pages = state.body_page_count();
+        if pages > 1 {
+            draw_text(canvas, width, height, 195, 87,
+                      &format!("Text {}/{} < >", state.body_page + 1, pages), style.foreground);
+        }
+        for (row, line) in lines.iter().skip(state.body_page * ricepop::BODY_LINES_PER_PAGE)
+            .take(ricepop::BODY_LINES_PER_PAGE).enumerate() {
+            draw_text(canvas, width, height, 14, 103 + row as u32 * 16,
+                      &notification_glyphs(line, ricepop::BODY_WIDTH), style.foreground);
+        }
         if notice.actions.is_empty() || state.show_history {
             draw_text(canvas, width, height, 14, 180, "No available actions", style.foreground);
         } else {
@@ -2784,9 +2851,17 @@ fn fill_rounded_rect(
 
 fn draw_text(canvas: &mut [u8], width: u32, height: u32, x: u32, y: u32, text: &str, color: u32) {
     for (offset, character) in text.chars().enumerate() {
-        let Some(bitmap) = BASIC_FONTS.get(character) else {
-            continue;
-        };
+        if character.is_control() { continue; }
+        // The existing 8x8 renderer is intentionally allocation-free: support
+        // the crate's non-ASCII tables and show a visible replacement glyph
+        // instead of silently erasing unsupported scripts.
+        let bitmap = BASIC_FONTS.get(character)
+            .or_else(|| LATIN_FONTS.get(character))
+            .or_else(|| GREEK_FONTS.get(character))
+            .or_else(|| HIRAGANA_FONTS.get(character))
+            .or_else(|| MISC_FONTS.get(character))
+            .or_else(|| BASIC_FONTS.get('?'));
+        let Some(bitmap) = bitmap else { continue; };
         let origin = x.saturating_add((offset as u32).saturating_mul(8));
         for (row, bits) in bitmap.iter().enumerate() {
             for column in 0..8_u32 {
@@ -3467,6 +3542,8 @@ impl KeyboardHandler for RicePlate {
                 }
                 Keysym::Left if !detail => self.notification_state.select_tab(false),
                 Keysym::Right if !detail => self.notification_state.select_tab(true),
+                Keysym::Left if detail => self.notification_state.change_body_page(-1),
+                Keysym::Right if detail => self.notification_state.change_body_page(1),
                 Keysym::Up => {
                     if detail { self.notification_state.select_action(-1); }
                     else { self.notification_state.select(-1); }
@@ -3731,6 +3808,10 @@ impl PointerHandler for RicePlate {
                                     .map(|(id, action)| (id, action.key.clone())) {
                                     self.request_notifications(NotificationIntent::Invoke(id, key), qh);
                                 }
+                            }
+                            Some(ricepop::Hit::BodyPage(delta)) => {
+                                self.notification_state.change_body_page(delta);
+                                self.redraw_menu(qh);
                             }
                             Some(ricepop::Hit::Tab(history)) => {
                                 self.notification_state.select_tab(history);

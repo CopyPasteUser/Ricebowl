@@ -1,5 +1,21 @@
 # RiceBowl changelog
 
+## Unreleased — RicePop 1.0 software candidate (8 November 2026)
+
+- Re-read Mako notifications every three seconds **only while the center is
+  open**, preserving selection and disabling stale actions on backend failure;
+  retry with backoff and reject reused IDs or swapped action selections.
+- Wrap long message bodies into keyboard/pointer/AT-SPI-accessible pages, with
+  Latin, Greek and Hiragana 8×8 glyphs and a visible replacement glyph for
+  unsupported scripts instead of silently dropping their text.
+- Restart the optional external volume observer after a Pulse server crash or
+  restart; keep one coalesced event mailbox and WirePlumber readback.
+- Show real sysfs-backlight changes in RicePop's existing input-transparent
+  brightness OSD, with optional `brightnessctl` keys in the private labwc
+  config. The lightweight 800 ms read runs only on devices with a backlight.
+- Stable 1.0 still requires real Mako/hardware/Orca acceptance and resource
+  measurements. Mako remains the deliberate notification owner for 1.0.
+
 ## Unreleased — RicePop native notification details and verified actions (8 November 2026)
 
 - Extend the existing native RicePop Active/Past view with a compact details
