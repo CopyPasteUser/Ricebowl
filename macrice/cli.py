@@ -74,6 +74,7 @@ def parser() -> argparse.ArgumentParser:
         "check", "start", "shell", "catalog", "creator-api", "review", "draft-edit", "visual-compare",
         "visual-baseline",
         "capture", "render", "creator-status", "creator-stage", "creator-rollback",
+        "creator-live-status", "creator-live-apply", "creator-live-restore",
         "pack-export", "pack-inspect", "pack-import", "asset-import", "notifications", "notification-dismiss",
         "notification-invoke",
         "settings",
@@ -111,8 +112,8 @@ def parser() -> argparse.ArgumentParser:
                     help="Playback sink or recording source for de audio-default")
     de.add_argument("--device-name", help="Exact reviewed audio device name for de audio-default")
     de.add_argument("--expect-current", help="Optional previous default for concurrency-safe audio selection")
-    de.add_argument("--expect-sha256", help="Reviewed recipe semantic SHA-256 for de creator-stage")
-    de.add_argument("--expect-active", help="Optional concurrency guard for de creator-stage/rollback")
+    de.add_argument("--expect-sha256", help="Reviewed recipe SHA-256 for Creator stage/live apply")
+    de.add_argument("--expect-active", help="Optional selection guard for Creator stage/rollback/live")
     de.add_argument("--panel", choices=("waybar", "native"), default="waybar",
                     help="Session panel (native RicePlate is experimental and falls back to Waybar)")
     de.add_argument("--base", choices=("classic", "chrome"),
@@ -199,10 +200,11 @@ def main(argv: list[str] | None = None) -> int:
             if args.action != "audio-default" and any(value is not None for value in
                     (args.device_kind, args.device_name, args.expect_current)):
                 raise ValueError("Audio device mutation options only apply to de audio-default")
-            if args.action != "creator-stage" and args.expect_sha256 is not None:
-                raise ValueError("--expect-sha256 only applies to de creator-stage")
-            if args.action not in ("creator-stage", "creator-rollback") and args.expect_active is not None:
-                raise ValueError("--expect-active only applies to de creator-stage/rollback")
+            if args.action not in ("creator-stage", "creator-live-apply") and args.expect_sha256 is not None:
+                raise ValueError("--expect-sha256 only applies to Creator stage/live apply")
+            if args.action not in ("creator-stage", "creator-rollback", "creator-live-apply",
+                                   "creator-live-restore") and args.expect_active is not None:
+                raise ValueError("--expect-active only applies to Creator selection changes")
             if args.action not in ("visual-compare", "visual-baseline") and any(
                     value is not None for value in (args.reference, args.threshold,
                                                     args.tolerance_radius)):
@@ -311,6 +313,30 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"Next Wayland login: {result['next_session']} (was: {result['previous']})")
                     print("Current desktop unchanged; one-step rollback remains available")
                 return 0
+            if args.action in ("creator-live-status", "creator-live-apply", "creator-live-restore"):
+                if args.nested or args.panel != "waybar":
+                    raise ValueError("Live Creator commands connect to the current Wayland session")
+                if (args.action == "creator-live-apply" and
+                        (not args.recipe or not args.expect_sha256)):
+                    raise ValueError("creator-live-apply requires --recipe ID and --expect-sha256")
+                if args.action != "creator-live-apply" and args.recipe:
+                    raise ValueError("Only creator-live-apply accepts --recipe")
+                from .de.live import LiveError, request
+                action = args.action.removeprefix("creator-live-")
+                try:
+                    result = request(action, recipe=args.recipe, sha256=args.expect_sha256,
+                                     expected=args.expect_active)
+                except LiveError as exc:
+                    result = {"version": 1, "ok": False, "error": {
+                        "code": exc.code, "message": str(exc)}}
+                if args.json:
+                    print(json.dumps(result, indent=2))
+                elif result["ok"]:
+                    print(f"Active Wayland rice: {result['active']} (previous: "
+                          f"{result['previous'] or 'none'})")
+                else:
+                    print(f"Live rice: {result['error']['message']}", file=sys.stderr)
+                return 0 if result["ok"] else 2
             if args.action == "asset-import":
                 if (args.nested or args.panel != "waybar" or not args.asset or args.recipe
                         or args.output or args.package):

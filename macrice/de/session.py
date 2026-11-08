@@ -10,6 +10,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Callable, Mapping
 from contextlib import ExitStack
 from pathlib import Path
@@ -205,14 +206,13 @@ def start(
         env["RICEBOWL_DE_SCREEN_READER"] = "1"
     else:
         env.pop("RICEBOWL_DE_SCREEN_READER", None)
-    if ((loaded_recipe is not None and loaded_recipe.menu is not None)
-            or (spice_values is not None and spice_values["input_enabled"])):
-        config = _custom_labwc_config(
-            loaded_recipe if loaded_recipe is not None and loaded_recipe.menu is not None else None,
-            env["XDG_RUNTIME_DIR"], spice_values)
-        env["RICEBOWL_DE_SESSION_CONFIG"] = str(config)
-    else:
-        env.pop("RICEBOWL_DE_SESSION_CONFIG", None)
+    # Always use the marked, disposable config in this opt-in session. Live
+    # profile switches must never edit the system or the user's labwc files.
+    config = _custom_labwc_config(
+        loaded_recipe if loaded_recipe is not None and loaded_recipe.menu is not None else None,
+        env["XDG_RUNTIME_DIR"], spice_values)
+    env["RICEBOWL_DE_SESSION_CONFIG"] = str(config)
+    env["RICEBOWL_DE_LIVE"] = "1"
     try:
         execute(labwc, [labwc, "--config-dir", str(config), "--startup", session_command], env)
     except OSError:
@@ -232,6 +232,189 @@ def _stop_process(process: subprocess.Popen[bytes]) -> None:
         process.wait(timeout=2)
     except ProcessLookupError:
         pass
+
+
+def _atomic_menu(path: Path, content: str) -> None:
+    """Replace only the supervisor's private labwc menu, never edit in place."""
+    descriptor, temporary = tempfile.mkstemp(prefix=".ricebowl-menu-", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+            os.fchmod(output.fileno(), 0o600)
+            output.write(content)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+class _LiveSwitch:
+    """One transaction owner for panel, wallpaper, compositor menu and login state."""
+
+    def __init__(self, *, env: dict[str, str], mode: str,
+                 which: Callable[[str], str | None],
+                 spawn: Callable[..., subprocess.Popen[bytes]],
+                 cleanup: ExitStack, initial_panel: subprocess.Popen[bytes],
+                 initial_wallpaper: subprocess.Popen[bytes] | None,
+                 background: list[subprocess.Popen[bytes]]):
+        from . import recipes, staging
+        self.env, self.mode, self.which, self.spawn = env, mode, which, spawn
+        self.cleanup, self.panel, self.wallpaper = cleanup, initial_panel, initial_wallpaper
+        self.background = background
+        self.nested = env.get("RICEBOWL_DE_NESTED") == "1"
+        self.active = recipes.load(env.get("RICEBOWL_DE_RECIPE", "classic")).recipe_id
+        self.active_digest = staging._hash(self.active)
+        self.previous: tuple[str, str] | None = None
+        self.expected_selection, previous = recipes.current_selection()
+        if self.expected_selection == self.active and previous:
+            try:
+                # On a fresh login, accept only a previously pinned private
+                # recipe or an immutable built-in as a live rollback target.
+                state = recipes._read_selection(recipes._private_recipe_dir(create=False))
+                pinned = state.get("previous_sha256") if state and state["schema_version"] == 2 else None
+                actual = staging._hash(previous)
+                if pinned == actual or (pinned is None and previous in recipes.BUILTINS):
+                    self.previous = (previous, actual)
+            except recipes.RecipeError:
+                pass
+        self.menu = Path(env["RICEBOWL_DE_SESSION_CONFIG"]) / "menu.xml"
+        self.fallback = False
+
+    def status(self) -> dict:
+        return {"version": 1, "ok": True, "active": self.active,
+                "semantic_sha256": self.active_digest,
+                "previous": self.previous[0] if self.previous else None,
+                "can_restore": self.previous is not None,
+                "next_login_persisted": not self.nested,
+                "panel": "waybar-fallback" if self.fallback else self.mode,
+                "applied": True}
+
+    def _reconfigure(self) -> None:
+        binary = self.which("labwc")
+        if not binary:
+            from .live import LiveError
+            raise LiveError("labwc reconfiguration is unavailable", code="component_unavailable")
+        subprocess.run([binary, "--reconfigure"], env=self.env, check=True,
+                       timeout=4, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def _start_panel(self, token: str, recipe: object) -> subprocess.Popen[bytes]:
+        from . import recipes
+        if self.mode == "native" and not self.fallback:
+            binary = self.which("riceplate-native")
+            if not binary:
+                from .live import LiveError
+                raise LiveError("Native RicePlate is unavailable", code="component_unavailable")
+            command = [binary, "--recipe", recipes.native_token(token)]
+        else:
+            binary = self.which("waybar")
+            if not binary:
+                from .live import LiveError
+                raise LiveError("Waybar fallback is unavailable", code="component_unavailable")
+            directory = Path(self.cleanup.enter_context(tempfile.TemporaryDirectory(
+                prefix="ricebowl-live-plate-", dir=self.env["XDG_RUNTIME_DIR"])))
+            config, style = recipes.waybar_config(recipe)
+            for name, content in (("config.jsonc", config), ("style.css", style)):
+                (directory / name).write_text(content, encoding="utf-8")
+            command = [binary, "--config", str(directory / "config.jsonc"),
+                       "--style", str(directory / "style.css")]
+        return self.spawn(command, env={**self.env, "RICEBOWL_DE_RECIPE": recipes.native_token(token)},
+                          stdin=subprocess.DEVNULL)
+
+    def handle(self, request: dict) -> dict:
+        from . import recipes, staging
+        from .live import LiveError
+        import re
+
+        action, token, digest, expected = (request[key] for key in
+                                           ("action", "recipe", "sha256", "expected"))
+        if action == "status":
+            if any(value is not None for value in (token, digest, expected)):
+                raise LiveError("Status takes no change options", code="invalid_live_request")
+            return self.status()
+        if expected is not None and expected != self.active:
+            raise LiveError("Active rice changed; review again", code="selection_conflict")
+        if action == "restore":
+            if token is not None or digest is not None or self.previous is None:
+                raise LiveError("There is no previous live rice", code="rollback_unavailable")
+            token, digest = self.previous
+        elif (action != "apply" or not isinstance(token, str) or
+              not re.fullmatch(r"[a-z][a-z0-9-]{1,31}", token) or
+              not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest)):
+            raise LiveError("Apply requires a reviewed ID and SHA-256", code="invalid_live_request")
+        assert token is not None and digest is not None
+        try:
+            recipe = recipes.load(token)
+            if staging._hash(token) != digest:
+                raise LiveError("Recipe changed since review", code="recipe_changed")
+            if token == self.active:
+                return {**self.status(), "changed": False}
+            # Preflight *every* component before mutating the active compositor.
+            wallpaper_path = recipes.wallpaper_path(recipe)
+            wallpaper_binary = self.which("swaybg")
+            if not wallpaper_binary or not wallpaper_path.is_file():
+                raise LiveError("Wallpaper component is unavailable", code="component_unavailable")
+            new_menu = (recipes.labwc_menu(recipe) if recipe.menu is not None else
+                        (resources() / "labwc/menu.xml").read_text(encoding="utf-8"))
+            old_menu = self.menu.read_text(encoding="utf-8")
+            old_digest = self.active_digest
+            if not self.nested and recipes.current_selection()[0] != self.expected_selection:
+                raise LiveError("Next-login selection changed", code="selection_conflict")
+        except (recipes.RecipeError, OSError) as exc:
+            raise LiveError("Recipe is invalid or an asset is unavailable",
+                            code="invalid_recipe") from exc
+
+        new_panel = None
+        new_wallpaper = None
+        menu_attempted = False
+        try:
+            new_wallpaper = self.spawn([wallpaper_binary, "--image", str(wallpaper_path),
+                                        "--mode", "fill"], env=self.env, stdin=subprocess.DEVNULL)
+            new_panel = self._start_panel(token, recipe)
+            time.sleep(0.5)
+            if new_panel.poll() is not None or new_wallpaper.poll() is not None:
+                raise LiveError("New shell component exited during activation", code="component_failed")
+            menu_attempted = True
+            _atomic_menu(self.menu, new_menu)
+            self._reconfigure()
+            if not self.nested:
+                recipes.change_selection(token, expected_active=self.expected_selection,
+                                         expected_semantic_sha256=digest)
+        except (LiveError, OSError, ValueError, subprocess.SubprocessError) as exc:
+            if new_panel is not None:
+                _stop_process(new_panel)
+            if new_wallpaper is not None:
+                _stop_process(new_wallpaper)
+            if menu_attempted:
+                try:
+                    _atomic_menu(self.menu, old_menu)
+                    self._reconfigure()
+                except (OSError, subprocess.SubprocessError) as restore_error:
+                    raise LiveError("Menu recovery failed; restart the opt-in session",
+                                    code="rollback_failed") from restore_error
+            if isinstance(exc, LiveError):
+                raise
+            if isinstance(exc, recipes.SelectionConflict):
+                raise LiveError("Next-login selection changed during activation",
+                                code="selection_conflict") from exc
+            if isinstance(exc, recipes.RecipeFingerprintMismatch):
+                raise LiveError("Recipe changed during activation",
+                                code="recipe_changed") from exc
+            raise LiveError("Live activation failed; previous rice retained",
+                            code="component_failed") from exc
+
+        old_panel, old_wallpaper, old_active = self.panel, self.wallpaper, self.active
+        self.panel, self.wallpaper, self.active = new_panel, new_wallpaper, token
+        self.active_digest = digest
+        self.expected_selection = token
+        self.previous = (old_active, old_digest)
+        self.env["RICEBOWL_DE_RECIPE"] = recipes.native_token(token)
+        _stop_process(old_panel)
+        if old_wallpaper is not None:
+            _stop_process(old_wallpaper)
+            self.background.remove(old_wallpaper)
+        self.background.append(new_wallpaper)
+        return {**self.status(), "changed": True}
 
 
 def shell(
@@ -254,6 +437,7 @@ def shell(
     base = resources()
     background: list[subprocess.Popen[bytes]] = []
     panel: subprocess.Popen[bytes] | None = None
+    live_controller: _LiveSwitch | None = None
     with ExitStack() as cleanup:
         cleanup.callback(_cleanup_labwc_config, env)
         config = base / "waybar/config.jsonc"
@@ -272,15 +456,17 @@ def shell(
                 fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
                 with os.fdopen(fd, "w", encoding="utf-8") as output:
                     output.write(content)
+        wallpaper_process: subprocess.Popen[bytes] | None = None
         try:
             swaybg = which("swaybg")
             from .recipes import load, wallpaper_path
             wallpaper = wallpaper_path(load(selected or "classic"))
             if swaybg and wallpaper.is_file():
-                background.append(spawn(
+                wallpaper_process = spawn(
                     [swaybg, "--image", str(wallpaper), "--mode", "fill"],
                     env=env, stdin=subprocess.DEVNULL,
-                ))
+                )
+                background.append(wallpaper_process)
 
             # Temporary notification host, not a replacement for RicePop.
             mako = which("mako")
@@ -324,8 +510,49 @@ def shell(
                 nonlocal shutting_down, shutdown_signal
                 shutting_down = True
                 shutdown_signal = _signal
-                if panel is not None:
-                    _stop_process(panel)
+                current = live_controller.panel if live_controller is not None else panel
+                if current is not None:
+                    _stop_process(current)
+
+            def supervised_wait(process: subprocess.Popen[bytes], mode: str) -> int:
+                nonlocal live_controller
+                if env.get("RICEBOWL_DE_LIVE") != "1":
+                    return process.wait()
+                from .live import LiveError, listen, serve_once
+                from .recipes import RecipeError
+                try:
+                    live_controller = _LiveSwitch(
+                        env=env, mode=mode, which=which, spawn=spawn,
+                        cleanup=cleanup, initial_panel=process,
+                        initial_wallpaper=wallpaper_process, background=background)
+                    with listen(env) as listener:
+                        auto_restore_attempted = False
+                        while not shutting_down:
+                            if live_controller.panel.poll() is not None:
+                                if auto_restore_attempted or live_controller.previous is None:
+                                    break
+                                auto_restore_attempted = True
+                                try:
+                                    live_controller.handle({
+                                        "action": "restore", "recipe": None, "sha256": None,
+                                        "expected": live_controller.active,
+                                    })
+                                    print("RiceBowl: failed live panel automatically restored",
+                                          file=sys.stderr)
+                                    continue
+                                except LiveError as error:
+                                    print(f"RiceBowl: live auto-restore failed: {error}",
+                                          file=sys.stderr)
+                                    break
+                            serve_once(listener, live_controller.handle)
+                        return live_controller.panel.wait()
+                except (LiveError, RecipeError, OSError) as error:
+                    print(f"RiceBowl live switching unavailable: {error}", file=sys.stderr)
+                    return process.wait()
+                finally:
+                    if live_controller is not None:
+                        _stop_process(live_controller.panel)
+                    live_controller = None
 
             signal.signal(signal.SIGTERM, terminate)
             signal.signal(signal.SIGINT, terminate)
@@ -342,7 +569,7 @@ def shell(
                         if shutting_down:
                             _stop_process(panel)
                             return 128 + shutdown_signal
-                        status = panel.wait()
+                        status = supervised_wait(panel, "native")
                         if status == 0 or shutting_down:
                             return status
                         print(f"RicePlate native exited with status {status}; restoring Waybar.",
@@ -358,6 +585,18 @@ def shell(
 
             if shutting_down:
                 return 128 + shutdown_signal
+            # A native panel can fail after a successful live switch. Keep the
+            # Waybar rescue on the *current* recipe, not the login-time one.
+            current_selected = env.get("RICEBOWL_DE_RECIPE")
+            if current_selected != selected:
+                from .recipes import load, waybar_config
+                current_recipe = load(current_selected or "classic")
+                directory = Path(cleanup.enter_context(tempfile.TemporaryDirectory(
+                    prefix="ricebowl-plate-rescue-", dir=env["XDG_RUNTIME_DIR"])))
+                config, style = directory / "config.jsonc", directory / "style.css"
+                generated_config, generated_style = waybar_config(current_recipe)
+                config.write_text(generated_config, encoding="utf-8")
+                style.write_text(generated_style, encoding="utf-8")
             panel = spawn(
                 [waybar, "--config", str(config), "--style", str(style)],
                 env=env, stdin=subprocess.DEVNULL,
@@ -365,7 +604,7 @@ def shell(
             if shutting_down:
                 _stop_process(panel)
                 return 128 + shutdown_signal
-            return panel.wait()
+            return supervised_wait(panel, "waybar")
         finally:
             if panel is not None:
                 _stop_process(panel)

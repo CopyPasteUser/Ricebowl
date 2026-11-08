@@ -12,7 +12,7 @@ modify global session settings.
 
 | Component | Verified implementation | Important gap |
 | --- | --- | --- |
-| Session / compositor | Opt-in labwc session, nested preview, Waybar fallback, startup supervision and cleanup | Physical login/relogin, recovery and power-use acceptance |
+| Session / compositor | Opt-in labwc session, nested preview, Waybar fallback, startup supervision and cleanup; owner-local live profile apply/restore with panel/wallpaper/menu preflight and selection CAS | Physical login/relogin, compositor reconfigure, recovery and power-use acceptance |
 | RicePlate panel | Native Rust layer-shell, per-output panels, window discovery and grouped task activation, launcher, schema-v6 tab/sidebar menus and bounded native menu sections; **schema-v6 fixed Apps/Terminal/Settings/Lock buttons** plus **schema-v7 live Wi-Fi/mute/volume controls** with real hardware state, verified writes, unavailable/busy/error feedback and keyboard/AT-SPI labels; calendar, responsive layouts, **experimental SNI tray** and nested DBusMenu context menus | Additional stateful component families, rich layout constraints, native iconography, localized app names, physical installed-app/Orca/screen-reader and third-party focus/tray QA; exact XP/7/10 fidelity deferred |
 | Desktop shortcuts | Schema-v5 native shortcut surfaces, drag repositioning, owner-private **per-named-output positions**, independent multi-output reflow, hotplug, Tab/Shift-Tab | Cross-monitor drag semantics, output identity without stable names and mixed-DPI/device tests |
 | Wallpaper / appearances | Original bundled wallpapers, composable panel groups, labels, gaps, tokens, original example rices | Full desktop widgets, rich layout primitives, complete cross-app window decorations |
@@ -21,7 +21,7 @@ modify global session settings.
 | RicePop notifications/OSD | Native Mako-backed Active/Past lists and paged details; verified active-only actions/dismissal, open-only refresh with stale/reused-ID protection, Latin/Greek/Hiragana glyph coverage; input-transparent sink/backlight OSD, private hardware keys and reconnecting `pactl` observer | Real Mako/action/Orca/media-key/backlight/restart and resource QA; universal-script fonts and separate notification owners are post-1.0 options |
 | Session safety | Opt-in session, user polkit agent when installed, optional Mako/swayidle/swaylock, compositor exit cleanup | Complete suspend/resume and hardware recovery acceptance |
 | Creator authoring | Schema-v1–v7 validation, offline private draft edits, reusable panel groups/labels/gaps/dividers, **fixed-action and stateful controls**, versioned catalog v8 and API inventory, nested native render/capture and visual comparisons | Broader desktop composition and Linux adapter coverage, high-fidelity mockup conversion |
-| RicePack exchange | Deterministic v2 bundled-asset archives or v3 with one SHA-256-addressed private PNG wallpaper; private import/re-export attribution, v1/v2 read compatibility, next-login staging and one-level rollback | Portable icon/font/multi-asset sets, multi-component live apply and transactional active-session rollback |
+| RicePack exchange | Deterministic v2 bundled-asset archives or v3 with one SHA-256-addressed private PNG wallpaper; private import/re-export attribution, v1/v2 read compatibility, next-login staging and one-level rollback; explicit live panel/wallpaper/menu apply and restore in the current labwc session | Portable icon/font/multi-asset sets, transactional RiceField/Taskotto/other-app integration, real-display acceptance |
 
 **Native here means running in the experimental labwc session**, not the
 existing Python/GTK XFCE experience. A declarative menu/indicator is not a
@@ -107,8 +107,10 @@ disabled `N/A` labels rather than presenting an unverified click target.
   observer restarts after exiting. Private labwc multimedia bindings never
   alter XFCE or the user's global configuration.
 - **Creator** is optional, on demand and offline. It never needs a model at
-  runtime and must require an explicit user choice before an active desktop
-  change. Current stage/rollback affects the *next* opt-in login only.
+  runtime and requires an explicit user choice before an active desktop
+  change. Stage/rollback affect the next login; separate `creator-live-*`
+  commands use a private supervisor socket for the current opt-in labwc shell;
+  nested previews change appearance only until they exit.
 - **Waybar** remains an intentionally supported recovery/fallback panel.
 
 ## Inspect or try without replacing XFCE
@@ -181,8 +183,9 @@ The next substantial release gates, in recommended order:
    without a duplicate owner or private-message replay. The on-demand
    Active/Past view and explicit RicePlate-action OSD are implemented.
 4. Complete safe RicePacks with licensed asset manifests, broader composition,
-   reproducible visual/functional QA and **explicit transactional live
-   apply/restore** across all affected components. Approved recipe/reference
+   reproducible visual/functional QA and **session-wide transactional live
+   apply/restore** across independent applications. Panel/wallpaper/labwc menu
+   have a supervised opt-in live transaction. Approved recipe/reference
    SHA-256 baselines and a bounded rasterization-tolerant screenshot regression
    gate now exist; human baseline review, visual fidelity and input QA remain
    necessary.
