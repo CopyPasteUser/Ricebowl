@@ -149,8 +149,8 @@ class HeadlessRenderTests(unittest.TestCase):
                 def stopped():
                     try:
                         return stat.read_text().split(") ")[1][0] == "Z"
-                    except FileNotFoundError:
-                        # /proc entries may vanish between exists() and read().
+                    except (FileNotFoundError, ProcessLookupError):
+                        # /proc entries may vanish during read() or between lookups.
                         return True
                 deadline = time.monotonic() + 2
                 while not stopped() and time.monotonic() < deadline:

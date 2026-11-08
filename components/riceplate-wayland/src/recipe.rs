@@ -38,7 +38,7 @@ pub struct DesktopIcon {
     pub y: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DesktopWidgetKind {
     Clock,
     Date,
@@ -46,6 +46,7 @@ pub enum DesktopWidgetKind {
     Network,
     Audio,
     Battery,
+    Text(String),
 }
 
 #[derive(Debug, Clone)]
@@ -232,6 +233,8 @@ struct DesktopWidgetInput {
     #[serde(default, deserialize_with = "deserialize_present")]
     #[serde(rename = "ref")]
     reference: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    text: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -409,7 +412,7 @@ fn validate_components(input: Vec<ComponentInput>) -> Result<Vec<ComponentInput>
 }
 
 fn validate_composition(
-    input: Composition, components: &[ComponentInput],
+    input: Composition, components: &[ComponentInput], version: u32,
 ) -> Result<DesktopComposition, Box<dyn Error>> {
     if input.widgets.len() > MAX_DESKTOP_WIDGETS {
         return Err("Desktop composition exceeds four widgets".into());
@@ -428,11 +431,13 @@ fn validate_composition(
             && item.id.as_bytes()[0].is_ascii_lowercase()
             && item.id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
         let mut title = None;
-        let kind = match (item.kind.as_str(), item.reference.as_deref()) {
-            ("clock", None) => DesktopWidgetKind::Clock,
-            ("date", None) => DesktopWidgetKind::Date,
-            ("system", None) => DesktopWidgetKind::System,
-            ("component", Some(reference)) => {
+        let kind = match (item.kind.as_str(), item.reference.as_deref(), item.text) {
+            ("clock", None, None) => DesktopWidgetKind::Clock,
+            ("date", None, None) => DesktopWidgetKind::Date,
+            ("system", None, None) => DesktopWidgetKind::System,
+            ("text", None, Some(value)) if version >= 9 && safe_label(&value, 22) =>
+                DesktopWidgetKind::Text(value),
+            ("component", Some(reference), None) => {
                 let bound = components.iter().find(|entry| entry.id == reference
                     && entry.role == "status").ok_or("Desktop needs a known status component")?;
                 title = Some(bound.label.clone());
@@ -766,7 +771,8 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
     let mut desktop_icons = Vec::new();
     let mut native_menu = None;
     let composition = match (recipe.schema_version, recipe.composition) {
-        (8 | 9, Some(input)) => Some(validate_composition(input, &components)?),
+        (8 | 9, Some(input)) => Some(validate_composition(input, &components,
+                                                        recipe.schema_version)?),
         (1..=7, None) => None,
         _ => return Err("Desktop composition requires schema v8 or v9".into()),
     };
@@ -1129,6 +1135,7 @@ mod tests {
         assert_eq!(widgets[1].kind, DesktopWidgetKind::Network);
         assert_eq!(widgets[1].title.as_deref(), Some("Network"));
         assert_eq!(widgets[2].kind, DesktopWidgetKind::Audio);
+        assert_eq!(widgets[3].kind, DesktopWidgetKind::Text("Welcome to RiceBowl".into()));
     }
 
     #[test]
@@ -1140,6 +1147,8 @@ mod tests {
             ("/components/1/role", serde_json::json!("command")),
             ("/panel/layout/start/2/ref", serde_json::json!("missing")),
             ("/composition/widgets/1/ref", serde_json::json!("wifi-switch")),
+            ("/composition/widgets/3/text", serde_json::json!("$(id)")),
+            ("/composition/widgets/3/kind", serde_json::json!("system")),
             ("/schema_version", serde_json::json!(8)),
         ] {
             let mut data = original.clone();

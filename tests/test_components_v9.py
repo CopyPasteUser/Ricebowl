@@ -20,9 +20,14 @@ class SharedComponentTests(unittest.TestCase):
         self.assertEqual(recipe.composition.widgets[1].kind, "network")
         self.assertEqual(recipe.composition.widgets[1].component_ref, "net-status")
         self.assertEqual(recipe.composition.widgets[2].kind, "audio")
+        self.assertEqual(recipe.composition.widgets[3].kind, "text")
+        self.assertEqual(recipe.composition.widgets[3].text, "Welcome to RiceBowl")
         self.assertIn("/components", creator_contract.EDITABLE_PATHS)
         info = catalog.describe()
-        self.assertEqual(info["catalog_version"], 10)
+        self.assertEqual(info["catalog_version"], 11)
+        widgets_catalog = info["recipe"]["shell_extensions"]["desktop"]["widgets"]
+        self.assertEqual(widgets_catalog["text"]["max_characters"], 22)
+        self.assertEqual(widgets_catalog["pointer_input"], "transparent")
         self.assertEqual(info["recipe"]["component_library"]["status_bindings"],
                          sorted(recipes.COMPONENT_STATUS_BINDINGS))
         wide, _ = recipes.waybar_config(recipe, screen_width=1366)
@@ -48,6 +53,12 @@ class SharedComponentTests(unittest.TestCase):
         rejects(lambda data: data["panel"]["layout"]["start"][2].update(ref="missing"))
         rejects(lambda data: data["composition"]["widgets"][1].update(ref="wifi-switch"))
         rejects(lambda data: data["composition"]["widgets"][1].update(kind="exec"))
+        rejects(lambda data: data["composition"]["widgets"][3].update(text="$(id)"))
+        rejects(lambda data: data["composition"]["widgets"][3].update(text="A" * 23))
+        rejects(lambda data: data["composition"]["widgets"][3].update(text="❤"))
+        rejects(lambda data: data["composition"]["widgets"][3].update(exec="id"))
+        rejects(lambda data: data["composition"]["widgets"][3].update(kind="system"))
+        rejects(lambda data: data["composition"]["widgets"][3].pop("text"))
         rejects(lambda data: data.update(schema_version=8))
         rejects(lambda data: data.pop("components"))
         rejects(lambda data: data["components"].extend(data["components"] * 3))
@@ -64,6 +75,9 @@ class SharedComponentTests(unittest.TestCase):
                              {"type": "component", "ref": "net-status"})
             self.assertEqual(baseline["recipe"]["composition"]["widgets"][1]["kind"],
                              "component")
+            self.assertEqual(baseline["recipe"]["composition"]["widgets"][3],
+                             {"id": "desk-title", "kind": "text", "text": "Welcome to RiceBowl",
+                              "x": 32, "y": 656})
             declarations = baseline["recipe"]["components"]
             declarations[0] = {**declarations[0], "label": "Online"}
             patch.write_text(json.dumps({"edit_version": 1, "operations": [
@@ -75,6 +89,8 @@ class SharedComponentTests(unittest.TestCase):
             self.assertEqual(result["changes"][0]["path"], "/components")
             self.assertEqual(review.review(str(output))["recipe"]["components"][0]["label"],
                              "Online")
+            self.assertEqual(review.review(str(output))["recipe"]["composition"]["widgets"][3]
+                             ["text"], "Welcome to RiceBowl")
             self.assertEqual(review.review(str(source))["recipe"]["components"][0]["label"],
                              "Network")
 
@@ -91,6 +107,26 @@ class SharedComponentTests(unittest.TestCase):
                 self.assertEqual(path.stat().st_mode & 0o777, 0o600)
         self.assertEqual(recipes.parse(Path(__file__).parent.joinpath(
             "fixtures/riceplate-layout-v8.json").read_bytes()).schema_version, 8)
+
+    def test_creator_edits_static_text_widget_with_shared_status_bindings(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "source.json"
+            edit = Path(folder) / "edit.json"
+            output = Path(folder) / "draft.json"
+            source.write_bytes(FIXTURE.read_bytes())
+            source.chmod(0o600)
+            widgets = json.loads(source.read_text())["composition"]["widgets"]
+            widgets[3]["text"] = "My Desktop"
+            edit.write_text(json.dumps({"edit_version": 1, "operations": [
+                {"op": "set", "path": "/composition/widgets", "value": widgets},
+            ]}))
+            drafts.create_edit(recipe_token=str(source), edit_source=edit,
+                               destination=output)
+            parsed = recipes.parse(output.read_bytes())
+            self.assertEqual(parsed.composition.widgets[3].text, "My Desktop")
+            self.assertEqual(parsed.composition.widgets[1].component_ref, "net-status")
+            self.assertEqual(recipes.parse(source.read_bytes()).composition.widgets[3].text,
+                             "Welcome to RiceBowl")
 
     def test_v9_ricepack_export_is_lossless_and_non_executable(self):
         with tempfile.TemporaryDirectory() as folder:

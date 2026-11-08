@@ -42,7 +42,8 @@
     "widgets": [
       {"id": "desk-clock", "kind": "clock", "x": 32, "y": 320},
       {"id": "desk-net", "kind": "component", "ref": "net-status", "x": 32, "y": 432},
-      {"id": "desk-audio", "kind": "component", "ref": "audio-status", "x": 32, "y": 544}
+      {"id": "desk-audio", "kind": "component", "ref": "audio-status", "x": 32, "y": 544},
+      {"id": "desk-title", "kind": "text", "text": "Welcome to RiceBowl", "x": 32, "y": 656}
     ],
     "window_region": {"x": 30, "y": 8, "width": 66, "height": 84},
     "compact_hide_widgets": ["desk-net", "desk-audio"]

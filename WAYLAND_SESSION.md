@@ -532,7 +532,7 @@ Start a new private template with `ricebowl de recipe-init --schema-version 7`
 plus the ordinary `--base`, `--id`, `--name` and `--output` options; add these
 nodes using `de draft-edit`, review them with `de review` and preview the
 result with `de start --nested --panel native --recipe /absolute/path/to/rice.json`.
-The Creator catalog v10 advertises the exact contract. Existing schemas v1–v6
+The Creator catalog v11 advertises the exact contract. Existing schemas v1–v6
 are still accepted, but reject `control` nodes.
 
 The native RicePlate panel and its menu share **one bounded asynchronous
@@ -630,6 +630,19 @@ and uses the existing output-aware widget layer; action components are rejected
 on desktop widgets because a safe pointer/keyboard action surface has not yet
 been implemented there. The same binding is read once by the existing native
 status provider, not by an additional polling daemon.
+
+Schema v9 also permits a standalone read-only text widget without a binding:
+
+```json
+{"id":"desk-title","kind":"text","text":"Welcome to RiceBowl","x":32,"y":656}
+```
+
+The text is limited to **1–22 safe ASCII characters**, without markup,
+commands or script evaluation. All desktop widget surfaces use an **empty
+Wayland input region** (including newly attached outputs), so a clock, status
+or text label does not steal pointer clicks from underlying windows. Desktop
+widget actions and editing via direct manipulation remain future work; the
+Waybar fallback still has no desktop widget layer.
 
 Generate a private example with `ricebowl de recipe-init --schema-version 9
 --base classic --id my-components --name "My Components" --output

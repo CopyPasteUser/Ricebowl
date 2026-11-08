@@ -37,7 +37,7 @@ MAX_DESKTOP_ICONS = 8
 MAX_DESKTOP_WIDGETS = 4
 MAX_COMPONENT_DEFINITIONS = 8
 COMPONENT_STATUS_BINDINGS = frozenset(("clock", "network", "audio", "battery"))
-DESKTOP_WIDGET_KINDS = frozenset(("clock", "date", "system"))
+DESKTOP_WIDGET_KINDS = frozenset(("clock", "date", "system", "text"))
 DESKTOP_WIDGET_WIDTH = 200
 DESKTOP_WIDGET_HEIGHT = 96
 ICON_WIDTH = 104
@@ -115,6 +115,7 @@ class DesktopWidget:
     x: int
     y: int
     component_ref: str | None = None
+    text: str = ""
 
 
 @dataclass(frozen=True)
@@ -182,9 +183,10 @@ def _parse_components(raw: Any) -> dict[str, ComponentDefinition]:
     return result
 
 
-def _parse_composition(raw: Any, *, components: dict[str, ComponentDefinition] | None = None
+def _parse_composition(raw: Any, *, components: dict[str, ComponentDefinition] | None = None,
+                       schema_version: int = 8
                        ) -> DesktopComposition:
-    """Schema v8 desktop layout: bounded regions and non-executable live data."""
+    """Bounded desktop composition with safe v9 presentation-only labels."""
     data = _strict_keys(raw, {"widgets", "window_region", "compact_hide_widgets"},
                         "Desktop composition")
     raw_widgets = data["widgets"]
@@ -193,22 +195,27 @@ def _parse_composition(raw: Any, *, components: dict[str, ComponentDefinition] |
     widgets: list[DesktopWidget] = []
     for item in raw_widgets:
         component = type(item) is dict and item.get("kind") == "component"
-        item = _strict_keys(item, {"id", "kind", "ref", "x", "y"}
-                            if component else {"id", "kind", "x", "y"}, "Desktop widget")
+        text = type(item) is dict and item.get("kind") == "text" and schema_version >= 9
+        keys = ({"id", "kind", "ref", "x", "y"} if component else
+                {"id", "kind", "text", "x", "y"} if text else {"id", "kind", "x", "y"})
+        item = _strict_keys(item, keys, "Desktop widget")
         bound = components.get(item["ref"]) if component and components is not None \
             and type(item["ref"]) is str else None
         if (type(item["id"]) is not str or
                 re.fullmatch(r"[a-z][a-z0-9-]{1,23}", item["id"]) is None or
                 type(item["kind"]) is not str or
-                not (item["kind"] in DESKTOP_WIDGET_KINDS or
+                not (item["kind"] in (DESKTOP_WIDGET_KINDS if schema_version >= 9 else
+                                     ("clock", "date", "system")) or
                      component and bound is not None and bound.role == "status") or
+                (text and not _safe_label(item["text"], 22)) or
                 type(item["x"]) is not int or type(item["y"]) is not int or
                 not 0 <= item["x"] <= 16_384 or not 0 <= item["y"] <= 16_384):
             raise RecipeError("Invalid declarative desktop widget")
         if any(widget.widget_id == item["id"] for widget in widgets):
             raise RecipeError("Duplicate desktop widget ID")
         widgets.append(DesktopWidget(item["id"], bound.binding if component else item["kind"],
-                                     item["x"], item["y"], item["ref"] if component else None))
+                                     item["x"], item["y"], item["ref"] if component else None,
+                                     item["text"] if text else ""))
     region = _strict_keys(data["window_region"], {"x", "y", "width", "height"},
                           "Reserved window region")
     if (any(type(region[key]) is not int for key in ("x", "y", "width", "height")) or
@@ -515,7 +522,8 @@ def parse(raw: bytes) -> PanelRecipe:
     composition = None
     if version >= 4:
         if version >= 8:
-            composition = _parse_composition(data["composition"], components=components)
+            composition = _parse_composition(data["composition"], components=components,
+                                             schema_version=version)
         menu = _parse_menu(data["menu"], schema_version=version)
         desktop = _strict_keys(data["desktop"],
                                {"wallpaper", "icons"} if version >= 5 else {"wallpaper"},
