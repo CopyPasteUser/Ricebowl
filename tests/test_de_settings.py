@@ -3,6 +3,7 @@
 import json
 import unittest
 import xml.etree.ElementTree as ET
+from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
@@ -22,8 +23,60 @@ class RiceSpiceSettingsTests(unittest.TestCase):
             "accessibility", "timezone", "power", "appearance",
         })
         self.assertEqual(set(backend.EXTERNAL_PAGES), {
-            "displays", "input", "accessibility", "timezone",
+            "connections", "displays", "input", "accessibility", "timezone",
         })
+
+    def test_saved_network_profiles_activate_by_uuid_without_secrets(self):
+        wired = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        vpn = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+        rows = (f"{wired}:802-3-ethernet:Office\\:LAN:enp1s0\n"
+                f"{vpn}:vpn:Mullvad\\\\test:--\n")
+        active = {wired}
+        commands = []
+
+        def nmcli(*args, mutate=False):
+            commands.append((args, mutate))
+            if args[-2:] == ("show", "--active"):
+                return "\n".join(sorted(active))
+            if args[-2:] == ("con", "show"):
+                return rows
+            if args == ("con", "up", "uuid", vpn):
+                active.add(vpn)
+                return ""
+            if args == ("con", "down", "uuid", wired):
+                active.remove(wired)
+                return ""
+            self.fail(f"Unexpected NetworkManager operation: {args}")
+
+        with mock.patch.object(backend, "_nmcli_profile", side_effect=nmcli):
+            before = backend.connection_profiles()
+            self.assertEqual(before[0]["name"], "Office:LAN")
+            self.assertEqual(before[1]["name"], "Mullvad\\test")
+            self.assertEqual(backend.set_connection_profile(vpn, True, expected=False)["active"], True)
+            self.assertFalse(backend.set_connection_profile(wired, False, expected=True)["active"])
+            with self.assertRaisesRegex(backend.SettingsError, "changed"):
+                backend.set_connection_profile(vpn, True, expected=False)
+            with self.assertRaises(backend.SettingsError):
+                backend.set_connection_profile("--help", True, expected=False)
+        self.assertIn((("con", "up", "uuid", vpn), True), commands)
+        self.assertIn((("con", "down", "uuid", wired), True), commands)
+        self.assertFalse(any("password" in str(item).lower() for item in commands))
+
+    def test_network_profile_parser_rejects_ambiguous_malformed_inventory(self):
+        wired = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        with mock.patch.object(backend, "_nmcli_profile", side_effect=lambda *args, **kwargs:
+                               f"{wired}:vpn:Work:--\n{wired}:vpn:Work 2:--" if args[-2:] ==
+                               ("con", "show") else ""):
+            with self.assertRaisesRegex(backend.SettingsError, "duplicate"):
+                backend.connection_profiles()
+        for bad in ("broken\\escape", "trailing\\", "a:b:c"):
+            with self.subTest(bad=bad), self.assertRaises(backend.SettingsError):
+                if bad == "a:b:c":
+                    with mock.patch.object(backend, "_nmcli_profile", side_effect=lambda *a, **kw:
+                                           bad if a[-2:] == ("con", "show") else ""):
+                        backend.connection_profiles()
+                else:
+                    backend._terse_fields(bad)
 
     def test_external_tools_are_allowlisted_and_not_shell_interpreted(self):
         with mock.patch.object(backend.shutil, "which", side_effect=lambda name:
@@ -219,6 +272,65 @@ class RiceSpiceSettingsTests(unittest.TestCase):
         with mock.patch.object(backend, "_timedatectl", side_effect=["UTC", "UTC\n.."]):
             with self.assertRaisesRegex(backend.SettingsError, "invalid"):
                 backend.timezone_snapshot()
+
+    def test_ntp_is_explicit_system_wide_and_verified(self):
+        with mock.patch.object(backend, "_timedatectl",
+                               return_value="CanNTP=yes\nNTP=no") as query:
+            self.assertEqual(backend.ntp_snapshot(), {"available": True, "enabled": False})
+            query.assert_called_once_with("show", "-p", "CanNTP", "-p", "NTP")
+        with mock.patch.object(backend, "_timedatectl", side_effect=[
+                "CanNTP=yes\nNTP=no", "", "CanNTP=yes\nNTP=yes"]) as timedated:
+            self.assertEqual(backend.set_ntp(True, expected=False)["enabled"], True)
+            self.assertEqual(timedated.call_args_list[1], mock.call("set-ntp", "true"))
+        with mock.patch.object(backend, "ntp_snapshot", return_value={
+                "available": True, "enabled": True}), \
+                mock.patch.object(backend, "_timedatectl") as changed:
+            with self.assertRaisesRegex(backend.SettingsError, "changed"):
+                backend.set_ntp(True, expected=False)
+            changed.assert_not_called()
+        with mock.patch.object(backend, "ntp_snapshot", return_value={
+                "available": False, "enabled": False}), \
+                mock.patch.object(backend, "_timedatectl") as changed:
+            with self.assertRaisesRegex(backend.SettingsError, "does not offer"):
+                backend.set_ntp(True, expected=False)
+            changed.assert_not_called()
+        with mock.patch.object(backend, "_timedatectl", return_value="NTP=maybe\nCanNTP=yes"):
+            with self.assertRaisesRegex(backend.SettingsError, "invalid"):
+                backend.ntp_snapshot()
+        with self.assertRaises(backend.SettingsError):
+            backend.set_ntp("true", expected=False)
+
+    def test_manual_system_clock_is_guarded_and_readback_verified(self):
+        target = datetime(2026, 11, 8, 10, 30, 0)
+
+        class Clock:
+            @staticmethod
+            def strptime(value, pattern):
+                return datetime.strptime(value, pattern)
+
+            @staticmethod
+            def now():
+                return target
+
+        with mock.patch.object(backend, "datetime", Clock), \
+                mock.patch.object(backend, "_timedatectl", side_effect=[
+                    "CanNTP=yes\nNTP=no", ""]) as timedated:
+            self.assertEqual(backend.set_system_clock("2026-11-08 10:30:00"),
+                             "2026-11-08 10:30:00")
+            self.assertEqual(timedated.call_args_list[1],
+                             mock.call("set-time", "2026-11-08 10:30:00"))
+        with mock.patch.object(backend, "_timedatectl") as timedated:
+            for invalid in ("not-a-date", "2026-99-08 10:30:00", "2000-02-31 10:30:00",
+                            "; rm -rf /", "2026-11-08 10:30", None):
+                with self.subTest(invalid=invalid), self.assertRaises(backend.SettingsError):
+                    backend.set_system_clock(invalid)
+            timedated.assert_not_called()
+        with mock.patch.object(backend, "ntp_snapshot", return_value={
+                "available": True, "enabled": True}), \
+                mock.patch.object(backend, "_timedatectl") as timedated:
+            with self.assertRaisesRegex(backend.SettingsError, "Automatic time"):
+                backend.set_system_clock("2026-11-08 10:30:00")
+            timedated.assert_not_called()
 
     def test_native_and_fallback_settings_actions_use_fixed_command(self):
         original = json.loads(EXAMPLE.read_text())

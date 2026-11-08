@@ -12,7 +12,7 @@ except ImportError:
     Image = None
 
 from scripts.compare_wayland_captures import compare, main
-from macrice.de.visual_qa import compare as installed_compare
+from macrice.de.visual_qa import compare as installed_compare, create_baseline
 
 
 @unittest.skipIf(Image is None, "Optional Pillow is not installed in this runtime")
@@ -63,6 +63,113 @@ class WaylandVisualQaTests(unittest.TestCase):
             self.assertEqual(result["changed_pixel_ratio"], .5)
             self.assertEqual(result["mean_absolute_rgb_error"], 127.5)
             self.assertFalse(result["identical"])
+
+    def test_two_way_tolerance_ignores_tiny_offsets_but_not_disappearing_shapes(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            reference, actual = root / "reference.png", root / "actual.png"
+            first = Image.new("RGB", (24, 24), "black")
+            for y in range(5, 19):
+                first.putpixel((10, y), (240, 240, 240))
+            first.save(reference)
+            second = Image.new("RGB", (24, 24), "black")
+            for y in range(5, 19):
+                second.putpixel((11, y), (240, 240, 240))
+            second.save(actual)
+            heatmap = root / "tolerant.png"
+            report = compare(reference, actual, tolerance_radius=1, tolerant_heatmap=heatmap)
+            self.assertEqual(report["comparison_version"], 3)
+            self.assertGreater(report["changed_pixel_ratio"], 0)
+            self.assertEqual(report["tolerance"]["changed_pixel_ratio"], 0)
+            with Image.open(heatmap) as image:
+                self.assertEqual(image.getbbox(), None)
+            second = Image.new("RGB", (24, 24), "black")
+            second.save(actual)
+            report = compare(reference, actual, tolerance_radius=1)
+            self.assertGreater(report["tolerance"]["changed_pixel_ratio"], 0)
+            with self.assertRaisesRegex(ValueError, "Tolerance radius"):
+                compare(reference, actual, tolerance_radius=3)
+
+    def test_explicit_baseline_is_private_pinned_and_rejects_real_regressions(self):
+        from macrice.cli import main as cli
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            recipe = self._private_recipe(root)
+            reference, actual = root / "ref.png", root / "actual.png"
+            baseline = root / "approved.json"
+            Image.new("RGB", (1024, 768), "#101010").save(reference)
+            Image.new("RGB", (1024, 768), "#101010").save(actual)
+            cmd = ["de", "visual-baseline", "--reference", str(reference),
+                   "--recipe", str(recipe), "--output", str(baseline), "--json"]
+            with mock.patch("builtins.print") as printer:
+                self.assertEqual(cli(cmd), 1, "A baseline must be explicitly approved")
+                self.assertEqual(cli(cmd + ["--approve-reference"]), 0)
+            self.assertEqual(baseline.stat().st_mode & 0o777, 0o600)
+            approved = json.loads(baseline.read_text())
+            self.assertEqual(approved["policy"]["tolerance_radius"], 1)
+            result = installed_compare(reference, actual, recipe_token=str(recipe),
+                                       baseline=baseline)
+            self.assertTrue(result["baseline"]["passed"])
+            self.assertEqual(result["comparison_version"], 3)
+            with mock.patch("builtins.print") as printer:
+                self.assertEqual(cli(cmd + ["--approve-reference"]), 2)
+                self.assertEqual(json.loads(printer.call_args.args[0])["error"]["code"],
+                                 "invalid_baseline_input")
+
+            image = Image.new("RGB", (1024, 768), "#101010")
+            for x in range(100, 270):
+                for y in range(100, 270):
+                    image.putpixel((x, y), (255, 255, 255))
+            image.save(actual)
+            with mock.patch("builtins.print") as printer:
+                self.assertEqual(cli(["de", "visual-compare", "--reference", str(reference),
+                                      "--actual", str(actual), "--recipe", str(recipe),
+                                      "--baseline", str(baseline), "--json"]), 3)
+                report = json.loads(printer.call_args.args[0])
+            self.assertFalse(report["ok"])
+            self.assertFalse(report["visual_qa"]["baseline"]["passed"])
+            self.assertGreater(report["visual_qa"]["baseline"]["changed_pixel_ratio"], .01)
+
+            Image.new("RGB", (1024, 768), "#141414").save(reference)
+            with self.assertRaisesRegex(ValueError, "no longer matches"):
+                installed_compare(reference, actual, recipe_token=str(recipe),
+                                  baseline=baseline)
+            Image.new("RGB", (1024, 768), "#101010").save(reference)
+            reference_before = baseline.read_bytes()
+            source = json.loads(recipe.read_text())
+            source["name"] = "Changed after approval"
+            recipe.write_text(json.dumps(source))
+            with self.assertRaisesRegex(ValueError, "no longer matches"):
+                installed_compare(reference, actual, recipe_token=str(recipe),
+                                  baseline=baseline)
+            self.assertEqual(baseline.read_bytes(), reference_before)
+
+    def test_malformed_or_symlinked_baseline_is_rejected_without_diagnostics(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            recipe = self._private_recipe(root)
+            ref = root / "ref.png"
+            Image.new("RGB", (1024, 768), "black").save(ref)
+            baseline = root / "approved.json"
+            create_baseline(ref, str(recipe), baseline)
+            link = root / "symlink.json"
+            link.symlink_to(baseline)
+            artifact = root / "not-created.png"
+            with self.assertRaises(ValueError):
+                installed_compare(ref, ref, recipe_token=str(recipe), baseline=link,
+                                  heatmap=artifact)
+            self.assertFalse(artifact.exists())
+            baseline.chmod(0o644)
+            with self.assertRaisesRegex(ValueError, "owner-private"):
+                installed_compare(ref, ref, recipe_token=str(recipe), baseline=baseline)
+            baseline.chmod(0o600)
+            damaged = json.loads(baseline.read_text())
+            damaged["policy"]["max_changed_ratio"] = float("nan")
+            baseline.write_text(json.dumps(damaged))
+            with self.assertRaisesRegex(ValueError, "policy is invalid"):
+                installed_compare(ref, ref, recipe_token=str(recipe), baseline=baseline)
+            self.assertFalse(artifact.exists())
 
     def test_dimension_mismatch_and_corrupt_images_fail_closed(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -231,6 +338,13 @@ class WaylandVisualQaTests(unittest.TestCase):
 
         for arguments in (["de", "catalog", "--reference", "/tmp/not-used.png"],
                           ["de", "check", "--heatmap", "/tmp/not-used.png"],
+                          ["de", "catalog", "--tolerance-radius", "1"],
+                          ["de", "visual-compare", "--reference", "/tmp/a.png",
+                           "--actual", "/tmp/b.png", "--baseline", "/tmp/gate.json",
+                           "--threshold", "24"],
+                          ["de", "visual-baseline", "--reference", "/tmp/a.png",
+                           "--recipe", "classic", "--output", "/tmp/gate.json"],
+                          ["de", "catalog", "--approve-reference"],
                           ["de", "review", "--recipe", "classic", "--threshold", "10"],
                           ["de", "visual-compare", "--actual", "/tmp/a.png"],
                           ["de", "visual-compare", "--reference", "/tmp/a.png",

@@ -46,15 +46,20 @@ def _check_runtime_dir(environment: Mapping[str, str]) -> None:
         raise SessionError("XDG_RUNTIME_DIR must be an owner-only directory.")
 
 
-def _custom_labwc_config(recipe: object, runtime: str) -> Path:
-    """Build a private compositor menu without touching installed labwc config."""
+def _custom_labwc_config(recipe: object | None, runtime: str,
+                         preferences: Mapping | None = None) -> Path:
+    """Build private compositor settings without touching installed labwc config."""
     from .recipes import labwc_menu
+    from . import preferences as spice_prefs
     directory = Path(tempfile.mkdtemp(prefix=_CONFIG_PREFIX, dir=runtime))
     try:
         source = resources() / "labwc"
-        for name in ("rc.xml", "autostart", "shutdown"):
+        for name in ("rc.xml", "autostart", "shutdown", "menu.xml"):
             shutil.copyfile(source / name, directory / name)
-        (directory / "menu.xml").write_text(labwc_menu(recipe), encoding="utf-8")
+        if recipe is not None:
+            (directory / "menu.xml").write_text(labwc_menu(recipe), encoding="utf-8")
+        if preferences is not None:
+            spice_prefs.configure_labwc(directory / "rc.xml", preferences)
         (directory / ".ricebowl-managed").touch(mode=0o600)
         return directory
     except BaseException:
@@ -187,8 +192,24 @@ def start(
         "sh", "-c", f'{shell_command}; status=$?; {shlex.quote(labwc)} --exit '
                     '>/dev/null 2>&1; exit "$status"',
     ])
-    if loaded_recipe is not None and loaded_recipe.menu is not None:
-        config = _custom_labwc_config(loaded_recipe, env["XDG_RUNTIME_DIR"])
+    from . import preferences as spice_prefs
+    spice_values = None
+    try:
+        spice_values = spice_prefs.load_optional()
+    except spice_prefs.PreferenceError as error:
+        print(f"RiceBowl: ignoring unsafe RiceSpice preferences: {error}", file=sys.stderr)
+    if spice_values is not None:
+        spice_prefs.apply_session_environment(env, spice_values)
+    if (spice_values is not None and spice_values["accessibility_enabled"]
+            and spice_values["screen_reader_enabled"] and not nested):
+        env["RICEBOWL_DE_SCREEN_READER"] = "1"
+    else:
+        env.pop("RICEBOWL_DE_SCREEN_READER", None)
+    if ((loaded_recipe is not None and loaded_recipe.menu is not None)
+            or (spice_values is not None and spice_values["input_enabled"])):
+        config = _custom_labwc_config(
+            loaded_recipe if loaded_recipe is not None and loaded_recipe.menu is not None else None,
+            env["XDG_RUNTIME_DIR"], spice_values)
         env["RICEBOWL_DE_SESSION_CONFIG"] = str(config)
     else:
         env.pop("RICEBOWL_DE_SESSION_CONFIG", None)
@@ -265,6 +286,19 @@ def shell(
             mako = which("mako")
             if mako:
                 background.append(spawn([mako], env=env, stdin=subprocess.DEVNULL))
+
+            # Orca is optional, opt-in and only supervised inside a full RiceBowl
+            # session. Do not start another reader in a nested XFCE preview.
+            if env.get("RICEBOWL_DE_SCREEN_READER") == "1" and env.get("RICEBOWL_DE_NESTED") != "1":
+                orca = which("orca")
+                if orca:
+                    try:
+                        background.append(spawn([orca], env=env, stdin=subprocess.DEVNULL))
+                    except OSError as error:
+                        print(f"RiceBowl: Orca could not start: {error}", file=sys.stderr)
+                else:
+                    print("RiceBowl: Orca screen reader requested but not installed",
+                          file=sys.stderr)
 
             # Authorization goes to a user polkit agent, never a root shell.
             for name in ("lxpolkit", "mate-polkit", "polkit-gnome-authentication-agent-1"):

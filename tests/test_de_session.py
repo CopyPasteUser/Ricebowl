@@ -213,6 +213,24 @@ class WaylandSessionTests(unittest.TestCase):
         self.assertFalse(any(command[0] == "/usr/bin/swayidle" for command in commands))
         self.assertTrue(all(proc.terminated for proc in processes[:-1]))
 
+    def test_orca_is_opt_in_only_for_full_ricebowl_sessions(self):
+        commands = []
+        def spawn(command, **_kwargs):
+            commands.append(command)
+            return _FakeProcess()
+
+        tools = {**self.tools, "orca": "/usr/bin/orca"}
+        env = {"RICEBOWL_DE_SHELL_CHILD": "1", "WAYLAND_DISPLAY": "wayland-0",
+               "RICEBOWL_DE_SCREEN_READER": "1", "RICEBOWL_DE_NESTED": "0"}
+        with mock.patch("macrice.de.session.signal.signal"):
+            self.assertEqual(session.shell(environment=env, which=tools.get, spawn=spawn), 0)
+        self.assertIn(["/usr/bin/orca"], commands)
+        commands.clear()
+        with mock.patch("macrice.de.session.signal.signal"):
+            self.assertEqual(session.shell(environment={**env, "RICEBOWL_DE_NESTED": "1"},
+                                           which=tools.get, spawn=spawn), 0)
+        self.assertNotIn(["/usr/bin/orca"], commands)
+
     def test_native_panel_runs_without_waybar_when_it_exits_cleanly(self):
         commands = []
 

@@ -17,6 +17,7 @@ from typing import Any
 API_VERSION = 1
 MAX_REPLY = 512 * 1024
 MAX_DEVICES = 32
+MAX_STREAMS = 64
 _NAME = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.:+-]{0,159}\Z")
 _KINDS = {"sink": "sinks", "source": "sources"}
 
@@ -152,6 +153,126 @@ def set_default(kind: str, name: str, *, expected_current: str | None = None) ->
     return {"api_version": API_VERSION, "ok": True, "backend": "pactl",
             "changed": True, "kind": kind, "previous": before, "current": after,
             "mutates_active_desktop": True}
+
+
+def _streams(payload: str) -> list[dict[str, Any]]:
+    """Parse bounded PulseAudio sink-inputs, preserving actual per-stream state."""
+    try:
+        records = json.loads(payload)
+    except (ValueError, RecursionError) as exc:
+        raise AudioDeviceError("Invalid playback-stream inventory") from exc
+    if type(records) is not list or len(records) > MAX_STREAMS:
+        raise AudioDeviceError("Playback-stream inventory is missing or oversized")
+    found = set()
+    streams = []
+    for record in records:
+        if type(record) is not dict:
+            raise AudioDeviceError("Invalid playback-stream entry")
+        index, sink, muted = record.get("index"), record.get("sink"), record.get("mute")
+        if (type(index) is not int or not 0 <= index < 2**32 or index in found
+                or type(sink) is not int or not 0 <= sink < 2**32
+                or type(muted) is not bool):
+            raise AudioDeviceError("Invalid playback-stream identity or state")
+        found.add(index)
+        volume = record.get("volume")
+        if type(volume) is not dict or not 1 <= len(volume) <= 32:
+            raise AudioDeviceError("Invalid playback-stream volume")
+        levels = []
+        for channel in volume.values():
+            value = channel.get("value") if type(channel) is dict else None
+            if type(value) is not int or not 0 <= value <= 2**23:
+                raise AudioDeviceError("Invalid playback-stream volume channel")
+            levels.append(value)
+        percent = round(sum(levels) / len(levels) * 100 / 65536)
+        props = record.get("properties", {})
+        if type(props) is not dict:
+            raise AudioDeviceError("Invalid playback stream metadata")
+        label = props.get("application.name") or props.get("media.name") or f"Stream {index}"
+        if type(label) is not str:
+            label = f"Stream {index}"
+        label = "".join(ch for ch in label[:140] if ch.isprintable())[:100]
+        streams.append({"index": index, "sink": sink, "mute": muted,
+                        "volume": percent, "label": label or f"Stream {index}"})
+    return streams
+
+
+def playback_streams() -> dict[str, Any]:
+    """Read real application streams and available playback device identities."""
+    devices, _current = _enumerate("sink")
+    streams = _streams(_run("--format=json", "list", "sink-inputs"))
+    return {"outputs": devices, "streams": streams}
+
+
+def _stream(index: int) -> dict[str, Any]:
+    if type(index) is not int or not 0 <= index < 2**32:
+        raise AudioDeviceError("Invalid playback stream identifier")
+    current = next((item for item in playback_streams()["streams"]
+                    if item["index"] == index), None)
+    if current is None:
+        raise AudioDeviceError("Playback stream disappeared; refresh before applying")
+    return current
+
+
+def set_stream_output(index: int, sink: str, *, expected_sink: int) -> dict[str, Any]:
+    if type(sink) is not str or not _NAME.fullmatch(sink) or type(expected_sink) is not int:
+        raise AudioDeviceError("Choose an available playback output")
+    before = playback_streams()
+    current = next((item for item in before["streams"] if item["index"] == index), None)
+    if (type(index) is not int or current is None or current["sink"] != expected_sink):
+        raise AudioDeviceError("Playback stream changed; refresh before applying")
+    target = next((item for item in before["outputs"] if item["name"] == sink), None)
+    if target is None:
+        raise AudioDeviceError("Chosen output is unavailable")
+    if target["index"] == current["sink"]:
+        return current
+    try:
+        _run("move-sink-input", str(index), sink)
+        after = _stream(index)
+    except AudioDeviceError as exc:
+        raise AudioDeviceError("Stream routing may have changed; refresh and inspect",
+                               may_have_changed=True) from exc
+    if after["sink"] != target["index"]:
+        raise AudioDeviceError("Stream routing could not be verified", may_have_changed=True)
+    return after
+
+
+def set_stream_volume(index: int, percent: int, *, expected: int) -> dict[str, Any]:
+    if (type(index) is not int or type(percent) is not int or type(expected) is not int
+            or not 0 <= percent <= 150 or not 0 <= expected <= 1000):
+        raise AudioDeviceError("Invalid playback stream volume")
+    current = _stream(index)
+    if current["volume"] != expected:
+        raise AudioDeviceError("Stream volume changed; refresh before applying")
+    if current["volume"] == percent:
+        return current
+    try:
+        _run("set-sink-input-volume", str(index), f"{percent}%")
+        after = _stream(index)
+    except AudioDeviceError as exc:
+        raise AudioDeviceError("Stream volume may have changed; refresh and inspect",
+                               may_have_changed=True) from exc
+    if abs(after["volume"] - percent) > 1:
+        raise AudioDeviceError("Stream volume could not be verified", may_have_changed=True)
+    return after
+
+
+def set_stream_mute(index: int, enabled: bool, *, expected: bool) -> dict[str, Any]:
+    if type(index) is not int or type(enabled) is not bool or type(expected) is not bool:
+        raise AudioDeviceError("Invalid playback mute selection")
+    current = _stream(index)
+    if current["mute"] != expected:
+        raise AudioDeviceError("Stream mute changed; refresh before applying")
+    if enabled == expected:
+        return current
+    try:
+        _run("set-sink-input-mute", str(index), "1" if enabled else "0")
+        after = _stream(index)
+    except AudioDeviceError as exc:
+        raise AudioDeviceError("Stream mute may have changed; refresh and inspect",
+                               may_have_changed=True) from exc
+    if after["mute"] != enabled:
+        raise AudioDeviceError("Stream mute could not be verified", may_have_changed=True)
+    return after
 
 
 def invalid(error: AudioDeviceError) -> dict[str, Any]:

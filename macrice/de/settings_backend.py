@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import subprocess
+from datetime import datetime, timedelta
 from typing import Any
 
 
@@ -18,6 +19,7 @@ class SettingsError(ValueError):
 
 
 EXTERNAL_PAGES = {
+    "connections": (("nm-connection-editor",),),
     "displays": (("wdisplays",),),
     "input": (("gnome-control-center", "mouse"),),
     "accessibility": (("gnome-control-center", "universal-access"),),
@@ -25,6 +27,9 @@ EXTERNAL_PAGES = {
 }
 
 _TIMEZONE = re.compile(r"[A-Za-z0-9_+.-]+(?:/[A-Za-z0-9_+.-]+){0,4}\Z")
+_CONNECTION_UUID = re.compile(r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}\Z")
+_PROFILE_TYPES = frozenset(("802-3-ethernet", "ethernet", "802-11-wireless", "wifi",
+                           "vpn", "wireguard"))
 
 
 def _timedatectl(*args: str) -> str:
@@ -60,6 +65,62 @@ def timezone_snapshot() -> dict[str, Any]:
             or len(rows) != len(set(rows)) or current not in rows):
         raise SettingsError("System timezone inventory is invalid or incomplete")
     return {"current": current, "zones": tuple(sorted(rows))}
+
+
+def ntp_snapshot() -> dict[str, bool]:
+    """Read timedated's actual automatic time capability and state."""
+    pairs = _timedatectl("show", "-p", "CanNTP", "-p", "NTP")
+    rows = pairs.splitlines()
+    if len(rows) != 2 or any("=" not in line for line in rows):
+        raise SettingsError("timedated returned an invalid NTP state")
+    values = dict(line.split("=", 1) for line in rows)
+    if set(values) != {"CanNTP", "NTP"} or any(
+            value not in ("yes", "no") for value in values.values()):
+        raise SettingsError("timedated returned an invalid NTP state")
+    return {"available": values["CanNTP"] == "yes", "enabled": values["NTP"] == "yes"}
+
+
+def set_ntp(enabled: bool, *, expected: bool) -> dict[str, bool]:
+    """Explicit polkit-gated system-wide time-sync action and verified readback."""
+    if type(enabled) is not bool or type(expected) is not bool:
+        raise SettingsError("Invalid automatic time selection")
+    before = ntp_snapshot()
+    if not before["available"]:
+        raise SettingsError("This system does not offer automatic time synchronization")
+    if before["enabled"] != expected:
+        raise SettingsError("Automatic time state changed; refresh before applying")
+    if enabled == expected:
+        return before
+    _timedatectl("set-ntp", "true" if enabled else "false")
+    after = ntp_snapshot()
+    if after["enabled"] != enabled:
+        raise SettingsError("Automatic time may have changed; verification failed")
+    return after
+
+
+_CLOCK_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+
+def set_system_clock(value: str, *, expected_ntp: bool = False) -> str:
+    """Explicit, polkit-gated local system-clock change, never an automatic adjustment."""
+    if type(value) is not str or type(expected_ntp) is not bool or expected_ntp:
+        raise SettingsError("Select a full local date/time with NTP disabled")
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", value):
+        raise SettingsError("Use YYYY-MM-DD HH:MM:SS local time")
+    try:
+        target = datetime.strptime(value, _CLOCK_FORMAT)
+    except ValueError as exc:
+        raise SettingsError("Choose a valid local calendar date and time") from exc
+    if not 1970 <= target.year <= 2099:
+        raise SettingsError("System clock year is outside the supported range")
+    current = ntp_snapshot()
+    if current["enabled"]:
+        raise SettingsError("Automatic time is enabled; disable it and refresh first")
+    _timedatectl("set-time", value)
+    # Compare within a bounded command/verification interval, not exact seconds.
+    if abs(datetime.now() - target) > timedelta(seconds=15):
+        raise SettingsError("System time may have changed; verification failed")
+    return value
 
 
 def set_timezone(name: str, *, expected: str) -> str:
@@ -117,6 +178,105 @@ def _nmcli(*args: str) -> str:
         return response.stdout.decode("ascii").strip()
     except UnicodeDecodeError as exc:
         raise SettingsError("NetworkManager returned invalid radio state") from exc
+
+
+def _nmcli_profile(*args: str, mutate: bool = False) -> str:
+    """UTF-8 profile inventory/operations; no --show-secrets, shell, or credentials."""
+    binary = shutil.which("nmcli")
+    if not binary:
+        raise SettingsError("NetworkManager nmcli is not installed")
+    try:
+        reply = subprocess.run([binary, "--wait", "15" if mutate else "3", *args],
+                               stdin=subprocess.DEVNULL, capture_output=True,
+                               timeout=19 if mutate else 6, check=False,
+                               env={**os.environ, "LC_ALL": "C"})
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise SettingsError("NetworkManager profile request timed out or unavailable; "
+                            "refresh before retrying") from exc
+    if reply.returncode or len(reply.stdout) > 32 * 1024:
+        raise SettingsError("NetworkManager rejected the profile request; "
+                            "the connection may have changed, refresh before retrying")
+    try:
+        return reply.stdout.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise SettingsError("NetworkManager returned invalid profile data") from exc
+
+
+def _terse_fields(line: str) -> list[str]:
+    """Decode NetworkManager's -t -e yes escaped colon/backslash format."""
+    fields = []
+    part = []
+    escaped = False
+    for char in line:
+        if escaped:
+            if char not in (":", "\\"):
+                raise SettingsError("Malformed NetworkManager escaped profile")
+            part.append(char)
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif char == ":":
+            fields.append("".join(part))
+            part = []
+        else:
+            part.append(char)
+    if escaped:
+        raise SettingsError("Malformed NetworkManager escaped profile")
+    fields.append("".join(part))
+    return fields
+
+
+def connection_profiles() -> list[dict[str, Any]]:
+    """Read saved wired/Wi-Fi/VPN profiles without ever fetching credentials."""
+    rows = _nmcli_profile("-t", "-e", "yes", "-f", "UUID,TYPE,NAME,DEVICE", "con", "show")
+    active = _nmcli_profile("-t", "-e", "yes", "-f", "UUID", "con", "show", "--active")
+    uuids = set()
+    for item in active.splitlines():
+        uuid = item.strip()
+        if not _CONNECTION_UUID.fullmatch(uuid) or uuid in uuids:
+            raise SettingsError("Invalid NetworkManager active profile identity")
+        uuids.add(uuid)
+    if len(uuids) > 128 or len(rows.splitlines()) > 128:
+        raise SettingsError("Too many NetworkManager profiles")
+    results = []
+    found = set()
+    for line in rows.splitlines():
+        parts = _terse_fields(line)
+        if len(parts) != 4:
+            raise SettingsError("Malformed NetworkManager profile inventory")
+        uuid, kind, name, device = parts
+        if not _CONNECTION_UUID.fullmatch(uuid) or uuid in found:
+            raise SettingsError("Invalid or duplicate NetworkManager profile")
+        found.add(uuid)
+        if kind not in _PROFILE_TYPES:
+            continue
+        if len(name) > 160 or len(device) > 80:
+            raise SettingsError("Invalid NetworkManager profile label")
+        label = "".join(ch for ch in name if ch.isprintable())[:120] or "Unnamed profile"
+        results.append({"uuid": uuid, "kind": kind, "name": label,
+                        "device": device if device != "--" else "",
+                        "active": uuid in uuids})
+    return results
+
+
+def set_connection_profile(uuid: str, enabled: bool, *, expected: bool) -> dict[str, Any]:
+    """Activate/deactivate a previously saved profile with stale-state readback."""
+    if (type(uuid) is not str or not _CONNECTION_UUID.fullmatch(uuid)
+            or type(enabled) is not bool or type(expected) is not bool):
+        raise SettingsError("Select a saved network profile")
+    before = next((item for item in connection_profiles() if item["uuid"] == uuid), None)
+    if before is None or before["active"] != expected:
+        raise SettingsError("Network profile changed; refresh before applying")
+    if enabled == expected:
+        return before
+    try:
+        _nmcli_profile("con", "up" if enabled else "down", "uuid", uuid, mutate=True)
+    except SettingsError as exc:
+        raise SettingsError("Network profile may have changed; refresh the current state") from exc
+    after = next((item for item in connection_profiles() if item["uuid"] == uuid), None)
+    if after is None or after["active"] != enabled:
+        raise SettingsError("Network profile may have changed; verification failed")
+    return after
 
 
 def wifi_state() -> bool:

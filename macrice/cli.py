@@ -72,6 +72,7 @@ def parser() -> argparse.ArgumentParser:
     de = commands.add_parser("de", help="Inspect experimental RiceBowl Wayland desktop prerequisites")
     de.add_argument("action", choices=(
         "check", "start", "shell", "catalog", "creator-api", "review", "draft-edit", "visual-compare",
+        "visual-baseline",
         "capture", "render", "creator-status", "creator-stage", "creator-rollback",
         "pack-export", "pack-inspect", "pack-import", "asset-import", "notifications", "notification-dismiss",
         "settings",
@@ -88,6 +89,16 @@ def parser() -> argparse.ArgumentParser:
     de.add_argument("--overlay", type=Path, help="New private overlay PNG for de visual-compare")
     de.add_argument("--heatmap", type=Path, help="New private difference PNG for de visual-compare")
     de.add_argument("--threshold", type=int, help="Per-channel RGB threshold 0-255 for de visual-compare")
+    de.add_argument("--tolerance-radius", type=int, choices=(0, 1, 2),
+                    help="Two-way local rasterization tolerance in pixels for visual QA")
+    de.add_argument("--tolerant-heatmap", type=Path,
+                    help="New private PNG of differences remaining after tolerance")
+    de.add_argument("--baseline", type=Path,
+                    help="Approved private JSON baseline for de visual-compare")
+    de.add_argument("--max-changed-ratio", type=float,
+                    help="Maximum tolerated changed-pixel fraction for de visual-baseline")
+    de.add_argument("--approve-reference", action="store_true",
+                    help="Explicitly approve a reviewed reference image for de visual-baseline")
     de.add_argument("--edit", type=Path, help="Owner-controlled absolute JSON edit operations for de draft-edit")
     de.add_argument("--metadata", type=Path, help="Optional provenance JSON for de pack-export")
     de.add_argument("--package", type=Path, help="Absolute .ricepack file for de pack-inspect/import")
@@ -188,9 +199,17 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("--expect-sha256 only applies to de creator-stage")
             if args.action not in ("creator-stage", "creator-rollback") and args.expect_active is not None:
                 raise ValueError("--expect-active only applies to de creator-stage/rollback")
+            if args.action not in ("visual-compare", "visual-baseline") and any(
+                    value is not None for value in (args.reference, args.threshold,
+                                                    args.tolerance_radius)):
+                raise ValueError("Visual QA options only apply to visual-compare/baseline")
             if args.action != "visual-compare" and any(value is not None for value in
-                    (args.reference, args.actual, args.overlay, args.heatmap, args.threshold)):
-                raise ValueError("Visual comparison options only apply to de visual-compare")
+                    (args.actual, args.overlay, args.heatmap, args.tolerant_heatmap,
+                     args.baseline)):
+                raise ValueError("Comparison options only apply to de visual-compare")
+            if args.action != "visual-baseline" and (
+                    args.max_changed_ratio is not None or args.approve_reference):
+                raise ValueError("Approval options only apply to de visual-baseline")
             if args.action != "render" and any(value is not None for value in
                     (args.width, args.height, args.scale)):
                 raise ValueError("--width, --height and --scale only apply to de render")
@@ -198,7 +217,9 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("--base, --id and --name only apply to de recipe-init")
             if args.action != "recipe-init" and args.schema_version != 1:
                 raise ValueError("--schema-version only applies to de recipe-init")
-            if args.action not in ("recipe-init", "recipe-export", "taskotto-export", "draft-edit", "capture", "render", "pack-export") and args.output:
+            if (args.action not in ("recipe-init", "recipe-export", "taskotto-export",
+                                    "draft-edit", "capture", "render", "pack-export",
+                                    "visual-baseline") and args.output):
                 raise ValueError("--output is not supported by this de command")
             if args.action == "creator-api":
                 if args.nested or args.recipe or args.panel != "waybar":
@@ -442,38 +463,79 @@ def main(argv: list[str] | None = None) -> int:
                             print(f"  {change['path']}: {change['before']!r} -> {change['after']!r}")
                     print("Read-only review; no desktop changes. Use a nested preview to inspect it.")
                 return 0
+            if args.action == "visual-baseline":
+                if (args.nested or args.panel != "waybar" or not args.approve_reference
+                        or args.reference is None or not args.recipe or args.output is None):
+                    raise ValueError("de visual-baseline needs --approve-reference, --reference, "
+                                     "--recipe and --output")
+                from .de.visual_qa import create_baseline
+                try:
+                    baseline = create_baseline(
+                        args.reference, args.recipe, args.output,
+                        threshold=24 if args.threshold is None else args.threshold,
+                        tolerance_radius=1 if args.tolerance_radius is None else args.tolerance_radius,
+                        max_changed_ratio=(0.01 if args.max_changed_ratio is None
+                                           else args.max_changed_ratio))
+                except ValueError:
+                    if not args.json:
+                        raise
+                    print(json.dumps({"creator_contract_version": 2, "ok": False,
+                                      "applied": False, "error": {
+                                          "code": "invalid_baseline_input",
+                                          "message": "Invalid or unsafe visual baseline input"}},
+                                     indent=2))
+                    return 2
+                if args.json:
+                    print(json.dumps({"creator_contract_version": 2, "ok": True,
+                                      "applied": False, "baseline": baseline}, indent=2))
+                else:
+                    print(f"Approved private visual baseline: {args.output}")
+                    print("No active session or rice selection changed")
+                return 0
             if args.action == "visual-compare":
                 if (args.nested or args.panel != "waybar" or args.reference is None
                         or args.actual is None):
                     raise ValueError("de visual-compare requires --reference and --actual")
+                if args.baseline is not None and (args.threshold is not None
+                                                  or args.tolerance_radius is not None):
+                    raise ValueError("Approved baselines pin threshold and tolerance; omit overrides")
                 from .de.visual_qa import compare
                 try:
                     report = compare(args.reference, args.actual,
                                      threshold=24 if args.threshold is None else args.threshold,
                                      recipe_token=args.recipe, overlay=args.overlay,
-                                     heatmap=args.heatmap)
+                                     heatmap=args.heatmap,
+                                     tolerance_radius=(0 if args.tolerance_radius is None
+                                                       else args.tolerance_radius),
+                                     tolerant_heatmap=args.tolerant_heatmap, baseline=args.baseline)
                 except ValueError:
                     if not args.json:
                         raise
-                    print(json.dumps({"creator_contract_version": 1, "ok": False,
+                    print(json.dumps({"creator_contract_version": 2, "ok": False,
                                       "applied": False, "error": {
                                           "code": "invalid_visual_input",
                                           "message": "Invalid or unsafe visual comparison input"}},
                                      indent=2))
                     return 2
+                passed = report.get("baseline", {}).get("passed", True)
                 if args.json:
-                    print(json.dumps({"creator_contract_version": 1, "ok": True,
+                    print(json.dumps({"creator_contract_version": 2, "ok": passed,
                                       "applied": False, "visual_qa": report}, indent=2))
                 else:
                     print(f"RGB difference: {report['mean_absolute_rgb_error']:.4f} mean error, "
                           f"{report['changed_pixel_ratio']:.2%} changed pixels")
                     if "layout_issues" in report:
                         print(f"Declared panel/icon layout issues: {len(report['layout_issues'])}")
-                    for artifact in ("overlay", "heatmap"):
+                    if "tolerance" in report:
+                        print("Tolerance-adjusted changes: "
+                              f"{report['tolerance']['changed_pixel_ratio']:.2%}")
+                    if "baseline" in report:
+                        print(f"Approved baseline: {'PASS' if passed else 'REGRESSION'}")
+                    for artifact in ("overlay", "heatmap", "tolerant_heatmap"):
                         if artifact in report:
                             print(f"Created private {artifact}: {report[artifact]}")
                     print("Read-only comparison; no desktop change or fidelity certification")
-                return 0
+                return 0 if passed else 3
             if args.action == "capture":
                 if args.nested or args.panel != "waybar" or args.recipe:
                     raise ValueError("de capture accepts only --output and --json")

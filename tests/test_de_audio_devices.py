@@ -131,6 +131,55 @@ class AudioDeviceTests(unittest.TestCase):
         row = next(item for item in contract["commands"] if item["command"] == "audio-default")
         self.assertTrue(row["mutates_active_session"])
 
+    def test_application_stream_routing_volume_and_mute_are_verified(self):
+        current = {"index": 42, "sink": 1, "mute": False,
+                   "volume": {"front-left": {"value": 32768},
+                              "front-right": {"value": 32768}},
+                   "properties": {"application.name": "Web browser"}}
+        commands = []
+
+        def simulate(*args):
+            commands.append(args)
+            if args == ("--format=json", "list", "sink-inputs"):
+                return json.dumps([current])
+            if args == ("move-sink-input", "42", USB):
+                current["sink"] = 2
+                return ""
+            if args == ("set-sink-input-volume", "42", "70%"):
+                current["volume"] = {"front-left": {"value": 45875}}
+                return ""
+            if args == ("set-sink-input-mute", "42", "1"):
+                current["mute"] = True
+                return ""
+            return sample_response(*args)
+
+        with mock.patch.object(audio_devices, "_run", side_effect=simulate):
+            before = audio_devices.playback_streams()
+            self.assertEqual(before["streams"][0]["volume"], 50)
+            self.assertEqual(before["streams"][0]["label"], "Web browser")
+            self.assertEqual(audio_devices.set_stream_output(42, USB, expected_sink=1)["sink"], 2)
+            self.assertEqual(audio_devices.set_stream_volume(42, 70, expected=50)["volume"], 70)
+            self.assertTrue(audio_devices.set_stream_mute(42, True, expected=False)["mute"])
+            with self.assertRaisesRegex(audio_devices.AudioDeviceError, "changed"):
+                audio_devices.set_stream_output(42, SINK, expected_sink=1)
+        self.assertIn(("move-sink-input", "42", USB), commands)
+
+    def test_application_streams_reject_malformed_and_unavailable(self):
+        valid = {"index": 4, "sink": 1, "mute": False,
+                 "volume": {"mono": {"value": 65536}}, "properties": {}}
+        for payload in ("{}", "invalid", json.dumps([valid] * 65),
+                        json.dumps([{**valid, "index": True}]),
+                        json.dumps([valid, valid]),
+                        json.dumps([{**valid, "volume": {"mono": {"value": "100%"}}}])):
+            with self.subTest(payload=payload[:30]), \
+                    self.assertRaises(audio_devices.AudioDeviceError):
+                audio_devices._streams(payload)
+        with mock.patch.object(audio_devices, "_run") as command:
+            for value in (-1, True, "50", 151):
+                with self.assertRaises(audio_devices.AudioDeviceError):
+                    audio_devices.set_stream_volume(4, value, expected=40)
+            command.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
