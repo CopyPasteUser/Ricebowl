@@ -200,7 +200,7 @@ impl MenuState {
         self.selected = (self.selected as isize + delta).rem_euclid(count as isize) as usize;
     }
 
-    pub fn current_action<'a>(&self, menu: &'a NativeMenu) -> Option<&'a str> {
+    pub fn current_action<'a>(&'a self, menu: &'a NativeMenu) -> Option<&'a str> {
         self.actions(menu).get(self.selected).copied()
     }
 

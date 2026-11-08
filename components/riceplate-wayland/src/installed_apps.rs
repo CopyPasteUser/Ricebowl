@@ -71,16 +71,17 @@ fn scan_dir(root: &Path, dir: &Path, depth: usize, current_desktop: &str,
             continue;
         }
         *visited += 1;
-        let Ok(relative) = entry.path().strip_prefix(root) else { continue; };
+        let path = entry.path();
+        let Ok(relative) = path.strip_prefix(root) else { continue; };
         let Some(id) = desktop_id(relative) else { continue; };
         // Even a hidden or invalid high-priority entry masks a system entry.
         if !seen.insert(id.clone()) { continue; }
         let Ok(metadata) = entry.metadata() else { continue; };
         if metadata.len() > MAX_FILE_BYTES { continue; }
-        let Ok(data) = fs::read_to_string(entry.path()) else { continue; };
+        let Ok(data) = fs::read_to_string(&path) else { continue; };
         if let Some((name, search_text)) = parse_entry(&data, current_desktop) {
             apps.push(App { action: format!("desktop:{id}"), name, search_text,
-                            path: entry.path() });
+                            path });
         }
     }
 }
