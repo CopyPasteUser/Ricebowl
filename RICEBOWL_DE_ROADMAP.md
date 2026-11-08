@@ -308,6 +308,16 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   Requires Rust 1.88 and libdbus-1 for the host library.
 - [ ] Expose reusable, composable shell primitives and stable interaction/state
   bindings so substantially different rice layouts share core behavior.
+  - [x] Deliver the first **schema-v9 shared component registry**: up to eight
+    strictly validated status/action definitions (`id`, `role`, `binding`,
+    `label`) may be referenced by panel groups and compact variants; status
+    definitions also appear in native desktop widgets. Each reference resolves
+    to existing real network/audio/battery/clock backends or the existing
+    allowlisted native action/verified control, with no per-rice shell code.
+    Python/Rust parsers, Waybar's honest panel-only fallback, Creator review,
+    draft editing, catalog v10 and a real headless v9 fixture share the same
+    contract. Interactive desktop action surfaces, richer state families and
+    physical input/AT acceptance remain open.
   - [x] Add a **real declarative schema-v6 panel action button** (`type: action`,
     `id`, `label`) with fixed allowlisted Apps/Terminal/Settings/Lock IDs;
     one validated recipe controls native drawing, per-output geometry, click,

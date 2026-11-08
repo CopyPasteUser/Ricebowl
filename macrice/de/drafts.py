@@ -27,7 +27,8 @@ class DraftError(recipes.RecipeError):
         self.path = path if path in EDITABLE_PATHS else None
 
 
-def _allowed_value(path: str, value: Any, schema_version: int) -> bool:
+def _allowed_value(path: str, value: Any, schema_version: int,
+                   components: dict[str, recipes.ComponentDefinition] | None = None) -> bool:
     """Reject nested/oversized executable-looking content before serialization."""
     if path.startswith("/panel/sections/"):
         return (type(value) is list and len(value) <= 7
@@ -41,7 +42,7 @@ def _allowed_value(path: str, value: Any, schema_version: int) -> bool:
             actions: dict[str, str] = {}
             for node in value:
                 recipes._parse_layout_node(node, 1, counts, widgets, actions,
-                                           schema_version=schema_version)
+                                           schema_version=schema_version, components=components)
         except recipes.RecipeError:
             return False
         return True
@@ -74,7 +75,15 @@ def _allowed_value(path: str, value: Any, schema_version: int) -> bool:
                     and all(type(item) is str for item in value)
                     and len(set(value)) == len(value))
         try:
-            recipes._parse_composition(baseline)
+            recipes._parse_composition(baseline, components=components)
+        except recipes.RecipeError:
+            return False
+        return True
+    if path == "/components":
+        if schema_version < 9:
+            return False
+        try:
+            recipes._parse_components(value)
         except recipes.RecipeError:
             return False
         return True
@@ -97,7 +106,9 @@ def _allowed_value(path: str, value: Any, schema_version: int) -> bool:
             and not any(unicodedata.category(character) == "Cc" for character in value))
 
 
-def _parse_edit(payload: bytes, *, schema_version: int) -> list[tuple[str, Any]]:
+def _parse_edit(payload: bytes, *, schema_version: int,
+                components: dict[str, recipes.ComponentDefinition] | None = None
+                ) -> list[tuple[str, Any]]:
     if len(payload) > MAX_EDIT_BYTES:
         raise DraftError("Draft edit exceeds the 16 KiB limit", code="edit_too_large")
     try:
@@ -119,7 +130,7 @@ def _parse_edit(payload: bytes, *, schema_version: int) -> list[tuple[str, Any]]
                 or item["path"] not in EDITABLE_PATHS or item["path"] in seen):
             raise DraftError("Draft contains an unsupported or duplicate edit operation",
                              code="unsupported_operation")
-        if not _allowed_value(item["path"], item["value"], schema_version):
+        if not _allowed_value(item["path"], item["value"], schema_version, components):
             raise DraftError("Value is outside the supported component property range or type",
                              code="invalid_value", path=item["path"])
         seen.add(item["path"])
@@ -140,7 +151,9 @@ def create_edit(*, recipe_token: str, edit_source: Path, destination: Path) -> d
     try:
         original = recipes.load(recipe_token)
         raw = recipes._read_import_source(edit_source)
-        operations = _parse_edit(raw, schema_version=original.schema_version)
+        definitions = {item.component_id: item for item in original.components}
+        operations = _parse_edit(raw, schema_version=original.schema_version,
+                                 components=definitions)
     except recipes.RecipeError as exc:
         if isinstance(exc, DraftError):
             raise
@@ -171,6 +184,9 @@ def create_edit(*, recipe_token: str, edit_source: Path, destination: Path) -> d
                              code="unsupported_property_for_schema", path=path)
         if path.startswith("/composition/") and modified["schema_version"] < 8:
             raise DraftError("Desktop composition requires a schema-v8 source recipe",
+                             code="unsupported_property_for_schema", path=path)
+        if path == "/components" and modified["schema_version"] < 9:
+            raise DraftError("Component bindings require a schema-v9 source recipe",
                              code="unsupported_property_for_schema", path=path)
         parts = path.lstrip("/").split("/")
         current = modified

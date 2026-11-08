@@ -28,6 +28,7 @@ const MAX_DESKTOP_ICONS: usize = 8;
 pub const DESKTOP_WIDGET_WIDTH: u32 = 200;
 pub const DESKTOP_WIDGET_HEIGHT: u32 = 96;
 const MAX_DESKTOP_WIDGETS: usize = 4;
+const MAX_COMPONENT_DEFINITIONS: usize = 8;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DesktopIcon {
@@ -42,6 +43,9 @@ pub enum DesktopWidgetKind {
     Clock,
     Date,
     System,
+    Network,
+    Audio,
+    Battery,
 }
 
 #[derive(Debug, Clone)]
@@ -50,6 +54,7 @@ pub struct DesktopWidget {
     pub kind: DesktopWidgetKind,
     pub x: u32,
     pub y: u32,
+    pub title: Option<String>,
 }
 
 /// The desktop remains clear for window use here. Labwc still owns actual
@@ -196,6 +201,17 @@ struct Recipe {
     responsive: Option<Responsive>,
     #[serde(default, deserialize_with = "deserialize_present")]
     composition: Option<Composition>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    components: Option<Vec<ComponentInput>>,
+}
+
+#[derive(Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+struct ComponentInput {
+    id: String,
+    role: String,
+    binding: String,
+    label: String,
 }
 
 #[derive(Deserialize)]
@@ -213,6 +229,9 @@ struct DesktopWidgetInput {
     kind: String,
     x: u32,
     y: u32,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    #[serde(rename = "ref")]
+    reference: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -332,6 +351,7 @@ struct LayoutSections {
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 enum LayoutNode {
     Widget { id: String },
+    Component { #[serde(rename = "ref")] reference: String },
     Gap { width: u32 },
     Divider { width: u32 },
     Label { text: String },
@@ -363,7 +383,34 @@ fn safe_label(text: &str, max_length: usize) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b" ._:+-".contains(&b))
 }
 
-fn validate_composition(input: Composition) -> Result<DesktopComposition, Box<dyn Error>> {
+fn validate_components(input: Vec<ComponentInput>) -> Result<Vec<ComponentInput>, Box<dyn Error>> {
+    if !(1..=MAX_COMPONENT_DEFINITIONS).contains(&input.len()) {
+        return Err("Component registry needs 1-8 definitions".into());
+    }
+    let mut seen = HashSet::new();
+    for item in &input {
+        let bytes = item.id.as_bytes();
+        let allowed = match item.role.as_str() {
+            "status" => ["clock", "network", "audio", "battery"]
+                .contains(&item.binding.as_str()),
+            "action" => ["applications", "terminal", "settings", "lock",
+                         "wifi-toggle", "audio-mute", "audio-up", "audio-down"]
+                .contains(&item.binding.as_str()),
+            _ => false,
+        };
+        if !(2..=24).contains(&bytes.len()) || !bytes[0].is_ascii_lowercase()
+            || !bytes.iter().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'-')
+            || !seen.insert(item.id.as_str()) || !safe_label(&item.label, 16) || !allowed
+        {
+            return Err("Invalid or duplicate component binding".into());
+        }
+    }
+    Ok(input)
+}
+
+fn validate_composition(
+    input: Composition, components: &[ComponentInput],
+) -> Result<DesktopComposition, Box<dyn Error>> {
     if input.widgets.len() > MAX_DESKTOP_WIDGETS {
         return Err("Desktop composition exceeds four widgets".into());
     }
@@ -380,16 +427,29 @@ fn validate_composition(input: Composition) -> Result<DesktopComposition, Box<dy
         let valid_id = (2..=24).contains(&item.id.len())
             && item.id.as_bytes()[0].is_ascii_lowercase()
             && item.id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
-        let kind = match item.kind.as_str() {
-            "clock" => DesktopWidgetKind::Clock,
-            "date" => DesktopWidgetKind::Date,
-            "system" => DesktopWidgetKind::System,
+        let mut title = None;
+        let kind = match (item.kind.as_str(), item.reference.as_deref()) {
+            ("clock", None) => DesktopWidgetKind::Clock,
+            ("date", None) => DesktopWidgetKind::Date,
+            ("system", None) => DesktopWidgetKind::System,
+            ("component", Some(reference)) => {
+                let bound = components.iter().find(|entry| entry.id == reference
+                    && entry.role == "status").ok_or("Desktop needs a known status component")?;
+                title = Some(bound.label.clone());
+                match bound.binding.as_str() {
+                    "clock" => DesktopWidgetKind::Clock,
+                    "network" => DesktopWidgetKind::Network,
+                    "audio" => DesktopWidgetKind::Audio,
+                    "battery" => DesktopWidgetKind::Battery,
+                    _ => return Err("Unknown desktop component status".into()),
+                }
+            }
             _ => return Err("Unsupported desktop widget type".into()),
         };
         if !valid_id || !ids.insert(item.id.clone()) || item.x > 16_384 || item.y > 16_384 {
             return Err("Invalid or duplicate desktop widget".into());
         }
-        widgets.push(DesktopWidget { id: item.id, kind, x: item.x, y: item.y });
+        widgets.push(DesktopWidget { id: item.id, kind, x: item.x, y: item.y, title });
     }
     if input.compact_hide_widgets.len() > MAX_DESKTOP_WIDGETS {
         return Err("Too many compact hidden widgets".into());
@@ -488,12 +548,34 @@ fn expand_layout(
     labels: &mut Vec<String>,
     actions: &mut Vec<PanelAction>,
     version: u32,
+    components: &[ComponentInput],
 ) -> Result<(), Box<dyn Error>> {
     counts[0] += 1;
     if depth > MAX_LAYOUT_DEPTH || counts[0] > MAX_LAYOUT_NODES {
         return Err("Panel layout exceeds bounded depth or node count".into());
     }
     match node {
+        LayoutNode::Component { reference } => {
+            if version < 9 {
+                return Err("Component references require schema v9".into());
+            }
+            let definition = components.iter().find(|entry| &entry.id == reference)
+                .ok_or("Unknown component reference")?;
+            let resolved = if definition.role == "status" {
+                LayoutNode::Widget { id: definition.binding.clone() }
+            } else if ["wifi-toggle", "audio-mute", "audio-up", "audio-down"]
+                .contains(&definition.binding.as_str())
+            {
+                LayoutNode::Control { id: definition.binding.clone(),
+                                      label: definition.label.clone() }
+            } else {
+                LayoutNode::Action { id: definition.binding.clone(),
+                                     label: definition.label.clone() }
+            };
+            counts[0] -= 1; // A reference is one node, not a nested layer.
+            expand_layout(&resolved, depth, counts, seen, rendered, labels,
+                          actions, version, components)?;
+        }
         LayoutNode::Widget { id } => {
             if !seen.insert(id.clone()) {
                 return Err("Duplicate panel widget".into());
@@ -569,7 +651,8 @@ fn expand_layout(
                 if index > 0 && *gap > 0 {
                     rendered.push(Widget::Gap(*gap));
                 }
-                expand_layout(child, depth + 1, counts, seen, rendered, labels, actions, version)?;
+                expand_layout(child, depth + 1, counts, seen, rendered, labels,
+                              actions, version, components)?;
             }
         }
     }
@@ -582,7 +665,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
     }
     let recipe: Recipe = serde_json::from_str(raw)?;
     let id = recipe.id.as_bytes();
-    if ![1, 2, 3, 4, 5, 6, 7, 8].contains(&recipe.schema_version)
+    if ![1, 2, 3, 4, 5, 6, 7, 8, 9].contains(&recipe.schema_version)
         || id.len() < 2
         || id.len() > 32
         || !id[0].is_ascii_lowercase()
@@ -598,9 +681,14 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
     {
         return Err("RicePlate recipe metadata or dimensions are invalid".into());
     }
+    let components = match (recipe.schema_version, recipe.components) {
+        (9, Some(definitions)) => validate_components(definitions)?,
+        (1..=8, None) => Vec::new(),
+        _ => return Err("Component library requires schema v9".into()),
+    };
     let widths = match (recipe.schema_version, recipe.panel.metrics) {
         (1, None) => [LAUNCHER_WIDTH, TASK_WIDTH, CLOCK_WIDTH],
-        (2 | 3 | 4 | 5 | 6 | 7 | 8, Some(metrics))
+        (2 | 3 | 4 | 5 | 6 | 7 | 8 | 9, Some(metrics))
             if (64..=256).contains(&metrics.launcher_width)
                 && (96..=256).contains(&metrics.task_width)
                 && (64..=256).contains(&metrics.clock_width) =>
@@ -645,7 +733,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
                 }
             }
         }
-        (3 | 4 | 5 | 6 | 7 | 8, None, Some(layout)) => {
+        (3 | 4 | 5 | 6 | 7 | 8 | 9, None, Some(layout)) => {
             let source = [layout.start, layout.center, layout.end];
             let mut counts = [0_usize, 0_usize];
             for (index, nodes) in source.iter().enumerate() {
@@ -662,6 +750,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
                         &mut labels,
                         &mut actions,
                         recipe.schema_version,
+                        &components,
                     )?;
                 }
             }
@@ -677,9 +766,9 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
     let mut desktop_icons = Vec::new();
     let mut native_menu = None;
     let composition = match (recipe.schema_version, recipe.composition) {
-        (8, Some(input)) => Some(validate_composition(input)?),
+        (8 | 9, Some(input)) => Some(validate_composition(input, &components)?),
         (1..=7, None) => None,
-        _ => return Err("Desktop composition requires schema v8".into()),
+        _ => return Err("Desktop composition requires schema v8 or v9".into()),
     };
     match (
         recipe.schema_version,
@@ -688,7 +777,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
         recipe.tokens,
         recipe.responsive,
     ) {
-        (version @ (4 | 5 | 6 | 7 | 8), Some(menu), Some(desktop), Some(tokens), Some(responsive)) => {
+        (version @ (4 | 5 | 6 | 7 | 8 | 9), Some(menu), Some(desktop), Some(tokens), Some(responsive)) => {
             validate_menu(&menu, version)?;
             native_menu = Some(NativeMenu {
                 title: menu.title,
@@ -719,7 +808,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
             });
             desktop_icons = match (version, desktop.icons) {
                 (4, None) => Vec::new(),
-                (5 | 6 | 7 | 8, Some(icons)) => validate_icons(icons)?,
+                (5 | 6 | 7 | 8 | 9, Some(icons)) => validate_icons(icons)?,
                 _ => return Err("Schema v5 requires icons; v4 forbids them".into()),
             };
             let bundled = [
@@ -771,6 +860,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
                         &mut labels,
                         &mut actions,
                         version,
+                        &components,
                     )?;
                 }
             }
@@ -1025,6 +1115,38 @@ mod tests {
     const ACTIONS_V6: &str = include_str!("../../../tests/fixtures/riceplate-actions-v6.json");
     const CONTROLS_V7: &str = include_str!("../../../tests/fixtures/riceplate-controls-v7.json");
     const LAYOUT_V8: &str = include_str!("../../../tests/fixtures/riceplate-layout-v8.json");
+    const COMPONENTS_V9: &str = include_str!("../../../tests/fixtures/riceplate-components-v9.json");
+
+    #[test]
+    fn v9_resolves_shared_status_and_action_bindings_for_panel_and_desktop() {
+        let style = parse(COMPONENTS_V9, Some("shared-components")).unwrap();
+        assert!(style.sections.iter().flatten().any(|widget| *widget == Widget::Network));
+        assert!(style.actions.iter().any(|action|
+            action.id == "wifi-toggle" && action.label == "Wi-Fi" && action.control));
+        assert!(style.compact.as_ref().unwrap().1.iter().flatten().any(|widget|
+            *widget == Widget::Network));
+        let widgets = &style.composition.unwrap().widgets;
+        assert_eq!(widgets[1].kind, DesktopWidgetKind::Network);
+        assert_eq!(widgets[1].title.as_deref(), Some("Network"));
+        assert_eq!(widgets[2].kind, DesktopWidgetKind::Audio);
+    }
+
+    #[test]
+    fn v9_component_references_reject_commands_unknown_ids_and_wrong_surface_roles() {
+        let original: serde_json::Value = serde_json::from_str(COMPONENTS_V9).unwrap();
+        for (pointer, value) in [
+            ("/components/0/binding", serde_json::json!("bash -c id")),
+            ("/components/0/id", serde_json::json!("wifi-switch")),
+            ("/components/1/role", serde_json::json!("command")),
+            ("/panel/layout/start/2/ref", serde_json::json!("missing")),
+            ("/composition/widgets/1/ref", serde_json::json!("wifi-switch")),
+            ("/schema_version", serde_json::json!(8)),
+        ] {
+            let mut data = original.clone();
+            *data.pointer_mut(pointer).unwrap() = value;
+            assert!(parse(&data.to_string(), None).is_err(), "accepted {pointer}");
+        }
+    }
 
     #[test]
     fn v8_multi_region_composition_has_live_clock_status_and_safe_window_region() {

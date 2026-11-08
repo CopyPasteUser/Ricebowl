@@ -11,6 +11,7 @@ from .creator_contract import (describe as draft_edit_contract, describe_capture
                                describe_ricepack, describe_visual_qa)
 from .recipes import (ICON_ACTIONS, ICON_HEIGHT, ICON_WIDTH, MAX_DESKTOP_ICONS,
                       MAX_DESKTOP_WIDGETS, DESKTOP_WIDGET_KINDS,
+                      MAX_COMPONENT_DEFINITIONS, COMPONENT_STATUS_BINDINGS,
                       DESKTOP_WIDGET_WIDTH, DESKTOP_WIDGET_HEIGHT,
                       MENU_ACTIONS, WALLPAPERS, MAX_LAYOUT_CHILDREN, MAX_LAYOUT_DEPTH, MAX_LAYOUT_LABELS,
                       MAX_LAYOUT_ACTIONS, PANEL_ACTIONS, PANEL_CONTROLS, MAX_LAYOUT_NODES, MAX_LAYOUT_ROOTS, MAX_RECIPE_BYTES,
@@ -20,11 +21,11 @@ from .recipes import (ICON_ACTIONS, ICON_HEIGHT, ICON_WIDTH, MAX_DESKTOP_ICONS,
 def describe() -> dict[str, object]:
     """Describe exactly which panel and early shell primitives are implemented."""
     return {
-        "catalog_version": 9,
+        "catalog_version": 10,
         "scope": "wayland-shell-preview",
         "complete_desktop_environment": False,
         "recipe": {
-            "schema_versions": [1, 2, 3, 4, 5, 6, 7, 8],
+            "schema_versions": [1, 2, 3, 4, 5, 6, 7, 8, 9],
             "maximum_bytes": MAX_RECIPE_BYTES,
             "sections": ["start", "center", "end"],
             "unique_widgets": True,
@@ -81,8 +82,20 @@ def describe() -> dict[str, object]:
                                 "keyboard_navigation": True,
                                 "accessibility_role": "button-when-available",
                                 "states": ["unavailable", "ready", "pending", "success", "failed"]},
+                    "component": {"since_schema": 9, "fields": ["type", "ref"],
+                                  "resolves": "/components", "native": "shared-status-or-action-binding",
+                                  "waybar": "read-only-status-or-safe-action-fallback"},
                 },
             },
+            "component_library": {"since_schema": 9, "pointer": "/components",
+                                  "max_definitions": MAX_COMPONENT_DEFINITIONS,
+                                  "roles": ["action", "status"],
+                                  "status_bindings": sorted(COMPONENT_STATUS_BINDINGS),
+                                  "action_bindings": sorted(PANEL_ACTIONS | PANEL_CONTROLS),
+                                  "panel_reference": {"type": "component", "ref": "definition-id"},
+                                  "desktop_reference": {"kind": "component", "ref": "definition-id"},
+                                  "desktop_status_only": True,
+                                  "custom_commands": False},
             "shell_extensions": {
                 "since_schema": 4,
                 "menu": {"native": "output-bound-layer-shell-popup",
@@ -231,6 +244,12 @@ def describe() -> dict[str, object]:
              "read_only": True, "executes_commands_from_recipe": False,
              "responsive_hide": True, "hotplug_reflow": True,
              "accessibility_role": "status"},
+            {"id": "shared-component", "since_schema": 9,
+             "recipe_pointer": "/components", "max_definitions": MAX_COMPONENT_DEFINITIONS,
+             "panel": ["status", "action"], "desktop": ["status"],
+             "native": "existing-Linux-provider-and-action-dispatch",
+             "waybar": "panel-only-with-disabled-unverified-controls",
+             "arbitrary_commands": False},
         ],
         "integrations": [
             {"id": "ricepop-notification-history", "native": "read-only-cli-bridge",
@@ -285,7 +304,7 @@ def validate_catalog_contract() -> None:
     if (len(ids) != len(set(ids)) or set(ids) != WIDGETS
             or metrics != METRIC_FIELDS
             or len(shell) != len(result["shell_components"])
-            or set(shell) != {"native-menu", "calendar-popup", "desktop-shortcut", "desktop-widget"}
+            or set(shell) != {"native-menu", "calendar-popup", "desktop-shortcut", "desktop-widget", "shared-component"}
             or shell["native-menu"]["actions"] != sorted(MENU_ACTIONS)
             or set(result["recipe"]["nested_layout"]["node_types"]["action"]["known_ids"]) != PANEL_ACTIONS
             or shell["desktop-shortcut"]["actions"] != sorted(ICON_ACTIONS)):

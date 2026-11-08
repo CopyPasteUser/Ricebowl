@@ -191,7 +191,7 @@ class RecipeTests(unittest.TestCase):
             with self.assertRaisesRegex(recipes.RecipeError, "Unsupported"):
                 recipes.create_from_template(source="chrome", destination=destination,
                                              recipe_id="valid-id", name="Valid name",
-                                 schema_version=9)
+                                 schema_version=10)
 
     def test_recipe_init_rejects_invalid_metadata_before_writing(self):
         with tempfile.TemporaryDirectory() as directory:

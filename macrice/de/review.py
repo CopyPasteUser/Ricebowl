@@ -63,7 +63,9 @@ def _manifest(recipe: recipes.PanelRecipe) -> dict[str, Any]:
     if recipe.composition is not None:
         composition = recipe.composition
         result["composition"] = {
-            "widgets": [{"id": widget.widget_id, "kind": widget.kind,
+            "widgets": [{"id": widget.widget_id,
+                         "kind": "component" if widget.component_ref else widget.kind,
+                         **({"ref": widget.component_ref} if widget.component_ref else {}),
                          "x": widget.x, "y": widget.y} for widget in composition.widgets],
             "window_region": {"x": composition.window_region.x,
                               "y": composition.window_region.y,
@@ -71,6 +73,11 @@ def _manifest(recipe: recipes.PanelRecipe) -> dict[str, Any]:
                               "height": composition.window_region.height},
             "compact_hide_widgets": list(composition.compact_hide_widgets),
         }
+    if recipe.schema_version >= 9:
+        result["components"] = [
+            {"id": component.component_id, "role": component.role,
+             "binding": component.binding, "label": component.label}
+            for component in recipe.components]
     return result
 
 
@@ -105,6 +112,7 @@ def _fields(manifest: dict[str, Any]) -> dict[str, Any]:
     result["/desktop/icons"] = manifest.get("desktop", {}).get("icons")
     for name in ("widgets", "window_region", "compact_hide_widgets"):
         result[f"/composition/{name}"] = manifest.get("composition", {}).get(name)
+    result["/components"] = manifest.get("components")
     for token in ("label_padding", "task_radius"):
         result[f"/tokens/{token}"] = manifest.get("tokens", {}).get(token)
     result["/responsive/compact_max_width"] = manifest.get("responsive", {}).get(

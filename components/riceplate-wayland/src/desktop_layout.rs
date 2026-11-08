@@ -148,9 +148,9 @@ mod tests {
         DesktopComposition {
             widgets: vec![
                 DesktopWidget { id: "desk-clock".into(), kind: DesktopWidgetKind::Clock,
-                                x: 32, y: 320 },
+                                x: 32, y: 320, title: None },
                 DesktopWidget { id: "desk-system".into(), kind: DesktopWidgetKind::System,
-                                x: 32, y: 432 },
+                                x: 32, y: 432, title: None },
             ],
             window_region: WindowRegion { x: 30, y: 8, width: 66, height: 84 },
             compact_hide_widgets: vec!["desk-system".into()],

@@ -35,6 +35,8 @@ MAX_LAYOUT_ROOTS = 8
 MAX_LAYOUT_CHILDREN = 6
 MAX_DESKTOP_ICONS = 8
 MAX_DESKTOP_WIDGETS = 4
+MAX_COMPONENT_DEFINITIONS = 8
+COMPONENT_STATUS_BINDINGS = frozenset(("clock", "network", "audio", "battery"))
 DESKTOP_WIDGET_KINDS = frozenset(("clock", "date", "system"))
 DESKTOP_WIDGET_WIDTH = 200
 DESKTOP_WIDGET_HEIGHT = 96
@@ -112,6 +114,15 @@ class DesktopWidget:
     kind: str
     x: int
     y: int
+    component_ref: str | None = None
+
+
+@dataclass(frozen=True)
+class ComponentDefinition:
+    component_id: str
+    role: str
+    binding: str
+    label: str
 
 
 @dataclass(frozen=True)
@@ -147,9 +158,32 @@ class PanelRecipe:
     desktop_icons: tuple[DesktopIcon, ...] | None = None
     menu_presentation: str = "tabs"
     composition: DesktopComposition | None = None
+    components: tuple[ComponentDefinition, ...] = ()
 
 
-def _parse_composition(raw: Any) -> DesktopComposition:
+def _parse_components(raw: Any) -> dict[str, ComponentDefinition]:
+    """A bounded per-rice registry of bindings to existing native capabilities."""
+    if not isinstance(raw, list) or not 1 <= len(raw) <= MAX_COMPONENT_DEFINITIONS:
+        raise RecipeError("Component library needs 1–8 definitions")
+    result: dict[str, ComponentDefinition] = {}
+    for entry in raw:
+        entry = _strict_keys(entry, {"id", "role", "binding", "label"}, "Component definition")
+        identifier, role, binding, label = (entry[key] for key in
+                                             ("id", "role", "binding", "label"))
+        if (type(identifier) is not str or
+                re.fullmatch(r"[a-z][a-z0-9-]{1,23}", identifier) is None or
+                type(role) is not str or type(binding) is not str or
+                type(label) is not str or not _safe_label(label, 16) or
+                (role == "status" and binding not in COMPONENT_STATUS_BINDINGS) or
+                (role == "action" and binding not in PANEL_ACTIONS | PANEL_CONTROLS) or
+                role not in ("status", "action") or identifier in result):
+            raise RecipeError("Invalid or duplicate component capability binding")
+        result[identifier] = ComponentDefinition(identifier, role, binding, label)
+    return result
+
+
+def _parse_composition(raw: Any, *, components: dict[str, ComponentDefinition] | None = None
+                       ) -> DesktopComposition:
     """Schema v8 desktop layout: bounded regions and non-executable live data."""
     data = _strict_keys(raw, {"widgets", "window_region", "compact_hide_widgets"},
                         "Desktop composition")
@@ -158,17 +192,23 @@ def _parse_composition(raw: Any) -> DesktopComposition:
         raise RecipeError("Desktop composition supports at most four widgets")
     widgets: list[DesktopWidget] = []
     for item in raw_widgets:
-        item = _strict_keys(item, {"id", "kind", "x", "y"}, "Desktop widget")
+        component = type(item) is dict and item.get("kind") == "component"
+        item = _strict_keys(item, {"id", "kind", "ref", "x", "y"}
+                            if component else {"id", "kind", "x", "y"}, "Desktop widget")
+        bound = components.get(item["ref"]) if component and components is not None \
+            and type(item["ref"]) is str else None
         if (type(item["id"]) is not str or
                 re.fullmatch(r"[a-z][a-z0-9-]{1,23}", item["id"]) is None or
                 type(item["kind"]) is not str or
-                item["kind"] not in DESKTOP_WIDGET_KINDS or
+                not (item["kind"] in DESKTOP_WIDGET_KINDS or
+                     component and bound is not None and bound.role == "status") or
                 type(item["x"]) is not int or type(item["y"]) is not int or
                 not 0 <= item["x"] <= 16_384 or not 0 <= item["y"] <= 16_384):
             raise RecipeError("Invalid declarative desktop widget")
         if any(widget.widget_id == item["id"] for widget in widgets):
             raise RecipeError("Duplicate desktop widget ID")
-        widgets.append(DesktopWidget(item["id"], item["kind"], item["x"], item["y"]))
+        widgets.append(DesktopWidget(item["id"], bound.binding if component else item["kind"],
+                                     item["x"], item["y"], item["ref"] if component else None))
     region = _strict_keys(data["window_region"], {"x", "y", "width", "height"},
                           "Reserved window region")
     if (any(type(region[key]) is not int for key in ("x", "y", "width", "height")) or
@@ -281,7 +321,8 @@ def _strict_keys(value: Any, keys: set[str], context: str) -> dict[str, Any]:
 
 
 def _parse_layout_node(raw: Any, depth: int, counts: list[int], widgets: list[str],
-                       actions: dict[str, str], *, schema_version: int) -> LayoutNode:
+                       actions: dict[str, str], *, schema_version: int,
+                       components: dict[str, ComponentDefinition] | None = None) -> LayoutNode:
     """Validate one reusable primitive; never interpret fields as commands."""
     counts[0] += 1
     if depth > MAX_LAYOUT_DEPTH or counts[0] > MAX_LAYOUT_NODES:
@@ -289,6 +330,19 @@ def _parse_layout_node(raw: Any, depth: int, counts: list[int], widgets: list[st
     if not isinstance(raw, dict) or type(raw.get("type")) is not str:
         raise RecipeError("Panel layout node needs a known type")
     kind = raw["type"]
+    if kind == "component":
+        _strict_keys(raw, {"type", "ref"}, "Component reference")
+        ref = raw["ref"]
+        bound = components.get(ref) if type(ref) is str and components else None
+        if schema_version < 9 or bound is None:
+            raise RecipeError("Unknown or unsupported component reference")
+        if bound.role == "status":
+            widgets.append(bound.binding)
+        else:
+            if bound.binding in actions or len(actions) >= MAX_LAYOUT_ACTIONS:
+                raise RecipeError("Duplicate or excessive component action binding")
+            actions[bound.binding] = bound.label
+        return LayoutNode(kind, ref)
     if kind == "widget":
         _strict_keys(raw, {"type", "id"}, "Widget node")
         if type(raw["id"]) is not str or raw["id"] not in WIDGETS:
@@ -337,11 +391,13 @@ def _parse_layout_node(raw: Any, depth: int, counts: list[int], widgets: list[st
             raise RecipeError("Group needs 1-6 children, 0-32px gap and bounded depth")
         return LayoutNode(kind, gap=raw["gap"], children=tuple(
             _parse_layout_node(child, depth + 1, counts, widgets, actions,
-                               schema_version=schema_version) for child in children))
+                               schema_version=schema_version, components=components)
+            for child in children))
     raise RecipeError("Unsupported panel layout node or action")
 
 
-def _parse_layout(raw: Any, *, schema_version: int = 3
+def _parse_layout(raw: Any, *, schema_version: int = 3,
+                  components: dict[str, ComponentDefinition] | None = None
                   ) -> tuple[tuple[tuple[LayoutNode, ...], ...], list[str]]:
     layout = _strict_keys(raw, set(SECTIONS), "Panel layout")
     counts = [0, 0]
@@ -353,7 +409,8 @@ def _parse_layout(raw: Any, *, schema_version: int = 3
         if not isinstance(entries, list) or len(entries) > MAX_LAYOUT_ROOTS:
             raise RecipeError("Panel layout section has more than eight roots")
         result.append(tuple(_parse_layout_node(entry, 1, counts, widgets, actions,
-                            schema_version=schema_version) for entry in entries))
+                            schema_version=schema_version, components=components)
+                            for entry in entries))
     return (result[0], result[1], result[2]), widgets
 
 
@@ -364,6 +421,8 @@ def layout_node_json(node: LayoutNode) -> dict[str, Any]:
                 "children": [layout_node_json(child) for child in node.children]}
     if node.kind == "widget":
         return {"type": "widget", "id": node.value}
+    if node.kind == "component":
+        return {"type": "component", "ref": node.value}
     if node.kind in ("action", "control"):
         return {"type": node.kind, "id": node.value, "label": node.label}
     if node.kind == "label":
@@ -384,14 +443,17 @@ def parse(raw: bytes) -> PanelRecipe:
     if not isinstance(data, dict):
         raise RecipeError("Recipe must be a JSON object")
     version = data.get("schema_version")
-    if type(version) is not int or version not in (1, 2, 3, 4, 5, 6, 7, 8):
+    if type(version) is not int or version not in (1, 2, 3, 4, 5, 6, 7, 8, 9):
         raise RecipeError("Unsupported RicePlate recipe schema version")
     expected = {"schema_version", "id", "name", "panel", "colors"}
     if version >= 4:
         expected.update(("menu", "desktop", "tokens", "responsive"))
     if version >= 8:
         expected.add("composition")
+    if version >= 9:
+        expected.add("components")
     data = _strict_keys(data, expected, "Recipe")
+    components = _parse_components(data["components"]) if version >= 9 else {}
     recipe_id = data["id"]
     if not isinstance(recipe_id, str) or not re.fullmatch(r"[a-z][a-z0-9-]{1,31}", recipe_id):
         raise RecipeError("Recipe ID must contain 2-32 lowercase ASCII characters")
@@ -418,10 +480,13 @@ def parse(raw: bytes) -> PanelRecipe:
     all_widgets: list[str] = []
     layout_nodes = None
     if version >= 3:
-        layout_nodes, all_widgets = _parse_layout(panel["layout"], schema_version=version)
+        layout_nodes, all_widgets = _parse_layout(panel["layout"], schema_version=version,
+                                                components=components)
         def widget_ids(nodes: tuple[LayoutNode, ...]) -> tuple[str, ...]:
             return tuple(item for node in nodes for item in (
                 (node.value,) if node.kind == "widget" else
+                (components[node.value].binding,) if node.kind == "component" and
+                components[node.value].role == "status" else
                 widget_ids(node.children) if node.kind == "group" else ()))
         selected = [widget_ids(nodes) for nodes in layout_nodes]
     else:
@@ -450,7 +515,7 @@ def parse(raw: bytes) -> PanelRecipe:
     composition = None
     if version >= 4:
         if version >= 8:
-            composition = _parse_composition(data["composition"])
+            composition = _parse_composition(data["composition"], components=components)
         menu = _parse_menu(data["menu"], schema_version=version)
         desktop = _strict_keys(data["desktop"],
                                {"wallpaper", "icons"} if version >= 5 else {"wallpaper"},
@@ -476,7 +541,8 @@ def parse(raw: bytes) -> PanelRecipe:
         if type(threshold) is not int or not 480 <= threshold <= 1440:
             raise RecipeError("Compact breakpoint must be 480-1440 logical pixels")
         alternate, alternate_widgets = _parse_layout(responsive["compact_layout"],
-                                                     schema_version=version)
+                                                     schema_version=version,
+                                                     components=components)
         if (len(alternate_widgets) != len(set(alternate_widgets))
                 or not {"tasks", "launcher"} & set(alternate_widgets)):
             raise RecipeError("Compact layout requires unique widgets and launcher/tasks")
@@ -485,6 +551,9 @@ def parse(raw: bytes) -> PanelRecipe:
             def visit(node: LayoutNode) -> None:
                 if node.kind in ("action", "control"):
                     result[str(node.value)] = node.label
+                if node.kind == "component" and components[node.value].role == "action":
+                    binding = components[node.value]
+                    result[binding.binding] = binding.label
                 for child in node.children:
                     visit(child)
             for section in sections:
@@ -502,7 +571,7 @@ def parse(raw: bytes) -> PanelRecipe:
                        metrics, layout_nodes, version, menu, wallpaper, tokens, compact,
                        desktop_icons,
                        data["menu"].get("presentation", "tabs") if version >= 6 else "tabs",
-                       composition)
+                       composition, tuple(components.values()))
 
 
 def load(token: str) -> PanelRecipe:
@@ -826,7 +895,7 @@ def create_from_template(
     if not destination.is_absolute() or destination.suffix != ".json":
         raise RecipeError("New recipe output must be an absolute .json file path")
     data = json.loads(BUILTINS[source].read_text(encoding="utf-8"))
-    if schema_version in (2, 3, 4, 5, 6, 7, 8):
+    if schema_version in (2, 3, 4, 5, 6, 7, 8, 9):
         data["schema_version"] = schema_version
         data["panel"]["metrics"] = dict(zip(METRIC_FIELDS, METRIC_DEFAULTS))
         if schema_version >= 3:
@@ -862,6 +931,25 @@ def create_from_template(
                     "window_region": {"x": 30, "y": 8, "width": 66, "height": 84},
                     "compact_hide_widgets": ["desk-system"],
                 }
+            if schema_version >= 9:
+                data["components"] = [
+                    {"id": "net-status", "role": "status", "binding": "network",
+                     "label": "Network"},
+                    {"id": "wifi-switch", "role": "action", "binding": "wifi-toggle",
+                     "label": "Wi-Fi"},
+                ]
+                data["panel"]["layout"]["start"].append(
+                    {"type": "component", "ref": "wifi-switch"})
+                data["panel"]["layout"]["end"] = [
+                    {"type": "component", "ref": "net-status"}
+                    if node.get("id") == "network" else node
+                    for node in data["panel"]["layout"]["end"]]
+                data["responsive"]["compact_layout"]["end"].append(
+                    {"type": "component", "ref": "net-status"})
+                data["composition"]["widgets"][1] = {
+                    "id": "desk-system", "kind": "component", "ref": "net-status",
+                    "x": 32, "y": 432,
+                }
     elif schema_version != 1:
         raise RecipeError("Unsupported RicePlate template schema version")
     data["id"] = recipe_id
@@ -895,8 +983,15 @@ def waybar_config(recipe: PanelRecipe, *, screen_width: int | None = None) -> tu
                            for widgets in recipe.sections]
     else:
         counter = [0]
+        definitions = {component.component_id: component for component in recipe.components}
 
         def generate_node(node: LayoutNode) -> list[str]:
+            if node.kind == "component":
+                bound = definitions[str(node.value)]
+                return generate_node(LayoutNode(
+                    "widget" if bound.role == "status" else
+                    "control" if bound.binding in PANEL_CONTROLS else "action",
+                    bound.binding, label=bound.label))
             if node.kind == "widget":
                 return [module_names[str(node.value)]]
             if node.kind == "group":

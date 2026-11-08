@@ -532,7 +532,7 @@ Start a new private template with `ricebowl de recipe-init --schema-version 7`
 plus the ordinary `--base`, `--id`, `--name` and `--output` options; add these
 nodes using `de draft-edit`, review them with `de review` and preview the
 result with `de start --nested --panel native --recipe /absolute/path/to/rice.json`.
-The Creator catalog v9 advertises the exact contract. Existing schemas v1–v6
+The Creator catalog v10 advertises the exact contract. Existing schemas v1–v6
 are still accepted, but reject `control` nodes.
 
 The native RicePlate panel and its menu share **one bounded asynchronous
@@ -599,6 +599,47 @@ a compact breakpoint. The isolated `de render` command requires labwc, grim,
 swaybg and `riceplate-native`; it does not mutate the active desktop.
 Actual multi-monitor placement, fractional scaling, device input and Orca
 require real-hardware acceptance before a stable release.
+
+#### Schema-v9 shared component bindings (native RicePlate)
+
+The opt-in v9 component registry defines at most **eight reusable instances**
+using only existing Linux capabilities. A `status` binding is one of `clock`,
+`network`, `audio`, `battery`; an `action` binds only the same four fixed panel
+actions (`applications`, `terminal`, `settings`, `lock`) or four verified native
+controls (`wifi-toggle`, `audio-mute`, `audio-up`, `audio-down`). No external
+command or user-provided executable is allowed.
+
+```json
+"components": [
+  {"id":"net-status","role":"status","binding":"network","label":"Network"},
+  {"id":"wifi-switch","role":"action","binding":"wifi-toggle","label":"Wi-Fi"}
+]
+```
+
+Use `{ "type":"component", "ref":"net-status" }` in either a full panel
+region or the compact panel layout; use `{ "type":"component",
+"ref":"wifi-switch" }` for a real native Wi-Fi control with the existing
+verified state/disabled/error presentation and keyboard/AT-SPI activation.
+The Waybar fallback renders the status with its usual module and the
+unverified Wi-Fi control as **noninteractive N/A**, never a fake toggle.
+
+Native desktop widgets may reference a **status** component with
+`{"id":"desk-net","kind":"component","ref":"net-status","x":32,"y":432}`.
+That widget displays the same live NetworkManager-derived status as the panel
+and uses the existing output-aware widget layer; action components are rejected
+on desktop widgets because a safe pointer/keyboard action surface has not yet
+been implemented there. The same binding is read once by the existing native
+status provider, not by an additional polling daemon.
+
+Generate a private example with `ricebowl de recipe-init --schema-version 9
+--base classic --id my-components --name "My Components" --output
+"$HOME/my-components.json"`. Inspect the complete
+[v9 component fixture](tests/fixtures/riceplate-components-v9.json), which
+demonstrates reuse in full/compact panel regions and desktop status widgets;
+review with `de review`, edit with `de draft-edit` (`/components` and the
+existing layout paths), or render with isolated `de render`. Schemas v1–v8
+remain valid. This is a first, bounded common component system, not a generic
+extension/plugin runtime or an arbitrary visual widget framework.
 
 The default **Waybar-backed** Wayland session is separately checked in CI
 with two genuine labwc headless outputs. The smoke captures the bar on each,
