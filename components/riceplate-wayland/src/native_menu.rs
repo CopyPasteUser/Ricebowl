@@ -60,6 +60,10 @@ pub struct MenuState {
 }
 
 impl MenuState {
+    pub fn with_pins(pins: Vec<String>) -> Self {
+        Self { pins, ..Self::default() }
+    }
+
     /// Refresh the bounded application index when the menu is opened, never on
     /// keypress or during rendering. Changes are picked up on the next opening.
     pub fn refresh_apps(&mut self) {

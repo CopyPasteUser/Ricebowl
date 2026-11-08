@@ -337,7 +337,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         calendar_mirrors: Vec::new(),
         active_calendar: None,
         preview_secondary_calendar,
-        menu_state: MenuState { pins: saved_menu_pins, ..MenuState::default() },
+        menu_state: MenuState::with_pins(saved_menu_pins),
         notification_state: NotificationState::default(),
         notification_sender: None,
         calendar_state: CalendarState::new(Local::now().date_naive()),
