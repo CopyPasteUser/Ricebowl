@@ -100,7 +100,7 @@ def describe_ricepack() -> dict[str, object]:
         "extension": ".ricepack",
         "entries": ["ricepack.json", "recipe.json", "assets/wallpaper.png (v3 only)"],
         "maximum_archive_bytes": 3 * 1024 * 1024,
-        "recipe_schema_versions": [1, 2, 3, 4, 5, 6, 7],
+        "recipe_schema_versions": [1, 2, 3, 4, 5, 6, 7, 8],
         "asset_support": "bundled wallpaper receipts or one embedded SHA256-addressed PNG (v3)",
         "asset_manifest": {"since_version": 2, "version": 1,
                            "fields": ["id", "sha256", "provenance"],
@@ -178,7 +178,7 @@ def describe_live() -> dict[str, object]:
         "scope": "current opt-in RiceBowl labwc session only; never XFCE/X11",
         "restore": "one prior live rice, using its recorded reviewed fingerprint",
         "readiness_limit": "new clients survive initial grace period; no full pixel/input validation",
-        "external_apps": "RiceField/Taskotto session-wide changes not yet transactional",
+        "external_apps": "compatible RiceField/Taskotto appearance files use guarded preflight and rollback; client frames are eventually consistent",
         "success_exit_code": 0,
         "error_exit_code": 2,
     }
@@ -198,7 +198,7 @@ def describe_creator_api() -> dict[str, object]:
         "next_login_selection_mutation": "creator-stage/rollback only; requires explicit invocation",
         "commands": [
             {"command": "catalog", "effect": "read-only component discovery",
-             "cli": "de catalog --json", "contract_version": 8},
+             "cli": "de catalog --json", "contract_version": 9},
             {"command": "review", "effect": "validate recipe and compare semantic diffs",
              "cli": "de review --recipe ID [--compare ID] --json", "contract_version": 1},
             {"command": "draft-edit", "effect": "create private reviewed JSON draft",
@@ -258,7 +258,7 @@ def describe_creator_api() -> dict[str, object]:
         "live": describe_live(),
         "limitations": [
             "Not a screenshot-to-rice converter or editable GUI",
-            "Schema-v1..v7 shell preview; v6+ supports one bounded PNG wallpaper, not arbitrary assets",
+            "Schema-v1..v8 shell preview; v8 composes native desktop widgets/window reservations; v6+ supports one bounded PNG wallpaper, not arbitrary assets",
             "Live apply is explicit and supervised; Wayland session remains experimental",
             "Native tray, complete settings, notification center and physical multi-monitor acceptance remain open",
         ],
@@ -271,6 +271,7 @@ EDITABLE_PATHS = frozenset((
     *(f"/panel/layout/{name}" for name in recipes.SECTIONS),
     "/menu/title", "/menu/groups", "/menu/presentation", "/desktop/wallpaper",
     "/desktop/icons",
+    "/composition/widgets", "/composition/window_region", "/composition/compact_hide_widgets",
     "/tokens/label_padding", "/tokens/task_radius",
     "/responsive/compact_max_width",
     *(f"/responsive/compact_layout/{name}" for name in recipes.SECTIONS),

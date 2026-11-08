@@ -60,6 +60,17 @@ def _manifest(recipe: recipes.PanelRecipe) -> dict[str, Any]:
                 ([recipes.layout_node_json(node) for node in nodes]
                  for nodes in recipe.compact[1]))),
         }
+    if recipe.composition is not None:
+        composition = recipe.composition
+        result["composition"] = {
+            "widgets": [{"id": widget.widget_id, "kind": widget.kind,
+                         "x": widget.x, "y": widget.y} for widget in composition.widgets],
+            "window_region": {"x": composition.window_region.x,
+                              "y": composition.window_region.y,
+                              "width": composition.window_region.width,
+                              "height": composition.window_region.height},
+            "compact_hide_widgets": list(composition.compact_hide_widgets),
+        }
     return result
 
 
@@ -92,6 +103,8 @@ def _fields(manifest: dict[str, Any]) -> dict[str, Any]:
     result["/menu/presentation"] = manifest.get("menu", {}).get("presentation", "tabs")
     result["/desktop/wallpaper"] = manifest.get("desktop", {}).get("wallpaper")
     result["/desktop/icons"] = manifest.get("desktop", {}).get("icons")
+    for name in ("widgets", "window_region", "compact_hide_widgets"):
+        result[f"/composition/{name}"] = manifest.get("composition", {}).get(name)
     for token in ("label_padding", "task_radius"):
         result[f"/tokens/{token}"] = manifest.get("tokens", {}).get(token)
     result["/responsive/compact_max_width"] = manifest.get("responsive", {}).get(

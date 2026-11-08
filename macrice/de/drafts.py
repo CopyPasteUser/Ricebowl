@@ -63,6 +63,21 @@ def _allowed_value(path: str, value: Any, schema_version: int) -> bool:
         except recipes.RecipeError:
             return False
         return True
+    if path.startswith("/composition/"):
+        if schema_version < 8:
+            return False
+        baseline = {"widgets": [], "window_region": {"x": 0, "y": 0,
+                    "width": 100, "height": 100}, "compact_hide_widgets": []}
+        baseline[path.removeprefix("/composition/")] = value
+        if path == "/composition/compact_hide_widgets":
+            return (type(value) is list and len(value) <= recipes.MAX_DESKTOP_WIDGETS
+                    and all(type(item) is str for item in value)
+                    and len(set(value)) == len(value))
+        try:
+            recipes._parse_composition(baseline)
+        except recipes.RecipeError:
+            return False
+        return True
     if path == "/responsive/compact_max_width":
         return type(value) is int and 480 <= value <= 1440
     if path in ("/tokens/label_padding", "/tokens/task_radius"):
@@ -153,6 +168,9 @@ def create_edit(*, recipe_token: str, edit_source: Path, destination: Path) -> d
                              code="unsupported_property_for_schema", path=path)
         if path == "/desktop/icons" and modified["schema_version"] < 5:
             raise DraftError("Desktop icons require a schema-v5+ source recipe",
+                             code="unsupported_property_for_schema", path=path)
+        if path.startswith("/composition/") and modified["schema_version"] < 8:
+            raise DraftError("Desktop composition requires a schema-v8 source recipe",
                              code="unsupported_property_for_schema", path=path)
         parts = path.lstrip("/").split("/")
         current = modified

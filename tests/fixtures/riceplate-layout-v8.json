@@ -1,0 +1,38 @@
+{
+  "schema_version": 8,
+  "id": "workstation-layout",
+  "name": "Composable multi-region workstation",
+  "panel": {
+    "position": "top", "height": 44,
+    "metrics": {"launcher_width": 104, "task_width": 164, "clock_width": 96},
+    "layout": {
+      "start": [{"type": "widget", "id": "launcher"}, {"type": "widget", "id": "tasks"}],
+      "center": [{"type": "label", "text": "Workstation"}],
+      "end": [{"type": "widget", "id": "clock"}, {"type": "widget", "id": "network"}]
+    }
+  },
+  "colors": {"background": "#203c59", "foreground": "#f3f7fa", "active": "#4179aa"},
+  "menu": {"title": "Workstation", "presentation": "sidebar", "groups": [
+    {"title": "Programs", "actions": ["applications", "terminal"]},
+    {"title": "Session", "actions": ["lock", "logout"]}
+  ]},
+  "desktop": {"wallpaper": "luna-hills", "icons": [
+    {"label": "Applications", "action": "applications", "x": 32, "y": 96},
+    {"label": "Terminal", "action": "terminal", "x": 32, "y": 208}
+  ]},
+  "tokens": {"label_padding": 8, "task_radius": 6},
+  "responsive": {"compact_max_width": 840, "compact_layout": {
+    "start": [{"type": "widget", "id": "launcher"}],
+    "center": [{"type": "widget", "id": "tasks"}],
+    "end": [{"type": "widget", "id": "clock"}]
+  }},
+  "composition": {
+    "widgets": [
+      {"id": "desk-clock", "kind": "clock", "x": 32, "y": 320},
+      {"id": "desk-system", "kind": "system", "x": 32, "y": 432},
+      {"id": "desk-date", "kind": "date", "x": 32, "y": 544}
+    ],
+    "window_region": {"x": 30, "y": 8, "width": 66, "height": 84},
+    "compact_hide_widgets": ["desk-system", "desk-date"]
+  }
+}

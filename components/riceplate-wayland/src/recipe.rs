@@ -25,6 +25,9 @@ const MAX_LAYOUT_DEPTH: usize = 3;
 pub const ICON_WIDTH: u32 = 104;
 pub const ICON_HEIGHT: u32 = 88;
 const MAX_DESKTOP_ICONS: usize = 8;
+pub const DESKTOP_WIDGET_WIDTH: u32 = 200;
+pub const DESKTOP_WIDGET_HEIGHT: u32 = 96;
+const MAX_DESKTOP_WIDGETS: usize = 4;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DesktopIcon {
@@ -32,6 +35,38 @@ pub struct DesktopIcon {
     pub action: String,
     pub x: u32,
     pub y: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DesktopWidgetKind {
+    Clock,
+    Date,
+    System,
+}
+
+#[derive(Debug, Clone)]
+pub struct DesktopWidget {
+    pub id: String,
+    pub kind: DesktopWidgetKind,
+    pub x: u32,
+    pub y: u32,
+}
+
+/// The desktop remains clear for window use here. Labwc still owns actual
+/// window placement; this is a non-overlap layout constraint, not a WM rule.
+#[derive(Debug, Clone, Copy)]
+pub struct WindowRegion {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct DesktopComposition {
+    pub widgets: Vec<DesktopWidget>,
+    pub window_region: WindowRegion,
+    pub compact_hide_widgets: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -139,6 +174,7 @@ pub struct PanelStyle {
     pub foreground: u32,
     pub active: u32,
     pub desktop_icons: Vec<DesktopIcon>,
+    pub composition: Option<DesktopComposition>,
     pub menu: Option<NativeMenu>,
 }
 
@@ -158,6 +194,34 @@ struct Recipe {
     tokens: Option<Tokens>,
     #[serde(default, deserialize_with = "deserialize_present")]
     responsive: Option<Responsive>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    composition: Option<Composition>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Composition {
+    widgets: Vec<DesktopWidgetInput>,
+    window_region: WindowRegionInput,
+    compact_hide_widgets: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DesktopWidgetInput {
+    id: String,
+    kind: String,
+    x: u32,
+    y: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WindowRegionInput {
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
 }
 
 #[derive(Deserialize)]
@@ -297,6 +361,51 @@ fn safe_label(text: &str, max_length: usize) -> bool {
         && text
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b" ._:+-".contains(&b))
+}
+
+fn validate_composition(input: Composition) -> Result<DesktopComposition, Box<dyn Error>> {
+    if input.widgets.len() > MAX_DESKTOP_WIDGETS {
+        return Err("Desktop composition exceeds four widgets".into());
+    }
+    let region = input.window_region;
+    if region.x > 99 || region.y > 99 || !(1..=100).contains(&region.width)
+        || !(1..=100).contains(&region.height)
+        || region.x + region.width > 100 || region.y + region.height > 100
+    {
+        return Err("Window region is outside the percentage-based canvas".into());
+    }
+    let mut ids = HashSet::new();
+    let mut widgets = Vec::new();
+    for item in input.widgets {
+        let valid_id = (2..=24).contains(&item.id.len())
+            && item.id.as_bytes()[0].is_ascii_lowercase()
+            && item.id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+        let kind = match item.kind.as_str() {
+            "clock" => DesktopWidgetKind::Clock,
+            "date" => DesktopWidgetKind::Date,
+            "system" => DesktopWidgetKind::System,
+            _ => return Err("Unsupported desktop widget type".into()),
+        };
+        if !valid_id || !ids.insert(item.id.clone()) || item.x > 16_384 || item.y > 16_384 {
+            return Err("Invalid or duplicate desktop widget".into());
+        }
+        widgets.push(DesktopWidget { id: item.id, kind, x: item.x, y: item.y });
+    }
+    if input.compact_hide_widgets.len() > MAX_DESKTOP_WIDGETS {
+        return Err("Too many compact hidden widgets".into());
+    }
+    let mut hidden = HashSet::new();
+    for id in &input.compact_hide_widgets {
+        if !ids.contains(id) || !hidden.insert(id) {
+            return Err("Compact hidden widget must be a unique member of the layout".into());
+        }
+    }
+    Ok(DesktopComposition {
+        widgets,
+        window_region: WindowRegion { x: region.x, y: region.y,
+                                      width: region.width, height: region.height },
+        compact_hide_widgets: input.compact_hide_widgets,
+    })
 }
 
 fn validate_menu(menu: &Menu, version: u32) -> Result<(), Box<dyn Error>> {
@@ -473,7 +582,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
     }
     let recipe: Recipe = serde_json::from_str(raw)?;
     let id = recipe.id.as_bytes();
-    if ![1, 2, 3, 4, 5, 6, 7].contains(&recipe.schema_version)
+    if ![1, 2, 3, 4, 5, 6, 7, 8].contains(&recipe.schema_version)
         || id.len() < 2
         || id.len() > 32
         || !id[0].is_ascii_lowercase()
@@ -491,7 +600,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
     }
     let widths = match (recipe.schema_version, recipe.panel.metrics) {
         (1, None) => [LAUNCHER_WIDTH, TASK_WIDTH, CLOCK_WIDTH],
-        (2 | 3 | 4 | 5 | 6 | 7, Some(metrics))
+        (2 | 3 | 4 | 5 | 6 | 7 | 8, Some(metrics))
             if (64..=256).contains(&metrics.launcher_width)
                 && (96..=256).contains(&metrics.task_width)
                 && (64..=256).contains(&metrics.clock_width) =>
@@ -536,7 +645,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
                 }
             }
         }
-        (3 | 4 | 5 | 6 | 7, None, Some(layout)) => {
+        (3 | 4 | 5 | 6 | 7 | 8, None, Some(layout)) => {
             let source = [layout.start, layout.center, layout.end];
             let mut counts = [0_usize, 0_usize];
             for (index, nodes) in source.iter().enumerate() {
@@ -567,6 +676,11 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
     let mut task_radius = 4;
     let mut desktop_icons = Vec::new();
     let mut native_menu = None;
+    let composition = match (recipe.schema_version, recipe.composition) {
+        (8, Some(input)) => Some(validate_composition(input)?),
+        (1..=7, None) => None,
+        _ => return Err("Desktop composition requires schema v8".into()),
+    };
     match (
         recipe.schema_version,
         recipe.menu,
@@ -574,7 +688,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
         recipe.tokens,
         recipe.responsive,
     ) {
-        (version @ (4 | 5 | 6 | 7), Some(menu), Some(desktop), Some(tokens), Some(responsive)) => {
+        (version @ (4 | 5 | 6 | 7 | 8), Some(menu), Some(desktop), Some(tokens), Some(responsive)) => {
             validate_menu(&menu, version)?;
             native_menu = Some(NativeMenu {
                 title: menu.title,
@@ -605,7 +719,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
             });
             desktop_icons = match (version, desktop.icons) {
                 (4, None) => Vec::new(),
-                (5 | 6 | 7, Some(icons)) => validate_icons(icons)?,
+                (5 | 6 | 7 | 8, Some(icons)) => validate_icons(icons)?,
                 _ => return Err("Schema v5 requires icons; v4 forbids them".into()),
             };
             let bundled = [
@@ -683,6 +797,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
         foreground: color(&recipe.colors.foreground)?,
         active: color(&recipe.colors.active)?,
         desktop_icons,
+        composition,
         menu: native_menu,
     })
 }
@@ -909,6 +1024,40 @@ mod tests {
 
     const ACTIONS_V6: &str = include_str!("../../../tests/fixtures/riceplate-actions-v6.json");
     const CONTROLS_V7: &str = include_str!("../../../tests/fixtures/riceplate-controls-v7.json");
+    const LAYOUT_V8: &str = include_str!("../../../tests/fixtures/riceplate-layout-v8.json");
+
+    #[test]
+    fn v8_multi_region_composition_has_live_clock_status_and_safe_window_region() {
+        let style = parse(LAYOUT_V8, Some("workstation-layout")).unwrap();
+        let composition = style.composition.unwrap();
+        assert_eq!(composition.widgets.len(), 3);
+        assert_eq!(composition.widgets[0].kind, DesktopWidgetKind::Clock);
+        assert_eq!(composition.widgets[1].kind, DesktopWidgetKind::System);
+        assert_eq!(composition.widgets[2].kind, DesktopWidgetKind::Date);
+        assert_eq!(composition.window_region.width, 66);
+        assert_eq!(composition.compact_hide_widgets.len(), 2);
+        assert_eq!(style.menu.unwrap().presentation, MenuPresentation::Sidebar);
+    }
+
+    #[test]
+    fn v8_rejects_unsafe_or_incompatible_region_contracts() {
+        let original: serde_json::Value = serde_json::from_str(LAYOUT_V8).unwrap();
+        for (pointer, replacement) in [
+            ("/composition/widgets/0/kind", serde_json::json!("execute")),
+            ("/composition/widgets/0/x", serde_json::json!(99999)),
+            ("/composition/widgets/0/id", serde_json::json!("desk-system")),
+            ("/composition/window_region/width", serde_json::json!(80)),
+            ("/composition/compact_hide_widgets/0", serde_json::json!("missing")),
+            ("/schema_version", serde_json::json!(7)),
+        ] {
+            let mut data = original.clone();
+            *data.pointer_mut(pointer).unwrap() = replacement;
+            assert!(parse(&data.to_string(), None).is_err(), "accepted {pointer}");
+        }
+        let mut missing = original;
+        missing.as_object_mut().unwrap().remove("composition");
+        assert!(parse(&missing.to_string(), None).is_err());
+    }
 
     #[test]
     fn v7_control_nodes_preserve_identity_geometry_and_strict_binding() {
