@@ -339,8 +339,15 @@ column). The sidebar consumes the existing recipe background, foreground and
 active colors; no new free-form styles or commands are accepted. Its group
 buttons and content rows remain keyboard/pointer/AT-addressable; the Waybar
 fallback preserves grouped labwc actions without promising layout parity.
-Future XP/7-specific structures require separate audited primitives, not a
-CSS-only identity swap.
+Schema-v6 `menu.groups[].content` additionally supports one or two bounded
+body sections (`actions`, `favorites`, `apps-list`, `apps-grid`) totaling at
+most four visible items. Native RicePlate uses a shared geometry model for
+rendering and pointer hits, with two-column initial-letter app tiles in grid
+mode. Sections inherit the same rice color tokens and preserve default menus
+when absent; no recipe-supplied paths, executable code, or free-form styling
+are accepted. The native compact composition is a structural primitive,
+not an icon-accurate Windows XP/7 recreation. Future XP/7-specific structures
+require separately audited primitives, not a CSS-only identity swap.
 
 - `Super_L` toggles the active rice's menu; `Control_R` toggles its quick settings.
 - Every shell performs actual Gio app discovery/launch and event-driven Wnck

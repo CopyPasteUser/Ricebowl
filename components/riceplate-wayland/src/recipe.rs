@@ -53,6 +53,23 @@ pub enum MenuPresentation {
 pub struct NativeMenuGroup {
     pub title: String,
     pub actions: Vec<String>,
+    pub content: Option<Vec<NativeMenuContent>>,
+}
+
+/// Bounded data sources, never arbitrary recipe-supplied launch commands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuContentKind {
+    Actions,
+    Favorites,
+    AppsList,
+    AppsGrid,
+}
+
+#[derive(Debug, Clone)]
+pub struct NativeMenuContent {
+    pub kind: MenuContentKind,
+    pub title: String,
+    pub limit: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,6 +163,17 @@ struct Menu {
 struct MenuGroup {
     title: String,
     actions: Vec<String>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    content: Option<Vec<MenuContentInput>>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MenuContentInput {
+    #[serde(rename = "type")]
+    kind: String,
+    title: String,
+    limit: u8,
 }
 
 #[derive(Deserialize)]
@@ -271,6 +299,23 @@ fn validate_menu(menu: &Menu, version: u32) -> Result<(), Box<dyn Error>> {
     for group in &menu.groups {
         if !safe_label(&group.title, 24) || !(1..=4).contains(&group.actions.len()) {
             return Err("Invalid menu group".into());
+        }
+        if let Some(content) = &group.content {
+            if version < 6 || !(1..=2).contains(&content.len())
+                || content.iter().map(|section| section.limit as usize).sum::<usize>() > 4
+            {
+                return Err("Menu content needs schema v6 and at most four visible items".into());
+            }
+            let mut sources = HashSet::new();
+            for section in content {
+                if !matches!(section.kind.as_str(), "actions" | "favorites" | "apps-list" | "apps-grid")
+                    || !sources.insert(section.kind.as_str())
+                    || !safe_label(&section.title, 24)
+                    || !(1..=4).contains(&section.limit)
+                {
+                    return Err("Invalid or repeated menu content source".into());
+                }
+            }
         }
         for action in &group.actions {
             if !["applications", "terminal", "lock", "logout",
@@ -499,6 +544,17 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
                     .map(|group| NativeMenuGroup {
                         title: group.title,
                         actions: group.actions,
+                        content: group.content.map(|sections| sections.into_iter().map(|section| {
+                            let kind = match section.kind.as_str() {
+                                "actions" => MenuContentKind::Actions,
+                                "favorites" => MenuContentKind::Favorites,
+                                "apps-list" => MenuContentKind::AppsList,
+                                "apps-grid" => MenuContentKind::AppsGrid,
+                                _ => unreachable!("validated menu content source"),
+                            };
+                            NativeMenuContent { kind, title: section.title,
+                                                limit: section.limit as usize }
+                        }).collect()),
                     })
                     .collect(),
             });
@@ -857,6 +913,36 @@ mod tests {
         assert!(parse(&data.to_string(), None).is_err());
         data["menu"]["presentation"] = serde_json::json!("sidebar");
         data["schema_version"] = serde_json::json!(5);
+        assert!(parse(&data.to_string(), None).is_err());
+    }
+
+    #[test]
+    fn schema_v6_menu_content_is_strict_and_non_executable() {
+        let source = include_str!("../../../tests/fixtures/riceplate-composed-v6.json");
+        let parsed = parse(source, Some("mockup-composed")).unwrap();
+        let menu = parsed.menu.unwrap();
+        assert_eq!(menu.presentation, MenuPresentation::Sidebar);
+        assert_eq!(menu.groups[0].content.as_ref().unwrap().len(), 2);
+        assert_eq!(menu.groups[0].content.as_ref().unwrap()[1].kind, MenuContentKind::AppsGrid);
+        assert_eq!(menu.groups[1].content.as_ref().unwrap()[0].kind, MenuContentKind::Favorites);
+        let mut data: serde_json::Value = serde_json::from_str(source).unwrap();
+        data["menu"]["groups"][0]["content"][1]["type"] = serde_json::json!("apps-list");
+        assert_eq!(parse(&data.to_string(), None).unwrap().menu.unwrap().groups[0]
+                   .content.as_ref().unwrap()[1].kind, MenuContentKind::AppsList);
+        data["menu"]["groups"][0]["content"][1]["type"] = serde_json::json!("shell-command");
+        assert!(parse(&data.to_string(), None).is_err());
+        data["menu"]["groups"][0]["content"][1]["type"] = serde_json::json!("apps-grid");
+        data["menu"]["groups"][0]["content"][1]["limit"] = serde_json::json!(5);
+        assert!(parse(&data.to_string(), None).is_err());
+        data["menu"]["groups"][0]["content"][1]["limit"] = serde_json::json!(2);
+        data["menu"]["groups"][0]["content"][0]["command"] = serde_json::json!("sh -c pwd");
+        assert!(parse(&data.to_string(), None).is_err());
+        data["menu"]["groups"][0]["content"][0].as_object_mut().unwrap().remove("command");
+        data["menu"]["groups"][0]["content"][1]["type"] = serde_json::json!("actions");
+        assert!(parse(&data.to_string(), None).is_err());
+        data["menu"]["groups"][0]["content"][1]["type"] = serde_json::json!("apps-grid");
+        data["schema_version"] = serde_json::json!(5);
+        data["menu"].as_object_mut().unwrap().remove("presentation");
         assert!(parse(&data.to_string(), None).is_err());
     }
 

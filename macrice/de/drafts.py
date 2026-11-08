@@ -45,7 +45,7 @@ def _allowed_value(path: str, value: Any) -> bool:
         return True
     if path == "/menu/groups":
         try:
-            recipes._parse_menu({"title": "Safe", "groups": value})
+            recipes._parse_menu({"title": "Safe", "groups": value}, schema_version=6)
         except recipes.RecipeError:
             return False
         return True

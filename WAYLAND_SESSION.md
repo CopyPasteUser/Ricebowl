@@ -477,6 +477,42 @@ menu, **not** the native sidebar visual. The headless native smoke generates
 structural option, **not** a Windows XP/7 one-to-one menu clone, dynamic
 grid engine, or fully themeable shell.
 
+#### Schema-v6 composed menu sections (native RicePlate)
+
+Optional `content` on each menu group composes the same **one real native
+menu** from at most two validated sections and four total visible items:
+
+```json
+{"title": "Programs", "actions": ["applications", "terminal"], "content": [
+  {"type": "actions", "title": "Quick Links", "limit": 2},
+  {"type": "apps-grid", "title": "Installed Apps", "limit": 2}
+]}
+```
+
+- `actions` displays the group's existing fixed, allowlisted actions.
+- `favorites` displays privately saved F2 fixed-action pins, never arbitrary
+  commands or unverified desktop files.
+- `apps-list` lists installed XDG launchers from the already verified native
+  application index; `apps-grid` displays two-column initial-letter tiles.
+  These **are not** desktop-specific themed application icons.
+- Section titles use the same safe ASCII label rules as group titles. Each
+  `limit` is an integer 1–4; section kinds cannot repeat, and the sum of
+  section limits must be at most four. The recipe cannot choose a launch path.
+- Without `content`, older group layouts are unchanged. Schema v4/v5 reject
+  `content`, as do `null`, unknown fields, duplicate sources and excess limits.
+
+`tests/fixtures/riceplate-composed-v6.json` is a complete native example.
+The **320×304** popup keeps a stable footprint: optional headings and rows
+fit inside its existing content area. Grid cells use pointer and keyboard
+navigation (Left/Right within a populated row, otherwise switch groups);
+accessible labels use the same action targets as tab/sidebar menus. F2 pinning
+continues to support fixed recipe actions only. Search and Saved views retain
+their earlier list layout. The Creator catalog, `/menu/groups` draft edits,
+semantic review and native screenshot smoke now understand compositions.
+The Waybar/labwc fallback keeps its flat action groups and does not imitate
+the native grid. Headless screenshot: `menu-composed-v6.png`. Visual fidelity,
+localized icon sets and physical input/Orca testing remain open.
+
 The default **Waybar-backed** Wayland session is separately checked in CI
 with two genuine labwc headless outputs. The smoke captures the bar on each,
 turns one output off, checks the remaining bar and reconnects the second.
