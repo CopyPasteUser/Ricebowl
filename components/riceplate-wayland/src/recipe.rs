@@ -393,7 +393,7 @@ fn color(raw: &str) -> Result<u32, Box<dyn Error>> {
 /// Wayland SHM ARGB8888 requires *premultiplied* channels when translucent.
 fn panel_background(color: u32, opacity_percent: u32) -> u32 {
     let alpha = (opacity_percent * 255 + 50) / 100;
-    let scale = |shift| ((color >> shift & 0xff) * alpha + 127) / 255;
+    let scale = |shift: u32| (((color >> shift) & 0xff_u32) * alpha + 127) / 255;
     alpha << 24 | scale(16) << 16 | scale(8) << 8 | scale(0)
 }
 
