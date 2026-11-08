@@ -7,9 +7,11 @@ use crate::recipe::{self, PanelStyle, Widget};
 pub enum Target {
     Launcher,
     Task(usize),
+    Tray(usize),
 }
 
-fn available(style: &PanelStyle, width: u32, task_count: usize) -> Vec<Target> {
+fn available(style: &PanelStyle, width: u32, task_count: usize,
+             tray_count: usize) -> Vec<Target> {
     let layout = recipe::layout(style, width, task_count);
     let mut targets = Vec::with_capacity(task_count + 1);
     if layout
@@ -21,6 +23,10 @@ fn available(style: &PanelStyle, width: u32, task_count: usize) -> Vec<Target> {
     if recipe::task_view(style, width, task_count, 0).is_some() {
         targets.extend((0..task_count).map(Target::Task));
     }
+    if tray_count > 0 && layout.iter().any(|item|
+        item.widget == Widget::Tray && item.x + item.width <= width) {
+        targets.extend((0..tray_count.min(crate::tray::VISIBLE_ITEMS)).map(Target::Tray));
+    }
     targets
 }
 
@@ -29,8 +35,9 @@ pub fn initial(
     width: u32,
     tasks: usize,
     active_group: Option<usize>,
+    tray_count: usize,
 ) -> Option<Target> {
-    let targets = available(style, width, tasks);
+    let targets = available(style, width, tasks, tray_count);
     if let Some(index) = active_group {
         let target = Target::Task(index);
         if targets.contains(&target) {
@@ -46,8 +53,9 @@ pub fn advance(
     tasks: usize,
     current: Option<Target>,
     delta: isize,
+    tray_count: usize,
 ) -> Option<Target> {
-    let targets = available(style, width, tasks);
+    let targets = available(style, width, tasks, tray_count);
     if targets.is_empty() {
         return None;
     }
@@ -91,20 +99,20 @@ mod tests {
     #[test]
     fn keyboard_wraps_over_launcher_and_grouped_windows() {
         let style = crate::recipe::load("classic").unwrap();
-        assert_eq!(initial(&style, 1200, 3, None), Some(Target::Launcher));
+        assert_eq!(initial(&style, 1200, 3, None, 0), Some(Target::Launcher));
         assert_eq!(
-            advance(&style, 1200, 3, Some(Target::Launcher), 1),
+            advance(&style, 1200, 3, Some(Target::Launcher), 1, 0),
             Some(Target::Task(0))
         );
         assert_eq!(
-            advance(&style, 1200, 3, Some(Target::Task(2)), 1),
+            advance(&style, 1200, 3, Some(Target::Task(2)), 1, 0),
             Some(Target::Launcher)
         );
         assert_eq!(
-            advance(&style, 1200, 3, Some(Target::Launcher), -1),
+            advance(&style, 1200, 3, Some(Target::Launcher), -1, 0),
             Some(Target::Task(2))
         );
-        assert_eq!(initial(&style, 1200, 3, Some(2)), Some(Target::Task(2)));
+        assert_eq!(initial(&style, 1200, 3, Some(2), 0), Some(Target::Task(2)));
     }
 
     #[test]
@@ -127,6 +135,20 @@ mod tests {
     fn empty_task_only_panel_has_no_keyboard_action() {
         let mut style = crate::recipe::load("classic").unwrap();
         style.sections = [vec![Widget::Tasks], Vec::new(), Vec::new()];
-        assert_eq!(advance(&style, 640, 0, None, 1), None);
+        assert_eq!(advance(&style, 640, 0, None, 1, 0), None);
+    }
+
+    #[test]
+    fn tray_slots_enter_keyboard_order_and_wrap_back_to_launcher() {
+        let style = crate::recipe::load("classic").unwrap();
+        let width = 1200;
+        let selected = advance(&style, width, 0, Some(Target::Launcher), 1, 4);
+        assert_eq!(selected, Some(Target::Tray(0)));
+        assert_eq!(advance(&style, width, 0, Some(Target::Tray(3)), 1, 4),
+                   Some(Target::Launcher));
+        assert_eq!(advance(&style, width, 0, Some(Target::Tray(0)), -1, 4),
+                   Some(Target::Launcher));
+        assert_eq!(advance(&style, 320, 0, Some(Target::Launcher), 1, 4),
+                   Some(Target::Launcher), "compact panel must not focus hidden tray slots");
     }
 }
