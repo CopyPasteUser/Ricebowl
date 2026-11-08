@@ -1939,7 +1939,7 @@ impl RicePlate {
             recipe::DesktopWidgetKind::Text(value) => ("Text", vec![value.clone()]),
             recipe::DesktopWidgetKind::Status(source) => match source {
                 recipe::DesktopStatusSource::Network =>
-                    ("Network", vec![self.system_status.network.label()]),
+                    ("Network", vec![self.system_status.network.label().to_owned()]),
                 recipe::DesktopStatusSource::Audio =>
                     ("Audio", vec![self.system_status.audio.label()]),
                 recipe::DesktopStatusSource::Battery =>
