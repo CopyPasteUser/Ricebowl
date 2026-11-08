@@ -2,7 +2,7 @@
 //! The D-Bus host is handled by `status-notifier`; no arbitrary recipe paths
 //! or commands can reach the bus. Pixmaps are untrusted and size checked.
 
-use status_notifier::{Item, Pixmap};
+use status_notifier::{Item, MenuNode, Pixmap, ToggleState, ToggleType};
 
 pub const WIDTH: u32 = 112;
 pub const SLOT_WIDTH: u32 = 28;
@@ -91,6 +91,237 @@ impl Popup {
             } else { PopupHit::Next });
         }
         None
+    }
+}
+
+// The SNI menu tree belongs to an untrusted D-Bus peer. Snapshot only bounded,
+// visible content; never retain arbitrary PNG blobs or source-provided paths.
+const MAX_MENU_NODES: usize = 128;
+const MAX_MENU_DEPTH: usize = 6;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MenuKind {
+    Action { checked: bool, radio: bool },
+    Submenu(Vec<MenuRow>),
+    Separator,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MenuRow {
+    pub id: i32,
+    pub label: String,
+    pub enabled: bool,
+    pub kind: MenuKind,
+}
+
+impl MenuRow {
+    pub fn selectable(&self) -> bool {
+        self.enabled && !matches!(&self.kind, MenuKind::Separator)
+    }
+}
+
+fn snapshot_rows(nodes: &[MenuNode], budget: &mut usize, depth: usize) -> Vec<MenuRow> {
+    if depth >= MAX_MENU_DEPTH { return Vec::new(); }
+    let mut result = Vec::new();
+    for node in nodes {
+        if *budget == 0 { break; }
+        let row = match node {
+            MenuNode::Item { id, label, enabled, visible, toggle_type, toggle_state, .. }
+                if *visible => Some(MenuRow {
+                    id: *id,
+                    label: label.chars().filter(|c| !c.is_control()).take(42).collect(),
+                    enabled: *enabled,
+                    kind: MenuKind::Action {
+                        checked: *toggle_state == ToggleState::On,
+                        radio: *toggle_type == ToggleType::Radio,
+                    },
+                }),
+            MenuNode::Menu { id, label, enabled, visible, children } if *visible => {
+                *budget -= 1;
+                let children = snapshot_rows(children, budget, depth + 1);
+                result.push(MenuRow {
+                    id: *id,
+                    label: label.chars().filter(|c| !c.is_control()).take(42).collect(),
+                    enabled: *enabled && !children.is_empty(),
+                    kind: MenuKind::Submenu(children),
+                });
+                continue;
+            }
+            MenuNode::Separator { id, visible } if *visible => Some(MenuRow {
+                id: *id, label: String::new(), enabled: false, kind: MenuKind::Separator,
+            }),
+            _ => None,
+        };
+        if let Some(row) = row {
+            *budget -= 1;
+            result.push(row);
+        }
+    }
+    result
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuHit {
+    Row(usize), Back, Close, Previous, Next,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuChoice {
+    None, Open(i32), Click(i32),
+}
+
+#[derive(Debug, Default)]
+pub struct MenuPopup {
+    pub visible: bool,
+    pub bus_name: String,
+    pub title: String,
+    pub root_id: i32,
+    rows: Vec<MenuRow>,
+    path: Vec<i32>,
+    pub first: usize,
+    pub selected: usize,
+}
+
+impl MenuPopup {
+    fn snapshot(root: &MenuNode) -> Option<(i32, Vec<MenuRow>)> {
+        let MenuNode::Menu { id, enabled: true, visible: true, children, .. } = root else {
+            return None;
+        };
+        let mut budget = MAX_MENU_NODES;
+        let rows = snapshot_rows(children, &mut budget, 0);
+        (!rows.is_empty()).then_some((*id, rows))
+    }
+
+    pub fn open(&mut self, bus_name: &str, title: &str, root: &MenuNode) -> bool {
+        let Some((root_id, rows)) = Self::snapshot(root) else { return false; };
+        self.close();
+        self.visible = true;
+        self.bus_name = bus_name.to_owned();
+        self.title = title.chars().take(42).collect();
+        self.root_id = root_id;
+        self.rows = rows;
+        self.ensure_selection(1);
+        true
+    }
+
+    pub fn close(&mut self) {
+        *self = Self::default();
+    }
+
+    pub fn opened_ids(&self) -> Vec<i32> {
+        if !self.visible { return Vec::new(); }
+        std::iter::once(self.root_id).chain(self.path.iter().copied()).collect()
+    }
+
+    pub fn parent_id(&self) -> i32 {
+        self.path.last().copied().unwrap_or(self.root_id)
+    }
+
+    pub fn rows(&self) -> &[MenuRow] {
+        let mut rows = self.rows.as_slice();
+        for &id in &self.path {
+            let Some(MenuRow { kind: MenuKind::Submenu(children), .. }) =
+                rows.iter().find(|row| row.id == id) else { return &[]; };
+            rows = children;
+        }
+        rows
+    }
+
+    fn ensure_selection(&mut self, delta: isize) {
+        let rows = self.rows();
+        if rows.is_empty() { self.first = 0; self.selected = 0; return; }
+        let index = self.selected.min(rows.len() - 1);
+        let target = if rows[index].selectable() { Some(index) } else {
+            let forward = (index..rows.len()).find(|&i| rows[i].selectable());
+            let backward = (0..index).rev().find(|&i| rows[i].selectable());
+            if delta < 0 { backward.or(forward) } else { forward.or(backward) }
+        };
+        self.selected = target.unwrap_or(index);
+        if self.selected < self.first { self.first = self.selected; }
+        if self.selected >= self.first + POPUP_ROWS {
+            self.first = self.selected + 1 - POPUP_ROWS;
+        }
+    }
+
+    pub fn select(&mut self, delta: isize) {
+        let rows = self.rows();
+        if rows.is_empty() { return; }
+        let len = rows.len();
+        let mut cursor = self.selected.min(len - 1);
+        for _ in 0..len {
+            cursor = cursor.saturating_add_signed(delta.signum()).min(len - 1);
+            if rows[cursor].selectable() { break; }
+        }
+        self.selected = cursor;
+        self.ensure_selection(delta);
+    }
+
+    pub fn page(&mut self, delta: isize) {
+        let count = self.rows().len();
+        if count == 0 || (delta < 0 && self.first == 0) ||
+            (delta > 0 && self.first + POPUP_ROWS >= count) { return; }
+        self.first = self.first.saturating_add_signed(delta.signum() * POPUP_ROWS as isize)
+            .min(count.saturating_sub(1));
+        self.selected = self.first;
+        self.ensure_selection(delta);
+    }
+
+    pub fn choice(&mut self, index: usize) -> MenuChoice {
+        let Some(row) = self.rows().get(index) else { return MenuChoice::None; };
+        if !row.selectable() { return MenuChoice::None; }
+        let (id, submenu) = (row.id, matches!(&row.kind, MenuKind::Submenu(_)));
+        if submenu {
+            if self.path.len() >= MAX_MENU_DEPTH { return MenuChoice::None; }
+            self.path.push(id);
+            self.first = 0;
+            self.selected = 0;
+            self.ensure_selection(1);
+            MenuChoice::Open(id)
+        } else { MenuChoice::Click(id) }
+    }
+
+    pub fn back(&mut self) -> Option<i32> {
+        let id = self.path.pop()?;
+        self.first = 0;
+        self.selected = 0;
+        self.ensure_selection(1);
+        Some(id)
+    }
+
+    /// Update live checkmarks/labels while open without retaining stale node IDs.
+    /// If the provider removes a parent menu, callers close its former path.
+    pub fn sync(&mut self, root: &MenuNode) -> Vec<i32> {
+        let Some((id, rows)) = Self::snapshot(root) else { return self.opened_ids(); };
+        if id != self.root_id { return self.opened_ids(); }
+        if self.rows == rows { return Vec::new(); }
+        self.rows = rows;
+        let mut removed = Vec::new();
+        while self.rows().is_empty() && !self.path.is_empty() {
+            removed.push(self.path.pop().unwrap());
+        }
+        if self.path.is_empty() && self.rows.is_empty() {
+            return vec![self.root_id];
+        }
+        self.first = self.first.min(self.rows().len().saturating_sub(1));
+        self.ensure_selection(1);
+        removed
+    }
+
+    pub fn hit(&self, x: f64, y: f64) -> Option<MenuHit> {
+        if !x.is_finite() || !y.is_finite() || x < 0.0 || y < 0.0 ||
+            x >= f64::from(POPUP_WIDTH) || y >= f64::from(POPUP_HEIGHT) { return None; }
+        if y < 36.0 {
+            return (x >= f64::from(POPUP_WIDTH - 44)).then_some(MenuHit::Close)
+                .or_else(|| (x < 40.0 && !self.path.is_empty()).then_some(MenuHit::Back));
+        }
+        if y >= f64::from(POPUP_ROW_TOP) &&
+            y < f64::from(POPUP_ROW_TOP + POPUP_ROWS as u32 * POPUP_ROW_HEIGHT) {
+            let index = self.first + ((y as u32 - POPUP_ROW_TOP) / POPUP_ROW_HEIGHT) as usize;
+            return (index < self.rows().len()).then_some(MenuHit::Row(index));
+        }
+        (y >= 202.0).then_some(if x < f64::from(POPUP_WIDTH / 2) {
+            MenuHit::Previous
+        } else { MenuHit::Next })
     }
 }
 
@@ -265,5 +496,82 @@ mod tests {
         popup.open(4);
         popup.page(1, 4);
         assert_eq!(popup.first, 3, "no phantom next page past a short final page");
+    }
+
+    fn leaf(id: i32, label: &str, enabled: bool, visible: bool) -> MenuNode {
+        MenuNode::Item {
+            id, label: label.into(), enabled, visible,
+            icon_name: String::new(), icon_data: status_notifier::IconData(Vec::new()),
+            toggle_type: ToggleType::None, toggle_state: ToggleState::Unknown,
+        }
+    }
+
+    fn root(children: Vec<MenuNode>) -> MenuNode {
+        MenuNode::Menu {
+            id: 0, label: "root".into(), enabled: true, visible: true, children,
+        }
+    }
+
+    #[test]
+    fn menu_filters_hidden_rows_and_nested_disabled_actions() {
+        let source = root(vec![
+            leaf(1, "Hidden", true, false),
+            MenuNode::Separator { id: 2, visible: true },
+            leaf(3, "Unavailable", false, true),
+            MenuNode::Menu { id: 4, label: "Preferences".into(), enabled: true,
+                visible: true, children: vec![leaf(5, "Open preferences", true, true)] },
+            leaf(6, "Quit", true, true),
+        ]);
+        let mut popup = MenuPopup::default();
+        assert!(popup.open("org.test.app", "Test", &source));
+        assert_eq!(popup.rows().len(), 4);
+        assert_eq!(popup.selected, 2, "disabled rows and separators are skipped");
+        assert_eq!(popup.choice(0), MenuChoice::None);
+        assert_eq!(popup.choice(1), MenuChoice::None);
+        assert_eq!(popup.choice(2), MenuChoice::Open(4));
+        assert_eq!(popup.parent_id(), 4);
+        assert_eq!(popup.opened_ids(), vec![0, 4]);
+        assert_eq!(popup.choice(0), MenuChoice::Click(5));
+        assert_eq!(popup.back(), Some(4));
+        assert_eq!(popup.parent_id(), 0);
+        assert_eq!(popup.choice(3), MenuChoice::Click(6));
+        assert_eq!(popup.hit(10.0, 18.0), None);
+        assert_eq!(popup.hit(256.0, 18.0), Some(MenuHit::Close));
+        assert_eq!(popup.hit(f64::NAN, 44.0), None);
+    }
+
+    #[test]
+    fn menu_keeps_toggles_and_clears_removed_submenu_state() {
+        let toggled = MenuNode::Item {
+            id: 8, label: "Check".into(), enabled: true, visible: true,
+            icon_name: String::new(), icon_data: status_notifier::IconData(Vec::new()),
+            toggle_type: ToggleType::Checkmark, toggle_state: ToggleState::On,
+        };
+        let mut menu = MenuPopup::default();
+        assert!(menu.open("service", "Title", &root(vec![MenuNode::Menu {
+            id: 4, label: "Settings".into(), enabled: true, visible: true,
+            children: vec![toggled],
+        }])));
+        assert_eq!(menu.choice(0), MenuChoice::Open(4));
+        assert!(matches!(menu.rows()[0].kind, MenuKind::Action { checked: true, .. }));
+        assert_eq!(menu.sync(&root(vec![leaf(22, "Different", true, true)])), vec![4]);
+        assert!(menu.path.is_empty());
+        assert_eq!(menu.rows()[0].id, 22);
+        menu.close();
+        assert!(menu.opened_ids().is_empty());
+        assert!(!menu.open("service", "no menu", &MenuNode::Empty));
+    }
+
+    #[test]
+    fn menu_bounds_untrusted_depth_and_node_count() {
+        let oversized = root((0..500).map(|n| leaf(n, "abc", true, true)).collect());
+        let mut popup = MenuPopup::default();
+        assert!(popup.open("app", "App", &oversized));
+        assert_eq!(popup.rows().len(), MAX_MENU_NODES);
+        popup.page(1);
+        assert_eq!(popup.first, 5);
+        assert_eq!(popup.hit(18.0, 44.0), Some(MenuHit::Row(5)));
+        popup.select(1);
+        assert_eq!(popup.selected, 6);
     }
 }

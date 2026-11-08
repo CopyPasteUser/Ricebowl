@@ -244,7 +244,8 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
 - [ ] Implement launchers, task groups, tray, calendar, menus and keyboard
   navigation; avoid invisible or fake controls. Native task/menu keyboard
   controls, output-aware calendars and menus are partially implemented;
-  native DBusMenu and panel tray keyboard focus, events/localization,
+  native DBusMenu and panel tray keyboard focus are implemented experimentally;
+  event localization, screen-reader semantics,
   global accessibility and interaction parity are still missing.
 - [x] Establish an opt-in **real native SNI host/watcher** in RicePlate for
   recipes with a tray: share the Wayland event loop via the D-Bus fd, honor
@@ -254,8 +255,13 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   overflow selector when needed: a bounded output-local layer-shell popup
   offers mouse selection, keyboard Up/Down, paging, Enter and Escape, without
   a helper daemon. Mouse action coordinates are mapped from output-local
-  surfaces to compositor-reported global output geometry. DBusMenu protocol
-  submenus still need a native implementation; no full-tray/AT signoff is claimed.
+  surfaces to compositor-reported global output geometry. Native DBusMenu
+  presentation now uses the same per-output layer-shell popup, with bounded
+  visible rows/submenus, disabled/separator/toggle indicators, live property
+  synchronization, paged mouse/keyboard navigation and protocol-correct
+  opened/closed/clicked signals. The panel keyboard focus cycle also reaches
+  visible SNI slots and overflow. The app-owned ContextMenu fallback remains
+  for items with no DBusMenu tree. No third-party hardware/AT signoff is claimed.
   Requires Rust 1.88 and libdbus-1 for the host library.
 - [ ] Expose reusable, composable shell primitives and stable interaction/state
   bindings so substantially different rice layouts share core behavior.
