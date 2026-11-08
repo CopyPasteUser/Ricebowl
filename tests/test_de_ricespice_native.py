@@ -155,6 +155,7 @@ class RiceSpicePreferenceTests(unittest.TestCase):
             display_presets.save([{"name": "DP-1;rm", "mode": "1920x1080@60Hz",
                                    "scale": 1.0, "x": 0, "y": 0}], expected=[])
 
+    @unittest.skipIf(os.geteuid() == 0, "session cleanup requires a real non-root owner")
     def test_start_uses_isolated_config_only_when_saved(self):
         baseline = preferences.load()
         preferences.save({**baseline, "input_enabled": True,
@@ -170,8 +171,7 @@ class RiceSpicePreferenceTests(unittest.TestCase):
                 calls.append((program, argv, spawned_env))
                 raise OSError("simulate failed exec")
 
-            with mock.patch("macrice.de.session.os.geteuid", return_value=1000), \
-                    mock.patch("macrice.de.session._check_runtime_dir"):
+            with mock.patch("macrice.de.session._check_runtime_dir"):
                 with self.assertRaises(OSError):
                     session.start(nested=True, environment=env, which=tools.get,
                                   execute=fake_exec)
@@ -181,6 +181,7 @@ class RiceSpicePreferenceTests(unittest.TestCase):
             self.assertFalse(Path(spawn_env["RICEBOWL_DE_SESSION_CONFIG"]).exists(),
                              "A failed login must clean up its temporary settings")
 
+    @unittest.skipIf(os.geteuid() == 0, "Wayland sessions cannot run as root")
     def test_orca_preference_only_enters_full_session_environment(self):
         original = preferences.load()
         preferences.save({**original, "accessibility_enabled": True,
@@ -196,8 +197,7 @@ class RiceSpicePreferenceTests(unittest.TestCase):
                 calls.append(dict(child_env))
                 raise OSError("simulate failed exec")
 
-            with mock.patch("macrice.de.session.os.geteuid", return_value=1000), \
-                    mock.patch("macrice.de.session._check_runtime_dir"):
+            with mock.patch("macrice.de.session._check_runtime_dir"):
                 with self.assertRaises(OSError):
                     session.start(environment=env, which=tools.get, execute=fake_exec)
                 self.assertEqual(calls[-1]["RICEBOWL_DE_SCREEN_READER"], "1")
