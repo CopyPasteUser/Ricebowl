@@ -10,6 +10,8 @@ from .creator_contract import (describe as draft_edit_contract, describe_capture
                                describe_creator_api, describe_render, describe_staging,
                                describe_ricepack, describe_visual_qa)
 from .recipes import (ICON_ACTIONS, ICON_HEIGHT, ICON_WIDTH, MAX_DESKTOP_ICONS,
+                      MAX_DESKTOP_WIDGETS, DESKTOP_WIDGET_KINDS,
+                      DESKTOP_WIDGET_WIDTH, DESKTOP_WIDGET_HEIGHT,
                       MENU_ACTIONS, WALLPAPERS, MAX_LAYOUT_CHILDREN, MAX_LAYOUT_DEPTH, MAX_LAYOUT_LABELS,
                       MAX_LAYOUT_ACTIONS, PANEL_ACTIONS, PANEL_CONTROLS, MAX_LAYOUT_NODES, MAX_LAYOUT_ROOTS, MAX_RECIPE_BYTES,
                       METRIC_DEFAULTS, METRIC_FIELDS, METRIC_LIMITS, WIDGETS)
@@ -18,11 +20,11 @@ from .recipes import (ICON_ACTIONS, ICON_HEIGHT, ICON_WIDTH, MAX_DESKTOP_ICONS,
 def describe() -> dict[str, object]:
     """Describe exactly which panel and early shell primitives are implemented."""
     return {
-        "catalog_version": 8,
+        "catalog_version": 9,
         "scope": "wayland-shell-preview",
         "complete_desktop_environment": False,
         "recipe": {
-            "schema_versions": [1, 2, 3, 4, 5, 6, 7],
+            "schema_versions": [1, 2, 3, 4, 5, 6, 7, 8],
             "maximum_bytes": MAX_RECIPE_BYTES,
             "sections": ["start", "center", "end"],
             "unique_widgets": True,
@@ -104,11 +106,24 @@ def describe() -> dict[str, object]:
                                       "keyboard_arrow_movement_px": 16,
                                       "position_storage": "private-per-rice-not-source-recipe",
                                       "nested_render_overrides": False},
-                            "widgets": "not_implemented"},
+                            "widgets": {"since_schema": 8,
+                                        "pointer": "/composition/widgets",
+                                        "kinds": sorted(DESKTOP_WIDGET_KINDS),
+                                        "max_count": MAX_DESKTOP_WIDGETS,
+                                        "width": DESKTOP_WIDGET_WIDTH,
+                                        "height": DESKTOP_WIDGET_HEIGHT,
+                                        "native": "read-only-event-driven-per-output",
+                                        "waybar": "not_available",
+                                        "accessibility": "read-only-status"}},
                 "tokens": {"label_padding": [0, 16], "task_radius": [0, 12]},
                 "responsive": {"compact_max_width": [480, 1440],
                                "native": "live-panel-layout-switch",
                                "waybar": "offline-width-specific-compilation-only"},
+                "composition": {"since_schema": 8,
+                                "window_region": "percentage-rectangle-avoided-by-desktop-items",
+                                "window_placement": "labwc-owned-not-forced",
+                                "compact_hide_widgets": "known-widget-IDs-at-panel-breakpoint",
+                                "live_reflow": "output-logical-size-and-hotplug"},
             },
             "custom_commands": False,
             "custom_actions": False,
@@ -206,6 +221,16 @@ def describe() -> dict[str, object]:
              "focus": "pointer-or-compositor-focus", "keyboard_move_px": 16,
              "saved_positions": "private-per-rice", "hotplug_across_outputs": True,
              "arbitrary_commands": False},
+            {"id": "desktop-widget", "since_schema": 8,
+             "recipe_pointer": "/composition/widgets",
+             "native": "noninteractive-per-output-status",
+             "waybar": "not_available",
+             "kinds": sorted(DESKTOP_WIDGET_KINDS),
+             "bounded_count": MAX_DESKTOP_WIDGETS,
+             "size": [DESKTOP_WIDGET_WIDTH, DESKTOP_WIDGET_HEIGHT],
+             "read_only": True, "executes_commands_from_recipe": False,
+             "responsive_hide": True, "hotplug_reflow": True,
+             "accessibility_role": "status"},
         ],
         "integrations": [
             {"id": "ricepop-notification-history", "native": "read-only-cli-bridge",
@@ -230,9 +255,10 @@ def describe() -> dict[str, object]:
         "limits": [
             "Schema-v5 desktop icons are native-only; no Waybar icon layer yet",
             "Icon positions are per rice/output; cross-output dragging needs QA",
-            "Desktop widgets are not implemented",
+            "Schema-v8 desktop widgets are native-only; Waybar has no desktop widget layer",
+            "Reserved window regions keep desktop items clear but do not place client windows; labwc owns tiling/placement",
             "Native panel handles responsive compact layout live; Waybar requires width-specific generation",
-            "Schema-v3 groups are horizontal panel-only; no full desktop composition yet",
+            "Desktop composition covers read-only clock/date/system widgets; arbitrary widget layouts are not supported",
             "Panel-only recipes; no arbitrary OS or screenshot conversion",
             "Panel action buttons bind only four fixed IDs; no custom scripts or dynamic action parameters",
             "Battery indicator is read-only with minute refresh; no UPower events",
@@ -259,7 +285,7 @@ def validate_catalog_contract() -> None:
     if (len(ids) != len(set(ids)) or set(ids) != WIDGETS
             or metrics != METRIC_FIELDS
             or len(shell) != len(result["shell_components"])
-            or set(shell) != {"native-menu", "calendar-popup", "desktop-shortcut"}
+            or set(shell) != {"native-menu", "calendar-popup", "desktop-shortcut", "desktop-widget"}
             or shell["native-menu"]["actions"] != sorted(MENU_ACTIONS)
             or set(result["recipe"]["nested_layout"]["node_types"]["action"]["known_ids"]) != PANEL_ACTIONS
             or shell["desktop-shortcut"]["actions"] != sorted(ICON_ACTIONS)):

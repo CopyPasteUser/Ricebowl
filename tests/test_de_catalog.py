@@ -12,10 +12,10 @@ class ComponentCatalogTests(unittest.TestCase):
     def test_catalog_is_complete_truthful_and_declarative(self):
         info = catalog.describe()
         catalog.validate_catalog_contract()
-        self.assertEqual(info["catalog_version"], 8)
+        self.assertEqual(info["catalog_version"], 9)
         self.assertEqual(info["scope"], "wayland-shell-preview")
         self.assertFalse(info["complete_desktop_environment"])
-        self.assertEqual(info["recipe"]["schema_versions"], [1, 2, 3, 4, 5, 6, 7])
+        self.assertEqual(info["recipe"]["schema_versions"], [1, 2, 3, 4, 5, 6, 7, 8])
         self.assertFalse(info["recipe"]["custom_commands"])
         self.assertFalse(info["recipe"]["custom_actions"])
         self.assertEqual(info["recipe"]["external_assets"], "PNG")
@@ -57,7 +57,7 @@ class ComponentCatalogTests(unittest.TestCase):
         self.assertEqual(components["tasks"]["output_ownership"], "per-output")
         self.assertEqual(components["clock"]["output_ownership"], "per-output")
         shell = {part["id"]: part for part in info["shell_components"]}
-        self.assertEqual(set(shell), {"native-menu", "calendar-popup", "desktop-shortcut"})
+        self.assertEqual(set(shell), {"native-menu", "calendar-popup", "desktop-shortcut", "desktop-widget"})
         self.assertEqual(shell["native-menu"]["actions"], sorted(recipes.MENU_ACTIONS))
         self.assertTrue(shell["native-menu"]["search"])
         self.assertEqual(shell["native-menu"]["pins"], "private-per-rice-fixed-actions")
@@ -77,6 +77,8 @@ class ComponentCatalogTests(unittest.TestCase):
         self.assertEqual(shell["desktop-shortcut"]["actions"], sorted(recipes.ICON_ACTIONS))
         self.assertTrue(shell["desktop-shortcut"]["hotplug_across_outputs"])
         self.assertFalse(shell["desktop-shortcut"]["arbitrary_commands"])
+        self.assertEqual(shell["desktop-widget"]["kinds"], sorted(recipes.DESKTOP_WIDGET_KINDS))
+        self.assertEqual(shell["desktop-widget"]["waybar"], "not_available")
         icons = info["recipe"]["shell_extensions"]["desktop"]["icons"]
         self.assertTrue(icons["keyboard_navigation"])
         self.assertEqual(icons["keyboard_focus_entry"], "pointer-or-compositor-focus")

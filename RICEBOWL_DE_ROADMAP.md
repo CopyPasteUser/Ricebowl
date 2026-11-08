@@ -564,6 +564,16 @@ depend on the XFCE session.
   safe hit region fits (without destroying their layer-shell role). Rust
   geometry tests cover normal, compact and insufficient workspaces.
   True multi-output ownership remains open.
+- [x] Implement the first **native schema-v8 Layout Engine foundation**:
+  preserve nested panel/menu compositions; add strictly validated, bounded
+  clock/date/system desktop widgets; jointly place shortcuts and widget surfaces
+  around a percentage-based reserved window workspace; and hide selected
+  widgets at the existing live compact breakpoint. Reflow per logical output
+  and secondary-output hotplug without a new helper or executable recipes.
+  Share a Python/Rust fixture, Creator pointers and component-catalog contract.
+  The reserved workspace is **not** labwc window placement or tiling; Waybar
+  does not render the native widgets, and rich widget composition, authoring UI
+  and real-device acceptance remain separate release gates.
 - [x] Add **first native shortcut editing interactions**: distinguish click
   from pointer drag, expose an on-demand keyboard focus frame and 16-pixel
   arrow-key moves, and persist positions separately for each selected rice in
@@ -579,12 +589,12 @@ depend on the XFCE session.
   private overlay and heatmap diagnostics. This is diagnostic tooling, not a
   validated perceptual/functional accuracy score. Real mixed-DPI/multi-output
   device acceptance, approved image baselines and interaction checks remain open.
-- [ ] Extend schema-v5 desktop shortcuts with moving, keyboard accessibility,
-  focus states, monitor-aware position reflow and hotplug. Add reusable native
-  desktop widgets and their bounded recipe contracts. Basic move/focus/key
-  controls, independent named-monitor saved positions and multi-output
-  hotplug/reflow are implemented; cross-monitor dragging, widget contracts,
-  assistive semantics and device QA remain open.
+- [ ] Complete native desktop interaction and accessibility: basic
+  move/focus/key controls, independent named-monitor saved positions,
+  hotplug/reflow, bounded v8 desktop status widgets and AT-SPI status labels
+  are implemented; cross-monitor dragging, richer configurable widgets,
+  widget keyboard semantics where appropriate and physical-device Orca QA
+  remain open.
 - [ ] Implement visually configurable, truly interactive native start menus
   (beyond the initial functional labwc fallback menu), including navigation,
   searching, pinning and reusable layout variants. Action search and pins,

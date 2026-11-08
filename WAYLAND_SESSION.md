@@ -532,7 +532,7 @@ Start a new private template with `ricebowl de recipe-init --schema-version 7`
 plus the ordinary `--base`, `--id`, `--name` and `--output` options; add these
 nodes using `de draft-edit`, review them with `de review` and preview the
 result with `de start --nested --panel native --recipe /absolute/path/to/rice.json`.
-The Creator catalog v8 advertises the exact contract. Existing schemas v1–v6
+The Creator catalog v9 advertises the exact contract. Existing schemas v1–v6
 are still accepted, but reject `control` nodes.
 
 The native RicePlate panel and its menu share **one bounded asynchronous
@@ -546,6 +546,59 @@ use the same dispatcher. The geometry never moves when the status changes.
 The **Waybar fallback displays noninteractive `N/A` labels** with a native-only
 tooltip: it cannot verify those state changes and must not pretend to. Real
 GPU, hardware toggles and Orca interaction still need local acceptance.
+
+#### Schema-v8 Layout Engine (native RicePlate)
+
+Schema v8 keeps the versioned v7 panel, compact layout, native menu, wallpaper,
+and validated desktop shortcuts. It adds one **opt-in desktop composition**:
+
+```json
+"composition": {
+  "widgets": [
+    {"id": "desk-clock", "kind": "clock", "x": 32, "y": 320},
+    {"id": "desk-system", "kind": "system", "x": 32, "y": 432},
+    {"id": "desk-date", "kind": "date", "x": 32, "y": 544}
+  ],
+  "window_region": {"x": 30, "y": 8, "width": 66, "height": 84},
+  "compact_hide_widgets": ["desk-system", "desk-date"]
+}
+```
+
+`window_region` is a rectangle in **percent of output logical dimensions**:
+in this example, the shell keeps the right-hand 66% of each output free of
+desktop shortcuts/widgets, starting at 30% of its width and 8% of its height.
+Labwc remains the window manager: this is a *desktop-item exclusion zone*,
+not a command to tile, resize, or position client windows. A bounded placement
+planner keeps 1–8 existing shortcuts and up to 4 fixed 200×96 desktop widgets
+from overlapping the exclusion zone or each other, respecting panel height.
+If there is no safe room, the surface is parked off-screen, not squeezed onto
+another widget. The existing panel `responsive.compact_max_width` also hides
+any widget IDs listed under `compact_hide_widgets` on narrow outputs.
+
+Widgets are native, read-only clock, date and live network/audio system status
+surfaces, rendered by the existing RicePlate process on the bottom layer. They
+use the compositor's logical output geometry, reflow on output changes and
+expose read-only accessibility status. No custom scripts, network endpoints,
+arbitrary widget types, background daemon, or compositor window-control API
+are admitted. The Waybar fallback still renders **only the panel**; its desktop
+widget support is explicitly unavailable. Recipe schemas v1–v7 and XFCE/X11
+continue unchanged.
+
+```sh
+ricebowl de recipe-init --schema-version 8 --base classic --id workstation-layout \
+  --name "Workstation Layout" --output "$HOME/workstation-layout.json"
+ricebowl de review --recipe "$HOME/workstation-layout.json" --json
+ricebowl de catalog --json
+ricebowl de render --recipe "$PWD/tests/fixtures/riceplate-layout-v8.json" \
+  --output "$HOME/layout-preview.png" --width 1366 --height 768 --json
+```
+
+The full [schema-v8 fixture](tests/fixtures/riceplate-layout-v8.json) combines
+sidebar menu, hierarchical panel controls, wallpaper, shortcuts, widgets and
+a compact breakpoint. The isolated `de render` command requires labwc, grim,
+swaybg and `riceplate-native`; it does not mutate the active desktop.
+Actual multi-monitor placement, fractional scaling, device input and Orca
+require real-hardware acceptance before a stable release.
 
 The default **Waybar-backed** Wayland session is separately checked in CI
 with two genuine labwc headless outputs. The smoke captures the bar on each,

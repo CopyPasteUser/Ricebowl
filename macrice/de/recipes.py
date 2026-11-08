@@ -34,6 +34,10 @@ MAX_LAYOUT_DEPTH = 3
 MAX_LAYOUT_ROOTS = 8
 MAX_LAYOUT_CHILDREN = 6
 MAX_DESKTOP_ICONS = 8
+MAX_DESKTOP_WIDGETS = 4
+DESKTOP_WIDGET_KINDS = frozenset(("clock", "date", "system"))
+DESKTOP_WIDGET_WIDTH = 200
+DESKTOP_WIDGET_HEIGHT = 96
 ICON_WIDTH = 104
 ICON_HEIGHT = 88
 ICON_ACTIONS = frozenset(("applications", "terminal", "lock"))
@@ -103,6 +107,29 @@ class DesktopIcon:
 
 
 @dataclass(frozen=True)
+class DesktopWidget:
+    widget_id: str
+    kind: str
+    x: int
+    y: int
+
+
+@dataclass(frozen=True)
+class WindowRegion:
+    x: int
+    y: int
+    width: int
+    height: int
+
+
+@dataclass(frozen=True)
+class DesktopComposition:
+    widgets: tuple[DesktopWidget, ...]
+    window_region: WindowRegion
+    compact_hide_widgets: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class PanelRecipe:
     recipe_id: str
     name: str
@@ -119,6 +146,44 @@ class PanelRecipe:
     compact: tuple[int, tuple[tuple[LayoutNode, ...], ...]] | None = None
     desktop_icons: tuple[DesktopIcon, ...] | None = None
     menu_presentation: str = "tabs"
+    composition: DesktopComposition | None = None
+
+
+def _parse_composition(raw: Any) -> DesktopComposition:
+    """Schema v8 desktop layout: bounded regions and non-executable live data."""
+    data = _strict_keys(raw, {"widgets", "window_region", "compact_hide_widgets"},
+                        "Desktop composition")
+    raw_widgets = data["widgets"]
+    if not isinstance(raw_widgets, list) or len(raw_widgets) > MAX_DESKTOP_WIDGETS:
+        raise RecipeError("Desktop composition supports at most four widgets")
+    widgets: list[DesktopWidget] = []
+    for item in raw_widgets:
+        item = _strict_keys(item, {"id", "kind", "x", "y"}, "Desktop widget")
+        if (type(item["id"]) is not str or
+                re.fullmatch(r"[a-z][a-z0-9-]{1,23}", item["id"]) is None or
+                type(item["kind"]) is not str or
+                item["kind"] not in DESKTOP_WIDGET_KINDS or
+                type(item["x"]) is not int or type(item["y"]) is not int or
+                not 0 <= item["x"] <= 16_384 or not 0 <= item["y"] <= 16_384):
+            raise RecipeError("Invalid declarative desktop widget")
+        if any(widget.widget_id == item["id"] for widget in widgets):
+            raise RecipeError("Duplicate desktop widget ID")
+        widgets.append(DesktopWidget(item["id"], item["kind"], item["x"], item["y"]))
+    region = _strict_keys(data["window_region"], {"x", "y", "width", "height"},
+                          "Reserved window region")
+    if (any(type(region[key]) is not int for key in ("x", "y", "width", "height")) or
+            not 0 <= region["x"] <= 99 or not 0 <= region["y"] <= 99 or
+            not 1 <= region["width"] <= 100 or not 1 <= region["height"] <= 100 or
+            region["x"] + region["width"] > 100 or
+            region["y"] + region["height"] > 100):
+        raise RecipeError("Reserved window region must fit within 0–100 percent")
+    hidden = data["compact_hide_widgets"]
+    ids = {widget.widget_id for widget in widgets}
+    if (not isinstance(hidden, list) or len(hidden) > MAX_DESKTOP_WIDGETS or
+            any(type(item) is not str or item not in ids for item in hidden) or
+            len(set(hidden)) != len(hidden)):
+        raise RecipeError("Compact widget IDs must be unique members of the layout")
+    return DesktopComposition(tuple(widgets), WindowRegion(**region), tuple(hidden))
 
 
 def _safe_label(value: Any, limit: int = 24) -> bool:
@@ -319,11 +384,13 @@ def parse(raw: bytes) -> PanelRecipe:
     if not isinstance(data, dict):
         raise RecipeError("Recipe must be a JSON object")
     version = data.get("schema_version")
-    if type(version) is not int or version not in (1, 2, 3, 4, 5, 6, 7):
+    if type(version) is not int or version not in (1, 2, 3, 4, 5, 6, 7, 8):
         raise RecipeError("Unsupported RicePlate recipe schema version")
     expected = {"schema_version", "id", "name", "panel", "colors"}
     if version >= 4:
         expected.update(("menu", "desktop", "tokens", "responsive"))
+    if version >= 8:
+        expected.add("composition")
     data = _strict_keys(data, expected, "Recipe")
     recipe_id = data["id"]
     if not isinstance(recipe_id, str) or not re.fullmatch(r"[a-z][a-z0-9-]{1,31}", recipe_id):
@@ -380,7 +447,10 @@ def parse(raw: bytes) -> PanelRecipe:
     tokens = None
     compact = None
     desktop_icons = None
+    composition = None
     if version >= 4:
+        if version >= 8:
+            composition = _parse_composition(data["composition"])
         menu = _parse_menu(data["menu"], schema_version=version)
         desktop = _strict_keys(data["desktop"],
                                {"wallpaper", "icons"} if version >= 5 else {"wallpaper"},
@@ -431,7 +501,8 @@ def parse(raw: bytes) -> PanelRecipe:
                        (colors["background"], colors["foreground"], colors["active"]),
                        metrics, layout_nodes, version, menu, wallpaper, tokens, compact,
                        desktop_icons,
-                       data["menu"].get("presentation", "tabs") if version >= 6 else "tabs")
+                       data["menu"].get("presentation", "tabs") if version >= 6 else "tabs",
+                       composition)
 
 
 def load(token: str) -> PanelRecipe:
@@ -755,7 +826,7 @@ def create_from_template(
     if not destination.is_absolute() or destination.suffix != ".json":
         raise RecipeError("New recipe output must be an absolute .json file path")
     data = json.loads(BUILTINS[source].read_text(encoding="utf-8"))
-    if schema_version in (2, 3, 4, 5, 6, 7):
+    if schema_version in (2, 3, 4, 5, 6, 7, 8):
         data["schema_version"] = schema_version
         data["panel"]["metrics"] = dict(zip(METRIC_FIELDS, METRIC_DEFAULTS))
         if schema_version >= 3:
@@ -782,6 +853,15 @@ def create_from_template(
                                    "center": [{"type": "widget", "id": "tasks"}],
                                    "end": [{"type": "widget", "id": "clock"}]},
             }
+            if schema_version >= 8:
+                data["composition"] = {
+                    "widgets": [
+                        {"id": "desk-clock", "kind": "clock", "x": 32, "y": 320},
+                        {"id": "desk-system", "kind": "system", "x": 32, "y": 432},
+                    ],
+                    "window_region": {"x": 30, "y": 8, "width": 66, "height": 84},
+                    "compact_hide_widgets": ["desk-system"],
+                }
     elif schema_version != 1:
         raise RecipeError("Unsupported RicePlate template schema version")
     data["id"] = recipe_id

@@ -140,13 +140,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     let panel_controls: Vec<_> = recipe.actions.iter()
         .filter(|action| action.control)
         .filter_map(|action| ControlAction::from_id(&action.id)).collect();
-    let poll_network = status_present(Widget::Network)
+    let desktop_system = recipe.composition.as_ref().is_some_and(|composition|
+        composition.widgets.iter().any(|widget|
+            widget.kind == recipe::DesktopWidgetKind::System));
+    let poll_network = desktop_system || status_present(Widget::Network)
         || menu_controls.contains(&ControlAction::WifiToggle)
         || panel_controls.contains(&ControlAction::WifiToggle);
     // A native full desktop has volume OSD even when a rice omits the audio
     // indicator. Nested design previews retain the old opt-in behavior.
     let full_session = std::env::var("RICEBOWL_DE_NESTED").as_deref() != Ok("1");
-    let poll_audio = full_session || status_present(Widget::Audio)
+    let poll_audio = full_session || desktop_system || status_present(Widget::Audio)
         || menu_controls.iter().chain(panel_controls.iter()).any(|action|
             matches!(action, ControlAction::AudioMute | ControlAction::AudioUp | ControlAction::AudioDown));
     let use_tray = status_present(Widget::Tray);
@@ -209,6 +212,27 @@ fn main() -> Result<(), Box<dyn Error>> {
             bound_output: None,
             placed: Some((icon.x, icon.y)),
         });
+    }
+    // Declarative v8 widgets are small non-keyboard Bottom-layer surfaces.
+    // No fullscreen input-catcher or separate polling daemon is introduced.
+    let mut widget_layers = Vec::new();
+    if let Some(composition) = recipe.composition.as_ref() {
+        for (recipe_index, widget) in composition.widgets.iter().enumerate() {
+            let surface = layer_shell.create_layer_surface(
+                &qh, compositor.create_surface(&qh), Layer::Bottom,
+                Some("riceplate-desktop-widget"), None,
+            );
+            surface.set_anchor(Anchor::TOP | Anchor::LEFT);
+            surface.set_size(recipe::DESKTOP_WIDGET_WIDTH, recipe::DESKTOP_WIDGET_HEIGHT);
+            surface.set_margin(widget.y as i32, 0, 0, widget.x as i32);
+            surface.set_exclusive_zone(-1);
+            surface.set_keyboard_interactivity(KeyboardInteractivity::None);
+            surface.commit();
+            widget_layers.push(DesktopWidgetLayer {
+                recipe_index, surface, pool: None, configured: false,
+                output: None, bound_output: None, placed: Some((widget.x, widget.y)),
+            });
+        }
     }
 
     // The native start menu shares the validated schema-v4/v5 recipe and the
@@ -331,6 +355,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         layer,
         mirrors: Vec::new(),
         icon_layers,
+        widget_layers,
         menu_layer,
         menu_mirrors: Vec::new(),
         active_menu: None,
@@ -458,6 +483,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 if app.system_status != status {
                     app.system_status = status;
                     app.request_redraw(&redraw_qh);
+                    app.redraw_widgets();
                 }
             }
         })?;
@@ -574,6 +600,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             // never on every pointer/frame event or from a resident helper.
             app.power = PowerStatus::current();
             app.request_redraw(&qh);
+            app.redraw_widgets();
         }
         let today = Local::now().date_naive();
         if app.calendar_state.today != today {
@@ -594,6 +621,16 @@ struct Task {
 }
 
 struct IconLayer {
+    recipe_index: usize,
+    surface: LayerSurface,
+    pool: Option<SlotPool>,
+    configured: bool,
+    output: Option<wl_output::WlOutput>,
+    bound_output: Option<wl_output::WlOutput>,
+    placed: Option<(u32, u32)>,
+}
+
+struct DesktopWidgetLayer {
     recipe_index: usize,
     surface: LayerSurface,
     pool: Option<SlotPool>,
@@ -663,6 +700,7 @@ struct RicePlate {
     layer: LayerSurface,
     mirrors: Vec<PanelMirror>,
     icon_layers: Vec<IconLayer>,
+    widget_layers: Vec<DesktopWidgetLayer>,
     menu_layer: Option<MenuLayer>,
     menu_mirrors: Vec<MenuLayer>,
     active_menu: Option<wl_surface::WlSurface>,
@@ -804,6 +842,26 @@ impl RicePlate {
                 if let Some(item) = self.recipe.desktop_icons.get(icon.recipe_index) {
                     model.add(30_100 + index as u64, 30_000, AccessibleRole::Button,
                               item.label.clone(), Some(Target::DesktopIcon(index)));
+                }
+            }
+        }
+        if self.widget_layers.iter().any(|layer| layer.placed.is_some()) {
+            model.add(31_000, ROOT, AccessibleRole::Group, "Desktop widgets", None);
+            for (index, layer) in self.widget_layers.iter().enumerate() {
+                if layer.placed.is_none() { continue; }
+                if let Some(widget) = self.recipe.composition.as_ref()
+                    .and_then(|composition| composition.widgets.get(layer.recipe_index)) {
+                    let description = match widget.kind {
+                        recipe::DesktopWidgetKind::Clock => format!("Time: {}", self.clock),
+                        recipe::DesktopWidgetKind::Date =>
+                            format!("Date: {}", Local::now().format("%a %d %b %Y")),
+                        recipe::DesktopWidgetKind::System =>
+                            format!("Network: {}, Audio: {}",
+                                    self.system_status.network.label(),
+                                    self.system_status.audio.label()),
+                    };
+                    model.add(31_100 + index as u64, 31_000, AccessibleRole::Status,
+                              description, None);
                 }
             }
         }
@@ -1289,6 +1347,32 @@ impl RicePlate {
                     output: Some(output.clone()), bound_output: Some(output.clone()),
                     placed: Some((icon.x, icon.y)),
                 });
+            }
+        }
+        self.widget_layers.retain(|widget| widget.bound_output.as_ref()
+            .is_none_or(|output| outputs.contains(output)));
+        if let Some(composition) = self.recipe.composition.as_ref() {
+            for output in &outputs {
+                for (recipe_index, widget) in composition.widgets.iter().enumerate() {
+                    if self.widget_layers.iter().any(|layer|
+                        layer.recipe_index == recipe_index
+                        && layer.bound_output.as_ref() == Some(output)) { continue; }
+                    let surface = self.layer_shell.create_layer_surface(
+                        qh, self.compositor.create_surface(qh), Layer::Bottom,
+                        Some("riceplate-output-desktop-widget"), Some(output),
+                    );
+                    surface.set_anchor(Anchor::TOP | Anchor::LEFT);
+                    surface.set_size(recipe::DESKTOP_WIDGET_WIDTH, recipe::DESKTOP_WIDGET_HEIGHT);
+                    surface.set_margin(widget.y as i32, 0, 0, widget.x as i32);
+                    surface.set_exclusive_zone(-1);
+                    surface.set_keyboard_interactivity(KeyboardInteractivity::None);
+                    surface.commit();
+                    self.widget_layers.push(DesktopWidgetLayer {
+                        recipe_index, surface, pool: None, configured: false,
+                        output: Some(output.clone()), bound_output: Some(output.clone()),
+                        placed: Some((widget.x, widget.y)),
+                    });
+                }
             }
         }
         self.reflow_icons();
@@ -1814,6 +1898,50 @@ impl RicePlate {
         layer.surface.commit();
     }
 
+    fn redraw_widget(&mut self, index: usize) {
+        let Some(widget) = self.recipe.composition.as_ref()
+            .and_then(|composition| self.widget_layers.get(index)
+                .and_then(|layer| composition.widgets.get(layer.recipe_index))) else { return; };
+        let (title, lines) = match widget.kind {
+            recipe::DesktopWidgetKind::Clock =>
+                ("Clock", vec![self.clock.clone()]),
+            recipe::DesktopWidgetKind::Date =>
+                ("Date", vec![Local::now().format("%a %d %b").to_string(),
+                              Local::now().format("%Y").to_string()]),
+            recipe::DesktopWidgetKind::System =>
+                ("System", vec![format!("Network: {}", self.system_status.network.label()),
+                                format!("Audio: {}", self.system_status.audio.label())]),
+        };
+        let Some(layer) = self.widget_layers.get_mut(index) else { return; };
+        if !layer.configured || layer.placed.is_none() { return; }
+        let width = recipe::DESKTOP_WIDGET_WIDTH;
+        let height = recipe::DESKTOP_WIDGET_HEIGHT;
+        let Some(pool) = layer.pool.as_mut() else { return; };
+        let (buffer, canvas) = match pool.create_buffer(
+            width as i32, height as i32, (width * 4) as i32, wl_shm::Format::Argb8888,
+        ) {
+            Ok(result) => result,
+            Err(error) => {
+                eprintln!("RicePlate: desktop widget buffer unavailable: {error}");
+                return;
+            }
+        };
+        paint_desktop_widget(canvas, title, &lines, &self.recipe);
+        let surface = layer.surface.wl_surface();
+        surface.damage_buffer(0, 0, width as i32, height as i32);
+        if let Err(error) = buffer.attach_to(surface) {
+            eprintln!("RicePlate: desktop widget attach failed: {error}");
+            return;
+        }
+        layer.surface.commit();
+    }
+
+    fn redraw_widgets(&mut self) {
+        for index in 0..self.widget_layers.len() {
+            self.redraw_widget(index);
+        }
+    }
+
     fn logical_output_size(&self, output: &wl_output::WlOutput) -> Option<(u32, u32)> {
         let info = self.outputs.info(output)?;
         // xdg-output logical dimensions include fractional scale and rotation.
@@ -1881,10 +2009,15 @@ impl RicePlate {
                     (icon.x, icon.y) = (position.x, position.y);
                 }
             }
-            let placement = desktop_layout::place(
-                &local_icons, width, height,
-                self.recipe.top, self.recipe.height,
-            )[layer.recipe_index];
+            let placement = if let Some(composition) = &self.recipe.composition {
+                desktop_layout::compose(&local_icons, composition, width, height,
+                    self.recipe.top, self.recipe.height,
+                    self.recipe.compact.as_ref().map_or(720, |(threshold, _)| *threshold))
+                    .0[layer.recipe_index]
+            } else {
+                desktop_layout::place(&local_icons, width, height,
+                    self.recipe.top, self.recipe.height)[layer.recipe_index]
+            };
             let restored = {
                 let layer = &mut self.icon_layers[index];
                 if layer.placed == placement {
@@ -1911,6 +2044,42 @@ impl RicePlate {
             if restored {
                 self.redraw_icon(index);
             }
+        }
+        for index in 0..self.widget_layers.len() {
+            let layer = &self.widget_layers[index];
+            let output = layer.bound_output.as_ref().or(self.primary_output.as_ref())
+                .or(layer.output.as_ref());
+            let Some((width, height)) = output.and_then(|o| self.logical_output_size(o)) else {
+                continue;
+            };
+            let Some(composition) = self.recipe.composition.as_ref() else { break; };
+            let name = output.and_then(|o| self.outputs.info(o)).and_then(|info| info.name);
+            let mut local_icons = self.recipe.desktop_icons.clone();
+            if let Some(positions) = name.as_deref().and_then(|name|
+                self.icon_outputs.for_output(name, local_icons.len())) {
+                for (icon, position) in local_icons.iter_mut().zip(positions) {
+                    (icon.x, icon.y) = (position.x, position.y);
+                }
+            }
+            let placement = desktop_layout::compose(
+                &local_icons, composition, width, height, self.recipe.top, self.recipe.height,
+                self.recipe.compact.as_ref().map_or(720, |(threshold, _)| *threshold),
+            ).1[layer.recipe_index];
+            let restored = {
+                let layer = &mut self.widget_layers[index];
+                if layer.placed == placement { continue; }
+                let restored = layer.placed.is_none() && placement.is_some();
+                layer.placed = placement;
+                if let Some((x, y)) = placement {
+                    layer.surface.set_margin(y as i32, 0, 0, x as i32);
+                } else {
+                    layer.surface.set_margin(height as i32 + recipe::DESKTOP_WIDGET_HEIGHT as i32,
+                                             0, 0, width as i32 + recipe::DESKTOP_WIDGET_WIDTH as i32);
+                }
+                layer.surface.commit();
+                restored && layer.configured
+            };
+            if restored { self.redraw_widget(index); }
         }
     }
 
@@ -2944,6 +3113,22 @@ fn paint_icon(canvas: &mut [u8], icon: &recipe::DesktopIcon, active: u32,
     );
 }
 
+fn paint_desktop_widget(canvas: &mut [u8], title: &str, lines: &[String], style: &PanelStyle) {
+    let width = recipe::DESKTOP_WIDGET_WIDTH;
+    let height = recipe::DESKTOP_WIDGET_HEIGHT;
+    canvas.fill(0);
+    fill_rounded_rect(canvas, width, height, 0, 0, width, height, 10, style.background);
+    fill_rect(canvas, width, height, 12, 31, width - 24, 2, style.active);
+    draw_text(canvas, width, height, 12, 12, title, style.foreground);
+    for (index, line) in lines.iter().take(2).enumerate() {
+        // The native 8px font has no word wrap. Keep every line inside the
+        // bounded surface even when system providers expose long names.
+        let clipped: String = line.chars().take(22).collect();
+        draw_text(canvas, width, height, 12, 43 + index as u32 * 20,
+                  &clipped, style.foreground);
+    }
+}
+
 fn fill_rect(
     canvas: &mut [u8],
     width: u32,
@@ -3179,6 +3364,10 @@ impl LayerShellHandler for RicePlate {
             .find(|icon| icon.surface.wl_surface() == layer.wl_surface())
         {
             icon.configured = false;
+        } else if let Some(widget) = self.widget_layers.iter_mut()
+            .find(|widget| widget.surface.wl_surface() == layer.wl_surface())
+        {
+            widget.configured = false;
         }
     }
     fn configure(
@@ -3346,6 +3535,29 @@ impl LayerShellHandler for RicePlate {
             }
             icon.configured = true;
             self.redraw_icon(index);
+            return;
+        }
+        if let Some(index) = self.widget_layers.iter()
+            .position(|widget| widget.surface.wl_surface() == layer.wl_surface())
+        {
+            if config.new_size != (recipe::DESKTOP_WIDGET_WIDTH, recipe::DESKTOP_WIDGET_HEIGHT) {
+                eprintln!("RicePlate: compositor proposed unexpected desktop widget size");
+                return;
+            }
+            let widget = &mut self.widget_layers[index];
+            if widget.pool.is_none() {
+                let bytes = recipe::DESKTOP_WIDGET_WIDTH as usize
+                    * recipe::DESKTOP_WIDGET_HEIGHT as usize * 4 * 2;
+                match SlotPool::new(bytes, &self.shm) {
+                    Ok(pool) => widget.pool = Some(pool),
+                    Err(error) => {
+                        eprintln!("RicePlate: desktop widget memory unavailable: {error}");
+                        return;
+                    }
+                }
+            }
+            widget.configured = true;
+            self.redraw_widget(index);
             return;
         }
         if layer.wl_surface() != self.layer.wl_surface() {
