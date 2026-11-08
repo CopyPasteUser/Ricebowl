@@ -11,6 +11,7 @@ mod brightness;
 mod calendar;
 mod desktop_layout;
 mod icon_positions;
+mod installed_apps;
 mod menu_pins;
 mod native_menu;
 mod osd;
@@ -336,7 +337,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         calendar_mirrors: Vec::new(),
         active_calendar: None,
         preview_secondary_calendar,
-        menu_state: MenuState { pins: saved_menu_pins, ..MenuState::default() },
+        menu_state: MenuState::with_pins(saved_menu_pins),
         notification_state: NotificationState::default(),
         notification_sender: None,
         calendar_state: CalendarState::new(Local::now().date_naive()),
@@ -860,7 +861,7 @@ impl RicePlate {
                     .skip(self.menu_state.first_action_row()).take(native_menu::VISIBLE_ACTIONS) {
                     let enabled = action != "logout" || logout_available();
                     model.add(20_500 + index as u64, 20_000, AccessibleRole::Button,
-                              native_menu::action_label(action),
+                              self.menu_state.label(action),
                               enabled.then(|| Target::MenuAction(action.to_string())));
                 }
                 model.add(20_980, 20_000, AccessibleRole::Label,
@@ -1432,6 +1433,7 @@ impl RicePlate {
             menu.surface.wl_surface() == &surface) { return; }
         if self.calendar_state.visible { self.set_calendar_visible(false, qh); }
         if self.tray_popup_open() { self.set_tray_popup_visible(false, qh); }
+        self.menu_state.refresh_apps();
         self.menu_state.open();
         self.notification_state.close();
         self.menu_focused = false;
@@ -1488,6 +1490,16 @@ impl RicePlate {
         }
         if action == "logout" && !logout_available() {
             eprintln!("RicePlate: log out unavailable outside a labwc-managed session");
+            return;
+        }
+        if action.starts_with("desktop:") {
+            // Let GLib handle field codes, DBusActivatable, terminal preferences
+            // and desktop-file quoting. Never interpret Exec as a shell command.
+            if let Some(path) = self.menu_state.app_path(action) {
+                if let Err(error) = Command::new("gio").arg("launch").arg(path).spawn() {
+                    eprintln!("RicePlate: cannot launch desktop application: {error}");
+                }
+            }
             return;
         }
         let (program, args): (&str, &[&str]) = match action {
@@ -2591,10 +2603,12 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
             }
             let label = if action == "logout" && !logout_available() {
                 "Log out (unavailable)"
-            } else { native_menu::action_label(action) };
+            } else { state.label(action) };
             let pinned = state.pins.iter().any(|pin| pin.as_str() == action);
+            let max_chars = if pinned { 33 } else { 35 };
+            let short_label: String = label.chars().take(max_chars).collect();
             draw_text(canvas, width, height, 20, top + 16,
-                      &format!("{}{}", if pinned { "* " } else { "" }, label),
+                      &format!("{}{}", if pinned { "* " } else { "" }, short_label),
                       style.foreground);
         }
     }
