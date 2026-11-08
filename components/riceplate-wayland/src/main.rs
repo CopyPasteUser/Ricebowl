@@ -853,8 +853,13 @@ impl RicePlate {
                 }
             } else if let Some(menu) = self.recipe.menu.as_ref() {
                 model.add(20_000, ROOT, AccessibleRole::Menu, menu.title.clone(), None);
+                let group_role = if menu.presentation == recipe::MenuPresentation::Sidebar {
+                    AccessibleRole::Button
+                } else {
+                    AccessibleRole::Tab
+                };
                 for (index, group) in menu.groups.iter().enumerate() {
-                    model.add(20_100 + index as u64, 20_000, AccessibleRole::Tab,
+                    model.add(20_100 + index as u64, 20_000, group_role,
                               group.title.clone(), Some(Target::MenuGroup(index)));
                 }
                 for (index, action) in self.menu_state.actions(menu).into_iter().enumerate()
@@ -2542,44 +2547,42 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
         &menu.title.chars().take(32).collect::<String>(),
         style.foreground,
     );
+    let sidebar = menu.presentation == recipe::MenuPresentation::Sidebar;
     let groups = menu.groups.len().max(1) as u32;
-    for (index, group) in menu.groups.iter().enumerate() {
-        let x = index as u32 * width / groups;
-        let next = (index as u32 + 1) * width / groups;
-        if state.view == native_menu::View::Groups && state.group == index {
-            fill_rect(
-                canvas,
-                width,
-                height,
-                x,
-                native_menu::TAB_TOP,
-                next - x,
-                native_menu::TAB_HEIGHT,
-                style.active,
-            );
-        }
-        let available = (next - x).saturating_sub(16) / 8;
-        let label: String = group.title.chars().take(available as usize).collect();
-        draw_text(
-            canvas,
-            width,
-            height,
-            x + 8,
-            native_menu::TAB_TOP + 16,
-            &label,
-            style.foreground,
-        );
+    if sidebar {
+        // Structural variant: a persistent navigation rail, with actions and
+        // search in an independent content column. All colors are rice tokens.
+        fill_rect(canvas, width, height, native_menu::SIDEBAR_WIDTH - 2,
+                  39, 2, height - 67, style.active);
     }
+    for (index, group) in menu.groups.iter().enumerate() {
+        let (x, y, section_width, section_height) = if sidebar {
+            (0, native_menu::TAB_TOP + index as u32 * native_menu::SIDEBAR_ROW_HEIGHT,
+             native_menu::SIDEBAR_WIDTH - 2, native_menu::SIDEBAR_ROW_HEIGHT)
+        } else {
+            let x = index as u32 * width / groups;
+            (x, native_menu::TAB_TOP, (index as u32 + 1) * width / groups - x,
+             native_menu::TAB_HEIGHT)
+        };
+        if state.view == native_menu::View::Groups && state.group == index {
+            fill_rect(canvas, width, height, x, y, section_width, section_height, style.active);
+        }
+        let available = section_width.saturating_sub(16) / 8;
+        let label: String = group.title.chars().take(available as usize).collect();
+        draw_text(canvas, width, height, x + 8,
+                  y + section_height / 2 - 4, &label, style.foreground);
+    }
+    let content_x = if sidebar { native_menu::SIDEBAR_WIDTH + 8 } else { 12 };
     if state.view == native_menu::View::Search {
-        draw_text(canvas, width, height, 12, 91,
+        draw_text(canvas, width, height, content_x, 91,
                   &format!("Find: {}", state.search), style.foreground);
     } else if state.view == native_menu::View::Saved {
-        draw_text(canvas, width, height, 12, 91,
+        draw_text(canvas, width, height, content_x, 91,
                   &format!("Saved actions: {}", state.actions(menu).len()), style.foreground);
     }
     let actions = state.actions(menu);
     if actions.is_empty() {
-        draw_text(canvas, width, height, 15, 135,
+        draw_text(canvas, width, height, content_x, 135,
                   if state.view == native_menu::View::Saved {
                       "No saved actions"
                   } else { "No matching actions" }, style.foreground);
@@ -2588,14 +2591,15 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
             .take(native_menu::VISIBLE_ACTIONS).enumerate() {
             let action_index = state.first_action_row() + row;
             let top = native_menu::ACTION_TOP + row as u32 * native_menu::ACTION_HEIGHT;
+            let action_x = if sidebar { native_menu::SIDEBAR_WIDTH + 4 } else { 8 };
             if action_index == state.selected {
                 fill_rounded_rect(
                     canvas,
                     width,
                     height,
-                    8,
+                    action_x,
                     top + 2,
-                    width - 16,
+                    width - action_x - 8,
                     native_menu::ACTION_HEIGHT - 4,
                     style.task_radius,
                     style.active,
@@ -2605,9 +2609,10 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                 "Log out (unavailable)"
             } else { state.label(action) };
             let pinned = state.pins.iter().any(|pin| pin.as_str() == action);
-            let max_chars = if pinned { 33 } else { 35 };
+            let max_chars = if sidebar { if pinned { 19 } else { 21 } }
+                            else if pinned { 33 } else { 35 };
             let short_label: String = label.chars().take(max_chars).collect();
-            draw_text(canvas, width, height, 20, top + 16,
+            draw_text(canvas, width, height, action_x + 12, top + 16,
                       &format!("{}{}", if pinned { "* " } else { "" }, short_label),
                       style.foreground);
         }
@@ -4114,6 +4119,32 @@ smithay_client_toolkit::delegate_dispatch2!(RicePlate);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_start_menu_paints_distinct_schema_v6_sidebar_geometry() {
+        let source = include_str!("../../../tests/fixtures/riceplate-desktop-v5.json");
+        let mut data: serde_json::Value = serde_json::from_str(source).unwrap();
+        data["schema_version"] = serde_json::json!(6);
+        let tabs = recipe::parse(&data.to_string(), Some("mockup-desktop")).unwrap();
+        data["menu"]["presentation"] = serde_json::json!("sidebar");
+        let sidebar = recipe::parse(&data.to_string(), Some("mockup-desktop")).unwrap();
+        let mut state = native_menu::MenuState::default();
+        state.open();
+        let mut tabs_frame = vec![0; (native_menu::WIDTH * native_menu::HEIGHT * 4) as usize];
+        let mut sidebar_frame = tabs_frame.clone();
+        paint_menu(&mut tabs_frame, tabs.menu.as_ref().unwrap(), &tabs, &state);
+        paint_menu(&mut sidebar_frame, sidebar.menu.as_ref().unwrap(), &sidebar, &state);
+        fn pixel(frame: &[u8], x: usize, y: usize) -> &[u8] {
+            let index = (y * native_menu::WIDTH as usize + x) * 4;
+            &frame[index..index + 4]
+        }
+        // The old selected horizontal tab extends across x=140. A left
+        // sidebar's group highlight does not paint into the right column.
+        assert_eq!(pixel(&tabs_frame, 140, 50), &tabs.active.to_le_bytes());
+        assert_eq!(pixel(&sidebar_frame, 140, 50), &sidebar.background.to_le_bytes());
+        assert_eq!(pixel(&sidebar_frame, 2, 50), &sidebar.active.to_le_bytes());
+        assert_ne!(tabs_frame, sidebar_frame);
+    }
 
     #[test]
     fn native_tray_paints_live_pixmap_and_reserves_real_hit_regions() {

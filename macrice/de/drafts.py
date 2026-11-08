@@ -51,6 +51,8 @@ def _allowed_value(path: str, value: Any) -> bool:
         return True
     if path == "/menu/title":
         return recipes._safe_label(value, 32)
+    if path == "/menu/presentation":
+        return type(value) is str and value in ("tabs", "sidebar")
     if path == "/desktop/wallpaper":
         return type(value) is str and value in recipes.WALLPAPERS
     if path == "/desktop/icons":
@@ -143,6 +145,9 @@ def create_edit(*, recipe_token: str, edit_source: Path, destination: Path) -> d
         if path.startswith(("/menu/", "/desktop/", "/tokens/", "/responsive/")) \
                 and modified["schema_version"] not in (4, 5, 6):
             raise DraftError("Shell components require a schema-v4+ source recipe",
+                             code="unsupported_property_for_schema", path=path)
+        if path == "/menu/presentation" and modified["schema_version"] != 6:
+            raise DraftError("Menu presentation requires a schema-v6 source recipe",
                              code="unsupported_property_for_schema", path=path)
         if path == "/desktop/icons" and modified["schema_version"] not in (5, 6):
             raise DraftError("Desktop icons require a schema-v5+ source recipe",

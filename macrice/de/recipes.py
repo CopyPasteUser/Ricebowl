@@ -100,6 +100,7 @@ class PanelRecipe:
     tokens: tuple[int, int] | None = None
     compact: tuple[int, tuple[tuple[LayoutNode, ...], ...]] | None = None
     desktop_icons: tuple[DesktopIcon, ...] | None = None
+    menu_presentation: str = "tabs"
 
 
 def _safe_label(value: Any, limit: int = 24) -> bool:
@@ -107,8 +108,17 @@ def _safe_label(value: Any, limit: int = 24) -> bool:
         rf"[A-Za-z0-9 ._:+-]{{1,{limit}}}", value) is not None
 
 
-def _parse_menu(value: Any) -> tuple[str, tuple[MenuGroup, ...]]:
-    data = _strict_keys(value, {"title", "groups"}, "Menu")
+def _parse_menu(value: Any, *, schema_version: int = 4) -> tuple[str, tuple[MenuGroup, ...]]:
+    if schema_version >= 6 and isinstance(value, dict):
+        if "presentation" in value:
+            if type(value["presentation"]) is not str or value["presentation"] not in ("tabs", "sidebar"):
+                raise RecipeError("Menu presentation must be tabs or sidebar")
+            _strict_keys(value, {"title", "groups", "presentation"}, "Menu")
+        else:
+            _strict_keys(value, {"title", "groups"}, "Menu")
+        data = value
+    else:
+        data = _strict_keys(value, {"title", "groups"}, "Menu")
     if not _safe_label(data["title"], 32):
         raise RecipeError("Menu title must be safe printable ASCII")
     groups = data["groups"]
@@ -309,7 +319,7 @@ def parse(raw: bytes) -> PanelRecipe:
     compact = None
     desktop_icons = None
     if version in (4, 5, 6):
-        menu = _parse_menu(data["menu"])
+        menu = _parse_menu(data["menu"], schema_version=version)
         desktop = _strict_keys(data["desktop"],
                                {"wallpaper", "icons"} if version >= 5 else {"wallpaper"},
                                "Desktop")
@@ -342,7 +352,8 @@ def parse(raw: bytes) -> PanelRecipe:
                        (selected[0], selected[1], selected[2]),
                        (colors["background"], colors["foreground"], colors["active"]),
                        metrics, layout_nodes, version, menu, wallpaper, tokens, compact,
-                       desktop_icons)
+                       desktop_icons,
+                       data["menu"].get("presentation", "tabs") if version >= 6 else "tabs")
 
 
 def load(token: str) -> PanelRecipe:

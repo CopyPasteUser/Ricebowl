@@ -213,6 +213,14 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   installed-app, desktop-localization, assistive-technology and physical
   keyboard acceptance remain open; personalized OS-specific menu structures
   are not yet complete.
+- [x] Introduce **schema-v6 native menu presentation variants**: retain
+  horizontal tabs by default, allow validated `menu.presentation: sidebar`
+  with a separate left navigation rail and right action/search column. Share
+  navigation, fixed actions, installed-app search, keyboard handling and
+  private pins; expose the variant in Creator catalog, draft-edit, semantic
+  review and Rust/Python tests. The native headless smoke captures both
+  presentations. Pixel-perfect OS menus, custom grids, responsive menu sizing
+  and on-device keyboard/AT acceptance remain open.
 - [x] Show a **real, read-only native battery percentage** in RicePlate from
   Linux's fixed `/sys/class/power_supply`, with charging state, explicit
   no-battery/unknown labels, multi-battery handling and bounded once-per-minute
@@ -535,6 +543,8 @@ depend on the XFCE session.
 - [ ] Implement visually configurable, truly interactive native start menus
   (beyond the initial functional labwc fallback menu), including navigation,
   searching, pinning and the per-rice layout variants required by XP/7/etc.
+  Action search and pins, plus the v6 tab/sidebar structural choice, work; the
+  deeper XP/7-specific compositions, icon/typography tokens and device QA do not.
 - [ ] Make responsive shell layouts live across every backend and surface,
   including Waybar fallback and multi-monitor hotplug; expand reusable design
   tokens to typography, states, iconography, spacing and motion.

@@ -12,6 +12,7 @@ from macrice.de import catalog, drafts, recipes, review, session
 
 
 FIXTURE = Path(__file__).parent / "fixtures/riceplate-shell-v4.json"
+SIDEBAR_V6 = Path(__file__).parent / "fixtures/riceplate-sidebar-v6.json"
 
 
 def _fixture():
@@ -19,6 +20,60 @@ def _fixture():
 
 
 class ShellV4Tests(unittest.TestCase):
+    def test_v6_sidebar_menu_roundtrip_and_version_gate(self):
+        sample = json.loads(SIDEBAR_V6.read_text(encoding="utf-8"))
+        parsed = recipes.parse(SIDEBAR_V6.read_bytes())
+        self.assertEqual(parsed.menu_presentation, "sidebar")
+        self.assertEqual(review._manifest(parsed), sample)
+        self.assertEqual(parsed.menu[0], "Y2K Desktop")
+        self.assertEqual(len(parsed.menu[1]), 2)
+        menu_contract = next(item for item in catalog.describe()["shell_components"]
+                             if item["id"] == "native-menu")
+        self.assertEqual(menu_contract["presentation"]["variants"], ["tabs", "sidebar"])
+
+        sample["menu"].pop("presentation")
+        self.assertEqual(recipes.parse(json.dumps(sample).encode()).menu_presentation, "tabs")
+        sample["menu"]["presentation"] = "tabs"
+        self.assertEqual(recipes.parse(json.dumps(sample).encode()).menu_presentation, "tabs")
+        sample["menu"]["presentation"] = "arbitrary-layout"
+        with self.assertRaises(recipes.RecipeError):
+            recipes.parse(json.dumps(sample).encode())
+        sample["menu"]["presentation"] = None
+        with self.assertRaises(recipes.RecipeError):
+            recipes.parse(json.dumps(sample).encode())
+        sample["menu"]["presentation"] = "sidebar"
+        sample["schema_version"] = 5
+        with self.assertRaises(recipes.RecipeError):
+            recipes.parse(json.dumps(sample).encode())
+
+    def test_v6_creator_can_edit_menu_presentation_without_mutating_source(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "source.json"
+            edit = Path(folder) / "edit.json"
+            output = Path(folder) / "sidebar.json"
+            sample = json.loads(SIDEBAR_V6.read_text(encoding="utf-8"))
+            sample["menu"].pop("presentation")
+            source.write_text(json.dumps(sample), encoding="utf-8")
+            source.chmod(0o600)
+            edit.write_text(json.dumps({"edit_version": 1, "operations": [
+                {"op": "set", "path": "/menu/presentation", "value": "sidebar"},
+            ]}), encoding="utf-8")
+            result = drafts.create_edit(recipe_token=str(source), edit_source=edit,
+                                        destination=output)
+            self.assertEqual(result["changes"], [{
+                "path": "/menu/presentation", "before": "tabs", "after": "sidebar"}])
+            self.assertEqual(recipes.load(str(output)).menu_presentation, "sidebar")
+            self.assertNotIn("presentation", json.loads(source.read_text())["menu"])
+
+            legacy = Path(folder) / "legacy.json"
+            sample["schema_version"] = 5
+            legacy.write_text(json.dumps(sample), encoding="utf-8")
+            legacy.chmod(0o600)
+            with self.assertRaises(drafts.DraftError) as rejected:
+                drafts.create_edit(recipe_token=str(legacy), edit_source=edit,
+                                   destination=Path(folder) / "denied.json")
+            self.assertEqual(rejected.exception.code, "unsupported_property_for_schema")
+
     def test_real_backend_outputs_and_width_specific_compilation(self):
         parsed = recipes.parse(FIXTURE.read_bytes())
         self.assertEqual(parsed.schema_version, 4)

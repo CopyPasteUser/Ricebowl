@@ -37,6 +37,16 @@ pub struct DesktopIcon {
 pub struct NativeMenu {
     pub title: String,
     pub groups: Vec<NativeMenuGroup>,
+    pub presentation: MenuPresentation,
+}
+
+/// The same actions/state can be rendered as a horizontal tab strip or as a
+/// persistent left navigation rail. Both have explicit hit-test geometry.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum MenuPresentation {
+    #[default]
+    Tabs,
+    Sidebar,
 }
 
 #[derive(Debug, Clone)]
@@ -127,6 +137,8 @@ struct Recipe {
 struct Menu {
     title: String,
     groups: Vec<MenuGroup>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    presentation: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -246,9 +258,14 @@ fn safe_label(text: &str, max_length: usize) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b" ._:+-".contains(&b))
 }
 
-fn validate_menu(menu: &Menu) -> Result<(), Box<dyn Error>> {
+fn validate_menu(menu: &Menu, version: u32) -> Result<(), Box<dyn Error>> {
     if !safe_label(&menu.title, 32) || !(1..=4).contains(&menu.groups.len()) {
         return Err("Invalid bounded menu title/groups".into());
+    }
+    if let Some(presentation) = menu.presentation.as_deref() {
+        if version < 6 || !matches!(presentation, "tabs" | "sidebar") {
+            return Err("Menu presentation requires schema v6 and tabs/sidebar".into());
+        }
     }
     let mut seen = HashSet::new();
     for group in &menu.groups {
@@ -468,9 +485,14 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
         recipe.responsive,
     ) {
         (version @ (4 | 5 | 6), Some(menu), Some(desktop), Some(tokens), Some(responsive)) => {
-            validate_menu(&menu)?;
+            validate_menu(&menu, version)?;
             native_menu = Some(NativeMenu {
                 title: menu.title,
+                presentation: if menu.presentation.as_deref() == Some("sidebar") {
+                    MenuPresentation::Sidebar
+                } else {
+                    MenuPresentation::Tabs
+                },
                 groups: menu
                     .groups
                     .into_iter()
@@ -811,6 +833,30 @@ mod tests {
         assert!(parse(&data.to_string(), None).is_err());
         data["schema_version"] = 4.into();
         data["desktop"]["icons"] = serde_json::json!([]);
+        assert!(parse(&data.to_string(), None).is_err());
+    }
+
+    #[test]
+    fn schema_v6_menu_presentation_is_bounded_and_backwards_compatible() {
+        let source = include_str!("../../../tests/fixtures/riceplate-desktop-v5.json");
+        let legacy = parse(source, Some("mockup-desktop")).unwrap();
+        assert_eq!(legacy.menu.unwrap().presentation, MenuPresentation::Tabs);
+
+        let mut data: serde_json::Value = serde_json::from_str(source).unwrap();
+        data["schema_version"] = serde_json::json!(6);
+        data["menu"]["presentation"] = serde_json::json!("sidebar");
+        let sidebar = parse(&data.to_string(), Some("mockup-desktop")).unwrap();
+        assert_eq!(sidebar.menu.unwrap().presentation, MenuPresentation::Sidebar);
+        data["menu"]["presentation"] = serde_json::json!("tabs");
+        assert_eq!(parse(&data.to_string(), None).unwrap().menu.unwrap().presentation,
+                   MenuPresentation::Tabs);
+
+        data["menu"]["presentation"] = serde_json::json!("not-a-renderer");
+        assert!(parse(&data.to_string(), None).is_err());
+        data["menu"]["presentation"] = serde_json::Value::Null;
+        assert!(parse(&data.to_string(), None).is_err());
+        data["menu"]["presentation"] = serde_json::json!("sidebar");
+        data["schema_version"] = serde_json::json!(5);
         assert!(parse(&data.to_string(), None).is_err());
     }
 
