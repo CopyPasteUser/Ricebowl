@@ -67,6 +67,10 @@ class RiceBowlReleaseTests(unittest.TestCase):
                 self.assertIn("hub", (root / "bin/ricehub").read_text())
                 self.assertTrue((root / "bin/macrice").exists())
                 self.assertIn("Name=RiceBowl", (root / "data/applications/ricebowl.desktop").read_text())
+                creator = (root / "data/applications/ricebowl-creator.desktop").read_text()
+                self.assertIn("Name=Rice Creator", creator)
+                self.assertIn('Exec="' + str(root / "bin/ricebowl") + '" creator', creator)
+                self.assertIn("  creator)", (root / "bin/ricebowl").read_text())
                 self.assertIn("NoDisplay=true", (root / "data/applications/ricehub.desktop").read_text())
                 (root / "bin/ricebowl").write_text("#!/bin/sh\nexec /tmp/unmanaged\n")
                 with self.assertRaises(InstallationError):

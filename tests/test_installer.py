@@ -70,6 +70,8 @@ class InstallerTests(unittest.TestCase):
                 self.assertIn("Name=RiceBowl (legacy launcher)", hub_entry)
                 self.assertIn("assets/ricebowl-symbolic.svg", hub_entry)
                 self.assertNotIn("sudo", hub_entry)
+                self.assertIn("Rice Creator", (base / "data/applications/ricebowl-creator.desktop").read_text())
+                self.assertIn("creator)", (base / "bin/ricebowl").read_text())
 
     def test_installed_ricehub_entrypoint_loads_bundled_application(self):
         """The installed launcher must work, not just `python -m macrice`."""
@@ -84,6 +86,7 @@ class InstallerTests(unittest.TestCase):
             with mock.patch.dict(os.environ, environment):
                 installed = _install_manager(project_root())
                 _write_entrypoints(installed)
+            self.assertTrue((installed / "examples/wayland/heritage-modern-v10.json").is_file())
 
             result = subprocess.run(
                 [str(base / "bin/ricehub"), "--help"],

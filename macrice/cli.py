@@ -48,6 +48,7 @@ def parser() -> argparse.ArgumentParser:
     commands = p.add_subparsers(dest="command")
     commands.add_parser("gui", help="Open the native GTK settings manager")
     commands.add_parser("hub", help="Open RiceBowl: discover, apply and restore desktop rices")
+    commands.add_parser("creator", help="Open the offline Wayland Rice Creator (experimental)")
     commands.add_parser("preview", help="Preview the complete desktop and apply or restore its Rice")
     aero = commands.add_parser("aero-shell", help="Run or toggle the Windows 7-inspired taskbar and Start menu")
     ten_shell = commands.add_parser("windows10-shell", help="Run or quit the Windows 10-inspired taskbar and Start menu")
@@ -672,6 +673,9 @@ def main(argv: list[str] | None = None) -> int:
             return run()
         if args.command == "hub":
             from .hub import run
+            return run()
+        if args.command == "creator":
+            from .creator_gui import run
             return run()
         if args.command == "preview":
             from .preview import run

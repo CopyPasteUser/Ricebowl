@@ -719,6 +719,17 @@ depend on the XFCE session.
     mutation scopes for all advertised commands. This is a read-only
     capability contract; it does not introduce a resident editor or automate
     active-session changes.
+- [x] Ship the first **on-demand GTK3 Rice Creator 0.1 workspace** on top of
+  the actual schema-v10 recipe parser and API: four real templates, labeled
+  style/structure controls, reordering and bounded addition/removal of existing
+  panel primitives, owner-private immutable draft versions, semantic diffs,
+  previous-version recovery, SHA-256 conflict detection and safe RicePack export.
+  An explicit preview uses the already-supervised isolated native headless
+  renderer and four screen geometries in a background worker. A user-local
+  application entry and CI GTK/Xvfb creation/edit/save/undo screenshot smoke
+  are included. There is no active-session apply button, new daemon or AI
+  inference requirement. Richer tree editing, assets, visual overlays,
+  interactive mockup conversion and physical hardware acceptance remain open.
 - [x] Implement **Wayland RicePack v1 recipe exchange** (`de pack-export`,
   `de pack-inspect`, `de pack-import`): reproducible owner-private `.ricepack`
   archives, canonical schema-v1–v5 recipe, SHA-256 byte/semantic validation,

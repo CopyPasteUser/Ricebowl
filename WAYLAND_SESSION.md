@@ -922,6 +922,44 @@ to active configuration or bypass native safety checks. A Creator must compare
 feature IDs and versions before constructing a UI; unsupported widget actions
 must remain disabled or request a new shared primitive.
 
+#### Rice Creator 0.1 — optional native GTK workspace
+
+Launch `ricebowl creator` (or `macrice creator` from a checkout); the regular
+user-local installer also adds a **Rice Creator (experimental)** application
+entry. This is an on-demand GTK3 desktop application, **not** part of Wayland
+login, RicePlate's resident process or the XFCE rice selector.
+
+The first graphical authoring slice consumes the actual schema-v10 Runtime
+contract: create from the Heritage Modern, Orbit Studio, Classic or Chrome
+template; edit the panel edge/height, two menu presentations, bundled wallpaper,
+responsive cutoff, font/spacing/state colors and reorder, remove or add supported
+panel nodes in the start/center/end lanes. It understands nested groups as
+reorderable nodes rather than silently flattening them. The same strict parser
+and `draft-edit` allowlist validate every **Save version** operation. Invalid
+or duplicate interactive controls cannot be installed by a failed draft edit.
+
+Saved drafts are owner-only files in the XDG state directory under
+`ricebowl/creator/drafts/` (default `~/.local/state/ricebowl/creator/drafts/`).
+Every save creates a **new**, non-overwriting version, shows the semantic
+diff and keeps the earlier version accessible through **Previous version** or
+the saved list. External modification is detected through the reviewed SHA-256;
+the editor refuses a stale save. Opening another draft with pending changes
+requires an explicit discard confirmation. **Export RicePack** creates a new
+validated `.ricepack` without overwriting, importing or applying anything.
+
+**Render preview** first saves pending validated edits, then invokes the exact
+existing isolated native `de render` backend in a worker thread at one of four
+resolutions/scales. The real PNG is displayed in the editor after the renderer
+has terminated its labwc/RicePlate children; no background compositor or
+cache of private screen pixels remains. Missing `labwc`, `grim`, `wlr-randr`,
+`swaybg` or the native `riceplate-native` binary yields an explicit unavailable
+state instead of an illustrated preview. The preview is a static snapshot, not
+an interactive nested session. Hardware/input QA and UI-side reviewed live
+apply/rollback remain later milestones. Existing CLI commands continue to
+offer explicit reviewed apply and restore; the Creator 0.1 GUI **never** calls
+them. No AI runtime, internet account, arbitrary plugin code or additional
+Python dependency is required for authoring.
+
 The **Wayland RicePack v2** is a reproducible, local `.ricepack` ZIP with exactly
 `ricepack.json` (format version, recipe identity, SHA-256 checksums and declared
 provenance) and `recipe.json` (canonical schema-v1–v10 recipe). There is no
