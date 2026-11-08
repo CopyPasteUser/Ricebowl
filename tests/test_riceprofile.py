@@ -135,6 +135,41 @@ class RiceProfileTests(unittest.TestCase):
         for client, content in original.items():
             self.assertEqual((self.root / client.filename).read_bytes(), content)
 
+    def test_partial_restore_compensates_and_preserves_active_receipts(self):
+        session = self.prepare()
+        previous = session.commit(session.preflight(recipes.load("chrome")))
+        active = {client: content for client, (_, content) in session.clients.items()}
+        real = riceprofile._atomic_replace
+        writes = 0
+
+        def fail_second(path, content):
+            nonlocal writes
+            writes += 1
+            if writes == 2:
+                raise OSError("simulated second restore failure")
+            real(path, content)
+
+        with mock.patch.object(riceprofile, "_atomic_replace", side_effect=fail_second):
+            with self.assertRaisesRegex(riceprofile.ProfileError, "current files retained"):
+                session.restore(previous)
+        self.assertEqual({client: (self.root / client.filename).read_bytes()
+                          for client in session.clients}, active)
+        self.assertEqual({client: content for client, (_, content) in session.clients.items()},
+                         active)
+        session.restore(previous)
+        for client, content in previous.items():
+            self.assertEqual((self.root / client.filename).read_bytes(), content)
+
+    def test_restore_preflights_every_client_before_first_write(self):
+        session = self.prepare()
+        previous = session.commit(session.preflight(recipes.load("chrome")))
+        modified = self.root / "ricefield.riceprofile.toml"
+        modified.write_text("changed without supervisor", encoding="utf-8")
+        with mock.patch.object(riceprofile, "_atomic_replace") as swapped:
+            with self.assertRaisesRegex(riceprofile.ProfileError, "changed externally"):
+                session.restore(previous)
+            swapped.assert_not_called()
+
     def test_paths_cannot_escape_owner_private_managed_directory(self):
         self.prepare()
         with self.assertRaisesRegex(riceprofile.ProfileError, "escapes"):

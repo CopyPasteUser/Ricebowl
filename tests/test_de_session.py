@@ -7,6 +7,7 @@ import signal
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
+from contextlib import nullcontext
 from pathlib import Path
 from unittest import mock
 
@@ -269,6 +270,71 @@ class WaylandSessionTests(unittest.TestCase):
             self.assertEqual(session.shell(environment=env, which=tools.get, spawn=spawn), 0)
         self.assertEqual(commands[0], ["/usr/bin/riceplate-native", "--recipe", "classic"])
         self.assertEqual(commands[1][0], "/usr/bin/waybar")
+
+    def test_live_waybar_crash_rescues_once_without_touching_saved_selection(self):
+        from macrice.de import recipes
+
+        commands = []
+        handlers = {}
+        panels = 0
+
+        class FailedWaybar(_FakeProcess):
+            def poll(self):
+                return 9
+
+            def wait(self, timeout=None):
+                return 9
+
+        def spawn(command, **_kwargs):
+            nonlocal panels
+            commands.append(command)
+            if command[0] == "/usr/bin/waybar":
+                panels += 1
+                return FailedWaybar() if panels == 1 else _FakeProcess()
+            return _FakeProcess()
+
+        def stop_after_rescue(listener, handler):
+            handlers[signal.SIGTERM](signal.SIGTERM, None)
+
+        env = {"RICEBOWL_DE_SHELL_CHILD": "1", "RICEBOWL_DE_NESTED": "1",
+               "RICEBOWL_DE_PANEL": "waybar", "RICEBOWL_DE_LIVE": "1",
+               "RICEBOWL_DE_RECIPE": "classic", "WAYLAND_DISPLAY": "wayland-0",
+               "XDG_RUNTIME_DIR": self.runtime.name,
+               "RICEBOWL_DE_SESSION_CONFIG": self.runtime.name}
+        with mock.patch("macrice.de.session.signal.signal", side_effect=handlers.__setitem__), \
+             mock.patch("macrice.de.live.listen", return_value=nullcontext(object())), \
+             mock.patch("macrice.de.live.serve_once", side_effect=stop_after_rescue), \
+             mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": self.runtime.name}), \
+             mock.patch("macrice.de.session.time.sleep"):
+            self.assertEqual(session.shell(environment=env, which=self.which, spawn=spawn), 0)
+            self.assertEqual(recipes.current_selection()[0], "classic")
+        self.assertEqual(panels, 2)
+
+    def test_failed_waybar_rescue_does_not_restart_forever(self):
+        commands = []
+
+        class FailedWaybar(_FakeProcess):
+            def poll(self):
+                return 9
+
+            def wait(self, timeout=None):
+                return 9
+
+        def spawn(command, **_kwargs):
+            commands.append(command)
+            return FailedWaybar()
+
+        env = {"RICEBOWL_DE_SHELL_CHILD": "1", "RICEBOWL_DE_NESTED": "1",
+               "RICEBOWL_DE_PANEL": "waybar", "RICEBOWL_DE_LIVE": "1",
+               "RICEBOWL_DE_RECIPE": "classic", "WAYLAND_DISPLAY": "wayland-0",
+               "XDG_RUNTIME_DIR": self.runtime.name,
+               "RICEBOWL_DE_SESSION_CONFIG": self.runtime.name}
+        with mock.patch("macrice.de.live.listen", return_value=nullcontext(object())), \
+             mock.patch("macrice.de.session.signal.signal"), \
+             mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": self.runtime.name}), \
+             mock.patch("macrice.de.session.time.sleep"):
+            self.assertEqual(session.shell(environment=env, which=self.which, spawn=spawn), 9)
+        self.assertEqual(len([cmd for cmd in commands if cmd[0] == "/usr/bin/waybar"]), 2)
 
     def test_native_launch_failure_restores_waybar(self):
         commands = []

@@ -814,6 +814,61 @@ def current_selection() -> tuple[str, str | None]:
     return (state["active"], state["previous"]) if state else ("classic", None)
 
 
+def _selection_snapshot() -> dict[str, Any] | None:
+    """Keep the exact validated login state for a compensating live rollback."""
+    return _read_selection(_private_recipe_dir(create=False))
+
+
+def _restore_failed_live_selection(token: str, digest: str,
+                                   before: dict[str, Any] | None) -> bool:
+    """Undo only our completed selection write after a later durability error.
+
+    A concurrent Creator stage must win: never overwrite any state other than
+    the precise v2 selection that this live switch would have committed.
+    Caller already validated ``before`` through ``_selection_snapshot``.
+    """
+    directory = _private_recipe_dir(create=True)
+    lock = directory / ".active-recipe.lock"
+    descriptor = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    with os.fdopen(descriptor, "wb") as locked:
+        meta = os.fstat(locked.fileno())
+        if not stat.S_ISREG(meta.st_mode) or meta.st_uid != os.geteuid() or meta.st_mode & 0o077:
+            raise RecipeError("Selected recipe lock is not owner-private")
+        fcntl.flock(locked.fileno(), fcntl.LOCK_EX)
+        current = _read_selection(directory)
+        if current == before:
+            return False  # Selection write failed before the atomic replacement.
+        original = before["active"] if before else "classic"
+        expected = {"schema_version": 2, "active": token, "previous": original,
+                    "active_sha256": digest,
+                    "previous_sha256": before.get("active_sha256") if before else None}
+        if current != expected:
+            raise SelectionConflict("Next-login selection changed during live recovery")
+
+        path = directory / ".active-recipe"
+        if before is None:
+            path.unlink()
+        else:
+            payload = (json.dumps(before, separators=(",", ":")) + "\n").encode("utf-8")
+            descriptor, temporary = tempfile.mkstemp(prefix=".ricebowl-recover-", dir=directory)
+            try:
+                with os.fdopen(descriptor, "wb") as output:
+                    os.fchmod(output.fileno(), 0o600)
+                    output.write(payload)
+                    output.flush()
+                    os.fsync(output.fileno())
+                os.replace(temporary, path)
+            finally:
+                if os.path.exists(temporary):
+                    os.unlink(temporary)
+        dirfd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        try:
+            os.fsync(dirfd)
+        finally:
+            os.close(dirfd)
+        return True
+
+
 def selected_recipe() -> str | None:
     """Return None for the unchanged default session, or a saved recipe ID."""
     directory = _private_recipe_dir(create=False)

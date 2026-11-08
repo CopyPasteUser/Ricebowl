@@ -764,6 +764,16 @@ depend on the XFCE session.
   RiceProfile v1 cross-application coordination now covers compatible clients
   with guarded private-file swaps and rollback. Physical multi-app QA, suspend
   recovery and power-failure tests remain open; the full 1.0 gate is not met.
+- [x] Harden **software failure recovery for live shell transactions**:
+  preserve exact prior selection/undo state if a durable selection commit fails
+  after rename, compare the expected v2 write under the original lock before
+  compensating, and never clobber another Creator stage. Preflight/compensate
+  all managed RiceProfile restores instead of leaving partial appearance files;
+  attempt independent menu/selection recovery despite one client failure.
+  Cancel a pending apply on session shutdown and bound crash recovery to one
+  previous-rice restore and one fingerprint-verified Waybar rescue. Tests inject
+  I/O, concurrent selection and panel crashes; no claim of power-cut atomicity,
+  compositor-frame synchronization or physical suspend/relogin acceptance.
 - [x] Publish two **honest schema-v5 Creator demonstrators** under
   `examples/wayland/`: a classic-OS-inspired workstation and a structurally
   distinct original Orbit concept. They use only shared native primitives,
