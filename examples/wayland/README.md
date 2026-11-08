@@ -10,6 +10,38 @@ wallpapers; neither adds a shell daemon or executable extension.
 | `heritage-workstation` | Classic desktop / OS-inspired | Bottom panel, square tasks, left desktop shortcuts | Bundled `classic-teal` | Applications, terminal, lock; logout in root menu |
 | `orbit-atelier` | Original evening-workspace concept | Tall top panel, separate central task area, right-area shortcuts | Bundled `aurora-night` | Same known Linux action IDs, different composition |
 
+## Modern schema-v10 Creator acceptance pair
+
+These two **additional** data-only examples exercise the currently implemented
+shared status/action component library and real v10 design-token renderer.
+They intentionally have different structural layouts, menu navigation,
+typography, state colors and spacing. They are not pixel-accurate clones of a reference
+OS or proof of physical-device input acceptance.
+
+| Rice | Distinguishing composition | Real bindings | Design tokens |
+| --- | --- | --- | --- |
+| `heritage-modern-v10` | Compact square-bottom taskbar, tabbed menu, left grid shortcuts, classic-style desktop text/status | Network on desktop, live panel audio status, guarded Wi-Fi button | Regular compact text, 2px spacing, restrained focus/hover colors |
+| `orbit-studio-v10` | Tall upper panel, nested launcher/action group, sidebar menu, right-side shortcuts and separate desktop status | Live native network/audio, guarded Wi-Fi button | Bold 2× text, 12px spacing and contrasting hover/focus/disabled colors |
+
+Both are validated, exported as non-executable RicePacks and included in the
+native CI headless gallery at 1024×768, 1366×768, 1920×1080 and scale 1.25.
+Waybar renders honest disabled feedback for its unsupported interactive
+controls; it never claims to implement native desktop widgets.
+
+```sh
+ricebowl de recipe-import --recipe "$PWD/examples/wayland/heritage-modern-v10.json"
+ricebowl de recipe-import --recipe "$PWD/examples/wayland/orbit-studio-v10.json"
+ricebowl de review --recipe heritage-modern-v10 --json
+ricebowl de review --recipe orbit-studio-v10 --json
+ricebowl de render --recipe orbit-studio-v10 --output "$PWD/orbit-modern-preview.png" --json
+```
+
+The import does **not** activate either rice. For active changes, first review
+the semantic SHA and explicitly use the existing `creator-stage` or supervised
+`creator-live-apply` workflow; retain `creator-rollback`/`creator-live-restore`.
+The headless screenshots verify renderer output, not clicking Wi-Fi on a
+physical device, external windows or an actual suspend/resume cycle.
+
 `quick-controls.json` is a separate schema-v4 **native RiceSpice prototype**.
 Import it using `ricebowl de recipe-import --recipe "$PWD/examples/wayland/quick-controls.json"`,
 then explicitly preview it with `ricebowl de start --nested --panel native --recipe quick-controls`.

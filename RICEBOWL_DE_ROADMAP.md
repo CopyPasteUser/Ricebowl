@@ -778,6 +778,15 @@ depend on the XFCE session.
   receipts and screenshot hashes, and archives reproducible visual diagnostics.
   This proves the limited current contract supports two styles, **not**
   high-fidelity OS cloning or the complete 1.0 authoring acceptance below.
+- [x] Add a **second acceptance pair using schema v10**,
+  `heritage-modern-v10` and `orbit-studio-v10`, with distinct component
+  hierarchies, responsive panel variants, native status/action bindings,
+  tabbed/sidebar menus and contrasting typography, state colors and spacing.
+  Validate both as
+  Python/Rust recipes and safe RicePacks; extend the same actual headless
+  capture matrix to both (four resolutions/scales each). This is reproducible
+  framework evidence, **not** functional physical keyboard/network or
+  pixel-fidelity signoff.
 - [x] Publish a **versioned, machine-readable Creator contract** (CLI JSON
   output first; optional local IPC only if justified) for discovering
   components, creating/editing drafts, validating recipes, previewing the

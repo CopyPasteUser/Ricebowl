@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render both public Creator demos through real isolated labwc/RicePlate.
+"""Render four public Creator demos through real isolated labwc/RicePlate.
 
 Run from a normal Linux user, after building riceplate-native and installing
 labwc, wlr-randr, swaybg, grim and dbus-run-session. Never touches a login shell.
@@ -26,7 +26,9 @@ ROOT = Path(__file__).resolve().parents[1]
 EXAMPLES = ROOT / "examples/wayland"
 SIZES = ((1024, 768, 1.0), (1366, 768, 1.0), (1920, 1080, 1.0),
          (1366, 768, 1.25))
-NAMES = ("heritage-workstation", "orbit-atelier")
+SCHEMAS = {"heritage-workstation": 5, "orbit-atelier": 5,
+           "heritage-modern-v10": 10, "orbit-studio-v10": 10}
+NAMES = tuple(SCHEMAS)
 
 
 def build_gallery(destination: Path) -> dict[str, object]:
@@ -53,7 +55,7 @@ def build_gallery(destination: Path) -> dict[str, object]:
             source = EXAMPLES / f"{name}.json"
             payload = source.read_bytes()
             parsed = recipes.parse(payload)
-            if parsed.recipe_id != name or parsed.schema_version != 5:
+            if parsed.recipe_id != name or parsed.schema_version != SCHEMAS[name]:
                 raise ValueError("Example recipe ID or schema differs from contract")
             private_source = temporary / f"{name}.json"
             private_source.write_bytes(payload)
