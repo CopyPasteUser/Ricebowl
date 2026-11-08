@@ -37,11 +37,20 @@ pub struct DesktopIcon {
     pub y: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DesktopWidgetKind {
     Clock,
     Date,
     System,
+    Text(String),
+    Status(DesktopStatusSource),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DesktopStatusSource {
+    Network,
+    Audio,
+    Battery,
 }
 
 #[derive(Debug, Clone)]
@@ -213,6 +222,10 @@ struct DesktopWidgetInput {
     kind: String,
     x: u32,
     y: u32,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    text: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    source: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -363,7 +376,7 @@ fn safe_label(text: &str, max_length: usize) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b" ._:+-".contains(&b))
 }
 
-fn validate_composition(input: Composition) -> Result<DesktopComposition, Box<dyn Error>> {
+fn validate_composition(input: Composition, version: u32) -> Result<DesktopComposition, Box<dyn Error>> {
     if input.widgets.len() > MAX_DESKTOP_WIDGETS {
         return Err("Desktop composition exceeds four widgets".into());
     }
@@ -380,10 +393,21 @@ fn validate_composition(input: Composition) -> Result<DesktopComposition, Box<dy
         let valid_id = (2..=24).contains(&item.id.len())
             && item.id.as_bytes()[0].is_ascii_lowercase()
             && item.id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
-        let kind = match item.kind.as_str() {
-            "clock" => DesktopWidgetKind::Clock,
-            "date" => DesktopWidgetKind::Date,
-            "system" => DesktopWidgetKind::System,
+        let kind = match (item.kind.as_str(), item.text, item.source) {
+            ("clock", None, None) => DesktopWidgetKind::Clock,
+            ("date", None, None) => DesktopWidgetKind::Date,
+            ("system", None, None) => DesktopWidgetKind::System,
+            ("text", Some(text), None) if version >= 9 && safe_label(&text, 22) =>
+                DesktopWidgetKind::Text(text),
+            ("status", None, Some(source)) if version >= 9 => {
+                let source = match source.as_str() {
+                    "network" => DesktopStatusSource::Network,
+                    "audio" => DesktopStatusSource::Audio,
+                    "battery" => DesktopStatusSource::Battery,
+                    _ => return Err("Unsupported desktop status binding".into()),
+                };
+                DesktopWidgetKind::Status(source)
+            }
             _ => return Err("Unsupported desktop widget type".into()),
         };
         if !valid_id || !ids.insert(item.id.clone()) || item.x > 16_384 || item.y > 16_384 {
@@ -582,7 +606,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
     }
     let recipe: Recipe = serde_json::from_str(raw)?;
     let id = recipe.id.as_bytes();
-    if ![1, 2, 3, 4, 5, 6, 7, 8].contains(&recipe.schema_version)
+    if ![1, 2, 3, 4, 5, 6, 7, 8, 9].contains(&recipe.schema_version)
         || id.len() < 2
         || id.len() > 32
         || !id[0].is_ascii_lowercase()
@@ -600,7 +624,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
     }
     let widths = match (recipe.schema_version, recipe.panel.metrics) {
         (1, None) => [LAUNCHER_WIDTH, TASK_WIDTH, CLOCK_WIDTH],
-        (2 | 3 | 4 | 5 | 6 | 7 | 8, Some(metrics))
+        (2 | 3 | 4 | 5 | 6 | 7 | 8 | 9, Some(metrics))
             if (64..=256).contains(&metrics.launcher_width)
                 && (96..=256).contains(&metrics.task_width)
                 && (64..=256).contains(&metrics.clock_width) =>
@@ -677,9 +701,9 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
     let mut desktop_icons = Vec::new();
     let mut native_menu = None;
     let composition = match (recipe.schema_version, recipe.composition) {
-        (8, Some(input)) => Some(validate_composition(input)?),
+        (8 | 9, Some(input)) => Some(validate_composition(input, recipe.schema_version)?),
         (1..=7, None) => None,
-        _ => return Err("Desktop composition requires schema v8".into()),
+        _ => return Err("Desktop composition requires schema v8 or v9".into()),
     };
     match (
         recipe.schema_version,
@@ -688,7 +712,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
         recipe.tokens,
         recipe.responsive,
     ) {
-        (version @ (4 | 5 | 6 | 7 | 8), Some(menu), Some(desktop), Some(tokens), Some(responsive)) => {
+        (version @ (4 | 5 | 6 | 7 | 8 | 9), Some(menu), Some(desktop), Some(tokens), Some(responsive)) => {
             validate_menu(&menu, version)?;
             native_menu = Some(NativeMenu {
                 title: menu.title,
@@ -1025,6 +1049,40 @@ mod tests {
     const ACTIONS_V6: &str = include_str!("../../../tests/fixtures/riceplate-actions-v6.json");
     const CONTROLS_V7: &str = include_str!("../../../tests/fixtures/riceplate-controls-v7.json");
     const LAYOUT_V8: &str = include_str!("../../../tests/fixtures/riceplate-layout-v8.json");
+    const COMPONENTS_V9: &str = include_str!("../../../tests/fixtures/riceplate-components-v9.json");
+
+    #[test]
+    fn v9_reuses_bounded_text_and_live_linux_status_without_commands() {
+        let style = parse(COMPONENTS_V9, Some("component-workstation")).unwrap();
+        let widgets = &style.composition.unwrap().widgets;
+        assert_eq!(widgets.len(), 3);
+        assert_eq!(widgets[0].kind, DesktopWidgetKind::Text("Welcome to RiceBowl".into()));
+        assert_eq!(widgets[1].kind, DesktopWidgetKind::Status(DesktopStatusSource::Network));
+        assert_eq!(widgets[2].kind, DesktopWidgetKind::Status(DesktopStatusSource::Battery));
+    }
+
+    #[test]
+    fn v9_rejects_unknown_bindings_extra_keys_and_v8_downgrade() {
+        let original: serde_json::Value = serde_json::from_str(COMPONENTS_V9).unwrap();
+        for (pointer, replacement) in [
+            ("/composition/widgets/0/text", serde_json::json!("a".repeat(23))),
+            ("/composition/widgets/0/text", serde_json::json!("$(shell)")),
+            ("/composition/widgets/1/source", serde_json::json!("run-script")),
+            ("/composition/widgets/1/source", serde_json::json!(null)),
+            ("/composition/widgets/1/source", serde_json::json!(true)),
+            ("/schema_version", serde_json::json!(8)),
+        ] {
+            let mut input = original.clone();
+            *input.pointer_mut(pointer).unwrap() = replacement;
+            assert!(parse(&input.to_string(), None).is_err(), "accepted {pointer}");
+        }
+        let mut unknown = original.clone();
+        unknown["composition"]["widgets"][0]["exec"] = serde_json::json!("sh");
+        assert!(parse(&unknown.to_string(), None).is_err());
+        let mut missing = original;
+        missing["composition"]["widgets"][0].as_object_mut().unwrap().remove("text");
+        assert!(parse(&missing.to_string(), None).is_err());
+    }
 
     #[test]
     fn v8_multi_region_composition_has_live_clock_status_and_safe_window_region() {

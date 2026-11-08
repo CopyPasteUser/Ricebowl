@@ -74,7 +74,7 @@ def _allowed_value(path: str, value: Any, schema_version: int) -> bool:
                     and all(type(item) is str for item in value)
                     and len(set(value)) == len(value))
         try:
-            recipes._parse_composition(baseline)
+            recipes._parse_composition(baseline, schema_version=schema_version)
         except recipes.RecipeError:
             return False
         return True

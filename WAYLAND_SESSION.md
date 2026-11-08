@@ -532,7 +532,7 @@ Start a new private template with `ricebowl de recipe-init --schema-version 7`
 plus the ordinary `--base`, `--id`, `--name` and `--output` options; add these
 nodes using `de draft-edit`, review them with `de review` and preview the
 result with `de start --nested --panel native --recipe /absolute/path/to/rice.json`.
-The Creator catalog v9 advertises the exact contract. Existing schemas v1–v6
+The Creator catalog v10 advertises the exact contract. Existing schemas v1–v6
 are still accepted, but reject `control` nodes.
 
 The native RicePlate panel and its menu share **one bounded asynchronous
@@ -599,6 +599,30 @@ a compact breakpoint. The isolated `de render` command requires labwc, grim,
 swaybg and `riceplate-native`; it does not mutate the active desktop.
 Actual multi-monitor placement, fractional scaling, device input and Orca
 require real-hardware acceptance before a stable release.
+
+### Schema-v9 reusable desktop components (native RicePlate)
+
+Schema v9 retains the v8 layout and adds two reusable, **read-only** desktop
+components. `text` requires an ASCII `text` value of 1–22 safe characters;
+`status` requires a fixed `source` of `network`, `audio`, or `battery`. These
+bindings use the same supervised Linux state already shown by the native panel,
+including unavailable states; neither accepts commands or remote data sources.
+
+```json
+{"widgets": [
+  {"id": "desk-title", "kind": "text", "text": "Welcome to RiceBowl", "x": 32, "y": 320},
+  {"id": "desk-audio", "kind": "status", "source": "audio", "x": 32, "y": 432}
+]}
+```
+
+This is the `composition.widgets` fragment, not a standalone recipe. The full
+[v9 example](tests/fixtures/riceplate-components-v9.json) is importable and
+editable via the existing Creator draft contract. v8 rejects v9-only fields;
+v1–v8 recipes preserve their old meaning. All read-only widget surfaces now
+have empty pointer-input regions, so application windows underneath keep their
+input. The native headless CI also captures the v9 example. Waybar desktop
+widgets, interactive cards, arbitrary layout constraints and real-device input
+acceptance are not implemented.
 
 The default **Waybar-backed** Wayland session is separately checked in CI
 with two genuine labwc headless outputs. The smoke captures the bar on each,

@@ -100,7 +100,7 @@ def describe_ricepack() -> dict[str, object]:
         "extension": ".ricepack",
         "entries": ["ricepack.json", "recipe.json", "assets/wallpaper.png (v3 only)"],
         "maximum_archive_bytes": 3 * 1024 * 1024,
-        "recipe_schema_versions": [1, 2, 3, 4, 5, 6, 7, 8],
+        "recipe_schema_versions": [1, 2, 3, 4, 5, 6, 7, 8, 9],
         "asset_support": "bundled wallpaper receipts or one embedded SHA256-addressed PNG (v3)",
         "asset_manifest": {"since_version": 2, "version": 1,
                            "fields": ["id", "sha256", "provenance"],
@@ -198,7 +198,7 @@ def describe_creator_api() -> dict[str, object]:
         "next_login_selection_mutation": "creator-stage/rollback only; requires explicit invocation",
         "commands": [
             {"command": "catalog", "effect": "read-only component discovery",
-             "cli": "de catalog --json", "contract_version": 9},
+             "cli": "de catalog --json", "contract_version": 10},
             {"command": "review", "effect": "validate recipe and compare semantic diffs",
              "cli": "de review --recipe ID [--compare ID] --json", "contract_version": 1},
             {"command": "draft-edit", "effect": "create private reviewed JSON draft",

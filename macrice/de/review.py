@@ -64,7 +64,10 @@ def _manifest(recipe: recipes.PanelRecipe) -> dict[str, Any]:
         composition = recipe.composition
         result["composition"] = {
             "widgets": [{"id": widget.widget_id, "kind": widget.kind,
-                         "x": widget.x, "y": widget.y} for widget in composition.widgets],
+                         "x": widget.x, "y": widget.y,
+                         **({"text": widget.text} if widget.kind == "text" else {}),
+                         **({"source": widget.source} if widget.kind == "status" else {})}
+                        for widget in composition.widgets],
             "window_region": {"x": composition.window_region.x,
                               "y": composition.window_region.y,
                               "width": composition.window_region.width,

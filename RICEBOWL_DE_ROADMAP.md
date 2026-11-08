@@ -574,6 +574,12 @@ depend on the XFCE session.
   The reserved workspace is **not** labwc window placement or tiling; Waybar
   does not render the native widgets, and rich widget composition, authoring UI
   and real-device acceptance remain separate release gates.
+- [x] Add **schema-v9 reusable read-only desktop primitives**: bounded static
+  text and live network/audio/battery state bindings share existing RicePlate
+  providers without scripts, timers or extra services. Preserve v8 validation,
+  add semantic Creator draft/review support, pointer-transparent widgets and
+  native headless screenshot tests. **Still open:** interactive desktop controls,
+  richer responsive composition, visual token coverage and physical AT/input QA.
 - [x] Add **first native shortcut editing interactions**: distinguish click
   from pointer drag, expose an on-demand keyboard focus frame and 16-pixel
   arrow-key moves, and persist positions separately for each selected rice in
