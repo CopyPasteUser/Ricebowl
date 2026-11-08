@@ -713,6 +713,12 @@ depend on the XFCE session.
   --json`) with stable implemented command names, true side-effect boundaries,
   version/flag/exit-code discovery and an explicit limitations list. No
   resident Creator service or invented live apply endpoint.
+  - [x] Upgrade discovery to **Creator API v2**, including enumerated
+    schema-v10 feature negotiation, supported/unsupported capabilities,
+    an ordered offline-authoring workflow and explicit machine-readable
+    mutation scopes for all advertised commands. This is a read-only
+    capability contract; it does not introduce a resident editor or automate
+    active-session changes.
 - [x] Implement **Wayland RicePack v1 recipe exchange** (`de pack-export`,
   `de pack-inspect`, `de pack-import`): reproducible owner-private `.ricepack`
   archives, canonical schema-v1–v5 recipe, SHA-256 byte/semantic validation,
@@ -772,15 +778,17 @@ depend on the XFCE session.
   receipts and screenshot hashes, and archives reproducible visual diagnostics.
   This proves the limited current contract supports two styles, **not**
   high-fidelity OS cloning or the complete 1.0 authoring acceptance below.
-- [ ] Publish a **versioned, machine-readable Creator contract** (CLI JSON
+- [x] Publish a **versioned, machine-readable Creator contract** (CLI JSON
   output first; optional local IPC only if justified) for discovering
   components, creating/editing drafts, validating recipes, previewing the
   real shell, capturing screenshots, comparing to references, exporting packs,
-  and explicitly requested apply/restore. Document exit codes, diagnostics,
-  feature negotiation and stable failure responses; exact command names are
-  to be finalized during implementation, not assumed to exist today. The v1
-  inventory and recipe-only archive now exist; active transaction/apply/restore,
-  broader component schemas and full feature negotiation are still missing.
+  and explicitly requested apply/restore. API v2 now publishes stable feature
+  negotiation, supported/unsupported capabilities, mutation scopes and the
+  existing on-demand CLI JSON commands. Per-operation structured errors and
+  explicit activation/restore contracts exist; there is **no** GUI Creator,
+  general plugin runtime or arbitrary screenshot-to-rice conversion. Full
+  per-property formal JSON Schema and physical interaction signoff are still
+  separate follow-up work.
 - [ ] Make agent-driven changes reviewable and reproducible: immutable source
   references, local/private draft workspace, deterministic validation,
   per-asset license/provenance metadata, clear diff/preview before apply,

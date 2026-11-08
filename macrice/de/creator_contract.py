@@ -185,12 +185,57 @@ def describe_live() -> dict[str, object]:
 
 
 def describe_creator_api() -> dict[str, object]:
-    """Stable, tool-neutral inventory, including explicit side-effect limits."""
-    return {
-        "api_version": 1,
+    """Versioned, offline contract for a future human or AI Rice Creator UI.
+
+    Side-effect classifications are generated from one bounded allowlist; an
+    agent may discover functionality but can never acquire new executable
+    privileges from recipe contents or this read-only description.
+    """
+    contract = {
+        "api_version": 2,
         "scope": "experimental-wayland-shell-authoring",
         "transport": "CLI JSON; session-local socket only for explicit live Rice changes",
         "discovery": "ricebowl de creator-api --json",
+        "feature_negotiation": {
+            "mode": "read-only-discovery-before-use",
+            "recipe_schema_versions": list(range(1, 11)),
+            "recommended_authoring_schema": 10,
+            "catalog_version": 11,
+            "features": [
+                {"id": "shared-status-action-bindings", "supported": True,
+                 "since_schema": 9, "runtime": "native; Waybar actions disabled when unverifiable"},
+                {"id": "desktop-static-text", "supported": True,
+                 "since_schema": 9, "runtime": "native-only-read-only"},
+                {"id": "cross-surface-design-tokens", "supported": True,
+                 "since_schema": 10, "runtime": "native; Waybar appearance and per-output layout"},
+                {"id": "private-drafts-and-packaging", "supported": True,
+                 "runtime": "offline-CLI"},
+                {"id": "isolated-native-multisize-preview", "supported": True,
+                 "runtime": "requires-external-labwc-and-capture-binaries"},
+                {"id": "review-gated-live-rice-switch", "supported": True,
+                 "runtime": "supervised-opt-in-wayland-only"},
+                {"id": "interactive-desktop-widgets", "supported": False,
+                 "reason": "Only panel action bindings and read-only desktop widgets exist"},
+                {"id": "arbitrary-screenshot-one-click-conversion", "supported": False,
+                 "reason": "Mapping references to supported primitives remains an authoring step"},
+                {"id": "window-decoration-control-across-all-apps", "supported": False,
+                 "reason": "labwc and third-party client-side decorations are independent"},
+            ],
+        },
+        "authoring_workflow": [
+            {"step": "discover", "commands": ["creator-api", "catalog"], "effect": "none"},
+            {"step": "draft-and-review", "commands": ["draft-edit", "review"],
+             "effect": "owner-private-file-only"},
+            {"step": "visual-qa", "commands": ["render", "visual-compare"],
+             "effect": "isolated-native-preview"},
+            {"step": "package", "commands": ["pack-export", "pack-inspect", "pack-import"],
+             "effect": "owner-private-file-only"},
+            {"step": "explicit-activate-or-recover", "commands": [
+                "creator-stage", "creator-rollback", "creator-live-apply", "creator-live-restore"],
+             "effect": "requires-reviewed-hash-and-explicit-user-invocation"},
+        ],
+        "mutation_scope_values": ["none", "private-file", "private-file-optional",
+                                  "next-login", "active-wayland-session", "active-user-session"],
         "success_exit_code": 0,
         "invalid_options_exit_code": 1,
         "operation_error_exit_code": 2,
@@ -263,6 +308,23 @@ def describe_creator_api() -> dict[str, object]:
             "Native tray, complete settings, notification center and physical multi-monitor acceptance remain open",
         ],
     }
+    private_writes = {"draft-edit", "render", "visual-baseline", "capture",
+                      "pack-export", "pack-import", "asset-import"}
+    next_login = {"creator-stage", "creator-rollback"}
+    active_wayland = {"creator-live-apply", "creator-live-restore"}
+    active_user = {"notification-dismiss", "notification-invoke", "audio-default"}
+    for command in contract["commands"]:
+        name = command["command"]
+        command["mutation_scope"] = (
+            "active-wayland-session" if name in active_wayland else
+            "active-user-session" if name in active_user else
+            "next-login" if name in next_login else
+            "private-file-optional" if name == "visual-compare" else
+            "private-file" if name in private_writes else "none")
+        command["requires_explicit_user_invocation"] = (
+            name in active_wayland | active_user | next_login | {"capture"})
+        command["executes_recipe_commands"] = False
+    return contract
 
 
 EDITABLE_PATHS = frozenset((

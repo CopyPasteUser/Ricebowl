@@ -351,7 +351,7 @@ class PortableRicePackTests(unittest.TestCase):
 
     def test_versioned_api_and_cli_cover_safe_authoring_cycle(self):
         spec = creator_contract.describe_creator_api()
-        self.assertEqual(spec["api_version"], 1)
+        self.assertEqual(spec["api_version"], 2)
         self.assertEqual(catalog.describe()["authoring"]["ricepack"],
                          creator_contract.describe_ricepack())
         self.assertTrue(spec["ricepack"]["provenance"]["roundtrip_preserves_attribution"])

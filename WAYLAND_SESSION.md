@@ -910,9 +910,21 @@ ricebowl de creator-api --json
 ricebowl de catalog --json
 ```
 
+Creator API **v2** returns a machine-readable `feature_negotiation` block:
+supported recipe schemas (currently v1–v10), the recommended authoring schema,
+matching catalog version, and truthful supported/unsupported feature IDs.
+The `authoring_workflow` lists existing read-only discovery, private draft,
+native preview, package and explicitly reviewed activation operations. Every
+command advertises its `mutation_scope` (`none`, private file, next-login,
+current Wayland session or current user session) and whether an explicit user
+invocation is required. The discoverable contract **does not grant access**
+to active configuration or bypass native safety checks. A Creator must compare
+feature IDs and versions before constructing a UI; unsupported widget actions
+must remain disabled or request a new shared primitive.
+
 The **Wayland RicePack v2** is a reproducible, local `.ricepack` ZIP with exactly
 `ricepack.json` (format version, recipe identity, SHA-256 checksums and declared
-provenance) and `recipe.json` (canonical schema-v1–v5 recipe). There is no
+provenance) and `recipe.json` (canonical schema-v1–v10 recipe). There is no
 unpacking arbitrary archive paths or executing commands. Existing *bundled*
 wallpapers are referenced by known IDs only. V2 records their exact SHA-256.
 **V3** additionally carries one locally imported PNG wallpaper as the exact
