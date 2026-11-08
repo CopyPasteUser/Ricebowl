@@ -137,13 +137,18 @@ fn main() -> Result<(), Box<dyn Error>> {
         .filter_map(|action| ControlAction::from_id(action)).collect();
     let has_notifications = recipe.menu.as_ref().is_some_and(|menu|
         menu.groups.iter().any(|group| group.actions.iter().any(|action| action == "notifications")));
+    let panel_controls: Vec<_> = recipe.actions.iter()
+        .filter(|action| action.control)
+        .filter_map(|action| ControlAction::from_id(&action.id)).collect();
     let poll_network = status_present(Widget::Network)
-        || menu_controls.contains(&ControlAction::WifiToggle);
+        || menu_controls.contains(&ControlAction::WifiToggle)
+        || panel_controls.contains(&ControlAction::WifiToggle);
     // A native full desktop has volume OSD even when a rice omits the audio
     // indicator. Nested design previews retain the old opt-in behavior.
     let full_session = std::env::var("RICEBOWL_DE_NESTED").as_deref() != Ok("1");
-    let poll_audio = full_session || status_present(Widget::Audio) || menu_controls.iter().any(|action|
-        matches!(action, ControlAction::AudioMute | ControlAction::AudioUp | ControlAction::AudioDown));
+    let poll_audio = full_session || status_present(Widget::Audio)
+        || menu_controls.iter().chain(panel_controls.iter()).any(|action|
+            matches!(action, ControlAction::AudioMute | ControlAction::AudioUp | ControlAction::AudioDown));
     let use_tray = status_present(Widget::Tray);
     if preview_calendar && !clock_present {
         return Err("Calendar preview requires a native clock widget".into());
@@ -346,6 +351,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         clock: clock_now(),
         power: PowerStatus::current(),
         system_status: SystemStatus::default(),
+        control_pending: None,
+        control_result: None,
         tray_host,
         tray_state: tray::State::default(),
         tray_popup_layer,
@@ -435,6 +442,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                         updated
                     }
                     StatusEvent::Control { action, success, state } => {
+                        app.control_pending = None;
+                        app.control_result = Some((action, success));
                         app.menu_state.notice = Some(if success {
                             "Action applied"
                         } else { "Unavailable or denied" });
@@ -442,6 +451,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         if app.osd_state.show(action, success, &state, Instant::now()) {
                             app.redraw_osd();
                         }
+                        app.request_redraw(&redraw_qh);
                         state
                     }
                 };
@@ -470,8 +480,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             loop {
                 match controls.recv_timeout(Duration::from_secs(30)) {
                     Ok(action) => {
-                        let success = action.apply();
+                        let before = SystemStatus::read(poll_network, poll_audio);
+                        let applied = action.available(&before) && action.apply();
                         let state = SystemStatus::read(poll_network, poll_audio);
+                        let success = action.verified(&before, &state, applied);
                         if sender.send(StatusEvent::Control { action, success, state }).is_err() { break; }
                     }
                     Err(mpsc::RecvTimeoutError::Timeout) => {
@@ -671,6 +683,8 @@ struct RicePlate {
     clock: String,
     power: PowerStatus,
     system_status: SystemStatus,
+    control_pending: Option<ControlAction>,
+    control_result: Option<(ControlAction, bool)>,
     tray_host: Option<status_notifier::Host>,
     tray_state: tray::State,
     tray_popup_layer: Option<TrayPopupLayer>,
@@ -726,8 +740,19 @@ impl RicePlate {
                         "Open applications", Some(Target::Launcher(panel_index))),
                     Widget::Action(index) => {
                         if let Some(action) = self.recipe.actions.get(index as usize) {
+                            let control = action.control.then(|| ControlAction::from_id(&action.id)).flatten();
+                            let available = control.is_none_or(|item|
+                                item.available(&self.system_status) && self.control_pending.is_none());
+                            let name = if let Some(item) = control {
+                                format!("{}, {}, {}", action.label, item.state_label(&self.system_status),
+                                    if self.control_pending == Some(item) { "applying" }
+                                    else if self.control_pending.is_some() { "busy" }
+                                    else if self.control_result == Some((item, false)) { "failed" }
+                                    else if !item.available(&self.system_status) { "unavailable" }
+                                    else { "ready" })
+                            } else { action.label.clone() };
                             model.add(base + 30 + index as u64, base, AccessibleRole::Button,
-                                action.label.clone(), Some(Target::PanelAction(action.id.clone())));
+                                name, available.then(|| Target::PanelAction(action.id.clone())));
                         }
                     }
                     Widget::Clock => model.add(base + 2, base, AccessibleRole::Button,
@@ -1417,7 +1442,7 @@ impl RicePlate {
         };
         paint_panel(canvas, mirror.width, mirror.height, &self.recipe, &groups,
                     &self.clock, &self.power, &self.system_status, &self.tray_state,
-                    mirror.task_offset, selected);
+                    mirror.task_offset, selected, self.control_pending, self.control_result);
         surface.damage_buffer(0, 0, mirror.width as i32, mirror.height as i32);
         if let Err(error) = buffer.attach_to(surface) {
             eprintln!("RicePlate: cannot attach output panel: {error}");
@@ -1504,10 +1529,22 @@ impl RicePlate {
             return;
         }
         if let Some(control) = ControlAction::from_id(action) {
-            let sent = self.control_sender.as_ref()
+            let supported = control.available(&self.system_status);
+            let idle = self.control_pending.is_none();
+            let sent = supported && idle && self.control_sender.as_ref()
                 .is_some_and(|sender| sender.try_send(control).is_ok());
-            self.menu_state.notice = Some(if sent { "Applying..." } else { "Busy or unavailable" });
-            self.redraw_menu(qh);
+            if sent {
+                self.control_pending = Some(control);
+                self.control_result = None;
+            } else if supported && idle {
+                self.control_result = Some((control, false));
+            }
+            self.menu_state.notice = Some(if sent { "Applying..." }
+                else if !supported { "Hardware unavailable" }
+                else if !idle { "Control busy" }
+                else { "Unavailable or denied" });
+            if self.menu_state.visible { self.redraw_menu(qh); }
+            self.request_redraw(qh);
             return;
         }
         if self.menu_state.visible {
@@ -2270,7 +2307,7 @@ impl RicePlate {
         };
         paint_panel(canvas, width, height, &self.recipe, &groups,
                     &self.clock, &self.power, &self.system_status, &self.tray_state,
-                    self.task_offset, selected);
+                    self.task_offset, selected, self.control_pending, self.control_result);
         surface.damage_buffer(0, 0, width as i32, height as i32);
         if let Err(error) = buffer.attach_to(surface) {
             eprintln!("RicePlate: failed to attach Wayland buffer: {error}");
@@ -2287,7 +2324,8 @@ impl RicePlate {
 fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
                style: &PanelStyle, groups: &[TaskGroup], clock: &str,
                power: &PowerStatus, status: &SystemStatus, tray_state: &tray::State, offset: usize,
-               selected: Option<KeyboardTarget>) {
+               selected: Option<KeyboardTarget>, pending: Option<ControlAction>,
+               result: Option<(ControlAction, bool)>) {
     for pixel in canvas.chunks_exact_mut(4) {
         pixel.copy_from_slice(&style.background.to_le_bytes());
     }
@@ -2306,11 +2344,27 @@ fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
             }
             Widget::Action(index) => {
                 if let Some(action) = style.actions.get(index as usize) {
-                    fill_rounded_rect(canvas, width, height, placed.x + 2, 3,
-                        placed.width.saturating_sub(4), height.saturating_sub(6),
-                        style.task_radius, style.active);
+                    let control = action.control.then(|| ControlAction::from_id(&action.id)).flatten();
+                    let available = control.is_none_or(|item|
+                        item.available(status) && pending.is_none());
+                    if available {
+                        fill_rounded_rect(canvas, width, height, placed.x + 2, 3,
+                            placed.width.saturating_sub(4), height.saturating_sub(6),
+                            style.task_radius, style.active);
+                    }
+                    let second_line = control.map(|item| {
+                        if pending == Some(item) { "Wait".to_string() }
+                        else if pending.is_some() { "Busy".to_string() }
+                        else if result == Some((item, false)) { "Failed".to_string() }
+                        else { item.state_label(status) }
+                    });
                     draw_text(canvas, width, height, placed.x + style.label_padding + 4,
-                        height / 2 - 4, &action.label, style.foreground);
+                        if second_line.is_some() { height / 2 - 10 } else { height / 2 - 4 },
+                        &action.label, style.foreground);
+                    if let Some(value) = second_line {
+                        draw_text(canvas, width, height, placed.x + style.label_padding + 4,
+                                  height / 2 + 2, &value, style.foreground);
+                    }
                     if selected == Some(KeyboardTarget::Action(index)) {
                         paint_focus_border(canvas, width, height, placed.x, placed.width,
                                            style.foreground);
@@ -4266,7 +4320,7 @@ mod tests {
             is_menu: false, needs_attention: false,
         }] };
         paint_panel(&mut canvas, width, height, &style, &[], "12:00",
-                    &PowerStatus::NotPresent, &SystemStatus::default(), &view, 0, None);
+                    &PowerStatus::NotPresent, &SystemStatus::default(), &view, 0, None, None, None);
         let region = recipe::layout(&style, width, 0).into_iter()
             .find(|placed| placed.widget == Widget::Tray).unwrap();
         assert_eq!(region.width, tray::WIDTH);
@@ -4357,13 +4411,14 @@ mod tests {
         let mut unavailable = vec![0; (width * height * 4) as usize];
         let mut connected = unavailable.clone();
         paint_panel(&mut unavailable, width, height, &style, &[], "12:00",
-                    &PowerStatus::NotPresent, &SystemStatus::default(), &tray::State::default(), 0, None);
+                    &PowerStatus::NotPresent, &SystemStatus::default(), &tray::State::default(), 0, None, None, None);
         let current = SystemStatus {
             network: system_status::Network::Global,
             audio: system_status::Audio::Volume(58),
+            wifi: system_status::WifiRadio::Enabled,
         };
         paint_panel(&mut connected, width, height, &style, &[], "12:00",
-                    &PowerStatus::NotPresent, &current, &tray::State::default(), 0, None);
+                    &PowerStatus::NotPresent, &current, &tray::State::default(), 0, None, None, None);
         for widget in [Widget::Network, Widget::Audio] {
             let region = recipe::layout(&style, width, 0).into_iter()
                 .find(|item| item.widget == widget).unwrap();
@@ -4377,6 +4432,36 @@ mod tests {
     }
 
     #[test]
+    fn declarative_controls_render_unavailable_live_pending_and_failed_states() {
+        let style = recipe::parse(
+            include_str!("../../../tests/fixtures/riceplate-controls-v7.json"),
+            Some("mockup-controls")).unwrap();
+        let width = 1280;
+        let size = (width * style.height * 4) as usize;
+        let render = |status: &SystemStatus, pending, result| {
+            let mut frame = vec![0; size];
+            paint_panel(&mut frame, width, style.height, &style, &[], "12:00",
+                        &PowerStatus::NotPresent, status, &tray::State::default(), 0,
+                        None, pending, result);
+            frame
+        };
+        let unavailable = render(&SystemStatus::default(), None, None);
+        let working = SystemStatus {
+            network: system_status::Network::Offline,
+            wifi: system_status::WifiRadio::Enabled,
+            audio: Audio::Volume(42),
+        };
+        let available = render(&working, None, None);
+        assert_ne!(available, unavailable);
+        assert_ne!(available, render(&working, Some(ControlAction::WifiToggle), None));
+        assert_ne!(available, render(&working, Some(ControlAction::AudioMute), None));
+        assert_ne!(available, render(&working, None,
+                                    Some((ControlAction::WifiToggle, false))));
+        let muted = SystemStatus { audio: Audio::Muted, ..working };
+        assert_ne!(available, render(&muted, None, None));
+    }
+
+    #[test]
     fn native_power_indicator_draws_real_state_in_allocated_panel_region() {
         let style = recipe::load("classic").unwrap();
         let width = 800;
@@ -4385,10 +4470,10 @@ mod tests {
         let mut without = vec![0; len];
         let mut charging = vec![0; len];
         paint_panel(&mut without, width, height, &style, &[], "12:00",
-                    &PowerStatus::NotPresent, &SystemStatus::default(), &tray::State::default(), 0, None);
+                    &PowerStatus::NotPresent, &SystemStatus::default(), &tray::State::default(), 0, None, None, None);
         paint_panel(&mut charging, width, height, &style, &[], "12:00",
                     &PowerStatus::Battery { percent: 73, charging: true },
-                    &SystemStatus::default(), &tray::State::default(), 0, None);
+                    &SystemStatus::default(), &tray::State::default(), 0, None, None, None);
         let region = recipe::layout(&style, width, 0).into_iter()
             .find(|item| item.widget == Widget::Battery).unwrap();
         assert_eq!(region.width, 64);
@@ -4411,9 +4496,9 @@ mod tests {
         let mut first = vec![0_u8; (width * height * 4) as usize];
         let mut second = vec![0_u8; (width * height * 4) as usize];
         paint_panel(&mut first, width, height, &style, &[], "12:00",
-                    &PowerStatus::NotPresent, &SystemStatus::default(), &tray::State::default(), 0, None);
+                    &PowerStatus::NotPresent, &SystemStatus::default(), &tray::State::default(), 0, None, None, None);
         paint_panel(&mut second, width, height, &style, &[], "12:00",
-                    &PowerStatus::NotPresent, &SystemStatus::default(), &tray::State::default(), 0, None);
+                    &PowerStatus::NotPresent, &SystemStatus::default(), &tray::State::default(), 0, None, None, None);
         assert_eq!(first, second);
         assert_eq!(&first[(width * (height / 2) + 400) as usize * 4..][..4],
                    &style.background.to_le_bytes());
@@ -4430,10 +4515,10 @@ mod tests {
         let mut normal = vec![0; len];
         let mut selected = vec![0; len];
         paint_panel(&mut normal, width, height, &style, &[], "12:00",
-                    &PowerStatus::NotPresent, &SystemStatus::default(), &tray::State::default(), 0, None);
+                    &PowerStatus::NotPresent, &SystemStatus::default(), &tray::State::default(), 0, None, None, None);
         paint_panel(&mut selected, width, height, &style, &[], "12:00",
                     &PowerStatus::NotPresent, &SystemStatus::default(), &tray::State::default(), 0,
-                    Some(KeyboardTarget::Launcher));
+                    Some(KeyboardTarget::Launcher), None, None);
         assert_ne!(normal, selected);
         let launcher = recipe::layout(&style, width, 0).into_iter()
             .find(|item| item.widget == Widget::Launcher).unwrap();

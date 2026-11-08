@@ -100,7 +100,7 @@ def describe_ricepack() -> dict[str, object]:
         "extension": ".ricepack",
         "entries": ["ricepack.json", "recipe.json", "assets/wallpaper.png (v3 only)"],
         "maximum_archive_bytes": 3 * 1024 * 1024,
-        "recipe_schema_versions": [1, 2, 3, 4, 5, 6],
+        "recipe_schema_versions": [1, 2, 3, 4, 5, 6, 7],
         "asset_support": "bundled wallpaper receipts or one embedded SHA256-addressed PNG (v3)",
         "asset_manifest": {"since_version": 2, "version": 1,
                            "fields": ["id", "sha256", "provenance"],
@@ -178,7 +178,7 @@ def describe_creator_api() -> dict[str, object]:
         "next_login_selection_mutation": "creator-stage/rollback only; requires explicit invocation",
         "commands": [
             {"command": "catalog", "effect": "read-only component discovery",
-             "cli": "de catalog --json", "contract_version": 7},
+             "cli": "de catalog --json", "contract_version": 8},
             {"command": "review", "effect": "validate recipe and compare semantic diffs",
              "cli": "de review --recipe ID [--compare ID] --json", "contract_version": 1},
             {"command": "draft-edit", "effect": "create private reviewed JSON draft",
@@ -229,7 +229,7 @@ def describe_creator_api() -> dict[str, object]:
         "staging": describe_staging(),
         "limitations": [
             "Not a screenshot-to-rice converter or editable GUI",
-            "Schema-v1..v6 shell preview; v6 supports only one bounded PNG wallpaper, not arbitrary assets",
+            "Schema-v1..v7 shell preview; v6+ supports one bounded PNG wallpaper, not arbitrary assets",
             "No automatic apply; Wayland session remains experimental",
             "Native tray, complete settings, notification center and physical multi-monitor acceptance remain open",
         ],

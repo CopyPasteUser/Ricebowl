@@ -56,7 +56,7 @@ def _bundled_wallpaper(recipe: recipes.PanelRecipe) -> tuple[str, str]:
 
 
 def _custom_wallpaper(recipe: recipes.PanelRecipe) -> bytes | None:
-    if recipe.schema_version != 6 or not assets.ASSET_ID.fullmatch(recipe.wallpaper or ""):
+    if recipe.schema_version < 6 or not assets.ASSET_ID.fullmatch(recipe.wallpaper or ""):
         return None
     try:
         return assets.read(recipe.wallpaper)[1]
@@ -65,7 +65,7 @@ def _custom_wallpaper(recipe: recipes.PanelRecipe) -> bytes | None:
 
 
 def _wallpaper_identity(recipe: recipes.PanelRecipe) -> tuple[str, str]:
-    if recipe.schema_version == 6 and assets.ASSET_ID.fullmatch(recipe.wallpaper or ""):
+    if recipe.schema_version >= 6 and assets.ASSET_ID.fullmatch(recipe.wallpaper or ""):
         data = _custom_wallpaper(recipe)
         assert data is not None
         return recipe.wallpaper, _digest(data)
@@ -351,7 +351,7 @@ def _validate_archive(source: Path) -> tuple[dict[str, Any], bytes, bytes | None
                 raise PackError("Bundled wallpaper identity or checksum does not match",
                                 code="asset_mismatch")
         else:
-            if (recipe.schema_version != 6 or wallpaper["id"] != recipe.wallpaper
+            if (recipe.schema_version < 6 or wallpaper["id"] != recipe.wallpaper
                     or not assets.ASSET_ID.fullmatch(wallpaper["id"])
                     or wallpaper_payload is None):
                 raise PackError("Invalid content-addressed wallpaper identity",

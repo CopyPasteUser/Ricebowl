@@ -47,6 +47,62 @@ impl ControlAction {
         };
         command_status(command.0, &command.1)
     }
+
+    /// Hardware-owned capability, never inferred from network connectivity.
+    pub fn available(self, status: &SystemStatus) -> bool {
+        match self {
+            Self::WifiToggle => status.wifi != WifiRadio::Unavailable,
+            Self::AudioMute | Self::AudioUp | Self::AudioDown =>
+                status.audio != Audio::Unavailable,
+        }
+    }
+
+    pub fn state_label(self, status: &SystemStatus) -> String {
+        match self {
+            Self::WifiToggle => status.wifi.label().into(),
+            Self::AudioMute => match status.audio {
+                Audio::Muted => "Muted".into(),
+                Audio::Unavailable => "N/A".into(),
+                Audio::Volume(_) => "On".into(),
+            },
+            Self::AudioUp | Self::AudioDown => status.audio.label(),
+        }
+    }
+
+    /// A successful subprocess exit alone is not proof of a state transition.
+    pub fn verified(self, before: &SystemStatus, after: &SystemStatus, exit_ok: bool) -> bool {
+        if !exit_ok || !self.available(before) || !self.available(after) { return false; }
+        match self {
+            Self::WifiToggle => before.wifi != after.wifi,
+            Self::AudioMute => before.audio != after.audio,
+            Self::AudioUp | Self::AudioDown => match (&before.audio, &after.audio) {
+                (Audio::Volume(first), Audio::Volume(second)) =>
+                    if self == Self::AudioUp { second > first } else { second < first },
+                _ => false,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WifiRadio { Enabled, Disabled, Unavailable }
+
+impl WifiRadio {
+    fn parse(value: &str) -> Self {
+        match value.trim() {
+            "enabled" => Self::Enabled,
+            "disabled" => Self::Disabled,
+            _ => Self::Unavailable,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Enabled => "On",
+            Self::Disabled => "Off",
+            Self::Unavailable => "N/A",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -117,11 +173,13 @@ impl Audio {
 pub struct SystemStatus {
     pub network: Network,
     pub audio: Audio,
+    pub wifi: WifiRadio,
 }
 
 impl Default for SystemStatus {
     fn default() -> Self {
-        Self { network: Network::Unavailable, audio: Audio::Unavailable }
+        Self { network: Network::Unavailable, audio: Audio::Unavailable,
+               wifi: WifiRadio::Unavailable }
     }
 }
 
@@ -136,6 +194,10 @@ impl SystemStatus {
                 command_output("wpctl", &["get-volume", "@DEFAULT_AUDIO_SINK@"])
                     .map(|output| Audio::parse(&output)).unwrap_or(Audio::Unavailable)
             } else { Audio::Unavailable },
+            wifi: if include_network {
+                command_output("nmcli", &["--wait", "1", "radio", "wifi"])
+                    .map(|output| WifiRadio::parse(&output)).unwrap_or(WifiRadio::Unavailable)
+            } else { WifiRadio::Unavailable },
         }
     }
 }
@@ -267,6 +329,31 @@ mod tests {
         for invalid in ["", "terminal", "wifi off", "../../nmcli", "audio-volume 100"] {
             assert_eq!(ControlAction::from_id(invalid), None);
         }
+    }
+
+    #[test]
+    fn radio_capability_is_independent_from_connectivity_and_readback_is_verified() {
+        assert_eq!(WifiRadio::parse("enabled\n"), WifiRadio::Enabled);
+        assert_eq!(WifiRadio::parse("disabled\n"), WifiRadio::Disabled);
+        assert_eq!(WifiRadio::parse("permission denied"), WifiRadio::Unavailable);
+        let mut before = SystemStatus::default();
+        before.network = Network::Offline;
+        before.wifi = WifiRadio::Enabled;
+        assert!(ControlAction::WifiToggle.available(&before));
+        assert!(!ControlAction::AudioUp.available(&before));
+        let mut after = before.clone();
+        after.wifi = WifiRadio::Disabled;
+        assert!(ControlAction::WifiToggle.verified(&before, &after, true));
+        assert!(!ControlAction::WifiToggle.verified(&before, &before, true));
+        assert!(!ControlAction::WifiToggle.verified(&before, &after, false));
+        before.audio = Audio::Volume(55);
+        after.audio = Audio::Volume(60);
+        assert!(ControlAction::AudioUp.verified(&before, &after, true));
+        assert!(!ControlAction::AudioDown.verified(&before, &after, true));
+        after.audio = Audio::Muted;
+        assert!(ControlAction::AudioMute.verified(&before, &after, true));
+        assert!(!ControlAction::AudioUp.verified(&before, &after, true));
+        assert_eq!(ControlAction::AudioMute.state_label(&after), "Muted");
     }
 
     #[test]

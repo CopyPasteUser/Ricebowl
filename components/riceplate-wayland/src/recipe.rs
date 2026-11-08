@@ -92,6 +92,7 @@ pub enum Widget {
 pub struct PanelAction {
     pub id: String,
     pub label: String,
+    pub control: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -271,6 +272,7 @@ enum LayoutNode {
     Divider { width: u32 },
     Label { text: String },
     Action { id: String, label: String },
+    Control { id: String, label: String },
     Group { gap: u32, children: Vec<LayoutNode> },
 }
 
@@ -423,9 +425,14 @@ fn expand_layout(
             labels.push(text.clone());
             rendered.push(Widget::Label(index));
         }
-        LayoutNode::Action { id, label } => {
-            if version < 6
-                || !["applications", "terminal", "settings", "lock"].contains(&id.as_str())
+        LayoutNode::Action { id, label } | LayoutNode::Control { id, label } => {
+            let control = matches!(node, LayoutNode::Control { .. });
+            let supported = if control {
+                ["wifi-toggle", "audio-mute", "audio-up", "audio-down"].contains(&id.as_str())
+            } else {
+                ["applications", "terminal", "settings", "lock"].contains(&id.as_str())
+            };
+            if version < (if control { 7 } else { 6 }) || !supported
                 || !safe_label(label, 16)
                 || !seen.insert(format!("action:{id}"))
             {
@@ -440,7 +447,7 @@ fn expand_layout(
                 if actions.len() >= MAX_LAYOUT_ACTIONS {
                     return Err("Too many panel actions".into());
                 }
-                actions.push(PanelAction { id: id.clone(), label: label.clone() });
+                actions.push(PanelAction { id: id.clone(), label: label.clone(), control });
                 actions.len() - 1
             };
             rendered.push(Widget::Action(index as u8));
@@ -466,7 +473,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
     }
     let recipe: Recipe = serde_json::from_str(raw)?;
     let id = recipe.id.as_bytes();
-    if ![1, 2, 3, 4, 5, 6].contains(&recipe.schema_version)
+    if ![1, 2, 3, 4, 5, 6, 7].contains(&recipe.schema_version)
         || id.len() < 2
         || id.len() > 32
         || !id[0].is_ascii_lowercase()
@@ -484,7 +491,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
     }
     let widths = match (recipe.schema_version, recipe.panel.metrics) {
         (1, None) => [LAUNCHER_WIDTH, TASK_WIDTH, CLOCK_WIDTH],
-        (2 | 3 | 4 | 5 | 6, Some(metrics))
+        (2 | 3 | 4 | 5 | 6 | 7, Some(metrics))
             if (64..=256).contains(&metrics.launcher_width)
                 && (96..=256).contains(&metrics.task_width)
                 && (64..=256).contains(&metrics.clock_width) =>
@@ -529,7 +536,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
                 }
             }
         }
-        (3 | 4 | 5 | 6, None, Some(layout)) => {
+        (3 | 4 | 5 | 6 | 7, None, Some(layout)) => {
             let source = [layout.start, layout.center, layout.end];
             let mut counts = [0_usize, 0_usize];
             for (index, nodes) in source.iter().enumerate() {
@@ -567,7 +574,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
         recipe.tokens,
         recipe.responsive,
     ) {
-        (version @ (4 | 5 | 6), Some(menu), Some(desktop), Some(tokens), Some(responsive)) => {
+        (version @ (4 | 5 | 6 | 7), Some(menu), Some(desktop), Some(tokens), Some(responsive)) => {
             validate_menu(&menu, version)?;
             native_menu = Some(NativeMenu {
                 title: menu.title,
@@ -598,7 +605,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
             });
             desktop_icons = match (version, desktop.icons) {
                 (4, None) => Vec::new(),
-                (5 | 6, Some(icons)) => validate_icons(icons)?,
+                (5 | 6 | 7, Some(icons)) => validate_icons(icons)?,
                 _ => return Err("Schema v5 requires icons; v4 forbids them".into()),
             };
             let bundled = [
@@ -613,7 +620,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
                 "aurora-day",
                 "aurora-night",
             ].contains(&desktop.wallpaper.as_str());
-            let private_asset = version == 6 && desktop.wallpaper.len() == 70
+            let private_asset = version >= 6 && desktop.wallpaper.len() == 70
                 && desktop.wallpaper.starts_with("asset-")
                 && desktop.wallpaper.as_bytes()[6..].iter().all(|c|
                     c.is_ascii_hexdigit() && !c.is_ascii_uppercase());
@@ -901,6 +908,41 @@ mod tests {
     use super::*;
 
     const ACTIONS_V6: &str = include_str!("../../../tests/fixtures/riceplate-actions-v6.json");
+    const CONTROLS_V7: &str = include_str!("../../../tests/fixtures/riceplate-controls-v7.json");
+
+    #[test]
+    fn v7_control_nodes_preserve_identity_geometry_and_strict_binding() {
+        let style = parse(CONTROLS_V7, Some("mockup-controls")).unwrap();
+        assert_eq!(style.actions.len(), 4);
+        assert!(style.actions.iter().all(|action| action.control));
+        assert_eq!(style.actions[0].id, "wifi-toggle");
+        for index in 0..4 {
+            let control = layout(&style, 1280, 2).into_iter().find(|placed|
+                placed.widget == Widget::Action(index)).unwrap();
+            assert_eq!(hit((control.x + 1) as f64, 1280, 2, 0, &style),
+                       Some(Hit::Action(index)));
+        }
+        assert_eq!(layout(&style, 600, 2).into_iter().filter(|placed|
+            matches!(placed.widget, Widget::Action(_))).count(), 1);
+        let original: serde_json::Value = serde_json::from_str(CONTROLS_V7).unwrap();
+        for bad in [
+            serde_json::json!({"type":"control","id":"terminal","label":"Shell"}),
+            serde_json::json!({"type":"control","id":"wifi-toggle","label":"<unsafe>"}),
+            serde_json::json!({"type":"control","id":"audio-mute","label":"Mute","exec":"sh"}),
+            serde_json::json!({"type":"control","id":"audio-on","label":"Audio"}),
+        ] {
+            let mut data = original.clone();
+            data["panel"]["layout"]["end"][0] = bad;
+            assert!(parse(&data.to_string(), None).is_err());
+        }
+        let mut legacy = original.clone();
+        legacy["schema_version"] = serde_json::json!(6);
+        assert!(parse(&legacy.to_string(), None).is_err());
+        let mut drift = original;
+        drift["responsive"]["compact_layout"]["end"][0]["label"] =
+            serde_json::json!("Audio");
+        assert!(parse(&drift.to_string(), None).is_err());
+    }
 
     #[test]
     fn v6_action_buttons_have_shared_render_and_hit_geometry() {

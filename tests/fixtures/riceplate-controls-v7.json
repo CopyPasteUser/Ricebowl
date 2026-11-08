@@ -1,0 +1,33 @@
+{
+  "schema_version": 7,
+  "id": "mockup-controls",
+  "name": "Stateful desktop controls",
+  "panel": {
+    "position": "top", "height": 44,
+    "metrics": {"launcher_width": 104, "task_width": 164, "clock_width": 96},
+    "layout": {
+      "start": [{"type": "widget", "id": "launcher"},
+                {"type": "widget", "id": "tasks"}],
+      "center": [],
+      "end": [{"type": "control", "id": "wifi-toggle", "label": "Wi-Fi"},
+              {"type": "control", "id": "audio-mute", "label": "Mute"},
+              {"type": "control", "id": "audio-down", "label": "Vol -"},
+              {"type": "control", "id": "audio-up", "label": "Vol +"},
+              {"type": "widget", "id": "clock"}]
+    }
+  },
+  "colors": {"background": "#203c59", "foreground": "#f3f7fa", "active": "#4179aa"},
+  "menu": {"title": "Workstation", "groups": [
+    {"title": "Programs", "actions": ["applications", "terminal"]},
+    {"title": "Quick", "actions": ["wifi-toggle", "audio-mute", "audio-up", "audio-down"]}
+  ]},
+  "desktop": {"wallpaper": "luna-hills", "icons": [
+    {"label": "Terminal", "action": "terminal", "x": 32, "y": 96}
+  ]},
+  "tokens": {"label_padding": 8, "task_radius": 6},
+  "responsive": {"compact_max_width": 720, "compact_layout": {
+    "start": [{"type": "widget", "id": "launcher"}],
+    "center": [{"type": "widget", "id": "tasks"}],
+    "end": [{"type": "control", "id": "audio-mute", "label": "Mute"}]
+  }}
+}

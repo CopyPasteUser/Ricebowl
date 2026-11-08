@@ -43,6 +43,7 @@ MENU_ACTIONS = frozenset(("applications", "terminal", "lock", "logout",
 # A deliberately smaller set than menu quick controls: all four work from a
 # panel without requiring a menu feedback surface or a custom command parser.
 PANEL_ACTIONS = frozenset(("applications", "terminal", "settings", "lock"))
+PANEL_CONTROLS = frozenset(("wifi-toggle", "audio-mute", "audio-up", "audio-down"))
 PANEL_ACTION_COMMANDS = {
     "applications": "fuzzel", "terminal": "foot",
     "settings": "ricebowl de settings", "lock": "swaylock -f",
@@ -248,14 +249,16 @@ def _parse_layout_node(raw: Any, depth: int, counts: list[int], widgets: list[st
         if counts[1] > MAX_LAYOUT_LABELS:
             raise RecipeError("Too many panel labels")
         return LayoutNode(kind, text)
-    if kind == "action":
-        _strict_keys(raw, {"type", "id", "label"}, "Action node")
+    if kind in ("action", "control"):
+        _strict_keys(raw, {"type", "id", "label"}, "Panel button node")
         action_id, label = raw["id"], raw["label"]
-        if (schema_version < 6 or type(action_id) is not str
-                or action_id not in PANEL_ACTIONS or not _safe_label(label, 16)):
-            raise RecipeError("Panel actions require schema v6, a known action ID and safe label")
+        minimum = 7 if kind == "control" else 6
+        allowed = PANEL_CONTROLS if kind == "control" else PANEL_ACTIONS
+        if (schema_version < minimum or type(action_id) is not str
+                or action_id not in allowed or not _safe_label(label, 16)):
+            raise RecipeError("Panel button needs a supported schema, known ID and safe label")
         if action_id in actions:
-            raise RecipeError("Duplicate panel action ID")
+            raise RecipeError("Duplicate panel button ID")
         if len(actions) >= MAX_LAYOUT_ACTIONS:
             raise RecipeError("Too many panel actions")
         actions[action_id] = label
@@ -296,8 +299,8 @@ def layout_node_json(node: LayoutNode) -> dict[str, Any]:
                 "children": [layout_node_json(child) for child in node.children]}
     if node.kind == "widget":
         return {"type": "widget", "id": node.value}
-    if node.kind == "action":
-        return {"type": "action", "id": node.value, "label": node.label}
+    if node.kind in ("action", "control"):
+        return {"type": node.kind, "id": node.value, "label": node.label}
     if node.kind == "label":
         return {"type": "label", "text": node.value}
     if node.kind == "divider":
@@ -316,10 +319,10 @@ def parse(raw: bytes) -> PanelRecipe:
     if not isinstance(data, dict):
         raise RecipeError("Recipe must be a JSON object")
     version = data.get("schema_version")
-    if type(version) is not int or version not in (1, 2, 3, 4, 5, 6):
+    if type(version) is not int or version not in (1, 2, 3, 4, 5, 6, 7):
         raise RecipeError("Unsupported RicePlate recipe schema version")
     expected = {"schema_version", "id", "name", "panel", "colors"}
-    if version in (4, 5, 6):
+    if version >= 4:
         expected.update(("menu", "desktop", "tokens", "responsive"))
     data = _strict_keys(data, expected, "Recipe")
     recipe_id = data["id"]
@@ -329,8 +332,8 @@ def parse(raw: bytes) -> PanelRecipe:
     if (not isinstance(name, str) or not 1 <= len(name) <= 60
             or any(unicodedata.category(character) == "Cc" for character in name)):
         raise RecipeError("Recipe name must be 1-60 printable characters")
-    panel_keys = {"position", "height", "layout" if version in (3, 4, 5, 6) else "sections"}
-    if version in (2, 3, 4, 5, 6):
+    panel_keys = {"position", "height", "layout" if version >= 3 else "sections"}
+    if version >= 2:
         panel_keys.add("metrics")
     panel = _strict_keys(data["panel"], panel_keys, "Panel")
     if panel["position"] not in ("top", "bottom"):
@@ -338,7 +341,7 @@ def parse(raw: bytes) -> PanelRecipe:
     if type(panel["height"]) is not int or not 28 <= panel["height"] <= 64:
         raise RecipeError("Panel height must be an integer between 28 and 64")
     metrics: tuple[int, int, int] | None = None
-    if version in (2, 3, 4, 5, 6):
+    if version >= 2:
         sizes = _strict_keys(panel["metrics"], set(METRIC_FIELDS), "Panel metrics")
         if any(type(sizes[key]) is not int or not lower <= sizes[key] <= upper
                for key, (lower, upper) in zip(METRIC_FIELDS, METRIC_LIMITS)):
@@ -347,7 +350,7 @@ def parse(raw: bytes) -> PanelRecipe:
     selected: list[tuple[str, ...]] = []
     all_widgets: list[str] = []
     layout_nodes = None
-    if version in (3, 4, 5, 6):
+    if version >= 3:
         layout_nodes, all_widgets = _parse_layout(panel["layout"], schema_version=version)
         def widget_ids(nodes: tuple[LayoutNode, ...]) -> tuple[str, ...]:
             return tuple(item for node in nodes for item in (
@@ -377,7 +380,7 @@ def parse(raw: bytes) -> PanelRecipe:
     tokens = None
     compact = None
     desktop_icons = None
-    if version in (4, 5, 6):
+    if version >= 4:
         menu = _parse_menu(data["menu"], schema_version=version)
         desktop = _strict_keys(data["desktop"],
                                {"wallpaper", "icons"} if version >= 5 else {"wallpaper"},
@@ -385,7 +388,7 @@ def parse(raw: bytes) -> PanelRecipe:
         from .assets import ASSET_ID
         if (type(desktop["wallpaper"]) is not str
                 or not (desktop["wallpaper"] in WALLPAPERS
-                        or version == 6 and ASSET_ID.fullmatch(desktop["wallpaper"]))):
+                        or version >= 6 and ASSET_ID.fullmatch(desktop["wallpaper"]))):
             raise RecipeError("Desktop wallpaper must name a bundled or v6 content-addressed asset")
         wallpaper = desktop["wallpaper"]
         if version >= 5:
@@ -410,7 +413,7 @@ def parse(raw: bytes) -> PanelRecipe:
         def action_labels(sections: tuple[tuple[LayoutNode, ...], ...]) -> dict[str, str]:
             result: dict[str, str] = {}
             def visit(node: LayoutNode) -> None:
-                if node.kind == "action":
+                if node.kind in ("action", "control"):
                     result[str(node.value)] = node.label
                 for child in node.children:
                     visit(child)
@@ -752,16 +755,16 @@ def create_from_template(
     if not destination.is_absolute() or destination.suffix != ".json":
         raise RecipeError("New recipe output must be an absolute .json file path")
     data = json.loads(BUILTINS[source].read_text(encoding="utf-8"))
-    if schema_version in (2, 3, 4, 5, 6):
+    if schema_version in (2, 3, 4, 5, 6, 7):
         data["schema_version"] = schema_version
         data["panel"]["metrics"] = dict(zip(METRIC_FIELDS, METRIC_DEFAULTS))
-        if schema_version in (3, 4, 5, 6):
+        if schema_version >= 3:
             sections = data["panel"].pop("sections")
             data["panel"]["layout"] = {
                 section: [{"type": "widget", "id": widget} for widget in sections[section]]
                 for section in SECTIONS
             }
-        if schema_version in (4, 5, 6):
+        if schema_version >= 4:
             data["menu"] = {"title": "RiceBowl", "groups": [
                 {"title": "Applications", "actions": ["applications", "terminal"]},
                 {"title": "Session", "actions": ["lock", "logout"]},
@@ -845,6 +848,18 @@ def waybar_config(recipe: PanelRecipe, *, screen_width: int | None = None) -> tu
                     f"#custom-rice-action-{index} {{ background: {recipe.colors[2]}; "
                     f"border-radius: {radius}px; min-width: {len(node.label) * 8 + 8}px; "
                     f"padding: 0 {padding}px; }}")
+            elif node.kind == "control":
+                # Waybar cannot share RicePlate's verified worker or its result
+                # feedback. This is visibly disabled, never a fake toggle.
+                key = f"custom/rice-control-{index}"
+                generated_modules[key] = {
+                    "format": f"{node.label} (N/A)",
+                    "tooltip": True,
+                    "tooltip-format": "Requires native RicePlate (Wayland)",
+                }
+                generated_css.append(
+                    f"#custom-rice-control-{index} {{ opacity: 0.55; "
+                    f"padding: 0 {padding}px; }}")
             else:
                 key = f"custom/rice-label-{index}"
                 generated_modules[key] = {"format": str(node.value), "tooltip": False}
@@ -890,7 +905,7 @@ def waybar_config(recipe: PanelRecipe, *, screen_width: int | None = None) -> tu
 def wallpaper_path(recipe: PanelRecipe) -> Path:
     """Resolve bundled or private SHA-256 artwork, never recipe-supplied paths."""
     name = recipe.wallpaper or "aero-seven-blue"
-    if recipe.schema_version == 6:
+    if recipe.schema_version >= 6:
         from . import assets
         if assets.ASSET_ID.fullmatch(name):
             try:

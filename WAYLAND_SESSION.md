@@ -212,7 +212,7 @@ ricebowl de catalog --json
 ```
 
 The versioned `catalog_version` (currently **6**) identifies the response format, while
-`recipe.schema_versions` (currently **1, 2, 3, 4, 5**) identifies supported recipe versions. Each
+`recipe.schema_versions` (currently **1, 2, 3, 4, 5, 6, 7**) identifies supported recipe versions. Each
 panel widget has a known ID, real backend support level, fixed behavior and
 keyboard-availability flag. The `shell_components` collection separately
 describes native menu, output-bound calendar and desktop shortcut actions,
@@ -469,7 +469,7 @@ group buttons; the selected group's actions, search results and favorites
 remain in the right column. Keyboard group changes and action activation
 reuse the existing logic; assistive roles identify sidebar groups as buttons.
 
-`de draft-edit` accepts `/menu/presentation` on v6 recipes, `de catalog --json`
+`de draft-edit` accepts `/menu/presentation` on v6+ recipes, `de catalog --json`
 advertises both variants, and `de review` reports the semantic change. The
 Waybar fallback continues to compile the same grouped labwc root context
 menu, **not** the native sidebar visual. The headless native smoke generates
@@ -512,6 +512,40 @@ semantic review and native screenshot smoke now understand compositions.
 The Waybar/labwc fallback keeps its flat action groups and does not imitate
 the native grid. Headless screenshot: `menu-composed-v6.png`. Visual fidelity,
 localized icon sets and physical input/Orca testing remain open.
+
+#### Schema-v7 declarative system controls (native RicePlate)
+
+Schema v7 adds a bounded `control` node to `panel.layout` and
+`responsive.compact_layout`. Only these four IDs are allowed; each takes one
+safe 1–16-character static label and **never** a shell command:
+
+```json
+{"type": "control", "id": "wifi-toggle", "label": "Wi-Fi"}
+{"type": "control", "id": "audio-mute", "label": "Mute"}
+{"type": "control", "id": "audio-down", "label": "Vol -"}
+{"type": "control", "id": "audio-up", "label": "Vol +"}
+```
+
+See the complete, native-testable
+[`riceplate-controls-v7.json`](tests/fixtures/riceplate-controls-v7.json) recipe.
+Start a new private template with `ricebowl de recipe-init --schema-version 7`
+plus the ordinary `--base`, `--id`, `--name` and `--output` options; add these
+nodes using `de draft-edit`, review them with `de review` and preview the
+result with `de start --nested --panel native --recipe /absolute/path/to/rice.json`.
+The Creator catalog v8 advertises the exact contract. Existing schemas v1–v6
+are still accepted, but reject `control` nodes.
+
+The native RicePlate panel and its menu share **one bounded asynchronous
+NetworkManager/WirePlumber worker**. It samples WLAN radio state separately
+from general connectivity, reads actual default-sink mute/volume and verifies
+the state after a write. A control with no provider shows `N/A`, a pending
+operation shows `Wait` (`Busy` on other controls), and unsuccessful readback
+shows `Failed`. Multiple
+simultaneous writes are not queued; pointer, keyboard and AT-SPI activation
+use the same dispatcher. The geometry never moves when the status changes.
+The **Waybar fallback displays noninteractive `N/A` labels** with a native-only
+tooltip: it cannot verify those state changes and must not pretend to. Real
+GPU, hardware toggles and Orca interaction still need local acceptance.
 
 The default **Waybar-backed** Wayland session is separately checked in CI
 with two genuine labwc headless outputs. The smoke captures the bar on each,

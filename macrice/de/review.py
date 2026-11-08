@@ -37,7 +37,7 @@ def _manifest(recipe: recipes.PanelRecipe) -> dict[str, Any]:
         "panel": panel,
         "colors": dict(zip(recipes.COLORS, recipe.colors)),
     }
-    if recipe.schema_version in (4, 5, 6):
+    if recipe.schema_version >= 4:
         assert recipe.menu is not None and recipe.tokens is not None
         assert recipe.compact is not None and recipe.wallpaper is not None
         result["menu"] = {"title": recipe.menu[0], "groups": [
@@ -136,7 +136,7 @@ def review(recipe_token: str, compare_token: str | None = None) -> dict[str, Any
     target, target_summary = _snapshot(recipe_token)
     result: dict[str, Any] = {
         "review_version": REVIEW_VERSION,
-        "scope": "wayland-shell-preview" if target["schema_version"] in (4, 5, 6)
+        "scope": "wayland-shell-preview" if target["schema_version"] >= 4
                  else "wayland-panel-preview",
         "ok": True,
         "applied": False,

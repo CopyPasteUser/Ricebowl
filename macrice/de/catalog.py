@@ -11,18 +11,18 @@ from .creator_contract import (describe as draft_edit_contract, describe_capture
                                describe_ricepack, describe_visual_qa)
 from .recipes import (ICON_ACTIONS, ICON_HEIGHT, ICON_WIDTH, MAX_DESKTOP_ICONS,
                       MENU_ACTIONS, WALLPAPERS, MAX_LAYOUT_CHILDREN, MAX_LAYOUT_DEPTH, MAX_LAYOUT_LABELS,
-                      MAX_LAYOUT_ACTIONS, PANEL_ACTIONS, MAX_LAYOUT_NODES, MAX_LAYOUT_ROOTS, MAX_RECIPE_BYTES,
+                      MAX_LAYOUT_ACTIONS, PANEL_ACTIONS, PANEL_CONTROLS, MAX_LAYOUT_NODES, MAX_LAYOUT_ROOTS, MAX_RECIPE_BYTES,
                       METRIC_DEFAULTS, METRIC_FIELDS, METRIC_LIMITS, WIDGETS)
 
 
 def describe() -> dict[str, object]:
     """Describe exactly which panel and early shell primitives are implemented."""
     return {
-        "catalog_version": 7,
+        "catalog_version": 8,
         "scope": "wayland-shell-preview",
         "complete_desktop_environment": False,
         "recipe": {
-            "schema_versions": [1, 2, 3, 4, 5, 6],
+            "schema_versions": [1, 2, 3, 4, 5, 6, 7],
             "maximum_bytes": MAX_RECIPE_BYTES,
             "sections": ["start", "center", "end"],
             "unique_widgets": True,
@@ -70,6 +70,15 @@ def describe() -> dict[str, object]:
                                "waybar": "fixed-on-click-command", "custom_commands": False,
                                "keyboard_navigation": True,
                                "accessibility_role": "button"},
+                    "control": {"since_schema": 7,
+                                "fields": ["type", "id", "label"],
+                                "known_ids": sorted(PANEL_CONTROLS),
+                                "max_characters": 16, "safe_ascii": True,
+                                "interactive": True, "native": "verified-system-control",
+                                "waybar": "disabled-status-only", "custom_commands": False,
+                                "keyboard_navigation": True,
+                                "accessibility_role": "button-when-available",
+                                "states": ["unavailable", "ready", "pending", "success", "failed"]},
                 },
             },
             "shell_extensions": {

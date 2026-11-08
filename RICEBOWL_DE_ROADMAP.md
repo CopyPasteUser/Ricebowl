@@ -314,8 +314,19 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
     keyboard focus, AT-SPI actions and Waybar's fixed-command fallback. Creator
     catalog v7, semantic review, draft edit, shared fixture and headless native
     screenshot smoke cover the contract. No recipe-defined process commands,
-    arguments, privileged actions or daemon were introduced. Cross-surface
-    stateful controls, layout constraints and richer visual tokens remain open.
+    arguments, privileged actions or daemon were introduced.
+  - [x] Implement **schema-v7 stateful native panel controls** (`type: control`)
+    with four fixed Wi-Fi/mute/volume IDs, shared menu/panel worker and
+    readback-checked state transitions. Poll genuine Wi-Fi radio capability
+    independently of connection status; keep the Wayland thread free of
+    subprocesses and suppress competing writes. Native painted controls have
+    stable hit geometry, current values, unavailable/pending/error states,
+    keyboard focus and AT-SPI names/disabled activation. Creator catalog v8,
+    edit/review/pack tooling, native fixture, Python/Rust unit tests, headless
+    compositor capture and honest disabled Waybar fallback cover the same
+    bounded contract. Existing XFCE path, schemas 1–6 and static panel actions
+    are unchanged. Broader cross-component constraints, more Linux adapters,
+    rich visual tokens and physical acceptance remain independent future work.
 - [ ] Render wallpapers and desktop icons with correct layer, focus, hit tests,
   drag/drop, multimonitor geometry and hotplug behavior.
 - [ ] Support one selected rice at a time and restore the previous shell if a
