@@ -274,6 +274,20 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
 
 ### 3 — RiceSpice and RicePop
 
+- [x] Complete the **RicePop 1.0 software-capability candidate** with a bounded
+  native Mako inbox refresh *only while open* (3 s), backoff on unavailable
+  host, stale-action suppression, numeric ID reuse and changed action-key
+  guards. Word-wrap and page long message bodies with keyboard/pointer/AT-SPI
+  access; render Latin/Greek/Hiragana 8×8 glyphs and visible substitutions for
+  unsupported scripts. Detect a dead `pactl subscribe` child and reconnect
+  with a five-second liveness bound; offer real sysfs-backed brightness OSD
+  with optional private labwc hardware keys. No second notification owner,
+  persistent private message store or unnecessary resident daemon is added.
+  **Remaining release gate:** actual Mako/app-action, keyboard/Orca, brightness,
+  audio-server restart and RAM/CPU acceptance on physical hardware. Mako is a
+  supported **1.0 provider**; optional native D-Bus ownership and wider script
+  rasterization are separate post-1.0 roadmap enhancements, not prerequisites.
+
 - [x] Add a **first native RicePop audio OSD** to the existing resident
   RicePlate layer-shell process. An opt-in recipe with native volume/mute
   quick actions uses the verified WirePlumber post-action state (or an honest
@@ -292,8 +306,9 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   mixers without double-display after a native RicePlate action. Missing
   `pactl` and unavailable audio degrade safely; nested previews do not start
   this monitor. The same 1.8 s input-transparent OSD remains the sole visual
-  owner. Still open: real hardware/key tests, Pulse server restart recovery,
-  brightness OSD, rich notification actions and native hosting.
+  owner. Subsequent milestones added subscriber restart recovery, backlight
+  OSD and active app actions; real hardware acceptance and optional
+  independent notification hosting remain open.
 
 - [x] Add **actionable native RicePop notification details** without taking over
   notification delivery: selecting a row opens a bounded details view with
@@ -304,9 +319,10 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   stale/duplicate IDs or unknown keys and dispatches one explicitly selected
   action without a shell, recipe-supplied command or notification store. Enter
   never dismisses an alert by accident; Delete remains an independent action.
-  Still open: the true native notification owner, non-Mako backends, live push
-  updates while the center is open, full text layout/international glyphs and
-  physical keyboard/AT-SPI/action acceptance.
+  A later 1.0 candidate adds open-only refresh and paged text, plus Latin/
+  Greek/Hiragana glyph tables. Independent native notification ownership,
+  extra backends and full Unicode fallback are post-1.0 possibilities;
+  physical keyboard/AT-SPI/action acceptance is still required.
 
 - [x] Introduce the **on-demand RiceSpice settings window**, launched through
   a validated `settings` menu action or `ricebowl de settings`. It presents nine

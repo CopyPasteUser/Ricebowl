@@ -11,9 +11,37 @@ pub const ROW_TOP: u32 = 90;
 pub const ROW_HEIGHT: u32 = 54;
 pub const ACTION_TOP: u32 = 155;
 pub const ACTION_HEIGHT: u32 = 32;
+const OPEN_REFRESH_INTERVAL: Duration = Duration::from_secs(3);
+const RETRY_REFRESH_INTERVAL: Duration = Duration::from_secs(12);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Hit { Row(usize), Action(usize), Tab(bool), Back, Refresh, Dismiss }
+pub enum Hit { Row(usize), Action(usize), BodyPage(isize), Tab(bool), Back, Refresh, Dismiss }
+
+pub const BODY_WIDTH: usize = 37;
+pub const BODY_LINES_PER_PAGE: usize = 2;
+
+/// Predictable, bounded word wrapping; preserves authored paragraph breaks.
+/// Full original text remains available to accessibility clients.
+pub fn body_lines(body: &str) -> Vec<String> {
+    let mut lines = Vec::new();
+    for paragraph in body.split('\n') {
+        let mut line = String::new();
+        for word in paragraph.split_whitespace() {
+            let length = line.chars().count();
+            if length > 0 && length + 1 + word.chars().count() > BODY_WIDTH {
+                lines.push(std::mem::take(&mut line));
+            } else if length > 0 { line.push(' '); }
+            for character in word.chars() {
+                if line.chars().count() == BODY_WIDTH {
+                    lines.push(std::mem::take(&mut line));
+                }
+                line.push(character);
+            }
+        }
+        lines.push(line);
+    }
+    lines
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Action {
@@ -48,7 +76,11 @@ pub struct State {
     pub selected: usize,
     pub detail_id: Option<u32>,
     pub selected_action: usize,
+    pub body_page: usize,
     pub revision: u64,
+    pub silent_loading: bool,
+    pub sync_error: bool,
+    next_refresh: Option<Instant>,
 }
 
 impl State {
@@ -62,35 +94,83 @@ impl State {
         self.selected = 0;
         self.detail_id = None;
         self.selected_action = 0;
+        self.body_page = 0;
+        self.silent_loading = false;
+        self.sync_error = false;
+        self.next_refresh = None;
     }
 
     pub fn begin(&mut self) -> u64 {
         self.open = true;
         self.loading = true;
         self.error = None;
+        self.silent_loading = false;
+        self.sync_error = false;
+        self.next_refresh = None;
         self.revision = self.revision.wrapping_add(1);
         self.revision
     }
 
+    /// Re-read Mako only while the user keeps the center open. No permanent
+    /// notification poller is installed and in-flight mutations take priority.
+    pub fn refresh_timeout(&self, now: Instant) -> Option<Duration> {
+        (self.open && !self.loading && !self.silent_loading)
+            .then(|| self.next_refresh.map(|when| when.saturating_duration_since(now)))
+            .flatten()
+    }
+
+    pub fn begin_background(&mut self, now: Instant) -> Option<u64> {
+        self.refresh_timeout(now).filter(|remaining| remaining.is_zero())?;
+        self.silent_loading = true;
+        self.next_refresh = None;
+        self.revision = self.revision.wrapping_add(1);
+        Some(self.revision)
+    }
+
     pub fn update(&mut self, revision: u64, result: Result<Snapshot, &'static str>) -> bool {
         if !self.open || revision != self.revision { return false; }
+        let background = self.silent_loading;
         self.loading = false;
+        self.silent_loading = false;
+        self.next_refresh = Some(Instant::now() + if result.is_ok() {
+            OPEN_REFRESH_INTERVAL
+        } else { RETRY_REFRESH_INTERVAL });
         match result {
             Ok(snapshot) => {
+                let prior_detail = self.detail_notice().cloned();
+                let prior_action_key = self.selected_action().map(|(_, action)| action.key.clone());
                 let previous_id = self.detail_id.or_else(||
                     self.visible_notices().get(self.selected).map(|notice| notice.id));
                 self.notices = snapshot.active;
                 self.history = snapshot.history;
                 self.selected = previous_id.and_then(|id| self.visible_notices()
                     .iter().position(|notice| notice.id == id))
-                    .unwrap_or_else(|| self.selected.min(self.visible_notices().len().saturating_sub(1)));
-                if self.detail_id.is_some() && self.detail_notice().is_none() {
+                    .unwrap_or_else(|| if background { self.visible_notices().len() }
+                                    else { self.selected.min(self.visible_notices().len().saturating_sub(1)) });
+                // Do not retain an actionable detail if a host restart reused
+                // the same numeric ID for different message content.
+                if self.detail_id.is_some() && (self.detail_notice().is_none()
+                    || prior_detail.as_ref().is_some_and(|old| self.detail_notice().is_some_and(|new|
+                        old.app_name != new.app_name || old.summary != new.summary
+                        || old.body != new.body))) {
                     self.close_detail();
                 }
-                self.selected_action = self.selected_action.min(self.detail_notice()
-                    .map_or(0, |notice| notice.actions.len().saturating_sub(1)));
+                let next_action = prior_action_key.as_ref().and_then(|key|
+                    self.detail_notice().and_then(|notice|
+                        notice.actions.iter().position(|action| &action.key == key)));
+                self.selected_action = next_action.unwrap_or_else(|| {
+                    if prior_action_key.is_some() {
+                        self.detail_notice().map_or(0, |notice| notice.actions.len())
+                    } else {
+                        self.selected_action.min(self.detail_notice()
+                            .map_or(0, |notice| notice.actions.len().saturating_sub(1)))
+                    }
+                });
+                self.body_page = self.body_page.min(self.body_page_count().saturating_sub(1));
                 self.error = None;
+                self.sync_error = false;
             }
+            Err(_) if background => self.sync_error = true,
             Err(message) => self.error = Some(message),
         }
         true
@@ -114,12 +194,14 @@ impl State {
         self.detail_id = Some(notice.id);
         self.selected = index;
         self.selected_action = 0;
+        self.body_page = 0;
         true
     }
 
     pub fn close_detail(&mut self) {
         self.detail_id = None;
         self.selected_action = 0;
+        self.body_page = 0;
     }
 
     pub fn detail_notice(&self) -> Option<&Notice> {
@@ -134,12 +216,24 @@ impl State {
             .clamp(0, count as isize - 1) as usize;
     }
 
+    pub fn body_page_count(&self) -> usize {
+        self.detail_notice().map_or(1, |notice|
+            body_lines(&notice.body).len().div_ceil(BODY_LINES_PER_PAGE).max(1))
+    }
+
+    pub fn change_body_page(&mut self, delta: isize) {
+        self.body_page = (self.body_page as isize + delta)
+            .clamp(0, self.body_page_count() as isize - 1) as usize;
+    }
+
     pub fn first_action_row(&self) -> usize {
         (self.selected_action / VISIBLE_ROWS) * VISIBLE_ROWS
     }
 
     pub fn action_at(&self, index: usize) -> Option<(u32, &Action)> {
-        if self.show_history || self.loading || self.error.is_some() { return None; }
+        if self.show_history || self.loading || self.error.is_some() || self.sync_error {
+            return None;
+        }
         let notice = self.detail_notice()?;
         notice.actions.get(index).map(|action| (notice.id, action))
     }
@@ -157,7 +251,7 @@ impl State {
     }
 
     pub fn selected_id(&self) -> Option<u32> {
-        (!self.show_history && !self.loading && self.error.is_none())
+        (!self.show_history && !self.loading && self.error.is_none() && !self.sync_error)
             .then(|| self.notices.get(self.selected))
             .flatten().map(|n| n.id)
     }
@@ -177,6 +271,9 @@ impl State {
                          else { return None });
         }
         if self.detail_id.is_some() {
+            if (90.0..138.0).contains(&y) && self.body_page_count() > 1 {
+                return Some(Hit::BodyPage(if x < 160.0 { -1 } else { 1 }));
+            }
             if (f64::from(ACTION_TOP)..f64::from(ACTION_TOP + VISIBLE_ROWS as u32 * ACTION_HEIGHT))
                 .contains(&y) {
                 let index = self.first_action_row() +
@@ -431,5 +528,95 @@ mod tests {
         assert_eq!(state.selected_action(), None);
         state.close();
         assert!(state.notices.is_empty());
+    }
+
+    #[test]
+    fn open_only_live_refresh_preserves_selection_and_retries_failures() {
+        let now = Instant::now();
+        let mut state = State::default();
+        assert_eq!(state.refresh_timeout(now), None);
+        let initial = state.begin();
+        assert_eq!(state.refresh_timeout(now), None);
+        assert!(state.update(initial, Ok(Snapshot { active: vec![Notice {
+            id: 4, summary: "First".into(), ..Notice::default()
+        }, Notice { id: 8, summary: "Second".into(), ..Notice::default() }], history: vec![] })));
+        assert!(state.refresh_timeout(now).is_some());
+        state.select(1);
+        assert!(state.open_detail(1));
+        let background = state.begin_background(now + Duration::from_secs(4)).unwrap();
+        assert_eq!(state.refresh_timeout(now + Duration::from_secs(4)), None);
+        assert_eq!(state.begin_background(now + Duration::from_secs(4)), None);
+        assert!(state.update(background, Ok(Snapshot { active: vec![Notice {
+            id: 8, summary: "Second".into(), ..Notice::default()
+        }], history: vec![] })));
+        assert_eq!(state.selected, 0);
+        assert_eq!(state.detail_notice().unwrap().summary, "Second");
+        let retry = state.begin_background(now + Duration::from_secs(8)).unwrap();
+        assert!(state.update(retry, Err("Host offline")));
+        assert!(state.sync_error);
+        assert!(state.detail_notice().is_some());
+        assert_eq!(state.selected_id(), None);
+        assert_eq!(state.selected_action(), None);
+        assert_eq!(state.begin_background(now + Duration::from_secs(10)), None);
+        let recovered = state.begin_background(now + Duration::from_secs(21)).unwrap();
+        assert!(state.update(recovered, Ok(Snapshot { active: vec![], history: vec![] })));
+        assert!(!state.sync_error);
+        assert_eq!(state.detail_id, None);
+        state.close();
+        assert_eq!(state.refresh_timeout(now + Duration::from_secs(60)), None);
+        assert_eq!(state.begin_background(now + Duration::from_secs(60)), None);
+    }
+
+    #[test]
+    fn full_notification_body_is_word_wrapped_and_paged_without_truncation() {
+        let message = format!("Grüße aus München\n{}", "日本語 café ".repeat(30));
+        let lines = body_lines(&message);
+        assert!(lines.len() > BODY_LINES_PER_PAGE);
+        assert!(lines.iter().all(|line| line.chars().count() <= BODY_WIDTH));
+        assert_eq!(lines[0], "Grüße aus München");
+        assert!(lines.iter().any(|line| line.contains("café")));
+        let mut state = State::default();
+        let revision = state.begin();
+        assert!(state.update(revision, Ok(Snapshot { active: vec![Notice {
+            id: 5, body: message, ..Notice::default()
+        }], history: vec![] })));
+        assert!(state.open_detail(0));
+        assert!(state.body_page_count() > 1);
+        assert_eq!(state.hit(220.0, 104.0), Some(Hit::BodyPage(1)));
+        state.change_body_page(1);
+        assert_eq!(state.body_page, 1);
+        state.change_body_page(500);
+        assert_eq!(state.body_page, state.body_page_count() - 1);
+        state.close_detail();
+        assert_eq!(state.body_page, 0);
+        state.close();
+        assert_eq!(state.body_page_count(), 1);
+    }
+
+    #[test]
+    fn live_refresh_cannot_silently_retarget_action_or_reused_id() {
+        let now = Instant::now();
+        let make = |summary: &str, actions: Vec<Action>| Snapshot {
+            active: vec![Notice { id: 12, summary: summary.into(), app_name: "Mail".into(),
+                                   actions, ..Notice::default() }], history: vec![],
+        };
+        let action = |key: &str| Action { key: key.into(), label: key.into() };
+        let mut state = State::default();
+        let initial = state.begin();
+        assert!(state.update(initial, Ok(make("Inbox", vec![action("open"), action("delete")]))));
+        assert!(state.open_detail(0));
+        state.select_action(1);
+        let revision = state.begin_background(now + Duration::from_secs(4)).unwrap();
+        assert!(state.update(revision, Ok(make("Inbox", vec![action("delete"), action("open")]))));
+        assert_eq!(state.selected_action().unwrap().1.key, "delete");
+        let revision = state.begin_background(now + Duration::from_secs(8)).unwrap();
+        assert!(state.update(revision, Ok(make("Inbox", vec![action("open")]))));
+        assert_eq!(state.selected_action(), None); // Must select again.
+        let revision = state.begin_background(now + Duration::from_secs(12)).unwrap();
+        assert!(state.update(revision, Ok(make("Different message", vec![action("open")]))));
+        assert!(state.detail_notice().is_none()); // Numeric ID reused.
+        let revision = state.begin_background(now + Duration::from_secs(16)).unwrap();
+        assert!(state.update(revision, Ok(Snapshot { active: vec![], history: vec![] })));
+        assert_eq!(state.selected_id(), None); // No accidental new selection.
     }
 }

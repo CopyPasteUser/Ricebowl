@@ -157,6 +157,12 @@ pub struct AudioWatcher {
 }
 
 impl AudioWatcher {
+    /// A disconnected Pulse server can terminate `pactl subscribe` without
+    /// bringing down the panel. The owner may start a fresh observer later.
+    pub fn running(&mut self) -> bool {
+        matches!(self.child.try_wait(), Ok(None))
+    }
+
     pub fn start(callback: impl Fn(Audio) -> bool + Send + 'static) -> Option<Self> {
         let mut child = Command::new("pactl").arg("subscribe").env("LC_ALL", "C")
             .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null())
