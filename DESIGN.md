@@ -363,7 +363,7 @@ ever interpreted. Schema-v7 adds `type: control` with the fixed IDs
 RicePlate's bounded NetworkManager/WirePlumber worker and its existing menu
 dispatcher. Each painted button has a live, hardware-derived second line
 (`On`/`Off`, `Muted`, volume percentage or `N/A`), a visible pending/failed
-state and an AT-SPI name including the current state. Controls with no provider
+state (including a `Busy` sibling state) and an AT-SPI name including the current state. Controls with no provider
 or while another write is pending expose no AT-SPI activation and ignore
 clicks; no recipe can command arbitrary hardware. Geometry and focus remain
 stable during status changes. The Waybar fallback shows a visibly disabled

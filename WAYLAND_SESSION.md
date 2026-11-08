@@ -539,7 +539,8 @@ The native RicePlate panel and its menu share **one bounded asynchronous
 NetworkManager/WirePlumber worker**. It samples WLAN radio state separately
 from general connectivity, reads actual default-sink mute/volume and verifies
 the state after a write. A control with no provider shows `N/A`, a pending
-operation shows `Wait`, and unsuccessful readback shows `Failed`. Multiple
+operation shows `Wait` (`Busy` on other controls), and unsuccessful readback
+shows `Failed`. Multiple
 simultaneous writes are not queued; pointer, keyboard and AT-SPI activation
 use the same dispatcher. The geometry never moves when the status changes.
 The **Waybar fallback displays noninteractive `N/A` labels** with a native-only

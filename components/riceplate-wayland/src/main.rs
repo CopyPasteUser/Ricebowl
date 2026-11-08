@@ -746,6 +746,7 @@ impl RicePlate {
                             let name = if let Some(item) = control {
                                 format!("{}, {}, {}", action.label, item.state_label(&self.system_status),
                                     if self.control_pending == Some(item) { "applying" }
+                                    else if self.control_pending.is_some() { "busy" }
                                     else if self.control_result == Some((item, false)) { "failed" }
                                     else if !item.available(&self.system_status) { "unavailable" }
                                     else { "ready" })
@@ -2344,7 +2345,8 @@ fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
             Widget::Action(index) => {
                 if let Some(action) = style.actions.get(index as usize) {
                     let control = action.control.then(|| ControlAction::from_id(&action.id)).flatten();
-                    let available = control.is_none_or(|item| item.available(status));
+                    let available = control.is_none_or(|item|
+                        item.available(status) && pending.is_none());
                     if available {
                         fill_rounded_rect(canvas, width, height, placed.x + 2, 3,
                             placed.width.saturating_sub(4), height.saturating_sub(6),
@@ -2352,6 +2354,7 @@ fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
                     }
                     let second_line = control.map(|item| {
                         if pending == Some(item) { "Wait".to_string() }
+                        else if pending.is_some() { "Busy".to_string() }
                         else if result == Some((item, false)) { "Failed".to_string() }
                         else { item.state_label(status) }
                     });
@@ -4451,6 +4454,7 @@ mod tests {
         let available = render(&working, None, None);
         assert_ne!(available, unavailable);
         assert_ne!(available, render(&working, Some(ControlAction::WifiToggle), None));
+        assert_ne!(available, render(&working, Some(ControlAction::AudioMute), None));
         assert_ne!(available, render(&working, None,
                                     Some((ControlAction::WifiToggle, false))));
         let muted = SystemStatus { audio: Audio::Muted, ..working };
