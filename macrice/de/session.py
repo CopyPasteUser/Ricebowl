@@ -16,6 +16,8 @@ from contextlib import ExitStack
 from pathlib import Path
 from typing import NoReturn
 
+from . import riceprofile
+
 
 REQUIRED_TOOLS = ("labwc", "waybar", "foot", "fuzzel", "swaylock")
 DESKTOP_NAME = "RiceBowl:labwc:wlroots"
@@ -214,6 +216,11 @@ def start(
     env["RICEBOWL_DE_SESSION_CONFIG"] = str(config)
     env["RICEBOWL_DE_LIVE"] = "1"
     try:
+        riceprofile.ProfileSession.prepare(config, env, loaded_recipe or load("classic"), which=which)
+    except (OSError, riceprofile.ProfileError, ValueError):
+        _cleanup_labwc_config(env)
+        raise
+    try:
         execute(labwc, [labwc, "--config-dir", str(config), "--startup", session_command], env)
     except OSError:
         _cleanup_labwc_config(env)
@@ -279,6 +286,8 @@ class _LiveSwitch:
             except recipes.RecipeError:
                 pass
         self.menu = Path(env["RICEBOWL_DE_SESSION_CONFIG"]) / "menu.xml"
+        self.profile = (riceprofile.ProfileSession.from_environment(env)
+                        if any(key.env_key in env for key in riceprofile.CLIENTS) else None)
         self.fallback = False
 
     def status(self) -> dict:
@@ -288,7 +297,9 @@ class _LiveSwitch:
                 "can_restore": self.previous is not None,
                 "next_login_persisted": not self.nested,
                 "panel": "waybar-fallback" if self.fallback else self.mode,
-                "applied": True}
+                "applied": True,
+                "applications": self.profile.status() if self.profile else {
+                    "taskotto": "not_managed", "ricefield": "not_managed"}}
 
     def _reconfigure(self) -> None:
         binary = self.which("labwc")
@@ -358,8 +369,11 @@ class _LiveSwitch:
                         (resources() / "labwc/menu.xml").read_text(encoding="utf-8"))
             old_menu = self.menu.read_text(encoding="utf-8")
             old_digest = self.active_digest
+            prepared_profiles = self.profile.preflight(recipe) if self.profile else {}
             if not self.nested and recipes.current_selection()[0] != self.expected_selection:
                 raise LiveError("Next-login selection changed", code="selection_conflict")
+        except riceprofile.ProfileError as exc:
+            raise LiveError(str(exc), code="profile_unavailable") from exc
         except (recipes.RecipeError, OSError) as exc:
             raise LiveError("Recipe is invalid or an asset is unavailable",
                             code="invalid_recipe") from exc
@@ -367,6 +381,7 @@ class _LiveSwitch:
         new_panel = None
         new_wallpaper = None
         menu_attempted = False
+        profile_original = None
         try:
             new_wallpaper = self.spawn([wallpaper_binary, "--image", str(wallpaper_path),
                                         "--mode", "fill"], env=self.env, stdin=subprocess.DEVNULL)
@@ -377,14 +392,23 @@ class _LiveSwitch:
             menu_attempted = True
             _atomic_menu(self.menu, new_menu)
             self._reconfigure()
+            if self.profile:
+                profile_original = self.profile.commit(prepared_profiles)
             if not self.nested:
                 recipes.change_selection(token, expected_active=self.expected_selection,
                                          expected_semantic_sha256=digest)
-        except (LiveError, OSError, ValueError, subprocess.SubprocessError) as exc:
+        except (LiveError, OSError, ValueError, subprocess.SubprocessError,
+                riceprofile.ProfileError) as exc:
             if new_panel is not None:
                 _stop_process(new_panel)
             if new_wallpaper is not None:
                 _stop_process(new_wallpaper)
+            if profile_original is not None and self.profile:
+                try:
+                    self.profile.restore(profile_original)
+                except riceprofile.ProfileError as restore_error:
+                    raise LiveError("Application profile recovery failed; restart the opt-in session",
+                                    code="rollback_failed") from restore_error
             if menu_attempted:
                 try:
                     _atomic_menu(self.menu, old_menu)
@@ -394,6 +418,8 @@ class _LiveSwitch:
                                     code="rollback_failed") from restore_error
             if isinstance(exc, LiveError):
                 raise
+            if isinstance(exc, riceprofile.ProfileError):
+                raise LiveError(str(exc), code="profile_unavailable") from exc
             if isinstance(exc, recipes.SelectionConflict):
                 raise LiveError("Next-login selection changed during activation",
                                 code="selection_conflict") from exc
