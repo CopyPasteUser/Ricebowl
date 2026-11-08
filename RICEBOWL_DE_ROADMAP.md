@@ -388,6 +388,25 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   independent gates.
 - [ ] Implement usable native settings for screens, input, network, audio,
   Bluetooth, accessibility, power, timezone and user preferences.
+  **Progress (8 Nov):** Native displays now have guarded mode, scale and
+  position trials plus owner-private manually restored layout presets.
+  Session-only labwc input, GTK cursor/text/high-contrast settings and an
+  opt-in, supervised full-session Orca launcher are wired. Saved NetworkManager
+  Ethernet/Wi-Fi/VPN profiles can be activated/deactivated after confirmation;
+  active PulseAudio/PipeWire application streams support verified output
+  routing, volume and mute. NTP changes have timedated readback. Remaining:
+  **automatic** monitor layout persistence with a login-safe recovery path,
+  mixed-DPI/device/audio/assistive-technology hardware acceptance and specialized
+  client-certificate EAP-TLS or provider-specific VPN editors. **8 Nov extension:**
+  PEAP/MSCHAPv2 and TTLS/PAP/MSCHAPv2 profiles can be created natively with
+  mandatory RADIUS domain pinning and OS/custom CA trust. 802.1X secrets go
+  through `nmcli con up ... passwd-file /dev/stdin` without application storage;
+  OpenVPN/WireGuard configurations can be imported with explicit non-autoconnect.
+  The native Rust RicePlate panel now provides opt-in AccessKit/AT-SPI nodes
+  for shell/task/menu/shortcut/calendar/notifications/tray surfaces, verified
+  focus snapshots and bounded action requests routed through the existing
+  Wayland event loop (not another service). Physical Orca, focus-transfer and
+  assistive-technology device QA is still mandatory. The checkbox stays open.
 - [ ] Delegate privileged actions to polkit/system services; never add a
   privileged always-on RiceBowl daemon by default.
 - [ ] Complete native notification history and OSD, assistive semantics,
@@ -614,9 +633,11 @@ depend on the XFCE session.
   emit machine-readable diagnostics and artifacts, then support iterative
   recipe correction. Separate anti-aliasing/font tolerance from actual
   layout regressions and require functional tests alongside similarity.
-  The first per-region RGB geometry diagnostics and capture provenance are
-  implemented; perceptual/font-tolerant comparisons, reference-baseline
-  approval and automated corrective iteration are still outstanding.
+  Per-region RGB geometry diagnostics, capture provenance, bidirectional
+  1–2 px rasterization tolerance with original metrics, and explicit SHA-256-
+  pinned reference/recipe baseline approval with deterministic CLI regression
+  exit codes are implemented. Full perceptual/font-aware similarity, automated
+  corrective iteration and functional/multi-device QA remain outstanding.
 - [ ] Validate malformed/oversized recipes, missing assets, unsupported
   widgets/actions, keyboard/focus semantics and rollback before applying.
 - [ ] Port all seven styles individually while preserving names, legacy

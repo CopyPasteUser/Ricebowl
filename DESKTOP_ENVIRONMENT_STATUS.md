@@ -1,6 +1,6 @@
 # RiceBowl Desktop Environment — implementation status
 
-**As of 7 November 2026 · Experimental, opt-in · Not ready for 1.0**
+**As of 8 November 2026 · Experimental, opt-in · Not ready for 1.0**
 
 RiceBowl's target is a lightweight **floating Wayland desktop based on upstream
 labwc**, with a reusable recipe engine capable of distinct OS-inspired designs
@@ -13,11 +13,11 @@ modify global session settings.
 | Component | Verified implementation | Important gap |
 | --- | --- | --- |
 | Session / compositor | Opt-in labwc session, nested preview, Waybar fallback, startup supervision and cleanup | Physical login/relogin, recovery and power-use acceptance |
-| RicePlate panel | Native Rust layer-shell, per-output panels, window discovery and grouped task activation, launcher, menu with fixed-action search/private per-rice pins, calendar, keyboard task navigation, compact layouts and **experimental SNI tray** with live pixmaps, clickable/keyboard-reachable slots, output-local overflow and bounded nested DBusMenu context menus | Dynamic installed-app menu search, full screen-reader/accessibility semantics and real-world focus/third-party tray QA |
+| RicePlate panel | Native Rust layer-shell, per-output panels, window discovery and grouped task activation, launcher, menu with fixed-action search/private per-rice pins, calendar, keyboard task navigation, compact layouts and **experimental SNI tray** with live pixmaps, clickable/keyboard-reachable slots, output-local overflow and bounded nested DBusMenu context menus; opt-in AccessKit/AT-SPI semantic tree and event-loop actions for native controls | Dynamic installed-app menu search, physical Orca/screen-reader and third-party focus/tray QA |
 | Desktop shortcuts | Schema-v5 native shortcut surfaces, drag repositioning, owner-private **per-named-output positions**, independent multi-output reflow, hotplug, Tab/Shift-Tab | Cross-monitor drag semantics, output identity without stable names and mixed-DPI/device tests |
 | Wallpaper / appearances | Original bundled wallpapers, composable panel groups, labels, gaps, tokens, original example rices | Full desktop widgets, rich layout primitives, complete cross-app window decorations |
 | Hardware indicators | Kernel-backed battery; NetworkManager connectivity and WirePlumber sink status on a bounded worker | Device picker, Bluetooth status, event subscriptions and finer status detail |
-| RiceSpice controls | Allowlisted native-menu Wi-Fi/volume/mute; on-demand GTK settings hub with audio sink/source defaults, MPRIS media transport controls, Wi-Fi scan/visible-network selection plus transient WPA-Personal password entry, BlueZ paired-device and adapter controls, power-profile selection/battery state, polkit-gated system timezone selection, lock/confirmed suspend and next-login rice choice | Wi-Fi enterprise/EAP enrollment, VPN/Ethernet editors, fully native display/input/accessibility editors (presently delegated), NTP/clock editing, per-stream routing and physical hardware/AT QA |
+| RiceSpice controls | Native-menu Wi-Fi/volume/mute; GTK settings hub with audio defaults, MPRIS and verified per-app sink/volume/mute; Wi-Fi scan/WPA-Personal, saved Ethernet/Wi-Fi/VPN profile activation, secure PEAP/TTLS creation/one-time EAP credentials and OpenVPN/WireGuard configuration import; BlueZ/power/timezone/NTP/manual clock, lock/suspend and next-login rice; wlroots mode/scale/X-Y trials with independent rollback and private manually recalled presets; labwc input, GTK cursor/text/high-contrast and supervised optional Orca launch | EAP-TLS client-certificate/manual vendor VPN authoring (delegated editor), automatic monitor preset restore at login and physical network/audio/monitor/AT QA |
 | RicePop notifications/OSD | Opt-in native three-row Active/Past tabs in RicePlate, bounded keyboard/pointer selection, on-demand refresh and ID-bound dismissal **only** for active alerts, using Mako as the existing owner; transient input-transparent native volume OSD after explicitly selected RicePlate audio actions | External multimedia-key/volume-change OSD triggers, rich actions, native notification owner and non-Mako backends; physical accessibility QA |
 | Session safety | Opt-in session, user polkit agent when installed, optional Mako/swayidle/swaylock, compositor exit cleanup | Complete suspend/resume and hardware recovery acceptance |
 | Creator authoring | Schema-v1–v6 validation, offline private draft edits, reusable panel groups/labels/gaps/dividers, component catalog and API inventory, nested native render/capture and visual comparisons | Broad desktop composition, complete action/state bindings, high-fidelity mockup conversion |
@@ -63,13 +63,37 @@ non-clickable; the separate validated native-menu actions perform changes.
   bounded workers. Wi-Fi joins use only the currently visible NetworkManager
   inventory; WPA-Personal entry is masked and sent to NetworkManager via
   the existing stdin-only helper, never shell arguments or stored app secrets.
-  Enterprise authentication remains delegated. Missing power-profile services
-  are shown as unavailable. Audio-device and media-player discovery fail
-  independently; absent media players never cause invented playback state. The
-  date/time page selects only timezones returned by timedated, verifies the
-  polkit-gated change and retains an optional installed editor fallback. Display,
-  input and accessibility pages currently hand off to installed
-  system editors, reporting absent editors. No custom recipe commands or
+  Existing NetworkManager Ethernet, VPN and Wi-Fi profiles are displayed with
+  real UUID-based activation, stale-state protection and explicit confirmation.
+  New PEAP/TTLS password profiles require a RADIUS domain and system or custom
+  CA trust; an ephemeral stdin-only password activates a reviewed, supported
+  profile without persisting secrets. OpenVPN `.ovpn` and WireGuard `.conf`
+  files can be imported into inactive NetworkManager profiles. Complex EAP-TLS
+  client certificate and manual provider-specific VPN editing remains with the
+  installed system editor.
+  Missing power-profile services are shown as unavailable. Audio-device,
+  active application playback stream and media-player discovery fail
+  independently; each stream supports verified output, volume and mute controls.
+  The
+  date/time page selects only timezones returned by timedated, exposes verified
+  system-wide NTP state/actions and a confirmed manual local clock editor
+  when synchronization is off; polkit-gated changes are checked. Displays
+  now read real active outputs from `wlr-randr`;
+  their advertised mode, bounded scale and X/Y position can be tried with a
+  detached 18-second rollback guard. Private saved layouts are manually
+  recalled under the same guard, never forced at login. Enabling/disabling
+  monitors and automatic persistence are not claimed. Input and limited accessibility
+  settings are validated and saved in an owner-private file, then added to a
+  private labwc config at the next opt-in session start (pointer/touchpad,
+  keyboard repeat, cursor size, GTK text scale and optional high-contrast theme).
+  The full RiceBowl session can optionally supervise an installed Orca reader;
+  missing Orca is reported. The same opt-in flag activates RicePlate's native
+  AccessKit/AT-SPI tree for its layer-shell controls with actionable elements,
+  actual keyboard-focus reporting, menu and calendar, notices and live tray.
+  AT clients never supply commands and requests run in the Wayland event loop.
+  Physical Orca testing is still required before claiming screenreader signoff.
+  No global XFCE or labwc user configuration is changed; neither complete
+  assistive technology nor cross-toolkit scaling is claimed. No custom recipe commands or
   privileged daemon.
 - **RicePop** delegates delivery to the installed Mako host. The optional
   native menu queries active and past notifications only when opened/refreshed,
@@ -146,16 +170,20 @@ The next substantial release gates, in recommended order:
 1. Validate native SNI/DBusMenu rendering, focus and third-party menu semantics
    on real multi-monitor hardware, then add any missing screen-reader/AT
    support. Host-rendered nested menus and panel tray keyboard focus now exist.
-2. Complete RiceSpice's remaining delegated system editors as native pages,
-   then verify device selectors, permission/error recovery and suspend/lock on
-   actual hardware (an on-demand settings hub already exists).
+2. Expand RiceSpice's limited new display and assistive controls to monitor
+   arrangement/persistence, genuinely usable screen-reader flows and missing
+   system editors; then verify devices, rollback, permission/error recovery,
+   and suspend/lock on physical hardware (the on-demand hub already exists).
 3. Hook the native RicePop volume OSD into hardware multimedia-key/external
    volume events; enrich notification presentation and accessibility semantics
    without a duplicate owner or private-message replay. The on-demand
    Active/Past view and explicit RicePlate-action OSD are implemented.
 4. Complete safe RicePacks with licensed asset manifests, broader composition,
    reproducible visual/functional QA and **explicit transactional live
-   apply/restore** across all affected components.
+   apply/restore** across all affected components. Approved recipe/reference
+   SHA-256 baselines and a bounded rasterization-tolerant screenshot regression
+   gate now exist; human baseline review, visual fidelity and input QA remain
+   necessary.
 5. Actual multi-monitor/mixed-DPI/input/assistive QA on Linux Mint and
    representative Wayland setups; measure idle PSS/RSS/CPU and launch time.
 

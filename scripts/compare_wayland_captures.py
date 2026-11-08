@@ -23,19 +23,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("reference", type=Path)
     parser.add_argument("actual", type=Path)
     parser.add_argument("--threshold", type=int, default=24)
+    parser.add_argument("--tolerance-radius", type=int, default=0)
     parser.add_argument("--recipe", help="Validated bundled, imported or private rice recipe")
     parser.add_argument("--overlay", type=Path, help="New private PNG showing blended differences")
     parser.add_argument("--heatmap", type=Path, help="New private PNG highlighting RGB differences")
+    parser.add_argument("--tolerant-heatmap", type=Path, help="New PNG of unexcused differences")
+    parser.add_argument("--baseline", type=Path, help="Approved private visual regression policy")
     args = parser.parse_args(argv)
     try:
-        result = {"ok": True, **compare(args.reference, args.actual,
-                                          threshold=args.threshold, recipe_token=args.recipe,
-                                          overlay=args.overlay, heatmap=args.heatmap)}
+        report = compare(args.reference, args.actual,
+                         threshold=args.threshold, recipe_token=args.recipe,
+                         overlay=args.overlay, heatmap=args.heatmap,
+                         tolerance_radius=args.tolerance_radius,
+                         tolerant_heatmap=args.tolerant_heatmap, baseline=args.baseline)
+        result = {"ok": report.get("baseline", {}).get("passed", True), **report}
     except ValueError as exc:
         result = {"ok": False, "error": {"code": "invalid_capture_or_recipe",
                                         "message": str(exc)}}
     print(json.dumps(result, sort_keys=True))
-    return 0 if result["ok"] else 2
+    return 0 if result["ok"] else (3 if "baseline" in result else 2)
 
 
 if __name__ == "__main__":

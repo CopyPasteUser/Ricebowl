@@ -4,7 +4,9 @@
 use std::{error::Error, os::fd::AsFd, process::Command, sync::mpsc, time::{Duration, Instant}};
 
 use chrono::{Datelike, Local, Timelike};
+use accesskit::{ActionRequest, Role as AccessibleRole};
 use font8x8::{UnicodeFonts, BASIC_FONTS};
+mod accessibility;
 mod calendar;
 mod desktop_layout;
 mod icon_positions;
@@ -368,10 +370,25 @@ fn main() -> Result<(), Box<dyn Error>> {
         closed: false,
         frame_pending: false,
         needs_redraw: false,
+        accessibility: None,
     };
     if preview_menu && !preview_secondary_menu { app.set_menu_visible(true, &qh); }
     if preview_calendar && !preview_secondary_calendar {
         app.set_calendar_visible(true, &qh);
+    }
+    // Keep the native AT-SPI bridge entirely opt-in: the normal lightweight
+    // panel never starts an accessibility D-Bus client or background executor.
+    if std::env::var("RICEBOWL_DE_SCREEN_READER").as_deref() == Ok("1")
+        && std::env::var("RICEBOWL_DE_NESTED").as_deref() != Ok("1") {
+        let (sender, receiver) = channel::channel::<ActionRequest>();
+        app.accessibility = Some(accessibility::Bridge::new(app.accessibility_model(),
+            move |request| { let _ = sender.send(request); }));
+        let action_qh = qh.clone();
+        event_loop.handle().insert_source(receiver, move |event, _, app: &mut RicePlate| {
+            if let channel::Event::Msg(request) = event {
+                app.handle_accessibility_action(&request, &action_qh);
+            }
+        })?;
     }
     if let Some(fd) = tray_fd {
         let redraw_qh = qh.clone();
@@ -463,6 +480,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         let timeout = osd_timeout.map_or_else(next_clock_timeout,
             |remaining| remaining.min(next_clock_timeout()));
         event_loop.dispatch(Some(timeout), &mut app)?;
+        if app.accessibility.is_some() {
+            let model = app.accessibility_model();
+            if let Some(bridge) = app.accessibility.as_mut() {
+                bridge.sync(model);
+            }
+        }
         if app.osd_state.expire(Instant::now()) { app.hide_osd(); }
         let current = clock_now();
         if app.clock != current {
@@ -611,9 +634,315 @@ struct RicePlate {
     closed: bool,
     frame_pending: bool,
     needs_redraw: bool,
+    accessibility: Option<accessibility::Bridge>,
 }
 
 impl RicePlate {
+    fn accessibility_model(&self) -> accessibility::Model {
+        use accessibility::{Model, Target, ROOT};
+
+        let mut model = Model::new();
+        let groups = self.grouped_tasks();
+        let panels = std::iter::once((self.width, self.task_offset))
+            .chain(self.mirrors.iter().map(|panel| (panel.width, panel.task_offset)));
+        for (panel_index, (width, offset)) in panels.enumerate() {
+            if width == 0 { continue; }
+            let base = 10_000 + panel_index as u64 * 500;
+            model.add(base, ROOT, AccessibleRole::Toolbar,
+                      format!("RicePlate panel on monitor {}", panel_index + 1), None);
+            let widgets = recipe::layout(&self.recipe, width, groups.len());
+            for placed in widgets.into_iter().filter(|item| item.x < width) {
+                match placed.widget {
+                    Widget::Launcher => model.add(base + 1, base, AccessibleRole::Button,
+                        "Open applications", Some(Target::Launcher(panel_index))),
+                    Widget::Clock => model.add(base + 2, base, AccessibleRole::Button,
+                        format!("Clock {}, open calendar", self.clock), Some(Target::Clock)),
+                    Widget::Tasks => {
+                        if let Some(view) = recipe::task_view(
+                            &self.recipe, width, groups.len(), offset) {
+                            for index in view.start..(view.start + view.slots).min(groups.len()) {
+                                let group = &groups[index];
+                                model.add(base + 100 + index as u64, base, AccessibleRole::Button,
+                                    format!("{}{}", group.label,
+                                            if group.active { ", active" } else { "" }),
+                                    Some(Target::Task(index)));
+                            }
+                        }
+                    }
+                    Widget::Tray => {
+                        for slot in 0..self.tray_keyboard_slots() {
+                            let (label, action) = if let Some(item) = self.tray_state.item_at(slot) {
+                                (format!("System tray: {}", item.title), Some(Target::Tray(slot)))
+                            } else if self.tray_state.overflow_count() > 0 {
+                                (format!("{} more tray icons", self.tray_state.overflow_count()),
+                                 Some(Target::Tray(slot)))
+                            } else { continue };
+                            model.add(base + 300 + slot as u64, base,
+                                      AccessibleRole::Button, label, action);
+                        }
+                    }
+                    Widget::Network => model.add(base + 5, base, AccessibleRole::Status,
+                        format!("Network: {}", self.system_status.network.label()), None),
+                    Widget::Audio => model.add(base + 6, base, AccessibleRole::Status,
+                        format!("Audio: {}", self.system_status.audio.label()), None),
+                    Widget::Battery => model.add(base + 7, base, AccessibleRole::Status,
+                        format!("Battery: {}", self.power.label()), None),
+                    Widget::Label(index) => {
+                        if let Some(label) = self.recipe.labels.get(index as usize) {
+                            model.add(base + 20 + index as u64, base,
+                                      AccessibleRole::Label, label.clone(), None);
+                        }
+                    }
+                    Widget::Gap(_) | Widget::Divider(_) => {}
+                }
+            }
+        }
+        if self.icon_layers.iter().any(|layer| layer.placed.is_some()) {
+            model.add(30_000, ROOT, AccessibleRole::Group, "Desktop shortcuts", None);
+            for (index, icon) in self.icon_layers.iter().enumerate() {
+                if icon.placed.is_none() { continue; }
+                if let Some(item) = self.recipe.desktop_icons.get(icon.recipe_index) {
+                    model.add(30_100 + index as u64, 30_000, AccessibleRole::Button,
+                              item.label.clone(), Some(Target::DesktopIcon(index)));
+                }
+            }
+        }
+        if self.menu_state.visible && self.active_menu.is_some() {
+            if self.notification_state.open {
+                model.add(22_000, ROOT, AccessibleRole::Dialog, "Notifications", None);
+                model.add(22_100, 22_000, AccessibleRole::Tab,
+                          format!("Active notifications: {}", self.notification_state.notices.len()),
+                          Some(Target::NotificationTab(false)));
+                model.add(22_101, 22_000, AccessibleRole::Tab,
+                          format!("Past notifications: {}", self.notification_state.history.len()),
+                          Some(Target::NotificationTab(true)));
+                if self.notification_state.loading {
+                    model.add(22_150, 22_000, AccessibleRole::Status, "Loading notifications", None);
+                } else if let Some(error) = self.notification_state.error {
+                    model.add(22_150, 22_000, AccessibleRole::Alert, error, None);
+                } else {
+                    for (index, notice) in self.notification_state.visible_notices().iter()
+                        .enumerate().skip(self.notification_state.first_row())
+                        .take(ricepop::VISIBLE_ROWS) {
+                        model.add(22_200 + index as u64, 22_000,
+                                  AccessibleRole::Button, notice.summary.clone(),
+                                  Some(Target::NotificationSelect(index)));
+                        if let Some(node) = model.elements.last_mut() {
+                            node.description = Some(notice.body.chars()
+                                .filter(|character| !character.is_control())
+                                .take(512).collect());
+                        }
+                    }
+                }
+                model.add(22_900, 22_000, AccessibleRole::Button,
+                          "Back to menu", Some(Target::NotificationBack));
+                model.add(22_901, 22_000, AccessibleRole::Button,
+                          "Refresh notifications", Some(Target::NotificationRefresh));
+                if let Some(id) = self.notification_state.selected_id() {
+                    model.add(22_902, 22_000, AccessibleRole::Button,
+                              "Dismiss selected notification", Some(Target::NotificationDismiss(id)));
+                }
+                if self.menu_focused {
+                    model.focus = 22_200 + self.notification_state.selected as u64;
+                }
+            } else if let Some(menu) = self.recipe.menu.as_ref() {
+                model.add(20_000, ROOT, AccessibleRole::Menu, menu.title.clone(), None);
+                for (index, group) in menu.groups.iter().enumerate() {
+                    model.add(20_100 + index as u64, 20_000, AccessibleRole::Tab,
+                              group.title.clone(), Some(Target::MenuGroup(index)));
+                }
+                for (index, action) in self.menu_state.actions(menu).into_iter().enumerate()
+                    .skip(self.menu_state.first_action_row()).take(native_menu::VISIBLE_ACTIONS) {
+                    let enabled = action != "logout" || logout_available();
+                    model.add(20_500 + index as u64, 20_000, AccessibleRole::Button,
+                              native_menu::action_label(action),
+                              enabled.then(|| Target::MenuAction(action.to_string())));
+                }
+                model.add(20_980, 20_000, AccessibleRole::Label,
+                          if self.menu_state.view == native_menu::View::Search {
+                              format!("Searching for {}. Type to refine; Backspace removes a letter",
+                                      self.menu_state.search)
+                          } else { "Type to search; F2 pins; F3 shows saved actions".to_string() },
+                          None);
+                model.add(20_990, 20_000, AccessibleRole::Button,
+                          "Show saved actions", Some(Target::MenuSaved));
+                model.add(20_999, 20_000, AccessibleRole::Button,
+                          "Close menu", Some(Target::MenuClose));
+                if self.menu_focused { model.focus = 20_500 + self.menu_state.selected as u64; }
+            }
+        }
+        if self.calendar_state.visible && self.active_calendar.is_some() {
+            model.add(40_000, ROOT, AccessibleRole::Dialog,
+                      format!("Calendar {}", self.calendar_state.month.format("%B %Y")), None);
+            model.add(40_100, 40_000, AccessibleRole::Button,
+                      "Previous month", Some(Target::CalendarPrevious));
+            model.add(40_101, 40_000, AccessibleRole::Button,
+                      "Next month", Some(Target::CalendarNext));
+            model.add(40_102, 40_000, AccessibleRole::Button,
+                      "Go to today", Some(Target::CalendarToday));
+            for (index, (day, in_month)) in self.calendar_state.cells().iter().enumerate() {
+                let selected = *day == self.calendar_state.selected;
+                model.add(40_200 + index as u64, 40_000, AccessibleRole::Button,
+                          format!("{}{}{}", day.format("%A %d %B %Y"),
+                                  if selected { ", selected" } else { "" },
+                                  if !in_month { ", adjacent month" } else { "" }),
+                          Some(Target::CalendarDay(*day)));
+                if self.calendar_focused && selected {
+                    model.focus = 40_200 + index as u64;
+                }
+            }
+        }
+        if self.tray_menu_state.visible && self.active_tray_popup.is_some() {
+            model.add(51_000, ROOT, AccessibleRole::Menu,
+                      self.tray_menu_state.title.clone(), None);
+            for (index, row) in self.tray_menu_state.rows().iter().enumerate()
+                .skip(self.tray_menu_state.first).take(tray::POPUP_ROWS) {
+                model.add(51_100 + index as u64, 51_000,
+                          AccessibleRole::MenuItem,
+                          if row.label.is_empty() { "Separator".to_string() }
+                          else { row.label.clone() },
+                          row.selectable().then_some(Target::TrayMenuRow(index)));
+            }
+            model.add(51_900, 51_000, AccessibleRole::Button,
+                      "Back", Some(Target::TrayMenuBack));
+            model.add(51_901, 51_000, AccessibleRole::Button,
+                      "Previous page", Some(Target::TrayMenuPage(-1)));
+            model.add(51_902, 51_000, AccessibleRole::Button,
+                      "Next page", Some(Target::TrayMenuPage(1)));
+            model.add(51_903, 51_000, AccessibleRole::Button,
+                      "Close tray menu", Some(Target::TrayMenuClose));
+            if self.tray_popup_focused {
+                model.focus = 51_100 + self.tray_menu_state.selected as u64;
+            }
+        } else if self.tray_popup_state.visible && self.active_tray_popup.is_some() {
+            model.add(50_000, ROOT, AccessibleRole::Dialog, "System tray overflow", None);
+            for index in self.tray_popup_state.first..
+                (self.tray_popup_state.first + tray::POPUP_ROWS).min(self.tray_state.entries.len()) {
+                model.add(50_100 + index as u64, 50_000, AccessibleRole::Button,
+                          self.tray_state.entries[index].title.clone(),
+                          Some(Target::TrayPopupItem(index)));
+            }
+            model.add(50_900, 50_000, AccessibleRole::Button,
+                      "Previous tray page", Some(Target::TrayPopupPage(-1)));
+            model.add(50_901, 50_000, AccessibleRole::Button,
+                      "Next tray page", Some(Target::TrayPopupPage(1)));
+            model.add(50_902, 50_000, AccessibleRole::Button,
+                      "Close tray", Some(Target::TrayPopupClose));
+            if self.tray_popup_focused {
+                model.focus = 50_100 + self.tray_popup_state.selected as u64;
+            }
+        }
+        if model.focus == accessibility::ROOT {
+            if let Some(surface) = self.focused_panel.as_ref() {
+                if let Some((mirror, _, _)) = self.panel_geometry(surface) {
+                    let base = 10_000 + mirror.map_or(0, |index| index + 1) as u64 * 500;
+                    model.focus = match self.focused_target {
+                        Some(KeyboardTarget::Launcher) => base + 1,
+                        Some(KeyboardTarget::Task(index)) => base + 100 + index as u64,
+                        Some(KeyboardTarget::Tray(index)) => base + 300 + index as u64,
+                        None => base,
+                    };
+                }
+            } else if let Some(index) = self.focused_icon {
+                if self.keyboard_icon_surface.is_some() {
+                    model.focus = 30_100 + index as u64;
+                }
+            }
+        }
+        model.window_focused = self.menu_focused || self.calendar_focused
+            || self.tray_popup_focused || self.focused_panel.is_some()
+            || self.keyboard_icon_surface.is_some();
+        model
+    }
+
+    fn handle_accessibility_action(&mut self, request: &ActionRequest,
+                                   qh: &QueueHandle<Self>) {
+        use accessibility::Target;
+        // An action from an old AT-SPI snapshot must not be rebound to a
+        // different window, menu entry or notification after a state change.
+        let old = self.accessibility.as_ref().and_then(|bridge| bridge.action_for(request));
+        if old.is_none() || old != self.accessibility_model().action_for(request) { return; }
+        match old.unwrap() {
+            Target::Launcher(panel) => self.activate_launcher(
+                if panel == 0 { None } else { Some(panel - 1) }, qh),
+            Target::Task(index) => self.activate_group(index),
+            Target::Clock => self.toggle_calendar_for_panel(None, qh),
+            Target::DesktopIcon(index) => {
+                if let Some(icon) = self.icon_layers.get(index) {
+                    if let Some(item) = self.recipe.desktop_icons.get(icon.recipe_index) {
+                        let action = item.action.clone();
+                        self.activate_action(&action, qh);
+                    }
+                }
+            }
+            Target::Tray(slot) => {
+                if slot == tray::VISIBLE_ITEMS - 1 && self.tray_state.overflow_count() > 0 {
+                    self.toggle_tray_popup_for_panel(None, qh);
+                } else {
+                    let surface = self.layer.wl_surface().clone();
+                    let position = self.tray_screen_position(&surface, (0.0, 0.0));
+                    self.activate_tray_item(slot, BTN_LEFT, position, &surface, qh);
+                }
+            }
+            Target::MenuGroup(index) => {
+                self.menu_state.open_group(index);
+                self.redraw_menu(qh);
+            }
+            Target::MenuAction(action) => self.activate_action(&action, qh),
+            Target::MenuClose => self.set_menu_visible(false, qh),
+            Target::MenuSaved => {
+                self.menu_state.show_saved();
+                self.redraw_menu(qh);
+            }
+            Target::CalendarPrevious => { self.calendar_state.shift(-1); self.redraw_calendar(qh); }
+            Target::CalendarNext => { self.calendar_state.shift(1); self.redraw_calendar(qh); }
+            Target::CalendarToday => {
+                self.calendar_state.go_today(Local::now().date_naive());
+                self.redraw_calendar(qh);
+            }
+            Target::CalendarDay(day) => {
+                self.calendar_state.select(day);
+                self.redraw_calendar(qh);
+            }
+            Target::NotificationTab(history) => {
+                self.notification_state.select_tab(history);
+                self.redraw_menu(qh);
+            }
+            Target::NotificationSelect(index) => {
+                self.notification_state.selected = index;
+                self.redraw_menu(qh);
+            }
+            Target::NotificationRefresh => self.request_notifications(None, qh),
+            Target::NotificationDismiss(id) => {
+                if self.notification_state.selected_id() == Some(id) {
+                    self.request_notifications(Some(id), qh);
+                }
+            }
+            Target::NotificationBack => {
+                self.notification_state.close();
+                self.redraw_menu(qh);
+            }
+            Target::TrayPopupItem(index) => {
+                if let Some(surface) = self.active_tray_popup.clone() {
+                    let position = self.tray_screen_position(&surface, (44.0, 60.0));
+                    self.activate_tray_entry(index, BTN_LEFT, position, &surface, qh);
+                }
+            }
+            Target::TrayPopupClose => self.set_tray_popup_visible(false, qh),
+            Target::TrayPopupPage(delta) => {
+                self.tray_popup_state.page(delta as isize, self.tray_state.entries.len());
+                self.redraw_tray_popup();
+            }
+            Target::TrayMenuRow(index) => self.choose_tray_menu_row(index, qh),
+            Target::TrayMenuBack => self.back_tray_menu(qh),
+            Target::TrayMenuClose => self.set_tray_popup_visible(false, qh),
+            Target::TrayMenuPage(delta) => {
+                self.tray_menu_state.page(delta as isize);
+                self.redraw_tray_popup();
+            }
+        }
+    }
+
     fn tray_keyboard_slots(&self) -> usize {
         self.tray_state.visible_count() + usize::from(self.tray_state.overflow_count() > 0)
     }

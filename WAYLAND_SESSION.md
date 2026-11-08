@@ -78,10 +78,95 @@ PulseAudio-compatible sound server and BlueZ; changes are explicitly selected,
 bounded and verified, and may still require authorization. Suspend requests
 use logind after confirmation; **nested preview sessions disable suspend**.
 The appearance page only selects a rice for the *next* Wayland login. Missing
-services and unverified operations show an error. Display/input/accessibility/
-time preferences still launch a supported installed system editor if available;
-no native RiceSpice implementation is claimed for those pages yet. Do not
-change network, Bluetooth or power settings during an important remote session.
+services and unverified operations show an error. Date/time offers a native,
+searchable system-timezone selector and explicit automatic time synchronization
+toggle through timedated (system-wide, authorization required). When NTP is off,
+the page also offers a confirmed `YYYY-MM-DD HH:MM:SS` local system-clock editor;
+incorrect system time can disrupt TLS, login and logging, so test carefully.
+
+**Displays** reads actual active wlroots outputs using `wlr-randr`. It offers
+only advertised modes, conservative scale options and bounded X/Y positions. Every trial starts an
+independent 18-second rollback helper; click **Keep these display settings**
+while the display is usable or the original values are restored even if the
+RiceSpice window crashes. An owner-private `ricespice-displays.json` layout
+can be saved, forgotten or restored **one display at a time**, each through a
+new guarded trial. It is not auto-applied at login to avoid lockout when docks
+and displays change. Enabling/disabling outputs is intentionally unsupported;
+running from XFCE shows an optional installed external editor instead.
+
+**Input** stores bounded pointer speed, natural scrolling, touchpad tap-to-click
+and keyboard-repeat choices in a private `~/.config/ricebowl/ricespice.json`
+(`XDG_CONFIG_HOME` respected). The next opt-in labwc session copies its XML
+into a private temporary session directory and applies these values; it does
+not edit `~/.config/labwc` or XFCE. **Accessibility** offers cursor size and
+GTK text scaling or a high-contrast GTK theme at the next RiceBowl login.
+Cursor-theme support varies; Qt/Electron applications and RicePlate are not
+scaled by GTK settings. You can also request startup of installed **Orca**;
+RiceBowl supervises it only in a full, non-nested opt-in session. This does
+also enable an **AccessKit/AT-SPI bridge within the native RicePlate panel**:
+the visible panel, task groups, menu, desktop shortcuts, calendar,
+notifications and system tray expose named nodes, real focus and safe actions.
+Actions are handled on RicePlate's existing Wayland event thread. It does
+**not** install Orca or provide a magnifier; actual screenreader focus and
+multi-monitor assistive-technology behavior still require physical QA.
+Legacy private preference JSON migrates to v2.
+The X11/XFCE desktop never receives the new display/input preferences.
+The network page also provides an enterprise WLAN profile form for
+PEAP/MSCHAPv2 and TTLS/PAP or TTLS/MSCHAPv2: enter the real Wi-Fi SSID,
+network username and **administrator-confirmed authentication-server domain**.
+The system trust store (or an explicit CA certificate) must validate the
+server; RiceSpice does not offer an unsafe bypass. Creating the profile does
+not activate it. Use **Connect with 802.1X password** to supply a one-time
+password to NetworkManager via `passwd-file /dev/stdin`; it is not placed
+in process arguments or the RiceSpice configuration. The UI can import an
+existing `.ovpn` OpenVPN or `.conf` WireGuard file with autoconnect disabled.
+For EAP-TLS client certificates or uncommon provider-specific VPN settings,
+use the system NetworkManager connection editor. The sound page exposes active per-application output,
+volume and mute with stale-state verification; streams that disappear during
+the request must be refreshed.
+Hardware and assistive-technology testing is still necessary. Do not change
+network, Bluetooth or power settings during an important remote session.
+
+On the dedicated Wayland/Orca acceptance run: enable Screen reader in
+RiceSpice Accessibility, log out/in to the *native* RicePlate session and
+verify Orca announces the launcher, task buttons, tray/overflow context
+menus, grouped menu actions, calendar days and notifications. Check Tab,
+Arrow, Return, Escape, selected/focus changes, closing/reopening dialogs,
+and moving between two outputs without duplicate/stale announcements.
+Check that disabling the preference or starting a nested preview does not
+start a background AT-SPI bridge. For Enterprise Wi-Fi, test valid CA/server
+names, rejected fake certificates, incorrect passwords, network loss,
+profile reactivation after relogin and VPN import on supported NetworkManager
+plugins; do not run network-disruption tests over the only remote connection.
+
+Manual RiceSpice acceptance before 1.0:
+
+1. In XFCE, open `ricebowl de settings`: Displays must not attempt any
+   `wlr-randr` write. Verify that saving Input does not modify XFCE or
+   `~/.config/labwc` and that Accessibility alone does not override input.
+2. In a nested RiceBowl Wayland preview, inspect an active output. Try a
+   different advertised mode/scale/position; **do not confirm** and verify the original
+   state returns after 18 seconds. Repeat while closing RiceSpice during the
+   trial, then test explicit confirmation. Save a layout preset and try to
+   restore it; each output must require a new confirmation. Verify unavailable/
+   disconnected outputs cannot be selected, and try real mixed-DPI/hotplug hardware.
+3. Set touchpad speed/tap and keyboard repeat, log out and back into the
+   opt-in RiceBowl session, verify the real device behavior, then use the
+   **Restore inherited settings** button and re-test. Compare with XFCE.
+4. Verify cursor size/text scaling/high contrast with installed GTK themes.
+   Enable Orca only in a full RiceBowl session; verify reader launch, clean
+   shutdown, native RicePlate gaps and keyboard navigation separately.
+5. Check that NTP reflects timedated's actual state. With authorization,
+   toggle it and verify the readback; test denial and unavailable-service
+   states without claiming success. Only after saving/restoring correct time,
+   test the manual clock editor with NTP disabled, including invalid dates.
+   **These changes affect the whole system.**
+6. Connect/disconnect a saved Ethernet, VPN and enterprise Wi-Fi profile only
+   from a safe physical console; verify readback, timeout and permission denial.
+   Confirm the external editor handles credentials without leaking them.
+7. Start audio in two programs and move/mute/change volume on one stream;
+   verify the other is unaffected. Unplug an audio sink while RiceSpice is open,
+   then verify stale operations report errors and the active session survives.
 
 ### RicePlate layout recipes (first data-only contract)
 
@@ -468,13 +553,44 @@ heatmap amplifies changed pixels. Both outputs are new, private `0600` files,
 and the source images and recipe are never modified. Reference and actual
 must have the same dimensions, be PNG and fit the 16-megapixel safety bound.
 
+For font and antialiasing jitter, `--tolerance-radius 1` (or at most `2`)
+adds **separate** metrics that ignore bounded local RGB shifts *in both
+directions*; the original raw pixel score is always preserved. A tolerance
+radius is not a perceptual score and does not certify functional fidelity.
+`--tolerant-heatmap /absolute/new.png` saves only the remaining differences.
+After reviewing a known-good real screenshot, you can explicitly create a
+private, versioned QA baseline pinned to its PNG SHA-256, recipe semantic
+fingerprint and exact image size:
+
+```bash
+ricebowl de visual-baseline \
+  --reference "$HOME/reference.png" --recipe "$HOME/my-desktop.json" \
+  --output "$HOME/my-desktop-baseline.json" \
+  --tolerance-radius 1 --threshold 24 --max-changed-ratio 0.01 \
+  --approve-reference --json
+ricebowl de visual-compare \
+  --reference "$HOME/reference.png" --actual "$HOME/riceplate-actual.png" \
+  --recipe "$HOME/my-desktop.json" --baseline "$HOME/my-desktop-baseline.json" \
+  --tolerant-heatmap "$HOME/remaining-differences.png" --json
+```
+
+The second command exits `0` on a passing image-and-layout gate, `3` when
+the captured image exceeds the approved difference limit or icons collide
+with a panel, and `2` on malformed, changed, wrong-size or mismatched inputs.
+The baseline's tolerance overrides normal comparison defaults; it cannot be
+overridden while gating. A reference or recipe change requires a **new human
+approval**, not silent baseline updates. These gates should run at every
+target resolution/scale with a separately approved reference. They cannot
+replace keyboard, live-action, assistive-technology or actual-device tests.
+
 Native CI now captures the *same running shell* at 1024×768, 1366×768 and
 1920×1080 plus a 1.25-scale case. The downloadable build artifact includes
 the actual compositor PNGs and a `capture-manifest.json` with hashes, recipe,
 scale and inspected geometry. A self-comparison in CI checks only geometry;
 it is **not** a similarity score or a replacement for a manually approved
-reference. Real-hardware mixed-DPI/multi-output behavior, font tolerance,
-visual baseline sign-off and functional keyboard testing remain open.
+reference. A user-approved baseline gate is now available separately; no
+golden screenshots have been automatically approved. Real-hardware mixed-DPI,
+multi-output, visual fidelity and functional keyboard QA remain open.
 
 #### Portable Wayland RicePacks and Creator API (experimental)
 

@@ -6,7 +6,12 @@ Pillow is an optional dependency loaded only when explicitly comparing images.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import math
 import os
+import re
+import stat
 from pathlib import Path
 
 from . import recipes, review
@@ -22,6 +27,7 @@ def _metrics(diff, *, threshold: int) -> dict:
     changed = sum(1 for rgb in pixels if max(rgb) > threshold)
     return {
         "mean_absolute_rgb_error": round(error_sum / (width * height * 3), 4),
+        "changed_pixels": changed,
         "changed_pixel_ratio": round(changed / (width * height), 6),
         "identical": error_sum == 0,
     }
@@ -92,18 +98,166 @@ def _save_private_png(image, path: Path) -> None:
         raise
 
 
+def _tolerant_difference(before, after, radius: int):
+    """Two-way local RGB envelope: tolerate small rasterization shifts, not missing shapes.
+
+    Both directions matter: matching only the actual pixels to the reference
+    would silently accept a missing thin line or glyph.
+    """
+    from PIL import Image, ImageChops, ImageFilter
+
+    if radius == 0:
+        return ImageChops.difference(before, after)
+
+    def distance(source, target):
+        result = []
+        for channel, tested in zip(source.split(), target.split()):
+            low = channel.filter(ImageFilter.MinFilter(2 * radius + 1))
+            high = channel.filter(ImageFilter.MaxFilter(2 * radius + 1))
+            result.append(ImageChops.lighter(ImageChops.subtract(low, tested),
+                                            ImageChops.subtract(tested, high)))
+        return Image.merge("RGB", result)
+
+    return ImageChops.lighter(distance(before, after), distance(after, before))
+
+
+def _private_json(path: Path) -> dict:
+    if not path.is_absolute() or path.suffix.lower() != ".json":
+        raise ValueError("Baseline must be an absolute private .json file")
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(fd, "rb") as stream:
+            info = os.fstat(stream.fileno())
+            if (not stat.S_ISREG(info.st_mode) or info.st_size > 4096
+                    or info.st_uid != os.getuid() or info.st_mode & 0o077):
+                raise ValueError("Baseline must be an owner-private small regular file")
+            data = json.loads(stream.read())
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("Baseline cannot be safely read") from exc
+    if not isinstance(data, dict):
+        raise ValueError("Baseline must be a JSON object")
+    return data
+
+
+def _validated_baseline(path: Path) -> dict:
+    data = _private_json(path)
+    recipe = data.get("recipe")
+    geometry = data.get("size")
+    policy = data.get("policy")
+    if (set(data) != {"baseline_version", "reference_sha256", "recipe", "size", "policy"}
+            or type(data["baseline_version"]) is not int or data["baseline_version"] != 1
+            or not isinstance(recipe, dict)
+            or set(recipe) != {"id", "schema_version", "semantic_sha256"}
+            or not isinstance(recipe["id"], str) or not recipe["id"]
+            or type(recipe["schema_version"]) is not int
+            or not isinstance(geometry, dict) or set(geometry) != {"width", "height"}
+            or not isinstance(policy, dict)
+            or set(policy) != {"pixel_threshold", "tolerance_radius", "max_changed_ratio",
+                               "require_no_layout_issues"}):
+        raise ValueError("Unsupported or malformed visual baseline")
+    if (any(not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None
+            for value in (data["reference_sha256"], recipe["semantic_sha256"]))
+            or type(geometry["width"]) is not int or type(geometry["height"]) is not int
+            or geometry["width"] < 1 or geometry["height"] < 1
+            or type(policy["pixel_threshold"]) is not int
+            or not 0 <= policy["pixel_threshold"] <= 255
+            or type(policy["tolerance_radius"]) is not int
+            or policy["tolerance_radius"] not in (0, 1, 2)
+            or type(policy["max_changed_ratio"]) not in (int, float)
+            or not math.isfinite(policy["max_changed_ratio"])
+            or not 0 <= policy["max_changed_ratio"] <= 1
+            or policy["require_no_layout_issues"] is not True):
+        raise ValueError("Visual baseline policy is invalid")
+    return data
+
+
+def _image_digest(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def create_baseline(reference: Path, recipe_token: str, output: Path, *,
+                    threshold: int = 24, tolerance_radius: int = 1,
+                    max_changed_ratio: float = 0.01) -> dict:
+    """Explicitly pin a reviewed PNG and recipe; never edit the source or select a rice."""
+    try:
+        from PIL import Image, UnidentifiedImageError
+    except ImportError as exc:
+        raise ValueError("Optional Pillow package is required for image comparison") from exc
+
+    if (type(threshold) is not int or not 0 <= threshold <= 255
+            or type(tolerance_radius) is not int or tolerance_radius not in (0, 1, 2)
+            or type(max_changed_ratio) not in (int, float)
+            or not math.isfinite(max_changed_ratio)
+            or not 0 <= max_changed_ratio <= 1):
+        raise ValueError("Invalid baseline tolerances")
+    if (not output.is_absolute() or output.suffix.lower() != ".json"
+            or not output.parent.is_dir()):
+        raise ValueError("Baseline output must be a new absolute .json file")
+    try:
+        recipe = recipes.load(recipe_token)
+        if reference.stat().st_size > 64 * 1024 * 1024:
+            raise ValueError("Reference exceeds image size limit")
+        with Image.open(reference) as image:
+            if (image.format != "PNG" or not 1 <= image.width <= 8192
+                    or not 1 <= image.height <= 8192
+                    or image.width * image.height > 16_777_216):
+                raise ValueError("Reference must be a bounded PNG")
+            image.verify()
+            size = {"width": image.width, "height": image.height}
+    except (OSError, UnidentifiedImageError, recipes.RecipeError) as exc:
+        raise ValueError("Reference or recipe is invalid or unavailable") from exc
+    try:
+        digest = _image_digest(reference)
+    except OSError as exc:
+        raise ValueError("Reference became unavailable") from exc
+    data = {
+        "baseline_version": 1,
+        "reference_sha256": digest,
+        "recipe": {"id": recipe.recipe_id, "schema_version": recipe.schema_version,
+                   "semantic_sha256": review._semantic_hash(review._manifest(recipe))},
+        "size": size,
+        "policy": {"pixel_threshold": threshold, "tolerance_radius": tolerance_radius,
+                   "max_changed_ratio": max_changed_ratio, "require_no_layout_issues": True},
+    }
+    try:
+        fd = os.open(output, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+    except OSError as exc:
+        raise ValueError("Baseline output exists or cannot be created") from exc
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            json.dump(data, stream, sort_keys=True, indent=2)
+            stream.write("\n")
+    except Exception:
+        output.unlink(missing_ok=True)
+        raise
+    return data
+
+
 def compare(reference: Path, actual: Path, *, threshold: int = 24,
             recipe_token: str | None = None, overlay: Path | None = None,
-            heatmap: Path | None = None) -> dict:
+            heatmap: Path | None = None, tolerance_radius: int = 0,
+            tolerant_heatmap: Path | None = None, baseline: Path | None = None) -> dict:
     """Compare captures without modifying them; optional diagnostics are new files."""
     try:
         from PIL import Image, ImageChops, UnidentifiedImageError
     except ImportError as exc:
         raise ValueError("Optional Pillow package is required for image comparison") from exc
 
-    if not 0 <= threshold <= 255:
+    approved = _validated_baseline(baseline) if baseline is not None else None
+    if approved:
+        if not recipe_token:
+            raise ValueError("A baseline comparison requires the matching recipe")
+        threshold = approved["policy"]["pixel_threshold"]
+        tolerance_radius = approved["policy"]["tolerance_radius"]
+    if type(threshold) is not int or not 0 <= threshold <= 255:
         raise ValueError("Threshold must be between 0 and 255")
-    outputs = [path for path in (overlay, heatmap) if path is not None]
+    if type(tolerance_radius) is not int or tolerance_radius not in (0, 1, 2):
+        raise ValueError("Tolerance radius must be 0, 1 or 2 pixels")
+    outputs = [path for path in (overlay, heatmap, tolerant_heatmap) if path is not None]
     if (len({str(path.resolve()) for path in outputs}) != len(outputs)
             or any(not path.is_absolute() or path.suffix.lower() != ".png"
                    for path in outputs)):
@@ -123,10 +277,16 @@ def compare(reference: Path, actual: Path, *, threshold: int = 24,
                 raise ValueError("Capture dimensions are outside the safe range")
             if original.width * original.height > 16_777_216:
                 raise ValueError("Capture exceeds the safe 16-megapixel comparison limit")
+            if approved and ({"width": original.width, "height": original.height} != approved["size"]
+                             or _image_digest(reference) != approved["reference_sha256"]):
+                raise ValueError("Approved baseline no longer matches reference or recipe")
             before, after = original.convert("RGB"), captured.convert("RGB")
             diff = ImageChops.difference(before, after)
+            tolerant_diff = (_tolerant_difference(before, after, tolerance_radius)
+                             if tolerance_radius else diff)
             result = {
-                "comparison_version": 2 if recipe_token else 1,
+                "comparison_version": 3 if (tolerance_radius or approved) else
+                                      (2 if recipe_token else 1),
                 "size": {"width": original.width, "height": original.height},
                 "pixel_threshold": threshold,
                 **_metrics(diff, threshold=threshold),
@@ -134,6 +294,29 @@ def compare(reference: Path, actual: Path, *, threshold: int = 24,
             }
             if recipe_token:
                 result.update(_recipe_regions(diff, recipe_token, threshold))
+            if tolerance_radius:
+                result["tolerance"] = {
+                    "radius_pixels": tolerance_radius,
+                    "method": "bidirectional-local-rgb-envelope",
+                    **_metrics(tolerant_diff, threshold=threshold),
+                }
+            if approved:
+                if result["recipe"] != approved["recipe"]:
+                    raise ValueError("Approved baseline no longer matches reference or recipe")
+                changed = (result["tolerance"]["changed_pixel_ratio"] if tolerance_radius
+                           else result["changed_pixel_ratio"])
+                changed_pixels = (result["tolerance"]["changed_pixels"] if tolerance_radius
+                                  else result["changed_pixels"])
+                result["baseline"] = {
+                    "version": 1,
+                    "passed": changed_pixels <= (original.width * original.height *
+                                                   approved["policy"]["max_changed_ratio"])
+                              and not result["layout_issues"],
+                    "changed_pixel_ratio": changed,
+                    "max_changed_ratio": approved["policy"]["max_changed_ratio"],
+                    "layout_issues": len(result["layout_issues"]),
+                    "reference_sha256": approved["reference_sha256"],
+                }
             written: list[Path] = []
             try:
                 if overlay is not None:
@@ -146,6 +329,14 @@ def compare(reference: Path, actual: Path, *, threshold: int = 24,
                     empty = Image.new("L", diff.size, 0)
                     _save_private_png(Image.merge("RGB", (intensity, empty, empty)), heatmap)
                     written.append(heatmap)
+                if tolerant_heatmap is not None:
+                    red, green, blue = tolerant_diff.split()
+                    intensity = ImageChops.lighter(ImageChops.lighter(red, green), blue)
+                    intensity = intensity.point(lambda value: min(value * 4, 255))
+                    empty = Image.new("L", diff.size, 0)
+                    _save_private_png(Image.merge("RGB", (intensity, empty, empty)),
+                                      tolerant_heatmap)
+                    written.append(tolerant_heatmap)
             except Exception:
                 for path in written:
                     path.unlink(missing_ok=True)
@@ -154,6 +345,8 @@ def compare(reference: Path, actual: Path, *, threshold: int = 24,
                 result["overlay"] = str(overlay)
             if heatmap is not None:
                 result["heatmap"] = str(heatmap)
+            if tolerant_heatmap is not None:
+                result["tolerant_heatmap"] = str(tolerant_heatmap)
             return result
     except (OSError, UnidentifiedImageError) as exc:
         raise ValueError("Capture could not be decoded as a readable PNG") from exc

@@ -1,5 +1,84 @@
 # RiceBowl changelog
 
+## Unreleased — RiceSpice secure enrollment and native RicePlate AT-SPI (8 November 2026)
+
+- Add a native PEAP/TTLS Enterprise Wi-Fi profile form. It requires a named
+  RADIUS-server domain plus system or selected CA trust, disables autoconnect
+  and password persistence, verifies the saved UUID, and accepts one-time
+  802.1X credentials through NetworkManager's stdin-backed `passwd-file`
+  interface only after checking the profile's security policy. No secret
+  enters command arguments, configuration or diagnostic output.
+- Add a local OpenVPN/WireGuard import chooser that hands the selected
+  `.ovpn`/`.conf` file to NetworkManager and disables autoconnect. Unsupported
+  EAP-TLS/client-certificate and provider-specific VPN authoring still uses
+  NetworkManager's installed editor.
+- Add opt-in AccessKit/AT-SPI integration to RicePlate's native Rust layer-shell
+  UI. Visible panels, tasks, launcher, status, tray/DBusMenu, desktop shortcuts,
+  grouped menu, calendar and notifications appear in a named accessible tree
+  with real keyboard focus. AT actions return to the Wayland event loop and
+  reuse already validated commands; private notifications disappear from the
+  tree when closed. No new resident process when accessibility is disabled.
+- Cover secure enterprise enrollment failures/secret boundaries and native
+  accessibility model/action safety with regression tests. Orca/device QA on
+  actual Wayland hardware remains the release gate.
+
+## Unreleased — Advanced RiceSpice controls (8 November 2026)
+
+- Show actual active PulseAudio/PipeWire playback streams. Explicit verified
+  per-app output routing, bounded 0–150% volume and mute controls fail closed
+  if a stream disappears or changes between review and action.
+- List saved NetworkManager Ethernet, Wi-Fi and VPN profiles by real UUID,
+  activate/deactivate only reviewed identities with system-state readback and
+  a connection-loss warning. New EAP credentials/certificates remain in the
+  installed NetworkManager connection editor, never RiceBowl or process args.
+- Add guarded `wlr-randr` monitor X/Y positioning to the 18-second rollback
+  worker. Save/forget private, validated monitor layout presets and restore
+  each output only through an explicit guarded trial. Do not auto-apply at
+  login or disable outputs during a hotplug/dock change.
+- Migrate old RiceSpice preference JSON safely to v2; add opt-in GTK high-
+  contrast theme and supervised Orca screenreader startup only in full
+  non-nested RiceBowl sessions. Cross-application AT-SPI semantics and live
+  device/assistive-tech QA still require acceptance.
+- Add a guarded manual local date/time editor through timedated. It refuses
+  changes while automatic time is enabled, validates the complete timestamp,
+  confirms the system-wide impact and checks actual local clock readback.
+- Extend Python regressions for partial-service failures, profile parsing,
+  stale state, stream actions, display positioning, private presets, legacy
+  preferences and Orca supervision; preserve XFCE/X11 and no new resident daemon.
+
+## Unreleased — Native RiceSpice display, input and accessibility controls (8 November 2026)
+
+- Replace three formerly delegated RiceSpice pages with real on-demand editors:
+  active wlroots outputs can select an advertised resolution/refresh and a bounded
+  scale, with an independent 18-second confirm-or-rollback process. No monitors
+  are enabled/disabled, no automatic arrangement changes or persistent output
+  overrides are written.
+- Add owner-private, validated/atomic next-login input preferences (labwc
+  pointer speed, natural scroll, touchpad tap and keyboard repeat) and limited
+  accessibility preferences (cursor size and GTK text scaling). Generate isolated
+  compositor XML only for the opt-in RiceBowl session; preserve XFCE settings.
+- Cover malformed/stale preferences, compositor XML, session cleanup, monitor
+  parsing and rollback in Python regression tests. Real monitor, touchpad,
+  cursor-theme and assistive-technology acceptance is still required.
+- Expose timedated's real automatic time-sync status on the Date & Time page;
+  provide guarded polkit-gated enable/disable with stale-state verification and
+  a confirmation before disabling system-wide NTP. Missing services do not
+  block timezone selection.
+
+## Unreleased — Creator approved visual regression baselines (8 November 2026)
+
+- Compare actual Wayland PNG captures with optional 1–2 px **bidirectional**
+  local RGB tolerance for antialiasing/font rasterization jitter. Report both
+  raw and tolerated pixel differences and optionally write a private tolerated
+  heatmap; disappearing contours are not silently ignored.
+- Add explicit `de visual-baseline --approve-reference` to pin the reviewed
+  reference PNG hash, exact recipe fingerprint, resolution and change limits.
+  `de visual-compare --baseline` checks these before issuing a reproducible
+  PASS (exit 0) or regression (exit 3); malformed/stale baselines fail closed
+  (exit 2). No automatic approval, active desktop change or fidelity claim.
+- Keep the Creator catalog under its 16 KiB bound, extend the standalone helper,
+  and cover changes, tampering, privacy and failure contracts with tests.
+
 ## Unreleased — portable RicePack v3 PNG wallpapers (7 November 2026)
 
 - Add schema-v6 wallpaper references by immutable `asset-<sha256>` ID and an
