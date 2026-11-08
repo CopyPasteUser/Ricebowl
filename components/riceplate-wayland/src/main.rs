@@ -676,10 +676,12 @@ impl RicePlate {
                 }
                 self.request_redraw(qh);
             }
-            Keysym::Return | Keysym::KP_Enter | Keysym::space => {
+            Keysym::Return | Keysym::KP_Enter | Keysym::space | Keysym::Menu => {
                 match self.focused_target {
-                    Some(KeyboardTarget::Launcher) => self.activate_launcher(mirror, qh),
-                    Some(KeyboardTarget::Task(index)) => self.activate_group(index),
+                    Some(KeyboardTarget::Launcher) if key != Keysym::Menu =>
+                        self.activate_launcher(mirror, qh),
+                    Some(KeyboardTarget::Task(index)) if key != Keysym::Menu =>
+                        self.activate_group(index),
                     Some(KeyboardTarget::Tray(slot)) => {
                         if slot == tray::VISIBLE_ITEMS - 1 &&
                             self.tray_state.overflow_count() > 0 {
@@ -690,10 +692,11 @@ impl RicePlate {
                                          f64::from(self.recipe.height / 2));
                             let position = self.tray_screen_position(surface, local);
                             let source = surface.clone();
-                            self.activate_tray_item(slot, BTN_LEFT, position, &source, qh);
+                            let button = if key == Keysym::Menu { BTN_RIGHT } else { BTN_LEFT };
+                            self.activate_tray_item(slot, button, position, &source, qh);
                         }
                     }
-                    None => {}
+                    _ => {}
                 }
             }
             Keysym::Escape => {
@@ -2917,13 +2920,17 @@ impl KeyboardHandler for RicePlate {
                 Keysym::Down | Keysym::Tab => self.tray_popup_state.select(1, count),
                 Keysym::Prior => self.tray_popup_state.page(-1, count),
                 Keysym::Next => self.tray_popup_state.page(1, count),
-                Keysym::Return | Keysym::KP_Enter | Keysym::space => {
+                Keysym::Return | Keysym::KP_Enter | Keysym::space
+                    | Keysym::Menu | Keysym::Right => {
                     let index = self.tray_popup_state.selected;
                     let position = self.active_tray_popup.as_ref().map(|surface|
                         self.tray_screen_position(surface, (44.0, 60.0)))
                         .unwrap_or((0, 0));
                     if let Some(surface) = self.active_tray_popup.clone() {
-                        self.activate_tray_entry(index, BTN_LEFT, position, &surface, qh);
+                        let button = if matches!(event.keysym, Keysym::Menu | Keysym::Right) {
+                            BTN_RIGHT
+                        } else { BTN_LEFT };
+                        self.activate_tray_entry(index, button, position, &surface, qh);
                         if !self.tray_menu_state.visible {
                             self.set_tray_popup_visible(false, qh);
                         }

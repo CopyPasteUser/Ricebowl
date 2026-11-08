@@ -45,7 +45,9 @@ non-clickable; the separate validated native-menu actions perform changes.
   pagination, arrow/Tab/Enter/Escape/Back navigation and actual `menu_clicked`,
   `menu_opened` and `menu_closed` dispatch. Changes from the item are refreshed
   while the popup is open, with strict node/depth and label bounds. The panel
-  keyboard focus cycle includes visible tray slots and the overflow entry.
+  keyboard focus cycle includes visible tray slots and the overflow entry;
+  the keyboard Context Menu key (or Right from the overflow list) opens an
+  application's SNI context menu even when its left-click activates a window.
   Items without a retrieved DBusMenu still receive their own `ContextMenu`
   call; this cannot guarantee every third-party app provides a usable menu.
   Very narrow panel layouts suppress the tray rather than cover task controls.
@@ -131,8 +133,9 @@ the CLI reports that the state may already have changed; inspect again.
 
 Implementation evidence includes [native icons PR #143](https://github.com/CopyPasteUser/Ricebowl/pull/143)
 and [Mako bridge PR #141](https://github.com/CopyPasteUser/Ricebowl/pull/141).
-Local automated suites most recently passed **915 Python tests** (16 skipped
-for session/hardware constraints) and **53 native Rust tests**. GitHub's
+The last previously merged native tray baseline passed **937 Python tests**
+(21 skipped for session/hardware constraints) and **74 native Rust tests**.
+GitHub's
 `Tests`, `Native RicePlate prototype` and `Wayland session preview` workflows
 have passed on the corresponding merged milestones. Native CI renders actual screenshots under headless labwc, including
 two-output icon/menu/calendar hotplug coverage; this is *not* physical device
