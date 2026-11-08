@@ -324,6 +324,13 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
     initial and hotplug outputs have empty Wayland input regions, letting
     pointer events reach underlying windows. Real interactive widget surfaces
     and hardware input/accessibility signoff remain separate work.
+  - [x] Introduce a strictly versioned **schema-v10 design-token baseline**:
+    panel opacity (80–100%, premultiplied ARGB in native / RGBA in Waybar),
+    native menu selection radius and desktop widget radius/padding. Older
+    schemas retain their existing appearance and reject the new fields;
+    Creator draft/review, catalog v12, RicePack and native headless v10 fixture
+    share the contract. Typography scale, iconography, motion and responsive
+    menu geometry remain future primitives.
   - [x] Add a **real declarative schema-v6 panel action button** (`type: action`,
     `id`, `label`) with fixed allowlisted Apps/Terminal/Settings/Lock IDs;
     one validated recipe controls native drawing, per-output geometry, click,

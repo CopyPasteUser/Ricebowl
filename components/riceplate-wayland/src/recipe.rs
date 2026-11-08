@@ -176,6 +176,10 @@ pub struct PanelStyle {
     pub compact: Option<(u32, [Vec<Widget>; 3])>,
     pub label_padding: u32,
     pub task_radius: u32,
+    pub panel_background: u32,
+    pub menu_radius: u32,
+    pub widget_radius: u32,
+    pub widget_padding: u32,
     pub background: u32,
     pub foreground: u32,
     pub active: u32,
@@ -295,6 +299,14 @@ struct DesktopIconInput {
 struct Tokens {
     label_padding: u32,
     task_radius: u32,
+    #[serde(default)]
+    panel_opacity: Option<u32>,
+    #[serde(default)]
+    menu_radius: Option<u32>,
+    #[serde(default)]
+    widget_radius: Option<u32>,
+    #[serde(default)]
+    widget_padding: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -376,6 +388,13 @@ fn color(raw: &str) -> Result<u32, Box<dyn Error>> {
         return Err("RicePlate color must be six hexadecimal RGB digits".into());
     }
     Ok(0xff00_0000 | u32::from_str_radix(&raw[1..], 16)?)
+}
+
+/// Wayland SHM ARGB8888 requires *premultiplied* channels when translucent.
+fn panel_background(color: u32, opacity_percent: u32) -> u32 {
+    let alpha = (opacity_percent * 255 + 50) / 100;
+    let scale = |shift| ((color >> shift & 0xff) * alpha + 127) / 255;
+    alpha << 24 | scale(16) << 16 | scale(8) << 8 | scale(0)
 }
 
 fn safe_label(text: &str, max_length: usize) -> bool {
@@ -670,7 +689,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
     }
     let recipe: Recipe = serde_json::from_str(raw)?;
     let id = recipe.id.as_bytes();
-    if ![1, 2, 3, 4, 5, 6, 7, 8, 9].contains(&recipe.schema_version)
+    if ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10].contains(&recipe.schema_version)
         || id.len() < 2
         || id.len() > 32
         || !id[0].is_ascii_lowercase()
@@ -687,13 +706,13 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
         return Err("RicePlate recipe metadata or dimensions are invalid".into());
     }
     let components = match (recipe.schema_version, recipe.components) {
-        (9, Some(definitions)) => validate_components(definitions)?,
+        (9 | 10, Some(definitions)) => validate_components(definitions)?,
         (1..=8, None) => Vec::new(),
         _ => return Err("Component library requires schema v9".into()),
     };
     let widths = match (recipe.schema_version, recipe.panel.metrics) {
         (1, None) => [LAUNCHER_WIDTH, TASK_WIDTH, CLOCK_WIDTH],
-        (2 | 3 | 4 | 5 | 6 | 7 | 8 | 9, Some(metrics))
+        (2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10, Some(metrics))
             if (64..=256).contains(&metrics.launcher_width)
                 && (96..=256).contains(&metrics.task_width)
                 && (64..=256).contains(&metrics.clock_width) =>
@@ -738,7 +757,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
                 }
             }
         }
-        (3 | 4 | 5 | 6 | 7 | 8 | 9, None, Some(layout)) => {
+        (3 | 4 | 5 | 6 | 7 | 8 | 9 | 10, None, Some(layout)) => {
             let source = [layout.start, layout.center, layout.end];
             let mut counts = [0_usize, 0_usize];
             for (index, nodes) in source.iter().enumerate() {
@@ -768,13 +787,17 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
     let mut compact = None;
     let mut label_padding = 8;
     let mut task_radius = 4;
+    let mut opacity = 100;
+    let mut menu_radius = 4;
+    let mut widget_radius = 10;
+    let mut widget_padding = 12;
     let mut desktop_icons = Vec::new();
     let mut native_menu = None;
     let composition = match (recipe.schema_version, recipe.composition) {
-        (8 | 9, Some(input)) => Some(validate_composition(input, &components,
+        (8 | 9 | 10, Some(input)) => Some(validate_composition(input, &components,
                                                         recipe.schema_version)?),
         (1..=7, None) => None,
-        _ => return Err("Desktop composition requires schema v8 or v9".into()),
+        _ => return Err("Desktop composition requires schema v8+".into()),
     };
     match (
         recipe.schema_version,
@@ -783,7 +806,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
         recipe.tokens,
         recipe.responsive,
     ) {
-        (version @ (4 | 5 | 6 | 7 | 8 | 9), Some(menu), Some(desktop), Some(tokens), Some(responsive)) => {
+        (version @ (4 | 5 | 6 | 7 | 8 | 9 | 10), Some(menu), Some(desktop), Some(tokens), Some(responsive)) => {
             validate_menu(&menu, version)?;
             native_menu = Some(NativeMenu {
                 title: menu.title,
@@ -814,7 +837,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
             });
             desktop_icons = match (version, desktop.icons) {
                 (4, None) => Vec::new(),
-                (5 | 6 | 7 | 8 | 9, Some(icons)) => validate_icons(icons)?,
+                (5 | 6 | 7 | 8 | 9 | 10, Some(icons)) => validate_icons(icons)?,
                 _ => return Err("Schema v5 requires icons; v4 forbids them".into()),
             };
             let bundled = [
@@ -842,6 +865,18 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
             }
             label_padding = tokens.label_padding;
             task_radius = tokens.task_radius;
+            match (version, tokens.panel_opacity, tokens.menu_radius,
+                   tokens.widget_radius, tokens.widget_padding) {
+                (10, Some(alpha @ 80..=100), Some(menu @ 0..=16),
+                     Some(widget @ 0..=18), Some(padding @ 8..=16)) => {
+                    opacity = alpha;
+                    menu_radius = menu;
+                    widget_radius = widget;
+                    widget_padding = padding;
+                }
+                (4..=9, None, None, None, None) => {}
+                _ => return Err("Schema v10 requires bounded design tokens; older schemas forbid them".into()),
+            }
             let mut smaller: [Vec<Widget>; 3] = std::array::from_fn(|_| Vec::new());
             let mut compact_seen = HashSet::new();
             let mut counts = [0_usize, 0_usize];
@@ -889,6 +924,10 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
         compact,
         label_padding,
         task_radius,
+        panel_background: panel_background(color(&recipe.colors.background)?, opacity),
+        menu_radius,
+        widget_radius,
+        widget_padding,
         background: color(&recipe.colors.background)?,
         foreground: color(&recipe.colors.foreground)?,
         active: color(&recipe.colors.active)?,
@@ -1122,6 +1161,38 @@ mod tests {
     const CONTROLS_V7: &str = include_str!("../../../tests/fixtures/riceplate-controls-v7.json");
     const LAYOUT_V8: &str = include_str!("../../../tests/fixtures/riceplate-layout-v8.json");
     const COMPONENTS_V9: &str = include_str!("../../../tests/fixtures/riceplate-components-v9.json");
+    const DESIGN_V10: &str = include_str!("../../../tests/fixtures/riceplate-design-v10.json");
+
+    #[test]
+    fn v10_design_tokens_are_premultiplied_and_shared_with_native_surfaces() {
+        let style = parse(DESIGN_V10, Some("design-system")).unwrap();
+        assert_eq!(style.menu_radius, 14);
+        assert_eq!(style.widget_radius, 18);
+        assert_eq!(style.widget_padding, 16);
+        assert_eq!(style.background, 0xff203c59);
+        assert_eq!(style.panel_background >> 24, 224);
+        assert_eq!(style.composition.as_ref().unwrap().widgets[0].kind,
+                   DesktopWidgetKind::Text("Welcome to RiceBowl".into()));
+    }
+
+    #[test]
+    fn v10_tokens_reject_downgrade_missing_and_invalid_values() {
+        let original: serde_json::Value = serde_json::from_str(DESIGN_V10).unwrap();
+        for (pointer, value) in [
+            ("/schema_version", serde_json::json!(9)),
+            ("/tokens/panel_opacity", serde_json::json!(10)),
+            ("/tokens/menu_radius", serde_json::json!(17)),
+            ("/tokens/widget_radius", serde_json::json!(99)),
+            ("/tokens/widget_padding", serde_json::json!(false)),
+        ] {
+            let mut changed = original.clone();
+            *changed.pointer_mut(pointer).unwrap() = value;
+            assert!(parse(&changed.to_string(), None).is_err(), "accepted {pointer}");
+        }
+        let mut missing = original;
+        missing["tokens"].as_object_mut().unwrap().remove("widget_padding");
+        assert!(parse(&missing.to_string(), None).is_err());
+    }
 
     #[test]
     fn v9_resolves_shared_status_and_action_bindings_for_panel_and_desktop() {

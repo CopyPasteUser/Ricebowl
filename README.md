@@ -26,6 +26,8 @@ Creator visual QA now supports manually approved, SHA-256-pinned screenshot base
 
 The first **shared component library (schema v9)** lets one validated status/action definition be reused in native panel, compact layout and read-only desktop widgets; the desktop can also display bounded static text labels without intercepting pointer input. Buttons reuse RicePlate's existing verified worker and focus handling; no per-rice scripts, new daemons or XFCE defaults are introduced. [Component contract and example](WAYLAND_SESSION.md#schema-v9-shared-component-bindings-native-riceplate)
 
+**Schema v10** adds shared visual tokens for panel transparency, menu selection corners and desktop widget shape/spacing across the actual native renderer and supported Waybar styles. [Design-token contract](WAYLAND_SESSION.md#schema-v10-shared-visual-tokens). The visual Creator remains a future milestone: recipes and previews work, but typography, responsive menu geometry and richer widget interactions are still incomplete.
+
 Advanced RiceSpice now also handles active application playback streams (output,
 volume and mute), saved Ethernet/Wi-Fi/VPN NetworkManager connections, guarded
 monitor X/Y positioning and owner-private manually recalled layouts. It can

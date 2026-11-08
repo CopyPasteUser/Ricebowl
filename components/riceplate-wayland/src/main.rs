@@ -2526,7 +2526,7 @@ fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
                selected: Option<KeyboardTarget>, pending: Option<ControlAction>,
                result: Option<(ControlAction, bool)>) {
     for pixel in canvas.chunks_exact_mut(4) {
-        pixel.copy_from_slice(&style.background.to_le_bytes());
+        pixel.copy_from_slice(&style.panel_background.to_le_bytes());
     }
     for placed in recipe::layout(style, width, groups.len()) {
         match placed.widget {
@@ -2884,7 +2884,7 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                 if tile.index == state.selected {
                     fill_rounded_rect(canvas, width, height, tile.x + 2, tile.y + 2,
                                       tile.width.saturating_sub(4), tile.height.saturating_sub(4),
-                                      style.task_radius, style.active);
+                                      style.menu_radius, style.active);
                 }
                 let label = if tile.action == "logout" && !logout_available() {
                     "Log out (unavailable)"
@@ -2930,7 +2930,7 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                     top + 2,
                     width - action_x - 8,
                     native_menu::ACTION_HEIGHT - 4,
-                    style.task_radius,
+                    style.menu_radius,
                     style.active,
                 );
             }
@@ -3147,14 +3147,16 @@ fn paint_desktop_widget(canvas: &mut [u8], title: &str, lines: &[String], style:
     let width = recipe::DESKTOP_WIDGET_WIDTH;
     let height = recipe::DESKTOP_WIDGET_HEIGHT;
     canvas.fill(0);
-    fill_rounded_rect(canvas, width, height, 0, 0, width, height, 10, style.background);
-    fill_rect(canvas, width, height, 12, 31, width - 24, 2, style.active);
-    draw_text(canvas, width, height, 12, 12, title, style.foreground);
+    fill_rounded_rect(canvas, width, height, 0, 0, width, height,
+                      style.widget_radius, style.background);
+    let x = style.widget_padding;
+    fill_rect(canvas, width, height, x, 31, width - 2 * x, 2, style.active);
+    draw_text(canvas, width, height, x, 12, title, style.foreground);
     for (index, line) in lines.iter().take(2).enumerate() {
         // The native 8px font has no word wrap. Keep every line inside the
         // bounded surface even when system providers expose long names.
         let clipped: String = line.chars().take(22).collect();
-        draw_text(canvas, width, height, 12, 43 + index as u32 * 20,
+        draw_text(canvas, width, height, x, 43 + index as u32 * 20,
                   &clipped, style.foreground);
     }
 }

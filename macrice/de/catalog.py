@@ -12,6 +12,7 @@ from .creator_contract import (describe as draft_edit_contract, describe_capture
 from .recipes import (ICON_ACTIONS, ICON_HEIGHT, ICON_WIDTH, MAX_DESKTOP_ICONS,
                       MAX_DESKTOP_WIDGETS, DESKTOP_WIDGET_KINDS,
                       MAX_COMPONENT_DEFINITIONS, COMPONENT_STATUS_BINDINGS,
+                      DESIGN_TOKEN_LIMITS,
                       DESKTOP_WIDGET_WIDTH, DESKTOP_WIDGET_HEIGHT,
                       MENU_ACTIONS, WALLPAPERS, MAX_LAYOUT_CHILDREN, MAX_LAYOUT_DEPTH, MAX_LAYOUT_LABELS,
                       MAX_LAYOUT_ACTIONS, PANEL_ACTIONS, PANEL_CONTROLS, MAX_LAYOUT_NODES, MAX_LAYOUT_ROOTS, MAX_RECIPE_BYTES,
@@ -21,11 +22,11 @@ from .recipes import (ICON_ACTIONS, ICON_HEIGHT, ICON_WIDTH, MAX_DESKTOP_ICONS,
 def describe() -> dict[str, object]:
     """Describe exactly which panel and early shell primitives are implemented."""
     return {
-        "catalog_version": 11,
+        "catalog_version": 12,
         "scope": "wayland-shell-preview",
         "complete_desktop_environment": False,
         "recipe": {
-            "schema_versions": [1, 2, 3, 4, 5, 6, 7, 8, 9],
+            "schema_versions": list(range(1, 11)),
             "maximum_bytes": MAX_RECIPE_BYTES,
             "sections": ["start", "center", "end"],
             "unique_widgets": True,
@@ -132,7 +133,9 @@ def describe() -> dict[str, object]:
                                         "native": "read-only-event-driven-per-output",
                                         "waybar": "not_available",
                                         "accessibility": "read-only-status"}},
-                "tokens": {"label_padding": [0, 16], "task_radius": [0, 12]},
+                "tokens": {"label_padding": [0, 16], "task_radius": [0, 12],
+                           **{key: {"since_schema": 10, "range": [lower, upper]}
+                              for key, (lower, upper) in DESIGN_TOKEN_LIMITS.items()}},
                 "responsive": {"compact_max_width": [480, 1440],
                                "native": "live-panel-layout-switch",
                                "waybar": "offline-width-specific-compilation-only"},

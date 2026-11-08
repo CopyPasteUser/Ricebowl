@@ -93,6 +93,11 @@ def _allowed_value(path: str, value: Any, schema_version: int,
     if path in ("/tokens/label_padding", "/tokens/task_radius"):
         maximum = 16 if path.endswith("label_padding") else 12
         return type(value) is int and 0 <= value <= maximum
+    if path.removeprefix("/tokens/") in recipes.DESIGN_TOKEN_LIMITS:
+        if schema_version < 10:
+            return False
+        lower, upper = recipes.DESIGN_TOKEN_LIMITS[path.removeprefix("/tokens/")]
+        return type(value) is int and lower <= value <= upper
     if path == "/panel/height":
         return type(value) is int and 28 <= value <= 64
     if path.startswith("/panel/metrics/"):

@@ -532,7 +532,7 @@ Start a new private template with `ricebowl de recipe-init --schema-version 7`
 plus the ordinary `--base`, `--id`, `--name` and `--output` options; add these
 nodes using `de draft-edit`, review them with `de review` and preview the
 result with `de start --nested --panel native --recipe /absolute/path/to/rice.json`.
-The Creator catalog v11 advertises the exact contract. Existing schemas v1–v6
+The Creator catalog v12 advertises the exact contract. Existing schemas v1–v6
 are still accepted, but reject `control` nodes.
 
 The native RicePlate panel and its menu share **one bounded asynchronous
@@ -653,6 +653,32 @@ review with `de review`, edit with `de draft-edit` (`/components` and the
 existing layout paths), or render with isolated `de render`. Schemas v1–v8
 remain valid. This is a first, bounded common component system, not a generic
 extension/plugin runtime or an arbitrary visual widget framework.
+
+#### Schema-v10 shared visual tokens
+
+Schema v10 keeps v9 components, layouts and bindings intact and requires four
+additional **bounded data-only tokens** alongside `label_padding` and
+`task_radius`:
+
+```json
+"tokens": {
+  "label_padding": 8, "task_radius": 5,
+  "panel_opacity": 88, "menu_radius": 14,
+  "widget_radius": 18, "widget_padding": 16
+}
+```
+
+`panel_opacity` is 80–100 percent, applied to the real native panel in
+premultiplied ARGB and to Waybar's panel CSS as an equivalent RGBA color.
+`menu_radius` (0–16) styles native menu selection highlights, while
+`widget_radius` (0–18) and `widget_padding` (8–16) style native read-only
+desktop widgets. These do not pretend Waybar can draw desktop widgets.
+Schemas v1–v9 retain their exact prior styling and reject these new token
+keys. Creator `review`, `draft-edit`, `recipe-init --schema-version 10`,
+RicePack and catalog v12 preserve the same properties; the
+[v10 native fixture](tests/fixtures/riceplate-design-v10.json) is rendered
+in headless CI. Font scaling, icon families and layout-dependent menu sizing
+are **not** yet configurable by these tokens.
 
 The default **Waybar-backed** Wayland session is separately checked in CI
 with two genuine labwc headless outputs. The smoke captures the bar on each,

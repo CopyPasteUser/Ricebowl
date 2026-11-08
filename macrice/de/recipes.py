@@ -40,6 +40,12 @@ COMPONENT_STATUS_BINDINGS = frozenset(("clock", "network", "audio", "battery"))
 DESKTOP_WIDGET_KINDS = frozenset(("clock", "date", "system", "text"))
 DESKTOP_WIDGET_WIDTH = 200
 DESKTOP_WIDGET_HEIGHT = 96
+DESIGN_TOKEN_LIMITS = {
+    "panel_opacity": (80, 100),
+    "menu_radius": (0, 16),
+    "widget_radius": (0, 18),
+    "widget_padding": (8, 16),
+}
 ICON_WIDTH = 104
 ICON_HEIGHT = 88
 ICON_ACTIONS = frozenset(("applications", "terminal", "lock"))
@@ -160,6 +166,7 @@ class PanelRecipe:
     menu_presentation: str = "tabs"
     composition: DesktopComposition | None = None
     components: tuple[ComponentDefinition, ...] = ()
+    design: tuple[int, int, int, int] | None = None
 
 
 def _parse_components(raw: Any) -> dict[str, ComponentDefinition]:
@@ -450,7 +457,7 @@ def parse(raw: bytes) -> PanelRecipe:
     if not isinstance(data, dict):
         raise RecipeError("Recipe must be a JSON object")
     version = data.get("schema_version")
-    if type(version) is not int or version not in (1, 2, 3, 4, 5, 6, 7, 8, 9):
+    if type(version) is not int or version not in range(1, 11):
         raise RecipeError("Unsupported RicePlate recipe schema version")
     expected = {"schema_version", "id", "name", "panel", "colors"}
     if version >= 4:
@@ -517,6 +524,7 @@ def parse(raw: bytes) -> PanelRecipe:
     menu = None
     wallpaper = None
     tokens = None
+    design = None
     compact = None
     desktop_icons = None
     composition = None
@@ -536,13 +544,20 @@ def parse(raw: bytes) -> PanelRecipe:
         wallpaper = desktop["wallpaper"]
         if version >= 5:
             desktop_icons = _parse_desktop_icons(desktop["icons"])
-        visual = _strict_keys(data["tokens"], {"label_padding", "task_radius"}, "Tokens")
+        visual = _strict_keys(data["tokens"],
+                              {"label_padding", "task_radius"} |
+                              (set(DESIGN_TOKEN_LIMITS) if version >= 10 else set()), "Tokens")
         if (type(visual["label_padding"]) is not int
                 or not 0 <= visual["label_padding"] <= 16
                 or type(visual["task_radius"]) is not int
                 or not 0 <= visual["task_radius"] <= 12):
             raise RecipeError("Visual tokens must be bounded integer pixel values")
         tokens = visual["label_padding"], visual["task_radius"]
+        if version >= 10:
+            if any(type(visual[key]) is not int or not lower <= visual[key] <= upper
+                   for key, (lower, upper) in DESIGN_TOKEN_LIMITS.items()):
+                raise RecipeError("Schema v10 design tokens must be bounded integers")
+            design = tuple(visual[key] for key in DESIGN_TOKEN_LIMITS)
         responsive = _strict_keys(data["responsive"], {"compact_max_width", "compact_layout"},
                                   "Responsive layout")
         threshold = responsive["compact_max_width"]
@@ -579,7 +594,7 @@ def parse(raw: bytes) -> PanelRecipe:
                        metrics, layout_nodes, version, menu, wallpaper, tokens, compact,
                        desktop_icons,
                        data["menu"].get("presentation", "tabs") if version >= 6 else "tabs",
-                       composition, tuple(components.values()))
+                       composition, tuple(components.values()), design)
 
 
 def load(token: str) -> PanelRecipe:
@@ -903,7 +918,7 @@ def create_from_template(
     if not destination.is_absolute() or destination.suffix != ".json":
         raise RecipeError("New recipe output must be an absolute .json file path")
     data = json.loads(BUILTINS[source].read_text(encoding="utf-8"))
-    if schema_version in (2, 3, 4, 5, 6, 7, 8, 9):
+    if schema_version in range(2, 11):
         data["schema_version"] = schema_version
         data["panel"]["metrics"] = dict(zip(METRIC_FIELDS, METRIC_DEFAULTS))
         if schema_version >= 3:
@@ -924,6 +939,9 @@ def create_from_template(
                     {"label": "Terminal", "action": "terminal", "x": 32, "y": 208},
                 ]
             data["tokens"] = {"label_padding": 8, "task_radius": 4}
+            if schema_version >= 10:
+                data["tokens"].update({"panel_opacity": 100, "menu_radius": 4,
+                                       "widget_radius": 10, "widget_padding": 12})
             data["responsive"] = {
                 "compact_max_width": 720,
                 "compact_layout": {"start": [{"type": "widget", "id": "launcher"}],
@@ -1064,6 +1082,10 @@ def waybar_config(recipe: PanelRecipe, *, screen_width: int | None = None) -> tu
         **generated_modules,
     }
     background, foreground, active = recipe.colors
+    if recipe.design is not None:
+        opacity = recipe.design[0]
+        rgb = tuple(int(background[i:i+2], 16) for i in (1, 3, 5))
+        background = f"rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, {opacity / 100:.2f})"
     css = (
         "* { font-family: sans-serif; font-size: 12px; }\n"
         f"window#waybar {{ background: {background}; color: {foreground}; }}\n"

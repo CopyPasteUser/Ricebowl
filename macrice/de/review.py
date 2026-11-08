@@ -54,6 +54,8 @@ def _manifest(recipe: recipes.PanelRecipe) -> dict[str, Any]:
                 {"label": icon.label, "action": icon.action, "x": icon.x, "y": icon.y}
                 for icon in recipe.desktop_icons]
         result["tokens"] = dict(zip(("label_padding", "task_radius"), recipe.tokens))
+        if recipe.design is not None:
+            result["tokens"].update(zip(recipes.DESIGN_TOKEN_LIMITS, recipe.design))
         result["responsive"] = {
             "compact_max_width": recipe.compact[0],
             "compact_layout": dict(zip(recipes.SECTIONS,
@@ -114,7 +116,7 @@ def _fields(manifest: dict[str, Any]) -> dict[str, Any]:
     for name in ("widgets", "window_region", "compact_hide_widgets"):
         result[f"/composition/{name}"] = manifest.get("composition", {}).get(name)
     result["/components"] = manifest.get("components")
-    for token in ("label_padding", "task_radius"):
+    for token in ("label_padding", "task_radius", *recipes.DESIGN_TOKEN_LIMITS):
         result[f"/tokens/{token}"] = manifest.get("tokens", {}).get(token)
     result["/responsive/compact_max_width"] = manifest.get("responsive", {}).get(
         "compact_max_width")

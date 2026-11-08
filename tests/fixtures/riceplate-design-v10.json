@@ -1,0 +1,50 @@
+{
+  "schema_version": 10,
+  "id": "design-system",
+  "name": "Design System Preview",
+  "components": [
+    {"id": "net-status", "role": "status", "binding": "network", "label": "Network"},
+    {"id": "wifi-switch", "role": "action", "binding": "wifi-toggle", "label": "Wi-Fi"}
+  ],
+  "panel": {
+    "position": "top", "height": 48,
+    "metrics": {"launcher_width": 112, "task_width": 176, "clock_width": 96},
+    "layout": {
+      "start": [
+        {"type": "widget", "id": "launcher"},
+        {"type": "gap", "width": 16},
+        {"type": "widget", "id": "tasks"},
+        {"type": "component", "ref": "wifi-switch"}
+      ],
+      "center": [{"type": "label", "text": "DESIGN"}],
+      "end": [{"type": "component", "ref": "net-status"}, {"type": "widget", "id": "clock"}]
+    }
+  },
+  "colors": {"background": "#203c59", "foreground": "#f3f7fa", "active": "#4179aa"},
+  "menu": {"title": "Design Preview", "presentation": "sidebar", "groups": [
+    {"title": "Programs", "actions": ["applications", "terminal"]},
+    {"title": "Session", "actions": ["lock", "logout"]}
+  ]},
+  "desktop": {"wallpaper": "aurora-night", "icons": [
+    {"label": "Applications", "action": "applications", "x": 32, "y": 96},
+    {"label": "Terminal", "action": "terminal", "x": 32, "y": 208}
+  ]},
+  "tokens": {
+    "label_padding": 8, "task_radius": 5,
+    "panel_opacity": 88, "menu_radius": 14,
+    "widget_radius": 18, "widget_padding": 16
+  },
+  "responsive": {"compact_max_width": 900, "compact_layout": {
+    "start": [{"type": "widget", "id": "launcher"}],
+    "center": [{"type": "widget", "id": "tasks"}],
+    "end": [{"type": "component", "ref": "net-status"}]
+  }},
+  "composition": {
+    "widgets": [
+      {"id": "desk-title", "kind": "text", "text": "Welcome to RiceBowl", "x": 32, "y": 320},
+      {"id": "desk-network", "kind": "component", "ref": "net-status", "x": 32, "y": 432}
+    ],
+    "window_region": {"x": 30, "y": 8, "width": 66, "height": 84},
+    "compact_hide_widgets": ["desk-network"]
+  }
+}
