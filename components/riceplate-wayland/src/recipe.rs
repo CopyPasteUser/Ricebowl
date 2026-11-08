@@ -669,7 +669,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
                 }
             }
         }
-        (3 | 4 | 5 | 6 | 7 | 8, None, Some(layout)) => {
+        (3 | 4 | 5 | 6 | 7 | 8 | 9, None, Some(layout)) => {
             let source = [layout.start, layout.center, layout.end];
             let mut counts = [0_usize, 0_usize];
             for (index, nodes) in source.iter().enumerate() {
@@ -743,7 +743,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
             });
             desktop_icons = match (version, desktop.icons) {
                 (4, None) => Vec::new(),
-                (5 | 6 | 7 | 8, Some(icons)) => validate_icons(icons)?,
+                (5 | 6 | 7 | 8 | 9, Some(icons)) => validate_icons(icons)?,
                 _ => return Err("Schema v5 requires icons; v4 forbids them".into()),
             };
             let bundled = [
