@@ -109,17 +109,17 @@ dbus-run-session -- sh -eu -c '
         /usr/bin/python3 "$project_root/launcher.py" de creator-live-apply \
             --recipe "$target" --expect-sha256 "$digest" --expect-active "$current" \
             --json >"$runtime/live-apply.json"
-        /usr/bin/python3 -c "import json,sys; x=json.load(open(sys.argv[1])); assert x['ok'] and x['active']==sys.argv[2] and not x['next_login_persisted']" \
+        /usr/bin/python3 -c "import json,sys; x=json.load(open(sys.argv[1])); assert x[\"ok\"] and x[\"active\"]==sys.argv[2] and not x[\"next_login_persisted\"]" \
             "$runtime/live-apply.json" "$target"
         if /usr/bin/python3 "$project_root/launcher.py" de creator-live-apply \
-                --recipe "$current" --expect-sha256 "$(printf '%064d' 0)" \
+                --recipe "$current" --expect-sha256 "$(printf %064d 0)" \
                 >"$runtime/bad-hash.log" 2>&1; then
             echo "Unreviewed recipe was incorrectly accepted" >&2
             exit 1
         fi
         /usr/bin/python3 "$project_root/launcher.py" de creator-live-restore \
             --expect-active "$target" --json >"$runtime/live-restore.json"
-        /usr/bin/python3 -c "import json,sys; x=json.load(open(sys.argv[1])); assert x['ok'] and x['active']==sys.argv[2]" \
+        /usr/bin/python3 -c "import json,sys; x=json.load(open(sys.argv[1])); assert x[\"ok\"] and x[\"active\"]==sys.argv[2]" \
             "$runtime/live-restore.json" "$current"
         echo "Live Rice apply/reject/restore worked in isolated labwc"
     fi
