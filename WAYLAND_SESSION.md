@@ -139,6 +139,19 @@ names, rejected fake certificates, incorrect passwords, network loss,
 profile reactivation after relogin and VPN import on supported NetworkManager
 plugins; do not run network-disruption tests over the only remote connection.
 
+RicePop audio OSD: in a **full native RicePlate/labwc** login, press the
+keyboard's volume-up, volume-down and mute keys. The *private* labwc `rc.xml`
+binds them to `wpctl` and, when `pactl subscribe` is available, RicePop observes
+the changed default sink from PulseAudio/PipeWire compatibility notifications.
+The existing transient OSD uses an actual post-event `wpctl` readback and
+does not consume pointer input. Also change the default sink through pavucontrol
+or another mixer and confirm that the OSD updates, repeated unchanged states
+do not flash, and per-application stream-volume changes do not trigger it.
+Repeat with no `pactl`, unavailable default sink, suspend/resume and a restarted
+Pulse/PipeWire service; the monitor currently requires relogin after its
+subscriber process exits. XFCE/X11 and global labwc keybindings must remain
+unchanged. Nested previews intentionally do not spawn the event subscriber.
+
 Manual RiceSpice acceptance before 1.0:
 
 1. In XFCE, open `ricebowl de settings`: Displays must not attempt any

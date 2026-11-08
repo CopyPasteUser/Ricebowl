@@ -17,6 +17,19 @@ pub struct Notice {
 }
 
 impl Notice {
+    fn from_audio(audio: &Audio) -> Self {
+        match audio {
+            Audio::Volume(volume) => Self {
+                title: "Volume", value: format!("{volume}%"),
+                fill: Some((*volume).min(100)),
+            },
+            Audio::Muted => Self { title: "Volume", value: "Muted".into(), fill: Some(0) },
+            Audio::Unavailable => Self {
+                title: "Volume", value: "Unavailable".into(), fill: None,
+            },
+        }
+    }
+
     fn from_result(action: ControlAction, success: bool, status: &SystemStatus) -> Option<Self> {
         if !matches!(action, ControlAction::AudioMute | ControlAction::AudioUp |
             ControlAction::AudioDown) {
@@ -25,16 +38,7 @@ impl Notice {
         if !success {
             return Some(Self { title: "Volume", value: "Change failed".into(), fill: None });
         }
-        Some(match status.audio {
-            Audio::Volume(volume) => Self {
-                title: "Volume", value: format!("{volume}%"),
-                fill: Some(volume.min(100)),
-            },
-            Audio::Muted => Self { title: "Volume", value: "Muted".into(), fill: Some(0) },
-            Audio::Unavailable => Self {
-                title: "Volume", value: "Unavailable".into(), fill: None,
-            },
-        })
+        Some(Self::from_audio(&status.audio))
     }
 }
 
@@ -45,6 +49,19 @@ pub struct State {
 }
 
 impl State {
+    pub fn show_external(&mut self, previous: &Audio, current: &Audio,
+                         now: Instant) -> bool {
+        // Never display a spurious OSD at startup, after missing services or
+        // for a duplicate event following our own already-verified quick action.
+        if previous == current || matches!(previous, Audio::Unavailable)
+            || matches!(current, Audio::Unavailable) {
+            return false;
+        }
+        self.current = Some(Notice::from_audio(current));
+        self.deadline = Some(now + LIFETIME);
+        true
+    }
+
     pub fn show(&mut self, action: ControlAction, success: bool, status: &SystemStatus,
                 now: Instant) -> bool {
         let Some(notice) = Notice::from_result(action, success, status) else {
@@ -112,5 +129,19 @@ mod tests {
         let result = Notice::from_result(ControlAction::AudioDown, true, &status).unwrap();
         assert_eq!(result.value, "115%");
         assert_eq!(result.fill, Some(100));
+    }
+
+    #[test]
+    fn external_audio_changes_show_once_without_startup_or_error_noise() {
+        let now = Instant::now();
+        let mut state = State::default();
+        assert!(!state.show_external(&Audio::Unavailable, &Audio::Volume(45), now));
+        assert!(!state.show_external(&Audio::Volume(45), &Audio::Volume(45), now));
+        assert!(state.show_external(&Audio::Volume(45), &Audio::Volume(55), now));
+        assert_eq!(state.current.as_ref().unwrap().value, "55%");
+        assert!(!state.show_external(&Audio::Volume(55), &Audio::Unavailable, now));
+        assert!(state.show_external(&Audio::Volume(55), &Audio::Muted, now));
+        assert_eq!(state.current.as_ref().unwrap().value, "Muted");
+        assert_eq!(state.timeout(now), Some(LIFETIME));
     }
 }

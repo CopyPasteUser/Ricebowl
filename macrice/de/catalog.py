@@ -132,7 +132,7 @@ def describe() -> dict[str, object]:
             {"id": "audio", "native": "indicator", "waybar": "indicator",
              "behavior": "show-wireplumber-default-sink-volume-or-unavailable",
              "status_backend": "bounded-wpctl-worker", "interactive": False,
-             "status_refresh": "30-seconds", "keyboard_navigation": False},
+             "status_refresh": "30-seconds-or-default-sink-events", "keyboard_navigation": False},
             {"id": "battery", "native": "indicator", "waybar": "indicator",
              "behavior": "show-kernel-battery-percent-or-unavailable",
              "status_backend": "read-only-linux-sysfs-power-supply",

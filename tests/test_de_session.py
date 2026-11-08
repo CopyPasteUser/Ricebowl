@@ -349,6 +349,16 @@ class WaylandSessionTests(unittest.TestCase):
         commands = [item.get("command") for item in config.findall(".//action")]
         self.assertIn("swaylock -f", commands)
         self.assertIn("foot", commands)
+        keybindings = {
+            key.get("key"): key.find("action").get("command")
+            for key in config.findall(".//keyboard/keybind")
+        }
+        self.assertEqual(keybindings["XF86AudioRaiseVolume"],
+                         "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+ --limit 1.0")
+        self.assertEqual(keybindings["XF86AudioLowerVolume"],
+                         "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-")
+        self.assertEqual(keybindings["XF86AudioMute"],
+                         "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle")
 
     def test_root_menu_has_terminal_and_safe_logout(self):
         menu = ET.parse(session.resources() / "labwc/menu.xml").getroot()
