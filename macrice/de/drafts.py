@@ -27,7 +27,7 @@ class DraftError(recipes.RecipeError):
         self.path = path if path in EDITABLE_PATHS else None
 
 
-def _allowed_value(path: str, value: Any) -> bool:
+def _allowed_value(path: str, value: Any, schema_version: int) -> bool:
     """Reject nested/oversized executable-looking content before serialization."""
     if path.startswith("/panel/sections/"):
         return (type(value) is list and len(value) <= 7
@@ -38,8 +38,10 @@ def _allowed_value(path: str, value: Any) -> bool:
         try:
             counts = [0, 0]
             widgets: list[str] = []
+            actions: dict[str, str] = {}
             for node in value:
-                recipes._parse_layout_node(node, 1, counts, widgets)
+                recipes._parse_layout_node(node, 1, counts, widgets, actions,
+                                           schema_version=schema_version)
         except recipes.RecipeError:
             return False
         return True
@@ -80,7 +82,7 @@ def _allowed_value(path: str, value: Any) -> bool:
             and not any(unicodedata.category(character) == "Cc" for character in value))
 
 
-def _parse_edit(payload: bytes) -> list[tuple[str, Any]]:
+def _parse_edit(payload: bytes, *, schema_version: int) -> list[tuple[str, Any]]:
     if len(payload) > MAX_EDIT_BYTES:
         raise DraftError("Draft edit exceeds the 16 KiB limit", code="edit_too_large")
     try:
@@ -102,7 +104,7 @@ def _parse_edit(payload: bytes) -> list[tuple[str, Any]]:
                 or item["path"] not in EDITABLE_PATHS or item["path"] in seen):
             raise DraftError("Draft contains an unsupported or duplicate edit operation",
                              code="unsupported_operation")
-        if not _allowed_value(item["path"], item["value"]):
+        if not _allowed_value(item["path"], item["value"], schema_version):
             raise DraftError("Value is outside the supported component property range or type",
                              code="invalid_value", path=item["path"])
         seen.add(item["path"])
@@ -123,7 +125,7 @@ def create_edit(*, recipe_token: str, edit_source: Path, destination: Path) -> d
     try:
         original = recipes.load(recipe_token)
         raw = recipes._read_import_source(edit_source)
-        operations = _parse_edit(raw)
+        operations = _parse_edit(raw, schema_version=original.schema_version)
     except recipes.RecipeError as exc:
         if isinstance(exc, DraftError):
             raise

@@ -20,6 +20,7 @@ const MAX_RECIPE_BYTES: usize = 64 * 1024;
 pub const MAX_TRACKED_TASKS: usize = 128;
 const MAX_LAYOUT_NODES: usize = 24;
 const MAX_LAYOUT_LABELS: usize = 8;
+const MAX_LAYOUT_ACTIONS: usize = 6;
 const MAX_LAYOUT_DEPTH: usize = 3;
 pub const ICON_WIDTH: u32 = 104;
 pub const ICON_HEIGHT: u32 = 88;
@@ -84,6 +85,13 @@ pub enum Widget {
     Gap(u32),
     Divider(u32),
     Label(u8),
+    Action(u8),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PanelAction {
+    pub id: String,
+    pub label: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,6 +104,7 @@ pub struct PlacedWidget {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Hit {
     Launcher,
+    Action(u8),
     Clock,
     Task(usize),
     PreviousTasks,
@@ -121,6 +130,7 @@ pub struct PanelStyle {
     pub widths: [u32; 3],
     pub sections: [Vec<Widget>; 3],
     pub labels: Vec<String>,
+    pub actions: Vec<PanelAction>,
     pub compact: Option<(u32, [Vec<Widget>; 3])>,
     pub label_padding: u32,
     pub task_radius: u32,
@@ -260,6 +270,7 @@ enum LayoutNode {
     Gap { width: u32 },
     Divider { width: u32 },
     Label { text: String },
+    Action { id: String, label: String },
     Group { gap: u32, children: Vec<LayoutNode> },
 }
 
@@ -364,6 +375,8 @@ fn expand_layout(
     seen: &mut HashSet<String>,
     rendered: &mut Vec<Widget>,
     labels: &mut Vec<String>,
+    actions: &mut Vec<PanelAction>,
+    version: u32,
 ) -> Result<(), Box<dyn Error>> {
     counts[0] += 1;
     if depth > MAX_LAYOUT_DEPTH || counts[0] > MAX_LAYOUT_NODES {
@@ -410,6 +423,28 @@ fn expand_layout(
             labels.push(text.clone());
             rendered.push(Widget::Label(index));
         }
+        LayoutNode::Action { id, label } => {
+            if version < 6
+                || !["applications", "terminal", "settings", "lock"].contains(&id.as_str())
+                || !safe_label(label, 16)
+                || !seen.insert(format!("action:{id}"))
+            {
+                return Err("Invalid or duplicate native panel action".into());
+            }
+            let index = if let Some(index) = actions.iter().position(|item| item.id == *id) {
+                if actions[index].label != *label {
+                    return Err("Responsive panel action label changed".into());
+                }
+                index
+            } else {
+                if actions.len() >= MAX_LAYOUT_ACTIONS {
+                    return Err("Too many panel actions".into());
+                }
+                actions.push(PanelAction { id: id.clone(), label: label.clone() });
+                actions.len() - 1
+            };
+            rendered.push(Widget::Action(index as u8));
+        }
         LayoutNode::Group { gap, children } => {
             if depth >= MAX_LAYOUT_DEPTH || *gap > 32 || !(1..=6).contains(&children.len()) {
                 return Err("Invalid panel group".into());
@@ -418,7 +453,7 @@ fn expand_layout(
                 if index > 0 && *gap > 0 {
                     rendered.push(Widget::Gap(*gap));
                 }
-                expand_layout(child, depth + 1, counts, seen, rendered, labels)?;
+                expand_layout(child, depth + 1, counts, seen, rendered, labels, actions, version)?;
             }
         }
     }
@@ -465,6 +500,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
     let mut seen: HashSet<String> = HashSet::new();
     let mut sections: [Vec<Widget>; 3] = std::array::from_fn(|_| Vec::new());
     let mut labels = Vec::new();
+    let mut actions = Vec::new();
     match (
         recipe.schema_version,
         recipe.panel.sections,
@@ -508,6 +544,8 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
                         &mut seen,
                         &mut sections[index],
                         &mut labels,
+                        &mut actions,
+                        recipe.schema_version,
                     )?;
                 }
             }
@@ -610,6 +648,8 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
                         &mut compact_seen,
                         &mut smaller[index],
                         &mut labels,
+                        &mut actions,
+                        version,
                     )?;
                 }
             }
@@ -628,6 +668,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
         widths,
         sections,
         labels,
+        actions,
         compact,
         label_padding,
         task_radius,
@@ -691,6 +732,9 @@ fn width_for(style: &PanelStyle, widget: Widget, tasks: usize) -> u32 {
         Widget::Divider(width) => width,
         Widget::Label(index) => {
             style.labels[index as usize].len() as u32 * 8 + style.label_padding * 2
+        }
+        Widget::Action(index) => {
+            style.actions[index as usize].label.len() as u32 * 8 + style.label_padding * 2 + 8
         }
     }
 }
@@ -842,6 +886,7 @@ pub fn hit(
                 }
             }
             Widget::Clock => Some(Hit::Clock),
+            Widget::Action(index) => Some(Hit::Action(index)),
             Widget::Tray => Some(Hit::Tray(((x - f64::from(item.x)) /
                 f64::from(crate::tray::SLOT_WIDTH)) as usize)),
             Widget::Battery | Widget::Network | Widget::Audio => None,
@@ -854,6 +899,54 @@ pub fn hit(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const ACTIONS_V6: &str = include_str!("../../../tests/fixtures/riceplate-actions-v6.json");
+
+    #[test]
+    fn v6_action_buttons_have_shared_render_and_hit_geometry() {
+        let style = parse(ACTIONS_V6, Some("mockup-actions")).unwrap();
+        assert_eq!(style.actions.len(), 2);
+        assert_eq!(style.actions[0].id, "terminal");
+        assert_eq!(style.actions[1].label, "Settings");
+        let wide = layout(&style, 1280, 2);
+        for index in [0, 1] {
+            let button = wide.iter().find(|placed|
+                placed.widget == Widget::Action(index)).unwrap();
+            assert_eq!(hit((button.x + 1) as f64, 1280, 2, 0, &style),
+                       Some(Hit::Action(index)));
+        }
+        let compact = layout(&style, 600, 2);
+        assert!(!compact.iter().any(|placed| placed.widget == Widget::Action(0)));
+        let settings = compact.iter().find(|placed|
+            placed.widget == Widget::Action(1)).unwrap();
+        assert_eq!(hit((settings.x + 1) as f64, 600, 2, 0, &style), Some(Hit::Action(1)));
+    }
+
+    #[test]
+    fn v6_action_buttons_reject_unknown_ids_commands_and_label_drift() {
+        let source: serde_json::Value = serde_json::from_str(ACTIONS_V6).unwrap();
+        for invalid in [
+            serde_json::json!({"type":"action","id":"logout","label":"Logout"}),
+            serde_json::json!({"type":"action","id":"terminal","label":"<bad>"}),
+            serde_json::json!({"type":"action","id":"terminal","label":"Terminal","exec":"sh"}),
+            serde_json::json!({"type":"action","id":"terminal","label":"12345678901234567"}),
+        ] {
+            let mut changed = source.clone();
+            changed["panel"]["layout"]["start"][0]["children"][1] = invalid;
+            assert!(parse(&changed.to_string(), None).is_err());
+        }
+        let mut old = source.clone();
+        old["schema_version"] = serde_json::json!(5);
+        assert!(parse(&old.to_string(), None).is_err());
+        let mut repeated = source.clone();
+        repeated["panel"]["layout"]["end"].as_array_mut().unwrap().push(
+            serde_json::json!({"type":"action","id":"terminal","label":"Terminal"}));
+        assert!(parse(&repeated.to_string(), None).is_err());
+        let mut changed = source;
+        changed["responsive"]["compact_layout"]["end"][0]["label"] =
+            serde_json::json!("Prefs");
+        assert!(parse(&changed.to_string(), None).is_err());
+    }
 
     #[test]
     fn native_quick_actions_are_recipe_allowlisted() {

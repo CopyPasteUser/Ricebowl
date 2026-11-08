@@ -29,6 +29,7 @@ METRIC_FIELDS = ("launcher_width", "task_width", "clock_width")
 METRIC_LIMITS = ((64, 256), (96, 256), (64, 256))
 MAX_LAYOUT_NODES = 24
 MAX_LAYOUT_LABELS = 8
+MAX_LAYOUT_ACTIONS = 6
 MAX_LAYOUT_DEPTH = 3
 MAX_LAYOUT_ROOTS = 8
 MAX_LAYOUT_CHILDREN = 6
@@ -39,6 +40,13 @@ ICON_ACTIONS = frozenset(("applications", "terminal", "lock"))
 MENU_ACTIONS = frozenset(("applications", "terminal", "lock", "logout",
                           "wifi-toggle", "audio-mute", "audio-up", "audio-down",
                           "notifications", "settings"))
+# A deliberately smaller set than menu quick controls: all four work from a
+# panel without requiring a menu feedback surface or a custom command parser.
+PANEL_ACTIONS = frozenset(("applications", "terminal", "settings", "lock"))
+PANEL_ACTION_COMMANDS = {
+    "applications": "fuzzel", "terminal": "foot",
+    "settings": "ricebowl de settings", "lock": "swaylock -f",
+}
 WALLPAPERS = frozenset(("aero-seven-blue", "aero-seven-night", "luna-hills",
                         "classic-teal", "ten-blue", "ten-midnight", "chrome-pastel",
                         "frutiger-future", "aurora-day", "aurora-night"))
@@ -68,6 +76,7 @@ class LayoutNode:
     value: str | int = ""
     gap: int = 0
     children: tuple[LayoutNode, ...] = ()
+    label: str = ""
 
 
 @dataclass(frozen=True)
@@ -205,7 +214,8 @@ def _strict_keys(value: Any, keys: set[str], context: str) -> dict[str, Any]:
     return value
 
 
-def _parse_layout_node(raw: Any, depth: int, counts: list[int], widgets: list[str]) -> LayoutNode:
+def _parse_layout_node(raw: Any, depth: int, counts: list[int], widgets: list[str],
+                       actions: dict[str, str], *, schema_version: int) -> LayoutNode:
     """Validate one reusable primitive; never interpret fields as commands."""
     counts[0] += 1
     if depth > MAX_LAYOUT_DEPTH or counts[0] > MAX_LAYOUT_NODES:
@@ -238,6 +248,18 @@ def _parse_layout_node(raw: Any, depth: int, counts: list[int], widgets: list[st
         if counts[1] > MAX_LAYOUT_LABELS:
             raise RecipeError("Too many panel labels")
         return LayoutNode(kind, text)
+    if kind == "action":
+        _strict_keys(raw, {"type", "id", "label"}, "Action node")
+        action_id, label = raw["id"], raw["label"]
+        if (schema_version < 6 or type(action_id) is not str
+                or action_id not in PANEL_ACTIONS or not _safe_label(label, 16)):
+            raise RecipeError("Panel actions require schema v6, a known action ID and safe label")
+        if action_id in actions:
+            raise RecipeError("Duplicate panel action ID")
+        if len(actions) >= MAX_LAYOUT_ACTIONS:
+            raise RecipeError("Too many panel actions")
+        actions[action_id] = label
+        return LayoutNode(kind, action_id, label=label)
     if kind == "group":
         _strict_keys(raw, {"type", "gap", "children"}, "Group node")
         children = raw["children"]
@@ -246,20 +268,24 @@ def _parse_layout_node(raw: Any, depth: int, counts: list[int], widgets: list[st
                 or not 1 <= len(children) <= MAX_LAYOUT_CHILDREN):
             raise RecipeError("Group needs 1-6 children, 0-32px gap and bounded depth")
         return LayoutNode(kind, gap=raw["gap"], children=tuple(
-            _parse_layout_node(child, depth + 1, counts, widgets) for child in children))
+            _parse_layout_node(child, depth + 1, counts, widgets, actions,
+                               schema_version=schema_version) for child in children))
     raise RecipeError("Unsupported panel layout node or action")
 
 
-def _parse_layout(raw: Any) -> tuple[tuple[tuple[LayoutNode, ...], ...], list[str]]:
+def _parse_layout(raw: Any, *, schema_version: int = 3
+                  ) -> tuple[tuple[tuple[LayoutNode, ...], ...], list[str]]:
     layout = _strict_keys(raw, set(SECTIONS), "Panel layout")
     counts = [0, 0]
     widgets: list[str] = []
+    actions: dict[str, str] = {}
     result = []
     for section in SECTIONS:
         entries = layout[section]
         if not isinstance(entries, list) or len(entries) > MAX_LAYOUT_ROOTS:
             raise RecipeError("Panel layout section has more than eight roots")
-        result.append(tuple(_parse_layout_node(entry, 1, counts, widgets) for entry in entries))
+        result.append(tuple(_parse_layout_node(entry, 1, counts, widgets, actions,
+                            schema_version=schema_version) for entry in entries))
     return (result[0], result[1], result[2]), widgets
 
 
@@ -270,6 +296,8 @@ def layout_node_json(node: LayoutNode) -> dict[str, Any]:
                 "children": [layout_node_json(child) for child in node.children]}
     if node.kind == "widget":
         return {"type": "widget", "id": node.value}
+    if node.kind == "action":
+        return {"type": "action", "id": node.value, "label": node.label}
     if node.kind == "label":
         return {"type": "label", "text": node.value}
     if node.kind == "divider":
@@ -320,7 +348,7 @@ def parse(raw: bytes) -> PanelRecipe:
     all_widgets: list[str] = []
     layout_nodes = None
     if version in (3, 4, 5, 6):
-        layout_nodes, all_widgets = _parse_layout(panel["layout"])
+        layout_nodes, all_widgets = _parse_layout(panel["layout"], schema_version=version)
         def widget_ids(nodes: tuple[LayoutNode, ...]) -> tuple[str, ...]:
             return tuple(item for node in nodes for item in (
                 (node.value,) if node.kind == "widget" else
@@ -374,10 +402,26 @@ def parse(raw: bytes) -> PanelRecipe:
         threshold = responsive["compact_max_width"]
         if type(threshold) is not int or not 480 <= threshold <= 1440:
             raise RecipeError("Compact breakpoint must be 480-1440 logical pixels")
-        alternate, alternate_widgets = _parse_layout(responsive["compact_layout"])
+        alternate, alternate_widgets = _parse_layout(responsive["compact_layout"],
+                                                     schema_version=version)
         if (len(alternate_widgets) != len(set(alternate_widgets))
                 or not {"tasks", "launcher"} & set(alternate_widgets)):
             raise RecipeError("Compact layout requires unique widgets and launcher/tasks")
+        def action_labels(sections: tuple[tuple[LayoutNode, ...], ...]) -> dict[str, str]:
+            result: dict[str, str] = {}
+            def visit(node: LayoutNode) -> None:
+                if node.kind == "action":
+                    result[str(node.value)] = node.label
+                for child in node.children:
+                    visit(child)
+            for section in sections:
+                for node in section:
+                    visit(node)
+            return result
+        standard_actions = action_labels(layout_nodes)
+        if any(standard_actions.get(action_id, label) != label
+               for action_id, label in action_labels(alternate).items()):
+            raise RecipeError("Panel action labels must match across responsive layouts")
         compact = threshold, alternate
     return PanelRecipe(recipe_id, name, panel["position"], panel["height"],
                        (selected[0], selected[1], selected[2]),
@@ -791,6 +835,16 @@ def waybar_config(recipe: PanelRecipe, *, screen_width: int | None = None) -> tu
                 generated_css.append(
                     f"#custom-rice-divider-{index} {{ min-width: {node.value}px; "
                     f"border-left: 1px solid {recipe.colors[1]}; margin: 8px 0; padding: 0; }}")
+            elif node.kind == "action":
+                key = f"custom/rice-action-{index}"
+                generated_modules[key] = {
+                    "format": node.label, "tooltip": False,
+                    "on-click": PANEL_ACTION_COMMANDS[str(node.value)],
+                }
+                generated_css.append(
+                    f"#custom-rice-action-{index} {{ background: {recipe.colors[2]}; "
+                    f"border-radius: {radius}px; min-width: {len(node.label) * 8 + 8}px; "
+                    f"padding: 0 {padding}px; }}")
             else:
                 key = f"custom/rice-label-{index}"
                 generated_modules[key] = {"format": str(node.value), "tooltip": False}

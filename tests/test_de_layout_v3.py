@@ -158,12 +158,12 @@ class NestedPanelTests(unittest.TestCase):
 
     def test_catalog_describes_actual_native_and_fallback_node_constraints(self):
         result = catalog.describe()
-        self.assertEqual(result["catalog_version"], 6)
+        self.assertEqual(result["catalog_version"], 7)
         nested = result["recipe"]["nested_layout"]
         self.assertEqual(nested["max_nodes"], recipes.MAX_LAYOUT_NODES)
         self.assertEqual(nested["max_depth"], recipes.MAX_LAYOUT_DEPTH)
         self.assertEqual({item["id"] for item in result["layout_primitives"]},
-                         {"label", "group", "gap", "divider"})
+                         {"label", "group", "gap", "divider", "action"})
         self.assertTrue(set(("/panel/layout/start", "/panel/layout/center",
                              "/panel/layout/end")).issubset(
                                  set(result["authoring"]["draft_edit"]["editable_paths"])))

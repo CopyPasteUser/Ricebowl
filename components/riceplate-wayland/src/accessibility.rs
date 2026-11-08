@@ -19,6 +19,7 @@ pub const ROOT: u64 = 1;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Target {
     Launcher(usize),
+    PanelAction(String),
     Task(usize),
     Clock,
     Tray(usize),

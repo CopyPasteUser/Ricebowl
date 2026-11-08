@@ -6,6 +6,7 @@ use crate::recipe::{self, PanelStyle, Widget};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Target {
     Launcher,
+    Action(u8),
     Task(usize),
     Tray(usize),
 }
@@ -14,18 +15,16 @@ fn available(style: &PanelStyle, width: u32, task_count: usize,
              tray_count: usize) -> Vec<Target> {
     let layout = recipe::layout(style, width, task_count);
     let mut targets = Vec::with_capacity(task_count + 1);
-    if layout
-        .iter()
-        .any(|item| item.widget == Widget::Launcher && item.x < width)
-    {
-        targets.push(Target::Launcher);
-    }
-    if recipe::task_view(style, width, task_count, 0).is_some() {
-        targets.extend((0..task_count).map(Target::Task));
-    }
-    if tray_count > 0 && layout.iter().any(|item|
-        item.widget == Widget::Tray && item.x + item.width <= width) {
-        targets.extend((0..tray_count.min(crate::tray::VISIBLE_ITEMS)).map(Target::Tray));
+    for item in layout.into_iter().filter(|item| item.x + item.width <= width) {
+        match item.widget {
+            Widget::Launcher => targets.push(Target::Launcher),
+            Widget::Action(index) => targets.push(Target::Action(index)),
+            Widget::Tasks if recipe::task_view(style, width, task_count, 0).is_some() =>
+                targets.extend((0..task_count).map(Target::Task)),
+            Widget::Tray if tray_count > 0 => targets.extend(
+                (0..tray_count.min(crate::tray::VISIBLE_ITEMS)).map(Target::Tray)),
+            _ => {},
+        }
     }
     targets
 }
@@ -95,6 +94,21 @@ pub fn reveal(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_actions_follow_panel_order_and_disappear_with_compact_layout() {
+        let style = crate::recipe::parse(
+            include_str!("../../../tests/fixtures/riceplate-actions-v6.json"),
+            Some("mockup-actions")).unwrap();
+        assert_eq!(advance(&style, 1280, 2, Some(Target::Launcher), 1, 0),
+                   Some(Target::Action(0)));
+        assert_eq!(advance(&style, 1280, 2, Some(Target::Action(0)), 1, 0),
+                   Some(Target::Task(0)));
+        assert_eq!(advance(&style, 600, 2, Some(Target::Launcher), 1, 0),
+                   Some(Target::Task(0)));
+        assert_eq!(advance(&style, 600, 2, Some(Target::Task(1)), 1, 0),
+                   Some(Target::Action(1)));
+    }
 
     #[test]
     fn keyboard_wraps_over_launcher_and_grouped_windows() {
