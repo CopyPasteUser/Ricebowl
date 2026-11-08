@@ -63,8 +63,10 @@ class WaylandSessionTests(unittest.TestCase):
         call = caught.exception
         self.assertEqual(call.program, "/usr/bin/labwc")
         self.assertIn("--config-dir", call.argv)
-        self.assertEqual(call.argv[call.argv.index("--config-dir") + 1],
-                         str(session.resources() / "labwc"))
+        active_config = Path(call.argv[call.argv.index("--config-dir") + 1])
+        self.assertEqual(active_config.parent, Path(self.runtime.name))
+        self.assertTrue((active_config / ".ricebowl-managed").is_file())
+        self.assertEqual(call.env["RICEBOWL_DE_LIVE"], "1")
         self.assertEqual(call.env["LABWC_UPDATE_ACTIVATION_ENV"], "0")
         self.assertEqual(call.env["XDG_CURRENT_DESKTOP"], session.DESKTOP_NAME)
         self.assertEqual(env["XDG_CURRENT_DESKTOP"], "XFCE")

@@ -872,6 +872,41 @@ stable JSON responses (`stage_version: 1`), exit `0` for success, `2` for
 failed safe operations, and `1` for invalid command flags. Error responses
 do not expose private file paths or recipe contents.
 
+#### Explicit live Rice switching (opt-in Wayland session only)
+
+Inside an already running RiceBowl labwc session, review a built-in or
+imported recipe first, then explicitly activate it without logging out:
+
+```bash
+ricebowl de creator-live-status --json
+ricebowl de review --recipe chrome --json
+ricebowl de creator-live-apply --recipe chrome \
+  --expect-sha256 REVIEW_SUMMARY_SHA256 --expect-active classic --json
+ricebowl de creator-live-restore --expect-active chrome --json
+```
+
+Replace `REVIEW_SUMMARY_SHA256` with the `summary.semantic_sha256` returned by
+the preceding review; it must be exactly 64 lowercase hexadecimal characters.
+The current session supervisor handles the request over an owner-private Unix
+socket below `XDG_RUNTIME_DIR`, named for the current `WAYLAND_DISPLAY`.
+Only installed IDs are accepted; absolute file paths and recipe commands are
+not. The transaction preflights the recipe and wallpaper, starts a replacement
+panel and swaybg, checks that they survive initial startup, reloads the
+**private** labwc root menu, persists the next-login choice under the existing
+selection lock, then stops the previous panel/background. In a **nested preview**
+the live change stays temporary and does not persist the next-login choice.
+A failure before commit retains the old components and restores the old menu. `restore` offers
+one previous live rice; a restarted session can also use a hash-pinned previous
+selection (or a built-in). If the newly active panel later crashes, the
+supervisor tries one automatic live restore before falling back to Waybar.
+JSON exits are `0` on success and `2` for a rejected/failed request.
+
+This never touches an XFCE/X11 session, global labwc configuration or arbitrary
+third-party apps. It does not yet transactionally theme RiceField or Taskotto,
+prove full Wayland frame/input readiness, or guarantee recovery from power
+loss. Test with the nested opt-in labwc session first, and retain the normal
+XFCE login as the physical rollback path.
+
 #### Existing recipe creation, import/export and selection
 
 Custom recipes use the strict JSON schema illustrated in
@@ -935,8 +970,8 @@ directory. Repeating the same selection preserves the last undo target; the
 selection lock serializes parallel updates. The default is `classic`. A
 corrupted selection or subsequently deleted recipe is reported and ignored
 at login so the built-in classic panel can start. An **explicitly** requested
-invalid recipe still fails before launching labwc. This selects only the
-Wayland panel layout; full live desktop rice switching is not implemented.
+invalid recipe still fails before launching labwc. This selection affects the
+Wayland shell layout; full cross-application desktop switching remains open.
 
 Imports accept owner-controlled `0600` or `0644` regular `.json` files,
 reject symlinks, unsafe directories, invalid schemas, reserved IDs and
@@ -946,7 +981,7 @@ Exported files are `0600` and existing files are never overwritten. Share
 the exported JSON using your normal file-transfer tool; it contains no
 executables or assets. The experimental Wayland `.ricepack` above adds portable
 integrity/provenance metadata and one bounded PNG, **not** full cross-component
-composition, a complete asset suite or live transaction/rollback.
+composition, a complete asset suite or cross-application live transaction/rollback.
 
 The initializer creates a fully validated `0600` file through an atomic,
 no-overwrite operation. Edit its `panel.sections`, `position`, `height` and

@@ -89,6 +89,40 @@ dbus-run-session -- sh -eu -c '
         sed -n "1,100p" "$runtime/labwc.log" >&2
         exit 1
     fi
+    # Exercise the actual supervisor socket, labwc menu reconfigure and both
+    # shell processes. Nested preview must not persist the next-login choice.
+    if [ "${WLR_HEADLESS_OUTPUTS:-1}" -eq 1 ]; then
+        count=0
+        while [ ! -S "$runtime/ricebowl-live-wayland-0.sock" ] && [ "$count" -lt 40 ]; do
+            count=$((count + 1))
+            sleep 0.25
+        done
+        if [ ! -S "$runtime/ricebowl-live-wayland-0.sock" ]; then
+            echo "Live RiceBowl supervisor socket missing" >&2
+            sed -n "1,100p" "$runtime/labwc.log" >&2
+            exit 1
+        fi
+        current=${recipe:-classic}
+        target=chrome
+        [ "$current" = chrome ] && target=classic
+        digest=$(PYTHONPATH="$project_root" /usr/bin/python3 -c "from macrice.de.staging import _hash; print(_hash(\"$target\"))")
+        /usr/bin/python3 "$project_root/launcher.py" de creator-live-apply \
+            --recipe "$target" --expect-sha256 "$digest" --expect-active "$current" \
+            --json >"$runtime/live-apply.json"
+        /usr/bin/python3 -c "import json,sys; x=json.load(open(sys.argv[1])); assert x['ok'] and x['active']==sys.argv[2] and not x['next_login_persisted']" \
+            "$runtime/live-apply.json" "$target"
+        if /usr/bin/python3 "$project_root/launcher.py" de creator-live-apply \
+                --recipe "$current" --expect-sha256 "$(printf '%064d' 0)" \
+                >"$runtime/bad-hash.log" 2>&1; then
+            echo "Unreviewed recipe was incorrectly accepted" >&2
+            exit 1
+        fi
+        /usr/bin/python3 "$project_root/launcher.py" de creator-live-restore \
+            --expect-active "$target" --json >"$runtime/live-restore.json"
+        /usr/bin/python3 -c "import json,sys; x=json.load(open(sys.argv[1])); assert x['ok'] and x['active']==sys.argv[2]" \
+            "$runtime/live-restore.json" "$current"
+        echo "Live Rice apply/reject/restore worked in isolated labwc"
+    fi
     # A live Waybar PID does not mean the layer surface has rendered yet.
     # Retry *real pixel validation* for at most four seconds per output;
     # never accept a missing panel merely because the process exists.

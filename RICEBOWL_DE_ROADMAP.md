@@ -710,6 +710,15 @@ depend on the XFCE session.
   staged recipe changes before login. Migrate old v1 state without breaking
   existing commands. This does not switch live Wayland/XFCE or provide a
   transaction across the desktop's future settings, windows and components.
+- [x] Add a **review-gated live shell transaction** for the opt-in labwc
+  session (`creator-live-status/apply/restore`): an owner-only per-display Unix
+  socket in the existing supervisor, recipe/fingerprint/asset preflight, new
+  panel and wallpaper startup before old-process shutdown, atomic private
+  labwc menu replacement, CAS-protected next-login persistence and rollback
+  on failed activation. Native-to-Waybar rescue uses the active recipe.
+  Initial child survival is checked, **not** complete frame/input readiness.
+  Physical QA, cross-application RiceField/Taskotto coordination, suspend
+  recovery and power-failure tests remain open; the full 1.0 gate is not met.
 - [x] Publish two **honest schema-v5 Creator demonstrators** under
   `examples/wayland/`: a classic-OS-inspired workstation and a structurally
   distinct original Orbit concept. They use only shared native primitives,

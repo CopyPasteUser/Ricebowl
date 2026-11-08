@@ -1,0 +1,216 @@
+"""Live Wayland switching: reviewed CAS, component failure and socket isolation."""
+
+import json
+import os
+import tempfile
+import threading
+import unittest
+from contextlib import ExitStack
+from pathlib import Path
+from unittest import mock
+
+from macrice.cli import main as cli
+from macrice.de import creator_contract, live, recipes, staging
+from macrice.de.session import _LiveSwitch, resources
+
+
+class FakeProcess:
+    def __init__(self, *, exit_code=None):
+        self.exit_code = exit_code
+        self.terminated = False
+
+    def poll(self):
+        return 0 if self.terminated else self.exit_code
+
+    def terminate(self):
+        self.terminated = True
+
+    def kill(self):
+        self.terminated = True
+
+    def wait(self, timeout=None):
+        return 0 if self.terminated else self.exit_code or 0
+
+
+class LiveRiceTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name)
+        self.runtime = root / "run"
+        self.runtime.mkdir(mode=0o700)
+        self.config = root / "config"
+        self.config.mkdir(mode=0o700)
+        self.menu_dir = self.runtime / "ricebowl-labwc-test"
+        self.menu_dir.mkdir(mode=0o700)
+        self.menu = self.menu_dir / "menu.xml"
+        self.menu.write_text((resources() / "labwc/menu.xml").read_text())
+        self.env = {"XDG_RUNTIME_DIR": str(self.runtime),
+                    "RICEBOWL_DE_SESSION_CONFIG": str(self.menu_dir),
+                    "RICEBOWL_DE_RECIPE": "classic", "WAYLAND_DISPLAY": "wayland-19"}
+        self.env_patch = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(self.config)})
+        self.env_patch.start()
+        self.addCleanup(self.env_patch.stop)
+        self.tools = {name: f"/usr/bin/{name}" for name in
+                      ("labwc", "swaybg", "riceplate-native", "waybar")}
+        self.processes = []
+        self.initial_panel = FakeProcess()
+        self.initial_wallpaper = FakeProcess()
+        self.background = [self.initial_wallpaper]
+        self.cleanup_stack = ExitStack()
+        self.addCleanup(self.cleanup_stack.close)
+        self.failed_next = False
+
+        def spawn(command, **kwargs):
+            process = FakeProcess(exit_code=1 if self.failed_next and
+                                  command[0].endswith("riceplate-native") else None)
+            self.processes.append((command, kwargs, process))
+            return process
+
+        self.controller = _LiveSwitch(
+            env=self.env, mode="native", which=self.tools.get, spawn=spawn,
+            cleanup=self.cleanup_stack, initial_panel=self.initial_panel,
+            initial_wallpaper=self.initial_wallpaper, background=self.background)
+        self.reconfigure = mock.patch.object(self.controller, "_reconfigure")
+        self.reconfigure.start()
+        self.addCleanup(self.reconfigure.stop)
+        self.sleep = mock.patch("macrice.de.session.time.sleep")
+        self.sleep.start()
+        self.addCleanup(self.sleep.stop)
+
+    def change(self, action, token=None, digest=None, expected="classic"):
+        return self.controller.handle({"action": action, "recipe": token,
+                                       "sha256": digest, "expected": expected})
+
+    def test_native_live_switch_and_explicit_restore_are_persisted(self):
+        digest = staging._hash("chrome")
+        changed = self.change("apply", "chrome", digest)
+        self.assertTrue(changed["changed"])
+        self.assertEqual((changed["active"], changed["previous"]), ("chrome", "classic"))
+        self.assertEqual(recipes.current_selection(), ("chrome", "classic"))
+        self.assertTrue(self.initial_panel.terminated)
+        self.assertTrue(self.initial_wallpaper.terminated)
+        self.assertEqual(len(self.background), 1)
+        self.assertTrue(any("riceplate-native" in item[0][0] for item in self.processes))
+        self.assertTrue(any("swaybg" in item[0][0] for item in self.processes))
+        restored = self.change("restore", expected="chrome")
+        self.assertEqual((restored["active"], restored["previous"]), ("classic", "chrome"))
+        self.assertEqual(recipes.current_selection(), ("classic", "chrome"))
+
+    def test_failed_new_panel_keeps_live_and_saved_selection(self):
+        before = self.menu.read_text()
+        self.failed_next = True
+        with self.assertRaises(live.LiveError) as caught:
+            self.change("apply", "chrome", staging._hash("chrome"))
+        self.assertEqual(caught.exception.code, "component_failed")
+        self.assertEqual(self.controller.active, "classic")
+        self.assertFalse(self.initial_panel.terminated)
+        self.assertFalse(self.initial_wallpaper.terminated)
+        self.assertTrue(all(process.poll() is not None for _, _, process in self.processes))
+        self.assertEqual(self.menu.read_text(), before)
+        self.assertEqual(recipes.current_selection(), ("classic", None))
+
+    def test_selection_commit_failure_restores_private_menu_and_old_processes(self):
+        source = self.config.parent / "custom.json"
+        recipes.create_from_template(source="chrome", destination=source,
+                                     recipe_id="composable", name="Composable", schema_version=4)
+        recipes.import_recipe(source)
+        previous_menu = self.menu.read_text()
+        with mock.patch("macrice.de.recipes.change_selection",
+                        side_effect=recipes.SelectionConflict("concurrent stage")):
+            with self.assertRaises(live.LiveError) as caught:
+                self.change("apply", "composable", staging._hash("composable"))
+        self.assertEqual(caught.exception.code, "selection_conflict")
+        self.assertEqual(self.menu.read_text(), previous_menu)
+        self.assertFalse(self.initial_panel.terminated)
+        self.assertEqual(recipes.current_selection(), ("classic", None))
+
+    def test_custom_menu_is_switched_and_restored_without_touching_global_config(self):
+        source = self.config.parent / "custom.json"
+        recipes.create_from_template(source="chrome", destination=source,
+                                     recipe_id="composable", name="Composable", schema_version=4)
+        recipes.import_recipe(source)
+        original = self.menu.read_text()
+        changed = self.change("apply", "composable", staging._hash("composable"))
+        self.assertEqual(changed["active"], "composable")
+        self.assertIn('id="root-menu"', self.menu.read_text())
+        self.assertEqual(recipes.current_selection()[0], "composable")
+        self.change("restore", expected="composable")
+        self.assertEqual(self.menu.read_text(), original)
+
+    def test_concurrent_next_login_stage_rejects_live_apply(self):
+        staging.stage("chrome", staging._hash("chrome"))
+        with self.assertRaises(live.LiveError) as caught:
+            self.change("apply", "chrome", staging._hash("chrome"))
+        self.assertEqual(caught.exception.code, "selection_conflict")
+        self.assertEqual(self.processes, [])
+        self.assertEqual(recipes.current_selection()[0], "chrome")
+        self.assertEqual(self.controller.active, "classic")
+
+    def test_nested_preview_switch_never_persists_login_selection(self):
+        self.controller.nested = True
+        result = self.change("apply", "chrome", staging._hash("chrome"))
+        self.assertEqual(result["active"], "chrome")
+        self.assertFalse(result["next_login_persisted"])
+        self.assertEqual(recipes.current_selection(), ("classic", None))
+        self.change("restore", expected="chrome")
+        self.assertEqual(recipes.current_selection(), ("classic", None))
+
+    def test_invalid_review_or_active_guard_rejects_before_spawn(self):
+        for token, digest, expected, code in (
+            ("chrome", "0" * 64, "classic", "recipe_changed"),
+            ("chrome", staging._hash("chrome"), "unknown", "selection_conflict"),
+            ("../unsafe", staging._hash("chrome"), "classic", "invalid_live_request"),
+        ):
+            with self.subTest(code=code), self.assertRaises(live.LiveError) as caught:
+                self.change("apply", token, digest, expected)
+            self.assertEqual(caught.exception.code, code)
+        self.assertEqual(self.processes, [])
+
+    def test_private_socket_roundtrip_and_cleanup(self):
+        path = live.socket_path(self.env)
+        try:
+            context = live.listen(self.env)
+            listener = context.__enter__()
+        except PermissionError:
+            self.skipTest("AF_UNIX socket creation is forbidden by this CI sandbox")
+        try:
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            worker = threading.Thread(target=live.serve_once,
+                                      args=(listener, self.controller.handle))
+            worker.start()
+            result = live.request("status", environment=self.env)
+            worker.join(timeout=4)
+            self.assertEqual(result["active"], "classic")
+            self.assertFalse(worker.is_alive())
+            with self.assertRaises(live.LiveError):
+                with live.listen(self.env):
+                    pass
+        finally:
+            context.__exit__(None, None, None)
+        self.assertFalse(path.exists())
+
+    def test_socket_rejects_invalid_display_and_symlink(self):
+        with self.assertRaises(live.LiveError):
+            live.socket_path({**self.env, "WAYLAND_DISPLAY": "../../wayland-0"})
+        path = live.socket_path(self.env)
+        path.symlink_to(self.menu)
+        with self.assertRaises(live.LiveError):
+            with live.listen(self.env):
+                pass
+        self.assertTrue(path.is_symlink())
+
+    def test_creator_contract_and_cli_outside_session(self):
+        catalog = creator_contract.describe_creator_api()
+        commands = {entry["command"] for entry in catalog["commands"]}
+        self.assertTrue({"creator-live-apply", "creator-live-restore",
+                         "creator-live-status"} <= commands)
+        self.assertEqual(catalog["live"]["live_version"], 1)
+        with mock.patch.dict(os.environ, self.env), mock.patch("builtins.print") as printed:
+            self.assertEqual(cli(["de", "creator-live-status", "--json"]), 2)
+        response = json.loads(printed.call_args.args[0])
+        self.assertEqual(response["error"]["code"], "live_unavailable")
+
+
+if __name__ == "__main__":
+    unittest.main()

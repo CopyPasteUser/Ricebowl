@@ -164,17 +164,37 @@ def describe_staging() -> dict[str, object]:
     }
 
 
+def describe_live() -> dict[str, object]:
+    """Explicit activation contract for one supervised opt-in labwc session."""
+    return {
+        "live_version": 1,
+        "commands": ["creator-live-status", "creator-live-apply", "creator-live-restore"],
+        "transport": "owner-only UNIX socket in XDG_RUNTIME_DIR, per Wayland display",
+        "required_review": "de review semantic SHA-256 before creator-live-apply",
+        "components": ["RicePlate native or Waybar", "swaybg wallpaper", "labwc root menu",
+                       "next-login selection"],
+        "behavior": "preflight, start new clients, health check, reconfigure menu, "
+                    "persist reviewed selection, stop old clients; rollback on failure",
+        "scope": "current opt-in RiceBowl labwc session only; never XFCE/X11",
+        "restore": "one prior live rice, using its recorded reviewed fingerprint",
+        "readiness_limit": "new clients survive initial grace period; no full pixel/input validation",
+        "external_apps": "RiceField/Taskotto session-wide changes not yet transactional",
+        "success_exit_code": 0,
+        "error_exit_code": 2,
+    }
+
+
 def describe_creator_api() -> dict[str, object]:
     """Stable, tool-neutral inventory, including explicit side-effect limits."""
     return {
         "api_version": 1,
         "scope": "experimental-wayland-shell-authoring",
-        "transport": "CLI JSON; no resident socket or AI inference",
+        "transport": "CLI JSON; session-local socket only for explicit live Rice changes",
         "discovery": "ricebowl de creator-api --json",
         "success_exit_code": 0,
         "invalid_options_exit_code": 1,
         "operation_error_exit_code": 2,
-        "active_session_mutation": "Creator authoring commands never change the active desktop; notification-dismiss, notification-invoke and audio-default are explicit RicePop/RiceSpice exceptions",
+        "active_session_mutation": "Creator authoring stays offline; creator-live-apply/restore, notification-dismiss, notification-invoke and audio-default require explicit user invocation",
         "next_login_selection_mutation": "creator-stage/rollback only; requires explicit invocation",
         "commands": [
             {"command": "catalog", "effect": "read-only component discovery",
@@ -224,13 +244,22 @@ def describe_creator_api() -> dict[str, object]:
              "contract_version": 1},
             {"command": "creator-rollback", "effect": "restore preceding next-login choice",
              "cli": "de creator-rollback --json", "contract_version": 1},
+            {"command": "creator-live-status", "effect": "read active supervised Wayland rice",
+             "cli": "de creator-live-status --json", "contract_version": 1},
+            {"command": "creator-live-apply", "effect": "review-gated live shell switch with recovery",
+             "cli": "de creator-live-apply --recipe ID --expect-sha256 HASH --json",
+             "contract_version": 1, "mutates_active_session": True},
+            {"command": "creator-live-restore", "effect": "restore previous live shell rice",
+             "cli": "de creator-live-restore --json", "contract_version": 1,
+             "mutates_active_session": True},
         ],
         "ricepack": describe_ricepack(),
         "staging": describe_staging(),
+        "live": describe_live(),
         "limitations": [
             "Not a screenshot-to-rice converter or editable GUI",
             "Schema-v1..v7 shell preview; v6+ supports one bounded PNG wallpaper, not arbitrary assets",
-            "No automatic apply; Wayland session remains experimental",
+            "Live apply is explicit and supervised; Wayland session remains experimental",
             "Native tray, complete settings, notification center and physical multi-monitor acceptance remain open",
         ],
     }

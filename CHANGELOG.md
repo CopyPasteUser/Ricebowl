@@ -1,5 +1,19 @@
 # RiceBowl changelog
 
+## Unreleased — reviewed live shell rice switching (8 November 2026)
+
+- Add explicit `creator-live-status/apply/restore` to the opt-in labwc session:
+  checked recipe hash and active-selection guards, owner-only Wayland-display
+  control socket, bounded requests and stable JSON errors.
+- Prepare replacement RicePlate/Waybar and wallpaper processes before replacing
+  the active panel; atomically switch the private labwc menu and selected
+  next-login recipe, with rollback on failed activation or concurrent staging.
+  Attempt one automatic restore if the newly selected panel later exits, then
+  retain native-to-Waybar fallback for the currently active recipe.
+- Keep all XFCE/X11 services and global settings untouched. Physical labwc,
+  display/input checks, full RiceField/Taskotto transactions and real-device
+  failure injection are still release gates.
+
 ## Unreleased — RicePop 1.0 software candidate (8 November 2026)
 
 - Re-read Mako notifications every three seconds **only while the center is
