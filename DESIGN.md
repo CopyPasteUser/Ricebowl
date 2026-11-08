@@ -358,8 +358,17 @@ consume these same validated leaves and map IDs to existing, fixed Linux
 actions. Native panel painting, pointer hits, Tab/arrow focus, Enter/Space and
 AT-SPI activation must resolve through the one shared action dispatcher.
 No arbitrary recipe-supplied command, path, keybinding or dynamic argument is
-ever interpreted. More stateful panel controls await a separately audited
-component/state contract with honest availability and error feedback.
+ever interpreted. Schema-v7 adds `type: control` with the fixed IDs
+`wifi-toggle`, `audio-mute`, `audio-up` and `audio-down`. These share native
+RicePlate's bounded NetworkManager/WirePlumber worker and its existing menu
+dispatcher. Each painted button has a live, hardware-derived second line
+(`On`/`Off`, `Muted`, volume percentage or `N/A`), a visible pending/failed
+state and an AT-SPI name including the current state. Controls with no provider
+or while another write is pending expose no AT-SPI activation and ignore
+clicks; no recipe can command arbitrary hardware. Geometry and focus remain
+stable during status changes. The Waybar fallback shows a visibly disabled
+`N/A` control without a click command because it lacks that verified worker.
+These are shared framework controls, never OS-specific costume toggles.
 
 **Prioritization:** the reusable Wayland shell/Creator contracts and safe
 switching remain ahead of pixel-perfect historical XP/7/10 menu, titlebar and

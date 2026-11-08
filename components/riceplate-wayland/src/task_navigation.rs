@@ -111,6 +111,17 @@ mod tests {
     }
 
     #[test]
+    fn stateful_control_uses_the_same_keyboard_path_on_both_layouts() {
+        let style = crate::recipe::parse(
+            include_str!("../../../tests/fixtures/riceplate-controls-v7.json"),
+            Some("mockup-controls")).unwrap();
+        assert_eq!(advance(&style, 1280, 2, Some(Target::Task(1)), 1, 0),
+                   Some(Target::Action(0)));
+        assert_eq!(advance(&style, 600, 2, Some(Target::Task(1)), 1, 0),
+                   Some(Target::Action(1)));
+    }
+
+    #[test]
     fn keyboard_wraps_over_launcher_and_grouped_windows() {
         let style = crate::recipe::load("classic").unwrap();
         assert_eq!(initial(&style, 1200, 3, None, 0), Some(Target::Launcher));
