@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 from macrice.cli import main as cli
-from macrice.de import creator_contract, live, recipes, staging
+from macrice.de import creator_contract, live, recipes, riceprofile, staging
 from macrice.de.session import _LiveSwitch, resources
 
 
@@ -96,6 +96,44 @@ class LiveRiceTests(unittest.TestCase):
         restored = self.change("restore", expected="chrome")
         self.assertEqual((restored["active"], restored["previous"]), ("classic", "chrome"))
         self.assertEqual(recipes.current_selection(), ("classic", "chrome"))
+
+    def test_live_switch_updates_both_optional_apps_and_restores_on_rollback(self):
+        from types import SimpleNamespace
+
+        (self.menu_dir / ".ricebowl-managed").touch(mode=0o600)
+        profile = riceprofile.ProfileSession.prepare(
+            self.menu_dir, self.env, recipes.load("classic"),
+            which=lambda name: name, run=lambda *args, **kwargs: SimpleNamespace(returncode=0))
+        self.controller.profile = profile
+        before = {client: (self.menu_dir / client.filename).read_bytes() for client in profile.clients}
+        self.assertEqual(self.change("status", expected=None)["applications"],
+                         {"taskotto": "managed", "ricefield": "managed"})
+        self.change("apply", "chrome", staging._hash("chrome"))
+        for client in profile.clients:
+            self.assertNotEqual((self.menu_dir / client.filename).read_bytes(), before[client])
+        self.change("restore", expected="chrome")
+        for client in profile.clients:
+            self.assertEqual((self.menu_dir / client.filename).read_bytes(), before[client])
+
+    def test_persist_failure_restores_both_client_profiles(self):
+        from types import SimpleNamespace
+
+        (self.menu_dir / ".ricebowl-managed").touch(mode=0o600)
+        profile = riceprofile.ProfileSession.prepare(
+            self.menu_dir, self.env, recipes.load("classic"),
+            which=lambda name: name, run=lambda *args, **kwargs: SimpleNamespace(returncode=0))
+        self.controller.profile = profile
+        before = {client: (self.menu_dir / client.filename).read_bytes() for client in profile.clients}
+        old_menu = self.menu.read_bytes()
+        with mock.patch("macrice.de.recipes.change_selection",
+                        side_effect=recipes.SelectionConflict("concurrent update")):
+            with self.assertRaises(live.LiveError) as caught:
+                self.change("apply", "chrome", staging._hash("chrome"))
+        self.assertEqual(caught.exception.code, "selection_conflict")
+        self.assertEqual(self.menu.read_bytes(), old_menu)
+        for client in profile.clients:
+            self.assertEqual((self.menu_dir / client.filename).read_bytes(), before[client])
+        self.assertFalse(self.initial_panel.terminated)
 
     def test_failed_new_panel_keeps_live_and_saved_selection(self):
         before = self.menu.read_text()

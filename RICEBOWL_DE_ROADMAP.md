@@ -602,12 +602,17 @@ depend on the XFCE session.
 - [x] Persist the next opt-in Wayland panel recipe selection in owner-private
   state with one-level rollback and classic fallback on invalid/missing state.
   Live shell switching and cross-component transactions remain open.
-- [ ] Define a small versioned profile contract between RiceBowl, RiceField
+- [x] Define a small versioned profile contract between RiceBowl, RiceField
   and Taskotto. External applications work without RiceBowl installed.
   - [x] RicePlate recipe → Taskotto v1 data-only TOML export and fixture,
     with validated color/theme mapping and no-overwrite private output.
-  - [ ] Add auto-discovery/coordination for RiceField and full session-wide
-    multi-app pack transactions only after their independent contracts settle.
+  - [x] Add optional client auto-discovery with real CLI schema preflight,
+    private RiceField RiceProfile v1 / Taskotto RicePack v1 live files and
+    coordinated preflight, apply and restore inside the opt-in labwc session.
+    Failed commits and later selection failures recover previous app files;
+    missing/incompatible clients are excluded without changing defaults.
+    App watchers eventually adopt valid updates (~2–3 seconds), but frame-level
+    acknowledgement and crash/power-loss atomicity are still open QA gates.
 - [ ] Support rice-specific structure, spacing, colors and components with
   validated settings, not an unsafe arbitrary runtime plugin mechanism.
 - [ ] Specify a versioned, schema-validated rice recipe format for composable
@@ -717,7 +722,8 @@ depend on the XFCE session.
   labwc menu replacement, CAS-protected next-login persistence and rollback
   on failed activation. Native-to-Waybar rescue uses the active recipe.
   Initial child survival is checked, **not** complete frame/input readiness.
-  Physical QA, cross-application RiceField/Taskotto coordination, suspend
+  RiceProfile v1 cross-application coordination now covers compatible clients
+  with guarded private-file swaps and rollback. Physical multi-app QA, suspend
   recovery and power-failure tests remain open; the full 1.0 gate is not met.
 - [x] Publish two **honest schema-v5 Creator demonstrators** under
   `examples/wayland/`: a classic-OS-inspired workstation and a structurally
