@@ -23,7 +23,8 @@ mod tray;
 use tray::{MenuChoice as TrayMenuChoice, MenuHit as TrayMenuHit, PopupHit as TrayHit};
 use native_menu::{Hit as MenuHit, MenuState};
 use power::PowerStatus;
-use ricepop::{Request as NotificationRequest, State as NotificationState};
+use ricepop::{Intent as NotificationIntent, Request as NotificationRequest,
+              State as NotificationState};
 use system_status::{Audio, ControlAction, SystemStatus};
 
 enum StatusEvent {
@@ -734,22 +735,39 @@ impl RicePlate {
         if self.menu_state.visible && self.active_menu.is_some() {
             if self.notification_state.open {
                 model.add(22_000, ROOT, AccessibleRole::Dialog, "Notifications", None);
-                model.add(22_100, 22_000, AccessibleRole::Tab,
-                          format!("Active notifications: {}", self.notification_state.notices.len()),
-                          Some(Target::NotificationTab(false)));
-                model.add(22_101, 22_000, AccessibleRole::Tab,
-                          format!("Past notifications: {}", self.notification_state.history.len()),
-                          Some(Target::NotificationTab(true)));
+                if self.notification_state.detail_id.is_none() {
+                    model.add(22_100, 22_000, AccessibleRole::Tab,
+                              format!("Active notifications: {}", self.notification_state.notices.len()),
+                              Some(Target::NotificationTab(false)));
+                    model.add(22_101, 22_000, AccessibleRole::Tab,
+                              format!("Past notifications: {}", self.notification_state.history.len()),
+                              Some(Target::NotificationTab(true)));
+                }
                 if self.notification_state.loading {
                     model.add(22_150, 22_000, AccessibleRole::Status, "Loading notifications", None);
                 } else if let Some(error) = self.notification_state.error {
                     model.add(22_150, 22_000, AccessibleRole::Alert, error, None);
+                } else if let Some(detail) = self.notification_state.detail_notice() {
+                    model.add(22_160, 22_000, AccessibleRole::Group,
+                              format!("Notification from {}", detail.app_name), None);
+                    model.add(22_161, 22_160, AccessibleRole::Label, detail.summary.clone(), None);
+                    model.add(22_162, 22_160, AccessibleRole::Label, detail.body.clone(), None);
+                    if !self.notification_state.show_history {
+                        for (index, action) in detail.actions.iter().enumerate()
+                            .skip(self.notification_state.first_action_row())
+                            .take(ricepop::VISIBLE_ROWS) {
+                            model.add(22_300 + index as u64, 22_160, AccessibleRole::Button,
+                                      action.label.clone(),
+                                      Some(Target::NotificationInvoke(detail.id, action.key.clone())));
+                        }
+                    }
                 } else {
                     for (index, notice) in self.notification_state.visible_notices().iter()
                         .enumerate().skip(self.notification_state.first_row())
                         .take(ricepop::VISIBLE_ROWS) {
                         model.add(22_200 + index as u64, 22_000,
-                                  AccessibleRole::Button, notice.summary.clone(),
+                                  AccessibleRole::Button,
+                                  format!("View notification from {}: {}", notice.app_name, notice.summary),
                                   Some(Target::NotificationSelect(index)));
                         if let Some(node) = model.elements.last_mut() {
                             node.description = Some(notice.body.chars()
@@ -759,7 +777,9 @@ impl RicePlate {
                     }
                 }
                 model.add(22_900, 22_000, AccessibleRole::Button,
-                          "Back to menu", Some(Target::NotificationBack));
+                          if self.notification_state.detail_id.is_some() {
+                              "Back to notification list"
+                          } else { "Back to menu" }, Some(Target::NotificationBack));
                 model.add(22_901, 22_000, AccessibleRole::Button,
                           "Refresh notifications", Some(Target::NotificationRefresh));
                 if let Some(id) = self.notification_state.selected_id() {
@@ -767,7 +787,14 @@ impl RicePlate {
                               "Dismiss selected notification", Some(Target::NotificationDismiss(id)));
                 }
                 if self.menu_focused {
-                    model.focus = 22_200 + self.notification_state.selected as u64;
+                    model.focus = if self.notification_state.detail_id.is_some() {
+                        if self.notification_state.selected_action().is_some() {
+                            22_300 + self.notification_state.selected_action as u64
+                        } else { 22_900 }
+                    } else if !self.notification_state.visible_notices().is_empty()
+                        && !self.notification_state.loading && self.notification_state.error.is_none() {
+                        22_200 + self.notification_state.selected as u64
+                    } else { 22_900 };
                 }
             } else if let Some(menu) = self.recipe.menu.as_ref() {
                 model.add(20_000, ROOT, AccessibleRole::Menu, menu.title.clone(), None);
@@ -933,17 +960,29 @@ impl RicePlate {
                 self.redraw_menu(qh);
             }
             Target::NotificationSelect(index) => {
-                self.notification_state.selected = index;
+                self.notification_state.open_detail(index);
                 self.redraw_menu(qh);
             }
-            Target::NotificationRefresh => self.request_notifications(None, qh),
+            Target::NotificationInvoke(id, key) => {
+                let valid = self.notification_state.action_at(0).is_some()
+                    && self.notification_state.detail_notice().is_some_and(|notice|
+                        notice.id == id && notice.actions.iter().any(|action| action.key == key));
+                if valid {
+                    self.request_notifications(NotificationIntent::Invoke(id, key), qh);
+                }
+            }
+            Target::NotificationRefresh => self.request_notifications(NotificationIntent::Refresh, qh),
             Target::NotificationDismiss(id) => {
                 if self.notification_state.selected_id() == Some(id) {
-                    self.request_notifications(Some(id), qh);
+                    self.request_notifications(NotificationIntent::Dismiss(id), qh);
                 }
             }
             Target::NotificationBack => {
-                self.notification_state.close();
+                if self.notification_state.detail_id.is_some() {
+                    self.notification_state.close_detail();
+                } else {
+                    self.notification_state.close();
+                }
                 self.redraw_menu(qh);
             }
             Target::TrayPopupItem(index) => {
@@ -1376,7 +1415,7 @@ impl RicePlate {
 
     fn activate_action(&mut self, action: &str, qh: &QueueHandle<Self>) {
         if action == "notifications" {
-            self.request_notifications(None, qh);
+            self.request_notifications(NotificationIntent::Refresh, qh);
             return;
         }
         if let Some(control) = ControlAction::from_id(action) {
@@ -1406,11 +1445,12 @@ impl RicePlate {
         }
     }
 
-    fn request_notifications(&mut self, dismiss_id: Option<u32>, qh: &QueueHandle<Self>) {
+    fn request_notifications(&mut self, intent: NotificationIntent, qh: &QueueHandle<Self>) {
         let revision = self.notification_state.begin();
-        let request = match dismiss_id {
-            Some(id) => NotificationRequest::Dismiss(revision, id),
-            None => NotificationRequest::Refresh(revision),
+        let request = match intent {
+            NotificationIntent::Refresh => NotificationRequest::Refresh(revision),
+            NotificationIntent::Dismiss(id) => NotificationRequest::Dismiss(revision, id),
+            NotificationIntent::Invoke(id, key) => NotificationRequest::Invoke(revision, id, key),
         };
         if !self.notification_sender.as_ref()
             .is_some_and(|sender| sender.try_send(request).is_ok()) {
@@ -2511,6 +2551,11 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
     );
 }
 
+fn notification_glyphs(value: &str, limit: usize) -> String {
+    value.chars().map(|c| if c.is_ascii() && !c.is_ascii_control() { c } else { '?' })
+        .take(limit).collect()
+}
+
 fn paint_notifications(canvas: &mut [u8], style: &PanelStyle, state: &NotificationState) {
     let width = native_menu::WIDTH;
     let height = native_menu::HEIGHT;
@@ -2519,18 +2564,50 @@ fn paint_notifications(canvas: &mut [u8], style: &PanelStyle, state: &Notificati
     }
     fill_rect(canvas, width, height, 0, 0, width, 38, style.active);
     draw_text(canvas, width, height, 14, 15, "Notifications", style.foreground);
-    let selected_tab_x = if state.show_history { 164 } else { 4 };
-    fill_rounded_rect(canvas, width, height, selected_tab_x, 41, 152, 42,
-                      style.task_radius, style.active);
-    draw_text(canvas, width, height, 14, 54,
-              &format!("Active ({})", state.notices.len()), style.foreground);
-    draw_text(canvas, width, height, 174, 54,
-              &format!("Past ({})", state.history.len()), style.foreground);
+    if state.detail_id.is_none() {
+        let selected_tab_x = if state.show_history { 164 } else { 4 };
+        fill_rounded_rect(canvas, width, height, selected_tab_x, 41, 152, 42,
+                          style.task_radius, style.active);
+        draw_text(canvas, width, height, 14, 54,
+                  &format!("Active ({})", state.notices.len()), style.foreground);
+        draw_text(canvas, width, height, 174, 54,
+                  &format!("Past ({})", state.history.len()), style.foreground);
+    }
     if state.loading {
         draw_text(canvas, width, height, 14, 120, "Loading alerts...", style.foreground);
     } else if let Some(error) = state.error {
         draw_text(canvas, width, height, 14, 120, error, style.foreground);
         draw_text(canvas, width, height, 14, 145, "Refresh to try again", style.foreground);
+    } else if let Some(notice) = state.detail_notice() {
+        let source = if notice.app_name.is_empty() { "Unknown app" } else { &notice.app_name };
+        draw_text(canvas, width, height, 14, 49,
+                  &notification_glyphs(&format!("{source} / {}", notice.urgency), 37),
+                  style.foreground);
+        draw_text(canvas, width, height, 14, 72,
+                  &notification_glyphs(&notice.summary, 36), style.foreground);
+        draw_text(canvas, width, height, 14, 103,
+                  &notification_glyphs(&notice.body, 38), style.foreground);
+        draw_text(canvas, width, height, 14, 119,
+                  &notification_glyphs(&notice.body.chars().skip(38).collect::<String>(), 38),
+                  style.foreground);
+        if notice.actions.is_empty() || state.show_history {
+            draw_text(canvas, width, height, 14, 180, "No available actions", style.foreground);
+        } else {
+            draw_text(canvas, width, height, 14, 138,
+                      &format!("Actions ({}) - Enter to use", notice.actions.len()),
+                      style.foreground);
+            for (position, action) in notice.actions.iter()
+                .skip(state.first_action_row()).take(ricepop::VISIBLE_ROWS).enumerate() {
+                let row_index = state.first_action_row() + position;
+                let y = ricepop::ACTION_TOP + position as u32 * ricepop::ACTION_HEIGHT;
+                if row_index == state.selected_action {
+                    fill_rounded_rect(canvas, width, height, 8, y, width - 16, 29,
+                                      style.task_radius, style.active);
+                }
+                draw_text(canvas, width, height, 18, y + 9,
+                          &notification_glyphs(&action.label, 33), style.foreground);
+            }
+        }
     } else if state.visible_notices().is_empty() {
         draw_text(canvas, width, height, 14, 120,
                   if state.show_history { "No past alerts" } else { "No active alerts" },
@@ -2544,20 +2621,17 @@ fn paint_notifications(canvas: &mut [u8], style: &PanelStyle, state: &Notificati
                 fill_rounded_rect(canvas, width, height, 8, y, width - 16, 50,
                                   style.task_radius, style.active);
             }
-            let summary: String = notice.summary.chars()
-                .map(|c| if c.is_ascii() && !c.is_ascii_control() { c } else { '?' })
-                .take(35).collect();
-            let body: String = notice.body.chars()
-                .map(|c| if c.is_ascii() && !c.is_ascii_control() { c } else { '?' })
-                .take(35).collect();
+            let summary = notification_glyphs(&notice.summary, 35);
+            let app = notification_glyphs(&notice.app_name, 35);
             draw_text(canvas, width, height, 18, y + 10,
                       if summary.is_empty() { "(No title)" } else { &summary },
                       style.foreground);
-            draw_text(canvas, width, height, 18, y + 28, &body, style.foreground);
+            draw_text(canvas, width, height, 18, y + 28, &app, style.foreground);
         }
     }
     fill_rect(canvas, width, height, 0, 261, width, 1, style.foreground);
-    draw_text(canvas, width, height, 14, 279, "Esc Back", style.foreground);
+    draw_text(canvas, width, height, 14, 279,
+              if state.detail_id.is_some() { "Esc List" } else { "Esc Back" }, style.foreground);
     draw_text(canvas, width, height, 98, 279, "R Refresh", style.foreground);
     draw_text(canvas, width, height, 193, 279,
               if state.selected_id().is_some() { "Del Dismiss" } else { "Unavailable" },
@@ -3385,25 +3459,49 @@ impl KeyboardHandler for RicePlate {
             return;
         }
         if self.notification_state.open {
+            let detail = self.notification_state.detail_id.is_some();
             match event.keysym {
                 Keysym::Escape | Keysym::BackSpace => {
-                    self.notification_state.close();
+                    if detail { self.notification_state.close_detail(); }
+                    else { self.notification_state.close(); }
                 }
-                Keysym::Left => self.notification_state.select_tab(false),
-                Keysym::Right => self.notification_state.select_tab(true),
-                Keysym::Up => self.notification_state.select(-1),
-                Keysym::Down | Keysym::Tab => self.notification_state.select(1),
-                Keysym::Prior => self.notification_state.select(-(ricepop::VISIBLE_ROWS as isize)),
-                Keysym::Next => self.notification_state.select(ricepop::VISIBLE_ROWS as isize),
+                Keysym::Left if !detail => self.notification_state.select_tab(false),
+                Keysym::Right if !detail => self.notification_state.select_tab(true),
+                Keysym::Up => {
+                    if detail { self.notification_state.select_action(-1); }
+                    else { self.notification_state.select(-1); }
+                }
+                Keysym::Down | Keysym::Tab => {
+                    if detail { self.notification_state.select_action(1); }
+                    else { self.notification_state.select(1); }
+                }
+                Keysym::Prior => {
+                    if detail { self.notification_state.select_action(-(ricepop::VISIBLE_ROWS as isize)); }
+                    else { self.notification_state.select(-(ricepop::VISIBLE_ROWS as isize)); }
+                }
+                Keysym::Next => {
+                    if detail { self.notification_state.select_action(ricepop::VISIBLE_ROWS as isize); }
+                    else { self.notification_state.select(ricepop::VISIBLE_ROWS as isize); }
+                }
                 Keysym::r | Keysym::R => {
-                    self.request_notifications(None, qh);
+                    self.request_notifications(NotificationIntent::Refresh, qh);
                     return;
                 }
-                Keysym::Delete | Keysym::Return | Keysym::KP_Enter => {
+                Keysym::Delete => {
                     if let Some(id) = self.notification_state.selected_id() {
-                        self.request_notifications(Some(id), qh);
+                        self.request_notifications(NotificationIntent::Dismiss(id), qh);
                     }
                     return;
+                }
+                Keysym::Return | Keysym::KP_Enter => {
+                    if detail {
+                        if let Some((id, key)) = self.notification_state.selected_action()
+                            .map(|(id, action)| (id, action.key.clone())) {
+                            self.request_notifications(NotificationIntent::Invoke(id, key), qh);
+                        }
+                        return;
+                    }
+                    self.notification_state.open_detail(self.notification_state.selected);
                 }
                 _ => return,
             }
@@ -3625,21 +3723,31 @@ impl PointerHandler for RicePlate {
                     if self.notification_state.open {
                         match self.notification_state.hit(event.position.0, event.position.1) {
                             Some(ricepop::Hit::Row(index)) => {
-                                self.notification_state.selected = index;
+                                self.notification_state.open_detail(index);
                                 self.redraw_menu(qh);
+                            }
+                            Some(ricepop::Hit::Action(index)) => {
+                                if let Some((id, key)) = self.notification_state.action_at(index)
+                                    .map(|(id, action)| (id, action.key.clone())) {
+                                    self.request_notifications(NotificationIntent::Invoke(id, key), qh);
+                                }
                             }
                             Some(ricepop::Hit::Tab(history)) => {
                                 self.notification_state.select_tab(history);
                                 self.redraw_menu(qh);
                             }
                             Some(ricepop::Hit::Back) => {
-                                self.notification_state.close();
+                                if self.notification_state.detail_id.is_some() {
+                                    self.notification_state.close_detail();
+                                } else {
+                                    self.notification_state.close();
+                                }
                                 self.redraw_menu(qh);
                             }
-                            Some(ricepop::Hit::Refresh) => self.request_notifications(None, qh),
+                            Some(ricepop::Hit::Refresh) => self.request_notifications(NotificationIntent::Refresh, qh),
                             Some(ricepop::Hit::Dismiss) => {
                                 if let Some(id) = self.notification_state.selected_id() {
-                                    self.request_notifications(Some(id), qh);
+                                    self.request_notifications(NotificationIntent::Dismiss(id), qh);
                                 }
                             }
                             None => {}
@@ -4124,6 +4232,7 @@ mod tests {
         let mut loading = vec![0; (native_menu::WIDTH * native_menu::HEIGHT * 4) as usize];
         let mut empty = loading.clone();
         let mut active = loading.clone();
+        let mut detail = loading.clone();
         let mut past = loading.clone();
         let revision = state.begin();
         paint_notifications(&mut loading, &style, &state);
@@ -4135,17 +4244,25 @@ mod tests {
         assert!(state.update(revision, Ok(ricepop::Snapshot {
             active: vec![ricepop::Notice {
                 id: 1, summary: "New message".into(), body: "Private preview".into(),
+                app_name: "Mail".into(), actions: vec![ricepop::Action {
+                    key: "default".into(), label: "Open".into(),
+                }], ..ricepop::Notice::default()
             }],
             history: vec![ricepop::Notice {
                 id: 2, summary: "Older message".into(), body: "Past preview".into(),
+                ..ricepop::Notice::default()
             }],
         })));
         paint_notifications(&mut active, &style, &state);
+        assert!(state.open_detail(0));
+        paint_notifications(&mut detail, &style, &state);
         state.select_tab(true);
         paint_notifications(&mut past, &style, &state);
         assert_ne!(loading, empty);
         assert_ne!(empty, active);
         assert_ne!(active, past);
+        assert_ne!(active, detail);
+        assert_ne!(past, detail);
         assert_eq!(state.selected_id(), None);
         state.close();
         assert!(state.notices.is_empty());

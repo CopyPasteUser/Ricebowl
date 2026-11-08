@@ -1,4 +1,4 @@
-"""The Wayland RicePop read bridge cannot own, replay or mutate notifications."""
+"""The Wayland RicePop bridge only invokes freshly verified active actions."""
 
 import json
 import subprocess
@@ -30,7 +30,9 @@ class WaylandRicePopReadTests(unittest.TestCase):
         self.assertFalse(result["mutates_active_desktop"])
         self.assertFalse(result["actions_replayed"])
         self.assertEqual(result["active"][0]["summary"], "Download")
-        self.assertNotIn("actions", result["active"][0])
+        self.assertEqual(result["active"][0]["actions"],
+                         [{"key": "dangerous", "label": "Delete file"}])
+        self.assertNotIn("actions", result["history"][0])
         self.assertEqual(result["history"][0]["id"], 13)
 
     def test_missing_backend_invalid_reply_and_overlong_history_fail_closed(self):
@@ -100,6 +102,60 @@ class WaylandRicePopReadTests(unittest.TestCase):
             with self.assertRaises(notifications.NotificationBridgeError):
                 notifications.dismiss(5)
 
+    def test_invoke_requires_fresh_exact_action_from_active_entry(self):
+        calls = []
+        active = [{"id": 12, "summary": "Install", "actions": {
+            "default": "Open", "reply": "Reply"}}]
+
+        def fake_run(args, **options):
+            calls.append(args)
+            payload = json.dumps(active).encode() if args[1] == "list" else b""
+            return subprocess.CompletedProcess(args, 0, payload, b"")
+
+        with mock.patch("macrice.de.notifications.shutil.which", return_value="makoctl"), \
+             mock.patch("macrice.de.notifications.subprocess.run", side_effect=fake_run):
+            result = notifications.invoke(12, "reply")
+            self.assertTrue(result["invoked"])
+            self.assertTrue(result["mutates_active_desktop"])
+            self.assertEqual(calls, [["makoctl", "list", "-j"],
+                                     ["makoctl", "invoke", "-n", "12", "--", "reply"]])
+            calls.clear()
+            with self.assertRaises(notifications.NotificationBridgeError) as ctx:
+                notifications.invoke(12, "hidden-action")
+            self.assertEqual(ctx.exception.code, "notification_action_not_found")
+            self.assertEqual(len(calls), 1)
+
+    def test_invoke_rejects_malformed_action_data_and_ambiguous_inventory(self):
+        for invalid in (None, True, "", "a" * 81, "re\nply", "bad\x00value"):
+            with self.subTest(value=invalid):
+                with self.assertRaises(notifications.NotificationBridgeError):
+                    notifications.invoke(1, invalid)
+        for actions in (["reply"], {"": "Reply"}, {"x": ""},
+                        {"x": "R\n"}, {str(x): "Action" for x in range(9)}):
+            with self.subTest(actions=actions):
+                with self.assertRaises(notifications.NotificationBridgeError):
+                    notifications._records(json.dumps([{"id": 1, "actions": actions}]).encode(),
+                                           include_actions=True)
+        with mock.patch("macrice.de.notifications.shutil.which", return_value="makoctl"), \
+             mock.patch("macrice.de.notifications.subprocess.run", return_value=
+                        subprocess.CompletedProcess([], 0, json.dumps([
+                            {"id": 7, "actions": {"reply": "Reply"}},
+                            {"id": 7, "actions": {"reply": "Reply"}}]).encode(), b"")):
+            with self.assertRaises(notifications.NotificationBridgeError) as ctx:
+                notifications.invoke(7, "reply")
+            self.assertEqual(ctx.exception.code, "ambiguous_notification_id")
+
+    def test_invoke_cli_has_explicit_required_args_and_never_invokes_history(self):
+        with mock.patch("builtins.print") as printed:
+            self.assertEqual(main(["de", "notification-invoke", "--notification-id", "3", "--json"]), 1)
+            self.assertEqual(main(["de", "notifications", "--action-key", "reply", "--json"]), 1)
+        with mock.patch("macrice.de.notifications.shutil.which", return_value=None), \
+             mock.patch("builtins.print") as printed:
+            self.assertEqual(main(["de", "notification-invoke", "--notification-id", "3",
+                                   "--action-key", "reply", "--json"]), 2)
+            payload = json.loads(printed.call_args.args[0])
+            self.assertFalse(payload["invoked"])
+
     def test_cli_dismiss_requires_explicit_id_and_json_is_honest(self):
         with mock.patch("builtins.print") as printed:
             self.assertEqual(main(["de", "notification-dismiss", "--json"]), 1)
@@ -117,6 +173,10 @@ class WaylandRicePopReadTests(unittest.TestCase):
                        if item["command"] == "notification-dismiss")
         self.assertTrue(command["mutates_active_session"])
         self.assertIn("notification-dismiss", contract["active_session_mutation"])
+        invoke_command = next(item for item in contract["commands"]
+                              if item["command"] == "notification-invoke")
+        self.assertTrue(invoke_command["mutates_active_session"])
+        self.assertIn("--action-key KEY", invoke_command["cli"])
 
 
 if __name__ == "__main__":
