@@ -3,12 +3,14 @@
 
 use std::time::{Duration, Instant};
 
-use crate::{installed_apps::{self, App}, recipe::NativeMenu};
+use crate::{installed_apps::{self, App}, recipe::{MenuPresentation, NativeMenu}};
 
 pub const WIDTH: u32 = 320;
 pub const HEIGHT: u32 = 304;
 pub const TAB_TOP: u32 = 46;
 pub const TAB_HEIGHT: u32 = 40;
+pub const SIDEBAR_WIDTH: u32 = 112;
+pub const SIDEBAR_ROW_HEIGHT: u32 = 44;
 pub const ACTION_TOP: u32 = 108;
 pub const ACTION_HEIGHT: u32 = 42;
 pub const VISIBLE_ACTIONS: usize = 4;
@@ -219,11 +221,21 @@ impl MenuState {
         {
             return None;
         }
-        if (f64::from(TAB_TOP)..f64::from(TAB_TOP + TAB_HEIGHT)).contains(&y) {
-            let index = (x as usize * menu.groups.len()) / WIDTH as usize;
-            return (index < menu.groups.len()).then_some(Hit::Group(index));
+        match menu.presentation {
+            MenuPresentation::Tabs if (f64::from(TAB_TOP)..f64::from(TAB_TOP + TAB_HEIGHT)).contains(&y) => {
+                let index = (x as usize * menu.groups.len()) / WIDTH as usize;
+                return (index < menu.groups.len()).then_some(Hit::Group(index));
+            }
+            MenuPresentation::Sidebar if x < f64::from(SIDEBAR_WIDTH)
+                && (f64::from(TAB_TOP)..f64::from(TAB_TOP + menu.groups.len() as u32 * SIDEBAR_ROW_HEIGHT)).contains(&y) => {
+                return Some(Hit::Group((y as u32 - TAB_TOP) as usize / SIDEBAR_ROW_HEIGHT as usize));
+            }
+            _ => {}
         }
         if (f64::from(ACTION_TOP)..f64::from(ACTION_TOP + VISIBLE_ACTIONS as u32 * ACTION_HEIGHT)).contains(&y) {
+            if menu.presentation == MenuPresentation::Sidebar && x < f64::from(SIDEBAR_WIDTH) {
+                return None;
+            }
             let index = self.first_action_row() +
                 ((y as u32 - ACTION_TOP) / ACTION_HEIGHT) as usize;
             return self.actions(menu).get(index).map(|_| Hit::Action(index));
@@ -240,6 +252,7 @@ mod tests {
     fn menu() -> NativeMenu {
         NativeMenu {
             title: "Desktop".into(),
+            presentation: MenuPresentation::Tabs,
             groups: vec![
                 NativeMenuGroup {
                     title: "Programs".into(),
@@ -286,6 +299,7 @@ mod tests {
     fn search_is_bounded_and_finds_labels_across_groups() {
         let data = NativeMenu {
             title: "Demo".into(),
+            presentation: MenuPresentation::Tabs,
             groups: vec![NativeMenuGroup { title: "Tools".into(), actions: vec![
                 "terminal".into(), "audio-up".into(), "audio-down".into(),
                 "wifi-toggle".into(), "notifications".into(),
@@ -314,6 +328,7 @@ mod tests {
     fn pins_and_paged_search_keep_pointer_and_selection_consistent() {
         let data = NativeMenu {
             title: "Demo".into(),
+            presentation: MenuPresentation::Tabs,
             groups: vec![NativeMenuGroup { title: "Tools".into(), actions: vec![
                 "applications".into(), "terminal".into(), "lock".into(),
                 "logout".into(), "wifi-toggle".into(), "audio-up".into(),
@@ -379,5 +394,24 @@ mod tests {
         for _ in 0..31 { assert!(state.search_input("a")); }
         assert!(!state.search_input("a"));
         assert!(state.backspace());
+    }
+
+    #[test]
+    fn sidebar_navigation_and_action_hits_are_independent() {
+        let mut data = menu();
+        data.presentation = MenuPresentation::Sidebar;
+        let mut state = MenuState::default();
+        state.open();
+        assert_eq!(state.hit(&data, 24.0, 58.0), Some(Hit::Group(0)));
+        assert_eq!(state.hit(&data, 24.0, 102.0), Some(Hit::Group(1)));
+        assert_eq!(state.hit(&data, 24.0, 130.0), Some(Hit::Group(1)));
+        assert_eq!(state.hit(&data, 130.0, 130.0), Some(Hit::Action(0)));
+        assert_eq!(state.hit(&data, 24.0, 262.0), None);
+        assert_eq!(state.hit(&data, 130.0, 286.0), Some(Hit::Close));
+        state.open_group(1);
+        assert_eq!(state.current_action(&data), Some("lock"));
+        state.start_search();
+        assert_eq!(state.hit(&data, 130.0, 130.0), Some(Hit::Action(0)));
+        assert_eq!(state.hit(&data, 24.0, 102.0), Some(Hit::Group(1)));
     }
 }

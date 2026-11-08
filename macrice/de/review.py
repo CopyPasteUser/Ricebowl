@@ -43,6 +43,8 @@ def _manifest(recipe: recipes.PanelRecipe) -> dict[str, Any]:
         result["menu"] = {"title": recipe.menu[0], "groups": [
             {"title": group.title, "actions": list(group.actions)}
             for group in recipe.menu[1]]}
+        if recipe.schema_version >= 6 and recipe.menu_presentation != "tabs":
+            result["menu"]["presentation"] = recipe.menu_presentation
         result["desktop"] = {"wallpaper": recipe.wallpaper}
         if recipe.schema_version >= 5:
             assert recipe.desktop_icons is not None
@@ -85,6 +87,7 @@ def _fields(manifest: dict[str, Any]) -> dict[str, Any]:
         result[f"/colors/{color}"] = manifest["colors"][color]
     result["/menu/title"] = manifest.get("menu", {}).get("title")
     result["/menu/groups"] = manifest.get("menu", {}).get("groups")
+    result["/menu/presentation"] = manifest.get("menu", {}).get("presentation", "tabs")
     result["/desktop/wallpaper"] = manifest.get("desktop", {}).get("wallpaper")
     result["/desktop/icons"] = manifest.get("desktop", {}).get("icons")
     for token in ("label_padding", "task_radius"):

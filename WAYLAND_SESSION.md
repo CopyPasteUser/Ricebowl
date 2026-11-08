@@ -442,6 +442,41 @@ outside the output when no safe, non-overlapping hit area exists. This placement
 fractional-scale visual quality and multi-monitor hotplug still need device
 acceptance. Do not treat it as a finished desktop.
 
+#### Schema-v6 native menu presentation (experimental)
+
+Native RicePlate supports two real menu geometries using the **same fixed
+Linux actions, installed-application search and saved pins**. The original
+horizontal group tabs remain the default for every earlier schema. A v6
+recipe may opt into a persistent left navigation rail:
+
+```json
+"menu": {
+  "title": "Y2K Desktop",
+  "presentation": "sidebar",
+  "groups": [
+    {"title": "Programs", "actions": ["applications", "terminal"]},
+    {"title": "Session", "actions": ["lock", "logout"]}
+  ]
+}
+```
+
+Use [`tests/fixtures/riceplate-sidebar-v6.json`](tests/fixtures/riceplate-sidebar-v6.json)
+as a complete working example. From schema v6 onward, `presentation` is
+optional and may only be `tabs` or `sidebar`. Unknown fields, null, scripts,
+unsupported values and an explicit presentation in v4/v5 are rejected. The
+vertical variant reserves 112 logical pixels on the left for up to four
+group buttons; the selected group's actions, search results and favorites
+remain in the right column. Keyboard group changes and action activation
+reuse the existing logic; assistive roles identify sidebar groups as buttons.
+
+`de draft-edit` accepts `/menu/presentation` on v6 recipes, `de catalog --json`
+advertises both variants, and `de review` reports the semantic change. The
+Waybar fallback continues to compile the same grouped labwc root context
+menu, **not** the native sidebar visual. The headless native smoke generates
+`menu-v5.png` and `menu-sidebar-v6.png` for comparison. This is a first
+structural option, **not** a Windows XP/7 one-to-one menu clone, dynamic
+grid engine, or fully themeable shell.
+
 The default **Waybar-backed** Wayland session is separately checked in CI
 with two genuine labwc headless outputs. The smoke captures the bar on each,
 turns one output off, checks the remaining bar and reconnects the second.

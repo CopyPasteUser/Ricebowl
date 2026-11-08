@@ -145,6 +145,8 @@ def describe() -> dict[str, object]:
         "shell_components": [
             {"id": "native-menu", "since_schema": 4,
              "recipe_pointer": "/menu", "native": "interactive-output-local",
+             "presentation": {"since_schema": 6, "default": "tabs",
+                              "variants": ["tabs", "sidebar"]},
              "waybar": "compiled-labwc-root-menu",
              "actions": sorted(MENU_ACTIONS),
              "system_actions": ["wifi-toggle", "audio-mute", "audio-up", "audio-down"],

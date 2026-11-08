@@ -331,6 +331,17 @@ GTK/XFWM assets. Change both together when a theme identity changes.
 
 ## Behavioral rules
 
+Native labwc/RicePlate menu presentation belongs to the same validated
+recipe as its action groups, not to a separate theme renderer. In schema v6,
+`menu.presentation` defaults to `tabs` (horizontal 40px group strip) or may
+be `sidebar` (112px vertical group rail with 44px rows and a separate action
+column). The sidebar consumes the existing recipe background, foreground and
+active colors; no new free-form styles or commands are accepted. Its group
+buttons and content rows remain keyboard/pointer/AT-addressable; the Waybar
+fallback preserves grouped labwc actions without promising layout parity.
+Future XP/7-specific structures require separate audited primitives, not a
+CSS-only identity swap.
+
 - `Super_L` toggles the active rice's menu; `Control_R` toggles its quick settings.
 - Every shell performs actual Gio app discovery/launch and event-driven Wnck
   task switching. Menu and settings are independent toggles with Escape support.
