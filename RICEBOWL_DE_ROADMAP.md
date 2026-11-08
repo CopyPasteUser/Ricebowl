@@ -284,6 +284,17 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   introduced. This does **not** intercept external multimedia keys or
   third-party volume changes; accessibility/device QA is still open.
 
+- [x] Extend the **native RicePop audio OSD to external default-sink changes**:
+  a full native labwc login binds XF86Audio volume/mute keys inside its private
+  `rc.xml`; an opt-in `pactl subscribe` child forwards only sink/server events
+  to a bounded coalescing mailbox, which reads the actual `wpctl` result away
+  from the Wayland event thread. Show changes from hardware keys and external
+  mixers without double-display after a native RicePlate action. Missing
+  `pactl` and unavailable audio degrade safely; nested previews do not start
+  this monitor. The same 1.8 s input-transparent OSD remains the sole visual
+  owner. Still open: real hardware/key tests, Pulse server restart recovery,
+  brightness OSD, rich notification actions and native hosting.
+
 - [x] Introduce the **on-demand RiceSpice settings window**, launched through
   a validated `settings` menu action or `ricebowl de settings`. It presents nine
   clearly separated settings categories. Real native controls cover reviewed

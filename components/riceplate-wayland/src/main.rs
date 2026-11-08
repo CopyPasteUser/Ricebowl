@@ -24,11 +24,12 @@ use tray::{MenuChoice as TrayMenuChoice, MenuHit as TrayMenuHit, PopupHit as Tra
 use native_menu::{Hit as MenuHit, MenuState};
 use power::PowerStatus;
 use ricepop::{Request as NotificationRequest, State as NotificationState};
-use system_status::{ControlAction, SystemStatus};
+use system_status::{Audio, ControlAction, SystemStatus};
 
 enum StatusEvent {
     State(SystemStatus),
     Control { action: ControlAction, success: bool, state: SystemStatus },
+    ObservedAudio(Audio),
 }
 use calendar::{CalendarState, Hit as CalendarHit};
 use recipe::{Hit, PanelStyle, Widget};
@@ -135,7 +136,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         menu.groups.iter().any(|group| group.actions.iter().any(|action| action == "notifications")));
     let poll_network = status_present(Widget::Network)
         || menu_controls.contains(&ControlAction::WifiToggle);
-    let poll_audio = status_present(Widget::Audio) || menu_controls.iter().any(|action|
+    // A native full desktop has volume OSD even when a rice omits the audio
+    // indicator. Nested design previews retain the old opt-in behavior.
+    let full_session = std::env::var("RICEBOWL_DE_NESTED").as_deref() != Ok("1");
+    let poll_audio = full_session || status_present(Widget::Audio) || menu_controls.iter().any(|action|
         matches!(action, ControlAction::AudioMute | ControlAction::AudioUp | ControlAction::AudioDown));
     let use_tray = status_present(Widget::Tray);
     if preview_calendar && !clock_present {
@@ -326,6 +330,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         calendar_layer,
         osd_layer,
         osd_state: osd::State::default(),
+        audio_watcher: None,
         calendar_mirrors: Vec::new(),
         active_calendar: None,
         preview_secondary_calendar,
@@ -413,6 +418,15 @@ fn main() -> Result<(), Box<dyn Error>> {
             if let channel::Event::Msg(message) = event {
                 let status = match message {
                     StatusEvent::State(status) => status,
+                    StatusEvent::ObservedAudio(audio) => {
+                        if app.osd_state.show_external(&app.system_status.audio, &audio,
+                                                       Instant::now()) {
+                            app.redraw_osd();
+                        }
+                        let mut updated = app.system_status.clone();
+                        updated.audio = audio;
+                        updated
+                    }
                     StatusEvent::Control { action, success, state } => {
                         app.menu_state.notice = Some(if success {
                             "Action applied"
@@ -430,6 +444,15 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
             }
         })?;
+        if poll_audio && full_session {
+            let observed = sender.clone();
+            app.audio_watcher = system_status::AudioWatcher::start(move |audio| {
+                observed.send(StatusEvent::ObservedAudio(audio)).is_ok()
+            });
+            if app.audio_watcher.is_none() {
+                eprintln!("RicePop: pactl subscribe unavailable; external volume OSD disabled");
+            }
+        }
         // One sleeping worker, enabled only for rices using these widgets;
         // bounded subprocesses never block Wayland input or the frame loop.
         std::thread::spawn(move || {
@@ -590,6 +613,7 @@ struct RicePlate {
     calendar_layer: Option<CalendarLayer>,
     osd_layer: Option<OsdLayer>,
     osd_state: osd::State,
+    audio_watcher: Option<system_status::AudioWatcher>,
     calendar_mirrors: Vec<CalendarLayer>,
     active_calendar: Option<wl_surface::WlSurface>,
     preview_secondary_calendar: bool,

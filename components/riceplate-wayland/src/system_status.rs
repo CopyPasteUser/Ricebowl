@@ -2,7 +2,13 @@
 //! These commands run only in an opt-in native session's worker thread.
 //! Missing services report unavailable; a recipe never controls arguments.
 
-use std::{io::Read, process::{Command, Stdio}, thread, time::{Duration, Instant}};
+use std::{
+    io::{BufRead, BufReader, Read},
+    process::{Child, Command, Stdio},
+    sync::mpsc::{self, TrySendError},
+    thread,
+    time::{Duration, Instant},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ControlAction {
@@ -134,6 +140,58 @@ impl SystemStatus {
     }
 }
 
+/// Only default-output changes can affect the RicePop volume OSD. Ignore
+/// sink-input/player chatter, microphone changes and unrelated D-Bus traffic.
+fn is_audio_event(line: &str) -> bool {
+    let event = line.trim();
+    ["Event 'change' on sink #", "Event 'new' on sink #",
+     "Event 'remove' on sink #", "Event 'change' on server #"]
+        .iter().any(|prefix| event.starts_with(prefix))
+}
+
+/// One event-driven PulseAudio-compatibility observer for the native session.
+/// The child is killed when RicePlate exits; a bounded one-slot mailbox
+/// coalesces rapid slider changes before the real WirePlumber readback.
+pub struct AudioWatcher {
+    child: Child,
+}
+
+impl AudioWatcher {
+    pub fn start(callback: impl Fn(Audio) -> bool + Send + 'static) -> Option<Self> {
+        let mut child = Command::new("pactl").arg("subscribe").env("LC_ALL", "C")
+            .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null())
+            .spawn().ok()?;
+        let output = child.stdout.take()?;
+        let (events, pending) = mpsc::sync_channel::<()>(1);
+        thread::spawn(move || {
+            while pending.recv().is_ok() {
+                thread::sleep(Duration::from_millis(80));
+                if !callback(SystemStatus::read(false, true).audio) {
+                    break;
+                }
+            }
+        });
+        thread::spawn(move || {
+            for line in BufReader::new(output).lines() {
+                let Ok(line) = line else { break; };
+                if !is_audio_event(&line) { continue; }
+                match events.try_send(()) {
+                    Ok(()) | Err(TrySendError::Full(())) => {}
+                    Err(TrySendError::Disconnected(())) => break,
+                }
+            }
+        });
+        Some(Self { child })
+    }
+}
+
+impl Drop for AudioWatcher {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
 fn spawn_bounded(program: &str, args: &[&str], output: bool) -> Option<(bool, String)> {
     let mut child = Command::new(program).args(args).env("LC_ALL", "C")
         .stdin(Stdio::null())
@@ -203,5 +261,16 @@ mod tests {
         for invalid in ["", "terminal", "wifi off", "../../nmcli", "audio-volume 100"] {
             assert_eq!(ControlAction::from_id(invalid), None);
         }
+    }
+
+    #[test]
+    fn pulse_events_filter_sinks_not_per_application_streams() {
+        assert!(is_audio_event("Event 'change' on sink #3"));
+        assert!(is_audio_event("Event 'new' on sink #2"));
+        assert!(is_audio_event("Event 'change' on server #0"));
+        assert!(!is_audio_event("Event 'change' on sink-input #13"));
+        assert!(!is_audio_event("Event 'change' on source #2"));
+        assert!(!is_audio_event("Event 'change' on client #4"));
+        assert!(!is_audio_event("malicious output"));
     }
 }

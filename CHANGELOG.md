@@ -1,5 +1,20 @@
 # RiceBowl changelog
 
+## Unreleased — RicePop external audio OSD and multimedia keys (8 November 2026)
+
+- Extend the existing input-transparent RicePop volume OSD to verified external
+  default-sink changes, including hardware volume/mute shortcuts and changes
+  from third-party mixers. A single supervised `pactl subscribe` child feeds a
+  bounded event-coalescing mailbox; the existing WirePlumber readback and
+  Wayland timer remain the source of truth. Ignore non-sink stream chatter,
+  duplicate state and unavailable-service transitions. No separate OSD daemon.
+- Add XF86AudioRaiseVolume, XF86AudioLowerVolume and XF86AudioMute bindings to
+  RiceBowl's **private session-only** labwc configuration. Never change the
+  user's XFCE shortcuts or global `~/.config/labwc` files.
+- Cover audio-event filtering, external OSD transitions and compositor
+  shortcut XML with regression tests. Real multimedia keys, PulseAudio/PipeWire
+  restarts and visual placement require physical Wayland acceptance.
+
 ## Unreleased — RiceSpice secure enrollment and native RicePlate AT-SPI (8 November 2026)
 
 - Add a native PEAP/TTLS Enterprise Wi-Fi profile form. It requires a named

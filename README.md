@@ -35,7 +35,12 @@ RicePlate exports a real AccessKit/AT-SPI tree for native panel, menu, task,
 calendar, shortcut, notification and tray controls, with event-loop-routed
 actions and focus. These capabilities still require physical Orca and device QA.
 
-**It is not yet a complete replacement desktop.** Physical Orca/AT-SPI and tray/focus validation, automatic/safe monitor layout restoration, certificate-based EAP-TLS and manual provider-specific VPN authoring, external multimedia-key OSD triggers and richer notifications, portable icon/font/multi-asset packs, live rice switching with rollback and real-device QA remain open. The existing seven-style XFCE/X11 environment remains the default. See the [honest feature and release-gate matrix](DESKTOP_ENVIRONMENT_STATUS.md).
+The native RicePop volume OSD also reacts to real default-sink volume/mute
+changes from other audio controls. In a full labwc session, private XF86Audio
+shortcuts drive WirePlumber; an optional event-driven Pulse-compatible monitor
+feeds the existing input-transparent OSD. Neither path changes XFCE shortcuts.
+
+**It is not yet a complete replacement desktop.** Physical Orca/AT-SPI and tray/focus validation, automatic/safe monitor layout restoration, certificate-based EAP-TLS and manual provider-specific VPN authoring, hardware/media-key acceptance, richer notifications and brightness OSD, portable icon/font/multi-asset packs, live rice switching with rollback and real-device QA remain open. The existing seven-style XFCE/X11 environment remains the default. See the [honest feature and release-gate matrix](DESKTOP_ENVIRONMENT_STATUS.md).
 
 ## Try it
 
