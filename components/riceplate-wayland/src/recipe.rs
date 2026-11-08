@@ -928,7 +928,7 @@ mod tests {
         let mut data: serde_json::Value = serde_json::from_str(source).unwrap();
         data["menu"]["groups"][0]["content"][1]["type"] = serde_json::json!("apps-list");
         assert_eq!(parse(&data.to_string(), None).unwrap().menu.unwrap().groups[0]
-                   .content.unwrap()[1].kind, MenuContentKind::AppsList);
+                   .content.as_ref().unwrap()[1].kind, MenuContentKind::AppsList);
         data["menu"]["groups"][0]["content"][1]["type"] = serde_json::json!("shell-command");
         assert!(parse(&data.to_string(), None).is_err());
         data["menu"]["groups"][0]["content"][1]["type"] = serde_json::json!("apps-grid");
