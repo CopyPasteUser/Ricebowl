@@ -22,6 +22,29 @@ secondary pages; prototypes and the release roadmap do not crowd the selector.
 - The macOS selection currently previews its wallpaper rather than a full
   desktop capture; the hub labels that distinction explicitly.
 
+## Rice Creator workspace (GTK3, experimental)
+
+The Creator is a compact desktop authoring instrument, not a themed desktop
+simulation. Its one memorable surface is the **central real-shell capture**:
+the preview is deliberately labeled as a static, isolated native RicePlate
+render, with geometry controls and visible loading/unavailable states. The
+left rail contains four real starting templates and saved draft versions; the
+right scrollable inspector groups actual schema-v10 properties and structurally
+editable panel lanes. Actions form a clear reversible sequence: create → edit
+→ save a new private version → render → optionally export. The latest and
+previous versions remain distinct; the GUI does not expose active apply until
+hardware acceptance and safe confirmation UX are separately reviewed.
+
+The established `macrice/hub.py:TOKENS` palette is the **single runtime color
+source** for Creator chrome; `macrice/creator_gui.py` uses those named tokens
+in an additive GTK CSS adapter. The deliberately quiet navy preview surround
+makes different authored rices legible without forcing them into the Creator's
+own skin. Native GTK3 labels, buttons, combo boxes, spin buttons, color
+selectors and keyboard focus preserve installed Linux accessibility and do
+not require new fonts, remote images or frontend dependencies. Separate,
+scrollable panes retain each control on laptop displays. This is tooling UI,
+not a redesign of the seven existing rice themes or the RiceBowl Hub.
+
 ## Canonical owners
 
 | Concern | Source of truth |

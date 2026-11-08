@@ -25,6 +25,7 @@ HUB_DESKTOP_MARKER = "X-RiceHub-Managed=true"
 FAST_TOGGLE_MARKER = "# Managed by RiceHub fast keyboard toggles"
 RICEBOWL_LAUNCHER_MARKER = "# Managed by RiceBowl XFCE"
 RICEBOWL_DESKTOP_MARKER = "X-RiceBowl-Managed=true"
+CREATOR_DESKTOP_MARKER = "X-RiceBowl-Creator-Managed=true"
 
 
 class InstallationError(RuntimeError):
@@ -189,7 +190,7 @@ def _copy_bundle(source: Path, stage: Path) -> None:
         return {name for name in names if name in {".git", "__pycache__", ".venv"}
                 or name.endswith((".pyc", ".pyo"))}
 
-    for folder in ("macrice", "components", "assets"):
+    for folder in ("macrice", "components", "assets", "examples"):
         shutil.copytree(source / folder, stage / folder, ignore=ignore)
     for file in ("launcher.py", "README.md", "LICENSE", "ROADMAP.md", "RICE.md",
                  "RICEHUB.md", "RICEBOWL.md", "RICE_ECOSYSTEM_ROADMAP.md",
@@ -287,6 +288,7 @@ def _write_entrypoints(installed: Path) -> None:
         + '  update) shift; if [ "$#" -eq 0 ]; then set -- check --refresh --preserve-checkout; fi\n'
         + '    exec /usr/bin/python3 "' + str(installed / "launcher.py") + '" update "$@" ;;\n'
         + '  de) exec /usr/bin/python3 "' + str(installed / "launcher.py") + '" "$@" ;;\n'
+        + '  creator) exec /usr/bin/python3 "' + str(installed / "launcher.py") + '" "$@" ;;\n'
         + '  *) exec /usr/bin/python3 "' + str(installed / "launcher.py") + '" hub "$@" ;;\n'
         + 'esac\n'
     )
@@ -338,6 +340,17 @@ def _write_entrypoints(installed: Path) -> None:
         f"{RICEBOWL_DESKTOP_MARKER}\n"
     )
     _atomic_write(bowl_desktop, bowl_desktop_content, 0o644)
+    creator_desktop = applications / "ricebowl-creator.desktop"
+    creator_desktop_content = (
+        "[Desktop Entry]\nType=Application\nVersion=1.0\n"
+        "Name=Rice Creator (experimental)\n"
+        "Comment=Create and preview safe offline Wayland rice drafts\n"
+        f'Exec="{bowl_launcher}" creator\n'
+        f"Icon={installed / 'assets/ricebowl-symbolic.svg'}\n"
+        "Terminal=false\nCategories=Graphics;Utility;\nStartupNotify=true\n"
+        f"{CREATOR_DESKTOP_MARKER}\n"
+    )
+    _atomic_write(creator_desktop, creator_desktop_content, 0o644)
 
 
 def _check_entrypoints() -> None:
@@ -350,6 +363,7 @@ def _check_entrypoints() -> None:
         (bin_home() / "ricebowl", RICEBOWL_LAUNCHER_MARKER),
         (data_home() / "applications/ricebowl.desktop", RICEBOWL_DESKTOP_MARKER),
         (data_home() / "applications/ricehub.desktop", HUB_DESKTOP_MARKER),
+        (data_home() / "applications/ricebowl-creator.desktop", CREATOR_DESKTOP_MARKER),
     )
     for path, marker in candidates:
         if path.is_symlink() or (path.exists() and (

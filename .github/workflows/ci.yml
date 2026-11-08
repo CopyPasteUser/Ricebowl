@@ -38,6 +38,14 @@ jobs:
           timeout 18s dbus-run-session -- xvfb-run -a /usr/bin/python3 -m unittest tests.test_riceplate_preview_gui -v
           # Catch GTK constructor/style/asset regressions in the real hub.
           RICEBOWL_HUB_SMOKE=1 timeout 18s dbus-run-session -- xvfb-run -a -s '-screen 0 1024x768x24' /usr/bin/python3 -c 'from macrice.hub import run; raise SystemExit(run())'
+          # Exercise the real optional GTK Creator, immutable draft, editor,
+          # revision/undo and X11 rendering without touching user settings.
+          creator_state="$(mktemp -d -t ricebowl-creator-XXXXXX)"
+          mkdir -p dist/creator-gtk-smoke
+          RICEBOWL_CREATOR_SMOKE=1 XDG_STATE_HOME="$creator_state" \
+            RICEBOWL_CREATOR_SMOKE_CAPTURE="$PWD/dist/creator-gtk-smoke/creator.png" \
+            timeout 25s dbus-run-session -- xvfb-run -a -s '-screen 0 1600x900x24' \
+            /usr/bin/python3 launcher.py creator
           timeout 18s dbus-run-session -- xvfb-run -a /usr/bin/python3 -c 'from macrice.aero_shell import run; raise SystemExit(run(["ricehub-aero-shell", "--smoke-test"]))'
           timeout 18s dbus-run-session -- xvfb-run -a /usr/bin/python3 -c 'from macrice.ten_shell import run; raise SystemExit(run(["ricehub-ten-shell", "--smoke-test"]))'
           for profile in winxp winclassic chromeos frutiger; do
@@ -123,6 +131,7 @@ jobs:
         with:
           name: ricebowl-0.9.1-native-x11-captures
           path: |
+            dist/creator-gtk-smoke/creator.png
             screenshots/ricebowl-hub-windows10-current.png
             screenshots/ricebowl-*-0.9.1.png
             screenshots/ricebowl-winxp-*-0.9.1-1024.png
