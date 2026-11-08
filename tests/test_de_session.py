@@ -336,6 +336,34 @@ class WaylandSessionTests(unittest.TestCase):
             self.assertEqual(session.shell(environment=env, which=self.which, spawn=spawn), 9)
         self.assertEqual(len([cmd for cmd in commands if cmd[0] == "/usr/bin/waybar"]), 2)
 
+    def test_native_live_rescue_attempt_is_not_repeated_by_outer_fallback(self):
+        commands = []
+
+        class FailedPanel(_FakeProcess):
+            def poll(self):
+                return 9
+
+            def wait(self, timeout=None):
+                return 9
+
+        def spawn(command, **_kwargs):
+            commands.append(command)
+            return FailedPanel()
+
+        env = {"RICEBOWL_DE_SHELL_CHILD": "1", "RICEBOWL_DE_NESTED": "1",
+               "RICEBOWL_DE_PANEL": "native", "RICEBOWL_DE_LIVE": "1",
+               "RICEBOWL_DE_RECIPE": "classic", "WAYLAND_DISPLAY": "wayland-0",
+               "XDG_RUNTIME_DIR": self.runtime.name,
+               "RICEBOWL_DE_SESSION_CONFIG": self.runtime.name}
+        tools = {**self.tools, "riceplate-native": "/usr/bin/riceplate-native"}
+        with mock.patch("macrice.de.live.listen", return_value=nullcontext(object())), \
+             mock.patch("macrice.de.session.signal.signal"), \
+             mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": self.runtime.name}), \
+             mock.patch("macrice.de.session.time.sleep"):
+            self.assertEqual(session.shell(environment=env, which=tools.get, spawn=spawn), 9)
+        self.assertEqual([command[0] for command in commands],
+                         ["/usr/bin/riceplate-native", "/usr/bin/waybar"])
+
     def test_native_launch_failure_restores_waybar(self):
         commands = []
 

@@ -623,8 +623,10 @@ def shell(
                 if current is not None:
                     _stop_process(current)
 
+            native_live_rescue_attempted = False
+
             def supervised_wait(process: subprocess.Popen[bytes], mode: str) -> int:
-                nonlocal live_controller
+                nonlocal live_controller, native_live_rescue_attempted
                 if env.get("RICEBOWL_DE_LIVE") != "1":
                     return process.wait()
                 from .live import LiveError, listen, serve_once
@@ -658,6 +660,8 @@ def shell(
                                               file=sys.stderr)
                                 if not rescue_attempted:
                                     rescue_attempted = True
+                                    if mode == "native":
+                                        native_live_rescue_attempted = True
                                     try:
                                         live_controller.rescue_panel()
                                         print("RiceBowl: failed live panel recovered with Waybar",
@@ -693,7 +697,7 @@ def shell(
                             _stop_process(panel)
                             return 128 + shutdown_signal
                         status = supervised_wait(panel, "native")
-                        if status == 0 or shutting_down:
+                        if status == 0 or shutting_down or native_live_rescue_attempted:
                             return status
                         print(f"RicePlate native exited with status {status}; restoring Waybar.",
                               file=sys.stderr)
