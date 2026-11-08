@@ -140,16 +140,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     let panel_controls: Vec<_> = recipe.actions.iter()
         .filter(|action| action.control)
         .filter_map(|action| ControlAction::from_id(&action.id)).collect();
-    let desktop_system = recipe.composition.as_ref().is_some_and(|composition|
-        composition.widgets.iter().any(|widget|
-            widget.kind == recipe::DesktopWidgetKind::System));
-    let poll_network = desktop_system || status_present(Widget::Network)
+    let desktop_network = recipe.composition.as_ref().is_some_and(|composition|
+        composition.widgets.iter().any(|widget| matches!(widget.kind,
+            recipe::DesktopWidgetKind::System | recipe::DesktopWidgetKind::Network)));
+    let desktop_audio = recipe.composition.as_ref().is_some_and(|composition|
+        composition.widgets.iter().any(|widget| matches!(widget.kind,
+            recipe::DesktopWidgetKind::System | recipe::DesktopWidgetKind::Audio)));
+    let poll_network = desktop_network || status_present(Widget::Network)
         || menu_controls.contains(&ControlAction::WifiToggle)
         || panel_controls.contains(&ControlAction::WifiToggle);
     // A native full desktop has volume OSD even when a rice omits the audio
     // indicator. Nested design previews retain the old opt-in behavior.
     let full_session = std::env::var("RICEBOWL_DE_NESTED").as_deref() != Ok("1");
-    let poll_audio = full_session || desktop_system || status_present(Widget::Audio)
+    let poll_audio = full_session || desktop_audio || status_present(Widget::Audio)
         || menu_controls.iter().chain(panel_controls.iter()).any(|action|
             matches!(action, ControlAction::AudioMute | ControlAction::AudioUp | ControlAction::AudioDown));
     let use_tray = status_present(Widget::Tray);
@@ -859,6 +862,12 @@ impl RicePlate {
                             format!("Network: {}, Audio: {}",
                                     self.system_status.network.label(),
                                     self.system_status.audio.label()),
+                        recipe::DesktopWidgetKind::Network =>
+                            format!("Network: {}", self.system_status.network.label()),
+                        recipe::DesktopWidgetKind::Audio =>
+                            format!("Audio: {}", self.system_status.audio.label()),
+                        recipe::DesktopWidgetKind::Battery =>
+                            format!("Battery: {}", self.power.label()),
                     };
                     model.add(31_100 + index as u64, 31_000, AccessibleRole::Status,
                               description, None);
@@ -1911,6 +1920,15 @@ impl RicePlate {
             recipe::DesktopWidgetKind::System =>
                 ("System", vec![format!("Network: {}", self.system_status.network.label()),
                                 format!("Audio: {}", self.system_status.audio.label())]),
+            recipe::DesktopWidgetKind::Network =>
+                (widget.title.as_deref().unwrap_or("Network"),
+                 vec![self.system_status.network.label().to_string()]),
+            recipe::DesktopWidgetKind::Audio =>
+                (widget.title.as_deref().unwrap_or("Audio"),
+                 vec![self.system_status.audio.label().to_string()]),
+            recipe::DesktopWidgetKind::Battery =>
+                (widget.title.as_deref().unwrap_or("Battery"),
+                 vec![self.power.label().to_string()]),
         };
         let Some(layer) = self.widget_layers.get_mut(index) else { return; };
         if !layer.configured || layer.placed.is_none() { return; }

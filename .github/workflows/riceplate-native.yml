@@ -141,6 +141,7 @@ jobs:
               'creator-v1': (1024, 768, 1),
               'isolated-v5': (1024, 768, 1),
               'layout-v8': (1366, 768, 1),
+              'components-v9': (1366, 768, 1),
           }
           captures = {}
           for label in ('shell-v4', 'desktop-v5', 'menu-v5', 'calendar-v5', *expected):
