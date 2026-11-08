@@ -501,7 +501,7 @@ mod tests {
     fn leaf(id: i32, label: &str, enabled: bool, visible: bool) -> MenuNode {
         MenuNode::Item {
             id, label: label.into(), enabled, visible,
-            icon_name: String::new(), icon_data: Default::default(),
+            icon_name: String::new(), icon_data: status_notifier::IconData(Vec::new()),
             toggle_type: ToggleType::None, toggle_state: ToggleState::Unknown,
         }
     }
@@ -544,7 +544,7 @@ mod tests {
     fn menu_keeps_toggles_and_clears_removed_submenu_state() {
         let toggled = MenuNode::Item {
             id: 8, label: "Check".into(), enabled: true, visible: true,
-            icon_name: String::new(), icon_data: Default::default(),
+            icon_name: String::new(), icon_data: status_notifier::IconData(Vec::new()),
             toggle_type: ToggleType::Checkmark, toggle_state: ToggleState::On,
         };
         let mut menu = MenuPopup::default();

@@ -3611,7 +3611,8 @@ mod tests {
                     visible: true, children: vec![
                         MenuNode::Item { id: 7, label: "Enabled".into(), enabled: true,
                             visible: true, icon_name: String::new(),
-                            icon_data: Default::default(), toggle_type: ToggleType::Checkmark,
+                            icon_data: status_notifier::IconData(Vec::new()),
+                            toggle_type: ToggleType::Checkmark,
                             toggle_state: ToggleState::On },
                     ] },
             ] };
