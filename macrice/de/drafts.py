@@ -88,6 +88,17 @@ def _allowed_value(path: str, value: Any, schema_version: int,
         except recipes.RecipeError:
             return False
         return True
+    if path.startswith("/appearance/"):
+        if schema_version < 10:
+            return False
+        field = path.rsplit("/", 1)[-1]
+        if field == "font_scale":
+            return type(value) is int and value in (1, 2)
+        if field == "font_weight":
+            return type(value) is str and value in ("regular", "bold")
+        if field == "item_spacing":
+            return type(value) is int and 0 <= value <= 16
+        return type(value) is str and re.fullmatch(r"#[0-9a-fA-F]{6}", value) is not None
     if path == "/responsive/compact_max_width":
         return type(value) is int and 480 <= value <= 1440
     if path in ("/tokens/label_padding", "/tokens/task_radius"):

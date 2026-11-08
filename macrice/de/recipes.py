@@ -127,6 +127,32 @@ class ComponentDefinition:
 
 
 @dataclass(frozen=True)
+class Appearance:
+    """Portable, bounded presentation values (never commands or file paths)."""
+
+    font_scale: int
+    font_weight: str
+    item_spacing: int
+    hover: str
+    focus: str
+    disabled: str
+
+
+def _parse_appearance(raw: Any) -> Appearance:
+    data = _strict_keys(raw, {"font_scale", "font_weight", "item_spacing",
+                              "hover", "focus", "disabled"}, "Appearance")
+    if (type(data["font_scale"]) is not int or data["font_scale"] not in (1, 2)
+            or data["font_weight"] not in ("regular", "bold")
+            or type(data["item_spacing"]) is not int or
+            not 0 <= data["item_spacing"] <= 16
+            or any(type(data[key]) is not str or
+                   re.fullmatch(r"#[0-9a-fA-F]{6}", data[key]) is None
+                   for key in ("hover", "focus", "disabled"))):
+        raise RecipeError("Invalid bounded appearance tokens")
+    return Appearance(**data)
+
+
+@dataclass(frozen=True)
 class WindowRegion:
     x: int
     y: int
@@ -160,6 +186,7 @@ class PanelRecipe:
     menu_presentation: str = "tabs"
     composition: DesktopComposition | None = None
     components: tuple[ComponentDefinition, ...] = ()
+    appearance: Appearance | None = None
 
 
 def _parse_components(raw: Any) -> dict[str, ComponentDefinition]:
@@ -450,7 +477,7 @@ def parse(raw: bytes) -> PanelRecipe:
     if not isinstance(data, dict):
         raise RecipeError("Recipe must be a JSON object")
     version = data.get("schema_version")
-    if type(version) is not int or version not in (1, 2, 3, 4, 5, 6, 7, 8, 9):
+    if type(version) is not int or version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10):
         raise RecipeError("Unsupported RicePlate recipe schema version")
     expected = {"schema_version", "id", "name", "panel", "colors"}
     if version >= 4:
@@ -459,8 +486,11 @@ def parse(raw: bytes) -> PanelRecipe:
         expected.add("composition")
     if version >= 9:
         expected.add("components")
+    if version >= 10:
+        expected.add("appearance")
     data = _strict_keys(data, expected, "Recipe")
     components = _parse_components(data["components"]) if version >= 9 else {}
+    appearance = _parse_appearance(data["appearance"]) if version >= 10 else None
     recipe_id = data["id"]
     if not isinstance(recipe_id, str) or not re.fullmatch(r"[a-z][a-z0-9-]{1,31}", recipe_id):
         raise RecipeError("Recipe ID must contain 2-32 lowercase ASCII characters")
@@ -579,7 +609,7 @@ def parse(raw: bytes) -> PanelRecipe:
                        metrics, layout_nodes, version, menu, wallpaper, tokens, compact,
                        desktop_icons,
                        data["menu"].get("presentation", "tabs") if version >= 6 else "tabs",
-                       composition, tuple(components.values()))
+                       composition, tuple(components.values()), appearance)
 
 
 def load(token: str) -> PanelRecipe:
@@ -903,7 +933,7 @@ def create_from_template(
     if not destination.is_absolute() or destination.suffix != ".json":
         raise RecipeError("New recipe output must be an absolute .json file path")
     data = json.loads(BUILTINS[source].read_text(encoding="utf-8"))
-    if schema_version in (2, 3, 4, 5, 6, 7, 8, 9):
+    if schema_version in (2, 3, 4, 5, 6, 7, 8, 9, 10):
         data["schema_version"] = schema_version
         data["panel"]["metrics"] = dict(zip(METRIC_FIELDS, METRIC_DEFAULTS))
         if schema_version >= 3:
@@ -958,6 +988,11 @@ def create_from_template(
                     "id": "desk-system", "kind": "component", "ref": "net-status",
                     "x": 32, "y": 432,
                 }
+            if schema_version >= 10:
+                data["appearance"] = {
+                    "font_scale": 1, "font_weight": "regular", "item_spacing": 4,
+                    "hover": "#45769b", "focus": "#ffffff", "disabled": "#777777",
+                }
     elif schema_version != 1:
         raise RecipeError("Unsupported RicePlate template schema version")
     data["id"] = recipe_id
@@ -986,6 +1021,7 @@ def waybar_config(recipe: PanelRecipe, *, screen_width: int | None = None) -> tu
             and screen_width <= recipe.compact[0]):
         layout = recipe.compact[1]
     padding, radius = recipe.tokens if recipe.tokens is not None else (8, 4)
+    appearance = recipe.appearance
     if layout is None:
         section_modules = [[module_names[widget] for widget in widgets]
                            for widgets in recipe.sections]
@@ -1031,6 +1067,11 @@ def waybar_config(recipe: PanelRecipe, *, screen_width: int | None = None) -> tu
                     f"#custom-rice-action-{index} {{ background: {recipe.colors[2]}; "
                     f"border-radius: {radius}px; min-width: {len(node.label) * 8 + 8}px; "
                     f"padding: 0 {padding}px; }}")
+                if appearance:
+                    generated_css.append(
+                        f"#custom-rice-action-{index}:hover {{ background: {appearance.hover}; }}")
+                    generated_css.append(
+                        f"#custom-rice-action-{index}:focus {{ outline: 2px solid {appearance.focus}; }}")
             elif node.kind == "control":
                 # Waybar cannot share RicePlate's verified worker or its result
                 # feedback. This is visibly disabled, never a fake toggle.
@@ -1041,8 +1082,9 @@ def waybar_config(recipe: PanelRecipe, *, screen_width: int | None = None) -> tu
                     "tooltip-format": "Requires native RicePlate (Wayland)",
                 }
                 generated_css.append(
-                    f"#custom-rice-control-{index} {{ opacity: 0.55; "
-                    f"padding: 0 {padding}px; }}")
+                    f"#custom-rice-control-{index} {{ "
+                    + (f"color: {appearance.disabled}; " if appearance else "opacity: 0.55; ")
+                    + f"padding: 0 {padding}px; }}")
             else:
                 key = f"custom/rice-label-{index}"
                 generated_modules[key] = {"format": str(node.value), "tooltip": False}
@@ -1053,7 +1095,7 @@ def waybar_config(recipe: PanelRecipe, *, screen_width: int | None = None) -> tu
                            for nodes in layout]
     config: dict[str, Any] = {
         "layer": "top", "position": recipe.position, "height": recipe.height,
-        "spacing": 0 if layout is not None else 8,
+        "spacing": appearance.item_spacing if appearance else (0 if layout is not None else 8),
         **{f"modules-{side}": names
            for side, names in zip(("left", "center", "right"), section_modules)},
         "wlr/taskbar": {"format": "{icon}", "icon-size": 22,
@@ -1064,8 +1106,12 @@ def waybar_config(recipe: PanelRecipe, *, screen_width: int | None = None) -> tu
         **generated_modules,
     }
     background, foreground, active = recipe.colors
+    typography = (f"* {{ font-family: monospace; font-size: "
+                  f"{8 * appearance.font_scale}px; font-weight: "
+                  f"{'bold' if appearance.font_weight == 'bold' else 'normal'}; }}\n"
+                  if appearance else "* { font-family: sans-serif; font-size: 12px; }\n")
     css = (
-        "* { font-family: sans-serif; font-size: 12px; }\n"
+        typography +
         f"window#waybar {{ background: {background}; color: {foreground}; }}\n"
         f"#taskbar button {{ border-radius: {radius}px; padding: 2px 7px; }}\n"
         f"#taskbar button.active {{ background: {active}; }}\n"
@@ -1082,7 +1128,41 @@ def waybar_config(recipe: PanelRecipe, *, screen_width: int | None = None) -> tu
         )
     if generated_css:
         css += "\n".join(generated_css) + "\n"
+    if appearance:
+        css += (
+            f"#taskbar button:hover, #custom-rice-launcher:hover {{ background: {appearance.hover}; }}\n"
+            f"#taskbar button:focus, #custom-rice-launcher:focus {{ "
+            f"outline: 2px solid {appearance.focus}; }}\n"
+        )
     return json.dumps(config, ensure_ascii=False, indent=2), css
+
+
+def waybar_output_configs(recipe: PanelRecipe,
+                          output_widths: dict[str, int]) -> tuple[str, str]:
+    """Generate one width-aware Waybar instance per currently known output.
+
+    Waybar can follow output hotplug; a changed *mode* requires recompilation
+    at the next supervised restart. Unknown outputs use the classic fallback.
+    """
+    if (not output_widths or len(output_widths) > 8 or
+            any(type(name) is not str or
+                re.fullmatch(r"[A-Za-z0-9_.:-]{1,64}", name) is None or
+                type(width) is not int or not 320 <= width <= 16_384
+                for name, width in output_widths.items())):
+        raise RecipeError("Invalid Waybar output inventory")
+    bars = []
+    styles = []
+    for index, (name, width) in enumerate(sorted(output_widths.items())):
+        config, css = waybar_config(recipe, screen_width=width)
+        bar = json.loads(config)
+        bar["output"] = name
+        bar["name"] = f"rice-output-{index}"
+        bars.append(bar)
+        # Module IDs are scoped by their parent bar to avoid compact/full
+        # variants overwriting one another's CSS when both are visible.
+        scoped = css.replace("#custom-rice-", f"window#waybar.rice-output-{index} #custom-rice-")
+        styles.append(scoped)
+    return json.dumps(bars, ensure_ascii=False, indent=2), "\n".join(styles)
 
 
 def wallpaper_path(recipe: PanelRecipe) -> Path:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import json
 import shlex
 import shutil
 import signal
@@ -26,6 +27,44 @@ _CONFIG_PREFIX = "ricebowl-labwc-"
 
 class SessionError(RuntimeError):
     """The preview session cannot start without a safe, usable baseline."""
+
+
+def _waybar_recipe_config(recipe: object, env: Mapping[str, str],
+                          which: Callable[[str], str | None]) -> tuple[str, str]:
+    """Compile per-output compact rules when wlroots reports reliable geometry.
+
+    Never let a missing/broken optional output utility prevent the rescue bar.
+    No polling, background process, privileged operation or display mutation.
+    """
+    from . import recipes
+    binary = which("wlr-randr")
+    if binary:
+        try:
+            result = subprocess.run([binary, "--json"], env=dict(env),
+                                    capture_output=True, text=True, timeout=2, check=True)
+            if len(result.stdout) <= 65_536:
+                raw = json.loads(result.stdout)
+                if isinstance(raw, list):
+                    outputs = {}
+                    for item in raw:
+                        if not isinstance(item, dict) or item.get("enabled") is not True:
+                            continue
+                        modes = item.get("modes", [])
+                        current = next((mode for mode in modes if isinstance(mode, dict)
+                                        and mode.get("current") is True), None)
+                        scale = item.get("scale", 1)
+                        if (current and type(current.get("width")) is int
+                                and type(scale) in (float, int) and 0.5 <= scale <= 4):
+                            width = current["width"]
+                            if item.get("transform") in ("90", "270", "flipped-90", "flipped-270"):
+                                width = current.get("height", width)
+                            outputs[item["name"]] = round(width / scale)
+                    if outputs:
+                        return recipes.waybar_output_configs(recipe, outputs)
+        except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError,
+                recipes.RecipeError):
+            pass
+    return recipes.waybar_config(recipe)
 
 
 def project_root() -> Path:
@@ -324,7 +363,7 @@ class _LiveSwitch:
                 raise LiveError("Waybar fallback is unavailable", code="component_unavailable")
             directory = Path(self.cleanup.enter_context(tempfile.TemporaryDirectory(
                 prefix="ricebowl-live-plate-", dir=self.env["XDG_RUNTIME_DIR"])))
-            config, style = recipes.waybar_config(recipe)
+            config, style = _waybar_recipe_config(recipe, self.env, self.which)
             for name, content in (("config.jsonc", config), ("style.css", style)):
                 (directory / name).write_text(content, encoding="utf-8")
             command = [binary, "--config", str(directory / "config.jsonc"),
@@ -477,7 +516,7 @@ def shell(
                 prefix="ricebowl-plate-", dir=env["XDG_RUNTIME_DIR"])))
             config = directory / "config.jsonc"
             style = directory / "style.css"
-            generated_config, generated_style = waybar_config(recipe)
+            generated_config, generated_style = _waybar_recipe_config(recipe, env, which)
             for path, content in ((config, generated_config), (style, generated_style)):
                 fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
                 with os.fdopen(fd, "w", encoding="utf-8") as output:
@@ -620,7 +659,7 @@ def shell(
                 directory = Path(cleanup.enter_context(tempfile.TemporaryDirectory(
                     prefix="ricebowl-plate-rescue-", dir=env["XDG_RUNTIME_DIR"])))
                 config, style = directory / "config.jsonc", directory / "style.css"
-                generated_config, generated_style = waybar_config(current_recipe)
+                generated_config, generated_style = _waybar_recipe_config(current_recipe, env, which)
                 config.write_text(generated_config, encoding="utf-8")
                 style.write_text(generated_style, encoding="utf-8")
             panel = spawn(

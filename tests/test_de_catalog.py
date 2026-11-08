@@ -15,7 +15,7 @@ class ComponentCatalogTests(unittest.TestCase):
         self.assertEqual(info["catalog_version"], 11)
         self.assertEqual(info["scope"], "wayland-shell-preview")
         self.assertFalse(info["complete_desktop_environment"])
-        self.assertEqual(info["recipe"]["schema_versions"], [1, 2, 3, 4, 5, 6, 7, 8, 9])
+        self.assertEqual(info["recipe"]["schema_versions"], [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
         self.assertFalse(info["recipe"]["custom_commands"])
         self.assertFalse(info["recipe"]["custom_actions"])
         self.assertEqual(info["recipe"]["external_assets"], "PNG")

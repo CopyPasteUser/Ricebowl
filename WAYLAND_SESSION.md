@@ -654,6 +654,42 @@ existing layout paths), or render with isolated `de render`. Schemas v1–v8
 remain valid. This is a first, bounded common component system, not a generic
 extension/plugin runtime or an arbitrary visual widget framework.
 
+#### Schema-v10 appearance and output-aware fallback
+
+Create an owner-private recipe with `ricebowl de recipe-init --schema-version 10
+--base classic --id my-style --name "My Style" --output "$HOME/my-style.json"`.
+The strict v10 contract adds exactly one `appearance` object:
+
+```json
+"appearance": {
+  "font_scale": 2,
+  "font_weight": "bold",
+  "item_spacing": 6,
+  "hover": "#336699",
+  "focus": "#ffffff",
+  "disabled": "#7a7a7a"
+}
+```
+
+`font_scale` is bounded to 1 or 2; `font_weight` to `regular`/`bold`;
+`item_spacing` to 0–16 logical pixels, and state colors to six-digit hex.
+Native RicePlate uses its existing bundled 8×8 glyphs (no external font
+dependency) and scales pixel cells consistently in the panel and selected
+native menu/desktop surfaces. Waybar uses the matching CSS size, weight and
+state colors. This does **not** supply selectable TTF/OTF families or complete
+resizable menu layouts. The Creator accepts `/appearance/font_scale`,
+`/appearance/font_weight`, `/appearance/item_spacing` and the three colors as
+safe offline draft edits; `de review` and RicePack preserve them exactly.
+Recipes v1–v9 retain their original rendering defaults.
+
+If `wlr-randr --json` provides an enabled-output inventory, the supervised
+Waybar startup/live-apply/rescue path compiles each output's actual logical
+width into a separate named bar with its own compact/full layout and scoped
+CSS. If the utility fails, the unchanged generic fallback is used. A running
+Waybar bar does **not** automatically recompile when an existing monitor's
+resolution/scale changes; relaunching the supervised panel is required.
+No new monitor poller, daemon or user-shell command is introduced.
+
 The default **Waybar-backed** Wayland session is separately checked in CI
 with two genuine labwc headless outputs. The smoke captures the bar on each,
 turns one output off, checks the remaining bar and reconnects the second.

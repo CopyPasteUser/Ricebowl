@@ -2533,12 +2533,13 @@ fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
             Widget::Launcher => {
                 fill_rect(canvas, width, height, placed.x, 0, placed.width, height,
                           style.active);
-                draw_text(canvas, width, height,
-                          placed.x + placed.width.saturating_sub(32) / 2,
-                          height / 2 - 4, "Apps", style.foreground);
+                draw_rice_text(canvas, width, height,
+                          placed.x + placed.width.saturating_sub(32 * style.font_scale) / 2,
+                          height.saturating_sub(8 * style.font_scale) / 2,
+                          "Apps", style.foreground, style);
                 if selected == Some(KeyboardTarget::Launcher) {
                     paint_focus_border(canvas, width, height, placed.x, placed.width,
-                                       style.foreground);
+                                       if style.focus != 0 { style.focus } else { style.foreground });
                 }
             }
             Widget::Action(index) => {
@@ -2557,16 +2558,18 @@ fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
                         else if result == Some((item, false)) { "Failed".to_string() }
                         else { item.state_label(status) }
                     });
-                    draw_text(canvas, width, height, placed.x + style.label_padding + 4,
-                        if second_line.is_some() { height / 2 - 10 } else { height / 2 - 4 },
-                        &action.label, style.foreground);
+                    draw_rice_text(canvas, width, height, placed.x + style.label_padding + 4,
+                        if second_line.is_some() { height.saturating_sub(20 * style.font_scale) / 2 }
+                        else { height.saturating_sub(8 * style.font_scale) / 2 },
+                        &action.label,
+                        if available || style.disabled == 0 { style.foreground } else { style.disabled }, style);
                     if let Some(value) = second_line {
-                        draw_text(canvas, width, height, placed.x + style.label_padding + 4,
-                                  height / 2 + 2, &value, style.foreground);
+                        draw_rice_text(canvas, width, height, placed.x + style.label_padding + 4,
+                                  height / 2 + 2, &value, style.foreground, style);
                     }
                     if selected == Some(KeyboardTarget::Action(index)) {
                         paint_focus_border(canvas, width, height, placed.x, placed.width,
-                                           style.foreground);
+                                           if style.focus != 0 { style.focus } else { style.foreground });
                     }
                 }
             }
@@ -2588,11 +2591,12 @@ fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
                                           style.task_radius, style.active);
                     }
                     let label = task_groups::visible_label(group, cell_width);
-                    draw_text(canvas, width, height, x + 10, height / 2 - 4,
-                              &label, style.foreground);
+                    draw_rice_text(canvas, width, height, x + 10,
+                              height.saturating_sub(8 * style.font_scale) / 2,
+                              &label, style.foreground, style);
                     if selected == Some(KeyboardTarget::Task(view.start + index)) {
                         paint_focus_border(canvas, width, height, x, cell_width,
-                                           style.foreground);
+                                           if style.focus != 0 { style.focus } else { style.foreground });
                     }
                 }
                 if view.prev {
@@ -2605,15 +2609,17 @@ fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
                 }
             }
             Widget::Clock => {
-                draw_text(canvas, width, height,
-                          placed.x + placed.width.saturating_sub(40) / 2,
-                          height / 2 - 4, clock, style.foreground);
+                draw_rice_text(canvas, width, height,
+                          placed.x + placed.width.saturating_sub(40 * style.font_scale) / 2,
+                          height.saturating_sub(8 * style.font_scale) / 2,
+                          clock, style.foreground, style);
             }
             Widget::Battery => {
                 let label = power.label();
-                draw_text(canvas, width, height,
-                          placed.x + placed.width.saturating_sub(label.len() as u32 * 8) / 2,
-                          height / 2 - 4, &label, style.foreground);
+                draw_rice_text(canvas, width, height,
+                          placed.x + placed.width.saturating_sub(label.len() as u32 * 8 * style.font_scale) / 2,
+                          height.saturating_sub(8 * style.font_scale) / 2,
+                          &label, style.foreground, style);
             }
             Widget::Network | Widget::Audio => {
                 let label = if placed.widget == Widget::Network {
@@ -2621,9 +2627,10 @@ fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
                 } else {
                     status.audio.label()
                 };
-                draw_text(canvas, width, height,
-                          placed.x + placed.width.saturating_sub(label.len() as u32 * 8) / 2,
-                          height / 2 - 4, &label, style.foreground);
+                draw_rice_text(canvas, width, height,
+                          placed.x + placed.width.saturating_sub(label.len() as u32 * 8 * style.font_scale) / 2,
+                          height.saturating_sub(8 * style.font_scale) / 2,
+                          &label, style.foreground, style);
             }
             Widget::Tray => {
                 for (index, entry) in tray_state.entries.iter()
@@ -2657,7 +2664,8 @@ fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
                     if slot < slots {
                         paint_focus_border(canvas, width, height,
                             placed.x + slot as u32 * tray::SLOT_WIDTH,
-                            tray::SLOT_WIDTH, style.foreground);
+                            tray::SLOT_WIDTH,
+                            if style.focus != 0 { style.focus } else { style.foreground });
                     }
                 }
             }
@@ -2669,8 +2677,9 @@ fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
             }
             Widget::Label(index) => {
                 if let Some(label) = style.labels.get(index as usize) {
-                    draw_text(canvas, width, height, placed.x + style.label_padding,
-                              height / 2 - 4, label, style.foreground);
+                    draw_rice_text(canvas, width, height, placed.x + style.label_padding,
+                              height.saturating_sub(8 * style.font_scale) / 2,
+                              label, style.foreground, style);
                 }
             }
         }
@@ -2761,7 +2770,8 @@ fn paint_tray_menu(canvas: &mut [u8], style: &PanelStyle, popup: &tray::MenuPopu
         }
         if index == popup.selected && row.selectable() {
             fill_rounded_rect(canvas, width, height, 6, top + 1, width - 12,
-                              tray::POPUP_ROW_HEIGHT - 2, style.task_radius, style.active);
+                              tray::POPUP_ROW_HEIGHT - 2, style.task_radius,
+                              if style.hover != 0 { style.hover } else { style.active });
         }
         let marker = match &row.kind {
             tray::MenuKind::Action { checked: true, radio: true } => "*",
@@ -2770,7 +2780,8 @@ fn paint_tray_menu(canvas: &mut [u8], style: &PanelStyle, popup: &tray::MenuPopu
         };
         draw_text(canvas, width, height, 12, top + 11, marker, style.foreground);
         let label: String = row.label.chars().take(25).collect();
-        let color = if row.enabled { style.foreground } else {
+        let color = if row.enabled { style.foreground }
+        else if style.disabled != 0 { style.disabled } else {
             let fg = style.foreground.to_le_bytes();
             let bg = style.background.to_le_bytes();
             u32::from_le_bytes([
@@ -2824,14 +2835,16 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
         pixel.copy_from_slice(&style.background.to_le_bytes());
     }
     fill_rect(canvas, width, height, 0, 0, width, 38, style.active);
-    draw_text(
+    draw_rice_text(
         canvas,
         width,
         height,
         16,
-        15,
-        &menu.title.chars().take(32).collect::<String>(),
+        if style.font_scale == 1 { 15 } else { 11 },
+        &menu.title.chars().take((width.saturating_sub(32) / (8 * style.font_scale)) as usize)
+            .collect::<String>(),
         style.foreground,
+        style,
     );
     let sidebar = menu.presentation == recipe::MenuPresentation::Sidebar;
     let groups = menu.groups.len().max(1) as u32;
@@ -2851,12 +2864,14 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
              native_menu::TAB_HEIGHT)
         };
         if state.view == native_menu::View::Groups && state.group == index {
-            fill_rect(canvas, width, height, x, y, section_width, section_height, style.active);
+            fill_rect(canvas, width, height, x, y, section_width, section_height,
+                      if style.hover != 0 { style.hover } else { style.active });
         }
-        let available = section_width.saturating_sub(16) / 8;
+        let available = section_width.saturating_sub(16) / (8 * style.font_scale);
         let label: String = group.title.chars().take(available as usize).collect();
-        draw_text(canvas, width, height, x + 8,
-                  y + section_height / 2 - 4, &label, style.foreground);
+        draw_rice_text(canvas, width, height, x + 8,
+                  y + section_height.saturating_sub(8 * style.font_scale) / 2,
+                  &label, style.foreground, style);
     }
     let content_x = if sidebar { native_menu::SIDEBAR_WIDTH + 8 } else { 12 };
     if state.view == native_menu::View::Search {
@@ -2931,19 +2946,22 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                     width - action_x - 8,
                     native_menu::ACTION_HEIGHT - 4,
                     style.task_radius,
-                    style.active,
+                    if style.hover != 0 { style.hover } else { style.active },
                 );
             }
             let label = if action == "logout" && !logout_available() {
                 "Log out (unavailable)"
             } else { state.label(action) };
             let pinned = state.pins.iter().any(|pin| pin.as_str() == action);
-            let max_chars = if sidebar { if pinned { 19 } else { 21 } }
-                            else if pinned { 33 } else { 35 };
+            let max_chars = (if sidebar { if pinned { 19 } else { 21 } }
+                             else if pinned { 33 } else { 35 }) / style.font_scale as usize;
             let short_label: String = label.chars().take(max_chars).collect();
-            draw_text(canvas, width, height, action_x + 12, top + 16,
+            draw_rice_text(canvas, width, height, action_x + 12,
+                      top + if style.font_scale == 1 { 16 } else {
+                          native_menu::ACTION_HEIGHT.saturating_sub(8 * style.font_scale) / 2 },
                       &format!("{}{}", if pinned { "* " } else { "" }, short_label),
-                      style.foreground);
+                      if label.contains("(unavailable)") && style.disabled != 0
+                          { style.disabled } else { style.foreground }, style);
         }
     }
     }
@@ -3149,13 +3167,19 @@ fn paint_desktop_widget(canvas: &mut [u8], title: &str, lines: &[String], style:
     canvas.fill(0);
     fill_rounded_rect(canvas, width, height, 0, 0, width, height, 10, style.background);
     fill_rect(canvas, width, height, 12, 31, width - 24, 2, style.active);
-    draw_text(canvas, width, height, 12, 12, title, style.foreground);
+    draw_rice_text(canvas, width, height, 12,
+                   if style.font_scale == 1 { 12 } else { 9 },
+                   &title.chars().take((width / (8 * style.font_scale)).saturating_sub(3) as usize)
+                       .collect::<String>(), style.foreground, style);
     for (index, line) in lines.iter().take(2).enumerate() {
         // The native 8px font has no word wrap. Keep every line inside the
         // bounded surface even when system providers expose long names.
-        let clipped: String = line.chars().take(22).collect();
-        draw_text(canvas, width, height, 12, 43 + index as u32 * 20,
-                  &clipped, style.foreground);
+        let clipped: String = line.chars().take((width.saturating_sub(24) /
+            (8 * style.font_scale)) as usize).collect();
+        draw_rice_text(canvas, width, height, 12,
+                       if style.font_scale == 1 { 43 + index as u32 * 20 }
+                       else { 40 + index as u32 * 23 },
+                       &clipped, style.foreground, style);
     }
 }
 
@@ -3215,6 +3239,17 @@ fn fill_rounded_rect(
 }
 
 fn draw_text(canvas: &mut [u8], width: u32, height: u32, x: u32, y: u32, text: &str, color: u32) {
+    draw_bitmap_text(canvas, width, height, x, y, text, color, 1, false);
+}
+
+fn draw_rice_text(canvas: &mut [u8], width: u32, height: u32, x: u32, y: u32,
+                  text: &str, color: u32, style: &PanelStyle) {
+    draw_bitmap_text(canvas, width, height, x, y, text, color,
+                     style.font_scale, style.font_bold);
+}
+
+fn draw_bitmap_text(canvas: &mut [u8], width: u32, height: u32, x: u32, y: u32,
+                    text: &str, color: u32, scale: u32, bold: bool) {
     for (offset, character) in text.chars().enumerate() {
         if character.is_control() { continue; }
         // The existing 8x8 renderer is intentionally allocation-free: support
@@ -3227,7 +3262,7 @@ fn draw_text(canvas: &mut [u8], width: u32, height: u32, x: u32, y: u32, text: &
             .or_else(|| MISC_FONTS.get(character))
             .or_else(|| BASIC_FONTS.get('?'));
         let Some(bitmap) = bitmap else { continue; };
-        let origin = x.saturating_add((offset as u32).saturating_mul(8));
+        let origin = x.saturating_add((offset as u32).saturating_mul(8 * scale));
         for (row, bits) in bitmap.iter().enumerate() {
             for column in 0..8_u32 {
                 if *bits & (1_u8 << column) != 0 {
@@ -3235,10 +3270,10 @@ fn draw_text(canvas: &mut [u8], width: u32, height: u32, x: u32, y: u32, text: &
                         canvas,
                         width,
                         height,
-                        origin + column,
-                        y + row as u32,
-                        1,
-                        1,
+                        origin.saturating_add(column * scale),
+                        y.saturating_add(row as u32 * scale),
+                        scale + u32::from(bold && column < 7),
+                        scale,
                         color,
                     );
                 }
