@@ -141,10 +141,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         .filter(|action| action.control)
         .filter_map(|action| ControlAction::from_id(&action.id)).collect();
     let desktop_network = recipe.composition.as_ref().is_some_and(|composition|
-        composition.widgets.iter().any(|widget| matches!(widget.kind,
+        composition.widgets.iter().any(|widget| matches!(&widget.kind,
             recipe::DesktopWidgetKind::System | recipe::DesktopWidgetKind::Network)));
     let desktop_audio = recipe.composition.as_ref().is_some_and(|composition|
-        composition.widgets.iter().any(|widget| matches!(widget.kind,
+        composition.widgets.iter().any(|widget| matches!(&widget.kind,
             recipe::DesktopWidgetKind::System | recipe::DesktopWidgetKind::Audio)));
     let poll_network = desktop_network || status_present(Widget::Network)
         || menu_controls.contains(&ControlAction::WifiToggle)
@@ -216,10 +216,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             placed: Some((icon.x, icon.y)),
         });
     }
-    // Declarative v8 widgets are small non-keyboard Bottom-layer surfaces.
-    // No fullscreen input-catcher or separate polling daemon is introduced.
+    // Read-only widgets must not intercept pointer input from client windows.
     let mut widget_layers = Vec::new();
     if let Some(composition) = recipe.composition.as_ref() {
+        let empty_input = Region::new(&compositor)?;
         for (recipe_index, widget) in composition.widgets.iter().enumerate() {
             let surface = layer_shell.create_layer_surface(
                 &qh, compositor.create_surface(&qh), Layer::Bottom,
@@ -230,6 +230,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             surface.set_margin(widget.y as i32, 0, 0, widget.x as i32);
             surface.set_exclusive_zone(-1);
             surface.set_keyboard_interactivity(KeyboardInteractivity::None);
+            surface.wl_surface().set_input_region(Some(empty_input.wl_region()));
             surface.commit();
             widget_layers.push(DesktopWidgetLayer {
                 recipe_index, surface, pool: None, configured: false,
@@ -854,7 +855,7 @@ impl RicePlate {
                 if layer.placed.is_none() { continue; }
                 if let Some(widget) = self.recipe.composition.as_ref()
                     .and_then(|composition| composition.widgets.get(layer.recipe_index)) {
-                    let description = match widget.kind {
+                    let description = match &widget.kind {
                         recipe::DesktopWidgetKind::Clock => format!("Time: {}", self.clock),
                         recipe::DesktopWidgetKind::Date =>
                             format!("Date: {}", Local::now().format("%a %d %b %Y")),
@@ -868,8 +869,12 @@ impl RicePlate {
                             format!("Audio: {}", self.system_status.audio.label()),
                         recipe::DesktopWidgetKind::Battery =>
                             format!("Battery: {}", self.power.label()),
+                        recipe::DesktopWidgetKind::Text(value) => value.clone(),
                     };
-                    model.add(31_100 + index as u64, 31_000, AccessibleRole::Status,
+                    let role = if matches!(&widget.kind, recipe::DesktopWidgetKind::Text(_)) {
+                        AccessibleRole::Label
+                    } else { AccessibleRole::Status };
+                    model.add(31_100 + index as u64, 31_000, role,
                               description, None);
                 }
             }
@@ -1361,11 +1366,16 @@ impl RicePlate {
         self.widget_layers.retain(|widget| widget.bound_output.as_ref()
             .is_none_or(|output| outputs.contains(output)));
         if let Some(composition) = self.recipe.composition.as_ref() {
+            let empty_input = Region::new(&self.compositor);
             for output in &outputs {
                 for (recipe_index, widget) in composition.widgets.iter().enumerate() {
                     if self.widget_layers.iter().any(|layer|
                         layer.recipe_index == recipe_index
                         && layer.bound_output.as_ref() == Some(output)) { continue; }
+                    let Ok(input) = &empty_input else {
+                        eprintln!("RicePlate: cannot make desktop widgets input-transparent");
+                        continue;
+                    };
                     let surface = self.layer_shell.create_layer_surface(
                         qh, self.compositor.create_surface(qh), Layer::Bottom,
                         Some("riceplate-output-desktop-widget"), Some(output),
@@ -1375,6 +1385,7 @@ impl RicePlate {
                     surface.set_margin(widget.y as i32, 0, 0, widget.x as i32);
                     surface.set_exclusive_zone(-1);
                     surface.set_keyboard_interactivity(KeyboardInteractivity::None);
+                    surface.wl_surface().set_input_region(Some(input.wl_region()));
                     surface.commit();
                     self.widget_layers.push(DesktopWidgetLayer {
                         recipe_index, surface, pool: None, configured: false,
@@ -1911,7 +1922,7 @@ impl RicePlate {
         let Some(widget) = self.recipe.composition.as_ref()
             .and_then(|composition| self.widget_layers.get(index)
                 .and_then(|layer| composition.widgets.get(layer.recipe_index))) else { return; };
-        let (title, lines) = match widget.kind {
+        let (title, lines) = match &widget.kind {
             recipe::DesktopWidgetKind::Clock =>
                 ("Clock", vec![self.clock.clone()]),
             recipe::DesktopWidgetKind::Date =>
@@ -1929,6 +1940,7 @@ impl RicePlate {
             recipe::DesktopWidgetKind::Battery =>
                 (widget.title.as_deref().unwrap_or("Battery"),
                  vec![self.power.label().to_string()]),
+            recipe::DesktopWidgetKind::Text(value) => ("Text", vec![value.clone()]),
         };
         let Some(layer) = self.widget_layers.get_mut(index) else { return; };
         if !layer.configured || layer.placed.is_none() { return; }

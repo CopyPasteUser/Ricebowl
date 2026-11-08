@@ -315,9 +315,15 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
     to existing real network/audio/battery/clock backends or the existing
     allowlisted native action/verified control, with no per-rice shell code.
     Python/Rust parsers, Waybar's honest panel-only fallback, Creator review,
-    draft editing, catalog v10 and a real headless v9 fixture share the same
+    draft editing, catalog v11 and a real headless v9 fixture share the same
     contract. Interactive desktop action surfaces, richer state families and
     physical input/AT acceptance remain open.
+  - [x] Add **schema-v9 static desktop text primitives** with safe bounded
+    ASCII labels (22 characters), preserved by Creator review/draft/RicePack
+    and rendered by native RicePlate. Read-only desktop widget layers on
+    initial and hotplug outputs have empty Wayland input regions, letting
+    pointer events reach underlying windows. Real interactive widget surfaces
+    and hardware input/accessibility signoff remain separate work.
   - [x] Add a **real declarative schema-v6 panel action button** (`type: action`,
     `id`, `label`) with fixed allowlisted Apps/Terminal/Settings/Lock IDs;
     one validated recipe controls native drawing, per-output geometry, click,

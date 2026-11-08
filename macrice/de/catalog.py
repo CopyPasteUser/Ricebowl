@@ -21,7 +21,7 @@ from .recipes import (ICON_ACTIONS, ICON_HEIGHT, ICON_WIDTH, MAX_DESKTOP_ICONS,
 def describe() -> dict[str, object]:
     """Describe exactly which panel and early shell primitives are implemented."""
     return {
-        "catalog_version": 10,
+        "catalog_version": 11,
         "scope": "wayland-shell-preview",
         "complete_desktop_environment": False,
         "recipe": {
@@ -122,6 +122,10 @@ def describe() -> dict[str, object]:
                             "widgets": {"since_schema": 8,
                                         "pointer": "/composition/widgets",
                                         "kinds": sorted(DESKTOP_WIDGET_KINDS),
+                                        "text": {"since_schema": 9, "max_characters": 22,
+                                                 "safe_ascii": True, "interactive": False,
+                                                 "fields": ["id", "kind", "text", "x", "y"]},
+                                        "pointer_input": "transparent",
                                         "max_count": MAX_DESKTOP_WIDGETS,
                                         "width": DESKTOP_WIDGET_WIDTH,
                                         "height": DESKTOP_WIDGET_HEIGHT,
@@ -239,6 +243,8 @@ def describe() -> dict[str, object]:
              "native": "noninteractive-per-output-status",
              "waybar": "not_available",
              "kinds": sorted(DESKTOP_WIDGET_KINDS),
+             "text": {"since_schema": 9, "safe_ascii": True, "max_characters": 22},
+             "pointer_input": "transparent",
              "bounded_count": MAX_DESKTOP_WIDGETS,
              "size": [DESKTOP_WIDGET_WIDTH, DESKTOP_WIDGET_HEIGHT],
              "read_only": True, "executes_commands_from_recipe": False,
