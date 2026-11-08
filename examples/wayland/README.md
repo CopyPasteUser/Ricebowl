@@ -27,6 +27,29 @@ replayed, and the underlying Mako owner is unchanged. This is not yet a full
 notification-history UI or system OSD. The Waybar fallback hides native-only
 entries.
 
+## Safe panel action buttons (schema v6)
+
+The shared fixture `tests/fixtures/riceplate-actions-v6.json` demonstrates the
+first **generic interactive panel layout leaf**. A wide layout places a real
+**Terminal** button between the launcher and tasks and a separate **Settings**
+button before the clock. The compact layout keeps only Settings; the native
+renderer automatically changes geometry at the selected breakpoint, while
+Waybar compiles for an explicitly selected width.
+
+Use `{ "type": "action", "id": "settings", "label": "Settings" }` inside any
+schema-v6 `panel.layout` or `responsive.compact_layout` region. Valid IDs are
+`applications`, `terminal`, `settings`, `lock`. Labels must contain 1–16 safe
+ASCII characters; one ID may occur once per layout and retains the same label
+across wide/compact variants. Native buttons support pointer, keyboard and
+AT-SPI actions. Waybar uses compiler-owned fixed commands; recipe-supplied
+executable paths, flags or scripts are never accepted.
+
+Inspect the contract with `ricebowl de catalog --json`, review the example
+using `ricebowl de review --recipe "$PWD/tests/fixtures/riceplate-actions-v6.json"
+--json`, or render it in a nested Wayland session using `ricebowl de render
+--recipe "$PWD/tests/fixtures/riceplate-actions-v6.json" --output
+"$PWD/action-preview.png" --json`. Rendering never changes an active desktop.
+
 ## Validate, inspect and render
 
 From the RiceBowl repository root on Linux:

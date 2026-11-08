@@ -724,6 +724,12 @@ impl RicePlate {
                 match placed.widget {
                     Widget::Launcher => model.add(base + 1, base, AccessibleRole::Button,
                         "Open applications", Some(Target::Launcher(panel_index))),
+                    Widget::Action(index) => {
+                        if let Some(action) = self.recipe.actions.get(index as usize) {
+                            model.add(base + 30 + index as u64, base, AccessibleRole::Button,
+                                action.label.clone(), Some(Target::PanelAction(action.id.clone())));
+                        }
+                    }
                     Widget::Clock => model.add(base + 2, base, AccessibleRole::Button,
                         format!("Clock {}, open calendar", self.clock), Some(Target::Clock)),
                     Widget::Tasks => {
@@ -955,6 +961,7 @@ impl RicePlate {
                     let base = 10_000 + mirror.map_or(0, |index| index + 1) as u64 * 500;
                     model.focus = match self.focused_target {
                         Some(KeyboardTarget::Launcher) => base + 1,
+                        Some(KeyboardTarget::Action(index)) => base + 30 + index as u64,
                         Some(KeyboardTarget::Task(index)) => base + 100 + index as u64,
                         Some(KeyboardTarget::Tray(index)) => base + 300 + index as u64,
                         None => base,
@@ -982,6 +989,7 @@ impl RicePlate {
         match old.unwrap() {
             Target::Launcher(panel) => self.activate_launcher(
                 if panel == 0 { None } else { Some(panel - 1) }, qh),
+            Target::PanelAction(action) => self.activate_action(&action, qh),
             Target::Task(index) => self.activate_group(index),
             Target::Clock => self.toggle_calendar_for_panel(None, qh),
             Target::DesktopIcon(index) => {
@@ -1142,6 +1150,12 @@ impl RicePlate {
                 match self.focused_target {
                     Some(KeyboardTarget::Launcher) if key != Keysym::Menu =>
                         self.activate_launcher(mirror, qh),
+                    Some(KeyboardTarget::Action(index)) if key != Keysym::Menu => {
+                        if let Some(action) = self.recipe.actions.get(index as usize) {
+                            let action_id = action.id.clone();
+                            self.activate_action(&action_id, qh);
+                        }
+                    }
                     Some(KeyboardTarget::Task(index)) if key != Keysym::Menu =>
                         self.activate_group(index),
                     Some(KeyboardTarget::Tray(slot)) => {
@@ -2288,6 +2302,19 @@ fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
                 if selected == Some(KeyboardTarget::Launcher) {
                     paint_focus_border(canvas, width, height, placed.x, placed.width,
                                        style.foreground);
+                }
+            }
+            Widget::Action(index) => {
+                if let Some(action) = style.actions.get(index as usize) {
+                    fill_rounded_rect(canvas, width, height, placed.x + 2, 3,
+                        placed.width.saturating_sub(4), height.saturating_sub(6),
+                        style.task_radius, style.active);
+                    draw_text(canvas, width, height, placed.x + style.label_padding + 4,
+                        height / 2 - 4, &action.label, style.foreground);
+                    if selected == Some(KeyboardTarget::Action(index)) {
+                        paint_focus_border(canvas, width, height, placed.x, placed.width,
+                                           style.foreground);
+                    }
                 }
             }
             Widget::Tasks => {
@@ -4010,6 +4037,16 @@ impl PointerHandler for RicePlate {
                                 self.request_redraw(qh);
                             }
                             self.activate_launcher(mirror_index, qh);
+                        }
+                        Some(Hit::Action(index)) => {
+                            if self.focused_panel.as_ref() == Some(&event.surface) {
+                                self.focused_target = Some(KeyboardTarget::Action(index));
+                                self.request_redraw(qh);
+                            }
+                            if let Some(action) = self.recipe.actions.get(index as usize) {
+                                let action_id = action.id.clone();
+                                self.activate_action(&action_id, qh);
+                            }
                         }
                         Some(Hit::Clock) => {
                             if button == BTN_LEFT {

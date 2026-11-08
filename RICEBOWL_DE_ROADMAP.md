@@ -45,6 +45,22 @@ explicitly implemented behavior. Packs must never execute arbitrary generated
 scripts. Third-party GTK/Qt application decorations and Wayland protocol
 limits remain real constraints on cross-app fidelity.
 
+### Implementation priority (8 November 2026)
+
+**First finish the shared Wayland desktop foundation.** Prioritize (1) safe,
+reusable layout components with actual state/action/focus bindings,
+(2) a transaction-safe live multi-component rice switch and rollback,
+(3) Creator editing, structured design tokens and offline pack integration,
+then (4) physical hardware/keyboard/AT acceptance. Work on individual skins
+must not displace these foundations.
+
+**Deferred until that core is functional:** historically exact Windows XP,
+Windows 7 and Windows 10 menu/icon/chrome reproductions, pixel-level asset
+matching, and per-rice cosmetic redesigns. Keep the existing rices working and
+recognizable, but build missing behavior as shared primitives first. Detailed
+historical fidelity has a separate acceptance gate after the foundation;
+no per-OS fork of the native shell is permitted.
+
 ### Runtime and Creator boundary (partially implemented; 1.0 gates open)
 
 - **RiceBowl Runtime** owns the lightweight Wayland session, rendering,
@@ -292,6 +308,14 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   Requires Rust 1.88 and libdbus-1 for the host library.
 - [ ] Expose reusable, composable shell primitives and stable interaction/state
   bindings so substantially different rice layouts share core behavior.
+  - [x] Add a **real declarative schema-v6 panel action button** (`type: action`,
+    `id`, `label`) with fixed allowlisted Apps/Terminal/Settings/Lock IDs;
+    one validated recipe controls native drawing, per-output geometry, click,
+    keyboard focus, AT-SPI actions and Waybar's fixed-command fallback. Creator
+    catalog v7, semantic review, draft edit, shared fixture and headless native
+    screenshot smoke cover the contract. No recipe-defined process commands,
+    arguments, privileged actions or daemon were introduced. Cross-surface
+    stateful controls, layout constraints and richer visual tokens remain open.
 - [ ] Render wallpapers and desktop icons with correct layer, focus, hit tests,
   drag/drop, multimonitor geometry and hotplug behavior.
 - [ ] Support one selected rice at a time and restore the previous shell if a
@@ -552,10 +576,11 @@ depend on the XFCE session.
   assistive semantics and device QA remain open.
 - [ ] Implement visually configurable, truly interactive native start menus
   (beyond the initial functional labwc fallback menu), including navigation,
-  searching, pinning and the per-rice layout variants required by XP/7/etc.
-  Action search and pins, v6 tab/sidebar navigation and bounded group content
-  composition work; historically faithful XP/7 start menus, extended icon and
-  typography tokens, flexible size/layout and device QA still do not.
+  searching, pinning and reusable layout variants. Action search and pins,
+  v6 tab/sidebar navigation and bounded group content composition work;
+  responsive menu sizing, rich icon/typography tokens and device QA do not.
+  **Exact XP/7/10 menu reconstructions are deferred to the post-framework
+  fidelity gate above**, not blocking this foundational milestone.
 - [ ] Make responsive shell layouts live across every backend and surface,
   including Waybar fallback and multi-monitor hotplug; expand reusable design
   tokens to typography, states, iconography, spacing and motion.

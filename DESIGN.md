@@ -349,6 +349,23 @@ are accepted. The native compact composition is a structural primitive,
 not an icon-accurate Windows XP/7 recreation. Future XP/7-specific structures
 require separately audited primitives, not a CSS-only identity swap.
 
+Schema-v6 nested panel layouts may also contain a **real, focusable action
+button** (`type: action`, `id`, `label`). Only four fixed IDs are supported:
+`applications`, `terminal`, `settings` and `lock`. Labels are bounded safe ASCII
+(1–16 characters), ID repetition within a layout is rejected and wide/compact
+variants of the same ID retain the same label. Native and Waybar renderers
+consume these same validated leaves and map IDs to existing, fixed Linux
+actions. Native panel painting, pointer hits, Tab/arrow focus, Enter/Space and
+AT-SPI activation must resolve through the one shared action dispatcher.
+No arbitrary recipe-supplied command, path, keybinding or dynamic argument is
+ever interpreted. More stateful panel controls await a separately audited
+component/state contract with honest availability and error feedback.
+
+**Prioritization:** the reusable Wayland shell/Creator contracts and safe
+switching remain ahead of pixel-perfect historical XP/7/10 menu, titlebar and
+icon fidelity. The latter are separate post-framework acceptance work; existing
+XFCE rices and recognizable opt-in native themes are preserved meantime.
+
 - `Super_L` toggles the active rice's menu; `Control_R` toggles its quick settings.
 - Every shell performs actual Gio app discovery/launch and event-driven Wnck
   task switching. Menu and settings are independent toggles with Escape support.

@@ -178,7 +178,7 @@ def describe_creator_api() -> dict[str, object]:
         "next_login_selection_mutation": "creator-stage/rollback only; requires explicit invocation",
         "commands": [
             {"command": "catalog", "effect": "read-only component discovery",
-             "cli": "de catalog --json", "contract_version": 6},
+             "cli": "de catalog --json", "contract_version": 7},
             {"command": "review", "effect": "validate recipe and compare semantic diffs",
              "cli": "de review --recipe ID [--compare ID] --json", "contract_version": 1},
             {"command": "draft-edit", "effect": "create private reviewed JSON draft",

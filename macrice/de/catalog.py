@@ -11,14 +11,14 @@ from .creator_contract import (describe as draft_edit_contract, describe_capture
                                describe_ricepack, describe_visual_qa)
 from .recipes import (ICON_ACTIONS, ICON_HEIGHT, ICON_WIDTH, MAX_DESKTOP_ICONS,
                       MENU_ACTIONS, WALLPAPERS, MAX_LAYOUT_CHILDREN, MAX_LAYOUT_DEPTH, MAX_LAYOUT_LABELS,
-                      MAX_LAYOUT_NODES, MAX_LAYOUT_ROOTS, MAX_RECIPE_BYTES,
+                      MAX_LAYOUT_ACTIONS, PANEL_ACTIONS, MAX_LAYOUT_NODES, MAX_LAYOUT_ROOTS, MAX_RECIPE_BYTES,
                       METRIC_DEFAULTS, METRIC_FIELDS, METRIC_LIMITS, WIDGETS)
 
 
 def describe() -> dict[str, object]:
     """Describe exactly which panel and early shell primitives are implemented."""
     return {
-        "catalog_version": 6,
+        "catalog_version": 7,
         "scope": "wayland-shell-preview",
         "complete_desktop_environment": False,
         "recipe": {
@@ -50,6 +50,7 @@ def describe() -> dict[str, object]:
                 "max_roots_per_region": MAX_LAYOUT_ROOTS,
                 "max_children_per_group": MAX_LAYOUT_CHILDREN,
                 "max_labels": MAX_LAYOUT_LABELS,
+                "max_actions": MAX_LAYOUT_ACTIONS,
                 "node_types": {
                     "widget": {"fields": ["type", "id"], "known_ids": sorted(WIDGETS)},
                     "group": {"fields": ["type", "gap", "children"],
@@ -61,6 +62,14 @@ def describe() -> dict[str, object]:
                                 "interactive": False},
                     "label": {"fields": ["type", "text"], "safe_ascii": True,
                               "max_characters": 24, "interactive": False},
+                    "action": {"since_schema": 6,
+                               "fields": ["type", "id", "label"],
+                               "known_ids": sorted(PANEL_ACTIONS),
+                               "max_characters": 16, "safe_ascii": True,
+                               "interactive": True, "native": "real-panel-button",
+                               "waybar": "fixed-on-click-command", "custom_commands": False,
+                               "keyboard_navigation": True,
+                               "accessibility_role": "button"},
                 },
             },
             "shell_extensions": {
@@ -197,6 +206,9 @@ def describe() -> dict[str, object]:
              "persistent_ricepop_log": False, "mutates_desktop": False},
         ],
         "layout_primitives": [
+            {"id": "action", "native": "interactive-button", "waybar": "allowlisted-click",
+             "interactive": True, "actions": sorted(PANEL_ACTIONS),
+             "focus": "panel-keyboard-or-pointer", "accessibility_role": "button"},
             {"id": "group", "native": "horizontal-layout", "waybar": "flattened-modules",
              "interactive": False},
             {"id": "gap", "native": "fixed-width", "waybar": "css-min-width",
@@ -213,7 +225,7 @@ def describe() -> dict[str, object]:
             "Native panel handles responsive compact layout live; Waybar requires width-specific generation",
             "Schema-v3 groups are horizontal panel-only; no full desktop composition yet",
             "Panel-only recipes; no arbitrary OS or screenshot conversion",
-            "No runtime configurable action bindings or custom scripts",
+            "Panel action buttons bind only four fixed IDs; no custom scripts or dynamic action parameters",
             "Battery indicator is read-only with minute refresh; no UPower events",
             "Network/audio indicators are non-clickable; RiceSpice offers verified controls",
             "Waybar/labwc menu omits native-only RiceSpice quick actions instead of displaying fake controls",
@@ -240,5 +252,6 @@ def validate_catalog_contract() -> None:
             or len(shell) != len(result["shell_components"])
             or set(shell) != {"native-menu", "calendar-popup", "desktop-shortcut"}
             or shell["native-menu"]["actions"] != sorted(MENU_ACTIONS)
+            or set(result["recipe"]["nested_layout"]["node_types"]["action"]["known_ids"]) != PANEL_ACTIONS
             or shell["desktop-shortcut"]["actions"] != sorted(ICON_ACTIONS)):
         raise ValueError("RiceBowl component catalog is out of sync with panel recipes")
