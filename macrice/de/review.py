@@ -79,6 +79,9 @@ def _manifest(recipe: recipes.PanelRecipe) -> dict[str, Any]:
             {"id": component.component_id, "role": component.role,
              "binding": component.binding, "label": component.label}
             for component in recipe.components]
+    if recipe.appearance is not None:
+        from dataclasses import asdict
+        result["appearance"] = asdict(recipe.appearance)
     return result
 
 
@@ -114,6 +117,10 @@ def _fields(manifest: dict[str, Any]) -> dict[str, Any]:
     for name in ("widgets", "window_region", "compact_hide_widgets"):
         result[f"/composition/{name}"] = manifest.get("composition", {}).get(name)
     result["/components"] = manifest.get("components")
+    if "appearance" in manifest:
+        for token in ("font_scale", "font_weight", "item_spacing",
+                      "hover", "focus", "disabled"):
+            result[f"/appearance/{token}"] = manifest["appearance"][token]
     for token in ("label_padding", "task_radius"):
         result[f"/tokens/{token}"] = manifest.get("tokens", {}).get(token)
     result["/responsive/compact_max_width"] = manifest.get("responsive", {}).get(

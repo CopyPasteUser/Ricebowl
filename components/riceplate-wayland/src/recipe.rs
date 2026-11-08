@@ -176,6 +176,12 @@ pub struct PanelStyle {
     pub compact: Option<(u32, [Vec<Widget>; 3])>,
     pub label_padding: u32,
     pub task_radius: u32,
+    pub font_scale: u32,
+    pub font_bold: bool,
+    pub item_spacing: u32,
+    pub hover: u32,
+    pub focus: u32,
+    pub disabled: u32,
     pub background: u32,
     pub foreground: u32,
     pub active: u32,
@@ -204,6 +210,19 @@ struct Recipe {
     composition: Option<Composition>,
     #[serde(default, deserialize_with = "deserialize_present")]
     components: Option<Vec<ComponentInput>>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    appearance: Option<Appearance>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Appearance {
+    font_scale: u32,
+    font_weight: String,
+    item_spacing: u32,
+    hover: String,
+    focus: String,
+    disabled: String,
 }
 
 #[derive(Deserialize, Clone)]
@@ -670,7 +689,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
     }
     let recipe: Recipe = serde_json::from_str(raw)?;
     let id = recipe.id.as_bytes();
-    if ![1, 2, 3, 4, 5, 6, 7, 8, 9].contains(&recipe.schema_version)
+    if ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10].contains(&recipe.schema_version)
         || id.len() < 2
         || id.len() > 32
         || !id[0].is_ascii_lowercase()
@@ -687,13 +706,13 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
         return Err("RicePlate recipe metadata or dimensions are invalid".into());
     }
     let components = match (recipe.schema_version, recipe.components) {
-        (9, Some(definitions)) => validate_components(definitions)?,
+        (9 | 10, Some(definitions)) => validate_components(definitions)?,
         (1..=8, None) => Vec::new(),
         _ => return Err("Component library requires schema v9".into()),
     };
     let widths = match (recipe.schema_version, recipe.panel.metrics) {
         (1, None) => [LAUNCHER_WIDTH, TASK_WIDTH, CLOCK_WIDTH],
-        (2 | 3 | 4 | 5 | 6 | 7 | 8 | 9, Some(metrics))
+        (2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10, Some(metrics))
             if (64..=256).contains(&metrics.launcher_width)
                 && (96..=256).contains(&metrics.task_width)
                 && (64..=256).contains(&metrics.clock_width) =>
@@ -738,7 +757,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
                 }
             }
         }
-        (3 | 4 | 5 | 6 | 7 | 8 | 9, None, Some(layout)) => {
+        (3 | 4 | 5 | 6 | 7 | 8 | 9 | 10, None, Some(layout)) => {
             let source = [layout.start, layout.center, layout.end];
             let mut counts = [0_usize, 0_usize];
             for (index, nodes) in source.iter().enumerate() {
@@ -768,13 +787,23 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
     let mut compact = None;
     let mut label_padding = 8;
     let mut task_radius = 4;
+    let (font_scale, font_bold, item_spacing, hover, focus, disabled) =
+        match (recipe.schema_version, recipe.appearance) {
+            (10, Some(value)) if (1..=2).contains(&value.font_scale)
+                && ["regular", "bold"].contains(&value.font_weight.as_str())
+                && value.item_spacing <= 16 => (
+                    value.font_scale, value.font_weight == "bold", value.item_spacing,
+                    color(&value.hover)?, color(&value.focus)?, color(&value.disabled)?),
+            (1..=9, None) => (1, false, 0, 0, 0, 0),
+            _ => return Err("Appearance requires validated schema v10 tokens".into()),
+        };
     let mut desktop_icons = Vec::new();
     let mut native_menu = None;
     let composition = match (recipe.schema_version, recipe.composition) {
-        (8 | 9, Some(input)) => Some(validate_composition(input, &components,
-                                                        recipe.schema_version)?),
+        (8 | 9 | 10, Some(input)) => Some(validate_composition(input, &components,
+                                                            recipe.schema_version)?),
         (1..=7, None) => None,
-        _ => return Err("Desktop composition requires schema v8 or v9".into()),
+        _ => return Err("Desktop composition requires schema v8 or newer".into()),
     };
     match (
         recipe.schema_version,
@@ -783,7 +812,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
         recipe.tokens,
         recipe.responsive,
     ) {
-        (version @ (4 | 5 | 6 | 7 | 8 | 9), Some(menu), Some(desktop), Some(tokens), Some(responsive)) => {
+        (version @ (4 | 5 | 6 | 7 | 8 | 9 | 10), Some(menu), Some(desktop), Some(tokens), Some(responsive)) => {
             validate_menu(&menu, version)?;
             native_menu = Some(NativeMenu {
                 title: menu.title,
@@ -814,7 +843,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
             });
             desktop_icons = match (version, desktop.icons) {
                 (4, None) => Vec::new(),
-                (5 | 6 | 7 | 8 | 9, Some(icons)) => validate_icons(icons)?,
+                (5 | 6 | 7 | 8 | 9 | 10, Some(icons)) => validate_icons(icons)?,
                 _ => return Err("Schema v5 requires icons; v4 forbids them".into()),
             };
             let bundled = [
@@ -889,6 +918,12 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
         compact,
         label_padding,
         task_radius,
+        font_scale,
+        font_bold,
+        item_spacing,
+        hover,
+        focus,
+        disabled,
         background: color(&recipe.colors.background)?,
         foreground: color(&recipe.colors.foreground)?,
         active: color(&recipe.colors.active)?,
@@ -942,17 +977,20 @@ pub fn load(name_or_path: &str) -> Result<PanelStyle, Box<dyn Error>> {
 fn width_for(style: &PanelStyle, widget: Widget, tasks: usize) -> u32 {
     match widget {
         Widget::Launcher => style.widths[0],
-        Widget::Clock => style.widths[2],
-        Widget::Battery | Widget::Network | Widget::Audio => 64,
+        Widget::Clock => if style.font_scale == 1 { style.widths[2] }
+            else { style.widths[2].max(18 * 8 * style.font_scale) },
+        Widget::Battery | Widget::Network | Widget::Audio => 64 * style.font_scale,
         Widget::Tray => crate::tray::WIDTH,
         Widget::Tasks => tasks as u32 * style.widths[1],
         Widget::Gap(width) => width,
         Widget::Divider(width) => width,
         Widget::Label(index) => {
-            style.labels[index as usize].len() as u32 * 8 + style.label_padding * 2
+            style.labels[index as usize].len() as u32 * 8 * style.font_scale + style.label_padding * 2
         }
         Widget::Action(index) => {
-            style.actions[index as usize].label.len() as u32 * 8 + style.label_padding * 2 + 8
+            let action = &style.actions[index as usize];
+            (action.label.len() as u32).max(if action.control && style.font_scale > 1 { 11 } else { 0 })
+                * 8 * style.font_scale + style.label_padding * 2 + 8
         }
     }
 }
@@ -972,21 +1010,24 @@ pub fn layout(style: &PanelStyle, screen_width: u32, tasks: usize) -> Vec<Placed
         .filter(|&&w| w != Widget::Tasks && (w != Widget::Tray || tray_enabled))
         .map(|&w| width_for(style, w, 0))
         .sum();
+    let section_gaps: u32 = sections.iter().map(|section|
+        section.len().saturating_sub(1) as u32 * style.item_spacing).sum();
+    let fixed_width = fixed_width.saturating_add(section_gaps);
     let optional = [Widget::Battery, Widget::Audio, Widget::Network];
     let enabled = optional.map(|widget| sections.iter().flatten().any(|&w| w == widget));
     let without_status = fixed_width.saturating_sub(
-        enabled.iter().filter(|&&present| present).count() as u32 * 64);
+        enabled.iter().filter(|&&present| present).count() as u32 * 64 * style.font_scale);
     let has_clock = sections.iter().flatten().any(|&w| w == Widget::Clock);
     let show_clock = !has_clock || screen_width >= without_status;
     let mut effective_fixed = without_status.saturating_sub(
-        if show_clock || !has_clock { 0 } else { style.widths[2] });
+        if show_clock || !has_clock { 0 } else { width_for(style, Widget::Clock, 0) });
     let baseline_slots = screen_width.saturating_sub(effective_fixed + 8) / style.widths[1];
     let mut show_status = [false; 3];
     // Preserve task capacity, adding lower-priority read-only indicators only
     // when the next one does not cost an existing visible task group.
     for (index, present) in enabled.into_iter().enumerate() {
         if !present { continue; }
-        let next_width = effective_fixed + 64;
+        let next_width = effective_fixed + 64 * style.font_scale;
         let slots = screen_width.saturating_sub(next_width + 8) / style.widths[1];
         if screen_width >= next_width && (slots >= tasks.min(MAX_TRACKED_TASKS) as u32
             || slots == baseline_slots) {
@@ -1006,11 +1047,12 @@ pub fn layout(style: &PanelStyle, screen_width: u32, tasks: usize) -> Vec<Placed
         true
     };
     let section_width = |widgets: &[Widget]| -> u32 {
-        widgets
+        let visible_widgets: Vec<_> = widgets
             .iter()
             .filter(|&&w| is_visible(w))
-            .map(|&w| width_for(style, w, visible))
-            .sum()
+            .filter(|&&w| width_for(style, w, visible) > 0).collect();
+        visible_widgets.iter().map(|&&w| width_for(style, w, visible)).sum::<u32>()
+            .saturating_add(visible_widgets.len().saturating_sub(1) as u32 * style.item_spacing)
     };
     let widths: [u32; 3] = std::array::from_fn(|i| section_width(&sections[i]));
     let end_x = screen_width.saturating_sub(widths[2]);
@@ -1020,14 +1062,17 @@ pub fn layout(style: &PanelStyle, screen_width: u32, tasks: usize) -> Vec<Placed
     let mut result = Vec::new();
     for (index, begin) in [0, middle_x, end_x].into_iter().enumerate() {
         let mut x = begin;
+        let mut placed_one = false;
         for &widget in &sections[index] {
             if !is_visible(widget) {
                 continue;
             }
             let width = width_for(style, widget, visible);
             if width > 0 {
+                if placed_one { x = x.saturating_add(style.item_spacing); }
                 result.push(PlacedWidget { widget, x, width });
                 x = x.saturating_add(width);
+                placed_one = true;
             }
         }
     }
@@ -1122,6 +1167,43 @@ mod tests {
     const CONTROLS_V7: &str = include_str!("../../../tests/fixtures/riceplate-controls-v7.json");
     const LAYOUT_V8: &str = include_str!("../../../tests/fixtures/riceplate-layout-v8.json");
     const COMPONENTS_V9: &str = include_str!("../../../tests/fixtures/riceplate-components-v9.json");
+    const APPEARANCE_V10: &str = include_str!("../../../tests/fixtures/riceplate-appearance-v10.json");
+
+    #[test]
+    fn v10_appearance_affects_geometry_and_rejects_unsafe_tokens() {
+        let fixture = parse(APPEARANCE_V10, Some("styled-panel")).unwrap();
+        assert_eq!(fixture.font_scale, 2);
+        assert_eq!(fixture.item_spacing, 6);
+        let mut data: serde_json::Value = serde_json::from_str(COMPONENTS_V9).unwrap();
+        data["schema_version"] = serde_json::json!(10);
+        data["appearance"] = serde_json::json!({
+            "font_scale": 2, "font_weight": "bold", "item_spacing": 6,
+            "hover": "#336699", "focus": "#ffffff", "disabled": "#7a7a7a"
+        });
+        let style = parse(&data.to_string(), None).unwrap();
+        let legacy = parse(COMPONENTS_V9, None).unwrap();
+        assert_eq!(style.font_scale, 2);
+        assert!(style.font_bold);
+        assert_eq!(style.item_spacing, 6);
+        assert_ne!(style.hover, style.active);
+        let wide = layout(&style, 1366, 1);
+        let label = wide.iter().find(|w| matches!(w.widget, Widget::Label(_))).unwrap();
+        let old_label = layout(&legacy, 1366, 1).into_iter()
+            .find(|w| matches!(w.widget, Widget::Label(_))).unwrap();
+        assert!(label.width > old_label.width);
+        for (path, bad) in [
+            ("/appearance/font_scale", serde_json::json!(3)),
+            ("/appearance/font_weight", serde_json::json!("script")),
+            ("/appearance/item_spacing", serde_json::json!(17)),
+            ("/appearance/focus", serde_json::json!("evil")),
+        ] {
+            let mut invalid = data.clone();
+            *invalid.pointer_mut(path).unwrap() = bad;
+            assert!(parse(&invalid.to_string(), None).is_err(), "{path}");
+        }
+        data.as_object_mut().unwrap().remove("appearance");
+        assert!(parse(&data.to_string(), None).is_err());
+    }
 
     #[test]
     fn v9_resolves_shared_status_and_action_bindings_for_panel_and_desktop() {

@@ -100,7 +100,7 @@ def describe_ricepack() -> dict[str, object]:
         "extension": ".ricepack",
         "entries": ["ricepack.json", "recipe.json", "assets/wallpaper.png (v3 only)"],
         "maximum_archive_bytes": 3 * 1024 * 1024,
-        "recipe_schema_versions": [1, 2, 3, 4, 5, 6, 7, 8, 9],
+        "recipe_schema_versions": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
         "asset_support": "bundled wallpaper receipts or one embedded SHA256-addressed PNG (v3)",
         "asset_manifest": {"since_version": 2, "version": 1,
                            "fields": ["id", "sha256", "provenance"],
@@ -258,7 +258,7 @@ def describe_creator_api() -> dict[str, object]:
         "live": describe_live(),
         "limitations": [
             "Not a screenshot-to-rice converter or editable GUI",
-            "Schema-v1..v9 shell preview; v9 shares bounded component bindings across panel and desktop; v6+ supports one bounded PNG wallpaper, not arbitrary assets",
+            "Schema-v1..v10 shell preview; v9 shares component bindings, v10 adds bounded appearance tokens; v6+ supports one bounded PNG wallpaper",
             "Live apply is explicit and supervised; Wayland session remains experimental",
             "Native tray, complete settings, notification center and physical multi-monitor acceptance remain open",
         ],
@@ -273,6 +273,8 @@ EDITABLE_PATHS = frozenset((
     "/desktop/icons",
     "/composition/widgets", "/composition/window_region", "/composition/compact_hide_widgets",
     "/components",
+    *(f"/appearance/{name}" for name in
+      ("font_scale", "font_weight", "item_spacing", "hover", "focus", "disabled")),
     "/tokens/label_padding", "/tokens/task_radius",
     "/responsive/compact_max_width",
     *(f"/responsive/compact_layout/{name}" for name in recipes.SECTIONS),

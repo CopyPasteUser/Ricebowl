@@ -621,6 +621,19 @@ depend on the XFCE session.
 - [ ] Make responsive shell layouts live across every backend and surface,
   including Waybar fallback and multi-monitor hotplug; expand reusable design
   tokens to typography, states, iconography, spacing and motion.
+  - [x] Add **schema-v10 bounded appearance tokens**: 1×/2× native bitmap
+    type scale, regular/bold weight, inter-item spacing and shared focus/hover/
+    disabled colors across native panel/menu/desktop status surfaces and Waybar
+    CSS. Creator draft/review, catalog v11, RicePack and parser regressions
+    share one versioned contract; v1–v9 remain byte-compatible.
+  - [x] Compile **per-output Waybar compact/full layouts** from an optional,
+    bounded `wlr-randr --json` inventory at session start, live apply and
+    Waybar rescue; missing inventory degrades to the safe original layout.
+    Waybar config has output-scoped bar/CSS variants without extra polling.
+  - [ ] Reload Waybar when a currently connected monitor changes logical mode,
+    ensure new hotplug outputs always receive a bar, and extend adaptive native
+    menu and desktop controls. Portable font-family assets, fluid type sizes,
+    rich icon tokens and reduced-motion semantics are still open.
 - [x] Allow safe offline import/export of validated, non-executable, panel-only
   JSON recipes into a private per-user collection; preview by imported ID.
   Full multi-component RicePacks with artwork, screenshot conversion and a
