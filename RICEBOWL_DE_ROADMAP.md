@@ -295,6 +295,19 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   owner. Still open: real hardware/key tests, Pulse server restart recovery,
   brightness OSD, rich notification actions and native hosting.
 
+- [x] Add **actionable native RicePop notification details** without taking over
+  notification delivery: selecting a row opens a bounded details view with
+  verified source/body information and explicit keyboard, pointer and AT-SPI
+  action buttons. Only active notifications expose their current Mako action
+  keys (up to eight, paginated); the past tab remains read-only. The on-demand
+  `de notification-invoke` adapter re-reads Mako's current active list, refuses
+  stale/duplicate IDs or unknown keys and dispatches one explicitly selected
+  action without a shell, recipe-supplied command or notification store. Enter
+  never dismisses an alert by accident; Delete remains an independent action.
+  Still open: the true native notification owner, non-Mako backends, live push
+  updates while the center is open, full text layout/international glyphs and
+  physical keyboard/AT-SPI/action acceptance.
+
 - [x] Introduce the **on-demand RiceSpice settings window**, launched through
   a validated `settings` menu action or `ricebowl de settings`. It presents nine
   clearly separated settings categories. Real native controls cover reviewed
@@ -420,10 +433,11 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   assistive-technology device QA is still mandatory. The checkbox stays open.
 - [ ] Delegate privileged actions to polkit/system services; never add a
   privileged always-on RiceBowl daemon by default.
-- [ ] Complete native notification history and OSD, assistive semantics,
-  other session notification backends and consistent permission/error states
-  across quick actions and full settings pages. The first active-alert inbox
-  and single-ID dismissal are now implemented.
+- [ ] Complete live notification updates, native delivery and history owner,
+  assistive-technology acceptance, alternate notification backends, richer
+  text layout and consistent permissions/errors across settings/quick actions.
+  The Mako-backed active/past inbox, detail actions and verified dismissal
+  are implemented, but do not yet replace Mako.
 - [ ] Integrate a secure lock screen, idle policy and suspend/resume.
 
 **Done when:** common desktop settings and recovery workflows no longer

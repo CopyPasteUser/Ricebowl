@@ -174,7 +174,7 @@ def describe_creator_api() -> dict[str, object]:
         "success_exit_code": 0,
         "invalid_options_exit_code": 1,
         "operation_error_exit_code": 2,
-        "active_session_mutation": "Creator authoring commands never change the active desktop; notification-dismiss and audio-default are explicit RicePop/RiceSpice exceptions",
+        "active_session_mutation": "Creator authoring commands never change the active desktop; notification-dismiss, notification-invoke and audio-default are explicit RicePop/RiceSpice exceptions",
         "next_login_selection_mutation": "creator-stage/rollback only; requires explicit invocation",
         "commands": [
             {"command": "catalog", "effect": "read-only component discovery",
@@ -200,6 +200,9 @@ def describe_creator_api() -> dict[str, object]:
             {"command": "notification-dismiss", "effect": "explicitly dismiss one currently active Mako alert; never invoke its actions",
              "cli": "de notification-dismiss --notification-id UINT32 --json", "contract_version": 1,
              "mutates_active_session": True},
+            {"command": "notification-invoke", "effect": "explicitly invoke one freshly verified action advertised by an active Mako alert; never replay history or execute recipe commands",
+             "cli": "de notification-invoke --notification-id UINT32 --action-key KEY --json",
+             "contract_version": 1, "mutates_active_session": True},
             {"command": "audio-devices", "effect": "read real playback and recording devices from the existing audio server",
              "cli": "de audio-devices --json", "contract_version": 1},
             {"command": "audio-default", "effect": "explicitly choose one reviewed default playback/recording device",

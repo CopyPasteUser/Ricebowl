@@ -1,5 +1,21 @@
 # RiceBowl changelog
 
+## Unreleased — RicePop native notification details and verified actions (8 November 2026)
+
+- Extend the existing native RicePop Active/Past view with a compact details
+  page, true source labels, bounded multi-page action choices and keyboard,
+  pointer and AT-SPI access. Enter now opens a notification instead of silently
+  dismissing it; Delete remains the separate explicit active-only dismissal.
+- Expose only validated action labels/keys from the current Mako inventory;
+  recheck the entire bounded current active list before any one-ID/one-action
+  `makoctl invoke`. Never invoke from history, execute recipe commands, persist
+  message bodies or start a second notification owner. Fail closed on stale,
+  duplicate, malformed or excessive data.
+- Add a machine-readable explicit `de notification-invoke` command, backend and
+  native-state regression tests, CLI/catalog contracts and Wayland acceptance
+  instructions. Real notification action behavior and physical screen-reader
+  navigation still require user-session QA.
+
 ## Unreleased — RicePop external audio OSD and multimedia keys (8 November 2026)
 
 - Extend the existing input-transparent RicePop volume OSD to verified external

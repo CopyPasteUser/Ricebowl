@@ -613,8 +613,29 @@ It queries the existing optional Mako host for current notifications and its
 history. The JSON can contain private message bodies: handle it like a
 personal screenshot, and do not paste it publicly. If Mako is absent or not
 running, the command returns an explicit unavailable error. It never starts a
-notification daemon, invokes saved notification actions or modifies history.
-This is a read-only Creator integration, not a finished on-screen center.
+notification daemon, invokes an action or modifies history by reading the list.
+
+In RicePlate's opt-in **Notifications** menu, Enter or pointer selection opens
+a detail page; Up/Down select the exact action advertised by the original app,
+and Enter (or a pointer click) explicitly invokes it. The service re-reads the
+bounded active inventory and checks the ID and action key before calling Mako;
+expired notifications, changed actions, duplicate IDs and invalid data are
+rejected. Delete is a separate active-only dismissal, never an Enter shortcut.
+The **Past** tab cannot invoke or dismiss a saved entry. Escape from a detail
+returns to the list; Escape again returns to the native menu. Keyboard/AT-SPI
+and pointer behavior, action result, long text, stale alerts and multi-output
+focus require real-device checks. App actions may have consequences determined
+by their originating app; only explicitly select actions you recognize.
+
+The corresponding non-automatic diagnostic command is:
+
+```bash
+ricebowl de notification-invoke --notification-id ID --action-key KEY --json
+```
+
+Use only an exact ID/action key reviewed in a fresh `de notifications --json`
+result. Unlike the read-only inventory, this command deliberately invokes an
+application action. No command from a rice or notification body is executed.
 
 Discover the implemented authoring operations, required flags, safe effects,
 versioned output and their limits without launching a model or a daemon:

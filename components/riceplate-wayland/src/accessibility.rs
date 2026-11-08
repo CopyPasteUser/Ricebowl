@@ -33,6 +33,7 @@ pub enum Target {
     CalendarDay(NaiveDate),
     NotificationTab(bool),
     NotificationSelect(usize),
+    NotificationInvoke(u32, String),
     NotificationRefresh,
     NotificationDismiss(u32),
     NotificationBack,
