@@ -21,6 +21,7 @@ from .recipes import PanelRecipe
 
 
 FORMAT_VERSION = 1
+MAX_PROFILE_BYTES = 256 * 1024
 
 
 class ProfileError(RuntimeError):
@@ -80,12 +81,22 @@ def _render(client: _Client, recipe: PanelRecipe) -> bytes:
 
 
 def _private_file(path: Path) -> bytes:
-    info = path.lstat()
-    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
-        raise ProfileError("RiceProfile file is no longer a private regular file")
-    if info.st_size > 256 * 1024:
-        raise ProfileError("RiceProfile file exceeds its size limit")
-    return path.read_bytes()
+    # Inspect the same descriptor we read. A swapped symlink or FIFO cannot
+    # escape the managed directory, hang the supervisor or bypass the limit.
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(descriptor, "rb") as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+                raise ProfileError("RiceProfile file is no longer a private regular file")
+            if info.st_size > MAX_PROFILE_BYTES:
+                raise ProfileError("RiceProfile file exceeds its size limit")
+            contents = stream.read(MAX_PROFILE_BYTES + 1)
+            if len(contents) > MAX_PROFILE_BYTES:
+                raise ProfileError("RiceProfile file exceeds its size limit")
+            return contents
+    except OSError as exc:
+        raise ProfileError("RiceProfile file cannot be read safely") from exc
 
 
 def _write_new(path: Path, content: bytes) -> None:

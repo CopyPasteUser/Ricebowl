@@ -91,6 +91,17 @@ class RiceProfileTests(unittest.TestCase):
             session.preflight(recipes.load("chrome"))
         self.assertEqual(field.read_text(), "external owner edit")
 
+    def test_symlink_swap_is_rejected_without_following_its_target(self):
+        session = self.prepare()
+        field = self.root / "ricefield.riceprofile.toml"
+        outside = self.root / "untouched.txt"
+        outside.write_text("never replace this")
+        field.unlink()
+        field.symlink_to(outside)
+        with self.assertRaisesRegex(riceprofile.ProfileError, "safely"):
+            session.preflight(recipes.load("chrome"))
+        self.assertEqual(outside.read_text(), "never replace this")
+
     def test_invalid_candidate_is_rejected_before_commit(self):
         session = self.prepare()
         self.checked.clear()
