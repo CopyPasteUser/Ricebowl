@@ -682,6 +682,15 @@ resizable menu layouts. The Creator accepts `/appearance/font_scale`,
 safe offline draft edits; `de review` and RicePack preserve them exactly.
 Recipes v1–v9 retain their original rendering defaults.
 
+On a logical output too small for the 320×304 native start menu plus panel,
+RicePlate now fits the full menu and notification popup proportionally to the
+available width/height. Pointer hit coordinates are mapped back to the same
+bounded logical action vocabulary, so the last row remains reachable by
+mouse or keyboard after an output rotation or resize. Larger screens retain
+the existing native geometry and pixels. This is a clipping safety fallback,
+**not** fluid layout reflow or a claim of readable text at every tiny size.
+Real small-screen accessibility/Orca acceptance remains outstanding.
+
 If `wlr-randr --json` provides an enabled-output inventory, the supervised
 Waybar startup/live-apply/rescue path compiles each output's actual logical
 width into a separate named bar with its own compact/full layout and scoped

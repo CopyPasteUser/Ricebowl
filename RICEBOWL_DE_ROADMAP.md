@@ -627,8 +627,11 @@ depend on the XFCE session.
 - [ ] Implement visually configurable, truly interactive native start menus
   (beyond the initial functional labwc fallback menu), including navigation,
   searching, pinning and reusable layout variants. Action search and pins,
-  v6 tab/sidebar navigation and bounded group content composition work;
-  responsive menu sizing, rich icon/typography tokens and device QA do not.
+  v6 tab/sidebar navigation and bounded group content composition work. A
+  bounded, aspect-preserving small-output fit now prevents full-size menu and
+  notification surfaces from clipping on rotated/tiny monitors, with matching
+  pointer hit-coordinate mapping. Fluid layout reflow, readable typography on
+  very small outputs, rich icons and device QA remain open.
   **Exact XP/7/10 menu reconstructions are deferred to the post-framework
   fidelity gate above**, not blocking this foundational milestone.
 - [ ] Make responsive shell layouts live across every backend and surface,

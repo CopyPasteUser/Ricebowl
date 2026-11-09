@@ -271,7 +271,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         surface.set_exclusive_zone(-1);
         surface.set_keyboard_interactivity(KeyboardInteractivity::None);
         surface.commit();
-        MenuLayer { surface, pool: None, configured: false, output: None }
+        MenuLayer { surface, pool: None, configured: false, output: None,
+                    size: (native_menu::WIDTH, native_menu::HEIGHT) }
     });
     let preview_secondary_menu = preview_menu
         && std::env::var("RICEBOWL_DE_NESTED").as_deref() == Ok("1")
@@ -660,6 +661,7 @@ struct MenuLayer {
     pool: Option<SlotPool>,
     configured: bool,
     output: Option<wl_output::WlOutput>,
+    size: (u32, u32),
 }
 
 struct CalendarLayer {
@@ -1430,7 +1432,30 @@ impl RicePlate {
                 surface.commit();
                 self.menu_mirrors.push(MenuLayer {
                     surface, pool: None, configured: false, output: Some(output.clone()),
+                    size: (native_menu::WIDTH, native_menu::HEIGHT),
                 });
+            }
+        }
+        let default_menu_size = (native_menu::WIDTH, native_menu::HEIGHT);
+        let root_menu_size = self.primary_output.as_ref()
+            .and_then(|output| self.logical_output_size(output))
+            .map(|(width, height)| native_menu::fitted_size(width, height, self.recipe.height))
+            .unwrap_or(default_menu_size);
+        let mirror_menu_sizes: Vec<_> = outputs.iter().filter_map(|output|
+            self.logical_output_size(output).map(|(width, height)|
+                (output.clone(), native_menu::fitted_size(width, height, self.recipe.height))))
+            .collect();
+        for menu in self.menu_layer.iter_mut().chain(self.menu_mirrors.iter_mut()) {
+            let size = menu.output.as_ref()
+                .and_then(|output| mirror_menu_sizes.iter()
+                    .find(|(name, _)| name == output).map(|(_, size)| *size))
+                .unwrap_or(root_menu_size);
+            if menu.size != size {
+                menu.size = size;
+                menu.configured = false;
+                menu.pool = None;
+                menu.surface.set_size(size.0, size.1);
+                menu.surface.commit();
             }
         }
         if self.active_menu.as_ref().is_some_and(|surface|
@@ -1717,10 +1742,11 @@ impl RicePlate {
         let Some(pool) = layer.pool.as_mut() else {
             return;
         };
+        let (width, height) = layer.size;
         let (buffer, canvas) = match pool.create_buffer(
-            native_menu::WIDTH as i32,
-            native_menu::HEIGHT as i32,
-            (native_menu::WIDTH * 4) as i32,
+            width as i32,
+            height as i32,
+            (width * 4) as i32,
             wl_shm::Format::Argb8888,
         ) {
             Ok(result) => result,
@@ -1729,12 +1755,26 @@ impl RicePlate {
                 return;
             }
         };
-        if self.notification_state.open {
-            paint_notifications(canvas, &self.recipe, &self.notification_state);
+        if layer.size == (native_menu::WIDTH, native_menu::HEIGHT) {
+            if self.notification_state.open {
+                paint_notifications(canvas, &self.recipe, &self.notification_state);
+            } else {
+                paint_menu(canvas, menu, &self.recipe, &self.menu_state);
+            }
         } else {
-            paint_menu(canvas, menu, &self.recipe, &self.menu_state);
+            // The menu and RicePop detail states share a 320×304 logical hit
+            // vocabulary. Fit that complete surface on small/rotated outputs
+            // without silently clipping actions or changing keyboard order.
+            let mut original = vec![0_u8;
+                (native_menu::WIDTH * native_menu::HEIGHT * 4) as usize];
+            if self.notification_state.open {
+                paint_notifications(&mut original, &self.recipe, &self.notification_state);
+            } else {
+                paint_menu(&mut original, menu, &self.recipe, &self.menu_state);
+            }
+            fit_menu_pixels(&original, canvas, layer.size);
         }
-        surface.damage_buffer(0, 0, native_menu::WIDTH as i32, native_menu::HEIGHT as i32);
+        surface.damage_buffer(0, 0, width as i32, height as i32);
         if let Err(error) = buffer.attach_to(surface) {
             eprintln!("RicePlate: native menu attach failed: {error}");
             self.closed = true;
@@ -2843,6 +2883,19 @@ fn logout_available() -> bool {
         .is_some_and(|pid| pid > 1)
 }
 
+fn fit_menu_pixels(original: &[u8], canvas: &mut [u8], size: (u32, u32)) {
+    let (width, height) = size;
+    for y in 0..height {
+        for x in 0..width {
+            let source_x = x * native_menu::WIDTH / width;
+            let source_y = y * native_menu::HEIGHT / height;
+            let source = ((source_y * native_menu::WIDTH + source_x) * 4) as usize;
+            let dest = ((y * width + x) * 4) as usize;
+            canvas[dest..dest + 4].copy_from_slice(&original[source..source + 4]);
+        }
+    }
+}
+
 fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, state: &MenuState) {
     let width = native_menu::WIDTH;
     let height = native_menu::HEIGHT;
@@ -3563,7 +3616,10 @@ impl LayerShellHandler for RicePlate {
             menu.surface.wl_surface() == layer.wl_surface())
             || self.menu_mirrors.iter().any(|menu|
                 menu.surface.wl_surface() == layer.wl_surface()) {
-            if config.new_size != (native_menu::WIDTH, native_menu::HEIGHT) {
+            let expected_size = self.menu_layer.iter().chain(self.menu_mirrors.iter())
+                .find(|menu| menu.surface.wl_surface() == layer.wl_surface())
+                .map(|menu| menu.size).expect("matched a live native menu layer");
+            if config.new_size != expected_size {
                 eprintln!("RicePlate: compositor proposed unsupported native menu geometry");
                 if self.menu_layer.as_ref().is_some_and(|menu|
                     menu.surface.wl_surface() == layer.wl_surface()) {
@@ -3583,7 +3639,7 @@ impl LayerShellHandler for RicePlate {
                     menu.surface.wl_surface() == layer.wl_surface()))
                 .expect("matched a live native menu layer");
             if menu_layer.pool.is_none() {
-                let byte_count = (native_menu::WIDTH * native_menu::HEIGHT * 4 * 3) as usize;
+                let byte_count = (expected_size.0 * expected_size.1 * 4 * 3) as usize;
                 match SlotPool::new(byte_count, &self.shm) {
                     Ok(pool) => menu_layer.pool = Some(pool),
                     Err(error) => {
@@ -4264,13 +4320,17 @@ impl PointerHandler for RicePlate {
                 continue;
             }
             if self.active_menu.as_ref() == Some(&event.surface) {
+                let menu_size = self.menu_layer.iter().chain(self.menu_mirrors.iter())
+                    .find(|layer| layer.surface.wl_surface() == &event.surface)
+                    .map_or((native_menu::WIDTH, native_menu::HEIGHT), |layer| layer.size);
+                let pointer = native_menu::input_coords(event.position, menu_size);
                 // Hover and keyboard selection share one state. Update only
                 // on a changed action to avoid repainting on every motion.
                 if matches!(event.kind, PointerEventKind::Motion { .. })
                     && !self.notification_state.open {
                     if let Some(menu) = self.recipe.menu.as_ref() {
                         if let Some(MenuHit::Action(index)) = self.menu_state.hit(
-                            menu, event.position.0, event.position.1,
+                            menu, pointer.0, pointer.1,
                         ) {
                             if self.menu_state.selected != index {
                                 self.menu_state.selected = index;
@@ -4285,7 +4345,7 @@ impl PointerHandler for RicePlate {
                 } = event.kind
                 {
                     if self.notification_state.open {
-                        match self.notification_state.hit(event.position.0, event.position.1) {
+                        match self.notification_state.hit(pointer.0, pointer.1) {
                             Some(ricepop::Hit::Row(index)) => {
                                 self.notification_state.open_detail(index);
                                 self.redraw_menu(qh);
@@ -4325,7 +4385,7 @@ impl PointerHandler for RicePlate {
                     if let Some(menu) = self.recipe.menu.as_ref() {
                         match self
                             .menu_state
-                            .hit(menu, event.position.0, event.position.1)
+                            .hit(menu, pointer.0, pointer.1)
                         {
                             Some(MenuHit::Group(index)) => {
                                 self.menu_state.open_group(index);
@@ -4597,6 +4657,32 @@ smithay_client_toolkit::delegate_dispatch2!(RicePlate);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn small_menu_raster_keeps_full_source_and_pointer_targets() {
+        let width = native_menu::WIDTH;
+        let height = native_menu::HEIGHT;
+        let size = native_menu::fitted_size(320, 240, 36);
+        let mut original = vec![0_u8; (width * height * 4) as usize];
+        for y in 0..height {
+            for x in 0..width {
+                let offset = ((y * width + x) * 4) as usize;
+                original[offset] = (x % 256) as u8;
+                original[offset + 1] = (y % 256) as u8;
+                original[offset + 3] = 255;
+            }
+        }
+        let mut fitted = vec![0_u8; (size.0 * size.1 * 4) as usize];
+        fit_menu_pixels(&original, &mut fitted, size);
+        for (x, y) in [(0, 0), (size.0 / 2, size.1 / 2),
+                       (size.0 - 1, size.1 - 1)] {
+            let dst = ((y * size.0 + x) * 4) as usize;
+            let src_x = x * width / size.0;
+            let src_y = y * height / size.1;
+            let src = ((src_y * width + src_x) * 4) as usize;
+            assert_eq!(&fitted[dst..dst + 4], &original[src..src + 4]);
+        }
+    }
 
     #[test]
     fn native_start_menu_paints_distinct_schema_v6_sidebar_geometry() {
