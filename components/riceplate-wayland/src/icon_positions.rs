@@ -90,6 +90,17 @@ impl OutputPositions {
         self.owners[index] = owner.map(str::to_owned);
         Ok(())
     }
+
+    /// Commit a cross-display drop together with its ownership, or nothing.
+    /// A failed target layout must not leave the icon assigned off-screen.
+    pub fn transfer(&mut self, icons: &[DesktopIcon], index: usize,
+                    target: &str, coords: Coordinates) -> Result<(), Box<dyn Error>> {
+        let mut next = self.clone();
+        next.set(target, icons, index, coords)?;
+        next.assign(icons, index, Some(target))?;
+        *self = next;
+        Ok(())
+    }
 }
 
 fn safe_output_name(name: &str) -> bool {
@@ -351,6 +362,29 @@ mod tests {
         let mut fresh = crate::recipe::parse(source, Some("mockup-desktop")).unwrap();
         assert_eq!(restore_at(&file, &mut fresh).unwrap().owner(0), None);
         fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn cross_output_transfer_preserves_source_and_rejects_partial_updates() {
+        let source = include_str!("../../../tests/fixtures/riceplate-desktop-v5.json");
+        let recipe = crate::recipe::parse(source, Some("mockup-desktop")).unwrap();
+        let icons = &recipe.desktop_icons;
+        let mut state = OutputPositions::default();
+        state.set("DP-1", icons, 0, Coordinates { x: 150, y: 70 }).unwrap();
+        state.transfer(icons, 0, "HDMI-A-1", Coordinates { x: 30, y: 90 }).unwrap();
+        assert_eq!(state.owner(0), Some("HDMI-A-1"));
+        assert_eq!(state.for_output("DP-1", icons.len()).unwrap()[0].x, 150);
+        assert_eq!(state.for_output("HDMI-A-1", icons.len()).unwrap()[0].x, 30);
+        let before = state.clone();
+        assert!(state.transfer(icons, 0, "../../invalid", Coordinates { x: 1, y: 1 }).is_err());
+        assert!(state.transfer(icons, 0, "DP-1", Coordinates {
+            x: MAX_SAVED_POSITION + 1, y: 2,
+        }).is_err());
+        assert_eq!(state, before);
+        state.owners = vec![None; icons.len() + 1]; // Fail after target layout preflight.
+        let incompatible = state.clone();
+        assert!(state.transfer(icons, 0, "DP-2", Coordinates { x: 10, y: 20 }).is_err());
+        assert_eq!(state, incompatible);
     }
 
     #[test]

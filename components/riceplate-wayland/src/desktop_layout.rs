@@ -29,6 +29,32 @@ pub fn dragged_to(current: (u32, u32), anchor: (f64, f64), pointer: (f64, f64)) 
      moved(current.1, pointer.1 - anchor.1))
 }
 
+/// Resolve a drop on a different logical output from the grabbed icon surface.
+/// The implicit Wayland pointer grab continues delivering surface-relative
+/// motion even after the cursor crosses the source output boundary.
+pub fn cross_output_drop(
+    source_origin: (i32, i32), current: (u32, u32),
+    pointer: (f64, f64), anchor: (f64, f64),
+    target_origin: (i32, i32), target_size: (u32, u32),
+) -> Option<(u32, u32)> {
+    if ![pointer.0, pointer.1, anchor.0, anchor.1].iter().all(|v| v.is_finite())
+        || target_size.0 < ICON_WIDTH || target_size.1 < ICON_HEIGHT
+    {
+        return None;
+    }
+    let global = (f64::from(source_origin.0) + f64::from(current.0) + pointer.0,
+                  f64::from(source_origin.1) + f64::from(current.1) + pointer.1);
+    let local = (global.0 - f64::from(target_origin.0),
+                 global.1 - f64::from(target_origin.1));
+    if !(0.0..f64::from(target_size.0)).contains(&local.0)
+        || !(0.0..f64::from(target_size.1)).contains(&local.1)
+    {
+        return None;
+    }
+    Some(((local.0 - anchor.0).round().clamp(0.0, f64::from(MAX_SAVED_POSITION)) as u32,
+          (local.1 - anchor.1).round().clamp(0.0, f64::from(MAX_SAVED_POSITION)) as u32))
+}
+
 #[cfg(test)]
 fn overlaps(x: u32, y: u32, other_x: u32, other_y: u32) -> bool {
     x.abs_diff(other_x) < ICON_WIDTH && y.abs_diff(other_y) < ICON_HEIGHT
@@ -353,5 +379,21 @@ mod tests {
         assert_eq!(dragged_to((32, 96), (20.0, 10.0), (-200.0, -200.0)), (0, 0));
         assert_eq!(dragged_to((16_380, 16_380), (0.0, 0.0), (100.0, 100.0)),
                    (MAX_SAVED_POSITION, MAX_SAVED_POSITION));
+    }
+
+    #[test]
+    fn cross_monitor_drop_uses_logical_geometry_and_pointer_grab() {
+        assert_eq!(cross_output_drop((0, 0), (1880, 220), (190.0, 20.0),
+                                     (20.0, 10.0), (1920, 0), (1280, 1024)), Some((130, 230)));
+        // A monitor left of the primary has a negative global origin.
+        assert_eq!(cross_output_drop((0, 0), (10, 30), (-40.0, 15.0),
+                                     (15.0, 10.0), (-1280, 0), (1280, 800)), Some((1235, 35)));
+        // A cursor in the output gap is not a drop on either display.
+        assert_eq!(cross_output_drop((0, 0), (1880, 220), (190.0, 20.0),
+                                     (20.0, 10.0), (2200, 0), (1280, 1024)), None);
+        assert_eq!(cross_output_drop((0, 0), (1800, 220), (f64::NAN, 10.0),
+                                     (20.0, 10.0), (1920, 0), (1280, 1024)), None);
+        assert_eq!(cross_output_drop((0, 0), (1800, 220), (200.0, 10.0),
+                                     (20.0, 10.0), (1920, 0), (40, 30)), None);
     }
 }

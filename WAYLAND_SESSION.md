@@ -439,7 +439,13 @@ if their saved display is unplugged, they appear temporarily on the primary
 desktop and return to their assigned output when it reconnects. A missing or
 unsafe compositor output name cannot be assigned. Keyboard focus is **not**
 automatically transferred to the new display; use the pointer to focus there.
-This is not cross-output pointer drag-and-drop. RicePlate stores positions per
+The native shell also accepts a left-button drag **released on a different
+named display** when the compositor reports both outputs' logical positions.
+The shortcut snaps to the target after release (no cross-screen drag ghost);
+the former display's saved positions are preserved. A missing output name,
+unconfigured destination, absent geometry or no free icon space rejects the
+transfer. `F6` / `F7` remain the keyboard alternative; physical Wayland
+pointer-grab and mixed-DPI acceptance is still required. RicePlate stores positions per
 rice in `$XDG_CONFIG_HOME/ricebowl/native-icon-positions/<rice-id>.json`
 (typically `~/.config/ricebowl/native-icon-positions/`) without altering the
 original recipe. Saved coordinates and optional output assignments use a
