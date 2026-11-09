@@ -88,6 +88,8 @@ no per-OS fork of the native shell is permitted.
 | RiceBowl / RicePlate | Desktop icons, wallpaper, panels, menus, taskbar | One active shell; no competing XFDesktop process under Wayland |
 | RiceBowl / RiceSpice | Settings, quick actions, hardware state | Reuse NetworkManager, BlueZ, PipeWire, UPower and logind |
 | RiceBowl / RicePop | Notifications, OSD and optional history | One notification owner, no redundant daemon |
+| RiceBowl / RiceClip | Optional clipboard history and quick paste | Internal utility; event-driven, privacy-first, no separate repository |
+| RiceBowl / RiceShot | Screenshots, selection and lightweight annotations | Internal on-demand utility; reuse Wayland portals, no capture daemon |
 | RiceBowl / RicePack | Appearance profiles and UI layout contracts | Validated config, no arbitrary third-party code execution |
 | [RiceField](https://github.com/CopyPasteUser/Ricefield) | Independent Rust file manager | 1.0 hardware sign-off before replacing Thunar by choice |
 | [Taskotto](https://github.com/CopyPasteUser/Taskotto) | Independent Rust process manager | Separate optional app, currently planning only |
@@ -586,6 +588,52 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
 
 **Done when:** common desktop settings and recovery workflows no longer
 depend on the XFCE session.
+
+### 3a — RiceClip and RiceShot (P1 suite utilities; not core 1.0 blockers)
+
+Both tools live **inside the RiceBowl repository**, share RicePlate/RicePack
+presentation tokens and existing Wayland integration, and have **no independent
+repository or mandatory always-on service**. Complete the session, clipboard
+and portal interoperability gates first. Their unfinished optional features
+must not be represented as blockers for the Wayland DE 1.0 core release.
+
+**RiceClip — opt-in clipboard history**
+
+- [ ] Verify the actual clipboard/data-control capabilities of the supported
+  labwc session; implement event-driven text, URI and supported-image capture
+  with bounded item sizes/counts, deduplication and clear unavailable states.
+  Do not start a polling loop or a second clipboard owner.
+- [ ] Add a RicePlate-invoked searchable history UI with keyboard navigation,
+  copy-back, pins and configurable retention; preserve focus/selection and
+  support cross-rice token changes without a duplicate UI implementation.
+- [ ] Keep history **off until explicitly enabled**; default to session-only
+  memory, clear on logout/lock or user action, and never log clipboard contents.
+  Offer pause and app exclusions as best-effort protections, without claiming
+  that password/sensitive content can always be detected. Persistent history
+  is a separately reviewed opt-in feature, not a minimum requirement.
+- [ ] Test plain text, Unicode, large payload limits, image/URI handling,
+  owner exits, app switching, focus, lock/logout cleanup, unavailable
+  protocol support and keyboard/accessibility behavior on actual Wayland.
+
+**RiceShot — on-demand screenshots and annotation**
+
+- [ ] Use the existing verified Wayland screenshot portal/compositor path and
+  explicit user initiation; support available full-screen, output and region
+  capture modes without bypassing portal permissions or silently claiming
+  unsupported window/selection capabilities.
+- [ ] Provide a lightweight crop/arrow/text/blur annotation flow, then
+  explicit clipboard copy or save with safe filename/overwrite behavior;
+  integrate RicePlate shortcuts and RiceBowl visual tokens. Do not run a
+  background recorder, screen scraper or screenshot daemon.
+- [ ] Test cancellation/denial, missing portal backend, multi-monitor,
+  fractional scaling, cursor choice where supported, focus recovery,
+  annotation output and copy/save errors; verify captures on physical Wayland
+  hardware. Video recording is a later, independently scoped enhancement.
+
+**Acceptance:** each tool can be absent or disabled without breaking the
+desktop, has bounded memory/CPU overhead and honest error states, and passes
+real labwc device checks plus targeted integration tests. No new repo, shared
+daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
 
 ### 4 — The Rice ecosystem
 
