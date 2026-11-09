@@ -195,6 +195,47 @@ class RiceSpiceSettingsTests(unittest.TestCase):
                 backend.power_action("reboot")
             run.assert_not_called()
 
+    def test_suspend_locks_before_requesting_logind_and_lock_reports_success(self):
+        result = mock.Mock(returncode=0)
+        with mock.patch.object(backend.shutil, "which",
+                               side_effect=lambda name: "/usr/bin/" + name), \\
+             mock.patch.object(backend.subprocess, "run", return_value=result) as run, \\
+             mock.patch.dict(backend.os.environ, {"RICEBOWL_DE_NESTED": "0"}):
+            backend.power_action("lock")
+            self.assertEqual(run.call_args.args[0], ["/usr/bin/swaylock", "-f"])
+            run.reset_mock()
+            backend.power_action("suspend")
+            self.assertEqual([call.args[0] for call in run.call_args_list],
+                             [["/usr/bin/swaylock", "-f"],
+                              ["/usr/bin/loginctl", "suspend"]])
+
+    def test_suspend_refuses_failed_or_unavailable_screen_lock(self):
+        with mock.patch.object(backend.shutil, "which",
+                               side_effect=lambda name: None if name == "swaylock"
+                               else "/usr/bin/" + name), \\
+             mock.patch.object(backend.subprocess, "run") as run:
+            with self.assertRaisesRegex(backend.SettingsError, "swaylock"):
+                backend.power_action("suspend")
+            run.assert_not_called()
+        with mock.patch.object(backend.shutil, "which",
+                               side_effect=lambda name: "/usr/bin/" + name), \\
+             mock.patch.object(backend.subprocess, "run",
+                               return_value=mock.Mock(returncode=1)) as run:
+            with self.assertRaisesRegex(backend.SettingsError, "lock failed"):
+                backend.power_action("suspend")
+            self.assertEqual(run.call_count, 1)
+            self.assertEqual(run.call_args.args[0], ["/usr/bin/swaylock", "-f"])
+
+    def test_suspend_refuses_lock_timeout_without_contacting_logind(self):
+        import subprocess
+        with mock.patch.object(backend.shutil, "which",
+                               side_effect=lambda name: "/usr/bin/" + name), \\
+             mock.patch.object(backend.subprocess, "run",
+                               side_effect=subprocess.TimeoutExpired("swaylock", 8)) as run:
+            with self.assertRaisesRegex(backend.SettingsError, "could not complete"):
+                backend.power_action("suspend")
+            self.assertEqual(run.call_count, 1)
+
     def test_power_snapshot_shows_real_battery_and_missing_profile_service(self):
         from macrice.hardware_status import BatteryState
 
