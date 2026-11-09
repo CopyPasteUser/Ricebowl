@@ -754,6 +754,20 @@ depend on the XFCE session.
   Custom icon themes, fonts, multiple image assets per pack, nested component
   children, visual reference overlays and physical hardware acceptance remain
   separate milestones with new renderer/pack/schema contracts as needed.
+- [x] Deliver **Rice Creator 0.4 component and nested panel editor**:
+  native GTK inspector now allows schema-v9+ declarative component ID creation,
+  label/binding edits and safe removal only when unreferenced by wide/compact
+  panel or desktop widgets. A bounded recursive panel tree supports group /
+  ungroup, child insertion, sibling reordering, known leaf editing, and
+  independent wide and compact modes; every proposed structure passes the
+  exact runtime recipe parser. Fix atomic `draft-edit` validation to resolve a
+  newly proposed component registry before checking layout references, so a
+  component and its first use can be committed together irrespective of edit
+  operation order. Preserve immutable versions, no active apply, portable
+  RicePack exports and the XFCE path; add pure malformed/depth/reference tests
+  plus GTK Xvfb scenario coverage. Custom icon themes/fonts, visual-reference
+  overlays, finer-grained component skins and actual hardware acceptance remain
+  future milestones requiring their own renderer/schema/pack contracts.
 - [x] Implement **Wayland RicePack v1 recipe exchange** (`de pack-export`,
   `de pack-inspect`, `de pack-import`): reproducible owner-private `.ricepack`
   archives, canonical schema-v1–v5 recipe, SHA-256 byte/semantic validation,

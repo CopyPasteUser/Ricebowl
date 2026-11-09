@@ -15,7 +15,7 @@ import threading
 from pathlib import Path
 
 from .de import creator_layout as layout_engine, creator_workspace as workspace
-from .de import assets, creator_assets, drafts, recipes, render, review
+from .de import assets, creator_assets, creator_structure, drafts, recipes, render, review
 
 
 # All paths below are existing allowlisted Creator draft-edit fields. Gtk owns
@@ -72,7 +72,31 @@ def _node_label(node: dict) -> str:
         return f"◇  {node['id']} action"
     if kind == "control":
         return f"⚙  {node['id']} control"
+    if kind == "divider":
+        return f"│  {node['width']} px divider"
+    if kind == "label":
+        return f"T  {node['text']}"
     return kind
+
+
+def _node_template(choice: str) -> dict:
+    """Known, safe panel primitives; no recipe-supplied command execution."""
+    if choice == "group":
+        return {"type": "group", "gap": 8,
+                "children": [{"type": "gap", "width": 8}]}
+    if choice == "gap":
+        return {"type": "gap", "width": 8}
+    if choice == "divider":
+        return {"type": "divider", "width": 8}
+    if choice == "label":
+        return {"type": "label", "text": "New label"}
+    kind, identifier = choice.split(":", 1)
+    if kind in ("widget", "component"):
+        return {"type": kind, "ref" if kind == "component" else "id": identifier}
+    if kind in ("action", "control"):
+        return {"type": kind, "id": identifier,
+                "label": identifier.replace("-", " ").title()[:16]}
+    raise creator_structure.StructureError("Unsupported panel primitive")
 
 
 def run() -> int:
@@ -85,7 +109,7 @@ def run() -> int:
         gi.require_version("Gtk", "3.0")
         gi.require_version("Gdk", "3.0")
         gi.require_version("GdkPixbuf", "2.0")
-        from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk
+        from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, Pango
     except (ImportError, ValueError) as exc:
         print(f"Rice Creator requires GTK3/PyGObject and python3-cairo: {exc}",
               file=__import__("sys").stderr)
@@ -133,7 +157,7 @@ def run() -> int:
             self.baseline: dict | None = None
             self.working: dict | None = None
             self.pending: dict[str, object] = {}
-            self.layout: dict[str, list[dict]] = {}
+            self._panel_compact = False
             self._building = False
             self._busy = False
             self._render_generation = 0
@@ -379,11 +403,11 @@ def run() -> int:
         def _load(self, info: workspace.DraftInfo, *, reset_history=False):
             report = review.review(str(info.path))
             if report["recipe"]["schema_version"] != 10:
-                raise workspace.WorkspaceError("Creator 0.3 currently edits schema-v10 recipes only")
+                raise workspace.WorkspaceError("Creator 0.4 currently edits schema-v10 recipes only")
             self._render_generation += 1
             self.info, self.baseline, self.pending = info, report["recipe"], {}
             self.working = copy.deepcopy(self.baseline)
-            self.layout = copy.deepcopy(self.baseline["panel"]["layout"])
+            self._panel_compact = False
             self._selected_layer, self._drag, self._drag_preview = None, None, None
             if reset_history:
                 self._history = []
@@ -404,6 +428,7 @@ def run() -> int:
             self._building = True
             self._build_layer_inspector()
             self._build_wallpaper_inspector()
+            self._build_component_inspector()
             for title, fields in FIELDS:
                 expander = Gtk.Expander(label=title)
                 expander.set_expanded(title in ("Rice identity", "Shell", "Surface colors"))
@@ -455,10 +480,19 @@ def run() -> int:
             self.layout_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
             self.layout_box.set_margin_top(8)
             expander.add(self.layout_box)
-            for lane in recipes.SECTIONS:
-                self._build_lane(lane)
+            self.panel_mode = Gtk.ComboBoxText()
+            self.panel_mode.append("wide", "Wide layout · standard screens")
+            self.panel_mode.append("compact", "Compact layout · narrow screens")
+            self.panel_mode.set_active_id("wide")
+            self.panel_mode.connect("scroll-event", lambda *_: True)
+            self.panel_mode.connect("changed", self._panel_mode_changed)
+            self.layout_box.pack_start(self.panel_mode, False, False, 0)
+            self.layout_lanes = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+            self.layout_box.pack_start(self.layout_lanes, False, False, 0)
+            self._refresh_layout()
             self.inspector.show_all()
             self._building = False
+            self._component_selected(self.component_choice)
 
         def _build_wallpaper_inspector(self):
             expander = Gtk.Expander(label="Wallpaper library · local PNG assets")
@@ -638,6 +672,135 @@ def run() -> int:
                 self._status(f"Cannot import PNG: {exc}. Use an owner-controlled RGB/RGBA PNG.",
                              error=True)
 
+        def _build_component_inspector(self):
+            expander = Gtk.Expander(label="Component library · real Linux bindings")
+            expander.set_expanded(True)
+            self.inspector.pack_start(expander, False, False, 0)
+            body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            body.set_margin_top(10)
+            body.set_margin_bottom(12)
+            expander.add(body)
+            body.pack_start(self._text(
+                "Each component has a stable ID, an approved status or action binding "
+                "and a short label. Existing desktop and panel references stay checked.",
+                "creator-layer-hint", wrap=True), False, False, 0)
+            self.component_choice = Gtk.ComboBoxText()
+            self.component_choice.connect("changed", self._component_selected)
+            self.component_choice.connect("scroll-event", lambda *_: True)
+            body.pack_start(self.component_choice, False, False, 0)
+            grid = Gtk.Grid(row_spacing=6, column_spacing=8)
+            body.pack_start(grid, False, False, 0)
+            self.component_id = Gtk.Entry()
+            self.component_id.set_max_length(24)
+            self.component_id.set_placeholder_text("e.g. desk-battery")
+            self.component_label = Gtk.Entry()
+            self.component_label.set_max_length(16)
+            self.component_label.set_placeholder_text("Visible label")
+            self.component_role = Gtk.ComboBoxText()
+            self.component_role.append("status", "Live status")
+            self.component_role.append("action", "Verified action")
+            self.component_role.connect("changed", self._component_role_changed)
+            self.component_binding = Gtk.ComboBoxText()
+            self.component_role.connect("scroll-event", lambda *_: True)
+            self.component_binding.connect("scroll-event", lambda *_: True)
+            for index, (caption, field) in enumerate((
+                    ("Component ID", self.component_id),
+                    ("Visible label", self.component_label),
+                    ("Role", self.component_role),
+                    ("Linux binding", self.component_binding))):
+                label = self._text("_" + caption, "creator-layer-hint")
+                label.set_use_underline(True)
+                label.set_mnemonic_widget(field)
+                field.set_hexpand(True)
+                grid.attach(label, 0, index, 1, 1)
+                grid.attach(field, 1, index, 1, 1)
+            self.component_uses = self._text("", "creator-layer-hint", wrap=True)
+            body.pack_start(self.component_uses, False, False, 0)
+            actions = Gtk.Box(spacing=6)
+            self.component_add = self._button("Add", lambda _b: self._component_edit("add"))
+            self.component_update = self._button("Update", lambda _b: self._component_edit("update"))
+            self.component_remove = self._button(
+                "Remove unused", lambda _b: self._component_edit("remove"))
+            for button in (self.component_add, self.component_update, self.component_remove):
+                actions.pack_start(button, True, True, 0)
+            body.pack_start(actions, False, False, 0)
+            self._refresh_component_library()
+
+        def _component_role_changed(self, _widget):
+            role = self.component_role.get_active_id()
+            current = self.component_binding.get_active_id()
+            self.component_binding.remove_all()
+            bindings = (sorted(recipes.COMPONENT_STATUS_BINDINGS) if role == "status" else
+                        sorted(recipes.PANEL_ACTIONS | recipes.PANEL_CONTROLS) if role == "action"
+                        else [])
+            for key in bindings:
+                self.component_binding.append(key, key.replace("-", " ").title())
+            if bindings:
+                self.component_binding.set_active_id(current if current in bindings else bindings[0])
+
+        def _refresh_component_library(self, selected=None):
+            if self.working is None:
+                return
+            previous = self._building
+            self._building = True
+            self.component_choice.remove_all()
+            self.component_choice.append("new", "New component…")
+            for component in self.working["components"]:
+                self.component_choice.append(component["id"],
+                                             component["label"] + " · " + component["id"])
+            self.component_choice.set_active_id(selected if selected in {
+                component["id"] for component in self.working["components"]} else "new")
+            self._building = previous
+            self._component_selected(self.component_choice)
+
+        def _component_selected(self, widget):
+            if self._building or self.working is None:
+                return
+            selected = widget.get_active_id()
+            row = next((item for item in self.working["components"]
+                        if item["id"] == selected), None)
+            previous = self._building
+            self._building = True
+            self.component_id.set_text(row["id"] if row else "")
+            self.component_id.set_sensitive(row is None)
+            self.component_label.set_text(row["label"] if row else "")
+            self.component_role.set_active_id(row["role"] if row else "status")
+            self._component_role_changed(self.component_role)
+            if row:
+                self.component_binding.set_active_id(row["binding"])
+            self._building = previous
+            in_use = creator_structure.component_uses(self.working, selected) if row else []
+            self.component_uses.set_text(
+                "Used at: " + ", ".join(in_use[:3]) + ("…" if len(in_use) > 3 else "")
+                if in_use else "Unused component · may be removed" if row else
+                "Add a stable ID, then place it in the panel or on the desktop.")
+            self.component_add.set_sensitive(row is None and not self._busy)
+            self.component_update.set_sensitive(row is not None and not self._busy)
+            self.component_remove.set_sensitive(row is not None and not in_use and
+                                                len(self.working["components"]) > 1 and
+                                                not self._busy)
+
+        def _component_edit(self, action):
+            if self.working is None or self._busy:
+                return
+            selected = self.component_choice.get_active_id()
+            try:
+                definition = ({"id": self.component_id.get_text().strip(),
+                               "role": self.component_role.get_active_id(),
+                               "binding": self.component_binding.get_active_id(),
+                               "label": self.component_label.get_text().strip()}
+                              if action != "remove" else None)
+                changed = creator_structure.edit_component(
+                    self.working, action, definition, identifier=selected)
+                self._change("/components", changed)
+                focus = definition["id"] if definition else "new"
+                self._refresh_component_library(focus)
+                self._refresh_layer_choices()
+                self._refresh_layer_list()
+                self._refresh_layout()
+            except creator_structure.StructureError as exc:
+                self._status(f"Cannot {action} component: {exc}", error=True)
+
         def _build_layer_inspector(self):
             expander = Gtk.Expander(label="Desktop layers · visual editor")
             expander.set_expanded(True)
@@ -656,17 +819,7 @@ def run() -> int:
 
             add_row = Gtk.Box(spacing=6)
             self.layer_choices = Gtk.ComboBoxText()
-            for key, title in (("text", "Static text"), ("clock", "Clock"),
-                               ("date", "Date"), ("system", "System info")):
-                self.layer_choices.append(key, title)
-            for component in self.baseline.get("components", []):
-                if component["role"] == "status":
-                    self.layer_choices.append("component:" + component["id"],
-                                              "Status: " + component["label"])
-            for action, label in (("applications", "Applications"),
-                                  ("terminal", "Terminal"), ("lock", "Lock")):
-                self.layer_choices.append("icon:" + action, "Shortcut: " + label)
-            self.layer_choices.set_active(0)
+            self._refresh_layer_choices()
             add_row.pack_start(self.layer_choices, True, True, 0)
             add = self._button("Add", self._add_layer)
             add_row.pack_start(add, False, False, 0)
@@ -675,6 +828,22 @@ def run() -> int:
             self.layer_detail = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=7)
             body.pack_start(self.layer_detail, False, False, 0)
             self._refresh_layer_list()
+
+        def _refresh_layer_choices(self):
+            selected = self.layer_choices.get_active_id()
+            self.layer_choices.remove_all()
+            for key, title in (("text", "Static text"), ("clock", "Clock"),
+                               ("date", "Date"), ("system", "System info")):
+                self.layer_choices.append(key, title)
+            for component in self.working.get("components", []):
+                if component["role"] == "status":
+                    self.layer_choices.append("component:" + component["id"],
+                                              "Status: " + component["label"])
+            for action, label in (("applications", "Applications"),
+                                  ("terminal", "Terminal"), ("lock", "Lock")):
+                self.layer_choices.append("icon:" + action, "Shortcut: " + label)
+            if not self.layer_choices.set_active_id(selected):
+                self.layer_choices.set_active(0)
 
         def _layer_keys(self):
             assert self.working is not None
@@ -1074,71 +1243,172 @@ def run() -> int:
             except layout_engine.LayoutError as exc:
                 self._status(f'Cannot move layer: {exc}', error=True)
 
-        def _build_lane(self, lane: str):
-            group = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-            self.layout_box.pack_start(group, False, False, 0)
-            group.pack_start(self._text(lane.upper(), "creator-rail-label"), False, False, 0)
-            for index, node in enumerate(self.layout[lane]):
-                row = Gtk.Box(spacing=5)
-                row.get_style_context().add_class("creator-layout-row")
-                row.pack_start(self._text(_node_label(node), "hub-body"), True, True, 0)
-                for title, delta in (("↑", -1), ("↓", 1)):
-                    button = Gtk.Button(label=title)
-                    button.set_tooltip_text(f"Move {_node_label(node)} {title}")
-                    button.set_sensitive(0 <= index + delta < len(self.layout[lane]))
-                    button.connect("clicked", lambda _b, section=lane, i=index, d=delta:
-                                   self._move(section, i, d))
-                    row.pack_start(button, False, False, 0)
-                remove = Gtk.Button(label="×")
-                remove.set_tooltip_text(f"Remove {_node_label(node)}")
-                remove.connect("clicked", lambda _b, section=lane, i=index:
-                               self._remove_node(section, i))
-                row.pack_start(remove, False, False, 0)
-                group.pack_start(row, False, False, 0)
-            add_row = Gtk.Box(spacing=5)
+        def _active_layout(self):
+            assert self.working is not None
+            return (self.working["responsive"]["compact_layout"] if self._panel_compact
+                    else self.working["panel"]["layout"])
+
+        def _panel_mode_changed(self, widget):
+            if self._building:
+                return
+            self._panel_compact = widget.get_active_id() == "compact"
+            self._refresh_layout()
+
+        def _panel_choice(self):
             choices = Gtk.ComboBoxText()
-            for element in sorted(recipes.WIDGETS):
-                choices.append(f"widget:{element}", element)
-            for component in self.baseline.get("components", []):
-                choices.append(f"component:{component['id']}", f"Component: {component['label']}")
-            choices.append("gap", "Spacing: 8 px")
+            for key in sorted(recipes.WIDGETS):
+                choices.append("widget:" + key, "Widget · " + key)
+            for component in self.working.get("components", []):
+                choices.append("component:" + component["id"],
+                               "Component · " + component["label"])
+            for key, label in (("gap", "Gap · 8px"), ("divider", "Divider · 8px"),
+                               ("label", "Text label"), ("group", "Nested group")):
+                choices.append(key, label)
+            for key in sorted(recipes.PANEL_ACTIONS):
+                choices.append("action:" + key, "Action · " + key)
+            for key in sorted(recipes.PANEL_CONTROLS):
+                choices.append("control:" + key, "Control · " + key)
             choices.set_active_id("gap")
-            add_row.pack_start(choices, True, True, 0)
-            button = Gtk.Button(label="Add")
-            button.connect("clicked", lambda _b, section=lane, picker=choices:
-                           self._add_node(section, picker.get_active_id()))
-            add_row.pack_start(button, False, False, 0)
-            group.pack_start(add_row, False, False, 0)
+            choices.connect("scroll-event", lambda *_: True)
+            return choices
+
+        def _panel_add_controls(self, holder, lane, parent_path=()):
+            line = Gtk.Box(spacing=5)
+            picker = self._panel_choice()
+            picker.set_hexpand(True)
+            line.pack_start(picker, True, True, 0)
+            button = Gtk.Button(label="Add child" if parent_path else "Add to lane")
+            button.connect("clicked", lambda _b, p=parent_path, c=picker:
+                           self._add_node(lane, c.get_active_id(), parent_path=p))
+            line.pack_start(button, False, False, 0)
+            holder.pack_start(line, False, False, 0)
+
+        def _build_panel_row(self, holder, lane, path, node, siblings):
+            kind = node["type"]
+            frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+            frame.get_style_context().add_class("creator-layout-row")
+            frame.set_margin_start(12 * (len(path) - 1))
+            holder.pack_start(frame, False, False, 0)
+            row = Gtk.Box(spacing=5)
+            frame.pack_start(row, False, False, 0)
+            title = self._text(_node_label(node), "hub-body")
+            title.set_ellipsize(Pango.EllipsizeMode.END)
+            title.set_tooltip_text(_node_label(node))
+            row.pack_start(title, True, True, 0)
+            for symbol, direction in (("↑", "up"), ("↓", "down")):
+                button = Gtk.Button(label=symbol)
+                button.set_tooltip_text(f"Move {_node_label(node)} {direction}")
+                button.set_sensitive(path[-1] > 0 if direction == "up" else
+                                     path[-1] < siblings - 1)
+                button.connect("clicked", lambda _b, p=path, d=direction:
+                               self._mutate_panel(lane, p, d))
+                row.pack_start(button, False, False, 0)
+            tools = Gtk.Box(spacing=5)
+            frame.pack_start(tools, False, False, 0)
+            if kind == "group":
+                ungroup = Gtk.Button(label="Ungroup")
+                ungroup.connect("clicked", lambda _b, p=path:
+                                self._mutate_panel(lane, p, "ungroup"))
+                tools.pack_start(ungroup, False, False, 0)
+            else:
+                wrap = Gtk.Button(label="Group")
+                wrap.connect("clicked", lambda _b, p=path:
+                             self._mutate_panel(lane, p, "wrap"))
+                tools.pack_start(wrap, False, False, 0)
+                remove = Gtk.Button(label="Remove")
+                remove.connect("clicked", lambda _b, p=path:
+                               self._mutate_panel(lane, p, "remove"))
+                tools.pack_start(remove, False, False, 0)
+
+            editable = Gtk.Box(spacing=5)
+            frame.pack_start(editable, False, False, 0)
+            key = ("gap" if kind == "group" else "width" if kind in ("gap", "divider")
+                   else "text" if kind == "label" else "label" if kind in ("action", "control")
+                   else "ref" if kind == "component" else "id" if kind == "widget" else None)
+            if kind in ("group", "gap", "divider"):
+                limits = {"group": (0, 32), "gap": (4, 64), "divider": (6, 32)}
+                lower, upper = limits[kind]
+                field = Gtk.SpinButton.new_with_range(lower, upper, 1)
+                field.set_value(node[key])
+                changed = lambda: field.get_value_as_int()
+            elif kind in ("label", "action", "control"):
+                field = Gtk.Entry()
+                field.set_max_length(24 if kind == "label" else 16)
+                field.set_text(node[key])
+                changed = field.get_text
+            else:
+                field = Gtk.ComboBoxText()
+                values = (sorted(recipes.WIDGETS) if kind == "widget" else
+                          [item["id"] for item in self.working["components"]])
+                for value in values:
+                    field.append(value, value)
+                field.set_active_id(node[key])
+                field.connect("scroll-event", lambda *_: True)
+                changed = field.get_active_id
+            field.set_hexpand(True)
+            field.set_tooltip_text(f"Edit {kind} {key}")
+            editable.pack_start(field, True, True, 0)
+
+            def commit(_widget=None, p=path, original=node, attr=key, reader=changed):
+                replacement = copy.deepcopy(original)
+                replacement[attr] = reader()
+                self._mutate_panel(lane, p, "replace", replacement)
+
+            if isinstance(field, Gtk.Entry):
+                field.connect("activate", commit)
+            button = Gtk.Button(label="Set")
+            button.connect("clicked", commit)
+            editable.pack_start(button, False, False, 0)
+            if kind == "group":
+                for index, child in enumerate(node["children"]):
+                    self._build_panel_row(frame, lane, path + (index,), child,
+                                          len(node["children"]))
+                self._panel_add_controls(frame, lane, parent_path=path)
+
+        def _build_lane(self, lane: str):
+            section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+            self.layout_lanes.pack_start(section, False, False, 0)
+            section.pack_start(self._text(lane.upper(), "creator-rail-label"), False, False, 0)
+            items = self._active_layout()[lane]
+            for index, node in enumerate(items):
+                self._build_panel_row(section, lane, (index,), node, len(items))
+            self._panel_add_controls(section, lane)
 
         def _refresh_layout(self):
-            for child in self.layout_box.get_children():
-                self.layout_box.remove(child)
+            for child in self.layout_lanes.get_children():
+                self.layout_lanes.remove(child)
             for lane in recipes.SECTIONS:
                 self._build_lane(lane)
-            self.layout_box.show_all()
+            self.layout_lanes.show_all()
+
+        def _mutate_panel(self, lane, path, action, node=None):
+            if self.working is None or self._busy:
+                return
+            try:
+                result = creator_structure.edit_layout(self.working, lane, path, action,
+                                                       node=node, compact=self._panel_compact)
+                pointer = (f"/responsive/compact_layout/{lane}" if self._panel_compact else
+                           f"/panel/layout/{lane}")
+                self._change(pointer, result)
+                self._refresh_layout()
+            except creator_structure.StructureError as exc:
+                self._status(f"Cannot edit {lane} lane: {exc}", error=True)
 
         def _move(self, lane, index, delta):
-            nodes = self.layout[lane]
-            nodes[index], nodes[index + delta] = nodes[index + delta], nodes[index]
-            self._change(f"/panel/layout/{lane}", copy.deepcopy(nodes))
-            self._refresh_layout()
+            self._mutate_panel(lane, (index,), "up" if delta < 0 else "down")
 
         def _remove_node(self, lane, index):
-            self.layout[lane].pop(index)
-            self._change(f"/panel/layout/{lane}", copy.deepcopy(self.layout[lane]))
-            self._refresh_layout()
+            self._mutate_panel(lane, (index,), "remove")
 
-        def _add_node(self, lane, selection):
+        def _add_node(self, lane, selection, *, parent_path=()):
             if selection is None:
                 return
-            if selection == "gap":
-                node = {"type": "gap", "width": 8}
-            else:
-                kind, identifier = selection.split(":", 1)
-                node = {"type": kind, "ref" if kind == "component" else "id": identifier}
-            self.layout[lane].append(node)
-            self._change(f"/panel/layout/{lane}", copy.deepcopy(self.layout[lane]))
-            self._refresh_layout()
+            try:
+                node = _node_template(selection)
+            except (ValueError, creator_structure.StructureError):
+                self._status("Choose a supported panel element", error=True)
+                return
+            self._mutate_panel(lane, parent_path, "add", node)
 
         def _change(self, path, value):
             if self._building or self.baseline is None:
@@ -1342,6 +1612,28 @@ def run() -> int:
             assert saved.composition.widgets[2].widget_id in saved.composition.compact_hide_widgets
             window._refresh_canvas_pixels()
             assert window.canvas_image.get_pixbuf() is not None
+            # Exercise real GTK forms, component insertion and nested wide +
+            # compact panel authoring through the same offline editor methods.
+            window.component_choice.set_active_id("new")
+            window.component_id.set_text("test-battery")
+            window.component_label.set_text("Battery")
+            window.component_role.set_active_id("status")
+            window.component_binding.set_active_id("battery")
+            window._component_edit("add")
+            assert any(c["id"] == "test-battery" for c in window.working["components"])
+            window._add_node("center", "component:test-battery")
+            window._add_node("center", "group")
+            window._mutate_panel("center", (1,), "add",
+                                 {"type": "label", "text": "Shell"})
+            assert window.working["panel"]["layout"]["center"][1]["children"][1]["text"] == "Shell"
+            window.panel_mode.set_active_id("compact")
+            assert window._panel_compact
+            window._add_node("center", "label")
+            assert window.working["responsive"]["compact_layout"]["center"][-1]["type"] == "label"
+            window.panel_mode.set_active_id("wide")
+            assert window._commit_pending()
+            updated = recipes.load(str(window.info.path))
+            assert any(c.component_id == "test-battery" for c in updated.components)
             # Exercise the actual asset catalog and GTK choice binding. A PNG
             # shipped with the repo is a valid owner-controlled, tiny test image.
             sample = (Path(__file__).resolve().parents[1] / "assets" / "themes" /

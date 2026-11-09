@@ -922,7 +922,7 @@ to active configuration or bypass native safety checks. A Creator must compare
 feature IDs and versions before constructing a UI; unsupported widget actions
 must remain disabled or request a new shared primitive.
 
-#### Rice Creator 0.3 — private wallpaper library and attribution
+#### Rice Creator 0.4 — component and nested panel editor
 
 Launch `ricebowl creator` (or `macrice creator` from a checkout); the regular
 user-local installer also adds a **Rice Creator (experimental)** application
@@ -933,10 +933,31 @@ The first graphical authoring slice consumes the actual schema-v10 Runtime
 contract: create from the Heritage Modern, Orbit Studio, Classic or Chrome
 template; edit the panel edge/height, two menu presentations, bundled wallpaper,
 responsive cutoff, font/spacing/state colors and reorder, remove or add supported
-panel nodes in the start/center/end lanes. It understands nested groups as
-reorderable nodes rather than silently flattening them. The same strict parser
+panel nodes in the start/center/end lanes. The same strict parser
 and `draft-edit` allowlist validate every **Save version** operation. Invalid
 or duplicate interactive controls cannot be installed by a failed draft edit.
+
+**Creator 0.4** provides a dedicated **Component library** form. Add new
+bounded IDs, pick a real status binding (`clock`, `network`, `audio`, `battery`)
+or one of the fixed supported Linux actions/controls, and give each a short
+label. Existing components can be updated; in-use references are listed and
+prevent removal until detached from the panel, compact panel and desktop.
+Renaming an ID implicitly is not supported: use an explicit new component.
+The complete proposed component registry is validated before referencing it,
+allowing a new component and its first panel use to be saved together in one
+immutable draft revision (also in tool-neutral offline draft-edit data).
+
+The **Panel composition** inspector now edits actual nested schema-v10 group
+nodes, rather than merely displaying a group as one opaque row. Its selector
+switches independently between **Wide** and **Compact** panel structures.
+For each start/center/end lane, add widgets, registered components, safe
+fixed actions/controls, 4–64 px gaps, 6–32 px dividers, 1–24 character
+labels or a group. Group a node, add children up to the schema limit, edit
+width/spacing/labels, reorder siblings or ungroup without losing its children.
+The validator enforces at most three nested levels, six children per group,
+eight lane roots and 24 nodes overall, as well as duplicate bindings and
+required launcher/task invariants. Invalid edits stay out of the draft and
+provide a visible error; nothing is written until **Save version**.
 
 The optional graphical **Edit layout** canvas now exposes the actual schema-v10
 desktop composition. Choose a widget or shortcut in the layer list or click
@@ -998,7 +1019,7 @@ cache of private screen pixels remains. Missing `labwc`, `grim`, `wlr-randr`,
 state instead of an illustrated preview. The preview is a static snapshot, not
 an interactive nested session. Hardware/input QA and UI-side reviewed live
 apply/rollback remain later milestones. Existing CLI commands continue to
-offer explicit reviewed apply and restore; the Creator 0.3 GUI **never** calls
+offer explicit reviewed apply and restore; the Creator 0.4 GUI **never** calls
 them. No AI runtime, internet account or arbitrary plugin code is required;
 the optional visual editor uses the documented GTK/PyGObject and Cairo packages.
 
