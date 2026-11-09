@@ -40,7 +40,11 @@ export XDG_SESSION_DESKTOP=ricebowl
 export XDG_SESSION_TYPE=wayland
 export WLR_BACKENDS=headless
 export WLR_HEADLESS_OUTPUTS=1
-export WLR_RENDERER=pixman
+# Ubuntu 24.04 xdpw 0.7 requires DMA-BUF metadata alongside SHM on
+# wlr_screencopy v3. Pixman cannot advertise DMA-BUF formats, so exercise
+# a headless GLES2 compositor using Mesa's software GL renderer instead.
+export LIBGL_ALWAYS_SOFTWARE=1
+export WLR_RENDERER=gles2
 export RICEBOWL_DE_NESTED=1
 
 dbus-run-session -- sh -eu -c '

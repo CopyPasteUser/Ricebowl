@@ -45,6 +45,14 @@ class WaylandPortalTests(unittest.TestCase):
         self.assertIn("/usr/libexec/xdg-desktop-portal-wlr", harness)
         self.assertNotIn("--systemd", harness)
 
+    def test_headless_capture_requests_software_dma_buf_renderer(self):
+        harness = (project_root() / "scripts/smoke_wayland_portals.sh").read_text(
+            encoding="utf-8")
+        # xdpw 0.7 on Ubuntu 24.04 requires DMA-BUF format negotiation in
+        # addition to wl_shm even for a headless screencopy session.
+        self.assertIn("export WLR_RENDERER=gles2", harness)
+        self.assertIn("export LIBGL_ALWAYS_SOFTWARE=1", harness)
+
     def test_create_session_uses_valid_glib_tuple_signature(self):
         client = (project_root() / "scripts/check_wayland_portals.py").read_text(
             encoding="utf-8")
