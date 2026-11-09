@@ -10,6 +10,7 @@ on:
       - 'scripts/build_wayland_core_deb.sh'
       - 'scripts/build_wayland_desktop_deb.sh'
       - 'scripts/smoke_wayland_upgrade_rollback.sh'
+      - 'scripts/smoke_wayland_packaged_login.sh'
       - 'tests/test_wayland_upgrade.py'
       - 'tests/test_wayland_bundle.py'
       - 'packaging/wayland/ricebowl-wayland-app'
@@ -61,6 +62,7 @@ on:
       - 'scripts/build_wayland_core_deb.sh'
       - 'scripts/build_wayland_desktop_deb.sh'
       - 'scripts/smoke_wayland_upgrade_rollback.sh'
+      - 'scripts/smoke_wayland_packaged_login.sh'
       - 'tests/test_wayland_upgrade.py'
       - 'tests/test_wayland_bundle.py'
       - 'packaging/wayland/ricebowl-wayland-app'
@@ -214,8 +216,10 @@ jobs:
         timeout-minutes: 9
         run: |
           set -eu
+          sh -n scripts/smoke_wayland_packaged_login.sh
           docker run --rm --pull=missing \
             --volume "$PWD/dist/riceplate-native-preview:/packages:ro" \
+            --volume "$PWD/scripts/smoke_wayland_packaged_login.sh:/tests/packaged-login.sh:ro" \
             ubuntu:24.04 bash -ceu '
               export DEBIAN_FRONTEND=noninteractive
               apt-get update -qq
@@ -231,6 +235,8 @@ jobs:
               test -e /usr/share/wayland-sessions/ricebowl.desktop
               test -e /usr/share/wayland-sessions/ricebowl-native.desktop
               test -x /usr/bin/riceplate-native
+              apt-get install -y --no-install-recommends wayland-utils grim procps >/dev/null
+              RICEBOWL_PACKAGED_CI=1 sh /tests/packaged-login.sh
               mkdir -p /root/.config/ricebowl
               printf "%s\n" user-state > /root/.config/ricebowl/upgrade-preservation-marker
               apt-get install -y --no-install-recommends --reinstall \

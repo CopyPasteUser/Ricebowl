@@ -42,6 +42,11 @@ physical-device compatibility.
   test-user recipe/XFCE state checks prevent an in-name-only upgrade test.
   Only Core and Meta change versions; native/session stay on their existing
   preview revisions.
+- [x] CI starts the **installed native login wrapper** from the complete
+  `.deb` bundle in a disposable Ubuntu container with an unprivileged user,
+  private Wayland runtime and D-Bus. It checks the live compositor socket,
+  native RicePlate, `swayidle` and a screenshot. This is not a physical display
+  manager or GPU login acceptance test.
 - [ ] Installation, upgrade, uninstall and rollback pass from clean systems.
 - [ ] Native RicePlate/RiceSpice/RicePop feature parity and mockup-to-rice
   authoring gates from `RICEBOWL_DE_ROADMAP.md` are satisfied.

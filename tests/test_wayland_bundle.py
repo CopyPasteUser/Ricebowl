@@ -107,6 +107,18 @@ class WaylandBundleTests(unittest.TestCase):
         self.assertIn('exec "$app" de start', contents)
         self.assertNotIn("xfce4-panel", contents)
 
+    def test_installed_package_smoke_is_isolated_and_gated_in_ci(self):
+        smoke = (ROOT / "scripts/smoke_wayland_packaged_login.sh").read_text()
+        workflow = (ROOT / ".github/workflows/riceplate-native.yml").read_text()
+        self.assertIn('"${RICEBOWL_PACKAGED_CI:-}" != 1', smoke)
+        self.assertIn("[ ! -f /.dockerenv ]", smoke)
+        self.assertIn("runuser -u ricebowl-smoke", smoke)
+        self.assertIn("/usr/bin/ricebowl-wayland-session --native", smoke)
+        self.assertIn("native_login_prerequisites_ready", smoke)
+        self.assertIn("pgrep -u", smoke)
+        self.assertIn("grim", smoke)
+        self.assertIn("RICEBOWL_PACKAGED_CI=1 sh /tests/packaged-login.sh", workflow)
+
 
 if __name__ == "__main__":
     unittest.main()
