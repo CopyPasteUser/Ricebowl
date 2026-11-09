@@ -102,7 +102,7 @@ apt-get install -y --no-install-recommends \
     "$old_core" "$old_meta" "$session" "$native" >/dev/null
 check_version ricebowl-wayland-core '0.1.0~preview1'
 check_version ricebowl-wayland-desktop '0.1.0~preview1'
-test ! -e /usr/share/doc/ricebowl-wayland-core/BUILDINFO
+test ! -e /usr/lib/ricebowl-wayland/BUILDINFO
 /usr/bin/ricebowl-wayland-app de --help >/dev/null
 check_user_state
 
@@ -121,7 +121,7 @@ echo 'PHASE 3/5: real apt upgrade to Core/Meta preview2'
 apt-get install -y --no-install-recommends "$new_core" "$new_meta" >/dev/null
 check_version ricebowl-wayland-core '0.1.0~preview2'
 check_version ricebowl-wayland-desktop '0.1.0~preview2'
-grep -Fxq 'version=0.1.0~preview2' /usr/share/doc/ricebowl-wayland-core/BUILDINFO
+grep -Fxq 'version=0.1.0~preview2' /usr/lib/ricebowl-wayland/BUILDINFO
 test -f /usr/lib/ricebowl-wayland/macrice/de/session.py
 test -e /usr/share/wayland-sessions/ricebowl-native.desktop
 /usr/bin/ricebowl-wayland-app de --help >/dev/null
@@ -132,7 +132,7 @@ apt-get install -y --no-install-recommends --allow-downgrades \
     "$old_core" "$old_meta" >/dev/null
 check_version ricebowl-wayland-core '0.1.0~preview1'
 check_version ricebowl-wayland-desktop '0.1.0~preview1'
-test ! -e /usr/share/doc/ricebowl-wayland-core/BUILDINFO
+test ! -e /usr/lib/ricebowl-wayland/BUILDINFO
 /usr/bin/ricebowl-wayland-app de --help >/dev/null
 check_user_state
 
@@ -144,7 +144,7 @@ apt-get purge -y ricebowl-wayland-desktop ricebowl-wayland-core \
     ricebowl-wayland-session ricebowl-riceplate-native >/dev/null
 test ! -e /usr/bin/ricebowl-wayland-app
 test ! -e /usr/lib/ricebowl-wayland/launcher.py
-test ! -e /usr/share/doc/ricebowl-wayland-core/BUILDINFO
+test ! -e /usr/lib/ricebowl-wayland/BUILDINFO
 test ! -e /usr/share/wayland-sessions/ricebowl.desktop
 test ! -e /usr/share/wayland-sessions/ricebowl-native.desktop
 check_user_state
