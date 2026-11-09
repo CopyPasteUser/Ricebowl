@@ -34,6 +34,16 @@ class MappingError(ValueError):
     """Untrusted suggestion, stale reference or unsupported image."""
 
 
+def ensure_current_reference(recipe_id: str, expected_sha256: str) -> None:
+    """Fail closed if an owner-private reference was replaced outside this UI."""
+    try:
+        current = creator_reference.selected(recipe_id)
+    except creator_reference.ReferenceError as exc:
+        raise MappingError("Selected reference changed or failed integrity verification") from exc
+    if current is None or current.sha256 != expected_sha256:
+        raise MappingError("Selected reference changed; load or analyze it again")
+
+
 def contract() -> dict[str, object]:
     return {
         "mapping_version": VERSION,
@@ -47,6 +57,8 @@ def contract() -> dict[str, object]:
         "max_json_bytes": MAX_MAPPING_BYTES,
         "privacy": "Reference PNG is not embedded or uploaded; owner shares it separately if desired",
         "trust": "All source labels and confidence values are untrusted; runtime validation is mandatory",
+        "import_origin": "every file import is reclassified as external and starts unchecked",
+        "confidence_interpretation": "unvalidated heuristic strength or external claim, never a calibrated probability",
         "effect": "suggestions only; user must select and Save version; never applies a rice",
         "automatic_menu_or_component_recognition": False,
     }
@@ -72,6 +84,20 @@ def _row_color(image, y: int) -> tuple[tuple[int, int, int], float]:
     return color, count / len(samples)
 
 
+def _strip_content_fraction(image, edge: str, height: int,
+                            background: tuple[int, int, int]) -> tuple[int, int]:
+    """Count visible contrasting panel marks, not just a wallpaper color band."""
+    y0 = 3 if edge == "top" else image.height - height + 2
+    y1 = height - 2 if edge == "top" else image.height - 3
+    occupied = sampled = 0
+    for y in range(y0, y1, 2):
+        for index in range(128):
+            pixel = image.getpixel(((index * image.width) // 128, y))
+            sampled += 1
+            occupied += _rgb_distance(pixel, background) > 65
+    return occupied, sampled
+
+
 def _scan_edge(image, edge: str) -> dict[str, Any] | None:
     if image.height < 128 or image.width < 96:
         return None
@@ -82,6 +108,14 @@ def _scan_edge(image, edge: str) -> dict[str, Any] | None:
     best = None
     for thickness in range(28, min(64, image.height // 3) + 1):
         offset = thickness if edge == "top" else image.height - 1 - thickness
+        # The boundary must be immediately after the proposed band; accepting
+        # merely 80% stable interior rows can overestimate by several pixels.
+        boundary = [_row_color(image, thickness - step if edge == "top" else
+                               image.height - thickness - 1 + step)
+                    for step in (1, 2, 3)]
+        if any(_rgb_distance(color, row_color) >= 30 or portion < 0.48
+               for row_color, portion in boundary):
+            continue
         outside = [_row_color(image, offset + n if edge == "top" else offset - n)
                    for n in range(3)]
         if any(_rgb_distance(color, outside_color) < 44
@@ -94,11 +128,16 @@ def _scan_edge(image, edge: str) -> dict[str, Any] | None:
         contrast = min(_rgb_distance(color, item[0]) for item in outside)
         if stable < 0.79:
             continue
+        occupied, sampled = _strip_content_fraction(image, edge, thickness, color)
+        # A uniform decorative band has no evidence of real controls. Dense
+        # photo texture is also insufficient evidence of a panel foreground.
+        if occupied < max(3, sampled // 1000) or occupied > sampled // 4:
+            continue
         confidence = round(min(0.96, 0.55 + stable * 0.25 +
                                min(contrast, 150) / 150 * 0.15), 2)
         best = {"edge": edge, "height": thickness, "color": color,
                 "confidence": confidence, "uniformity": round(uniformity, 2),
-                "contrast": contrast}
+                "contrast": contrast, "content_percent": round(100 * occupied / sampled, 1)}
         break
     return best
 
@@ -174,7 +213,8 @@ def analyze(data: bytes, *, reference_sha256: str, recipe_sha256: str) -> dict[s
                                 "confidence": winner["confidence"]})
                 evidence = (f"Full-width {edge} strip; sampled color stability "
                             f"{winner['uniformity']:.0%}, boundary contrast "
-                            f"{winner['contrast']} RGB levels")
+                            f"{winner['contrast']} RGB levels, contrasting marks "
+                            f"{winner['content_percent']}%")
                 suggestions.extend((
                     {"path": "/panel/position", "value": edge,
                      "confidence": winner["confidence"], "evidence": evidence},
@@ -297,6 +337,19 @@ def validate(raw: bytes | dict, *, reference_sha256: str, recipe_sha256: str,
             raise MappingError("Unsupported, duplicate or unexplained mapping suggestion")
         changes[item["path"]] = item["value"]
     _validate_edit(changes, manifest)
+    return mapping
+
+
+def import_proposals(raw: bytes, *, reference_sha256: str, recipe_sha256: str,
+                     size: tuple[int, int], manifest: dict) -> dict[str, Any]:
+    """Disk-sourced JSON is always external, even if it claims offline origin.
+
+    Only the in-process analyzer may produce trusted offline suggestions.
+    Confidence and provenance fields in a user-editable file have no authority.
+    """
+    mapping = validate(raw, reference_sha256=reference_sha256,
+                       recipe_sha256=recipe_sha256, size=size, manifest=manifest)
+    mapping["source"] = "external"
     return mapping
 
 

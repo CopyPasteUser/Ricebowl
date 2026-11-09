@@ -10,7 +10,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from macrice.de import creator_mapping as mapping, creator_workspace as workspace, review
+from macrice.de import (creator_mapping as mapping, creator_reference as reference,
+                        creator_workspace as workspace, review)
 
 try:
     from PIL import Image, ImageDraw
@@ -82,6 +83,17 @@ class CreatorMappingTests(unittest.TestCase):
         self.assertFalse(result["regions"])
         self.assertTrue(any("ambiguous" in note for note in result["notes"]))
 
+    def test_panel_height_limits_are_not_rounded_up_or_down(self):
+        for edge in ("top", "bottom"):
+            for thickness in (28, 64):
+                with self.subTest(edge=edge, thickness=thickness):
+                    data = self.screenshot(edge, thickness)
+                    proposals = self.validate(self.analyze(data), data)
+                    changes = {item["path"]: item["value"]
+                               for item in proposals["suggestions"]}
+                    self.assertEqual(changes.get("/panel/position"), edge)
+                    self.assertEqual(changes.get("/panel/height"), thickness)
+
     def test_uniform_wallpaper_does_not_invent_panel_or_semantics(self):
         image = Image.new("RGB", (320, 200), "#556677")
         stream = io.BytesIO()
@@ -90,6 +102,16 @@ class CreatorMappingTests(unittest.TestCase):
         self.assertEqual(result["suggestions"], [])
         self.assertEqual(result["regions"], [])
         self.assertFalse(mapping.contract()["automatic_menu_or_component_recognition"])
+
+    def test_decorative_flat_wallpaper_band_is_not_a_panel_without_controls(self):
+        image = Image.new("RGB", (320, 200), "#aabbcc")
+        drawer = ImageDraw.Draw(image)
+        drawer.rectangle((0, 0, 319, 41), fill="#233447")
+        stream = io.BytesIO()
+        image.save(stream, "PNG")
+        inferred = self.analyze(stream.getvalue())
+        self.assertEqual(inferred["regions"], [])
+        self.assertEqual(inferred["suggestions"], [])
 
     def test_external_mapping_can_propose_bounded_existing_panel_structure(self):
         image = self.screenshot()
@@ -190,6 +212,33 @@ class CreatorMappingTests(unittest.TestCase):
             manifest=self.manifest)
         self.assertEqual(changes, {"/panel/height": 42})
         self.assertEqual(self.draft.path.read_bytes(), before)
+        self.assertEqual(len(workspace.list_drafts()), 1)
+
+    def test_imported_mapping_must_not_claim_local_analysis_trust(self):
+        image = self.screenshot()
+        attacker = self.analyze(image)
+        attacker["source"] = "offline"
+        for item in attacker["suggestions"]:
+            item["confidence"] = 1.0
+        external = mapping.import_proposals(
+            json.dumps(attacker).encode("utf-8"),
+            reference_sha256=attacker["reference_sha256"],
+            recipe_sha256=self.draft.semantic_sha256,
+            size=(320, 200), manifest=self.manifest)
+        self.assertEqual(external["source"], "external")
+        self.assertEqual(attacker["source"], "offline")
+        self.assertTrue(all(item["confidence"] == 1.0 for item in external["suggestions"]))
+
+    def test_mapping_cannot_be_applied_after_private_reference_replacement(self):
+        source = Path(self.temporary.name) / "original.png"
+        source.write_bytes(self.screenshot())
+        initial = reference.select(self.draft.recipe_id, source)
+        mapping.ensure_current_reference(self.draft.recipe_id, initial.sha256)
+        replacement = Path(self.temporary.name) / "replacement.png"
+        replacement.write_bytes(self.screenshot("top"))
+        reference.select(self.draft.recipe_id, replacement)
+        with self.assertRaisesRegex(mapping.MappingError, "changed"):
+            mapping.ensure_current_reference(self.draft.recipe_id, initial.sha256)
         self.assertEqual(len(workspace.list_drafts()), 1)
 
 

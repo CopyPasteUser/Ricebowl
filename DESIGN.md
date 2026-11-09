@@ -94,7 +94,7 @@ The v0.7 **Reference mapping** disclosure sits directly below visual QA to
 preserve the screenshot as the focal point. Three secondary actions — offline
 analysis, import JSON, and export hints — precede a short, scrollable list of
 suggested bounded changes with source evidence and confidence explicitly
-labeled as *heuristic* (or *unverified external*), not as visual/functional
+labeled as qualitative *heuristic strength* (or *unverified external*), not as visual/functional
 accuracy. Low-confidence offline colors and **all external proposals** start
 unchecked. The single primary **Use checked hints in unsaved draft**
 action is disabled until at least one row is selected and cannot replace Save
@@ -103,7 +103,10 @@ letting users adjust the actual validated controls; there is no hidden apply.
 Stale screenshot, revision, edit and import states invalidate the suggestion
 list, and the local PNG is never included in a JSON hints export. Rows remain
 native keyboard-focusable GTK controls and live in a capped scrolling region
-on smaller laptop screens.
+on smaller laptop screens. Imported files are never treated as in-process
+offline analysis regardless of claimed JSON origin; their proposals remain
+unchecked, and the currently selected private reference is reverified before
+any export or transfer.
 
 The established `macrice/hub.py:TOKENS` palette is the **single runtime color
 source** for Creator chrome; `macrice/creator_gui.py` uses those named tokens

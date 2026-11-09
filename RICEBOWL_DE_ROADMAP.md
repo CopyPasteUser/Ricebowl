@@ -793,13 +793,15 @@ depend on the XFCE session.
   decomposition and suggested component mappings are separate later work.
 - [x] Implement **Rice Creator 0.7 reference-to-recipe review**: on-demand
   offline PNG sampling conservatively suggests detected top/bottom panel bounds,
-  position, bounded height and visually distinct palette colors. Flat or
-  ambiguous images yield no invented panel; menu identity, layout lanes and
+  position, bounded height and visually distinct palette colors. Flat,
+  decorative-band or ambiguous images yield no invented panel; menu identity, layout lanes and
   spacing remain explicitly unknown. A versioned 24 KiB JSON format binds
   optional human/AI-proposed safe menu/panel-layout/color/spacing edits to the
   exact private reference SHA-256, dimensions and saved recipe fingerprint.
   The existing bounded draft parser and full recipe validator reject unsafe
-  actions, malformed structure, duplicate or stale proposals. GTK shows
+  actions, malformed structure, duplicate or stale proposals. Imported JSON
+  can never claim trusted offline origin: even forged confidence values remain
+  unchecked, and the current private reference is reverified before use. GTK shows
   evidence/confidence, requires individual checkbox approval and transfers
   only selected validated hints to an **unsaved** working copy; persistence
   still requires Save version, and no live session changes. JSON exports

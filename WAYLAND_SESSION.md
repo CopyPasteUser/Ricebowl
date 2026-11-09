@@ -1077,6 +1077,10 @@ full-width top/bottom strip can produce proposed **panel edge**, **height**
 or saturated pixels may generate lower-confidence foreground/accent suggestions.
 Uniform, small or ambiguous images yield no invented panel. Confidence is
 **heuristic evidence, not a similarity score or recognition guarantee**.
+The GTK review shows **strong/moderate/tentative** evidence instead of presenting
+an uncalibrated numeric score as a probability.
+Decorative full-width wallpaper stripes without contrasting UI marks are also
+not treated as panels; screenshot geometry remains an uncertain visual hint.
 
 The review list shows the exact schema field, proposed value and reasoning.
 Only higher-confidence **offline** hints are prechecked; all external proposals
@@ -1113,7 +1117,10 @@ full schema-v11 parser. Supported proposals are limited to panel placement,
 height, colors, menu presentation, spacing and existing bounded panel-layout
 nodes. AI proposals cannot define arbitrary commands, scripts, new executable
 abilities or runtime changes. A mismatch with the selected PNG or saved draft
-requires a fresh analysis/export. The Creator does not upload images, launch
+requires a fresh analysis/export. **Every imported file is classified as
+external even if its JSON declares `source: offline`**, so its checkboxes start
+unchecked. The selected reference is checked again before transfer or export
+to catch changes made outside the Creator. The Creator does not upload images, launch
 an AI service, auto-activate a rice or include references/proposals in RicePack.
 
 **Not implemented:** general-purpose image semantic segmentation (which icon
