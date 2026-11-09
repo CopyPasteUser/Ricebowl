@@ -628,10 +628,13 @@ depend on the XFCE session.
   (beyond the initial functional labwc fallback menu), including navigation,
   searching, pinning and reusable layout variants. Action search and pins,
   v6 tab/sidebar navigation and bounded group content composition work. A
-  bounded, aspect-preserving small-output fit now prevents full-size menu and
-  notification surfaces from clipping on rotated/tiny monitors, with matching
-  pointer hit-coordinate mapping. Fluid layout reflow, readable typography on
-  very small outputs, rich icons and device QA remain open.
+  bounded, aspect-preserving small-output fit prevents full-size menu and
+  notification surfaces from clipping on rotated/tiny monitors. Native menus
+  now use a compact, full-resolution paged action list at supported small
+  sizes (at least 168×144 logical pixels), including composed actions, search,
+  pointer hits, keyboard paging and matching accessibility rows. Notification
+  details still fit proportionally; extreme outputs below that size, richer
+  icon layouts and device QA remain open.
   **Exact XP/7/10 menu reconstructions are deferred to the post-framework
   fidelity gate above**, not blocking this foundational milestone.
 - [ ] Make responsive shell layouts live across every backend and surface,
@@ -656,9 +659,11 @@ depend on the XFCE session.
     modes/scales, using the same private supervisor and failure-safe replacement
     as guarded RiceSpice changes; do not secretly poll or signal other Waybars.
   - [ ] Detect external mode changes *automatically* without polling or a new
-    login, extend adaptive native menu and desktop controls, and add
+    login; finish responsive notification and extreme-size surfaces, and add
     portable font families, fluid type sizes, rich icons and reduced-motion
-    semantics. Physical hotplug and mixed-DPI acceptance remain outstanding.
+    semantics. Native menu action lists reflow with readable bitmap text and
+    a shared hit/accessibility viewport on compact outputs. Physical hotplug
+    and mixed-DPI acceptance remain outstanding.
 - [x] Allow safe offline import/export of validated, non-executable, panel-only
   JSON recipes into a private per-user collection; preview by imported ID.
   Full multi-component RicePacks with artwork, screenshot conversion and a
