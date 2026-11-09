@@ -78,7 +78,7 @@ source_commit=$(git -C "$project_root" rev-parse --verify HEAD)
 if [[ ! "$source_commit" =~ ^[0-9a-f]{40}$ ]]; then
     echo "Invalid package source commit" >&2; exit 1
 fi
-buildinfo="$stage/usr/share/doc/ricebowl-wayland-core/BUILDINFO"
+buildinfo="$stage/usr/lib/ricebowl-wayland/BUILDINFO"
 install -d -m 0755 "$(dirname -- "$buildinfo")"
 printf 'format=1\nversion=%s\nsource_commit=%s\nsource_date_epoch=%s\n' \
     "$version" "$source_commit" "$package_epoch" > "$buildinfo"
