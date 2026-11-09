@@ -78,6 +78,18 @@ entry package exposes **RiceBowl (Native Wayland Preview)** in compatible login
 managers. The ordinary Waybar-backed entry remains available; native session
 selection never changes the XFCE default.
 
+## Resume and session guard checkpoint (November 2026)
+
+- Added BOOTTIME-minus-MONOTONIC resume observation to the existing
+  supervision loop, with a one-shot post-wake Waybar output-layout recheck
+  only when needed. No new resident daemon or interval timer.
+- The mandatory swayidle guard now fails closed for full Wayland logins even
+  if live RPC initialization fails or is disabled. It cannot trigger an
+  unprotected native-to-Waybar fallback.
+- Synthetic wake clock offsets and watcher crashes are covered by tests.
+  **No physical lid, unlock, suspend cycle or mixed-DPI dock QA has been
+  completed**, so this is still a preview.
+
 ## What's left for 1.0
 
 1. **Real desktop:** verified login/logout, XWayland, portals, Flatpak integration, physical clipboard interoperability, polkit, lock and suspend/resume. Headless CI additionally checks both text clipboard directions with real Wayland/XWayland clients; MIME-rich and device-specific clipboard use remain unaccepted.
