@@ -45,8 +45,13 @@ headless D-Bus introspection cannot certify.
   `XDG_RUNTIME_DIR` and D-Bus user session.
 - `xdg-desktop-portal`, GTK and wlroots portal backends for file pickers
   and screencast; `xwayland` for legacy X11 clients.
-- Optional: `swaybg` wallpaper, `swayidle` idle lock, `mako`
-  notifications and an installed user polkit agent.
+- Full login sessions require **both** `swaylock` and `swayidle`:
+  `swayidle -w` requests a lock after ten idle minutes and before sleep.
+  The native panel supervisor ends the opt-in session if this essential
+  idle/sleep guard exits unexpectedly, rather than continuing unprotected.
+  Nested compositor previews intentionally do not start the idle guard.
+- Optional: `swaybg` wallpaper, `mako` notifications and an installed
+  user polkit agent.
 
 The package only installs the session chooser, a small forwarding wrapper,
 RiceBowl-specific portal preferences and a namespaced systemd user target.
@@ -73,8 +78,8 @@ sh scripts/build_wayland_session_deb.sh
 Review the package before installing:
 
 ```bash
-dpkg-deb --contents dist/ricebowl-wayland-session_0.1.0~preview2_all.deb
-sudo apt install ./dist/ricebowl-wayland-session_0.1.0~preview2_all.deb
+dpkg-deb --contents dist/ricebowl-wayland-session_0.1.0~preview3_all.deb
+sudo apt install ./dist/ricebowl-wayland-session_0.1.0~preview3_all.deb
 ```
 
 Log out. In the login manager's session selector, choose
@@ -96,6 +101,16 @@ Both entries require a working user-local RiceBowl installation. If native
 RicePlate is missing, the native launcher fails before entering a compositor;
 select the normal Wayland Preview or XFCE and install the optional binary
 separately. No RiceBowl session is selected automatically.
+
+In preview3, **Lock screen** waits for `swaylock -f` to return after
+obtaining the lock surface, rather than declaring success merely because a
+locker process was launched. **Suspend** first completes the same lock
+handshake and refuses to invoke `loginctl suspend` if lock acquisition fails
+or times out. Neither behavior verifies power-button/lid-triggered suspend
+on physical hardware: check those separately, including resume with a
+password-protected lock, missing swayidle, disconnected external displays,
+and a crashed idle watcher. For this security boundary, do not treat a
+headless unit test as a completed physical security acceptance.
 
 **Nothing in the ordinary `bash install.sh` enables this session.** Do not
 install the preview package on a production-only machine without keeping a
