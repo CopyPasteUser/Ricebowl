@@ -632,8 +632,10 @@ depend on the XFCE session.
   notification surfaces from clipping on rotated/tiny monitors. Native menus
   now use a compact, full-resolution paged action list at supported small
   sizes (at least 168×144 logical pixels), including composed actions, search,
-  pointer hits, keyboard paging and matching accessibility rows. Notification
-  details still fit proportionally; extreme outputs below that size, richer
+  pointer hits, keyboard paging and matching accessibility rows. RicePop lists
+  and details also use full-resolution compact rows with per-width body wrapping,
+  action/page navigation and matching hit/AT-SPI targets. Extreme outputs below
+  168×144, richer
   icon layouts and device QA remain open.
   **Exact XP/7/10 menu reconstructions are deferred to the post-framework
   fidelity gate above**, not blocking this foundational milestone.
@@ -665,11 +667,12 @@ depend on the XFCE session.
     validated output configuration changed. Watcher failure leaves the explicit
     `display-refresh` recovery command available. No output polling, global
     signals or service outside the opt-in session.
-  - [ ] Finish responsive notification and extreme-size surfaces, and add
-    portable font families, fluid type sizes, rich icons and reduced-motion
-    semantics. Native menu action lists reflow with readable bitmap text and
-    a shared hit/accessibility viewport on compact outputs. Physical hotplug
-    and mixed-DPI acceptance remain outstanding.
+  - [x] Reflow RicePop notifications at native pixel resolution for supported
+    small outputs, including paged list/action rows, detail body wrapping and
+    compact pointer/keyboard/AT-SPI parity; regular output layout is unchanged.
+  - [ ] Finish extreme-size surfaces below 168×144 logical pixels and add
+    portable font families, fluid type sizes, richer icons and reduced-motion
+    semantics. Physical hotplug and mixed-DPI acceptance remain outstanding.
 - [x] Allow safe offline import/export of validated, non-executable, panel-only
   JSON recipes into a private per-user collection; preview by imported ID.
   Full multi-component RicePacks with artwork, screenshot conversion and a
