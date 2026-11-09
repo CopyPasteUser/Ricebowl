@@ -71,6 +71,20 @@ if (( count < 40 )) || [[ ! -f "$payload/macrice/de/session.py" ||
     echo "Incomplete tracked Wayland application payload" >&2
     exit 1
 fi
+# Preview2 records package/source provenance inside the installed package.
+# The former preview1 omitted this immutable file. Upgrade/downgrade QA
+# checks both its addition and removal, not just dpkg's version string.
+source_commit=$(git -C "$project_root" rev-parse --verify HEAD)
+case "$source_commit" in
+    ????????????????????????????????????????) ;;
+    *) echo "Invalid package source commit" >&2; exit 1 ;;
+esac
+buildinfo="$stage/usr/share/doc/ricebowl-wayland-core/BUILDINFO"
+install -d -m 0755 "$(dirname -- "$buildinfo")"
+printf 'format=1\nversion=%s\nsource_commit=%s\nsource_date_epoch=%s\n' \
+    "$version" "$source_commit" "$package_epoch" > "$buildinfo"
+chmod 0644 "$buildinfo"
+
 find "$stage" -exec touch -h -d "@$package_epoch" -- {} +
 dpkg-deb --build --root-owner-group "$stage" "$output"
 echo "Built $output from $count tracked runtime files (not installed)"
