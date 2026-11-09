@@ -26,6 +26,11 @@ installation and is not yet a finished desktop environment.
   corrupt package rejection, explicit downgrade, re-upgrade, purge and
   test-user recipe/XFCE-data checksums. Store deterministic source/version
   BUILDINFO in the new core package; preserve backwards-compatible session.
+- [ ] CI acceptance pending: add a disposable **installed-package Wayland boot gate**: after apt
+  installs all four preview `.deb`s, invoke the packaged native login wrapper
+  as an unprivileged user with headless labwc and private D-Bus/XDG state;
+  require live Wayland protocol discovery, native RicePlate, `swayidle` and
+  a real PNG framebuffer. This is not display-manager or physical-device QA.
 - [ ] Test Mint 22 dependency resolution, changed native/session packages,
   longer real-world version chains, actual display-manager login and
   selected-rice migrations on physical hardware. Software container tests
