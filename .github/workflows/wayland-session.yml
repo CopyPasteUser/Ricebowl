@@ -58,7 +58,7 @@ jobs:
       - name: Build non-installed login session package
         run: |
           sh scripts/build_wayland_session_deb.sh
-          dpkg-deb --field dist/ricebowl-wayland-session_0.1.0~preview2_all.deb
+          dpkg-deb --field dist/ricebowl-wayland-session_0.1.0~preview3_all.deb
           sh scripts/test_wayland_package_reproducibility.sh
       - name: Boot actual labwc and Waybar headlessly
         run: |
