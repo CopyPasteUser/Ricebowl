@@ -271,9 +271,9 @@ class WaylandSessionTests(unittest.TestCase):
             return DeadIdle() if command[0] == "/usr/bin/swayidle" else panel
         env = {"RICEBOWL_DE_SHELL_CHILD": "1", "RICEBOWL_DE_NESTED": "0",
                "RICEBOWL_DE_LIVE": "1", "WAYLAND_DISPLAY": "wayland-0"}
-        with mock.patch("macrice.de.session.signal.signal"), \\
-             mock.patch("macrice.de.live.listen", return_value=nullcontext(object())), \\
-             mock.patch("macrice.de.session._LiveSwitch") as live, \\
+        with mock.patch("macrice.de.session.signal.signal"), \
+             mock.patch("macrice.de.live.listen", return_value=nullcontext(object())), \
+             mock.patch("macrice.de.session._LiveSwitch") as live, \
              mock.patch("sys.stderr"):
             live.return_value.panel = panel
             self.assertEqual(session.shell(environment=env, which=self.which,
