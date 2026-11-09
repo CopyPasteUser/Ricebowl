@@ -6,7 +6,7 @@ if [ "${RICEBOWL_PACKAGED_CI:-}" != 1 ] || [ ! -f /.dockerenv ] || [ "$(id -u)" 
     echo 'Refusing to run packaged login smoke outside its disposable root container' >&2
     exit 2
 fi
-for tool in runuser dbus-run-session labwc grim wayland-info pgrep; do
+for tool in runuser dbus-run-session labwc grim wayland-info pgrep ps; do
     command -v "$tool" >/dev/null 2>&1 || {
         echo "Packaged login smoke missing $tool" >&2; exit 1;
     }
@@ -102,4 +102,100 @@ width, height = struct.unpack(">II", data[16:24])
 assert width >= 640 and height >= 480, (width, height)
 '\'' "$runtime/native.png"
     echo "PASS: installed native RicePlate, labwc, swayidle and real Wayland framebuffer"
+
+    # Crash the installed Rust panel, not a source-tree test double. A real
+    # login must retain its compositor and recover the user-visible panel.
+    native_pid=$(pgrep -u "$(id -u)" -f "^/usr/bin/riceplate-native([[:space:]]|$)")
+    case "$native_pid" in
+        ""|*[!0-9]*) echo "Expected exactly one private native panel" >&2; exit 1 ;;
+    esac
+    kill -KILL "$native_pid"
+    recovered=0
+    attempt=0
+    while [ "$attempt" -lt 60 ]; do
+        if ! kill -0 "$session" 2>/dev/null; then break; fi
+        if pgrep -u "$(id -u)" -x waybar >/dev/null 2>&1; then
+            recovered=1
+            break
+        fi
+        attempt=$((attempt + 1))
+        sleep 0.25
+    done
+    if [ "$recovered" -ne 1 ]; then
+        echo "Installed native panel crash did not recover with Waybar" >&2
+        sed -n "1,110p" "$runtime/session.log" >&2
+        exit 1
+    fi
+    WAYLAND_DISPLAY=wayland-0 timeout 3s wayland-info >/dev/null
+    WAYLAND_DISPLAY=wayland-0 timeout 8s grim "$runtime/rescued.png"
+    test -s "$runtime/rescued.png"
+    echo "PASS: installed native panel crash recovered with live Waybar"
+
+    # The idle/lock guard is security-critical. Its failure must close the
+    # entire session, not leave an unlocked compositor or revive a panel.
+    idle_pid=$(pgrep -u "$(id -u)" -x swayidle)
+    case "$idle_pid" in
+        ""|*[!0-9]*) echo "Expected exactly one private lock guard" >&2; exit 1 ;;
+    esac
+    kill -KILL "$idle_pid"
+    stopped=0
+    attempt=0
+    while [ "$attempt" -lt 80 ]; do
+        state=$(ps -o stat= -p "$session" 2>/dev/null || :)
+        case "$state" in
+            ""|Z*)
+                if ! WAYLAND_DISPLAY=wayland-0 timeout 2s wayland-info >/dev/null 2>&1 && \
+                   ! pgrep -u "$(id -u)" -x waybar >/dev/null 2>&1; then
+                    stopped=1
+                    break
+                fi ;;
+        esac
+        attempt=$((attempt + 1))
+        sleep 0.25
+    done
+    if [ "$stopped" -ne 1 ] || \
+       ! grep -Fq "idle/lock watcher exited; stopping unprotected Wayland session" \
+           "$runtime/session.log"; then
+        echo "Lock guard failure did not fail closed" >&2
+        sed -n "1,110p" "$runtime/session.log" >&2
+        exit 1
+    fi
+    wait "$session" || :
+    session=
+    echo "PASS: lock guard failure closed the installed session safely"
+
+    # A failed login must not poison the next opt-in login in the same user
+    # runtime. Reuse the installed entrypoint and require a fresh screenshot.
+    /usr/bin/ricebowl-wayland-session --native >"$runtime/relogin.log" 2>&1 &
+    session=$!
+    ready=0
+    attempt=0
+    while [ "$attempt" -lt 80 ]; do
+        kill -0 "$session" 2>/dev/null || break
+        if [ -S "$runtime/wayland-0" ] && \
+           WAYLAND_DISPLAY=wayland-0 timeout 2s wayland-info >/dev/null 2>&1 && \
+           pgrep -u "$(id -u)" -f "^/usr/bin/riceplate-native([[:space:]]|$)" >/dev/null && \
+           pgrep -u "$(id -u)" -x swayidle >/dev/null; then
+            ready=1
+            break
+        fi
+        attempt=$((attempt + 1))
+        sleep 0.25
+    done
+    if [ "$ready" -ne 1 ]; then
+        echo "Fresh installed login failed after protected session shutdown" >&2
+        sed -n "1,100p" "$runtime/relogin.log" >&2
+        exit 1
+    fi
+    WAYLAND_DISPLAY=wayland-0 timeout 8s grim "$runtime/relogin.png"
+    /usr/bin/python3 -c '\''
+import struct, sys
+from pathlib import Path
+for name in sys.argv[1:]:
+    data = Path(name).read_bytes()
+    assert data[:8] == b"\x89PNG\r\n\x1a\n" and len(data) > 512, name
+    width, height = struct.unpack(">II", data[16:24])
+    assert width >= 640 and height >= 480, (name, width, height)
+'\'' "$runtime/rescued.png" "$runtime/relogin.png"
+    echo "PASS: new native login works after forced fail-closed shutdown"
 ' sh "$runtime"

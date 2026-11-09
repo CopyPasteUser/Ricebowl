@@ -1137,6 +1137,13 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
   as unsupported, **not** a passing remote FD or stream. The unattended
   chooser override never touches the installed desktop. GPU-backed ScreenCast,
   Flatpak permission UX, frames and physical multi-monitor portal QA stay open.
+- [x] Add an installed-bundle **crash/fail-closed/relogin acceptance** to the
+  disposable unprivileged labwc login smoke: force-kill native RicePlate,
+  require the live Waybar rescue and a second framebuffer capture; then kill
+  the required idle/lock guard, require compositor shutdown, and boot a fresh
+  native session in the same private runtime. No real login or XFCE state is
+  touched; hardware suspend/relogin and compositor-crash recovery remain open.
+  PR #219 native package CI passed.
 - [x] Publish two **honest schema-v5 Creator demonstrators** under
   `examples/wayland/`: a classic-OS-inspired workstation and a structurally
   distinct original Orbit concept. They use only shared native primitives,
