@@ -86,12 +86,12 @@ sh scripts/build_riceplate_native_deb.sh \
 sh scripts/build_wayland_desktop_deb.sh
 
 # Inspect the packages before any host installation.
-dpkg-deb -I dist/ricebowl-wayland-desktop_0.1.0~preview1_amd64.deb
+dpkg-deb -I dist/ricebowl-wayland-desktop_0.1.0~preview2_amd64.deb
 sudo apt install \
-    ./dist/ricebowl-wayland-core_0.1.0~preview1_all.deb \
+    ./dist/ricebowl-wayland-core_0.1.0~preview2_all.deb \
     ./dist/ricebowl-wayland-session_0.1.0~preview3_all.deb \
     ./dist/ricebowl-riceplate-native_0.1.0~preview1_amd64.deb \
-    ./dist/ricebowl-wayland-desktop_0.1.0~preview1_amd64.deb
+    ./dist/ricebowl-wayland-desktop_0.1.0~preview2_amd64.deb
 
 ricebowl-wayland-app de check --json
 ```
@@ -116,12 +116,41 @@ This removes package-owned binaries and session entries, **not** owner-local
 those separately if needed. Only sign out of the Wayland session before
 uninstalling; never remove running executable files to test rollback.
 
-GitHub CI builds all four packages reproducibly, tests the extracted runtime,
-then installs, **reinstalls** and purges them in a disposable Ubuntu 24.04
-container, checking file ownership and that a synthetic user-state marker
-survives. This is an actual package lifecycle test, not proof of in-place
-**cross-version upgrades**, Mint-specific dependencies, real login-manager
-selection, or suspend/monitor behavior on your ThinkPad. Those gates stay open.
+GitHub CI builds all four packages reproducibly and checks clean install,
+same-version reinstall and purge inside disposable Ubuntu 24.04. A second
+CI test checks **real cross-version package lifecycle** against the pinned
+source commit `b3d615a7cc508049050eb06c7952ef5a8d26e598` (PR #214):
+old Core/Meta `0.1.0~preview1` → new Core/Meta `0.1.0~preview2`,
+a rejected corrupt upgrade, an explicit downgrade to saved `preview1`,
+then re-upgrade and purge. The session `preview3` and native RicePlate
+`preview1` packages are intentionally unchanged in that matrix.
+
+The new Core package includes an immutable BUILDINFO containing its Debian
+version, exact Git source commit and reproducible-build epoch; the previous
+package did not. CI verifies this file appears after upgrade and disappears
+after rollback. Test-user recipes, the test XFCE panel configuration and a
+user-local `ricebowl` command are checksum-checked after **every** operation.
+
+To reproduce on an isolated Ubuntu 24.04 machine **with Docker** and the
+four built current packages (no host package changes):
+
+```bash
+git fetch --no-tags --depth=1 origin b3d615a7cc508049050eb06c7952ef5a8d26e598
+bash scripts/smoke_wayland_upgrade_rollback.sh "$PWD/dist/riceplate-native-preview"
+```
+
+For manual rollback on a real Debian/Mint system, **first log out of the
+Wayland session**, back up your XDG recipe/draft state, retain trusted
+checksummed `preview1` Core/Meta `.deb` files and use an explicit
+`apt install --allow-downgrades ./old-core.deb ./old-desktop.deb`.
+Inspect the proposed apt transaction before confirming, especially if other
+RiceBowl package revisions or dependencies have since changed. Never run the
+automated Docker test against your host package database.
+
+These tests **do not** certify Mint-specific package versions, upgrades of
+the unchanged Rust/Session packages, login manager selection, boot recovery,
+or suspend/monitor behavior on your ThinkPad. Real old-to-new migration with
+user recipes and a reversible physical rollout remain release gates.
 
 ### Legacy user-local setup
 
