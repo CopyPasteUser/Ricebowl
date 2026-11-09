@@ -90,5 +90,37 @@ class ScreenshotValidationTests(unittest.TestCase):
                 portal.verify_png(link.as_uri())
 
 
+@unittest.skipUnless(importlib.util.find_spec("gi"), "PyGObject not available")
+class RequestProtocolTests(unittest.TestCase):
+    def test_response_signal_receives_six_gio_callback_arguments(self):
+        from gi.repository import GLib
+
+        class FakeConnection:
+            def get_unique_name(self):
+                return ":1.25"
+
+            def signal_subscribe(self, _dest, _iface, _signal, path,
+                                 _arg0, _flags, callback):
+                self.path = path
+                self.callback = callback
+                return 5
+
+            def call_sync(self, *_args):
+                self.callback(self, ":1.4", self.path, portal.REQUEST,
+                              "Response", GLib.Variant("(ua{sv})", (
+                                  0, {"uri": GLib.Variant("s", "file:///tmp/test.png")}
+                              )))
+                return GLib.Variant("(o)", (self.path,))
+
+            def signal_unsubscribe(self, subscription):
+                self.unsubscribed = subscription
+
+        fake = FakeConnection()
+        response = portal.request(fake, portal.SCREENSHOT, "Screenshot",
+                                  "(sa{sv})", ("",))
+        self.assertEqual(response["uri"], "file:///tmp/test.png")
+        self.assertEqual(fake.unsubscribed, 5)
+
+
 if __name__ == "__main__":
     unittest.main()

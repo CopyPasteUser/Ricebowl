@@ -106,7 +106,7 @@ def request(connection, interface: str, method: str, signature: str,
     outcome = []
     loop = GLib.MainLoop()
 
-    def received(_bus, _sender, _path, _interface, _signal, parameters, _data):
+    def received(_bus, _sender, _path, _interface, _signal, parameters):
         outcome.append(parameters.unpack())
         if loop.is_running():
             loop.quit()
