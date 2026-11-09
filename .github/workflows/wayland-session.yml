@@ -10,6 +10,8 @@ on:
       - 'packaging/wayland/**'
       - 'scripts/build_wayland_session_deb.sh'
       - 'scripts/smoke_wayland_session.sh'
+      - 'scripts/smoke_wayland_portals.sh'
+      - 'scripts/check_wayland_portals.py'
       - 'scripts/check_wayland_panel_outputs.py'
       - 'tests/test_de_*.py'
       - 'tests/test_wayland_creator_e2e.py'
@@ -23,6 +25,8 @@ on:
       - 'packaging/wayland/**'
       - 'scripts/build_wayland_session_deb.sh'
       - 'scripts/smoke_wayland_session.sh'
+      - 'scripts/smoke_wayland_portals.sh'
+      - 'scripts/check_wayland_portals.py'
       - 'scripts/check_wayland_panel_outputs.py'
       - 'tests/test_de_*.py'
       - 'tests/test_wayland_creator_e2e.py'
@@ -45,6 +49,7 @@ jobs:
             xdg-desktop-portal-gtk xdg-desktop-portal-wlr \
             wayland-utils
           sudo apt-get install -y grim wlr-randr python3-pil
+          sudo apt-get install -y pipewire libspa-0.2-modules
       - name: Validate and test isolated session runtime
         run: |
           /usr/bin/python3 -m compileall -q macrice/de macrice/cli.py
@@ -55,6 +60,8 @@ jobs:
           sh -n scripts/build_wayland_session_deb.sh
           sh -n scripts/test_wayland_package_reproducibility.sh
           sh -n scripts/smoke_wayland_session.sh
+          sh -n scripts/smoke_wayland_portals.sh
+          /usr/bin/python3 -m py_compile scripts/check_wayland_portals.py
       - name: Build non-installed login session package
         run: |
           sh scripts/build_wayland_session_deb.sh
@@ -66,3 +73,5 @@ jobs:
           timeout -k 5s 45s sh scripts/smoke_wayland_session.sh chrome
           timeout -k 5s 45s sh scripts/smoke_wayland_session.sh classic
           RICEBOWL_SMOKE_OUTPUTS=2 timeout -k 5s 60s sh scripts/smoke_wayland_session.sh classic
+      - name: Exercise real file chooser, screenshot and PipeWire ScreenCast portals
+        run: timeout -k 5s 65s sh scripts/smoke_wayland_portals.sh

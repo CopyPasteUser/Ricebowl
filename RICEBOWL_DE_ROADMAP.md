@@ -1084,6 +1084,16 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
   data and bounded timeouts, without touching the user's login clipboard.
   This is not sign-off for rich MIME, drag-and-drop, sandboxed Flatpaks,
   portals, password managers or physical-device clipboard interaction.
+- [x] Gate **actual public XDG portal activation in isolated Wayland CI**:
+  start headless labwc, a private session D-Bus and PipeWire with a temporary
+  RiceBowl backend selector. Assert GTK FileChooser registration, wlr
+  ScreenCast monitor availability, a real Screenshot PNG response, and
+  ScreenCast CreateSession/SelectSources/Start/OpenPipeWireRemote with a live
+  PipeWire stream descriptor. Only the disposable CI session selects its one
+  synthetic output without prompting; installed RiceBowl preserves normal
+  user chooser and screenshot consent. Flatpak sandbox behavior, actual video
+  frames in consuming applications and physical multi-monitor screen sharing
+  remain separate release gates.
 - [x] Publish two **honest schema-v5 Creator demonstrators** under
   `examples/wayland/`: a classic-OS-inspired workstation and a structurally
   distinct original Orbit concept. They use only shared native primitives,
