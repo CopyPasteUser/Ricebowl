@@ -42,7 +42,7 @@ physical-device compatibility.
   test-user recipe/XFCE state checks prevent an in-name-only upgrade test.
   Only Core and Meta change versions; native/session stay on their existing
   preview revisions.
-- [ ] CI acceptance pending: start the **installed native login wrapper** from the complete
+- [x] CI starts the **installed native login wrapper** from the complete
   `.deb` bundle in a disposable Ubuntu container with an unprivileged user,
   private Wayland runtime and D-Bus. It checks the live compositor socket,
   native RicePlate, `swayidle` and a screenshot. This is not a physical display
