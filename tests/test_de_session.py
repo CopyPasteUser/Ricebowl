@@ -393,11 +393,13 @@ class WaylandSessionTests(unittest.TestCase):
              mock.patch("macrice.de.session.time.monotonic",
                         side_effect=lambda: next(times)):
             live.return_value.panel = panel
+            live.return_value.active = "classic"
             live.return_value.fallback = False
             gap.return_value.resumed.side_effect = [True] + [False] * 19
             self.assertEqual(session.shell(environment=env, which=self.which,
                                            spawn=spawn), 0)
         refresh.assert_called_once()
+        self.assertEqual(refresh.call_args.args[1][0], "classic")
         self.assertEqual([cmd[0] for cmd in commands],
                          ["/usr/bin/swayidle", "/usr/bin/waybar"])
 
