@@ -205,6 +205,44 @@ class WaylandSessionTests(unittest.TestCase):
         with self.assertRaisesRegex(session.SessionError, "only run inside"):
             session.shell(environment={"WAYLAND_DISPLAY": "wayland-0"}, which=self.which)
 
+    def test_suspend_gap_detects_kernel_wake_not_normal_idle(self):
+        # A clock step on BOOTTIME alone is a real sleep interval, not an
+        # NTP/wallclock correction or ordinary scheduling latency.
+        samples = iter([(10.0, 100.0), (11.0, 101.2), (12.0, 102.2),
+                        (13.0, 107.2), (14.0, 108.2)])
+        detector = session._ResumeGap(reader=lambda: next(samples))
+        self.assertEqual([detector.resumed() for _ in range(5)],
+                         [False, False, False, True, False])
+
+    def test_suspend_gap_disables_cleanly_if_clock_is_unavailable(self):
+        def failed_clock():
+            raise OSError("CLOCK_BOOTTIME not supported")
+        self.assertFalse(session._ResumeGap(reader=failed_clock).resumed())
+        with mock.patch.object(session.time, "CLOCK_BOOTTIME", create=True):
+            detector = session._ResumeGap(reader=lambda: (1.0, 1.0))
+            self.assertFalse(detector.resumed())
+
+    def test_idle_guard_failure_ends_nonlive_supervision(self):
+        class RunningPanel(_FakeProcess):
+            def wait(self, timeout=None):
+                if self.terminated:
+                    return -15
+                raise session.subprocess.TimeoutExpired("waybar", timeout)
+        class LostIdle(_FakeProcess):
+            def __init__(self):
+                super().__init__()
+                self.calls = 0
+            def poll(self):
+                self.calls += 1
+                return 7 if self.calls > 1 else None
+        panel = RunningPanel()
+        self.assertEqual(session._wait_with_idle_guard(panel, LostIdle()), (1, True))
+        self.assertTrue(panel.terminated)
+
+    def test_no_idle_guard_keeps_nested_immediate_wait(self):
+        proc = _FakeProcess()
+        self.assertEqual(session._wait_with_idle_guard(proc, None), (0, False))
+
     def test_wayland_output_event_debounce_is_event_driven_and_bounded(self):
         reading, writing = os.pipe()
         self.addCleanup(lambda: os.close(writing))
@@ -280,6 +318,62 @@ class WaylandSessionTests(unittest.TestCase):
                                            spawn=spawn), 1)
         self.assertTrue(panel.terminated)
         self.assertEqual(sum(command[0] == "/usr/bin/waybar" for command in commands), 1)
+
+    def test_native_idle_guard_failure_never_starts_insecure_waybar_rescue(self):
+        commands = []
+        panel = _FakeProcess()
+        class DeadIdle(_FakeProcess):
+            def poll(self):
+                return 9
+        def spawn(command, **_kwargs):
+            commands.append(command)
+            return DeadIdle() if command[0] == "/usr/bin/swayidle" else panel
+        env = {"RICEBOWL_DE_SHELL_CHILD": "1", "RICEBOWL_DE_NESTED": "0",
+               "RICEBOWL_DE_PANEL": "native", "RICEBOWL_DE_LIVE": "1",
+               "WAYLAND_DISPLAY": "wayland-0"}
+        tools = {**self.tools, "riceplate-native": "/usr/bin/riceplate-native"}
+        with mock.patch("macrice.de.session.signal.signal"), \
+             mock.patch("macrice.de.live.listen", return_value=nullcontext(object())), \
+             mock.patch("macrice.de.session._LiveSwitch") as live, \
+             mock.patch("sys.stderr"):
+            live.return_value.panel = panel
+            self.assertEqual(session.shell(environment=env, which=tools.get,
+                                           spawn=spawn), 1)
+        self.assertTrue(panel.terminated)
+        self.assertEqual([cmd[0] for cmd in commands],
+                         ["/usr/bin/swayidle", "/usr/bin/riceplate-native"])
+
+    def test_resume_rechecks_waybar_outputs_once_without_restarting_unmodified_panel(self):
+        commands = []
+        class MultipleTicks(_FakeProcess):
+            calls = 0
+            def poll(self):
+                self.calls += 1
+                return 0 if self.calls >= 5 else None
+        panel = MultipleTicks()
+        def spawn(command, **_kwargs):
+            commands.append(command)
+            return _FakeProcess() if command[0] == "/usr/bin/swayidle" else panel
+        env = {"RICEBOWL_DE_SHELL_CHILD": "1", "RICEBOWL_DE_NESTED": "0",
+               "RICEBOWL_DE_LIVE": "1", "WAYLAND_DISPLAY": "wayland-0"}
+        times = iter([0.0, 1.0, 2.0, 3.0])
+        with mock.patch("macrice.de.session.signal.signal"), \
+             mock.patch("macrice.de.live.listen", return_value=nullcontext(object())), \
+             mock.patch("macrice.de.live.serve_once"), \
+             mock.patch("macrice.de.session._LiveSwitch") as live, \
+             mock.patch("macrice.de.session._ResumeGap") as gap, \
+             mock.patch("macrice.de.session._refresh_changed_outputs",
+                        return_value=("classic", "new-layout")) as refresh, \
+             mock.patch("macrice.de.session.time.monotonic",
+                        side_effect=lambda: next(times)):
+            live.return_value.panel = panel
+            live.return_value.fallback = False
+            gap.return_value.resumed.side_effect = [True, False, False, False]
+            self.assertEqual(session.shell(environment=env, which=self.which,
+                                           spawn=spawn), 0)
+        refresh.assert_called_once()
+        self.assertEqual([cmd[0] for cmd in commands],
+                         ["/usr/bin/swayidle", "/usr/bin/waybar"])
 
     def test_orca_is_opt_in_only_for_full_ricebowl_sessions(self):
         commands = []
