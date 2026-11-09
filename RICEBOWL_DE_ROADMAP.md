@@ -777,6 +777,20 @@ depend on the XFCE session.
   Real Wayland display, DPI, font legibility and accessibility require physical
   acceptance; Waybar custom faces, complete icon themes and AI image-to-rice
   conversion remain separate future work.
+- [x] Implement **Rice Creator 0.6 private visual reference comparison**:
+  owner-controlled, bounded PNG references are SHA-256-copied into a private
+  per-draft selection that survives immutable revision changes without
+  entering the recipe schema or RicePack. A real isolated RicePlate render is
+  compared at matching pixel geometry using the existing offline visual QA
+  engine; the GTK view selector shows reference, native, half-width wipe,
+  50/50 overlay and tolerant red difference heatmap. Configurable 0–255 pixel
+  cutoff and 0/1/2 px raster tolerance accompany explicit raw/tolerated
+  changed-pixel ratios, RGB error and layout warnings, **never** an invented
+  perceptual or functional similarity score. Comparisons invalidate on edits,
+  output changes or policy changes; damaged/symlinked files fail closed. Pure
+  comparison/permissions tests and GTK smoke cover the authoring boundary.
+  Real Wayland graphics, input/focus and multi-DPI QA remain open; screenshot
+  decomposition and suggested component mappings are separate later work.
 - [x] Implement **Wayland RicePack v1 recipe exchange** (`de pack-export`,
   `de pack-inspect`, `de pack-import`): reproducible owner-private `.ricepack`
   archives, canonical schema-v1–v5 recipe, SHA-256 byte/semantic validation,

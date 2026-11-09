@@ -15,7 +15,8 @@ import threading
 from pathlib import Path
 
 from .de import creator_layout as layout_engine, creator_workspace as workspace
-from .de import assets, creator_assets, creator_structure, drafts, recipes, render, review, style_assets
+from .de import (assets, creator_assets, creator_reference, creator_structure, drafts,
+                 recipes, render, review, style_assets)
 
 
 # All paths below are existing allowlisted Creator draft-edit fields. Gtk owns
@@ -163,6 +164,10 @@ def run() -> int:
             self._render_generation = 0
             self._pixbuf = None
             self._preview_fit: tuple[int, int] | None = None
+            self._capture_bytes: bytes | None = None
+            self._capture_size: tuple[int, int] | None = None
+            self._reference: creator_reference.ReferenceInfo | None = None
+            self._comparison_views: dict[str, bytes] = {}
             self._history: list[Path] = []
             self._selected_layer: tuple[str, int] | None = None
             self._drag: tuple[tuple[str, int], float, float, int, int] | None = None
@@ -298,6 +303,50 @@ def run() -> int:
             self.preview_scroller = Gtk.ScrolledWindow()
             self.preview_scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
             self.visual_stack.add_titled(self.preview_scroller, "native", "Native capture")
+            reference_bar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            reference_bar.get_style_context().add_class("creator-section")
+            preview.pack_start(reference_bar, False, False, 0)
+            reference_header = Gtk.Box(spacing=7)
+            reference_bar.pack_start(reference_header, False, False, 0)
+            reference_header.pack_start(self._text("REFERENCE / VISUAL QA", "creator-rail-label"),
+                                        True, True, 0)
+            self.reference_import = self._button("Load PNG…", self._reference_choose)
+            self.reference_clear = self._button("Unlink", self._reference_unlink)
+            reference_header.pack_start(self.reference_import, False, False, 0)
+            reference_header.pack_start(self.reference_clear, False, False, 0)
+            self.reference_info = self._text("No reference selected. Screenshots stay private.",
+                                             "creator-preview-note", wrap=True)
+            reference_bar.pack_start(self.reference_info, False, False, 0)
+            compare_row = Gtk.Box(spacing=7)
+            reference_bar.pack_start(compare_row, False, False, 0)
+            self.reference_mode = Gtk.ComboBoxText()
+            for key, label in (("native", "Native"), ("reference", "Reference"),
+                               ("wipe", "Split 50/50"), ("overlay", "Overlay 50/50"),
+                               ("heatmap", "Difference")):
+                self.reference_mode.append(key, label)
+            self.reference_mode.set_active_id("native")
+            self.reference_mode.connect("changed", self._reference_view_changed)
+            compare_row.pack_start(self.reference_mode, True, True, 0)
+            self.compare_btn = self._button("Compare", self._compare_reference)
+            compare_row.pack_start(self.compare_btn, False, False, 0)
+            options = Gtk.Box(spacing=8)
+            reference_bar.pack_start(options, False, False, 0)
+            options.pack_start(self._text("Pixel cutoff", "creator-layer-hint"), False, False, 0)
+            self.compare_threshold = Gtk.SpinButton.new_with_range(0, 255, 1)
+            self.compare_threshold.set_value(24)
+            self.compare_threshold.connect("value-changed", self._comparison_policy_changed)
+            options.pack_start(self.compare_threshold, False, False, 0)
+            options.pack_start(self._text("Raster tolerance", "creator-layer-hint"), False, False, 0)
+            self.compare_tolerance = Gtk.ComboBoxText()
+            for radius in (0, 1, 2):
+                self.compare_tolerance.append(str(radius), f"{radius} px")
+            self.compare_tolerance.set_active_id("1")
+            self.compare_tolerance.connect("changed", self._comparison_policy_changed)
+            options.pack_start(self.compare_tolerance, False, False, 0)
+            self.reference_metrics = self._text(
+                "Compare a real capture at the same resolution. Pixel changes are not fidelity scores.",
+                "creator-preview-note", wrap=True)
+            reference_bar.pack_start(self.reference_metrics, False, False, 0)
             self.preview_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
             self.preview_box.set_halign(Gtk.Align.CENTER)
             self.preview_box.set_valign(Gtk.Align.CENTER)
@@ -348,6 +397,14 @@ def run() -> int:
             self.render_btn.set_sensitive(selected and not self._busy)
             self.export_btn.set_sensitive(selected and not self._busy)
             self.undo_btn.set_sensitive(bool(self._history) and not self._busy)
+            self.reference_import.set_sensitive(selected and not self.pending and not self._busy)
+            self.reference_clear.set_sensitive(self._reference is not None and not self._busy)
+            self.compare_btn.set_sensitive(bool(self._reference and self._capture_bytes
+                                                and self._capture_size == (
+                                                    self._reference.width, self._reference.height)
+                                                and not self.pending and not self._busy))
+            self.reference_mode.set_sensitive(bool(self._comparison_views) and not self._busy)
+            self.geometry.set_sensitive(not self._busy)
 
         def _refresh_drafts(self):
             for child in self.draft_list.get_children():
@@ -413,6 +470,19 @@ def run() -> int:
                 self._history = []
             self._pixbuf = None
             self._preview_fit = None
+            self._capture_bytes = None
+            self._capture_size = None
+            self._comparison_views = {}
+            self.reference_mode.set_active_id("native")
+            try:
+                self._reference = creator_reference.selected(info.recipe_id)
+                self._reference_label()
+                if self._reference is not None:
+                    self._comparison_views["reference"] = creator_reference.image_bytes(info.recipe_id)
+            except creator_reference.ReferenceError as exc:
+                self._reference = None
+                self.reference_info.set_text(f"Reference unavailable: {exc}. Select a new PNG.")
+            self.reference_metrics.set_text("Render this version for a fresh comparison.")
             self.preview_image.set_from_icon_name("video-display", Gtk.IconSize.DIALOG)
             self.preview_caption.set_text("Preview not rendered for this saved version.")
             self.diff.set_text(f"Recipe: {info.recipe_id} · Schema v{report['recipe']['schema_version']} · SHA {info.semantic_sha256[:12]}")
@@ -1210,6 +1280,14 @@ def run() -> int:
 
         def _geometry_changed(self, *_args):
             if hasattr(self, 'canvas'):
+                self._capture_bytes = None
+                self._capture_size = None
+                self._comparison_views = {k: v for k, v in self._comparison_views.items()
+                                          if k == "reference"}
+                self.reference_mode.set_active_id("native")
+                self.reference_metrics.set_text("Output size changed. Render again before comparing.")
+                self.preview_caption.set_text("Output size changed; previous capture is stale.")
+                self._actions()
                 self._queue_canvas()
 
         def _screen_geometry(self):
@@ -1621,6 +1699,11 @@ def run() -> int:
             if self._pixbuf is not None and self.pending:
                 self.preview_caption.set_text(
                     "Last native capture is from a saved version. Render again for changed pixels.")
+            if self.pending:
+                self._comparison_views = {k: v for k, v in self._comparison_views.items()
+                                          if k == "reference"}
+                self.reference_mode.set_active_id("native")
+                self.reference_metrics.set_text("Draft changed. Save and render before comparing.")
             self._queue_canvas()
             self._status(f"{len(self.pending)} unsaved properties · Save version before preview/export"
                          if self.pending else "No unsaved changes")
@@ -1665,6 +1748,11 @@ def run() -> int:
             self._busy = True
             self._render_generation += 1
             generation = self._render_generation
+            self._capture_bytes = None
+            self._capture_size = None
+            self._comparison_views = {k: v for k, v in self._comparison_views.items()
+                                      if k == "reference"}
+            self.reference_mode.set_active_id("native")
             self.spinner.start()
             self.preview_caption.set_text("Rendering in an isolated headless labwc session…")
             self._status("Starting the native renderer. The active desktop is unchanged.")
@@ -1698,6 +1786,19 @@ def run() -> int:
                     loader.write(contents)
                     loader.close()
                     self._pixbuf = loader.get_pixbuf()
+                    self._capture_bytes = contents
+                    self._capture_size = (receipt["geometry"]["width"],
+                                          receipt["geometry"]["height"])
+                    self._comparison_views = {k: v for k, v in self._comparison_views.items()
+                                              if k == "reference"}
+                    self.reference_mode.set_active_id("native")
+                    if (self._reference is not None and self._capture_size !=
+                            (self._reference.width, self._reference.height)):
+                        self.reference_metrics.set_text(
+                            "Reference and capture sizes differ. Choose matching output geometry.")
+                    else:
+                        self.reference_metrics.set_text(
+                            "Native capture ready. Compare with the selected reference.")
                     self._preview_fit = None
                     self._resize_preview()
                     self.preview_caption.set_text(
@@ -1707,6 +1808,157 @@ def run() -> int:
                     self._status("Real native capture ready. No desktop settings changed.", success=True)
                 except (GLib.Error, ValueError, KeyError) as exc:
                     self._status(f"Cannot display rendered PNG: {exc}", error=True)
+            self._actions()
+            return False
+
+        def _reference_label(self):
+            if self._reference is None:
+                self.reference_info.set_text("No reference selected. Screenshots stay private.")
+            else:
+                self.reference_info.set_text(
+                    f"{self._reference.name} · {self._reference.width} × {self._reference.height} "
+                    f"· SHA-256 {self._reference.sha256[:12]} · private, not exported")
+
+        def _reference_choose(self, _button):
+            if self._busy or self.info is None or self.pending:
+                self._status("Save the draft before selecting a reference.", error=True)
+                return
+            chooser = Gtk.FileChooserDialog(title="Choose a reference PNG screenshot",
+                                            transient_for=self, action=Gtk.FileChooserAction.OPEN)
+            chooser.add_buttons("Cancel", Gtk.ResponseType.CANCEL,
+                                "Use as reference", Gtk.ResponseType.ACCEPT)
+            images = Gtk.FileFilter()
+            images.set_name("PNG screenshots")
+            images.add_pattern("*.png")
+            chooser.add_filter(images)
+            response = chooser.run()
+            source = Path(chooser.get_filename()) if response == Gtk.ResponseType.ACCEPT else None
+            chooser.destroy()
+            if source is None:
+                return
+            try:
+                self._reference = creator_reference.select(self.info.recipe_id, source)
+                self._comparison_views = {
+                    "reference": creator_reference.image_bytes(self.info.recipe_id)}
+                self.reference_mode.set_active_id("reference")
+                self._reference_label()
+                if (self._capture_size is not None and self._capture_size !=
+                        (self._reference.width, self._reference.height)):
+                    self.reference_metrics.set_text(
+                        "Reference resolution differs from the native capture. "
+                        "Select matching output geometry and render again.")
+                else:
+                    self.reference_metrics.set_text(
+                        "Reference loaded. Compare after a matching native render.")
+                self._status("Private reference linked to this draft. RicePack unchanged.", success=True)
+            except (creator_reference.ReferenceError, OSError, ValueError) as exc:
+                self._status(f"Cannot load reference: {exc}", error=True)
+            self._actions()
+
+        def _reference_unlink(self, _button):
+            if self._busy or self.info is None or self._reference is None:
+                return
+            try:
+                creator_reference.clear(self.info.recipe_id)
+                self._reference = None
+                self._comparison_views = {}
+                self.reference_mode.set_active_id("native")
+                self._reference_label()
+                self.reference_metrics.set_text("Reference unlinked. Saved screenshots remain private.")
+                self._status("Reference detached without changing a draft or desktop.", success=True)
+            except (creator_reference.ReferenceError, OSError) as exc:
+                self._status(f"Cannot unlink reference: {exc}", error=True)
+            self._actions()
+
+        def _comparison_policy_changed(self, *_args):
+            if not hasattr(self, 'reference_metrics'):
+                return
+            self._comparison_views = {k: v for k, v in self._comparison_views.items()
+                                      if k == "reference"}
+            self.reference_mode.set_active_id("native")
+            self.reference_metrics.set_text("Comparison policy changed. Compare again for fresh metrics.")
+            self._actions()
+
+        def _reference_view_changed(self, *_args):
+            name = self.reference_mode.get_active_id()
+            if name == "native" and self._capture_bytes:
+                data = self._capture_bytes
+            else:
+                data = self._comparison_views.get(name)
+            if data is None:
+                fallback = "reference" if "reference" in self._comparison_views else "native"
+                if name != fallback:
+                    self.reference_mode.set_active_id(fallback)
+                self._status("Compare first to generate the split, overlay and heatmap.")
+                return
+            try:
+                loader = GdkPixbuf.PixbufLoader.new_with_type("png")
+                loader.write(data)
+                loader.close()
+                self._pixbuf = loader.get_pixbuf()
+                self._preview_fit = None
+                self._resize_preview()
+                self.visual_stack.set_visible_child_name("native")
+                labels = {"native": "Real isolated RicePlate capture",
+                          "reference": "Imported reference screenshot · not rendered by RicePlate",
+                          "wipe": "Split: left reference / right native capture · no scaling",
+                          "overlay": "50% reference + 50% native capture",
+                          "heatmap": "Tolerance-aware changed pixels · red = difference"}
+                self.preview_caption.set_text(labels[name])
+            except (GLib.Error, ValueError) as exc:
+                self._status(f"Cannot display visual QA image: {exc}", error=True)
+
+        def _compare_reference(self, _button):
+            if (self._busy or self.info is None or self._reference is None
+                    or self._capture_bytes is None or self._capture_size != (
+                        self._reference.width, self._reference.height) or self.pending):
+                return
+            info, image = self.info, self._capture_bytes
+            threshold = self.compare_threshold.get_value_as_int()
+            radius = int(self.compare_tolerance.get_active_id() or "1")
+            self._busy = True
+            self._render_generation += 1
+            generation = self._render_generation
+            self.spinner.start()
+            self.reference_metrics.set_text("Measuring real pixels…")
+            self._actions()
+
+            def work():
+                try:
+                    metrics, images = creator_reference.compare_capture(
+                        info.recipe_id, image, recipe_token=str(info.path),
+                        threshold=threshold, tolerance_radius=radius)
+                    error = None
+                except (creator_reference.ReferenceError, OSError, ValueError) as exc:
+                    metrics, images, error = None, None, str(exc)
+                GLib.idle_add(self._comparison_complete, generation, metrics, images, error)
+
+            threading.Thread(target=work, name="ricebowl-creator-compare", daemon=False).start()
+
+        def _comparison_complete(self, generation, metrics, images, error):
+            if generation != self._render_generation or not self.get_visible():
+                return False
+            self._busy = False
+            self.spinner.stop()
+            if error:
+                self._comparison_views = {}
+                self._reference = None  # A raced or damaged selection must be revalidated.
+                self._reference_label()
+                self.reference_metrics.set_text("Comparison unavailable. Reference and capture were not modified.")
+                self._status(f"Compare failed: {error}", error=True)
+            else:
+                self._comparison_views = images
+                self.reference_mode.set_active_id("overlay")
+                raw = 100 * metrics["changed_pixel_ratio"]
+                tolerated = 100 * metrics.get("tolerance", {}).get(
+                    "changed_pixel_ratio", metrics["changed_pixel_ratio"])
+                issues = len(metrics.get("layout_issues", []))
+                self.reference_metrics.set_text(
+                    f"Changed: {raw:.2f}% raw · {tolerated:.2f}% with tolerance · "
+                    f"mean RGB error {metrics['mean_absolute_rgb_error']:.2f} · "
+                    f"layout warnings {issues}. No perceptual/functional score.")
+                self._status("Comparison ready: use the view selector for split, overlay and difference.",
+                             success=True)
             self._actions()
             return False
 
@@ -1865,6 +2117,25 @@ def run() -> int:
                 assert recipes.load(str(window.info.path)).artwork.icons[0] == declared_icon.identifier
                 packed = workspace.export_draft(window.info, Path(temp) / "smoke-art.ricepack")
                 assert packed["pack_version"] == 4 and not packed["applied"]
+                # v0.6: drive the native reference selector and view stack
+                # with test-generated pixels. No headless Wayland runtime is
+                # needed for the GTK smoke; real comparison uses the same QA API.
+                window._reference = creator_reference.select(window.info.recipe_id, source)
+                window._reference_label()
+                window._capture_bytes = source.read_bytes()
+                window._capture_size = (48, 48)
+                window._actions()
+                assert window.compare_btn.get_sensitive()
+                metrics, views = creator_reference.compare_capture(
+                    window.info.recipe_id, window._capture_bytes)
+                window._comparison_complete(window._render_generation, metrics, views, None)
+                assert window.reference_mode.get_active_id() == "overlay"
+                assert window.preview_image.get_pixbuf() is not None
+                window.reference_mode.set_active_id("heatmap")
+                assert "difference" in window.preview_caption.get_text().lower()
+                window._reference_unlink(None)
+                assert not window.compare_btn.get_sensitive()
+                assert window._reference is None
             path = os.environ.get("RICEBOWL_CREATOR_SMOKE_CAPTURE")
             if path:
                 window.queue_draw()
