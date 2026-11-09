@@ -5,8 +5,10 @@ set -eu
 
 source_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 native="$source_root/components/riceplate-wayland/target/release/riceplate-native"
+clicker="$source_root/components/riceplate-wayland/target/release/examples/wayland_pointer_click"
 test -x "$native"
-for executable in labwc grim foot dbus-run-session; do
+test -x "$clicker"
+for executable in labwc grim foot wlr-randr dbus-run-session; do
     command -v "$executable" >/dev/null || { echo "Missing test dependency: $executable" >&2; exit 1; }
 done
 runtime=$(mktemp -d)
@@ -22,6 +24,7 @@ dbus-run-session -- sh -eu -c '
     source_root=$1
     runtime=$2
     native=$3
+    clicker=$4
     labwc --config-dir "$source_root/macrice/de/resources/labwc" \
         --startup true >"$runtime/labwc.log" 2>&1 &
     compositor=$!
@@ -53,11 +56,20 @@ dbus-run-session -- sh -eu -c '
     done
     test -S "$runtime/wayland-0" || { echo "No Wayland socket" >&2; exit 1; }
 
+    output=$(WAYLAND_DISPLAY=wayland-0 wlr-randr | sed -n "1s/[[:space:]].*//p")
+    test -n "$output" || { echo "Headless output missing" >&2; exit 1; }
+    WAYLAND_DISPLAY=wayland-0 wlr-randr --output "$output" \
+        --custom-mode 1024x768@60Hz --scale 1
+
     WAYLAND_DISPLAY=wayland-0 RICEBOWL_DE_TRACE_WINDOWS=1 \
         "$native" --recipe classic >"$runtime/panel.log" 2>&1 &
     plate=$!
     sleep 1
     kill -0 "$plate" || { sed -n "1,50p" "$runtime/panel.log" >&2; exit 1; }
+    # Compare frames at the same neutral pointer position: compositor focus,
+    # pointer and hover artifacts must not masquerade as lingering task pixels.
+    WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 5 5 1024 768
+    sleep 0.25
     WAYLAND_DISPLAY=wayland-0 grim - >"$runtime/before.png"
 
     WAYLAND_DISPLAY=wayland-0 foot --app-id=ricebowl-wayland-smoke \
@@ -85,6 +97,35 @@ dbus-run-session -- sh -eu -c '
     fi
     sleep 0.5
     WAYLAND_DISPLAY=wayland-0 grim - >"$runtime/opened.png"
+
+    # Use compositor input, not direct protocol calls to the window under test.
+    # This exercises the RicePlate pointer hit test and click handler.
+    last_task_state() {
+        grep -F "event=ready app_id=\"ricebowl-wayland-smoke\"" "$runtime/panel.log" \
+            | tail -n 1 || :
+    }
+    wait_window_state() {
+        expected=$1
+        attempts=0
+        while [ "$attempts" -lt 40 ]; do
+            case "$(last_task_state)" in
+                *"$expected"*) return 0 ;;
+            esac
+            sleep 0.25
+            attempts=$((attempts + 1))
+        done
+        echo "No real Wayland taskbar state: $expected" >&2
+        tail -n 35 "$runtime/panel.log" >&2
+        return 1
+    }
+    wait_window_state "active=true minimized=false"
+    WAYLAND_DISPLAY=wayland-0 "$clicker" 132 750 1024 768
+    wait_window_state "minimized=true"
+    kill -0 "$window"
+    WAYLAND_DISPLAY=wayland-0 "$clicker" 132 750 1024 768
+    wait_window_state "active=true minimized=false"
+    echo "Real taskbar pointer click minimized and restored the Wayland client"
+
     kill "$window"
     wait "$window" 2>/dev/null || :
     window=
@@ -99,10 +140,11 @@ dbus-run-session -- sh -eu -c '
         sed -n "1,60p" "$runtime/panel.log" >&2
         exit 1
     fi
+    WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 5 5 1024 768
     sleep 0.5
     WAYLAND_DISPLAY=wayland-0 grim - >"$runtime/closed.png"
     /usr/bin/python3 "$source_root/scripts/check_wayland_window_outputs.py" \
         "$runtime/before.png" "$runtime/opened.png" "$runtime/closed.png"
     kill -0 "$plate"
     echo "Native RicePlate observed and painted a real Wayland window lifecycle"
-' sh "$source_root" "$runtime" "$native"
+' sh "$source_root" "$runtime" "$native" "$clicker"

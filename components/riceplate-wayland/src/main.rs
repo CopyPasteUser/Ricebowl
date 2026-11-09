@@ -1302,15 +1302,23 @@ impl RicePlate {
             let active_index = group.members.iter().copied()
                 .find(|&member| self.tasks[member].active);
             let (target, minimize) = task_groups::click_target(group, active_index);
+            if self.trace_window_events {
+                eprintln!("RicePlate taskbar action={} app_id={:?} seat={} minimized={}",
+                    if minimize { "minimize" } else { "restore" },
+                    self.tasks[target].app_id,
+                    self.primary_seat.is_some(), self.tasks[target].minimized);
+            }
             if minimize {
                 self.tasks[target].handle.set_minimized();
-            } else if let Some(seat) = self.primary_seat.as_ref() {
-                // A minimized client may stay hidden if we only request focus.
-                // Explicitly restore it before passing activation to the WM.
+            } else {
+                // Restoring a hidden task must not depend on an activation seat:
+                // some nested or remote compositor sessions do not advertise one.
                 if self.tasks[target].minimized {
                     self.tasks[target].handle.unset_minimized();
                 }
-                self.tasks[target].handle.activate(seat);
+                if let Some(seat) = self.primary_seat.as_ref() {
+                    self.tasks[target].handle.activate(seat);
+                }
             }
         }
     }

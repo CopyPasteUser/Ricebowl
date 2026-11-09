@@ -1015,6 +1015,14 @@ depend on the XFCE session.
   state decoding and malformed trailing bytes. Window trace logs are disabled
   by default and omit titles. Actual pointer/keyboard focus transfer, login
   hardware, XWayland and long-running app behavior remain open.
+- [x] Add an **isolated real-pointer taskbar action gate**: a CI-only Rust
+  virtual-pointer example sends an actual Wayland motion/press/release to the
+  labwc screen; the existing RicePlate panel must minimize a live `foot`
+  window on the first click and restore/activate it on the second. The test
+  waits for independently reported foreign-toplevel state transitions and
+  preserves the older open/paint/close checks. The helper is not installed
+  and cannot inject input into a user session. Physical pointer, keyboard,
+  screen-reader and mixed-DPI testing remain independent 1.0 gates.
 - [x] Publish two **honest schema-v5 Creator demonstrators** under
   `examples/wayland/`: a classic-OS-inspired workstation and a structurally
   distinct original Orbit concept. They use only shared native primitives,
