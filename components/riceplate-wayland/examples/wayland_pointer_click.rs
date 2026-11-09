@@ -31,10 +31,12 @@ wayland_client::delegate_noop!(Probe: ZwlrVirtualPointerV1);
 
 fn main() -> Result<(), Box<dyn Error>> {
     let values = std::env::args().skip(1).collect::<Vec<_>>();
-    if values.len() != 4 {
-        return Err("Usage: wayland_pointer_click X Y OUTPUT_WIDTH OUTPUT_HEIGHT".into());
+    let move_only = values.first().map(String::as_str) == Some("--move-only");
+    let args = if move_only { &values[1..] } else { &values[..] };
+    if args.len() != 4 {
+        return Err("Usage: wayland_pointer_click [--move-only] X Y OUTPUT_WIDTH OUTPUT_HEIGHT".into());
     }
-    let coordinates = values.iter().map(|arg| arg.parse::<u32>())
+    let coordinates = args.iter().map(|arg| arg.parse::<u32>())
         .collect::<Result<Vec<_>, _>>()?;
     let [x, y, width, height] = [coordinates[0], coordinates[1], coordinates[2], coordinates[3]];
     if width < 1 || height < 1 || x >= width || y >= height || width > 16384 || height > 16384 {
@@ -53,16 +55,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     pointer.frame();
     conn.flush()?;
     std::thread::sleep(Duration::from_millis(70));
-    pointer.button(2, 0x110, wl_pointer::ButtonState::Pressed);
-    pointer.frame();
-    conn.flush()?;
-    std::thread::sleep(Duration::from_millis(70));
-    pointer.button(3, 0x110, wl_pointer::ButtonState::Released);
-    pointer.frame();
+    if !move_only {
+        pointer.button(2, 0x110, wl_pointer::ButtonState::Pressed);
+        pointer.frame();
+        conn.flush()?;
+        std::thread::sleep(Duration::from_millis(70));
+        pointer.button(3, 0x110, wl_pointer::ButtonState::Released);
+        pointer.frame();
+    }
     queue.roundtrip(&mut Probe)?;
     pointer.destroy();
     manager.destroy();
     conn.flush()?;
-    println!("Delivered native Wayland taskbar click at {x},{y}");
+    println!("Delivered native Wayland {} at {x},{y}",
+        if move_only { "pointer motion" } else { "taskbar click" });
     Ok(())
 }

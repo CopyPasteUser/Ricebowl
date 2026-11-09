@@ -66,6 +66,10 @@ dbus-run-session -- sh -eu -c '
     plate=$!
     sleep 1
     kill -0 "$plate" || { sed -n "1,50p" "$runtime/panel.log" >&2; exit 1; }
+    # Compare frames at the same neutral pointer position: compositor focus,
+    # pointer and hover artifacts must not masquerade as lingering task pixels.
+    WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 5 5 1024 768
+    sleep 0.25
     WAYLAND_DISPLAY=wayland-0 grim - >"$runtime/before.png"
 
     WAYLAND_DISPLAY=wayland-0 foot --app-id=ricebowl-wayland-smoke \
@@ -136,6 +140,7 @@ dbus-run-session -- sh -eu -c '
         sed -n "1,60p" "$runtime/panel.log" >&2
         exit 1
     fi
+    WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 5 5 1024 768
     sleep 0.5
     WAYLAND_DISPLAY=wayland-0 grim - >"$runtime/closed.png"
     /usr/bin/python3 "$source_root/scripts/check_wayland_window_outputs.py" \
