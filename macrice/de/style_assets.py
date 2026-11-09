@@ -150,7 +150,11 @@ def _record(identifier: str) -> StyleAsset:
             or data["id"] != identifier or type(data["label"]) is not str
             or not re.fullmatch(r"[A-Za-z0-9 ._+-]{1,60}", data["label"])):
         raise StyleAssetError("Invalid visual asset attribution fields")
-    return StyleAsset(identifier, kind, data["label"], pack._provenance(data["provenance"]))
+    try:
+        declared = pack._provenance(data["provenance"])
+    except (pack.PackError, TypeError, AttributeError) as exc:
+        raise StyleAssetError("Invalid visual asset provenance") from exc
+    return StyleAsset(identifier, kind, data["label"], declared)
 
 
 def entry(identifier: str) -> StyleAsset:

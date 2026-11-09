@@ -3255,7 +3255,7 @@ fn draw_text(canvas: &mut [u8], width: u32, height: u32, x: u32, y: u32, text: &
 fn draw_rice_text(canvas: &mut [u8], width: u32, height: u32, x: u32, y: u32,
                   text: &str, color: u32, style: &PanelStyle) {
     if let Some(font) = style.native_art.as_ref().and_then(|art| art.font.as_ref()) {
-        font.draw(canvas, width, height, x, y, text, color);
+        font.draw(canvas, width, height, x, y, text, color, style.font_bold);
         return;
     }
     draw_bitmap_text(canvas, width, height, x, y, text, color,

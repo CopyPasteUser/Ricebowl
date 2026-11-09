@@ -86,6 +86,15 @@ class CreatorStyleAssetsTests(unittest.TestCase):
         self.assertFalse(drafts._allowed_value("/artwork/icons/applications", added.identifier, 10))
         self.assertTrue(drafts._allowed_value("/artwork/icons/applications", added.identifier, 11))
 
+    def test_malformed_attribution_does_not_crash_library(self):
+        added = style_assets.import_asset(self.icon, kind="icon", label="Check",
+                                          provenance=ATTRIBUTION)
+        record = self.root / "config/ricebowl/visual-assets" / (added.identifier + ".json")
+        payload = json.loads(record.read_text())
+        payload["provenance"]["license"] = "not-a-real-license"
+        record.write_text(json.dumps(payload))
+        self.assertEqual(style_assets.list_assets("icon"), [])
+
     def test_saved_icon_exports_and_imports_v4_without_apply(self):
         icon = style_assets.import_asset(self.icon, kind="icon", label="Custom app",
                                          provenance=ATTRIBUTION)

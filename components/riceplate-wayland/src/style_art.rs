@@ -164,7 +164,7 @@ pub fn paint_icon(canvas: &mut [u8], canvas_width: u32,
 
 impl FontSprites {
     pub fn draw(&self, canvas: &mut [u8], width: u32, height: u32,
-                x: u32, y: u32, text: &str, color: u32) {
+                x: u32, y: u32, text: &str, color: u32, bold: bool) {
         for (offset, letter) in text.chars().enumerate() {
             if letter.is_control() { continue; }
             let Some(glyph) = self.glyphs.get(&letter).or_else(|| self.glyphs.get(&'?'))
@@ -182,6 +182,11 @@ impl FontSprites {
                     blend_pixel(canvas, ((dy * width + dx) * 4) as usize,
                         (color >> 16) as u8, (color >> 8) as u8,
                         color as u8, (u32::from(opacity) * u32::from(a) / 255) as u8);
+                    if bold && dx + 1 < width && opacity > 0 {
+                        blend_pixel(canvas, ((dy * width + dx + 1) * 4) as usize,
+                            (color >> 16) as u8, (color >> 8) as u8, color as u8,
+                            (u32::from(opacity) * u32::from(a) / 255) as u8);
+                    }
                 }
             }
         }
