@@ -382,7 +382,7 @@ class WaylandSessionTests(unittest.TestCase):
             return _FakeProcess() if command[0] == "/usr/bin/swayidle" else panel
         env = {"RICEBOWL_DE_SHELL_CHILD": "1", "RICEBOWL_DE_NESTED": "0",
                "RICEBOWL_DE_LIVE": "1", "WAYLAND_DISPLAY": "wayland-0"}
-        times = iter([0.0, 1.0, 2.0, 3.0])
+        times = iter([float(t) for t in range(20)])
         with mock.patch("macrice.de.session.signal.signal"), \
              mock.patch("macrice.de.live.listen", return_value=nullcontext(object())), \
              mock.patch("macrice.de.live.serve_once"), \
@@ -394,7 +394,7 @@ class WaylandSessionTests(unittest.TestCase):
                         side_effect=lambda: next(times)):
             live.return_value.panel = panel
             live.return_value.fallback = False
-            gap.return_value.resumed.side_effect = [True, False, False, False]
+            gap.return_value.resumed.side_effect = [True] + [False] * 19
             self.assertEqual(session.shell(environment=env, which=self.which,
                                            spawn=spawn), 0)
         refresh.assert_called_once()
