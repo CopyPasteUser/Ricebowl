@@ -29,6 +29,9 @@ pub struct Coordinates {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct OutputPositions {
     positions: BTreeMap<String, Vec<Coordinates>>,
+    // Empty means the historical mirrored-desktop behavior on every output.
+    // An explicit owner exists only after the user moves an icon to a display.
+    owners: Vec<Option<String>>,
 }
 
 impl OutputPositions {
@@ -55,6 +58,38 @@ impl OutputPositions {
         values[index] = coords;
         Ok(())
     }
+
+    pub fn owner(&self, index: usize) -> Option<&str> {
+        self.owners.get(index).and_then(Option::as_deref)
+    }
+
+    /// A missing assigned monitor must not strand its shortcut off-screen.
+    /// The primary unbound layer is the temporary recovery surface until the
+    /// saved monitor is reconnected; unassigned icons remain mirrored.
+    pub fn visible_on(&self, index: usize, name: Option<&str>, is_primary: bool,
+                      connected: &[String]) -> bool {
+        match self.owner(index) {
+            None => true,
+            Some(owner) if connected.iter().any(|available| available == owner) =>
+                name == Some(owner),
+            Some(_) => is_primary,
+        }
+    }
+
+    pub fn assign(&mut self, icons: &[DesktopIcon], index: usize,
+                  owner: Option<&str>) -> Result<(), Box<dyn Error>> {
+        if index >= icons.len() || owner.is_some_and(|name| !safe_output_name(name)) {
+            return Err("Invalid display assignment".into());
+        }
+        if self.owners.is_empty() {
+            self.owners.resize(icons.len(), None);
+        }
+        if self.owners.len() != icons.len() {
+            return Err("Icon ownership is incompatible with this rice".into());
+        }
+        self.owners[index] = owner.map(str::to_owned);
+        Ok(())
+    }
 }
 
 fn safe_output_name(name: &str) -> bool {
@@ -71,6 +106,8 @@ struct Positions {
     icons: Vec<DesktopIcon>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     outputs: BTreeMap<String, Vec<Coordinates>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    owners: Vec<Option<String>>,
 }
 
 fn path(id: &str) -> Option<PathBuf> {
@@ -86,7 +123,7 @@ fn path(id: &str) -> Option<PathBuf> {
 
 fn apply(raw: &[u8], recipe: &mut PanelStyle) -> Result<OutputPositions, Box<dyn Error>> {
     let saved: Positions = serde_json::from_slice(raw)?;
-    if !matches!(saved.schema_version, 1 | 2) || saved.recipe != recipe.id
+    if !matches!(saved.schema_version, 1 | 2 | 3) || saved.recipe != recipe.id
         || saved.icons.len() != recipe.desktop_icons.len()
         || saved.icons.iter().zip(&recipe.desktop_icons).any(|(stored, original)| {
             stored.action != original.action || stored.label != original.label
@@ -96,6 +133,9 @@ fn apply(raw: &[u8], recipe: &mut PanelStyle) -> Result<OutputPositions, Box<dyn
         return Err("Native icon positions do not match the selected rice".into());
     }
     if (saved.schema_version == 1 && !saved.outputs.is_empty())
+        || (saved.schema_version < 3 && !saved.owners.is_empty())
+        || (!saved.owners.is_empty() && saved.owners.len() != saved.icons.len())
+        || saved.owners.iter().flatten().any(|name| !safe_output_name(name))
         || saved.outputs.len() > MAX_OUTPUTS
         || saved.outputs.iter().any(|(name, icons)| {
             !safe_output_name(name) || icons.len() != saved.icons.len()
@@ -109,7 +149,7 @@ fn apply(raw: &[u8], recipe: &mut PanelStyle) -> Result<OutputPositions, Box<dyn
     for (icon, stored) in recipe.desktop_icons.iter_mut().zip(saved.icons) {
         (icon.x, icon.y) = (stored.x, stored.y);
     }
-    Ok(OutputPositions { positions: saved.outputs })
+    Ok(OutputPositions { positions: saved.outputs, owners: saved.owners })
 }
 
 pub fn restore(recipe: &mut PanelStyle) -> Result<OutputPositions, Box<dyn Error>> {
@@ -161,8 +201,9 @@ fn save_at(location: &PathBuf, recipe: &PanelStyle,
         }
     }
     let encoded = serde_json::to_vec(&Positions {
-        schema_version: 2, recipe: recipe.id.clone(), icons: recipe.desktop_icons.clone(),
+        schema_version: 3, recipe: recipe.id.clone(), icons: recipe.desktop_icons.clone(),
         outputs: outputs.positions.clone(),
+        owners: outputs.owners.clone(),
     })?;
     if encoded.len() as u64 > MAX_BYTES { return Err("Too many icon position bytes".into()); }
     let nonce = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
@@ -196,7 +237,7 @@ mod tests {
         let original = recipe.desktop_icons.clone();
         let wrong = Positions {
             schema_version: 1, recipe: "different-rice".into(), icons: original.clone(),
-            outputs: BTreeMap::new(),
+            outputs: BTreeMap::new(), owners: vec![],
         };
         assert!(apply(&serde_json::to_vec(&wrong).unwrap(), &mut recipe).is_err());
         assert_eq!(recipe.desktop_icons.len(), original.len());
@@ -211,7 +252,7 @@ mod tests {
         let mut moved = recipe.desktop_icons.clone();
         moved[0].x += 32;
         let state = Positions { schema_version: 1, recipe: recipe.id.clone(), icons: moved,
-                                outputs: BTreeMap::new() };
+                                outputs: BTreeMap::new(), owners: vec![] };
         apply(&serde_json::to_vec(&state).unwrap(), &mut recipe).unwrap();
         assert_eq!(recipe.desktop_icons[0].x, state.icons[0].x);
         assert_eq!(recipe.desktop_icons[0].action, state.icons[0].action);
@@ -225,7 +266,7 @@ mod tests {
         let original_x = recipe.desktop_icons[0].x;
         let mut state = Positions {
             schema_version: 1, recipe: recipe.id.clone(), icons: recipe.desktop_icons.clone(),
-            outputs: BTreeMap::new(),
+            outputs: BTreeMap::new(), owners: vec![],
         };
         state.icons[0].action = "logout".into();
         assert!(apply(&serde_json::to_vec(&state).unwrap(), &mut recipe).is_err());
@@ -282,6 +323,58 @@ mod tests {
     }
 
     #[test]
+    fn owner_assignment_survives_reconnect_and_can_restore_mirrored_layout() {
+        let source = include_str!("../../../tests/fixtures/riceplate-desktop-v5.json");
+        let recipe = crate::recipe::parse(source, Some("mockup-desktop")).unwrap();
+        let mut state = OutputPositions::default();
+        assert_eq!(state.owner(0), None); // All connected displays as before.
+        state.assign(&recipe.desktop_icons, 0, Some("DP-1")).unwrap();
+        assert_eq!(state.owner(0), Some("DP-1"));
+        let connected = vec!["DP-1".to_owned(), "HDMI-A-1".to_owned()];
+        assert!(state.visible_on(0, Some("DP-1"), false, &connected));
+        assert!(!state.visible_on(0, Some("HDMI-A-1"), true, &connected));
+        let unplugged = vec!["HDMI-A-1".to_owned()];
+        assert!(state.visible_on(0, Some("HDMI-A-1"), true, &unplugged));
+        assert!(!state.visible_on(0, Some("OTHER"), false, &unplugged));
+        state.set("DP-1", &recipe.desktop_icons, 0, Coordinates { x: 120, y: 80 }).unwrap();
+        let base = disposable();
+        let file = base.join("ricebowl/native-icon-positions/mockup-desktop.json");
+        save_at(&file, &recipe, &state).unwrap();
+        let mut restored_recipe = crate::recipe::parse(source, Some("mockup-desktop")).unwrap();
+        let mut restored = restore_at(&file, &mut restored_recipe).unwrap();
+        assert_eq!(restored.owner(0), Some("DP-1"));
+        assert_eq!(restored.for_output("DP-1", recipe.desktop_icons.len()).unwrap()[0].x, 120);
+        restored.assign(&recipe.desktop_icons, 0, None).unwrap();
+        assert_eq!(restored.owner(0), None);
+        assert!(restored.visible_on(0, Some("HDMI-A-1"), true, &connected));
+        save_at(&file, &recipe, &restored).unwrap();
+        let mut fresh = crate::recipe::parse(source, Some("mockup-desktop")).unwrap();
+        assert_eq!(restore_at(&file, &mut fresh).unwrap().owner(0), None);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn rejects_invalid_owner_and_unsupported_migration_without_partial_apply() {
+        let source = include_str!("../../../tests/fixtures/riceplate-desktop-v5.json");
+        let mut recipe = crate::recipe::parse(source, Some("mockup-desktop")).unwrap();
+        let mut state = OutputPositions::default();
+        assert!(state.assign(&recipe.desktop_icons, 0, Some("../../escape")).is_err());
+        assert_eq!(state.owner(0), None);
+        assert!(state.assign(&recipe.desktop_icons, recipe.desktop_icons.len(), Some("DP-1")).is_err());
+        let mut invalid = Positions { schema_version: 2, recipe: recipe.id.clone(),
+            icons: recipe.desktop_icons.clone(), outputs: BTreeMap::new(),
+            owners: vec![Some("DP-1".into()); recipe.desktop_icons.len()] };
+        let prior = recipe.desktop_icons[0].x;
+        assert!(apply(&serde_json::to_vec(&invalid).unwrap(), &mut recipe).is_err());
+        assert_eq!(recipe.desktop_icons[0].x, prior);
+        invalid.schema_version = 3;
+        invalid.owners[0] = Some("..//bad".into());
+        assert!(apply(&serde_json::to_vec(&invalid).unwrap(), &mut recipe).is_err());
+        invalid.owners = vec![None];
+        assert!(apply(&serde_json::to_vec(&invalid).unwrap(), &mut recipe).is_err());
+    }
+
+    #[test]
     fn rejects_invalid_output_name_and_layout_without_partial_restore() {
         let source = include_str!("../../../tests/fixtures/riceplate-desktop-v5.json");
         let mut recipe = crate::recipe::parse(source, Some("mockup-desktop")).unwrap();
@@ -292,7 +385,7 @@ mod tests {
                   Coordinates { x: 16, y: 32 }).unwrap();
         let mut invalid = Positions {
             schema_version: 2, recipe: recipe.id.clone(), icons: recipe.desktop_icons.clone(),
-            outputs: state.positions,
+            outputs: state.positions, owners: vec![],
         };
         invalid.outputs.get_mut("DP-1").unwrap()[0].x = MAX_SAVED_POSITION + 1;
         let before = recipe.desktop_icons[0].x;

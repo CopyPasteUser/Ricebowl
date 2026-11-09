@@ -430,12 +430,23 @@ not cover the desktop with a giant input window. The ordinary Waybar fallback
 still renders the panel, menu and wallpaper but **does not show icons**. This
 preview supports click-to-launch, dragging a shortcut with the left button,
 and an on-demand keyboard focus frame: click to focus, use arrow keys to move
-in 16-pixel steps, or Enter/Space to launch. RicePlate stores positions per
+in 16-pixel steps, or Enter/Space to launch. On multiple named monitors, press
+`F6` while a desktop icon is focused to assign it to the next connected
+display (cycling alphabetically), or `F7` to show it on every display again.
+Unassigned icons keep their original mirrored behavior. Assigned icons
+disappear from non-owner displays and no longer reserve collision space there;
+if their saved display is unplugged, they appear temporarily on the primary
+desktop and return to their assigned output when it reconnects. A missing or
+unsafe compositor output name cannot be assigned. Keyboard focus is **not**
+automatically transferred to the new display; use the pointer to focus there.
+This is not cross-output pointer drag-and-drop. RicePlate stores positions per
 rice in `$XDG_CONFIG_HOME/ricebowl/native-icon-positions/<rice-id>.json`
 (typically `~/.config/ricebowl/native-icon-positions/`) without altering the
-original recipe. Saved coordinates are private and never honored by nested
-Creator/headless sessions, so screenshots remain reproducible. Desktop widgets,
-independent multi-output ownership and real-GPU/input acceptance remain open.
+original recipe. Saved coordinates and optional output assignments use a
+private, backward-compatible v3 file (v1/v2 still load), and are never
+honored by nested Creator/headless sessions, so screenshots remain
+reproducible. Desktop widgets are available in schema v8; real-GPU/input
+acceptance remains open.
 Native RicePlate **reflows shortcuts within its selected logical
 output** on mode/scale changes, preserving valid positions and parking icons
 outside the output when no safe, non-overlapping hit area exists. This placement is not persisted;

@@ -861,8 +861,12 @@ impl RicePlate {
             for (index, icon) in self.icon_layers.iter().enumerate() {
                 if icon.placed.is_none() { continue; }
                 if let Some(item) = self.recipe.desktop_icons.get(icon.recipe_index) {
+                    let assignment = self.icon_outputs.owner(icon.recipe_index)
+                        .map_or("mirrored on all displays", |_| "assigned to one display");
                     model.add(30_100 + index as u64, 30_000, AccessibleRole::Button,
-                              item.label.clone(), Some(Target::DesktopIcon(index)));
+                              format!("{}, {}; F6 next display, F7 all displays",
+                                      item.label, assignment),
+                              Some(Target::DesktopIcon(index)));
                 }
             }
         }
@@ -2118,7 +2122,65 @@ impl RicePlate {
         self.icon_position_dirty = true;
     }
 
+    fn assign_icon_to_next_output(&mut self, layer_index: usize) {
+        let Some(current) = self.icon_output_name(layer_index) else { return; };
+        let recipe_index = self.icon_layers[layer_index].recipe_index;
+        // Only offer outputs for which this process actually owns an icon
+        // surface. The compositor may advertise more outputs than the bounded
+        // secondary layer-shell allocation supports.
+        let mut names: Vec<_> = self.icon_layers.iter()
+            .filter(|layer| layer.recipe_index == recipe_index)
+            .filter_map(|layer| {
+                let output = layer.bound_output.as_ref().or(self.primary_output.as_ref())
+                    .or(layer.output.as_ref())?;
+                self.logical_output_size(output)?;
+                self.outputs.info(output)?.name
+            })
+            .collect();
+        names.sort();
+        names.dedup();
+        if names.len() < 2 { return; }
+        let next = names.iter().position(|name| name == &current)
+            .map_or(0, |index| (index + 1) % names.len());
+        if let Err(error) = self.icon_outputs.assign(
+            &self.recipe.desktop_icons, recipe_index, Some(&names[next]),
+        ) {
+            eprintln!("RicePlate: cannot assign desktop icon to output: {error}");
+            return;
+        }
+        // The old focused surface becomes invisible. Compositors own actual
+        // keyboard focus; do not fake a keyboard enter on the new output.
+        self.focused_icon = None;
+        self.keyboard_icon_surface = None;
+        self.reflow_icons();
+        self.icon_position_dirty = true;
+        self.save_icon_positions();
+    }
+
+    fn mirror_icon_on_all_outputs(&mut self, layer_index: usize) {
+        let recipe_index = self.icon_layers[layer_index].recipe_index;
+        if let Err(error) = self.icon_outputs.assign(
+            &self.recipe.desktop_icons, recipe_index, None,
+        ) {
+            eprintln!("RicePlate: cannot restore mirrored desktop icon: {error}");
+            return;
+        }
+        self.reflow_icons();
+        self.icon_position_dirty = true;
+        self.save_icon_positions();
+    }
+
     fn reflow_icons(&mut self) {
+        // An advertised output without a shell surface must not swallow
+        // shortcuts assigned to it: recover those on the primary instead.
+        let connected: Vec<String> = self.icon_layers.iter()
+            .filter_map(|layer| {
+                let output = layer.bound_output.as_ref().or(self.primary_output.as_ref())
+                    .or(layer.output.as_ref())?;
+                self.logical_output_size(output)?;
+                self.outputs.info(output)?.name
+            })
+            .collect();
         for index in 0..self.icon_layers.len() {
             let layer = &self.icon_layers[index];
             let output = layer.bound_output.as_ref().or(self.primary_output.as_ref())
@@ -2134,13 +2196,17 @@ impl RicePlate {
                     (icon.x, icon.y) = (position.x, position.y);
                 }
             }
+            let visible: Vec<_> = (0..local_icons.len())
+                .map(|icon| self.icon_outputs.visible_on(
+                    icon, name.as_deref(), layer.bound_output.is_none(), &connected,
+                )).collect();
             let placement = if let Some(composition) = &self.recipe.composition {
-                desktop_layout::compose(&local_icons, composition, width, height,
+                desktop_layout::compose_visible(&local_icons, &visible, composition, width, height,
                     self.recipe.top, self.recipe.height,
                     self.recipe.compact.as_ref().map_or(720, |(threshold, _)| *threshold))
                     .0[layer.recipe_index]
             } else {
-                desktop_layout::place(&local_icons, width, height,
+                desktop_layout::place_visible(&local_icons, &visible, width, height,
                     self.recipe.top, self.recipe.height)[layer.recipe_index]
             };
             let restored = {
@@ -2186,8 +2252,12 @@ impl RicePlate {
                     (icon.x, icon.y) = (position.x, position.y);
                 }
             }
-            let placement = desktop_layout::compose(
-                &local_icons, composition, width, height, self.recipe.top, self.recipe.height,
+            let visible: Vec<_> = (0..local_icons.len())
+                .map(|icon| self.icon_outputs.visible_on(
+                    icon, name.as_deref(), layer.bound_output.is_none(), &connected,
+                )).collect();
+            let placement = desktop_layout::compose_visible(
+                &local_icons, &visible, composition, width, height, self.recipe.top, self.recipe.height,
                 self.recipe.compact.as_ref().map_or(720, |(threshold, _)| *threshold),
             ).1[layer.recipe_index];
             let restored = {
@@ -4251,6 +4321,8 @@ impl KeyboardHandler for RicePlate {
                     }
                     self.move_icon(index, (x, y));
                 }
+                Keysym::F6 => self.assign_icon_to_next_output(index),
+                Keysym::F7 => self.mirror_icon_on_all_outputs(index),
                 Keysym::Escape => {
                     self.save_icon_positions();
                 }
