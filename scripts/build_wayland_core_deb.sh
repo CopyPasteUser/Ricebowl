@@ -3,7 +3,7 @@
 # Restrict the source manifest to git-tracked Wayland runtime files.
 set -euo pipefail
 project_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
-version='0.1.0~preview1'
+version='0.1.0~preview2'
 output=${1:-"$project_root/dist/ricebowl-wayland-core_${version}_all.deb"}
 if [[ "$output" != /*.deb ]]; then
     echo "Output must be an absolute .deb path" >&2; exit 2
