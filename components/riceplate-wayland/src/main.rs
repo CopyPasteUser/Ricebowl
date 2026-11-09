@@ -962,7 +962,15 @@ impl RicePlate {
                 }
             } else if let Some(menu) = self.recipe.menu.as_ref() {
                 model.add(20_000, ROOT, AccessibleRole::Menu, menu.title.clone(), None);
-                let group_role = if menu.presentation == recipe::MenuPresentation::Sidebar {
+                let active_size = self.active_menu.as_ref()
+                    .and_then(|active| self.menu_layer.iter().chain(self.menu_mirrors.iter())
+                        .find(|layer| layer.surface.wl_surface() == active))
+                    .map(|layer| layer.size)
+                    .unwrap_or((native_menu::WIDTH, native_menu::HEIGHT));
+                let compact = native_menu::compact_layout(active_size);
+                let rows = if compact { native_menu::compact_visible_actions(active_size) }
+                           else { native_menu::VISIBLE_ACTIONS };
+                let group_role = if menu.presentation == recipe::MenuPresentation::Sidebar && !compact {
                     AccessibleRole::Button
                 } else {
                     AccessibleRole::Tab
@@ -971,7 +979,7 @@ impl RicePlate {
                     model.add(20_100 + index as u64, 20_000, group_role,
                               group.title.clone(), Some(Target::MenuGroup(index)));
                 }
-                if let Some(sections) = self.menu_state.composed_sections(menu) {
+                if let Some(sections) = self.menu_state.composed_sections(menu).filter(|_| !compact) {
                     for (index, section) in sections.iter().enumerate() {
                         model.add(20_300 + index as u64, 20_000, AccessibleRole::Label,
                                   section.title.to_string(), None);
@@ -980,7 +988,7 @@ impl RicePlate {
                 let menu_actions = self.menu_state.actions(menu);
                 let selected_action_exists = self.menu_state.selected < menu_actions.len();
                 for (index, action) in menu_actions.into_iter().enumerate()
-                    .skip(self.menu_state.first_action_row()).take(native_menu::VISIBLE_ACTIONS) {
+                    .skip(self.menu_state.first_action_row_for(rows)).take(rows) {
                     let enabled = action != "logout" || logout_available();
                     model.add(20_500 + index as u64, 20_000, AccessibleRole::Button,
                               self.menu_state.label(action),
@@ -1755,7 +1763,12 @@ impl RicePlate {
                 return;
             }
         };
-        if layer.size == (native_menu::WIDTH, native_menu::HEIGHT) {
+        if !self.notification_state.open && native_menu::compact_layout(layer.size) {
+            // Keep the bitmap font at its native pixel size on rotated/small
+            // outputs; actions and optional composed sections become a paged
+            // list rather than shrinking into unreadable miniature tiles.
+            paint_compact_menu(canvas, menu, &self.recipe, &self.menu_state, layer.size);
+        } else if layer.size == (native_menu::WIDTH, native_menu::HEIGHT) {
             if self.notification_state.open {
                 paint_notifications(canvas, &self.recipe, &self.notification_state);
             } else {
@@ -2894,6 +2907,92 @@ fn fit_menu_pixels(original: &[u8], canvas: &mut [u8], size: (u32, u32)) {
             canvas[dest..dest + 4].copy_from_slice(&original[source..source + 4]);
         }
     }
+}
+
+fn paint_compact_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
+                      style: &PanelStyle, state: &MenuState, size: (u32, u32)) {
+    let (width, height) = size;
+    let rows = native_menu::compact_visible_actions(size);
+    let first = state.first_action_row_for(rows);
+    for pixel in canvas.chunks_exact_mut(4) {
+        pixel.copy_from_slice(&style.background.to_le_bytes());
+    }
+    fill_rect(canvas, width, height, 0, 0, width, 32, style.active);
+    let heading = match state.view {
+        native_menu::View::Groups => menu.title.as_str(),
+        native_menu::View::Search => "Find applications & actions",
+        native_menu::View::Saved => "Saved actions",
+    };
+    let heading_limit = width.saturating_sub(16) / (8 * style.font_scale);
+    draw_rice_text(canvas, width, height, 8, 9,
+                   &heading.chars().take(heading_limit as usize).collect::<String>(),
+                   style.foreground, style);
+    let groups = menu.groups.len().max(1) as u32;
+    for (index, group) in menu.groups.iter().enumerate() {
+        let x = index as u32 * width / groups;
+        let end = (index as u32 + 1) * width / groups;
+        let cell_width = end.saturating_sub(x);
+        if state.view == native_menu::View::Groups && state.group == index {
+            fill_rect(canvas, width, height, x, native_menu::COMPACT_TABS_TOP,
+                      cell_width, native_menu::COMPACT_TABS_HEIGHT,
+                      if style.hover != 0 { style.hover } else { style.active });
+        }
+        let limit = cell_width.saturating_sub(12) / (8 * style.font_scale);
+        draw_rice_text(canvas, width, height, x + 6,
+                       native_menu::COMPACT_TABS_TOP + 10,
+                       &group.title.chars().take(limit as usize).collect::<String>(),
+                       style.foreground, style);
+    }
+    let actions = state.actions(menu);
+    if actions.is_empty() {
+        let label = if state.view == native_menu::View::Saved {
+            "No saved actions"
+        } else if state.view == native_menu::View::Search {
+            "No matching actions"
+        } else { "No actions" };
+        draw_text(canvas, width, height, 9, native_menu::COMPACT_ACTION_TOP + 14,
+                  label, style.foreground);
+    }
+    for (row, action) in actions.iter().skip(first).take(rows).enumerate() {
+        let index = first + row;
+        let y = native_menu::COMPACT_ACTION_TOP + row as u32 * native_menu::COMPACT_ACTION_HEIGHT;
+        if index == state.selected {
+            fill_rounded_rect(canvas, width, height, 5, y + 2,
+                              width.saturating_sub(10),
+                              native_menu::COMPACT_ACTION_HEIGHT - 4,
+                              style.task_radius,
+                              if style.hover != 0 { style.hover } else { style.active });
+        }
+        let label = if *action == "logout" && !logout_available() {
+            "Log out (unavailable)"
+        } else { state.label(action) };
+        let pinned = state.pins.iter().any(|pin| pin.as_str() == *action);
+        let text = format!("{}{}", if pinned { "* " } else { "" }, label);
+        let limit = width.saturating_sub(24) / (8 * style.font_scale);
+        let color = if label.contains("(unavailable)") && style.disabled != 0 {
+            style.disabled
+        } else { style.foreground };
+        draw_rice_text(canvas, width, height, 12,
+                       y + (native_menu::COMPACT_ACTION_HEIGHT - 8 * style.font_scale) / 2,
+                       &text.chars().take(limit as usize).collect::<String>(), color, style);
+    }
+    // A real footer hit target closes even an empty search or saved view;
+    // the counter tells keyboard users when more actions are available.
+    let footer_y = height - native_menu::COMPACT_FOOTER_HEIGHT;
+    fill_rect(canvas, width, height, 0, footer_y, width, 1, style.active);
+    let footnote = if let Some(notice) = state.notice {
+        notice.to_owned()
+    } else if state.view == native_menu::View::Search {
+        format!("Find: {}", state.search)
+    } else if actions.is_empty() {
+        "Esc: close".to_owned()
+    } else {
+        format!("{}-{} / {}  F2 pin  Esc", first + 1,
+                (first + rows).min(actions.len()), actions.len())
+    };
+    draw_text(canvas, width, height, 8, footer_y + 8,
+              &footnote.chars().take(width.saturating_sub(12) as usize / 8)
+                  .collect::<String>(), style.foreground);
 }
 
 fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, state: &MenuState) {
@@ -4095,6 +4194,12 @@ impl KeyboardHandler for RicePlate {
         let Some(menu) = self.recipe.menu.as_ref() else {
             return;
         };
+        let active_compact = self.active_menu.as_ref()
+            .and_then(|active| self.menu_layer.iter().chain(self.menu_mirrors.iter())
+                .find(|layer| layer.surface.wl_surface() == active))
+            .filter(|layer| native_menu::compact_layout(layer.size))
+            .map(|layer| native_menu::compact_visible_actions(layer.size));
+        let visible_rows = active_compact.unwrap_or(native_menu::VISIBLE_ACTIONS);
         let action = match event.keysym {
             Keysym::Escape => {
                 if self.menu_state.back() { None } else {
@@ -4151,19 +4256,21 @@ impl KeyboardHandler for RicePlate {
                 None
             }
             Keysym::Prior => {
-                self.menu_state.page_by(menu, -(native_menu::VISIBLE_ACTIONS as isize));
+                self.menu_state.page_by(menu, -(visible_rows as isize));
                 None
             }
             Keysym::Next => {
-                self.menu_state.page_by(menu, native_menu::VISIBLE_ACTIONS as isize);
+                self.menu_state.page_by(menu, visible_rows as isize);
                 None
             }
             Keysym::Left => {
-                self.menu_state.horizontal_by(menu, -1);
+                if active_compact.is_some() { self.menu_state.group_by(menu, -1); }
+                else { self.menu_state.horizontal_by(menu, -1); }
                 None
             }
             Keysym::Right => {
-                self.menu_state.horizontal_by(menu, 1);
+                if active_compact.is_some() { self.menu_state.group_by(menu, 1); }
+                else { self.menu_state.horizontal_by(menu, 1); }
                 None
             }
             Keysym::space if self.menu_state.view == native_menu::View::Search => {
@@ -4323,15 +4430,18 @@ impl PointerHandler for RicePlate {
                 let menu_size = self.menu_layer.iter().chain(self.menu_mirrors.iter())
                     .find(|layer| layer.surface.wl_surface() == &event.surface)
                     .map_or((native_menu::WIDTH, native_menu::HEIGHT), |layer| layer.size);
-                let pointer = native_menu::input_coords(event.position, menu_size);
+                let compact = !self.notification_state.open && native_menu::compact_layout(menu_size);
+                let pointer = if compact { event.position }
+                              else { native_menu::input_coords(event.position, menu_size) };
                 // Hover and keyboard selection share one state. Update only
                 // on a changed action to avoid repainting on every motion.
                 if matches!(event.kind, PointerEventKind::Motion { .. })
                     && !self.notification_state.open {
                     if let Some(menu) = self.recipe.menu.as_ref() {
-                        if let Some(MenuHit::Action(index)) = self.menu_state.hit(
-                            menu, pointer.0, pointer.1,
-                        ) {
+                        let hit = if compact {
+                            self.menu_state.compact_hit(menu, pointer.0, pointer.1, menu_size)
+                        } else { self.menu_state.hit(menu, pointer.0, pointer.1) };
+                        if let Some(MenuHit::Action(index)) = hit {
                             if self.menu_state.selected != index {
                                 self.menu_state.selected = index;
                                 self.redraw_menu(qh);
@@ -4383,10 +4493,9 @@ impl PointerHandler for RicePlate {
                         continue;
                     }
                     if let Some(menu) = self.recipe.menu.as_ref() {
-                        match self
-                            .menu_state
-                            .hit(menu, pointer.0, pointer.1)
-                        {
+                        match if compact {
+                            self.menu_state.compact_hit(menu, pointer.0, pointer.1, menu_size)
+                        } else { self.menu_state.hit(menu, pointer.0, pointer.1) } {
                             Some(MenuHit::Group(index)) => {
                                 self.menu_state.open_group(index);
                                 self.redraw_menu(qh);
@@ -4682,6 +4791,28 @@ mod tests {
             let src = ((src_y * width + src_x) * 4) as usize;
             assert_eq!(&fitted[dst..dst + 4], &original[src..src + 4]);
         }
+    }
+
+    #[test]
+    fn compact_native_menu_paints_readable_rows_at_output_resolution() {
+        let source = include_str!("../../../tests/fixtures/riceplate-desktop-v5.json");
+        let style = recipe::parse(source, Some("mockup-desktop")).unwrap();
+        let menu = style.menu.as_ref().unwrap();
+        let size = native_menu::fitted_size(320, 240, 36);
+        assert!(native_menu::compact_layout(size));
+        let mut state = native_menu::MenuState::default();
+        state.open();
+        let mut frame = vec![0_u8; (size.0 * size.1 * 4) as usize];
+        paint_compact_menu(&mut frame, menu, &style, &state, size);
+        let chosen = ((native_menu::COMPACT_ACTION_TOP + 14) * size.0 + size.0 - 16) as usize * 4;
+        assert_eq!(&frame[chosen..chosen + 4],
+                   &if style.hover != 0 { style.hover } else { style.active }.to_le_bytes());
+        let mut next = frame.clone();
+        state.select_by(menu, 1);
+        paint_compact_menu(&mut next, menu, &style, &state, size);
+        assert_ne!(frame, next);
+        assert_eq!(state.compact_hit(menu, 12.0, 77.0, size), Some(MenuHit::Action(0)));
+        assert_eq!(state.compact_hit(menu, 12.0, 111.0, size), Some(MenuHit::Action(1)));
     }
 
     #[test]

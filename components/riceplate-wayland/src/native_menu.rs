@@ -33,6 +33,26 @@ pub const ACTION_TOP: u32 = 108;
 pub const ACTION_HEIGHT: u32 = 42;
 pub const VISIBLE_ACTIONS: usize = 4;
 pub const MAX_PINS: usize = 8;
+// A small output gets a real, full-resolution list instead of a downscaled
+// 320x304 bitmap. The smallest outputs still use the existing proportional
+// fit: below this bound even a single readable row cannot be guaranteed.
+pub const COMPACT_MIN_WIDTH: u32 = 168;
+pub const COMPACT_MIN_HEIGHT: u32 = 144;
+pub const COMPACT_TABS_TOP: u32 = 34;
+pub const COMPACT_TABS_HEIGHT: u32 = 34;
+pub const COMPACT_ACTION_TOP: u32 = 75;
+pub const COMPACT_ACTION_HEIGHT: u32 = 34;
+pub const COMPACT_FOOTER_HEIGHT: u32 = 25;
+
+pub fn compact_layout(size: (u32, u32)) -> bool {
+    size != (WIDTH, HEIGHT) && size.0 >= COMPACT_MIN_WIDTH
+        && size.1 >= COMPACT_MIN_HEIGHT
+}
+
+pub fn compact_visible_actions(size: (u32, u32)) -> usize {
+    ((size.1.saturating_sub(COMPACT_ACTION_TOP + COMPACT_FOOTER_HEIGHT)
+        / COMPACT_ACTION_HEIGHT) as usize).clamp(1, VISIBLE_ACTIONS)
+}
 const APP_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
 const CONTENT_HEADER_HEIGHT: u32 = 14;
 const CONTENT_LIST_HEIGHT: u32 = 30;
@@ -245,7 +265,12 @@ impl MenuState {
     }
 
     pub fn first_action_row(&self) -> usize {
-        (self.selected / VISIBLE_ACTIONS) * VISIBLE_ACTIONS
+        self.first_action_row_for(VISIBLE_ACTIONS)
+    }
+
+    pub fn first_action_row_for(&self, rows: usize) -> usize {
+        let rows = rows.clamp(1, VISIBLE_ACTIONS);
+        (self.selected / rows) * rows
     }
 
     pub fn start_search(&mut self) {
@@ -370,6 +395,30 @@ impl MenuState {
         }
         (y >= f64::from(HEIGHT - 28)).then_some(Hit::Close)
     }
+
+    /// Compact rendering flattens optional recipe sections into a readable,
+    /// paged action list. Both pointer hits and painting use this viewport.
+    pub fn compact_hit(&self, menu: &NativeMenu, x: f64, y: f64,
+                       size: (u32, u32)) -> Option<Hit> {
+        if !self.visible || !compact_layout(size) || !x.is_finite() || !y.is_finite()
+            || x < 0.0 || y < 0.0 || x >= f64::from(size.0)
+            || y >= f64::from(size.1) {
+            return None;
+        }
+        if (f64::from(COMPACT_TABS_TOP)..f64::from(COMPACT_TABS_TOP + COMPACT_TABS_HEIGHT))
+            .contains(&y) && !menu.groups.is_empty() {
+            let index = x as usize * menu.groups.len() / size.0 as usize;
+            return (index < menu.groups.len()).then_some(Hit::Group(index));
+        }
+        let rows = compact_visible_actions(size);
+        if (f64::from(COMPACT_ACTION_TOP)..f64::from(COMPACT_ACTION_TOP +
+            rows as u32 * COMPACT_ACTION_HEIGHT)).contains(&y) {
+            let index = self.first_action_row_for(rows) +
+                (y as u32 - COMPACT_ACTION_TOP) as usize / COMPACT_ACTION_HEIGHT as usize;
+            return self.actions(menu).get(index).map(|_| Hit::Action(index));
+        }
+        (y >= f64::from(size.1 - COMPACT_FOOTER_HEIGHT)).then_some(Hit::Close)
+    }
 }
 
 #[cfg(test)]
@@ -423,6 +472,35 @@ mod tests {
         let center = input_coords((f64::from(tiny.0) / 2.0,
                                    f64::from(tiny.1) / 2.0), tiny);
         assert_eq!(center, (f64::from(WIDTH) / 2.0, f64::from(HEIGHT) / 2.0));
+        assert!(compact_layout(tiny));
+        assert_eq!(compact_visible_actions(tiny), 2);
+        assert!(!compact_layout(fitted_size(100, 100, 36)));
+    }
+
+    #[test]
+    fn compact_menu_reflows_both_presentations_without_losing_actions() {
+        let mut data = menu();
+        data.groups[0].actions = vec!["applications".into(), "terminal".into(),
+            "audio-up".into(), "audio-down".into(), "wifi-toggle".into()];
+        let mut state = MenuState::default();
+        state.open();
+        let size = fitted_size(320, 240, 36);
+        assert_eq!(compact_visible_actions(size), 2);
+        state.select_by(&data, 4);
+        assert_eq!(state.first_action_row_for(2), 4);
+        assert_eq!(state.compact_hit(&data, 22.0, 78.0, size), Some(Hit::Action(4)));
+        assert_eq!(state.compact_hit(&data, 22.0, 112.0, size), None);
+        assert_eq!(state.compact_hit(&data, 22.0, 50.0, size), Some(Hit::Group(0)));
+        assert_eq!(state.compact_hit(&data, 22.0, f64::from(size.1 - 5), size), Some(Hit::Close));
+        data.presentation = MenuPresentation::Sidebar;
+        assert_eq!(state.compact_hit(&data, f64::from(size.0 - 2), 50.0, size),
+                   Some(Hit::Group(1)));
+        state.start_search();
+        assert!(state.search_input("v"));
+        assert_eq!(state.actions(&data), vec!["audio-up", "audio-down"]);
+        assert_eq!(state.compact_hit(&data, 20.0, 78.0, size), Some(Hit::Action(0)));
+        assert_eq!(state.compact_hit(&data, f64::NAN, 78.0, size), None);
+        assert_eq!(state.compact_hit(&data, -1.0, 78.0, size), None);
     }
 
     #[test]
