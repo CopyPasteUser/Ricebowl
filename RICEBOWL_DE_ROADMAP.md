@@ -658,8 +658,14 @@ depend on the XFCE session.
   - [x] Expose explicit `de display-refresh` for **externally changed** output
     modes/scales, using the same private supervisor and failure-safe replacement
     as guarded RiceSpice changes; do not secretly poll or signal other Waybars.
-  - [ ] Detect external mode changes *automatically* without polling or a new
-    login; finish responsive notification and extreme-size surfaces, and add
+  - [x] Observe external compositor output changes **automatically** when the
+    optional native RicePlate binary and `wlr-randr` are installed: a surface-
+    free, event-driven Rust `wl_output` watcher notifies only the owner-private
+    Waybar supervisor; it debounces bursts and restarts Waybar only if the
+    validated output configuration changed. Watcher failure leaves the explicit
+    `display-refresh` recovery command available. No output polling, global
+    signals or service outside the opt-in session.
+  - [ ] Finish responsive notification and extreme-size surfaces, and add
     portable font families, fluid type sizes, rich icons and reduced-motion
     semantics. Native menu action lists reflow with readable bitmap text and
     a shared hit/accessibility viewport on compact outputs. Physical hotplug

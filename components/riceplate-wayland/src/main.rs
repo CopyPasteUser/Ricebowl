@@ -15,6 +15,7 @@ mod installed_apps;
 mod menu_pins;
 mod native_menu;
 mod osd;
+mod output_watch;
 mod power;
 mod recipe;
 mod style_art;
@@ -95,8 +96,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("riceplate-native 0.1.0 (experimental)");
         return Ok(());
     }
+    if matches!(arguments.as_slice(), [arg] if arg == "--watch-outputs") {
+        return output_watch::run();
+    }
     if matches!(arguments.as_slice(), [arg] if arg == "--help") {
-        println!("Usage: riceplate-native [--recipe classic|chrome|/absolute/private.json [--preview-menu|--preview-calendar]]");
+        println!("Usage: riceplate-native [--recipe classic|chrome|/absolute/private.json [--preview-menu|--preview-calendar]]\n       riceplate-native --watch-outputs (RiceBowl session only)");
         return Ok(());
     }
     let (recipe_name, preview_menu, preview_calendar) = match arguments.as_slice() {

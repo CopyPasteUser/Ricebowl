@@ -11,7 +11,7 @@ from unittest import mock
 
 from macrice.cli import main as cli
 from macrice.de import creator_contract, live, recipes, riceprofile, staging
-from macrice.de.session import _LiveSwitch, resources
+from macrice.de.session import _LiveSwitch, _refresh_changed_outputs, resources
 
 
 class FakeProcess:
@@ -110,6 +110,24 @@ class LiveRiceTests(unittest.TestCase):
         self.assertEqual(len(self.processes), 1)
         self.assertIn("--config", self.processes[0][0])
         self.assertTrue(self.controller.panel.poll() is None)
+
+    def test_external_output_event_refreshes_only_when_compiled_layout_changes(self):
+        self.controller.mode = "waybar"
+        with mock.patch("macrice.de.session._waybar_recipe_config",
+                        return_value=("same", "style")):
+            signature = _refresh_changed_outputs(
+                self.controller, ("classic", "same"), self.env, self.tools.get)
+        self.assertEqual(signature, ("classic", "same"))
+        self.assertEqual(self.processes, [])
+        with mock.patch("macrice.de.session._waybar_recipe_config",
+                        return_value=("new-output-width", "style")):
+            signature = _refresh_changed_outputs(
+                self.controller, signature, self.env, self.tools.get)
+            self.assertEqual(signature, ("classic", "new-output-width"))
+            self.assertEqual(len(self.processes), 1)
+            _refresh_changed_outputs(self.controller, signature, self.env, self.tools.get)
+        self.assertEqual(len(self.processes), 1)
+        self.assertTrue(self.initial_panel.terminated)
 
     def test_refresh_outputs_fails_closed_with_old_bar_alive(self):
         self.controller.mode = "waybar"

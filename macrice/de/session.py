@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import json
+import select
 import shlex
 import shutil
 import signal
@@ -295,6 +296,40 @@ def _atomic_menu(path: Path, content: str) -> None:
             os.unlink(temporary)
 
 
+class _OutputEvents:
+    """Debounce a Wayland event pipe; never sample displays on a timer.
+
+    Only a change notification schedules a one-shot inventory comparison.
+    External/unavailable watchers leave explicit display-refresh operational.
+    """
+
+    def __init__(self, stream: object):
+        self.stream = stream
+        os.set_blocking(stream.fileno(), False)
+        self.deadline: float | None = None
+        self.partial = b""
+
+    def ready(self, now: float) -> bool:
+        if self.stream is not None:
+            try:
+                if select.select([self.stream], [], [], 0)[0]:
+                    data = os.read(self.stream.fileno(), 4096)
+                    if data:
+                        buffered = (self.partial + data)[-8192:]
+                        *messages, self.partial = buffered.split(b"\n")
+                        if b"changed" in messages:
+                            self.deadline = now + 0.65
+                    else:
+                        self.stream.close()
+                        self.stream = None
+            except (OSError, ValueError):
+                self.stream = None
+        if self.deadline is not None and now >= self.deadline:
+            self.deadline = None
+            return True
+        return False
+
+
 class _LiveSwitch:
     """One transaction owner for panel, wallpaper, compositor menu and login state."""
 
@@ -503,6 +538,21 @@ class _LiveSwitch:
         return {**self.status(), "changed": True}
 
 
+def _refresh_changed_outputs(controller: _LiveSwitch, previous: tuple[str, str] | None,
+                             env: Mapping[str, str], which: Callable[[str], str | None]
+                             ) -> tuple[str, str]:
+    """Only replace the owned Waybar when a wl_output event changed its layout."""
+    from . import recipes
+
+    current = controller.active
+    config = _waybar_recipe_config(recipes.load(current), env, which)[0]
+    signature = (current, config)
+    if signature != previous:
+        controller.handle({"action": "refresh-outputs", "recipe": None,
+                           "sha256": None, "expected": None})
+    return signature
+
+
 def shell(
     *,
     environment: Mapping[str, str] | None = None,
@@ -611,6 +661,31 @@ def shell(
                         env=env, mode=mode, which=which, spawn=spawn,
                         cleanup=cleanup, initial_panel=process,
                         initial_wallpaper=wallpaper_process, background=background)
+                    # The Rust helper observes wl_output events, unlike a
+                    # wlr-randr timer. It is optional and only needed for
+                    # Waybar, because native RicePlate already reflows itself.
+                    output_events = None
+                    last_output_config = None
+                    watcher_bin = (which("riceplate-native") if mode == "waybar"
+                                   and which("wlr-randr") else None)
+                    if watcher_bin:
+                        watcher = None
+                        try:
+                            from . import recipes
+                            watcher = spawn([watcher_bin, "--watch-outputs"],
+                                            env=env, stdin=subprocess.DEVNULL,
+                                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                            output_events = _OutputEvents(watcher.stdout)
+                            background.append(watcher)
+                            active = live_controller.active
+                            last_output_config = (active, _waybar_recipe_config(
+                                recipes.load(active), env, which)[0])
+                        except (OSError, AttributeError, TypeError, RecipeError) as error:
+                            if watcher is not None:
+                                _stop_process(watcher)
+                            output_events = None
+                            print(f"RiceBowl: automatic output watch unavailable: {error}",
+                                  file=sys.stderr)
                     with listen(env) as listener:
                         auto_restore_attempted = False
                         while not shutting_down:
@@ -630,6 +705,13 @@ def shell(
                                     print(f"RiceBowl: live auto-restore failed: {error}",
                                           file=sys.stderr)
                                     break
+                            if output_events is not None and output_events.ready(time.monotonic()):
+                                try:
+                                    last_output_config = _refresh_changed_outputs(
+                                        live_controller, last_output_config, env, which)
+                                except (LiveError, RecipeError, OSError) as error:
+                                    print(f"RiceBowl: automatic output refresh retained old bar: {error}",
+                                          file=sys.stderr)
                             serve_once(listener, live_controller.handle)
                         return live_controller.panel.wait()
                 except (LiveError, RecipeError, OSError) as error:

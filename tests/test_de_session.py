@@ -193,6 +193,24 @@ class WaylandSessionTests(unittest.TestCase):
         with self.assertRaisesRegex(session.SessionError, "only run inside"):
             session.shell(environment={"WAYLAND_DISPLAY": "wayland-0"}, which=self.which)
 
+    def test_wayland_output_event_debounce_is_event_driven_and_bounded(self):
+        reading, writing = os.pipe()
+        self.addCleanup(lambda: os.close(writing))
+        with os.fdopen(reading, "rb", buffering=0) as stream:
+            observer = session._OutputEvents(stream)
+            self.assertFalse(observer.ready(10.0))  # No event, no inventory poll.
+            os.write(writing, b"unrecognized\n")
+            self.assertFalse(observer.ready(10.1))
+            os.write(writing, b"changed\nchanged\n")
+            self.assertFalse(observer.ready(10.2))
+            self.assertFalse(observer.ready(10.7))
+            os.write(writing, b"chan")
+            self.assertFalse(observer.ready(10.71))
+            os.write(writing, b"ged\n")
+            self.assertFalse(observer.ready(10.75))  # Split event extends debounce.
+            self.assertTrue(observer.ready(11.41))
+            self.assertFalse(observer.ready(11.42))
+
     def test_shell_supervises_background_services_and_uses_private_panel_config(self):
         commands = []
         processes = []

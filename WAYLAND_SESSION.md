@@ -683,13 +683,15 @@ safe offline draft edits; `de review` and RicePack preserve them exactly.
 Recipes v1–v9 retain their original rendering defaults.
 
 On a logical output too small for the 320×304 native start menu plus panel,
-RicePlate now fits the full menu and notification popup proportionally to the
-available width/height. Pointer hit coordinates are mapped back to the same
-bounded logical action vocabulary, so the last row remains reachable by
-mouse or keyboard after an output rotation or resize. Larger screens retain
-the existing native geometry and pixels. This is a clipping safety fallback,
-**not** fluid layout reflow or a claim of readable text at every tiny size.
-Real small-screen accessibility/Orca acceptance remains outstanding.
+RicePlate fits the popup within available width/height. At popup sizes of at
+least 168×144 logical pixels, the **native menu** draws readable full-resolution
+bitmap text in a compact, paged action list (including composed menu actions),
+with matched pointer hit targets, PageUp/PageDown and AT-SPI visible rows.
+Narrow sidebar menus switch to top group tabs; typing searches as before.
+Smaller output sizes and **notification details** still use a proportional
+clipping-safety fit with inverse-mapped pointer hits. Normal-sized native menus
+retain their original composition. Real physical-device/Orca usability and
+extreme-size readability remain outstanding.
 
 If `wlr-randr --json` provides an enabled-output inventory, the supervised
 Waybar startup/live-apply/rescue path compiles each output's actual logical
@@ -700,10 +702,18 @@ unchanged generic fallback is used. After a user **confirms** a mode or scale
 change in RiceSpice's guarded monitor editor, its detached rollback worker
 asks the owner-private live shell supervisor to refresh only that session's
 Waybar, keeping the current panel when the replacement fails. **External**
-mode/scale changes can be followed with `ricebowl de display-refresh --json`
-(only inside the active, managed Wayland session), or with a new login.
-No new monitor poller, daemon, system-wide signal or recipe-supplied shell
-command is added.
+mode/scale changes are also detected without polling when both `riceplate-native`
+and `wlr-randr` are installed. An additional **surface-free, event-driven**
+Rust watcher runs only in the opt-in Waybar fallback session; it observes
+compositor `wl_output` events and sends a private notification pipe to the
+existing shell supervisor. After a short burst debounce, the supervisor
+compares the fresh validated configuration and replaces **only its own**
+Waybar when needed. The watcher never modifies displays. If the optional
+watcher is absent or crashes, `ricebowl de display-refresh --json` remains
+available, or a fresh login regenerates the layout. No display polling,
+system-wide signals or recipe-supplied commands are added; the small watcher
+process adds some resident memory while enabled. Physical hotplug QA remains
+outstanding.
 
 The default **Waybar-backed** Wayland session is separately checked in CI
 with two genuine labwc headless outputs. The smoke captures the bar on each,
