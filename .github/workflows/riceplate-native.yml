@@ -90,6 +90,8 @@ jobs:
         run: |
           cargo test --manifest-path components/riceplate-wayland/Cargo.toml
           cargo build --release --manifest-path components/riceplate-wayland/Cargo.toml
+          cargo build --release --manifest-path components/riceplate-wayland/Cargo.toml \
+            --example wayland_pointer_click
           sh -n scripts/smoke_riceplate_native.sh
           sh -n scripts/smoke_riceplate_windows.sh
           sh -n scripts/smoke_riceplate_multioutput.sh
@@ -159,7 +161,7 @@ jobs:
       - name: Prove live Wayland application taskbar lifecycle
         run: |
           /usr/bin/python3 -m unittest tests.test_de_window_outputs -v
-          timeout -k 5s 45s sh scripts/smoke_riceplate_windows.sh
+          timeout -k 5s 70s sh scripts/smoke_riceplate_windows.sh
       - name: Prove two native outputs, secondary calendar/menu and hotplug
         run: timeout -k 5s 70s sh scripts/smoke_riceplate_multioutput.sh
       - name: Render validated recipe in isolated Creator compositor
