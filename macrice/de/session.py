@@ -382,6 +382,27 @@ class _LiveSwitch:
             if any(value is not None for value in (token, digest, expected)):
                 raise LiveError("Status takes no change options", code="invalid_live_request")
             return self.status()
+        if action == "refresh-outputs":
+            if any(value is not None for value in (token, digest, expected)):
+                raise LiveError("Output refresh takes no change options", code="invalid_live_request")
+            # Native RicePlate follows wl_output changes directly. Only its
+            # Waybar rescue/fallback needs an output-specific config refresh.
+            if self.mode == "native" and not self.fallback:
+                return {**self.status(), "changed": False}
+            try:
+                recipe = recipes.load(self.active)
+                new_panel = self._start_panel(self.active, recipe)
+            except (recipes.RecipeError, OSError, LiveError) as exc:
+                raise LiveError("Waybar output refresh could not start",
+                                code="component_failed") from exc
+            time.sleep(0.5)
+            if new_panel.poll() is not None:
+                _stop_process(new_panel)
+                raise LiveError("Waybar output refresh failed; previous bar retained",
+                                code="component_failed")
+            old_panel, self.panel = self.panel, new_panel
+            _stop_process(old_panel)
+            return {**self.status(), "changed": True}
         if expected is not None and expected != self.active:
             raise LiveError("Active rice changed; review again", code="selection_conflict")
         if action == "restore":

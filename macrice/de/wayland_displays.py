@@ -249,6 +249,18 @@ def run_worker(change: guard.DisplayChange) -> int:
                 if guard._keep_path(change).is_file():
                     guard._write_state(change, "kept", "Monitor settings confirmed for this session")
                     confirmed = True
+                    # Explicit, confirmed RiceSpice mode changes need a fresh
+                    # width-aware Waybar config. Ask only this session's
+                    # owner-private supervisor; never signal other waybars.
+                    if os.environ.get("RICEBOWL_DE_LIVE") == "1":
+                        try:
+                            from macrice.de import live
+                            response = live.request("refresh-outputs")
+                            if not response.get("ok"):
+                                raise live.LiveError("Waybar did not accept the output refresh")
+                        except (OSError, ValueError, live.LiveError):
+                            guard._write_state(change, "kept",
+                                "Monitor settings kept; restart RiceBowl to refresh Waybar")
                     return 0
                 time.sleep(0.12)
         except (RuntimeError, ValueError, OSError) as exc:

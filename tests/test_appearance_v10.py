@@ -85,13 +85,19 @@ class AppearanceV10Tests(unittest.TestCase):
         config, css = recipes.waybar_output_configs(recipe,
                                                      {'eDP-1': 640, 'HDMI-A-1': 1920})
         bars = json.loads(config)
-        self.assertEqual({bar['output'] for bar in bars}, {'eDP-1', 'HDMI-A-1'})
+        self.assertEqual(len(bars), 3)
+        self.assertEqual({bar['output'] for bar in bars if isinstance(bar['output'], str)},
+                         {'eDP-1', 'HDMI-A-1'})
+        fallback_bar = next(bar for bar in bars if bar['name'] == 'rice-output-fallback')
+        self.assertEqual(fallback_bar['output'], ['!HDMI-A-1', '!eDP-1', '*'])
+        self.assertNotIn('custom/rice-control-0', fallback_bar['modules-left'])
         compact = next(bar for bar in bars if bar['output'] == 'eDP-1')
         wide = next(bar for bar in bars if bar['output'] == 'HDMI-A-1')
         self.assertNotIn('custom/rice-control-0', compact['modules-left'])
         self.assertTrue(any('rice-control' in key for key in wide['modules-left']))
         self.assertIn('rice-output-0', css)
         self.assertIn('rice-output-1', css)
+        self.assertIn('rice-output-fallback', css)
         with mock.patch('macrice.de.session.subprocess.run') as run:
             run.return_value.stdout = json.dumps([
                 {'name': 'eDP-1', 'enabled': True, 'scale': 2.0,
@@ -101,7 +107,7 @@ class AppearanceV10Tests(unittest.TestCase):
             ])
             rendered, _ = session._waybar_recipe_config(recipe, {'WAYLAND_DISPLAY': 'wayland-1'},
                 lambda name: '/usr/bin/wlr-randr' if name == 'wlr-randr' else None)
-            self.assertEqual(len(json.loads(rendered)), 2)
+            self.assertEqual(len(json.loads(rendered)), 3)
             run.assert_called_once()
         fallback, _ = session._waybar_recipe_config(recipe, {}, lambda _name: None)
         self.assertIsInstance(json.loads(fallback), dict)
