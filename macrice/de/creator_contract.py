@@ -217,6 +217,8 @@ def describe_creator_api() -> dict[str, object]:
                  "runtime": "offline-PNG-panel-hints; optional external JSON proposals; explicit GTK review"},
                 {"id": "manual-region-pixel-qa", "supported": True,
                  "runtime": "GTK-on-demand; owner-annotated rectangles; native-capture real pixels"},
+                {"id": "interactive-region-correction-qa", "supported": True,
+                 "runtime": "GTK-on-demand; mouse or keyboard regions; bounded private cross-revision pixel journal"},
                 {"id": "private-drafts-and-packaging", "supported": True,
                  "runtime": "offline-CLI"},
                 {"id": "isolated-native-multisize-preview", "supported": True,
@@ -242,7 +244,7 @@ def describe_creator_api() -> dict[str, object]:
              "effect": "none until explicit checked-hint transfer to unsaved private draft"},
             {"step": "manual-region-qa", "commands": [],
              "ui": "ricebowl creator (GTK; no de CLI command)",
-             "effect": "owner-private read-only pixel diagnostics and optional JSON export"},
+             "effect": "owner-private read-only pixel diagnostics, version comparisons and optional JSON export"},
             {"step": "package", "commands": ["pack-export", "pack-inspect", "pack-import"],
              "effect": "owner-private-file-only"},
             {"step": "explicit-activate-or-recover", "commands": [

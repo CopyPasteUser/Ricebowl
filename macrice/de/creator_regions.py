@@ -1,4 +1,4 @@
-"""Rice Creator 0.8: owner-defined reference regions and real-pixel diagnostics.
+"""Rice Creator reference regions and real-pixel diagnostics (0.8–0.9).
 
 This module never edits a recipe or a screenshot. Regions are explicit user
 annotations, not guesses about visible controls or functional correctness.
@@ -30,11 +30,15 @@ def contract() -> dict[str, Any]:
         "kinds": list(KINDS), "max_regions": MAX_REGIONS,
         "rect_fields": ["kind", "x", "y", "width", "height"],
         "coordinates": "source screenshot pixels; no automatic scaling",
+        "mouse_selection": "0.9 GTK reference viewer; fitted pointer bounds become original source pixels",
         "policy": {"pixel_threshold": [0, 255], "tolerance_radius": [0, 1, 2]},
         "identity": ["reference_sha256", "capture_sha256", "recipe_sha256"],
         "effect": "private in-memory read-only diagnostics; optional owner-exported JSON",
         "accuracy": "raw and raster-tolerated pixel errors; no perceptual/functional score",
         "privacy": "no screenshot pixels in JSON; source images never uploaded",
+        "correction_cycle": {"iteration_version": 1, "max_measurements": 12,
+                             "requires": "same reference, regions, dimensions and pixel policy",
+                             "result": "per-region changed-pixel percentage-point delta"},
     }
 
 

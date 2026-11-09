@@ -821,8 +821,24 @@ depend on the XFCE session.
   recipe digests without exporting screenshots. The GTK controls are
   keyboard-accessible and invalidated on draft/reference/geometry/policy
   changes. No resident worker, active apply or AI service. These are pixel
-  measurements, not perceptual or functional compatibility scores; a
-  click-and-drag segmentation editor and real hardware QA remain future work.
+  measurements, not perceptual or functional compatibility scores; real
+  hardware QA remains future work.
+- [x] Implement **Rice Creator 0.9 interactive region selection and correction
+  QA**: an owner-activated GTK mouse drag draws live rubber-band feedback over
+  the actual reference PNG, maps fitted preview coordinates back into bounded
+  source-pixel rectangles, supports reverse drags, clamped release, Esc cancel
+  and the existing keyboard-driven coordinate form. The 0.8 region validator
+  remains the sole geometry gate. Region annotations persist across immutable
+  versions *of the same draft with the same reference digest*, so the owner
+  can correct fields in the existing schema-validated inspector, save a new
+  revision, render a fresh native RicePlate capture and re-measure. A bounded
+  12-capture, read-only correction journal compares only identical reference,
+  region and pixel-policy identities, showing per-region percentage-point
+  changes with recipe/capture SHA receipts, and can be exported privately as
+  versioned JSON without screenshot bytes. Replacing references, changing
+  rectangles, or changing comparison policy clears the history. This does not
+  infer UI semantics, generate edits or mutate the live desktop. Real Wayland
+  hardware/interaction/fractional-scale acceptance is still a 1.0 gate.
 - [x] Implement **Wayland RicePack v1 recipe exchange** (`de pack-export`,
   `de pack-inspect`, `de pack-import`): reproducible owner-private `.ricepack`
   archives, canonical schema-v1–v5 recipe, SHA-256 byte/semantic validation,
