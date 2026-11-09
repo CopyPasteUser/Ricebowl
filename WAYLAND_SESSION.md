@@ -1027,6 +1027,44 @@ offer explicit reviewed apply and restore; the Creator 0.4 GUI **never** calls
 them. No AI runtime, internet account or arbitrary plugin code is required;
 the optional visual editor uses the documented GTK/PyGObject and Cairo packages.
 
+#### Rice Creator 0.6 — private reference comparison
+
+In the **Reference / visual QA** strip of `ricebowl creator` (requires
+`python3-pil`, for example `sudo apt install python3-pil`), use **Load PNG…**
+to select a local, owner-controlled `.png` screenshot (maximum 64 MiB,
+16,777,216 decoded pixels). The file must be a readable PNG, not a symlink or
+group/world-writable source. Creator checks the whole image and copies it by
+SHA-256 to `~/.local/state/ricebowl/creator/references/` (or the matching
+`XDG_STATE_HOME` directory), with `0700` directory and `0600` images and
+selection metadata. Only the Creator draft ID is stored in the selection
+record; no arbitrary image file path is stored in a recipe. A reference is
+reloaded after opening a saved version with the same draft ID. **Unlink**
+removes just the selection; existing immutable source copies are retained.
+
+1. Choose or create a private draft, edit it, and **Save version**.
+2. Choose the output resolution (for example **1366 × 768**). Your reference
+   must have **exactly the same pixel dimensions**; Creator never stretches
+   or crops it to improve a score.
+3. Click **Render preview**. This launches isolated headless labwc/RicePlate
+   and captures an actual PNG. The active XFCE or Wayland session is unchanged.
+4. Click **Compare**. Pixel work runs in a worker and uses the same engine as
+   `de visual-compare`. Choose **Native**, **Reference**, **Split 50/50**
+   (left reference, right real capture), **Overlay 50/50**, or **Difference**
+   (red tolerance-aware heatmap) to inspect the images.
+5. Adjust **Pixel cutoff** (0–255, default 24) or **Raster tolerance**
+   (0, 1 or 2 pixels; default 1), then compare again. The status reports both
+   exact and tolerated changed-pixel fractions, mean RGB error and layout
+   warnings. These are *pixel diagnostics*, not a promise of OS similarity,
+   working controls or accessibility.
+
+Editing a recipe, switching geometry or changing the comparison policy
+invalidates its old result; render again after changing the recipe or size.
+If the selected PNG is damaged, replaced or its private permissions change,
+Creator rejects comparison and asks you to select a valid reference. The PNG references and
+generated diagnostic images are **not** exported in RicePack v4. Direct
+screenshot-to-recipe interpretation, automatic alignment, image asset license
+verification and hardware acceptance are separate, unfinished work.
+
 #### Rice Creator 0.5 — private font and icon assets
 
 Creator 0.5 adds a **Visual asset library** in the inspector. Import original

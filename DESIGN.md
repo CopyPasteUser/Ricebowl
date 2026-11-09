@@ -22,7 +22,7 @@ secondary pages; prototypes and the release roadmap do not crowd the selector.
 - The macOS selection currently previews its wallpaper rather than a full
   desktop capture; the hub labels that distinction explicitly.
 
-## Rice Creator workspace (GTK3, experimental 0.5)
+## Rice Creator workspace (GTK3, experimental 0.6)
 
 The Creator is a compact desktop authoring instrument, not a themed desktop
 simulation. Its one memorable surface is the **central real-shell capture**:
@@ -75,6 +75,20 @@ immutable v11 upgrade. Icons fit the existing hit areas; a bounded glyph cache
 renders custom text in native styled panel/widget labels. Waybar still uses
 its standard fonts/icons. RicePack v4 carries selected images, fonts and
 provenance without code, scripts or active-session changes.
+
+The v0.6 **Reference / visual QA** strip belongs to the real capture surface,
+not the schematic composition editor. A selected local PNG is checked and
+copied by digest to an owner-private, per-draft reference library. The selected
+reference survives immutable revisions but never becomes a recipe asset or
+RicePack attachment. Only a fresh native render at the *identical* logical
+size can be compared: the view selector explicitly distinguishes the actual
+capture, original reference, side-by-side 50/50 wipe, 50% blend overlay and
+red tolerance-aware heatmap. The existing offline comparison engine owns
+pixel metrics and region checks; UI labels never call these fidelity scores.
+Pixel cutoff and the 0–2 px tolerance are explicit, keyboard-accessible
+controls. Any changed recipe, geometry or policy invalidates old comparison
+results. Blocking pixel work runs off the GTK main loop. Damaged or missing
+reference files leave the editor available with a direct explanation.
 
 The established `macrice/hub.py:TOKENS` palette is the **single runtime color
 source** for Creator chrome; `macrice/creator_gui.py` uses those named tokens
