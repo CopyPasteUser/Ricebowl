@@ -8,6 +8,7 @@ synthetic output and selects it without a prompt via temporary xdpw config.
 from __future__ import annotations
 
 import os
+import secrets
 import time
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
@@ -39,8 +40,13 @@ def main() -> None:
     )
 
     def request(interface: str, method: str, signature: str, arguments: tuple) -> dict:
+        # XDG Request requires a fresh, non-guessable per-call token. Never
+        # reuse the frontend default handle path across two portal methods.
+        options = dict(arguments[-1])
+        options["handle_token"] = GLib.Variant("s", "ricebowl_ci_" + secrets.token_hex(12))
+        parameters = (*arguments[:-1], options)
         result = connection.call_sync(
-            DEST, OBJECT, interface, method, GLib.Variant(signature, arguments),
+            DEST, OBJECT, interface, method, GLib.Variant(signature, parameters),
             GLib.VariantType.new("(o)"), Gio.DBusCallFlags.NONE, 8_000, None,
         )
         handle = result.unpack()[0]
@@ -90,7 +96,7 @@ def main() -> None:
         print("Screenshot portal returned a real headless PNG", flush=True)
 
         session = request(CAST, "CreateSession", "(a{sv})", ({
-            "session_handle_token": GLib.Variant("s", "ricebowl_smoke_session"),
+            "session_handle_token": GLib.Variant("s", "ricebowl_sess_" + secrets.token_hex(12)),
         },)).get("session_handle")
         if not isinstance(session, str) or not session.startswith("/org/freedesktop/portal/desktop/session/"):
             raise RuntimeError("ScreenCast did not return a session handle")

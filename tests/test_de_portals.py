@@ -50,6 +50,13 @@ class WaylandPortalTests(unittest.TestCase):
             encoding="utf-8")
         self.assertIn('request(CAST, "CreateSession", "(a{sv})"', client)
 
+    def test_capture_requests_generate_unique_portal_handles(self):
+        client = (project_root() / "scripts/check_wayland_portals.py").read_text(
+            encoding="utf-8")
+        self.assertIn('options["handle_token"] = GLib.Variant("s",', client)
+        self.assertIn('"session_handle_token": GLib.Variant("s",', client)
+        self.assertIn('secrets.token_hex(', client)
+
 
 if __name__ == "__main__":
     unittest.main()
