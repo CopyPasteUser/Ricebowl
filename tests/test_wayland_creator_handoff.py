@@ -26,7 +26,7 @@ class NativeCreatorHandoffRunnerTests(unittest.TestCase):
             runner.capture_installed(self.output)
         self.assertEqual(sorted(p.name for p in self.output.iterdir()), ["existing"])
         self.output.joinpath("existing").unlink()
-        with mock.patch.object(runner.os, "geteuid", return_value=1000), \
+        with mock.patch.object(runner.os, "geteuid", return_value=self.output.stat().st_uid), \
              mock.patch.object(runner.shutil, "which", return_value=None):
             with self.assertRaisesRegex(ValueError, "Missing native Wayland tools"):
                 runner.capture_installed(self.output)
@@ -47,7 +47,7 @@ class NativeCreatorHandoffRunnerTests(unittest.TestCase):
                     "source": "isolated-headless-labwc-native-riceplate",
                     "mutates_active_desktop": False, "interactive_session": False}
 
-        with mock.patch.object(runner.os, "geteuid", return_value=1000), \
+        with mock.patch.object(runner.os, "geteuid", return_value=self.output.stat().st_uid), \
              mock.patch.object(runner.shutil, "which", return_value="/usr/bin/fake"), \
              mock.patch.object(runner.subprocess, "check_output", return_value="abc123\n"), \
              mock.patch.object(runner.render, "render", side_effect=fake_render):
