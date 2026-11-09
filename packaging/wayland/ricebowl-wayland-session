@@ -18,6 +18,13 @@ esac
 # tree. Prefer it over any unrelated user-local XFCE installation. Keep the
 # original user-local path for machines with the legacy session-only package.
 app=/usr/bin/ricebowl-wayland-app
+if [ -x "$app" ]; then
+    # RicePlate's allowlisted "ricebowl de ..." actions and the Waybar
+    # recipe adapters must use this same versioned Wayland core, rather
+    # than a user-local XFCE RiceBowl with a different code version.
+    PATH="/usr/lib/ricebowl-wayland/bin:${PATH:-/usr/bin:/bin}"
+    export PATH
+fi
 if [ ! -x "$app" ]; then
     if [ -z "${HOME:-}" ] || [ ! -x "$HOME/.local/bin/ricebowl" ]; then
         echo "RiceBowl: install ricebowl-wayland-core or the user-local application before selecting this session." >&2
