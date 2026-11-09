@@ -9,6 +9,7 @@ from macrice.de import catalog, creator_contract, drafts, pack, recipes, review
 
 
 FIXTURE = Path(__file__).parent / "fixtures/riceplate-components-v9.json"
+DESKTOP_ACTIONS = FIXTURE.parent / "riceplate-desktop-actions-v9.json"
 
 
 class SharedComponentTests(unittest.TestCase):
@@ -27,7 +28,10 @@ class SharedComponentTests(unittest.TestCase):
         self.assertEqual(info["catalog_version"], 12)
         widgets_catalog = info["recipe"]["shell_extensions"]["desktop"]["widgets"]
         self.assertEqual(widgets_catalog["text"]["max_characters"], 22)
-        self.assertEqual(widgets_catalog["pointer_input"], "transparent")
+        self.assertEqual(widgets_catalog["pointer_input"],
+                         "transparent-for-status-action-hit-region-only")
+        self.assertFalse(info["recipe"]["component_library"]["desktop_status_only"])
+        self.assertIn("wifi-toggle", widgets_catalog["action_components"]["bindings"])
         self.assertEqual(info["recipe"]["component_library"]["status_bindings"],
                          sorted(recipes.COMPONENT_STATUS_BINDINGS))
         wide, _ = recipes.waybar_config(recipe, screen_width=1366)
@@ -51,7 +55,7 @@ class SharedComponentTests(unittest.TestCase):
         rejects(lambda data: data["components"][0].update(id="wifi-switch"))
         rejects(lambda data: data["components"][1].update(role="shell"))
         rejects(lambda data: data["panel"]["layout"]["start"][2].update(ref="missing"))
-        rejects(lambda data: data["composition"]["widgets"][1].update(ref="wifi-switch"))
+        rejects(lambda data: data["composition"]["widgets"][1].update(ref="does-not-exist"))
         rejects(lambda data: data["composition"]["widgets"][1].update(kind="exec"))
         rejects(lambda data: data["composition"]["widgets"][3].update(text="$(id)"))
         rejects(lambda data: data["composition"]["widgets"][3].update(text="A" * 23))
@@ -62,6 +66,33 @@ class SharedComponentTests(unittest.TestCase):
         rejects(lambda data: data.update(schema_version=8))
         rejects(lambda data: data.pop("components"))
         rejects(lambda data: data["components"].extend(data["components"] * 3))
+
+    def test_desktop_reuses_allowlisted_action_with_creator_and_pack(self):
+        data = json.loads(FIXTURE.read_text())
+        data["composition"]["widgets"][2]["ref"] = "wifi-switch"
+        parsed = recipes.parse(json.dumps(data).encode())
+        self.assertEqual(parsed.composition.widgets[2].kind, "wifi-toggle")
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "shared.json"
+            source.write_text(json.dumps(data))
+            source.chmod(0o600)
+            reviewed = review.review(str(source))
+            self.assertEqual(reviewed["recipe"]["composition"]["widgets"][2]["ref"],
+                             "wifi-switch")
+            exported = Path(folder) / "shared.ricepack"
+            pack.export_pack(str(source), exported)
+            self.assertTrue(pack.inspect_pack(exported)["ok"])
+        # An existing status component stays read-only; no untrusted command
+        # can be smuggled through an action-bound desktop widget.
+        data["components"][1]["binding"] = "sh -c id"
+        with self.assertRaises(recipes.RecipeError):
+            recipes.parse(json.dumps(data).encode())
+
+    def test_native_action_demonstrator_has_bounded_shared_controls(self):
+        recipe = recipes.parse(DESKTOP_ACTIONS.read_bytes())
+        self.assertEqual([widget.kind for widget in recipe.composition.widgets],
+                         ["settings", "wifi-toggle", "network"])
+        self.assertEqual(recipe.schema_version, 9)
 
     def test_creator_preserves_refs_and_edits_bindings_without_touching_source(self):
         with tempfile.TemporaryDirectory() as folder:

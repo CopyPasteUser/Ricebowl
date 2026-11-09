@@ -236,7 +236,7 @@ def _parse_components(raw: Any) -> dict[str, ComponentDefinition]:
 def _parse_composition(raw: Any, *, components: dict[str, ComponentDefinition] | None = None,
                        schema_version: int = 8
                        ) -> DesktopComposition:
-    """Bounded desktop composition with safe v9 presentation-only labels."""
+    """Bounded desktop composition with validated shared status/action bindings."""
     data = _strict_keys(raw, {"widgets", "window_region", "compact_hide_widgets"},
                         "Desktop composition")
     raw_widgets = data["widgets"]
@@ -256,7 +256,8 @@ def _parse_composition(raw: Any, *, components: dict[str, ComponentDefinition] |
                 type(item["kind"]) is not str or
                 not (item["kind"] in (DESKTOP_WIDGET_KINDS if schema_version >= 9 else
                                      ("clock", "date", "system")) or
-                     component and bound is not None and bound.role == "status") or
+                     component and bound is not None and bound.role in ("status", "action")
+                     and schema_version >= 9) or
                 (text and not _safe_label(item["text"], 22)) or
                 type(item["x"]) is not int or type(item["y"]) is not int or
                 not 0 <= item["x"] <= 16_384 or not 0 <= item["y"] <= 16_384):

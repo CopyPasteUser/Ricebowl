@@ -1,5 +1,19 @@
 # RiceBowl changelog
 
+## Unreleased — shared native desktop action widgets (9 November 2026)
+
+- Reuse strictly allowlisted schema-v9 action component bindings on the desktop,
+  not just the panel. The native RicePlate renderer now provides bounded
+  clickable, keyboard-focused and AT-SPI-accessible desktop widgets with real
+  Wi-Fi/audio status checks and pending/failure feedback; noninteractive
+  status/text widgets retain empty pointer regions.
+- Support native widget focus cycling per output, guarded pointer release,
+  hotplug focus cleanup and Creator canvas placement without a new service,
+  schema migration, free-form commands or changes to XFCE/Waybar.
+- Add Rust parser/painter, Python Creator/security and true headless labwc
+  screenshot gates. Physical clicks and Orca on mixed-DPI monitors remain
+  release gates.
+
 ## Unreleased — native cross-display shortcut drops (9 November 2026)
 
 - Allow a grabbed desktop shortcut to move to another configured, named Wayland

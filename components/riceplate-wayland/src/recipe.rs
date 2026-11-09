@@ -47,6 +47,7 @@ pub enum DesktopWidgetKind {
     Audio,
     Battery,
     Text(String),
+    Action(String),
 }
 
 #[derive(Debug, Clone)]
@@ -494,10 +495,13 @@ fn validate_composition(
             ("system", None, None) => DesktopWidgetKind::System,
             ("text", None, Some(value)) if version >= 9 && safe_label(&value, 22) =>
                 DesktopWidgetKind::Text(value),
-            ("component", Some(reference), None) => {
-                let bound = components.iter().find(|entry| entry.id == reference
-                    && entry.role == "status").ok_or("Desktop needs a known status component")?;
+            ("component", Some(reference), None) if version >= 9 => {
+                let bound = components.iter().find(|entry| entry.id == reference)
+                    .ok_or("Desktop needs a known shared component")?;
                 title = Some(bound.label.clone());
+                if bound.role == "action" {
+                    DesktopWidgetKind::Action(bound.binding.clone())
+                } else if bound.role == "status" {
                 match bound.binding.as_str() {
                     "clock" => DesktopWidgetKind::Clock,
                     "network" => DesktopWidgetKind::Network,
@@ -505,6 +509,7 @@ fn validate_composition(
                     "battery" => DesktopWidgetKind::Battery,
                     _ => return Err("Unknown desktop component status".into()),
                 }
+                } else { return Err("Unknown desktop component role".into()); }
             }
             _ => return Err("Unsupported desktop widget type".into()),
         };
@@ -1292,6 +1297,13 @@ mod tests {
         assert_eq!(widgets[1].title.as_deref(), Some("Network"));
         assert_eq!(widgets[2].kind, DesktopWidgetKind::Audio);
         assert_eq!(widgets[3].kind, DesktopWidgetKind::Text("Welcome to RiceBowl".into()));
+        let mut data: serde_json::Value = serde_json::from_str(COMPONENTS_V9).unwrap();
+        data["composition"]["widgets"][2]["ref"] = serde_json::json!("wifi-switch");
+        let action = parse(&data.to_string(), None).unwrap();
+        assert_eq!(action.composition.unwrap().widgets[2].kind,
+                   DesktopWidgetKind::Action("wifi-toggle".into()));
+        data["components"][1]["binding"] = serde_json::json!("sh -c id");
+        assert!(parse(&data.to_string(), None).is_err());
     }
 
     #[test]
@@ -1302,7 +1314,7 @@ mod tests {
             ("/components/0/id", serde_json::json!("wifi-switch")),
             ("/components/1/role", serde_json::json!("command")),
             ("/panel/layout/start/2/ref", serde_json::json!("missing")),
-            ("/composition/widgets/1/ref", serde_json::json!("wifi-switch")),
+            ("/composition/widgets/1/ref", serde_json::json!("missing-component")),
             ("/composition/widgets/3/text", serde_json::json!("$(id)")),
             ("/composition/widgets/3/kind", serde_json::json!("system")),
             ("/schema_version", serde_json::json!(8)),

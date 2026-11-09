@@ -1249,9 +1249,9 @@ def run() -> int:
                                ("date", "Date"), ("system", "System info")):
                 self.layer_choices.append(key, title)
             for component in self.working.get("components", []):
-                if component["role"] == "status":
+                if component["role"] in ("status", "action"):
                     self.layer_choices.append("component:" + component["id"],
-                                              "Status: " + component["label"])
+                                              component["role"].capitalize() + ": " + component["label"])
             for action, label in (("applications", "Applications"),
                                   ("terminal", "Terminal"), ("lock", "Lock")):
                 self.layer_choices.append("icon:" + action, "Shortcut: " + label)
