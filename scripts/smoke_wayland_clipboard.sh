@@ -3,7 +3,7 @@
 set -eu
 
 source_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
-for executable in labwc Xwayland wl-copy wl-paste xclip timeout dbus-run-session; do
+for executable in labwc Xwayland xterm wl-copy wl-paste xclip timeout dbus-run-session; do
     command -v "$executable" >/dev/null || { echo "Missing clipboard CI dependency: $executable" >&2; exit 1; }
 done
 runtime=$(mktemp -d)
@@ -37,6 +37,7 @@ dbus-run-session -- sh -eu -c '
         if [ -f "$runtime/client.log" ]; then sed -n "1,55p" "$runtime/client.log" >&2; fi
         if [ -f "$runtime/wl-copy.log" ]; then sed -n "1,25p" "$runtime/wl-copy.log" >&2; fi
         if [ -f "$runtime/xclip.log" ]; then sed -n "1,25p" "$runtime/xclip.log" >&2; fi
+        if [ -f "$runtime/xterm.log" ]; then sed -n "1,25p" "$runtime/xterm.log" >&2; fi
         sed -n "1,55p" "$runtime/labwc.log" >&2
         exit 1
     fi
