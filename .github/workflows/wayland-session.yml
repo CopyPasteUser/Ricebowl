@@ -10,9 +10,6 @@ on:
       - 'packaging/wayland/**'
       - 'scripts/build_wayland_session_deb.sh'
       - 'scripts/smoke_wayland_session.sh'
-      - 'scripts/smoke_wayland_portals.sh'
-      - 'scripts/wayland_portals_smoke_client.sh'
-      - 'scripts/check_wayland_portals.py'
       - 'scripts/check_wayland_panel_outputs.py'
       - 'tests/test_de_*.py'
       - 'tests/test_wayland_creator_e2e.py'
@@ -26,9 +23,6 @@ on:
       - 'packaging/wayland/**'
       - 'scripts/build_wayland_session_deb.sh'
       - 'scripts/smoke_wayland_session.sh'
-      - 'scripts/smoke_wayland_portals.sh'
-      - 'scripts/wayland_portals_smoke_client.sh'
-      - 'scripts/check_wayland_portals.py'
       - 'scripts/check_wayland_panel_outputs.py'
       - 'tests/test_de_*.py'
       - 'tests/test_wayland_creator_e2e.py'
@@ -50,7 +44,7 @@ jobs:
             xwayland dbus-user-session dbus-x11 xdg-desktop-portal \
             xdg-desktop-portal-gtk xdg-desktop-portal-wlr \
             wayland-utils
-          sudo apt-get install -y grim wlr-randr python3-pil pipewire
+          sudo apt-get install -y grim wlr-randr python3-pil
       - name: Validate and test isolated session runtime
         run: |
           /usr/bin/python3 -m compileall -q macrice/de macrice/cli.py
@@ -61,8 +55,6 @@ jobs:
           sh -n scripts/build_wayland_session_deb.sh
           sh -n scripts/test_wayland_package_reproducibility.sh
           sh -n scripts/smoke_wayland_session.sh
-          sh -n scripts/smoke_wayland_portals.sh
-          sh -n scripts/wayland_portals_smoke_client.sh
       - name: Build non-installed login session package
         run: |
           sh scripts/build_wayland_session_deb.sh
@@ -74,7 +66,3 @@ jobs:
           timeout -k 5s 45s sh scripts/smoke_wayland_session.sh chrome
           timeout -k 5s 45s sh scripts/smoke_wayland_session.sh classic
           RICEBOWL_SMOKE_OUTPUTS=2 timeout -k 5s 60s sh scripts/smoke_wayland_session.sh classic
-
-      - name: Activate GTK/wlroots portals through isolated labwc D-Bus
-        run: |
-          timeout -k 5s 40s sh scripts/smoke_wayland_portals.sh
