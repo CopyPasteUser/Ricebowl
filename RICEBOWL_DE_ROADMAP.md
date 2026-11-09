@@ -1005,6 +1005,16 @@ depend on the XFCE session.
   source-commit-pinned manifest. These are isolated software tests: they do
   **not** yet prove real monitor, focus, application-window input, suspend or
   power-loss recovery, and are not physical 1.0 acceptance.
+- [x] Add **real Wayland taskbar lifecycle acceptance** in the isolated native
+  labwc job: launch a real `foot` toplevel with a controlled app ID, assert
+  that the existing foreign-toplevel handler receives the completed window,
+  verify the native task region visibly changes, then close that app and
+  verify both the protocol removal and restored empty panel pixels. Track
+  minimized state explicitly so activating a previously minimized task first
+  sends `unset_minimized` to the compositor. Rust unit tests cover protocol
+  state decoding and malformed trailing bytes. Window trace logs are disabled
+  by default and omit titles. Actual pointer/keyboard focus transfer, login
+  hardware, XWayland and long-running app behavior remain open.
 - [x] Publish two **honest schema-v5 Creator demonstrators** under
   `examples/wayland/`: a classic-OS-inspired workstation and a structurally
   distinct original Orbit concept. They use only shared native primitives,

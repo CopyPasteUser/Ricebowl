@@ -430,6 +430,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         primary_output: None,
         primary_output_seen: false,
         toplevel_manager,
+        trace_window_events: std::env::var("RICEBOWL_DE_TRACE_WINDOWS").as_deref() == Ok("1"),
         tasks: Vec::new(),
         task_offset: 0,
         pool: None,
@@ -647,6 +648,7 @@ struct Task {
     title: String,
     app_id: String,
     active: bool,
+    minimized: bool,
     ready: bool,
 }
 
@@ -782,6 +784,7 @@ struct RicePlate {
     primary_output: Option<wl_output::WlOutput>,
     primary_output_seen: bool,
     toplevel_manager: Option<ZwlrForeignToplevelManagerV1>,
+    trace_window_events: bool,
     tasks: Vec<Task>,
     task_offset: usize,
     pool: Option<SlotPool>,
@@ -1302,6 +1305,11 @@ impl RicePlate {
             if minimize {
                 self.tasks[target].handle.set_minimized();
             } else if let Some(seat) = self.primary_seat.as_ref() {
+                // A minimized client may stay hidden if we only request focus.
+                // Explicitly restore it before passing activation to the WM.
+                if self.tasks[target].minimized {
+                    self.tasks[target].handle.unset_minimized();
+                }
                 self.tasks[target].handle.activate(seat);
             }
         }
@@ -5144,11 +5152,15 @@ impl Dispatch<ZwlrForeignToplevelManagerV1, ()> for RicePlate {
                         title: String::new(),
                         app_id: String::new(),
                         active: false,
+                        minimized: false,
                         ready: false,
                     });
                 }
             }
             zwlr_foreign_toplevel_manager_v1::Event::Finished => {
+                if state.trace_window_events {
+                    eprintln!("RicePlate window event=manager-finished");
+                }
                 state.toplevel_manager = None;
                 state.tasks.clear();
                 state.task_offset = 0;
@@ -5170,6 +5182,9 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for RicePlate {
     ) {
         if let zwlr_foreign_toplevel_handle_v1::Event::Closed = event {
             if let Some(index) = state.tasks.iter().position(|task| task.handle == *proxy) {
+                if state.trace_window_events {
+                    eprintln!("RicePlate window event=closed app_id={:?}", state.tasks[index].app_id);
+                }
                 state.tasks.remove(index).handle.destroy();
                 state.task_offset = state
                     .task_offset
@@ -5196,9 +5211,9 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for RicePlate {
                     task.app_id = app_id.chars().take(256).collect()
                 }
                 zwlr_foreign_toplevel_handle_v1::Event::State { state: states } => {
-                    task.active = states
-                        .chunks_exact(4)
-                        .any(|raw| u32::from_ne_bytes(raw.try_into().unwrap_or_default()) == 2)
+                    let window_state = task_groups::decode_window_state(&states);
+                    task.active = window_state.active;
+                    task.minimized = window_state.minimized;
                 }
                 zwlr_foreign_toplevel_handle_v1::Event::Done => {
                     task.ready = true;
@@ -5207,6 +5222,12 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for RicePlate {
                 _ => {}
             }
             if refresh {
+                if state.trace_window_events {
+                    let task = &state.tasks[index];
+                    // App IDs are escaped; titles and user content are never traced.
+                    eprintln!("RicePlate window event=ready app_id={:?} active={} minimized={}",
+                        task.app_id, task.active, task.minimized);
+                }
                 if state.tasks[index].active {
                     state.reveal_task(index);
                 }

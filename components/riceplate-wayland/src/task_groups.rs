@@ -3,6 +3,27 @@
 
 use std::collections::HashMap;
 
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct WindowState {
+    pub active: bool,
+    pub minimized: bool,
+}
+
+/// wlroots foreign-toplevel `state` is a native-endian array of u32 values.
+/// Ignore an incomplete trailing value instead of treating it as a state.
+pub fn decode_window_state(raw: &[u8]) -> WindowState {
+    let mut result = WindowState::default();
+    for chunk in raw.chunks_exact(4) {
+        let state = u32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+        match state {
+            1 => result.minimized = true,
+            2 => result.active = true,
+            _ => {}
+        }
+    }
+    result
+}
+
 pub struct WindowInfo<'a> {
     pub index: usize,
     pub app_id: &'a str,
@@ -133,5 +154,16 @@ mod tests {
         assert_eq!(visible_label(&group, 164), "Second documen (2)");
         assert_eq!(visible_label(&group, 64), "Se (2)");
         assert_eq!(visible_label(&group, 8), "");
+    }
+
+    #[test]
+    fn foreign_toplevel_states_track_activation_and_minimize_independently() {
+        let encoded: Vec<u8> = [0_u32, 2, 3, 1]
+            .iter().flat_map(|value| value.to_ne_bytes()).collect();
+        assert_eq!(decode_window_state(&encoded), WindowState { active: true, minimized: true });
+        assert_eq!(decode_window_state(&1_u32.to_ne_bytes()),
+            WindowState { active: false, minimized: true });
+        assert_eq!(decode_window_state(&[0, 0, 0]), WindowState::default());
+        assert_eq!(decode_window_state(&[]), WindowState::default());
     }
 }
