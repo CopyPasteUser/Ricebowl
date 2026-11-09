@@ -231,11 +231,37 @@ class ProfileSession:
         return original
 
     def restore(self, original: Mapping[_Client, bytes]) -> None:
-        """Recover the previous appearance after a later compositor failure."""
-        for client, previous in original.items():
+        """Restore all clients or compensate back to the current appearance.
+
+        Read every file before the first write; if a later replacement fails,
+        undo the already-restored files and keep the in-memory receipts intact.
+        """
+        current = {}
+        for client in original:
+            if client not in self.clients:
+                raise ProfileError("RiceProfile restore target is not managed")
             path = self.root / client.filename
-            if _private_file(path) != self.clients[client][1]:
+            expected = self.clients[client][1]
+            if _private_file(path) != expected:
                 raise ProfileError("RiceProfile changed externally; cannot safely restore")
-            _atomic_replace(path, previous)
+            current[client] = expected
+
+        restored = []
+        try:
+            for client, previous in original.items():
+                path = self.root / client.filename
+                # Guard against a file changing after the initial preflight.
+                if _private_file(path) != current[client]:
+                    raise ProfileError("RiceProfile changed during recovery")
+                _atomic_replace(path, previous)
+                restored.append(client)
+        except (OSError, ProfileError) as error:
+            try:
+                for client in reversed(restored):
+                    _atomic_replace(self.root / client.filename, current[client])
+            except OSError as recovery:
+                raise ProfileError("RiceProfile recovery compensation failed") from recovery
+            raise ProfileError("RiceProfile restore failed; current files retained") from error
+        for client, previous in original.items():
             binary, _ = self.clients[client]
             self.clients[client] = (binary, previous)

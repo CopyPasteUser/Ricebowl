@@ -166,9 +166,10 @@ dbus-run-session -- sh -eu -c '
             "$runtime/second-restored.png"
         echo "Waybar fallback stayed visible across two outputs and one hotplug cycle"
     fi
-    # After a live switch the first unexpected panel exit must auto-restore
-    # once. A second exit must still terminate the supervisor and compositor.
-    # Multi-output smoke skips live switching, so one exit suffices there.
+    # After a live switch the first unexpected exit must restore the previous
+    # rice once. An additional crash may rescue the current verified recipe
+    # with Waybar *once*, then the next exit must terminate the compositor.
+    # Multi-output smoke does not live-switch; its first crash starts rescue.
     pkill -TERM -u "$(id -u)" -x waybar
     if [ "${WLR_HEADLESS_OUTPUTS:-1}" -eq 1 ]; then
         recovered=0
@@ -189,6 +190,23 @@ dbus-run-session -- sh -eu -c '
         echo "Live panel crash automatically restored the previous rice"
         pkill -TERM -u "$(id -u)" -x waybar
     fi
+    rescued=0
+    count=0
+    while [ "$count" -lt 20 ]; do
+        if /usr/bin/python3 "$project_root/launcher.py" de creator-live-status --json 2>/dev/null | \
+                /usr/bin/python3 -c "import json,sys; x=json.load(sys.stdin); assert x[\"panel\"]==\"waybar-fallback\"" 2>/dev/null; then
+            rescued=1
+            break
+        fi
+        count=$((count + 1))
+        sleep 0.25
+    done
+    if [ "$rescued" -ne 1 ]; then
+        echo "Live panel crash did not start one bounded Waybar rescue" >&2
+        exit 1
+    fi
+    echo "Live panel crash recovered once with Waybar"
+    pkill -TERM -u "$(id -u)" -x waybar
     count=0
     while [ "$count" -lt 40 ]; do
         if ! kill -0 "$compositor" 2>/dev/null; then

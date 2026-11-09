@@ -338,11 +338,13 @@ class _LiveSwitch:
                  spawn: Callable[..., subprocess.Popen[bytes]],
                  cleanup: ExitStack, initial_panel: subprocess.Popen[bytes],
                  initial_wallpaper: subprocess.Popen[bytes] | None,
-                 background: list[subprocess.Popen[bytes]]):
+                 background: list[subprocess.Popen[bytes]],
+                 stopping: Callable[[], bool] | None = None):
         from . import recipes, staging
         self.env, self.mode, self.which, self.spawn = env, mode, which, spawn
         self.cleanup, self.panel, self.wallpaper = cleanup, initial_panel, initial_wallpaper
         self.background = background
+        self.stopping = stopping or (lambda: False)
         self.nested = env.get("RICEBOWL_DE_NESTED") == "1"
         self.active = recipes.load(env.get("RICEBOWL_DE_RECIPE", "classic")).recipe_id
         self.active_digest = staging._hash(self.active)
@@ -406,6 +408,30 @@ class _LiveSwitch:
         return self.spawn(command, env={**self.env, "RICEBOWL_DE_RECIPE": recipes.native_token(token)},
                           stdin=subprocess.DEVNULL)
 
+    def rescue_panel(self) -> None:
+        """Try one bounded Waybar rescue without changing saved user state.
+
+        Reuse only the reviewed active recipe, never a changed imported file.
+        A failed rescue is surfaced to the supervisor rather than looped.
+        """
+        from . import recipes, staging
+        from .live import LiveError
+        if self.stopping():
+            raise LiveError("Session is shutting down", code="session_stopping")
+        recipe = recipes.load(self.active)
+        if staging._hash(self.active) != self.active_digest:
+            raise LiveError("Active recipe changed; rescue refused", code="recipe_changed")
+        self.fallback = True
+        candidate = self._start_panel(self.active, recipe)
+        time.sleep(0.5)
+        if self.stopping():
+            _stop_process(candidate)
+            raise LiveError("Session is shutting down", code="session_stopping")
+        if candidate.poll() is not None:
+            _stop_process(candidate)
+            raise LiveError("Waybar rescue exited during activation", code="component_failed")
+        self.panel = candidate
+
     def handle(self, request: dict) -> dict:
         from . import recipes, staging
         from .live import LiveError
@@ -417,6 +443,8 @@ class _LiveSwitch:
             if any(value is not None for value in (token, digest, expected)):
                 raise LiveError("Status takes no change options", code="invalid_live_request")
             return self.status()
+        if self.stopping():
+            raise LiveError("Session is shutting down", code="session_stopping")
         if action == "refresh-outputs":
             if any(value is not None for value in (token, digest, expected)):
                 raise LiveError("Output refresh takes no change options", code="invalid_live_request")
@@ -465,6 +493,7 @@ class _LiveSwitch:
             old_menu = self.menu.read_text(encoding="utf-8")
             old_digest = self.active_digest
             prepared_profiles = self.profile.preflight(recipe) if self.profile else {}
+            selection_before = recipes._selection_snapshot() if not self.nested else None
             if not self.nested and recipes.current_selection()[0] != self.expected_selection:
                 raise LiveError("Next-login selection changed", code="selection_conflict")
         except riceprofile.ProfileError as exc:
@@ -477,6 +506,7 @@ class _LiveSwitch:
         new_wallpaper = None
         menu_attempted = False
         profile_original = None
+        selection_attempted = False
         try:
             new_wallpaper = self.spawn([wallpaper_binary, "--image", str(wallpaper_path),
                                         "--mode", "fill"], env=self.env, stdin=subprocess.DEVNULL)
@@ -484,33 +514,47 @@ class _LiveSwitch:
             time.sleep(0.5)
             if new_panel.poll() is not None or new_wallpaper.poll() is not None:
                 raise LiveError("New shell component exited during activation", code="component_failed")
+            if self.stopping():
+                raise LiveError("Session is shutting down", code="session_stopping")
             menu_attempted = True
             _atomic_menu(self.menu, new_menu)
             self._reconfigure()
             if self.profile:
                 profile_original = self.profile.commit(prepared_profiles)
             if not self.nested:
+                selection_attempted = True
                 recipes.change_selection(token, expected_active=self.expected_selection,
                                          expected_semantic_sha256=digest)
+            if self.stopping():
+                raise LiveError("Session is shutting down", code="session_stopping")
         except (LiveError, OSError, ValueError, subprocess.SubprocessError,
                 riceprofile.ProfileError) as exc:
             if new_panel is not None:
                 _stop_process(new_panel)
             if new_wallpaper is not None:
                 _stop_process(new_wallpaper)
+            recovery_errors = []
             if profile_original is not None and self.profile:
                 try:
                     self.profile.restore(profile_original)
                 except riceprofile.ProfileError as restore_error:
-                    raise LiveError("Application profile recovery failed; restart the opt-in session",
-                                    code="rollback_failed") from restore_error
+                    recovery_errors.append(f"profile: {restore_error}")
             if menu_attempted:
                 try:
                     _atomic_menu(self.menu, old_menu)
                     self._reconfigure()
                 except (OSError, subprocess.SubprocessError) as restore_error:
-                    raise LiveError("Menu recovery failed; restart the opt-in session",
-                                    code="rollback_failed") from restore_error
+                    recovery_errors.append(f"menu: {restore_error}")
+            if selection_attempted:
+                try:
+                    recipes._restore_failed_live_selection(token, digest, selection_before)
+                except (recipes.RecipeError, OSError) as restore_error:
+                    recovery_errors.append(f"selection: {restore_error}")
+            if recovery_errors:
+                print("RiceBowl: incomplete live recovery: " + "; ".join(recovery_errors),
+                      file=sys.stderr)
+                raise LiveError("Live recovery incomplete; restart the opt-in session",
+                                code="rollback_failed") from exc
             if isinstance(exc, LiveError):
                 raise
             if isinstance(exc, riceprofile.ProfileError):
@@ -650,8 +694,10 @@ def shell(
                 if current is not None:
                     _stop_process(current)
 
+            native_live_rescue_attempted = False
+
             def supervised_wait(process: subprocess.Popen[bytes], mode: str) -> int:
-                nonlocal live_controller
+                nonlocal live_controller, native_live_rescue_attempted
                 if env.get("RICEBOWL_DE_LIVE") != "1":
                     return process.wait()
                 from .live import LiveError, listen, serve_once
@@ -660,7 +706,8 @@ def shell(
                     live_controller = _LiveSwitch(
                         env=env, mode=mode, which=which, spawn=spawn,
                         cleanup=cleanup, initial_panel=process,
-                        initial_wallpaper=wallpaper_process, background=background)
+                        initial_wallpaper=wallpaper_process, background=background,
+                        stopping=lambda: shutting_down)
                     # The Rust helper observes wl_output events, unlike a
                     # wlr-randr timer. It is optional and only needed for
                     # Waybar, because native RicePlate already reflows itself.
@@ -688,23 +735,38 @@ def shell(
                                   file=sys.stderr)
                     with listen(env) as listener:
                         auto_restore_attempted = False
+                        rescue_attempted = False
                         while not shutting_down:
-                            if live_controller.panel.poll() is not None:
-                                if auto_restore_attempted or live_controller.previous is None:
-                                    break
-                                auto_restore_attempted = True
-                                try:
-                                    live_controller.handle({
-                                        "action": "restore", "recipe": None, "sha256": None,
-                                        "expected": live_controller.active,
-                                    })
-                                    print("RiceBowl: failed live panel automatically restored",
-                                          file=sys.stderr)
-                                    continue
-                                except LiveError as error:
-                                    print(f"RiceBowl: live auto-restore failed: {error}",
-                                          file=sys.stderr)
-                                    break
+                            exit_code = live_controller.panel.poll()
+                            if exit_code is not None:
+                                if exit_code == 0:
+                                    break  # Explicit clean panel exit remains a session exit.
+                                if not auto_restore_attempted and live_controller.previous is not None:
+                                    auto_restore_attempted = True
+                                    try:
+                                        live_controller.handle({
+                                            "action": "restore", "recipe": None, "sha256": None,
+                                            "expected": live_controller.active,
+                                        })
+                                        print("RiceBowl: failed live panel automatically restored",
+                                              file=sys.stderr)
+                                        continue
+                                    except LiveError as error:
+                                        print(f"RiceBowl: live auto-restore failed: {error}",
+                                              file=sys.stderr)
+                                if not rescue_attempted:
+                                    rescue_attempted = True
+                                    if mode == "native":
+                                        native_live_rescue_attempted = True
+                                    try:
+                                        live_controller.rescue_panel()
+                                        print("RiceBowl: failed live panel recovered with Waybar",
+                                              file=sys.stderr)
+                                        continue
+                                    except (LiveError, RecipeError, OSError) as error:
+                                        print(f"RiceBowl: Waybar live rescue failed: {error}",
+                                              file=sys.stderr)
+                                break
                             if output_events is not None and output_events.ready(time.monotonic()):
                                 try:
                                     last_output_config = _refresh_changed_outputs(
@@ -738,7 +800,7 @@ def shell(
                             _stop_process(panel)
                             return 128 + shutdown_signal
                         status = supervised_wait(panel, "native")
-                        if status == 0 or shutting_down:
+                        if status == 0 or shutting_down or native_live_rescue_attempted:
                             return status
                         print(f"RicePlate native exited with status {status}; restoring Waybar.",
                               file=sys.stderr)
