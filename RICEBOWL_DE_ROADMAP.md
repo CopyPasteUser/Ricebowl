@@ -791,6 +791,22 @@ depend on the XFCE session.
   comparison/permissions tests and GTK smoke cover the authoring boundary.
   Real Wayland graphics, input/focus and multi-DPI QA remain open; screenshot
   decomposition and suggested component mappings are separate later work.
+- [x] Implement **Rice Creator 0.7 reference-to-recipe review**: on-demand
+  offline PNG sampling conservatively suggests detected top/bottom panel bounds,
+  position, bounded height and visually distinct palette colors. Flat or
+  ambiguous images yield no invented panel; menu identity, layout lanes and
+  spacing remain explicitly unknown. A versioned 24 KiB JSON format binds
+  optional human/AI-proposed safe menu/panel-layout/color/spacing edits to the
+  exact private reference SHA-256, dimensions and saved recipe fingerprint.
+  The existing bounded draft parser and full recipe validator reject unsafe
+  actions, malformed structure, duplicate or stale proposals. GTK shows
+  evidence/confidence, requires individual checkbox approval and transfers
+  only selected validated hints to an **unsaved** working copy; persistence
+  still requires Save version, and no live session changes. JSON exports
+  contain no screenshot pixels; external AI requires a separately consented
+  user share. Unit and GTK smoke cover the review boundary. Full semantic
+  automatic object/menus recognition, reliably faithful screenshot-to-rice
+  compilation and real Wayland hardware QA remain open.
 - [x] Implement **Wayland RicePack v1 recipe exchange** (`de pack-export`,
   `de pack-inspect`, `de pack-import`): reproducible owner-private `.ricepack`
   archives, canonical schema-v1–v5 recipe, SHA-256 byte/semantic validation,

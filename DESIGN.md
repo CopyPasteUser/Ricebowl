@@ -22,7 +22,7 @@ secondary pages; prototypes and the release roadmap do not crowd the selector.
 - The macOS selection currently previews its wallpaper rather than a full
   desktop capture; the hub labels that distinction explicitly.
 
-## Rice Creator workspace (GTK3, experimental 0.6)
+## Rice Creator workspace (GTK3, experimental 0.7)
 
 The Creator is a compact desktop authoring instrument, not a themed desktop
 simulation. Its one memorable surface is the **central real-shell capture**:
@@ -89,6 +89,21 @@ Pixel cutoff and the 0–2 px tolerance are explicit, keyboard-accessible
 controls. Any changed recipe, geometry or policy invalidates old comparison
 results. Blocking pixel work runs off the GTK main loop. Damaged or missing
 reference files leave the editor available with a direct explanation.
+
+The v0.7 **Reference mapping** disclosure sits directly below visual QA to
+preserve the screenshot as the focal point. Three secondary actions — offline
+analysis, import JSON, and export hints — precede a short, scrollable list of
+suggested bounded changes with source evidence and confidence explicitly
+labeled as *heuristic* (or *unverified external*), not as visual/functional
+accuracy. Low-confidence offline colors and **all external proposals** start
+unchecked. The single primary **Use checked hints in unsaved draft**
+action is disabled until at least one row is selected and cannot replace Save
+version. The normal GTK property inspector refreshes after transferring hints,
+letting users adjust the actual validated controls; there is no hidden apply.
+Stale screenshot, revision, edit and import states invalidate the suggestion
+list, and the local PNG is never included in a JSON hints export. Rows remain
+native keyboard-focusable GTK controls and live in a capped scrolling region
+on smaller laptop screens.
 
 The established `macrice/hub.py:TOKENS` palette is the **single runtime color
 source** for Creator chrome; `macrice/creator_gui.py` uses those named tokens

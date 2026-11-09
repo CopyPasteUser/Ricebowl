@@ -192,6 +192,8 @@ def describe_creator_api() -> dict[str, object]:
     agent may discover functionality but can never acquire new executable
     privileges from recipe contents or this read-only description.
     """
+    from . import creator_mapping
+
     contract = {
         "api_version": 2,
         "scope": "experimental-wayland-shell-authoring",
@@ -211,6 +213,8 @@ def describe_creator_api() -> dict[str, object]:
                  "since_schema": 10, "runtime": "native; Waybar appearance and per-output layout"},
                 {"id": "private-native-font-and-icon-assets", "supported": True,
                  "since_schema": 11, "runtime": "native-only; owner-private TTF and 48px RGBA icons"},
+                {"id": "reference-mapping-review", "supported": True,
+                 "runtime": "offline-PNG-panel-hints; optional external JSON proposals; explicit GTK review"},
                 {"id": "private-drafts-and-packaging", "supported": True,
                  "runtime": "offline-CLI"},
                 {"id": "isolated-native-multisize-preview", "supported": True,
@@ -231,6 +235,9 @@ def describe_creator_api() -> dict[str, object]:
              "effect": "owner-private-file-only"},
             {"step": "visual-qa", "commands": ["render", "visual-compare"],
              "effect": "isolated-native-preview"},
+            {"step": "reference-mapping-review", "commands": [],
+             "ui": "ricebowl creator (GTK; no de CLI command)",
+             "effect": "none until explicit checked-hint transfer to unsaved private draft"},
             {"step": "package", "commands": ["pack-export", "pack-inspect", "pack-import"],
              "effect": "owner-private-file-only"},
             {"step": "explicit-activate-or-recover", "commands": [
@@ -239,6 +246,7 @@ def describe_creator_api() -> dict[str, object]:
         ],
         "mutation_scope_values": ["none", "private-file", "private-file-optional",
                                   "next-login", "active-wayland-session", "active-user-session"],
+        "reference_mapping": creator_mapping.contract(),
         "success_exit_code": 0,
         "invalid_options_exit_code": 1,
         "operation_error_exit_code": 2,

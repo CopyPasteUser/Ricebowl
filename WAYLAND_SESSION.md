@@ -1065,6 +1065,63 @@ generated diagnostic images are **not** exported in RicePack v4. Direct
 screenshot-to-recipe interpretation, automatic alignment, image asset license
 verification and hardware acceptance are separate, unfinished work.
 
+#### Rice Creator 0.7 — reviewable reference mapping
+
+Creator 0.7 adds a **Reference mapping · review before editing** disclosure
+under the 0.6 visual-QA controls. Create/open a draft, link a reference PNG and
+save all pending edits first. Unlike visual comparison, **Analyze offline** does
+not require a native render or a matching render resolution. It samples the
+verified private PNG on a worker without network access. A sufficiently clear,
+full-width top/bottom strip can produce proposed **panel edge**, **height**
+(28–64 px) and **dominant panel color**; visibly contrasting neutral pixels
+or saturated pixels may generate lower-confidence foreground/accent suggestions.
+Uniform, small or ambiguous images yield no invented panel. Confidence is
+**heuristic evidence, not a similarity score or recognition guarantee**.
+
+The review list shows the exact schema field, proposed value and reasoning.
+Only higher-confidence **offline** hints are prechecked; all external proposals
+start unchecked. Review them before clicking
+**Use checked hints in unsaved draft**. This updates the editable property
+inspector, **not** a persisted version. Use **Save version** and then **Render
+preview** to verify. The previous version remains recoverable. Switching
+references or drafts, saving or changing a field invalidates stale proposals.
+
+For additional assistance, **Export hints…** creates a new private JSON file
+without overwriting or embedding screenshot pixels. An external AI or human
+can inspect the image **only if you separately choose to share it** and return
+an edited proposal in the same format. Discover the allowlisted vocabulary with
+`ricebowl de creator-api --json` (`reference_mapping` section). For example,
+replace the exported `suggestions` array with:
+
+```json
+"suggestions": [
+  {
+    "path": "/menu/presentation",
+    "value": "sidebar",
+    "confidence": 0.5,
+    "evidence": "Human-reviewed menu appearance; not machine verified"
+  }
+]
+```
+
+Preserve the exported `mapping_version: 1`, SHA-256 identifiers, image size,
+`regions` and `notes`; set `source` to `external`. Only the full JSON object
+is accepted by **Import JSON…**. The importer checks owner-controlled regular
+files at most 24 KiB, rejects symlinks, duplicates, unrecognized fields and
+unsafe/out-of-range values, and runs both the standard draft validator and
+full schema-v11 parser. Supported proposals are limited to panel placement,
+height, colors, menu presentation, spacing and existing bounded panel-layout
+nodes. AI proposals cannot define arbitrary commands, scripts, new executable
+abilities or runtime changes. A mismatch with the selected PNG or saved draft
+requires a fresh analysis/export. The Creator does not upload images, launch
+an AI service, auto-activate a rice or include references/proposals in RicePack.
+
+**Not implemented:** general-purpose image semantic segmentation (which icon
+is a clock, which rectangle is a menu, font recognition), reliable menu/window
+geometry reconstruction, automatically generated assets or one-click faithful
+desktop cloning. The JSON interface supports an external supervised AI authoring
+loop, not an autonomous screenshot-to-desktop converter.
+
 #### Rice Creator 0.5 — private font and icon assets
 
 Creator 0.5 adds a **Visual asset library** in the inspector. Import original
