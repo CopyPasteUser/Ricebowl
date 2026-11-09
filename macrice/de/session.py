@@ -334,6 +334,54 @@ class _OutputEvents:
         return False
 
 
+class _ResumeGap:
+    """Detect suspend without trusting wall-clock jumps or a new daemon.
+
+    CLOCK_BOOTTIME advances during Linux suspend; CLOCK_MONOTONIC does not.
+    A changed difference reports a wake once. If the kernel lacks BOOTTIME,
+    resume detection is unavailable; existing wl_output events still work.
+    """
+
+    def __init__(self, reader: Callable[[], tuple[float, float]] | None = None):
+        if reader is None and hasattr(time, "CLOCK_BOOTTIME"):
+            reader = lambda: (time.monotonic(), time.clock_gettime(time.CLOCK_BOOTTIME))
+        self._read = reader
+        self._previous: float | None = None
+
+    def resumed(self) -> bool:
+        if self._read is None:
+            return False
+        try:
+            monotonic, boottime = self._read()
+        except (OSError, ValueError):
+            return False
+        offset = boottime - monotonic
+        prior, self._previous = self._previous, offset
+        return prior is not None and offset - prior >= 1.5
+
+
+def _wait_with_idle_guard(panel: subprocess.Popen[bytes],
+                          idle: subprocess.Popen[bytes] | None) -> tuple[int, bool]:
+    """Supervise even when live RPC is unavailable or deliberately disabled.
+
+    Return (panel exit status, idle watcher failed). A missing security guard
+    is fatal in full sessions; never mistake its death for a panel crash that
+    should trigger a Waybar rescue.
+    """
+    if idle is None:
+        return panel.wait(), False
+    while True:
+        if idle.poll() is not None:
+            print("RiceBowl: idle/lock watcher exited; stopping unprotected "
+                  "Wayland session", file=sys.stderr)
+            _stop_process(panel)
+            return 1, True
+        try:
+            return panel.wait(timeout=0.2), False
+        except subprocess.TimeoutExpired:
+            continue
+
+
 class _LiveSwitch:
     """One transaction owner for panel, wallpaper, compositor menu and login state."""
 
@@ -705,11 +753,13 @@ def shell(
                     _stop_process(current)
 
             native_live_rescue_attempted = False
+            idle_guard_failed = False
 
             def supervised_wait(process: subprocess.Popen[bytes], mode: str) -> int:
-                nonlocal live_controller, native_live_rescue_attempted
+                nonlocal live_controller, native_live_rescue_attempted, idle_guard_failed
                 if env.get("RICEBOWL_DE_LIVE") != "1":
-                    return process.wait()
+                    result, idle_guard_failed = _wait_with_idle_guard(process, idle_process)
+                    return result
                 from .live import LiveError, listen, serve_once
                 from .recipes import RecipeError
                 try:
@@ -723,6 +773,9 @@ def shell(
                     # Waybar, because native RicePlate already reflows itself.
                     output_events = None
                     last_output_config = None
+                    resume_gap = (_ResumeGap() if env.get("RICEBOWL_DE_NESTED") != "1"
+                                  else None)
+                    resume_refresh_at: float | None = None
                     watcher_bin = (which("riceplate-native") if mode == "waybar"
                                    and which("wlr-randr") else None)
                     if watcher_bin:
@@ -751,10 +804,27 @@ def shell(
                             # onto an unlocked screen. End this opt-in session
                             # rather than silently running without protection.
                             if idle_process is not None and idle_process.poll() is not None:
+                                idle_guard_failed = True
                                 print("RiceBowl: idle/lock watcher exited; stopping "
                                       "unprotected Wayland session", file=sys.stderr)
                                 _stop_process(live_controller.panel)
                                 return 1
+                            # On wake, allow DRM/output discovery to settle before
+                            # one bounded Waybar layout recheck. Native RicePlate
+                            # handles wl_output itself. No timer or daemon is
+                            # started, and normal CPU wakeups do not trigger it.
+                            now = time.monotonic()
+                            if resume_gap is not None and resume_gap.resumed():
+                                resume_refresh_at = now + 1.5
+                            if resume_refresh_at is not None and now >= resume_refresh_at:
+                                resume_refresh_at = None
+                                if mode == "waybar" or live_controller.fallback:
+                                    try:
+                                        last_output_config = _refresh_changed_outputs(
+                                            live_controller, last_output_config, env, which)
+                                    except (LiveError, RecipeError, OSError) as error:
+                                        print("RiceBowl: resume output refresh retained "
+                                              f"previous panel: {error}", file=sys.stderr)
                             exit_code = live_controller.panel.poll()
                             if exit_code is not None:
                                 if exit_code == 0:
@@ -796,7 +866,9 @@ def shell(
                         return live_controller.panel.wait()
                 except (LiveError, RecipeError, OSError) as error:
                     print(f"RiceBowl live switching unavailable: {error}", file=sys.stderr)
-                    return process.wait()
+                    result, guard_failed = _wait_with_idle_guard(process, idle_process)
+                    idle_guard_failed = idle_guard_failed or guard_failed
+                    return result
                 finally:
                     if live_controller is not None:
                         _stop_process(live_controller.panel)
@@ -818,7 +890,8 @@ def shell(
                             _stop_process(panel)
                             return 128 + shutdown_signal
                         status = supervised_wait(panel, "native")
-                        if status == 0 or shutting_down or native_live_rescue_attempted:
+                        if (status == 0 or shutting_down or native_live_rescue_attempted
+                                or idle_guard_failed):
                             return status
                         print(f"RicePlate native exited with status {status}; restoring Waybar.",
                               file=sys.stderr)
