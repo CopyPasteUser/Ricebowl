@@ -17,7 +17,7 @@ import threading
 from pathlib import Path
 
 from .de import creator_layout as layout_engine, creator_workspace as workspace
-from .de import (assets, creator_assets, creator_mapping, creator_reference, creator_regions,
+from .de import (assets, creator_assets, creator_iteration, creator_mapping, creator_reference, creator_regions,
                  creator_structure, drafts,
                  recipes, render, review, style_assets)
 
@@ -177,6 +177,11 @@ def run() -> int:
             self._mapping_generation = 0
             self._regions: list[dict] = []
             self._region_report: dict | None = None
+            self._region_measurements: list[dict] = []
+            self._region_drag: tuple[float, float] | None = None
+            self._region_drag_end: tuple[float, float] | None = None
+            self._region_drag_display: tuple[int, int] | None = None
+            self._region_drag_origin: tuple[float, float] = (0, 0)
             self._history: list[Path] = []
             self._selected_layer: tuple[str, int] | None = None
             self._drag: tuple[tuple[str, int], float, float, int, int] | None = None
@@ -385,7 +390,7 @@ def run() -> int:
                                               self._mapping_apply, primary=True)
             mapping_body.pack_start(self.mapping_apply, False, False, 0)
 
-            region_expander = Gtk.Expander(label="REGION QA · MEASURE SELECTED AREAS")
+            region_expander = Gtk.Expander(label="REGION QA · SELECT, CORRECT, RE-MEASURE")
             region_expander.set_expanded(False)
             reference_bar.pack_start(region_expander, False, False, 0)
             region_body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -393,10 +398,15 @@ def run() -> int:
             region_body.set_margin_bottom(7)
             region_expander.add(region_body)
             region_body.pack_start(self._text(
-                "Annotate up to eight rectangles in reference pixels. Compare each "
-                "with a real native capture; these are pixel errors, not fidelity scores. "
-                "Annotations are temporary until you export the report.",
+                "Draw up to eight rectangles on the screenshot, or enter their source-pixel "
+                "coordinates below. Measure → adjust the draft in the inspector → Save version "
+                "→ Render → re-measure. Only pixel errors are measured, not fidelity.",
                 "creator-preview-note", wrap=True), False, False, 0)
+            self.region_draw = Gtk.ToggleButton(label="Draw region on screenshot")
+            self.region_draw.set_tooltip_text(
+                "Select the reference view, then click and drag. Esc cancels a drag.")
+            self.region_draw.connect("toggled", self._region_draw_toggled)
+            region_body.pack_start(self.region_draw, False, False, 0)
             region_form = Gtk.Grid(column_spacing=7, row_spacing=5)
             region_body.pack_start(region_form, False, False, 0)
             region_form.attach(self._text("Type", "creator-layer-hint"), 0, 0, 1, 1)
@@ -433,14 +443,32 @@ def run() -> int:
             self.region_summary = self._text("No regions marked.",
                                              "creator-preview-note", wrap=True)
             region_body.pack_start(self.region_summary, False, False, 0)
-            self.region_export = self._button("Export pixel report JSON…", self._region_export)
+            self.region_cycle = self._text("Correction cycle: no measurements yet.",
+                                           "creator-layer-hint", wrap=True)
+            region_body.pack_start(self.region_cycle, False, False, 0)
+            self.region_export = self._button("Export pixel history JSON…", self._region_export)
             region_body.pack_start(self.region_export, False, False, 0)
             self.preview_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
             self.preview_box.set_halign(Gtk.Align.CENTER)
             self.preview_box.set_valign(Gtk.Align.CENTER)
             self.preview_scroller.add(self.preview_box)
             self.preview_image = Gtk.Image.new_from_icon_name("video-display", Gtk.IconSize.DIALOG)
-            self.preview_box.pack_start(self.preview_image, True, True, 0)
+            self.preview_overlay = Gtk.Overlay()
+            self.preview_overlay.add(self.preview_image)
+            self.region_surface = Gtk.DrawingArea()
+            self.region_surface.set_can_focus(True)
+            self.region_surface.set_tooltip_text("Drag to select a reference region when drawing is enabled")
+            self.region_surface.add_events(Gdk.EventMask.BUTTON_PRESS_MASK |
+                                           Gdk.EventMask.BUTTON_RELEASE_MASK |
+                                           Gdk.EventMask.POINTER_MOTION_MASK |
+                                           Gdk.EventMask.KEY_PRESS_MASK)
+            self.region_surface.connect("draw", self._region_rubberband_draw)
+            self.region_surface.connect("button-press-event", self._region_pointer_press)
+            self.region_surface.connect("motion-notify-event", self._region_pointer_motion)
+            self.region_surface.connect("button-release-event", self._region_pointer_release)
+            self.region_surface.connect("key-press-event", self._region_pointer_key)
+            self.preview_overlay.add_overlay(self.region_surface)
+            self.preview_box.pack_start(self.preview_overlay, True, True, 0)
             self.preview_caption = self._text("Choose a template, then render a real native RicePlate image.",
                                               "creator-preview-note", wrap=True)
             self.preview_caption.set_xalign(0.5)
@@ -504,6 +532,7 @@ def run() -> int:
             self.mapping_apply.set_sensitive(can_map and any(
                 widget.get_active() for widget in self._mapping_checks.values()))
             self.region_add.set_sensitive(can_map and len(self._regions) < creator_regions.MAX_REGIONS)
+            self.region_draw.set_sensitive(can_map and len(self._regions) < creator_regions.MAX_REGIONS)
             self.region_from_hints.set_sensitive(can_map and bool(
                 self._mapping and self._mapping["regions"]))
             can_measure = bool(can_map and self._regions and self._capture_bytes and
@@ -566,6 +595,11 @@ def run() -> int:
             report = review.review(str(info.path))
             if report["recipe"]["schema_version"] not in (10, 11):
                 raise workspace.WorkspaceError("Creator edits validated schema-v10/v11 recipes only")
+            preserve_annotations = bool(not reset_history and self.info and self._reference and
+                                        self.info.recipe_id == info.recipe_id)
+            reference_sha = self._reference.sha256 if preserve_annotations else None
+            old_regions = copy.deepcopy(self._regions) if preserve_annotations else []
+            old_measurements = list(self._region_measurements) if preserve_annotations else []
             self._render_generation += 1
             self._mapping_reset()
             self._regions_reset()
@@ -593,6 +627,12 @@ def run() -> int:
             self.reference_metrics.set_text("Render this version for a fresh comparison.")
             self.preview_image.set_from_icon_name("video-display", Gtk.IconSize.DIALOG)
             self.preview_caption.set_text("Preview not rendered for this saved version.")
+            if self._reference is not None and reference_sha == self._reference.sha256 and old_regions:
+                self._regions = creator_regions.validate(
+                    old_regions, size=(self._reference.width, self._reference.height))
+                self._region_measurements = old_measurements
+                self._region_refresh()
+                self.preview_caption.set_text("Reference annotations retained; render this saved revision to measure again.")
             self.diff.set_text(f"Recipe: {info.recipe_id} · Schema v{report['recipe']['schema_version']} · SHA {info.semantic_sha256[:12]}")
             self.inspector_context.set_text(f"Editing {info.name} · schema v{report['recipe']['schema_version']} · offline draft")
             self._build_inspector()
@@ -1934,14 +1974,147 @@ def run() -> int:
 
         def _regions_reset(self):
             """A rectangle and its measurements belong to exactly one reference."""
+            self._region_cancel_drag()
+            self.region_draw.set_active(False)
             self._regions = []
             self._region_report = None
+            self._region_measurements = []
             for child in self.region_list.get_children():
                 self.region_list.remove(child)
             self.region_summary.set_text("No regions marked.")
+            self.region_cycle.set_text("Correction cycle: no measurements yet.")
             self._comparison_views.pop("regions", None)
             if self.reference_mode.get_active_id() == "regions":
                 self.reference_mode.set_active_id("reference")
+
+        def _region_cycle_label(self):
+            if not self._region_measurements:
+                self.region_cycle.set_text(
+                    "Correction cycle: no measurements yet. Save an edit and render again "
+                    "to compare the same regions.")
+                return
+            cycle = creator_iteration.journal(self._region_measurements)
+            lines = [f"Correction cycle · {len(self._region_measurements)} real "
+                     "capture(s) · last 12 retained"]
+            for index, measurement in enumerate(self._region_measurements, start=1):
+                lines.append(f"{index}. recipe {measurement['recipe_sha256'][:10]} "
+                             f"· capture {measurement['capture_sha256'][:10]}")
+            if cycle["comparisons"]:
+                last = cycle["comparisons"][-1]
+                for item in last["regions"]:
+                    delta = item["tolerated_changed_percentage_point_delta"]
+                    lines.append(f"Region {item['number']} · {delta:+.3f} percentage points "
+                                 f"({item['direction']} pixel error)")
+            lines.append("Comparable pixels only; lower error does not prove higher fidelity.")
+            self.region_cycle.set_text("\n".join(lines))
+
+        def _region_cancel_drag(self):
+            self._region_drag = None
+            self._region_drag_end = None
+            self._region_drag_display = None
+            if hasattr(self, "region_surface"):
+                self.region_surface.queue_draw()
+
+        def _region_draw_toggled(self, _button):
+            self._region_cancel_drag()
+            if self.region_draw.get_active():
+                if self._reference is None or self._busy or self.pending:
+                    self.region_draw.set_active(False)
+                    return
+                if self.reference_mode.get_active_id() not in ("reference", "regions"):
+                    self.reference_mode.set_active_id("reference")
+                self.visual_stack.set_visible_child_name("native")
+                self._status("Drag a rectangle over the reference. Esc cancels; "
+                             "the original PNG stays unchanged.")
+
+        def _region_screen_geometry(self):
+            displayed = self.preview_image.get_pixbuf()
+            if displayed is None or self._reference is None:
+                return None
+            allocation = self.region_surface.get_allocation()
+            width, height = displayed.get_width(), displayed.get_height()
+            return ((width, height),
+                    ((allocation.width - width) / 2, (allocation.height - height) / 2))
+
+        def _region_pointer_press(self, _surface, event):
+            if (event.button != 1 or not self.region_draw.get_active() or self._busy or
+                    self.pending or len(self._regions) >= creator_regions.MAX_REGIONS or
+                    self.reference_mode.get_active_id() not in ("reference", "regions")):
+                return False
+            geometry = self._region_screen_geometry()
+            if geometry is None:
+                return False
+            displayed, origin = geometry
+            pos = (event.x - origin[0], event.y - origin[1])
+            if not 0 <= pos[0] <= displayed[0] or not 0 <= pos[1] <= displayed[1]:
+                return False
+            self._region_drag, self._region_drag_end = pos, pos
+            self._region_drag_display, self._region_drag_origin = displayed, origin
+            self.region_surface.grab_focus()
+            self.region_surface.queue_draw()
+            return True
+
+        def _region_pointer_motion(self, _surface, event):
+            if self._region_drag is None:
+                return False
+            self._region_drag_end = (event.x - self._region_drag_origin[0],
+                                     event.y - self._region_drag_origin[1])
+            self.region_surface.queue_draw()
+            return True
+
+        def _region_pointer_release(self, _surface, event):
+            if self._region_drag is None or event.button != 1:
+                return False
+            start = self._region_drag
+            end = (event.x - self._region_drag_origin[0],
+                   event.y - self._region_drag_origin[1])
+            displayed = self._region_drag_display
+            self._region_cancel_drag()
+            if self._reference is None or displayed is None or self.pending or self._busy:
+                return True
+            try:
+                rect = creator_iteration.drag_rectangle(
+                    start, end, displayed=displayed,
+                    source=(self._reference.width, self._reference.height),
+                    kind=self.region_kind.get_active_id())
+                updated = creator_regions.validate(
+                    [*self._regions, rect],
+                    size=(self._reference.width, self._reference.height))
+                self._regions = updated
+                self._region_measurements = []
+                for key in ("x", "y", "width", "height"):
+                    self.region_coords[key].set_value(rect[key])
+                self._region_refresh()
+                self._status("Region selected in original screenshot pixels. "
+                             "Measure it against a native render.", success=True)
+            except creator_regions.RegionError as exc:
+                self._status(f"Selection rejected: {exc}", error=True)
+            return True
+
+        def _region_pointer_key(self, _surface, event):
+            if event.keyval == Gdk.KEY_Escape and self._region_drag is not None:
+                self._region_cancel_drag()
+                self._status("Region drag cancelled; annotations unchanged.")
+                return True
+            return False
+
+        def _region_rubberband_draw(self, _surface, context):
+            if self._region_drag is None or self._region_drag_end is None:
+                return False
+            width, height = self._region_drag_display
+            ox, oy = self._region_drag_origin
+            x1, y1 = self._region_drag
+            x2, y2 = self._region_drag_end
+            x1, x2 = sorted((max(0, min(width, x1)), max(0, min(width, x2))))
+            y1, y2 = sorted((max(0, min(height, y1)), max(0, min(height, y2))))
+            context.rectangle(ox + x1, oy + y1, x2 - x1, y2 - y1)
+            context.set_source_rgba(0.19, 0.89, 0.70, 0.18)
+            context.fill_preserve()
+            context.set_source_rgba(0.19, 0.89, 0.70, 1)
+            context.set_line_width(2)
+            context.set_dash([5, 3])
+            context.stroke()
+            return False
 
         def _region_limits(self):
             if self._reference is None:
@@ -1957,6 +2130,7 @@ def run() -> int:
 
         def _region_refresh(self):
             self._region_report = None
+            self._region_cancel_drag()
             for child in self.region_list.get_children():
                 self.region_list.remove(child)
             for index, item in enumerate(self._regions):
@@ -1973,6 +2147,7 @@ def run() -> int:
                 f"{len(self._regions)} user-reviewed rectangles. Measure against a matching "
                 "native render; results expire when regions, policy or capture change."
                 if self._regions else "No regions marked.")
+            self._region_cycle_label()
             self._comparison_views.pop("regions", None)
             if self._reference is not None and self._regions and self.info is not None:
                 try:
@@ -1981,7 +2156,10 @@ def run() -> int:
                     data = creator_reference.image_bytes(self.info.recipe_id)
                     self._comparison_views["regions"] = creator_regions.annotated_view(
                         data, reference_sha256=self._reference.sha256, regions=self._regions)
-                    self.reference_mode.set_active_id("regions")
+                    if self.reference_mode.get_active_id() == "regions":
+                        self._reference_view_changed()  # New image under the same selector.
+                    else:
+                        self.reference_mode.set_active_id("regions")
                 except (creator_reference.ReferenceError, creator_mapping.MappingError,
                         creator_regions.RegionError, OSError) as exc:
                     self._status(f"Cannot mark reference: {exc}", error=True)
@@ -1999,6 +2177,7 @@ def run() -> int:
                 self._regions = creator_regions.validate(
                     [*self._regions, item],
                     size=(self._reference.width, self._reference.height))
+                self._region_measurements = []
                 self._region_refresh()
                 self._status("Region marked locally. No screenshot or recipe was changed.",
                              success=True)
@@ -2009,6 +2188,7 @@ def run() -> int:
             if self._busy or not 0 <= index < len(self._regions):
                 return
             self._regions.pop(index)
+            self._region_measurements = []
             self._region_refresh()
 
         def _region_from_mapping(self, _button):
@@ -2022,6 +2202,7 @@ def run() -> int:
                               for item in self._mapping["regions"]]
                 self._regions = creator_regions.validate(
                     rectangles, size=(self._reference.width, self._reference.height))
+                self._region_measurements = []
                 self._region_refresh()
                 self._status("Suggested geometry copied for visual review. No edits applied.",
                              success=True)
@@ -2074,6 +2255,14 @@ def run() -> int:
                 try:
                     creator_mapping.ensure_current_reference(
                         self.info.recipe_id, report["reference_sha256"])
+                    measured = list(self._region_measurements)
+                    if not measured or (measured[-1]["capture_sha256"],
+                                        measured[-1]["recipe_sha256"]) != (
+                                            report["capture_sha256"], report["recipe_sha256"]):
+                        measured.append(report)
+                    measured = measured[-creator_iteration.MAX_MEASUREMENTS:]
+                    creator_iteration.journal(measured)
+                    self._region_measurements = measured
                     self._region_report = report
                     lines = [f"{r['number']}. {r['kind']} · raw "
                              f"{100 * r['changed_pixel_ratio']:.2f}% · tolerant "
@@ -2082,9 +2271,11 @@ def run() -> int:
                              for r in report["regions"]]
                     self.region_summary.set_text("\n".join(lines) +
                         "\nPixel errors only · no inferred functional or perceptual accuracy.")
+                    self._region_cycle_label()
                     self._status("Measured annotated regions against the real native capture.",
                                  success=True)
-                except (creator_mapping.MappingError, TypeError, KeyError) as exc:
+                except (creator_mapping.MappingError, creator_regions.RegionError,
+                        TypeError, KeyError) as exc:
                     self.region_summary.set_text("Reference changed. Measure regions again.")
                     self._status(f"Region QA rejected: {exc}", error=True)
             self._actions()
@@ -2112,8 +2303,10 @@ def run() -> int:
                         hashlib.sha256(self._capture_bytes).hexdigest() !=
                         self._region_report["capture_sha256"]):
                     raise creator_regions.RegionError("Capture or saved recipe changed; measure again")
-                payload = (json.dumps(self._region_report, indent=2, sort_keys=True) + "\n").encode()
-                if len(payload) > 24 * 1024:
+                history = creator_iteration.journal(self._region_measurements)
+                payload = (json.dumps({**self._region_report, "correction_cycle": history},
+                                      indent=2, sort_keys=True) + "\n").encode()
+                if len(payload) > 96 * 1024:
                     raise creator_regions.RegionError("Region report exceeds private JSON limit")
                 recipes._write_private_new(destination, payload)
                 self._status("Pixel report exported without source or capture image bytes.",
@@ -2386,6 +2579,9 @@ def run() -> int:
             if not hasattr(self, 'reference_metrics'):
                 return
             self._region_report = None
+            self._region_measurements = []
+            if hasattr(self, 'region_cycle'):
+                self._region_cycle_label()
             if hasattr(self, 'region_summary') and self._regions:
                 self.region_summary.set_text("Pixel policy changed. Measure marked regions again.")
             self._comparison_views = {k: v for k, v in self._comparison_views.items()
@@ -2396,6 +2592,8 @@ def run() -> int:
 
         def _reference_view_changed(self, *_args):
             name = self.reference_mode.get_active_id()
+            if name not in ("reference", "regions") and self.region_draw.get_active():
+                self.region_draw.set_active(False)
             if name == "native" and self._capture_bytes:
                 data = self._capture_bytes
             else:
@@ -2413,6 +2611,7 @@ def run() -> int:
                 self._pixbuf = loader.get_pixbuf()
                 self._preview_fit = None
                 self._resize_preview()
+                self._region_cancel_drag()
                 self.visual_stack.set_visible_child_name("native")
                 labels = {"native": "Real isolated RicePlate capture",
                           "reference": "Imported reference screenshot · not rendered by RicePlate",
@@ -2460,6 +2659,7 @@ def run() -> int:
             if error:
                 self._comparison_views = {}
                 self._reference = None  # A raced or damaged selection must be revalidated.
+                self._regions_reset()
                 self._reference_label()
                 self.reference_metrics.set_text("Comparison unavailable. Reference and capture were not modified.")
                 self._status(f"Compare failed: {error}", error=True)
@@ -2493,6 +2693,7 @@ def run() -> int:
                                                 max(1, round(self._pixbuf.get_height() * ratio)),
                                                 GdkPixbuf.InterpType.BILINEAR)
             self.preview_image.set_from_pixbuf(fitted)
+            self.region_surface.queue_draw()
 
         def _export(self, _button):
             if self._busy or not self._commit_pending() or self.info is None:
@@ -2673,6 +2874,49 @@ def run() -> int:
                 assert "0.00%" in window.region_summary.get_text()
                 window._region_remove(0)
                 assert not window.region_export.get_sensitive()
+                # v0.9: the actual GTK overlay receives a mouse drag, maps
+                # fitted display coordinates to reference pixels and starts
+                # a comparable QA history across validated saved revisions.
+                from types import SimpleNamespace
+                window.region_draw.set_active(True)
+                assert window.reference_mode.get_active_id() == "reference"
+                geometry = window._region_screen_geometry()
+                assert geometry is not None
+                _, origin = geometry
+                start = SimpleNamespace(button=1, x=origin[0] + 3, y=origin[1] + 4)
+                end = SimpleNamespace(button=1, x=origin[0] + 27, y=origin[1] + 22)
+                assert window._region_pointer_press(window.region_surface, start)
+                assert window._region_pointer_motion(window.region_surface, end)
+                assert window._region_pointer_release(window.region_surface, end)
+                assert len(window._regions) == 1 and window._regions[0]["x"] == 3
+                assert window._regions[0]["width"] == 24
+                baseline_report = creator_regions.inspect(
+                    source.read_bytes(), window._capture_bytes,
+                    reference_sha256=window._reference.sha256,
+                    recipe_sha256=window.info.semantic_sha256,
+                    regions=window._regions, tolerance_radius=1)
+                window._region_complete(window._render_generation, baseline_report, None)
+                assert len(window._region_measurements) == 1
+                previous_recipe = window.info.semantic_sha256
+                revised_height = 48 if window.working["panel"]["height"] != 48 else 49
+                window._change("/panel/height", revised_height)
+                assert window._commit_pending()
+                assert window.info.semantic_sha256 != previous_recipe
+                assert len(window._regions) == 1 and len(window._region_measurements) == 1
+                assert window._region_report is None
+                window._capture_bytes = source.read_bytes()
+                window._capture_size = (48, 48)
+                newer_report = creator_regions.inspect(
+                    source.read_bytes(), window._capture_bytes,
+                    reference_sha256=window._reference.sha256,
+                    recipe_sha256=window.info.semantic_sha256,
+                    regions=window._regions, tolerance_radius=1)
+                window._region_complete(window._render_generation, newer_report, None)
+                assert len(window._region_measurements) == 2
+                assert "Correction cycle" in window.region_cycle.get_text()
+                assert "unchanged pixel error" in window.region_cycle.get_text()
+                window._region_remove(0)
+                assert not window._region_measurements
                 # v0.7: no ML inference is necessary to verify that external
                 # declarative proposals stay behind an explicit GTK approval.
                 requested_height = (50 if window.working["panel"]["height"] != 50 else 51)

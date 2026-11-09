@@ -123,6 +123,23 @@ capture clears stale measurements; switching drafts or reference clears the
 temporary rectangles. A detected 0.7 region may be copied only on explicit
 **Use detected** action; it is geometry, not a recognized functional widget.
 
+The v0.9 **interactive correction cycle** extends that disclosure without
+expanding recipe permissions. A native GTK overlay in the fitted reference
+viewer accepts a deliberate primary-button drag and draws a live, translucent
+rubber band. It translates display coordinates into outward-rounded source
+pixels with clamp and minimum-drag guards, then passes through the exact 0.8
+rectangle validator. The original coordinate spin controls are kept for
+keyboard-only and precise editing; Escape cancels a pending drag. Reference
+annotations remain across *immutable revisions of the same draft* if the
+private screenshot digest is unchanged, while current measurements expire.
+The user can adjust an allowlisted inspector field, save the draft, render in
+isolated labwc, and re-measure the same regions. An in-memory, 12-measurement
+history records SHA-256-pinned results and percentage-point changes per region.
+Reference, region or pixel-policy changes invalidate history; the private JSON
+export includes the versioned cycle but never screenshot bytes. These deltas
+are **pixel error changes**, not semantic recognition, automatic repair or
+assertions of visual fidelity. The desktop remains untouched throughout.
+
 The established `macrice/hub.py:TOKENS` palette is the **single runtime color
 source** for Creator chrome; `macrice/creator_gui.py` uses those named tokens
 in an additive GTK CSS adapter. The deliberately quiet navy preview surround

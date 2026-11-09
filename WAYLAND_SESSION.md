@@ -1129,6 +1129,40 @@ geometry reconstruction, automatically generated assets or one-click faithful
 desktop cloning. The JSON interface supports an external supervised AI authoring
 loop, not an autonomous screenshot-to-desktop converter.
 
+#### Rice Creator 0.9 — interactive region correction cycle
+
+Creator 0.9 adds **Draw region on screenshot** to the Region QA disclosure.
+After selecting a private reference PNG, activate that toggle. The GTK viewer
+switches to the reference image; **press and drag** over the area you want to
+check. A live colored outline follows the pointer. Release to add the region.
+The selection is converted from fitted preview coordinates to the exact
+original screenshot pixel bounds, clamped to the image, and rejected if it is
+too small, duplicate, beyond the eight-region limit or outside the strict
+0.8 geometry bounds. Press **Esc** during a drag to cancel. The numeric X/Y/
+Width/Height controls remain available for precise keyboard editing.
+
+For a **correction cycle**:
+
+1. Mark one or more regions and render the saved draft at the reference's
+   exact resolution. Select **Measure regions** to record the baseline.
+2. Change a validated field in the existing inspector, or explicitly approve
+   a 0.7 mapping suggestion; choose **Save version**. Regions and prior
+   measurements stay attached to the same private screenshot and draft ID.
+3. **Render preview** for the newly saved recipe, then choose **Measure regions**
+   again. The correction cycle lists hashed recipe/capture identities and the
+   change in *tolerated changed-pixel percentage points* for each area.
+4. Repeat as needed. Only the most recent 12 comparable measurements are held
+   in memory; identical recipe/capture measurements aren't duplicated.
+   **Export pixel history JSON…** saves a new owner-private, versioned report
+   containing measurements and deltas, never the images themselves.
+
+An improvement in one pixel-error metric does **not** establish semantic,
+interactive, visual or functional fidelity. The app does not generate or apply
+corrections automatically; each recipe edit remains deliberate, validated and
+saved as a separate draft revision. Changing region geometry, source PNG,
+reference selection, draft identity or comparison policy clears the history.
+Rendering runs in an isolated labwc session, not the active desktop.
+
 #### Rice Creator 0.8 — manual region QA
 
 Creator 0.8 adds **Region QA · measure selected areas** below Reference mapping.
@@ -1156,19 +1190,24 @@ includes pixels just outside rectangle edges (0/1/2 px), so shifts at the edge
 of a mark are treated consistently with the full-image comparison. All figures
 are pixel errors, never image similarity, recognized components or action QA.
 
-**Export pixel report JSON…** optionally saves a new, owner-private, versioned
+**Export pixel history JSON…** optionally saves a new, owner-private, versioned
 report containing dimensions, marked geometry, policy, raw/tolerated metrics
 and SHA-256 identities for the exact reference PNG, native capture and saved
 recipe. No screenshot pixels, absolute file paths, scripts or AI instructions
-enter the report. An AI assistant can consume it with the discoverable
+enter the report. In 0.9, `correction_cycle` additionally holds only bounded
+SHA-identified measurement receipts and per-region changes, never images or
+automatic edit commands. An AI assistant can consume it with the discoverable
 `manual_region_qa` contract from `ricebowl de creator-api --json`, but image
 sharing always requires a separate user decision. Changing the output size,
-recipe, reference or region geometry, or changing the comparison policy,
-invalidates measurements. Switching drafts/references discards temporary marks.
+current render, reference or region geometry, or changing the comparison policy,
+invalidates the current measurement. Changed policy, regions or reference also
+clear the correction history; a saved revision of the same draft preserves
+annotations and comparable past measurements. Switching drafts/references
+discards temporary marks.
 No active desktop changes and no resident analysis process are involved.
 
-**Still open:** click-drag box drawing, trusted semantic icon/menu recognition,
-iterative automatic correction, multi-monitor/fractional scaling hardware QA,
+**Still open:** trusted semantic icon/menu recognition, unattended iterative
+automatic correction, multi-monitor/fractional scaling hardware QA,
 focus and real interaction testing of reconstructed rices.
 
 #### Rice Creator 0.5 — private font and icon assets
