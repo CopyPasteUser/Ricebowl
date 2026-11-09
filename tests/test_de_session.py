@@ -50,7 +50,8 @@ class WaylandSessionTests(unittest.TestCase):
         os.chmod(self.runtime.name, 0o700)
         self.addCleanup(self.runtime.cleanup)
         self.env = {"XDG_RUNTIME_DIR": self.runtime.name, "DBUS_SESSION_BUS_ADDRESS": "unix:path=test"}
-        self.tools = {name: f"/usr/bin/{name}" for name in (*session.REQUIRED_TOOLS, "dbus-run-session")}
+        self.tools = {name: f"/usr/bin/{name}" for name in
+                      (*session.REQUIRED_TOOLS, "dbus-run-session", "swayidle")}
 
     def which(self, command):
         return self.tools.get(command)
@@ -103,6 +104,16 @@ class WaylandSessionTests(unittest.TestCase):
         with self.assertRaisesRegex(session.SessionError, "Missing Wayland preview dependencies: foot"):
             session.start(environment=self.env, which=lambda name: None if name == "foot"
                           else self.which(name), execute=_record_exec)
+
+    def test_full_login_requires_idle_lock_but_nested_preview_does_not(self):
+        missing_idle = lambda name: None if name == "swayidle" else self.which(name)
+        with self.assertRaisesRegex(session.SessionError, "swayidle"):
+            session.start(environment=self.env, which=missing_idle,
+                          execute=_record_exec)
+        with self.assertRaises(_ExecCalled) as caught:
+            session.start(nested=True, environment=self.env,
+                          which=missing_idle, execute=_record_exec)
+        self.assertEqual(caught.exception.program, "/usr/bin/labwc")
 
     def test_missing_bus_reexecs_at_most_once(self):
         env = {"XDG_RUNTIME_DIR": self.runtime.name}
@@ -233,6 +244,42 @@ class WaylandSessionTests(unittest.TestCase):
         self.assertIn(str(session.resources() / "waybar/config.jsonc"), commands[-1])
         self.assertFalse(any(command[0] == "/usr/bin/swayidle" for command in commands))
         self.assertTrue(all(proc.terminated for proc in processes[:-1]))
+
+    def test_full_session_starts_before_sleep_lock_listener(self):
+        commands = []
+        def spawn(command, **_kwargs):
+            commands.append(command)
+            return _FakeProcess()
+        env = {"RICEBOWL_DE_SHELL_CHILD": "1", "RICEBOWL_DE_NESTED": "0",
+               "WAYLAND_DISPLAY": "wayland-0"}
+        with mock.patch("macrice.de.session.signal.signal"):
+            self.assertEqual(session.shell(environment=env, which=self.which,
+                                           spawn=spawn), 0)
+        idle = next(command for command in commands if command[0] == "/usr/bin/swayidle")
+        self.assertEqual(idle, ["/usr/bin/swayidle", "-w", "timeout", "600",
+                                "/usr/bin/swaylock -f", "before-sleep",
+                                "/usr/bin/swaylock -f"])
+
+    def test_idle_lock_watcher_crash_stops_live_session_instead_of_rescuing(self):
+        commands = []
+        panel = _FakeProcess()
+        class DeadIdle(_FakeProcess):
+            def poll(self):
+                return 6
+        def spawn(command, **_kwargs):
+            commands.append(command)
+            return DeadIdle() if command[0] == "/usr/bin/swayidle" else panel
+        env = {"RICEBOWL_DE_SHELL_CHILD": "1", "RICEBOWL_DE_NESTED": "0",
+               "RICEBOWL_DE_LIVE": "1", "WAYLAND_DISPLAY": "wayland-0"}
+        with mock.patch("macrice.de.session.signal.signal"), \
+             mock.patch("macrice.de.live.listen", return_value=nullcontext(object())), \
+             mock.patch("macrice.de.session._LiveSwitch") as live, \
+             mock.patch("sys.stderr"):
+            live.return_value.panel = panel
+            self.assertEqual(session.shell(environment=env, which=self.which,
+                                           spawn=spawn), 1)
+        self.assertTrue(panel.terminated)
+        self.assertEqual(sum(command[0] == "/usr/bin/waybar" for command in commands), 1)
 
     def test_orca_is_opt_in_only_for_full_ricebowl_sessions(self):
         commands = []

@@ -134,6 +134,11 @@ installing, replacing or disabling anything; unit and installer tests pass.
   dependency recommendation, lock/launcher keybindings and optional agents.
 - [x] Keep the XFCE/X11 login path independently available and provide
   explicit package removal and failure recovery instructions.
+- [x] Require the idle-lock listener for a real Wayland login and supervise
+  it as an essential child; lock before a RiceSpice-requested suspend and
+  reject failures/timeouts instead of claiming a secured suspend. Preview3
+  installs swayidle as a dependency; real lid/resume locking acceptance is
+  still outstanding.
 - [ ] Validate actual login-manager discovery, compositor boot, XWayland,
   portal screencast/file picker, polkit, input methods, clipboard, lock and
   multi-monitor behavior on physical Mint hardware.

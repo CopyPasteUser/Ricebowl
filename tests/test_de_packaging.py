@@ -93,7 +93,7 @@ class SessionPackageTests(unittest.TestCase):
                 self.assertIn(name, contents)
             self.assertEqual(subprocess.check_output(
                 ["dpkg-deb", "--field", str(package), "Version"],
-                text=True, timeout=10).strip(), "0.1.0~preview2")
+                text=True, timeout=10).strip(), "0.1.0~preview3")
             result = subprocess.run(["sh", str(script), str(package)], text=True,
                                     capture_output=True, timeout=30, check=False)
             self.assertNotEqual(result.returncode, 0)

@@ -151,11 +151,11 @@ jobs:
         run: |
           set -eu
           artifact="$PWD/dist/riceplate-native-preview"
-          session="$artifact/ricebowl-wayland-session_0.1.0~preview2_all.deb"
+          session="$artifact/ricebowl-wayland-session_0.1.0~preview3_all.deb"
           sh scripts/build_wayland_session_deb.sh "$session"
           sh scripts/build_wayland_session_deb.sh "$RUNNER_TEMP/ricebowl-session-rebuilt.deb"
           cmp "$session" "$RUNNER_TEMP/ricebowl-session-rebuilt.deb"
-          test "$(dpkg-deb --field "$session" Version)" = '0.1.0~preview2'
+          test "$(dpkg-deb --field "$session" Version)" = '0.1.0~preview3'
           private_root="$RUNNER_TEMP/ricebowl-wayland-login-pair"
           mkdir -p "$private_root"
           dpkg-deb --extract "$session" "$private_root"

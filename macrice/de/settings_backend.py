@@ -419,23 +419,34 @@ def set_bluetooth_connection(address: str, connected: bool, *, expected: bool) -
 
 
 def power_action(action: str, *, nested: bool = False) -> None:
-    """User-confirmed logind suspend or screen lock. Never allow nested suspend."""
+    """Securely lock before requesting system suspend; no nested suspend.
+
+    swaylock -f returns only after the compositor has accepted the lock
+    surface and the locker has forked. Merely starting a subprocess is not
+    proof of lock acquisition and must not authorize system suspend.
+    """
     if action not in ("lock", "suspend"):
         raise SettingsError("Unsupported power action")
     if action == "suspend" and (nested or os.environ.get("RICEBOWL_DE_NESTED") == "1"):
         raise SettingsError("Suspend is disabled in isolated nested previews")
-    program, args = (("swaylock", ["-f"]) if action == "lock"
-                     else ("loginctl", ["suspend"]))
-    if not shutil.which(program):
-        raise SettingsError(f"{program} is not installed")
+    locker = shutil.which("swaylock")
+    if not locker:
+        raise SettingsError("swaylock is not installed; screen cannot be secured")
+    loginctl = shutil.which("loginctl") if action == "suspend" else None
+    if action == "suspend" and not loginctl:
+        raise SettingsError("loginctl is not installed")
     try:
-        if action == "lock":
-            subprocess.Popen([program, *args], stdin=subprocess.DEVNULL,
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                             close_fds=True)
-        else:
-            result = subprocess.run([program, *args], stdin=subprocess.DEVNULL,
-                                    capture_output=True, timeout=8, check=False)
+        locked = subprocess.run(
+            [locker, "-f"], stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+            timeout=8, check=False)
+        if locked.returncode:
+            raise SettingsError("Screen lock failed; suspend was not requested")
+        if action == "suspend":
+            assert loginctl is not None
+            result = subprocess.run(
+                [loginctl, "suspend"], stdin=subprocess.DEVNULL,
+                capture_output=True, timeout=8, check=False)
             if result.returncode:
                 raise SettingsError("logind denied suspend; authorization may be required")
     except (OSError, subprocess.TimeoutExpired) as exc:

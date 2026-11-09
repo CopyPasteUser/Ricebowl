@@ -7,7 +7,7 @@ if ! command -v dpkg-deb >/dev/null 2>&1; then
     exit 1
 fi
 project_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
-version='0.1.0~preview2'
+version='0.1.0~preview3'
 output=${1:-"$project_root/dist/ricebowl-wayland-session_${version}_all.deb"}
 if [ -e "$output" ] || [ -L "$output" ]; then
     echo "Refusing to overwrite an existing package: $output" >&2
