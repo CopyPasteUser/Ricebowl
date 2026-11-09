@@ -5,7 +5,7 @@
 set -eu
 
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
-for dependency in labwc pipewire dbus-run-session dbus-update-activation-environment; do
+for dependency in labwc pipewire xdg-desktop-portal-wlr dbus-run-session dbus-update-activation-environment; do
     command -v "$dependency" >/dev/null || { echo "Missing portal test dependency: $dependency" >&2; exit 1; }
 done
 runtime=$(mktemp -d)
@@ -46,7 +46,12 @@ dbus-run-session -- sh -eu -c '
     compositor=$!
     pipewire >"$runtime/pipewire.log" 2>&1 &
     pw=$!
+    backend=
     cleanup() {
+        if [ -n "$backend" ]; then
+            kill "$backend" 2>/dev/null || :
+            wait "$backend" 2>/dev/null || :
+        fi
         kill "$compositor" "$pw" 2>/dev/null || :
         wait "$compositor" 2>/dev/null || :
         wait "$pw" 2>/dev/null || :
@@ -73,11 +78,22 @@ dbus-run-session -- sh -eu -c '
     # compositor socket and desktop selection, never the parent login values.
     dbus-update-activation-environment WAYLAND_DISPLAY XDG_RUNTIME_DIR \
         XDG_CONFIG_HOME XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_SESSION_DESKTOP
+    # Temporary verbose backend is identical to D-Bus auto activation but
+    # records its actual session object registration path on failure.
+    xdg-desktop-portal-wlr -l DEBUG >"$runtime/xdpw.log" 2>&1 &
+    backend=$!
+    sleep 0.25
+    kill -0 "$backend" 2>/dev/null || {
+        echo "Diagnostic portal backend exited before request" >&2
+        sed -n "1,70p" "$runtime/xdpw.log" >&2
+        exit 1
+    }
     if ! timeout -k 3s 35s /usr/bin/python3 \
             "$root/scripts/check_wayland_portals.py"; then
         echo "Wayland portal runtime acceptance failed" >&2
         sed -n "1,55p" "$runtime/labwc.log" >&2
         sed -n "1,45p" "$runtime/pipewire.log" >&2
+        sed -n "1,100p" "$runtime/xdpw.log" >&2
         exit 1
     fi
 ' sh "$root" "$runtime"
