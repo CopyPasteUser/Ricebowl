@@ -986,6 +986,17 @@ depend on the XFCE session.
   X11 has no live activation, unsaved edits block handoff and uncertain socket
   completion is reported as unconfirmed. Unit tests cover stale files, races,
   ID collisions and live conflicts; device-level operation remains unaccepted.
+- [x] Exercise the **complete Creator-to-Wayland software handoff** in CI:
+  create two structurally different private drafts, install them without
+  changing the login selection, apply and restore through the owner-private
+  live supervisor socket, reject stale reviews and missing compositor helpers,
+  and recover a prior rice after a simulated supervisor restart. An additional
+  native labwc/RicePlate CI gate renders the **installed** Creator recipe IDs
+  at two real headless output geometries (including fractional scale), checks
+  captured pixels against semantic recipe and PNG hashes, and archives a
+  source-commit-pinned manifest. These are isolated software tests: they do
+  **not** yet prove real monitor, focus, application-window input, suspend or
+  power-loss recovery, and are not physical 1.0 acceptance.
 - [x] Publish two **honest schema-v5 Creator demonstrators** under
   `examples/wayland/`: a classic-OS-inspired workstation and a structurally
   distinct original Orbit concept. They use only shared native primitives,

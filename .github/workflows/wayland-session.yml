@@ -12,6 +12,8 @@ on:
       - 'scripts/smoke_wayland_session.sh'
       - 'scripts/check_wayland_panel_outputs.py'
       - 'tests/test_de_*.py'
+      - 'tests/test_wayland_creator_e2e.py'
+      - 'tests/test_wayland_creator_handoff.py'
   pull_request:
     paths:
       - '.github/workflows/wayland-session.yml'
@@ -23,6 +25,8 @@ on:
       - 'scripts/smoke_wayland_session.sh'
       - 'scripts/check_wayland_panel_outputs.py'
       - 'tests/test_de_*.py'
+      - 'tests/test_wayland_creator_e2e.py'
+      - 'tests/test_wayland_creator_handoff.py'
 
 permissions:
   contents: read
@@ -45,6 +49,7 @@ jobs:
         run: |
           /usr/bin/python3 -m compileall -q macrice/de macrice/cli.py
           /usr/bin/python3 -m unittest discover -s tests -p 'test_de_*.py' -v
+          /usr/bin/python3 -m unittest tests.test_wayland_creator_e2e tests.test_wayland_creator_handoff -v
           # Session-specific DesktopNames is valid for display managers but
           # desktop-file-validate only knows ordinary application entries.
           sh -n scripts/build_wayland_session_deb.sh
