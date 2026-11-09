@@ -975,7 +975,9 @@ impl RicePlate {
                                   section.title.to_string(), None);
                     }
                 }
-                for (index, action) in self.menu_state.actions(menu).into_iter().enumerate()
+                let menu_actions = self.menu_state.actions(menu);
+                let selected_action_exists = self.menu_state.selected < menu_actions.len();
+                for (index, action) in menu_actions.into_iter().enumerate()
                     .skip(self.menu_state.first_action_row()).take(native_menu::VISIBLE_ACTIONS) {
                     let enabled = action != "logout" || logout_available();
                     model.add(20_500 + index as u64, 20_000, AccessibleRole::Button,
@@ -992,7 +994,11 @@ impl RicePlate {
                           "Show saved actions", Some(Target::MenuSaved));
                 model.add(20_999, 20_000, AccessibleRole::Button,
                           "Close menu", Some(Target::MenuClose));
-                if self.menu_focused { model.focus = 20_500 + self.menu_state.selected as u64; }
+                if self.menu_focused {
+                    model.focus = if selected_action_exists {
+                        20_500 + self.menu_state.selected as u64
+                    } else { 20_999 };
+                }
             }
         }
         if self.calendar_state.visible && self.active_calendar.is_some() {
@@ -3993,6 +3999,10 @@ impl KeyboardHandler for RicePlate {
                     if detail { self.notification_state.select_action(1); }
                     else { self.notification_state.select(1); }
                 }
+                Keysym::ISO_Left_Tab => {
+                    if detail { self.notification_state.select_action(-1); }
+                    else { self.notification_state.select(-1); }
+                }
                 Keysym::Prior => {
                     if detail { self.notification_state.select_action(-(ricepop::VISIBLE_ROWS as isize)); }
                     else { self.notification_state.select(-(ricepop::VISIBLE_ROWS as isize)); }
@@ -4070,6 +4080,26 @@ impl KeyboardHandler for RicePlate {
             }
             Keysym::Down | Keysym::Tab => {
                 self.menu_state.select_by(menu, 1);
+                None
+            }
+            Keysym::ISO_Left_Tab => {
+                self.menu_state.select_by(menu, -1);
+                None
+            }
+            Keysym::Home => {
+                self.menu_state.select_edge(menu, false);
+                None
+            }
+            Keysym::End => {
+                self.menu_state.select_edge(menu, true);
+                None
+            }
+            Keysym::Prior => {
+                self.menu_state.page_by(menu, -(native_menu::VISIBLE_ACTIONS as isize));
+                None
+            }
+            Keysym::Next => {
+                self.menu_state.page_by(menu, native_menu::VISIBLE_ACTIONS as isize);
                 None
             }
             Keysym::Left => {
@@ -4234,6 +4264,22 @@ impl PointerHandler for RicePlate {
                 continue;
             }
             if self.active_menu.as_ref() == Some(&event.surface) {
+                // Hover and keyboard selection share one state. Update only
+                // on a changed action to avoid repainting on every motion.
+                if matches!(event.kind, PointerEventKind::Motion { .. })
+                    && !self.notification_state.open {
+                    if let Some(menu) = self.recipe.menu.as_ref() {
+                        if let Some(MenuHit::Action(index)) = self.menu_state.hit(
+                            menu, event.position.0, event.position.1,
+                        ) {
+                            if self.menu_state.selected != index {
+                                self.menu_state.selected = index;
+                                self.redraw_menu(qh);
+                            }
+                        }
+                    }
+                    continue;
+                }
                 if let PointerEventKind::Press {
                     button: BTN_LEFT, ..
                 } = event.kind

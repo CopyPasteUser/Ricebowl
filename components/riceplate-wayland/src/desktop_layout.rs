@@ -77,18 +77,32 @@ fn place_rects(
             reserved.iter().chain(placed.iter()).all(|other| !candidate.intersects(*other))
         };
         let selected = if free(desired) { Some(desired) } else {
-            // Bounded near-first grid, independent of display pixel count.
-            let mut candidates = Vec::new();
-            for row in 0..=requested.len() + 8 {
-                let y = upper.saturating_add(row as u32 * (item_h + GAP));
-                if y > max_y { break; }
-                for col in 0..=requested.len() + 8 {
-                    let x = col as u32 * (item_w + GAP);
-                    if x <= max_x && free((x, y)) { candidates.push((x, y)); }
+            // Search the full supported logical coordinate range, not just
+            // the first N columns. On wide displays a reserved window region
+            // can occupy that prefix, hiding icons despite free space on the
+            // right. Cap compositor-reported dimensions to the same bounded
+            // coordinate range as saved positions; malformed giant modes
+            // must not cause millions of geometry checks or UI stalls.
+            let step_x = item_w.saturating_add(GAP).max(1);
+            let step_y = item_h.saturating_add(GAP).max(1);
+            let search_max_x = max_x.min(MAX_SAVED_POSITION);
+            let search_max_y = max_y.min(upper.saturating_add(MAX_SAVED_POSITION));
+            let cols = search_max_x / step_x;
+            let rows = (search_max_y - upper) / step_y;
+            let mut best: Option<((u32, u32, u32), (u32, u32))> = None;
+            for row in 0..=rows.saturating_add(1) {
+                let y = if row > rows { search_max_y } else { upper + row * step_y };
+                for col in 0..=cols.saturating_add(1) {
+                    let x = if col > cols { search_max_x } else { col * step_x };
+                    let candidate = (x, y);
+                    if !free(candidate) { continue; }
+                    let key = (x.abs_diff(desired.0) + y.abs_diff(desired.1), y, x);
+                    if best.as_ref().is_none_or(|(current, _)| key < *current) {
+                        best = Some((key, candidate));
+                    }
                 }
             }
-            candidates.into_iter().min_by_key(|&(x, y)|
-                (x.abs_diff(desired.0) + y.abs_diff(desired.1), y, x))
+            best.map(|(_, candidate)| candidate)
         };
         if let Some((x, y)) = selected {
             placed.push(Rect { x, y, w: item_w, h: item_h });
@@ -243,6 +257,45 @@ mod tests {
             assert!(visible.iter().skip(index + 1).all(|&(ox, oy)|
                     !overlaps(x, y, ox, oy)));
         }
+    }
+
+    #[test]
+    fn wide_output_reaches_free_cells_beyond_the_first_icon_columns() {
+        let icons = [(64, 96), (64, 96)];
+        let region = Rect { x: 0, y: 0, w: 3000, h: 2160 };
+        let result = place_rects(&icons, ICON_WIDTH, ICON_HEIGHT, 3840, 2160,
+                                 true, 44, &[region]);
+        let first = result[0].expect("free right-hand output area must stay reachable");
+        let second = result[1].expect("second icon must also be placeable");
+        assert!(first.0 >= 3000 && second.0 >= 3000);
+        assert!(!overlaps(first.0, first.1, second.0, second.1));
+        assert_eq!(result, place_rects(&icons, ICON_WIDTH, ICON_HEIGHT, 3840, 2160,
+                                       true, 44, &[region]), "reflow must be deterministic");
+    }
+
+    #[test]
+    fn layout_reflow_recovers_after_output_mode_changes() {
+        let icons = [(32, 96), (32, 96), (32, 96)];
+        let region = Rect { x: 0, y: 0, w: 1500, h: 900 };
+        let wide = place_rects(&icons, ICON_WIDTH, ICON_HEIGHT, 1920, 900,
+                               false, 40, &[region]);
+        assert!(wide.iter().all(Option::is_some));
+        let small = place_rects(&icons, ICON_WIDTH, ICON_HEIGHT, 640, 480,
+                                false, 40, &[]);
+        assert!(small.iter().all(Option::is_some));
+        assert_eq!(wide, place_rects(&icons, ICON_WIDTH, ICON_HEIGHT, 1920, 900,
+                                      false, 40, &[region]));
+    }
+
+    #[test]
+    fn malformed_giant_output_does_not_expand_the_collision_search() {
+        let region = Rect { x: 0, y: 0, w: 2048, h: 2048 };
+        let icon = [(32, 96)];
+        let result = place_rects(&icon, ICON_WIDTH, ICON_HEIGHT, 1_000_000, 1_000_000,
+                                 true, 44, &[region]);
+        let (x, y) = result[0].expect("bounded coordinates still offer free space");
+        assert!(x <= MAX_SAVED_POSITION && y <= MAX_SAVED_POSITION + 52);
+        assert!(x >= 2048 || y >= 2048);
     }
 
     #[test]
