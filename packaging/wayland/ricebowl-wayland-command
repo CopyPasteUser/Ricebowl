@@ -1,0 +1,6 @@
+#!/bin/sh
+# Only put this private command directory on PATH inside the packaged
+# RiceBowl Wayland session. It must not shadow the user's XFCE launcher
+# globally or mutate user profile scripts.
+set -eu
+exec /usr/bin/ricebowl-wayland-app "$@"
