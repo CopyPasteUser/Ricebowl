@@ -24,6 +24,19 @@ SESSION = "org.freedesktop.portal.Session"
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
+class PortalRejected(RuntimeError):
+    def __init__(self, method: str, code: int):
+        super().__init__(f"{method} request denied/failed: response={code}")
+        self.code = code
+
+
+def unsupported_pixman_start(response: PortalRejected, env: dict[str, str]) -> bool:
+    """Only the isolated pixman CI lane may report an untested ScreenCast FD."""
+    return (response.code == 2 and env.get("RICEBOWL_PORTAL_CAPTURE_CI") == "1"
+            and env.get("WLR_BACKENDS") == "headless"
+            and env.get("WLR_RENDERER") == "pixman")
+
+
 def require_private_headless_session(env: dict[str, str]) -> Path:
     """Refuse to capture from an installed or interactive Wayland session."""
     required = {
@@ -141,7 +154,7 @@ def request(connection, interface: str, method: str, signature: str,
             raise TimeoutError(f"{method} request did not respond")
         response, results = outcome[0]
         if response != 0:
-            raise RuntimeError(f"{method} request denied/failed: response={response}")
+            raise PortalRejected(method, response)
         return results
     finally:
         connection.signal_unsubscribe(subscription)
@@ -186,12 +199,22 @@ def run() -> None:
         raise RuntimeError("CreateSession did not return a valid session handle")
     print("PORTAL_CAPTURE_STAGE: CreateSession responded", flush=True)
     original_failure = None
+    pixman_rejected = False
     try:
         request(connection, SCREENCAST, "SelectSources", "(oa{sv})", (session,),
                 extra_options={"types": GLib.Variant("u", 1),
                                "multiple": GLib.Variant("b", False)})
         print("PORTAL_CAPTURE_STAGE: SelectSources responded", flush=True)
-        started = request(connection, SCREENCAST, "Start", "(osa{sv})", (session, ""))
+        try:
+            started = request(connection, SCREENCAST, "Start", "(osa{sv})", (session, ""))
+        except PortalRejected as rejected:
+            if not unsupported_pixman_start(rejected, dict(os.environ)):
+                raise
+            pixman_rejected = True
+            print("PORTAL_CAPTURE_LIMIT: ScreenCast Start returned response=2 on "
+                  "headless pixman; no PipeWire streams/frames/FD verified. "
+                  "Real GPU acceptance still required.", flush=True)
+            return
         print("PORTAL_CAPTURE_STAGE: Start responded", flush=True)
         streams = started.get("streams")
         if not streams or not all(isinstance(stream[0], int) and stream[0] > 0
@@ -207,7 +230,7 @@ def run() -> None:
             connection.call_sync(DESKTOP, session, SESSION, "Close",
                                  None, None, Gio.DBusCallFlags.NONE, 5000, None)
         except GLib.Error as cleanup_error:
-            if original_failure is None:
+            if original_failure is None and not pixman_rejected:
                 raise
             print(f"PORTAL_CLEANUP_WARN: {cleanup_error}", file=sys.stderr)
     print("PORTAL_LIMIT: No Flatpak consent, frames, physical GPU or multi-output sign-off.")

@@ -137,7 +137,7 @@ jobs:
           sh -n scripts/smoke_wayland_clipboard.sh
           sh -n scripts/wayland_clipboard_smoke_client.sh
           sh -n scripts/smoke_riceplate_multioutput.sh
-      - name: Validate real GTK and wlroots portals with screenshot and ScreenCast requests
+      - name: Validate portal screenshot and headless ScreenCast negotiation
         run: |
           sh -n scripts/smoke_wayland_portals.sh
           sh -n scripts/wayland_portals_smoke_client.sh

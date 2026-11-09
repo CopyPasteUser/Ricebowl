@@ -90,6 +90,22 @@ class ScreenshotValidationTests(unittest.TestCase):
                 portal.verify_png(link.as_uri())
 
 
+class ScreenCastCapabilityTests(unittest.TestCase):
+    def test_only_ci_pixman_headless_start_failure_is_non_blocking(self):
+        env = {"RICEBOWL_PORTAL_CAPTURE_CI": "1", "WLR_BACKENDS": "headless",
+               "WLR_RENDERER": "pixman"}
+        self.assertTrue(portal.unsupported_pixman_start(
+            portal.PortalRejected("Start", 2), env))
+        self.assertFalse(portal.unsupported_pixman_start(
+            portal.PortalRejected("Start", 1), env))
+        for key, value in (("RICEBOWL_PORTAL_CAPTURE_CI", "0"),
+                           ("WLR_BACKENDS", "wayland"),
+                           ("WLR_RENDERER", "gles2")):
+            with self.subTest(key=key):
+                self.assertFalse(portal.unsupported_pixman_start(
+                    portal.PortalRejected("Start", 2), {**env, key: value}))
+
+
 @unittest.skipUnless(importlib.util.find_spec("gi"), "PyGObject not available")
 class RequestProtocolTests(unittest.TestCase):
     def test_response_signal_receives_six_gio_callback_arguments(self):

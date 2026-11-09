@@ -1131,10 +1131,12 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
   This is not sign-off for rich MIME, drag-and-drop, sandboxed Flatpaks,
   portals, password managers or physical-device clipboard interaction.
 - [x] Exercise real headless **Screenshot and ScreenCast portal requests** on
-  the disposable labwc D-Bus/PipeWire session. Verify an actual PNG, monitor
-  stream node(s) and a returned PipeWire socket, without installing an
-  unattended chooser override on the user's desktop. Flatpak permission UX,
-  frame delivery and physical multi-monitor portal QA remain open.
+  the disposable labwc D-Bus/PipeWire session. Verify an actual PNG and
+  ScreenCast CreateSession/SelectSources. On this pixman CI runner, Start
+  rejects with response 2 (known wlroots renderer limitation); it is logged
+  as unsupported, **not** a passing remote FD or stream. The unattended
+  chooser override never touches the installed desktop. GPU-backed ScreenCast,
+  Flatpak permission UX, frames and physical multi-monitor portal QA stay open.
 - [x] Publish two **honest schema-v5 Creator demonstrators** under
   `examples/wayland/`: a classic-OS-inspired workstation and a structurally
   distinct original Orbit concept. They use only shared native primitives,
