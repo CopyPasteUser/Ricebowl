@@ -809,6 +809,20 @@ depend on the XFCE session.
   user share. Unit and GTK smoke cover the review boundary. Full semantic
   automatic object/menus recognition, reliably faithful screenshot-to-rice
   compilation and real Wayland hardware QA remain open.
+- [x] Implement **Rice Creator 0.8 manually annotated region QA**: author up to
+  eight bounded, typed reference-pixel rectangles (panel, menu, desktop or
+  unknown), remove/review each region and render numbered, colored outlines
+  on a verified local screenshot copy. An explicit owner action can seed the
+  list from untrusted 0.7 geometry, but never auto-accepts a semantic meaning
+  or edits a recipe. Measure each region's raw/tolerated changed-pixel ratio
+  and mean RGB error against identical-resolution **real native RicePlate**
+  captures; tolerance includes neighboring pixels beyond rectangle edges.
+  Versioned read-only JSON diagnostics pin the reference, render and saved
+  recipe digests without exporting screenshots. The GTK controls are
+  keyboard-accessible and invalidated on draft/reference/geometry/policy
+  changes. No resident worker, active apply or AI service. These are pixel
+  measurements, not perceptual or functional compatibility scores; a
+  click-and-drag segmentation editor and real hardware QA remain future work.
 - [x] Implement **Wayland RicePack v1 recipe exchange** (`de pack-export`,
   `de pack-inspect`, `de pack-import`): reproducible owner-private `.ricepack`
   archives, canonical schema-v1–v5 recipe, SHA-256 byte/semantic validation,

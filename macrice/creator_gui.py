@@ -7,6 +7,7 @@ are produced on demand by the same isolated RicePlate renderer as the CLI.
 from __future__ import annotations
 
 import copy
+import hashlib
 import io
 import json
 import os
@@ -16,7 +17,8 @@ import threading
 from pathlib import Path
 
 from .de import creator_layout as layout_engine, creator_workspace as workspace
-from .de import (assets, creator_assets, creator_mapping, creator_reference, creator_structure, drafts,
+from .de import (assets, creator_assets, creator_mapping, creator_reference, creator_regions,
+                 creator_structure, drafts,
                  recipes, render, review, style_assets)
 
 
@@ -173,6 +175,8 @@ def run() -> int:
             self._mapping_checks: dict[str, object] = {}
             self._mapping_busy = False
             self._mapping_generation = 0
+            self._regions: list[dict] = []
+            self._region_report: dict | None = None
             self._history: list[Path] = []
             self._selected_layer: tuple[str, int] | None = None
             self._drag: tuple[tuple[str, int], float, float, int, int] | None = None
@@ -327,7 +331,7 @@ def run() -> int:
             self.reference_mode = Gtk.ComboBoxText()
             for key, label in (("native", "Native"), ("reference", "Reference"),
                                ("wipe", "Split 50/50"), ("overlay", "Overlay 50/50"),
-                               ("heatmap", "Difference")):
+                               ("heatmap", "Difference"), ("regions", "Marked regions")):
                 self.reference_mode.append(key, label)
             self.reference_mode.set_active_id("native")
             self.reference_mode.connect("changed", self._reference_view_changed)
@@ -380,6 +384,57 @@ def run() -> int:
             self.mapping_apply = self._button("Use checked hints in unsaved draft",
                                               self._mapping_apply, primary=True)
             mapping_body.pack_start(self.mapping_apply, False, False, 0)
+
+            region_expander = Gtk.Expander(label="REGION QA · MEASURE SELECTED AREAS")
+            region_expander.set_expanded(False)
+            reference_bar.pack_start(region_expander, False, False, 0)
+            region_body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            region_body.set_margin_top(8)
+            region_body.set_margin_bottom(7)
+            region_expander.add(region_body)
+            region_body.pack_start(self._text(
+                "Annotate up to eight rectangles in reference pixels. Compare each "
+                "with a real native capture; these are pixel errors, not fidelity scores. "
+                "Annotations are temporary until you export the report.",
+                "creator-preview-note", wrap=True), False, False, 0)
+            region_form = Gtk.Grid(column_spacing=7, row_spacing=5)
+            region_body.pack_start(region_form, False, False, 0)
+            region_form.attach(self._text("Type", "creator-layer-hint"), 0, 0, 1, 1)
+            self.region_kind = Gtk.ComboBoxText()
+            for kind in creator_regions.KINDS:
+                self.region_kind.append(kind, kind.title())
+            self.region_kind.set_active_id("panel")
+            region_form.attach(self.region_kind, 1, 0, 3, 1)
+            self.region_coords = {}
+            for index, (key, label, default) in enumerate(
+                    (("x", "X", 0), ("y", "Y", 0),
+                     ("width", "Width", 160), ("height", "Height", 48))):
+                col = 0 if index % 2 == 0 else 2
+                row = 1 + index // 2
+                region_form.attach(self._text(label, "creator-layer-hint"), col, row, 1, 1)
+                spin = Gtk.SpinButton.new_with_range(0 if key in ("x", "y") else 1,
+                                                     8192, 1)
+                spin.set_value(default)
+                spin.set_width_chars(5)
+                region_form.attach(spin, col + 1, row, 1, 1)
+                self.region_coords[key] = spin
+            region_controls = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+            region_body.pack_start(region_controls, False, False, 0)
+            self.region_add = self._button("Mark rectangle", self._region_add)
+            self.region_from_hints = self._button("Use detected", self._region_from_mapping)
+            self.region_compare = self._button("Measure regions", self._region_compare)
+            mark_row = Gtk.Box(spacing=6)
+            for button in (self.region_add, self.region_from_hints):
+                mark_row.pack_start(button, True, True, 0)
+            region_controls.pack_start(mark_row, False, False, 0)
+            region_controls.pack_start(self.region_compare, False, False, 0)
+            self.region_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+            region_body.pack_start(self.region_list, False, False, 0)
+            self.region_summary = self._text("No regions marked.",
+                                             "creator-preview-note", wrap=True)
+            region_body.pack_start(self.region_summary, False, False, 0)
+            self.region_export = self._button("Export pixel report JSON…", self._region_export)
+            region_body.pack_start(self.region_export, False, False, 0)
             self.preview_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
             self.preview_box.set_halign(Gtk.Align.CENTER)
             self.preview_box.set_valign(Gtk.Align.CENTER)
@@ -448,6 +503,13 @@ def run() -> int:
                                               and not self._mapping_busy and not self.pending)
             self.mapping_apply.set_sensitive(can_map and any(
                 widget.get_active() for widget in self._mapping_checks.values()))
+            self.region_add.set_sensitive(can_map and len(self._regions) < creator_regions.MAX_REGIONS)
+            self.region_from_hints.set_sensitive(can_map and bool(
+                self._mapping and self._mapping["regions"]))
+            can_measure = bool(can_map and self._regions and self._capture_bytes and
+                               self._capture_size == (self._reference.width, self._reference.height))
+            self.region_compare.set_sensitive(can_measure)
+            self.region_export.set_sensitive(bool(self._region_report and can_measure))
 
         def _refresh_drafts(self):
             for child in self.draft_list.get_children():
@@ -506,6 +568,7 @@ def run() -> int:
                 raise workspace.WorkspaceError("Creator edits validated schema-v10/v11 recipes only")
             self._render_generation += 1
             self._mapping_reset()
+            self._regions_reset()
             self.info, self.baseline, self.pending = info, report["recipe"], {}
             self.working = copy.deepcopy(self.baseline)
             self._panel_compact = False
@@ -522,6 +585,7 @@ def run() -> int:
                 self._reference = creator_reference.selected(info.recipe_id)
                 self._reference_label()
                 if self._reference is not None:
+                    self._region_limits()
                     self._comparison_views["reference"] = creator_reference.image_bytes(info.recipe_id)
             except creator_reference.ReferenceError as exc:
                 self._reference = None
@@ -1326,6 +1390,7 @@ def run() -> int:
             if hasattr(self, 'canvas'):
                 self._capture_bytes = None
                 self._capture_size = None
+                self._region_report = None
                 self._comparison_views = {k: v for k, v in self._comparison_views.items()
                                           if k == "reference"}
                 self.reference_mode.set_active_id("native")
@@ -1746,6 +1811,7 @@ def run() -> int:
                 self.preview_caption.set_text(
                     "Last native capture is from a saved version. Render again for changed pixels.")
             if self.pending:
+                self._region_report = None
                 self._comparison_views = {k: v for k, v in self._comparison_views.items()
                                           if k == "reference"}
                 self.reference_mode.set_active_id("native")
@@ -1796,8 +1862,9 @@ def run() -> int:
             generation = self._render_generation
             self._capture_bytes = None
             self._capture_size = None
+            self._region_report = None
             self._comparison_views = {k: v for k, v in self._comparison_views.items()
-                                      if k == "reference"}
+                                      if k in ("reference", "regions")}
             self.reference_mode.set_active_id("native")
             self.spinner.start()
             self.preview_caption.set_text("Rendering in an isolated headless labwc session…")
@@ -1864,6 +1931,196 @@ def run() -> int:
                 self.reference_info.set_text(
                     f"{self._reference.name} · {self._reference.width} × {self._reference.height} "
                     f"· SHA-256 {self._reference.sha256[:12]} · private, not exported")
+
+        def _regions_reset(self):
+            """A rectangle and its measurements belong to exactly one reference."""
+            self._regions = []
+            self._region_report = None
+            for child in self.region_list.get_children():
+                self.region_list.remove(child)
+            self.region_summary.set_text("No regions marked.")
+            self._comparison_views.pop("regions", None)
+            if self.reference_mode.get_active_id() == "regions":
+                self.reference_mode.set_active_id("reference")
+
+        def _region_limits(self):
+            if self._reference is None:
+                return
+            for key, limit in (("x", self._reference.width - 1),
+                               ("y", self._reference.height - 1),
+                               ("width", self._reference.width),
+                               ("height", self._reference.height)):
+                self.region_coords[key].set_range(0 if key in ("x", "y") else 1,
+                                                  limit)
+            self.region_coords["width"].set_value(min(self._reference.width, 160))
+            self.region_coords["height"].set_value(min(self._reference.height, 48))
+
+        def _region_refresh(self):
+            self._region_report = None
+            for child in self.region_list.get_children():
+                self.region_list.remove(child)
+            for index, item in enumerate(self._regions):
+                row = Gtk.Box(spacing=6)
+                row.pack_start(self._text(
+                    f"{index + 1}. {item['kind']} · {item['x']},{item['y']} · "
+                    f"{item['width']}×{item['height']} px", "creator-layer-hint"),
+                    True, True, 0)
+                button = self._button("Remove", lambda _button, i=index: self._region_remove(i))
+                row.pack_start(button, False, False, 0)
+                self.region_list.pack_start(row, False, False, 0)
+            self.region_list.show_all()
+            self.region_summary.set_text(
+                f"{len(self._regions)} user-reviewed rectangles. Measure against a matching "
+                "native render; results expire when regions, policy or capture change."
+                if self._regions else "No regions marked.")
+            self._comparison_views.pop("regions", None)
+            if self._reference is not None and self._regions and self.info is not None:
+                try:
+                    creator_mapping.ensure_current_reference(
+                        self.info.recipe_id, self._reference.sha256)
+                    data = creator_reference.image_bytes(self.info.recipe_id)
+                    self._comparison_views["regions"] = creator_regions.annotated_view(
+                        data, reference_sha256=self._reference.sha256, regions=self._regions)
+                    self.reference_mode.set_active_id("regions")
+                except (creator_reference.ReferenceError, creator_mapping.MappingError,
+                        creator_regions.RegionError, OSError) as exc:
+                    self._status(f"Cannot mark reference: {exc}", error=True)
+            elif self.reference_mode.get_active_id() == "regions":
+                self.reference_mode.set_active_id("reference")
+            self._actions()
+
+        def _region_add(self, _button):
+            if (self._busy or self.pending or self.info is None or self._reference is None):
+                return
+            item = {"kind": self.region_kind.get_active_id(),
+                    **{key: widget.get_value_as_int()
+                       for key, widget in self.region_coords.items()}}
+            try:
+                self._regions = creator_regions.validate(
+                    [*self._regions, item],
+                    size=(self._reference.width, self._reference.height))
+                self._region_refresh()
+                self._status("Region marked locally. No screenshot or recipe was changed.",
+                             success=True)
+            except creator_regions.RegionError as exc:
+                self._status(f"Region rejected: {exc}", error=True)
+
+        def _region_remove(self, index: int):
+            if self._busy or not 0 <= index < len(self._regions):
+                return
+            self._regions.pop(index)
+            self._region_refresh()
+
+        def _region_from_mapping(self, _button):
+            if (not self._mapping or not self._reference or self.pending or self._busy):
+                return
+            try:
+                creator_mapping.ensure_current_reference(
+                    self.info.recipe_id, self._reference.sha256)
+                rectangles = [{key: item[key] for key in
+                               ("kind", "x", "y", "width", "height")}
+                              for item in self._mapping["regions"]]
+                self._regions = creator_regions.validate(
+                    rectangles, size=(self._reference.width, self._reference.height))
+                self._region_refresh()
+                self._status("Suggested geometry copied for visual review. No edits applied.",
+                             success=True)
+            except (creator_mapping.MappingError, creator_regions.RegionError) as exc:
+                self._status(f"Cannot use suggested regions: {exc}", error=True)
+
+        def _region_compare(self, _button):
+            if (self._busy or self.pending or not self.info or not self._reference or
+                    not self._capture_bytes or not self._regions or
+                    self._capture_size != (self._reference.width, self._reference.height)):
+                return
+            info, expected_sha = self.info, self._reference.sha256
+            actual, rectangles = self._capture_bytes, copy.deepcopy(self._regions)
+            threshold = self.compare_threshold.get_value_as_int()
+            radius = int(self.compare_tolerance.get_active_id() or "1")
+            self._region_report = None
+            self._busy = True
+            self._render_generation += 1
+            generation = self._render_generation
+            self.spinner.start()
+            self.region_summary.set_text("Measuring only the marked screenshot regions…")
+            self._actions()
+
+            def work():
+                try:
+                    creator_mapping.ensure_current_reference(info.recipe_id, expected_sha)
+                    reference = creator_reference.image_bytes(info.recipe_id)
+                    report = creator_regions.inspect(
+                        reference, actual, reference_sha256=expected_sha,
+                        recipe_sha256=info.semantic_sha256, regions=rectangles,
+                        threshold=threshold, tolerance_radius=radius)
+                    creator_mapping.ensure_current_reference(info.recipe_id, expected_sha)
+                    error = None
+                except (creator_regions.RegionError, creator_reference.ReferenceError,
+                        creator_mapping.MappingError, OSError, ValueError) as exc:
+                    report, error = None, str(exc)
+                GLib.idle_add(self._region_complete, generation, report, error)
+
+            threading.Thread(target=work, name="ricebowl-creator-regions", daemon=False).start()
+
+        def _region_complete(self, generation, report, error):
+            if generation != self._render_generation or not self.get_visible():
+                return False
+            self._busy = False
+            self.spinner.stop()
+            if error:
+                self.region_summary.set_text("Region comparison unavailable. Check the reference and retry.")
+                self._status(f"Region QA failed: {error}", error=True)
+            else:
+                try:
+                    creator_mapping.ensure_current_reference(
+                        self.info.recipe_id, report["reference_sha256"])
+                    self._region_report = report
+                    lines = [f"{r['number']}. {r['kind']} · raw "
+                             f"{100 * r['changed_pixel_ratio']:.2f}% · tolerant "
+                             f"{100 * r['tolerance']['changed_pixel_ratio']:.2f}% · "
+                             f"RGB error {r['mean_absolute_rgb_error']:.2f}"
+                             for r in report["regions"]]
+                    self.region_summary.set_text("\n".join(lines) +
+                        "\nPixel errors only · no inferred functional or perceptual accuracy.")
+                    self._status("Measured annotated regions against the real native capture.",
+                                 success=True)
+                except (creator_mapping.MappingError, TypeError, KeyError) as exc:
+                    self.region_summary.set_text("Reference changed. Measure regions again.")
+                    self._status(f"Region QA rejected: {exc}", error=True)
+            self._actions()
+            return False
+
+        def _region_export(self, _button):
+            if (not self._region_report or not self.info or not self._reference or
+                    not self._capture_bytes or self.pending or self._busy):
+                return
+            chooser = Gtk.FileChooserDialog(title="Export region pixel diagnostics JSON",
+                                            transient_for=self, action=Gtk.FileChooserAction.SAVE)
+            chooser.add_buttons("Cancel", Gtk.ResponseType.CANCEL,
+                                "Export report", Gtk.ResponseType.ACCEPT)
+            chooser.set_do_overwrite_confirmation(False)
+            chooser.set_current_name(f"{self.info.recipe_id}-regions.json")
+            response = chooser.run()
+            destination = Path(chooser.get_filename()) if response == Gtk.ResponseType.ACCEPT else None
+            chooser.destroy()
+            if destination is None:
+                return
+            try:
+                creator_mapping.ensure_current_reference(
+                    self.info.recipe_id, self._region_report["reference_sha256"])
+                if (self.info.semantic_sha256 != self._region_report["recipe_sha256"] or
+                        hashlib.sha256(self._capture_bytes).hexdigest() !=
+                        self._region_report["capture_sha256"]):
+                    raise creator_regions.RegionError("Capture or saved recipe changed; measure again")
+                payload = (json.dumps(self._region_report, indent=2, sort_keys=True) + "\n").encode()
+                if len(payload) > 24 * 1024:
+                    raise creator_regions.RegionError("Region report exceeds private JSON limit")
+                recipes._write_private_new(destination, payload)
+                self._status("Pixel report exported without source or capture image bytes.",
+                             success=True)
+            except (OSError, creator_mapping.MappingError, creator_regions.RegionError,
+                    recipes.RecipeError) as exc:
+                self._status(f"Report export blocked: {exc}", error=True)
 
         def _mapping_reset(self):
             """Invalidate mappings when the draft or reference identity changes."""
@@ -2089,6 +2346,8 @@ def run() -> int:
             try:
                 self._reference = creator_reference.select(self.info.recipe_id, source)
                 self._mapping_reset()
+                self._regions_reset()
+                self._region_limits()
                 self._comparison_views = {
                     "reference": creator_reference.image_bytes(self.info.recipe_id)}
                 self.reference_mode.set_active_id("reference")
@@ -2113,6 +2372,7 @@ def run() -> int:
                 creator_reference.clear(self.info.recipe_id)
                 self._reference = None
                 self._mapping_reset()
+                self._regions_reset()
                 self._comparison_views = {}
                 self.reference_mode.set_active_id("native")
                 self._reference_label()
@@ -2125,8 +2385,11 @@ def run() -> int:
         def _comparison_policy_changed(self, *_args):
             if not hasattr(self, 'reference_metrics'):
                 return
+            self._region_report = None
+            if hasattr(self, 'region_summary') and self._regions:
+                self.region_summary.set_text("Pixel policy changed. Measure marked regions again.")
             self._comparison_views = {k: v for k, v in self._comparison_views.items()
-                                      if k == "reference"}
+                                      if k in ("reference", "regions")}
             self.reference_mode.set_active_id("native")
             self.reference_metrics.set_text("Comparison policy changed. Compare again for fresh metrics.")
             self._actions()
@@ -2155,7 +2418,8 @@ def run() -> int:
                           "reference": "Imported reference screenshot · not rendered by RicePlate",
                           "wipe": "Split: left reference / right native capture · no scaling",
                           "overlay": "50% reference + 50% native capture",
-                          "heatmap": "Tolerance-aware changed pixels · red = difference"}
+                          "heatmap": "Tolerance-aware changed pixels · red = difference",
+                          "regions": "Reference screenshot with owner-marked rectangles"}
                 self.preview_caption.set_text(labels[name])
             except (GLib.Error, ValueError) as exc:
                 self._status(f"Cannot display visual QA image: {exc}", error=True)
@@ -2374,6 +2638,7 @@ def run() -> int:
                 # with test-generated pixels. No headless Wayland runtime is
                 # needed for the GTK smoke; real comparison uses the same QA API.
                 window._reference = creator_reference.select(window.info.recipe_id, source)
+                window._region_limits()
                 window._reference_label()
                 window._capture_bytes = source.read_bytes()
                 window._capture_size = (48, 48)
@@ -2386,6 +2651,28 @@ def run() -> int:
                 assert window.preview_image.get_pixbuf() is not None
                 window.reference_mode.set_active_id("heatmap")
                 assert "difference" in window.preview_caption.get_text().lower()
+                # v0.8: a numbered, owner-defined rectangle visibly overlays
+                # the actual reference. Measurement is strictly read-only and
+                # uses the same bounds, screenshot identity and pixel policy.
+                window.region_kind.set_active_id("menu")
+                window.region_coords["x"].set_value(4)
+                window.region_coords["y"].set_value(5)
+                window.region_coords["width"].set_value(24)
+                window.region_coords["height"].set_value(18)
+                window._region_add(None)
+                assert len(window._regions) == 1
+                assert window.reference_mode.get_active_id() == "regions"
+                assert window.preview_image.get_pixbuf() is not None
+                local_report = creator_regions.inspect(
+                    source.read_bytes(), window._capture_bytes,
+                    reference_sha256=window._reference.sha256,
+                    recipe_sha256=window.info.semantic_sha256,
+                    regions=window._regions, threshold=24, tolerance_radius=1)
+                window._region_complete(window._render_generation, local_report, None)
+                assert window.region_export.get_sensitive()
+                assert "0.00%" in window.region_summary.get_text()
+                window._region_remove(0)
+                assert not window.region_export.get_sensitive()
                 # v0.7: no ML inference is necessary to verify that external
                 # declarative proposals stay behind an explicit GTK approval.
                 requested_height = (50 if window.working["panel"]["height"] != 50 else 51)

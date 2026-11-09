@@ -22,7 +22,7 @@ secondary pages; prototypes and the release roadmap do not crowd the selector.
 - The macOS selection currently previews its wallpaper rather than a full
   desktop capture; the hub labels that distinction explicitly.
 
-## Rice Creator workspace (GTK3, experimental 0.7)
+## Rice Creator workspace (GTK3, experimental 0.8)
 
 The Creator is a compact desktop authoring instrument, not a themed desktop
 simulation. Its one memorable surface is the **central real-shell capture**:
@@ -107,6 +107,21 @@ on smaller laptop screens. Imported files are never treated as in-process
 offline analysis regardless of claimed JSON origin; their proposals remain
 unchecked, and the currently selected private reference is reverified before
 any export or transfer.
+
+The v0.8 **Region QA** disclosure adds a deliberately manual layer to visual
+assessment. A small coordinate form labels at most eight source-pixel rectangles
+as panel, menu, desktop or unknown. Each numbered rectangle appears as a clear,
+colored outline on a *copy* of the private reference in the existing real-image
+viewer. Type and exact coordinates remain readable in the list, and native GTK
+Remove buttons provide a non-pointer alternative. The separate **Measure
+regions** action runs off the GTK thread against a matching native render,
+showing independent raw/tolerant pixel-change percentages and RGB error for
+each marked region, with no invented visual or functional quality score. The
+report may be explicitly exported as new, owner-private, digest-pinned JSON
+without image bytes. Editing geometry, changing pixel policy or replacing a
+capture clears stale measurements; switching drafts or reference clears the
+temporary rectangles. A detected 0.7 region may be copied only on explicit
+**Use detected** action; it is geometry, not a recognized functional widget.
 
 The established `macrice/hub.py:TOKENS` palette is the **single runtime color
 source** for Creator chrome; `macrice/creator_gui.py` uses those named tokens

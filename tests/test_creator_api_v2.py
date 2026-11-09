@@ -21,6 +21,8 @@ class CreatorApiV2Tests(unittest.TestCase):
         self.assertTrue(flags["shared-status-action-bindings"]["supported"])
         self.assertTrue(flags["cross-surface-design-tokens"]["supported"])
         self.assertTrue(flags["private-native-font-and-icon-assets"]["supported"])
+        self.assertTrue(flags["manual-region-pixel-qa"]["supported"])
+        self.assertEqual(api["manual_region_qa"]["max_regions"], 8)
         self.assertFalse(flags["interactive-desktop-widgets"]["supported"])
         self.assertFalse(flags["arbitrary-screenshot-one-click-conversion"]["supported"])
         self.assertFalse(flags["window-decoration-control-across-all-apps"]["supported"])
