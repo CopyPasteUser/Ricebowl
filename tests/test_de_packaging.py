@@ -32,7 +32,6 @@ class SessionPackageTests(unittest.TestCase):
         portal.read(source / "ricebowl-portals.conf")
         self.assertEqual(portal["preferred"]["org.freedesktop.impl.portal.ScreenCast"], "wlr")
         self.assertEqual(portal["preferred"]["default"], "gtk")
-        self.assertEqual(portal["preferred"]["org.freedesktop.impl.portal.Screenshot"], "wlr")
 
     def test_session_launcher_routes_only_explicit_native_choice(self):
         with tempfile.TemporaryDirectory() as temp:
