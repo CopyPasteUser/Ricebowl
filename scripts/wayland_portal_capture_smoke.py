@@ -184,20 +184,32 @@ def run() -> None:
     session = created.get("session_handle")
     if not isinstance(session, str) or not session.startswith(DESKTOP_PATH + "/session/"):
         raise RuntimeError("CreateSession did not return a valid session handle")
+    print("PORTAL_CAPTURE_STAGE: CreateSession responded", flush=True)
+    original_failure = None
     try:
         request(connection, SCREENCAST, "SelectSources", "(oa{sv})", (session,),
                 extra_options={"types": GLib.Variant("u", 1),
                                "multiple": GLib.Variant("b", False)})
+        print("PORTAL_CAPTURE_STAGE: SelectSources responded", flush=True)
         started = request(connection, SCREENCAST, "Start", "(osa{sv})", (session, ""))
+        print("PORTAL_CAPTURE_STAGE: Start responded", flush=True)
         streams = started.get("streams")
         if not streams or not all(isinstance(stream[0], int) and stream[0] > 0
                                   for stream in streams):
             raise RuntimeError("ScreenCast Start did not return PipeWire stream nodes")
         verify_pipewire_remote(connection, session)
         print(f"PORTAL_CAPTURE_OK: screencast {len(streams)} node(s), PipeWire FD", flush=True)
+    except Exception as exc:
+        original_failure = exc
+        raise
     finally:
-        connection.call_sync(DESKTOP, session, SESSION, "Close",
-                             None, None, Gio.DBusCallFlags.NONE, 5000, None)
+        try:
+            connection.call_sync(DESKTOP, session, SESSION, "Close",
+                                 None, None, Gio.DBusCallFlags.NONE, 5000, None)
+        except GLib.Error as cleanup_error:
+            if original_failure is None:
+                raise
+            print(f"PORTAL_CLEANUP_WARN: {cleanup_error}", file=sys.stderr)
     print("PORTAL_LIMIT: No Flatpak consent, frames, physical GPU or multi-output sign-off.")
 
 
