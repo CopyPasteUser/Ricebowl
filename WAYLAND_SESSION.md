@@ -125,9 +125,11 @@ a rejected corrupt upgrade, an explicit downgrade to saved `preview1`,
 then re-upgrade and purge. The session `preview3` and native RicePlate
 `preview1` packages are intentionally unchanged in that matrix.
 
-The new Core package includes an immutable BUILDINFO containing its Debian
-version, exact Git source commit and reproducible-build epoch; the previous
-package did not. CI verifies this file appears after upgrade and disappears
+The new Core package includes an immutable
+`/usr/lib/ricebowl-wayland/BUILDINFO` containing its Debian version, exact
+Git source commit and reproducible-build epoch; the previous package did not.
+It is deliberately outside `/usr/share/doc`, which Ubuntu's minimal container
+images may exclude during package installation. CI verifies this file appears after upgrade and disappears
 after rollback. Test-user recipes, the test XFCE panel configuration and a
 user-local `ricebowl` command are checksum-checked after **every** operation.
 
