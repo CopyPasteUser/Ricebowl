@@ -1,5 +1,32 @@
 # RiceBowl changelog
 
+## Unreleased — guarded live rice failure recovery (8 November 2026)
+
+- Repair the post-replacement durability-failure window in the live selection
+  transaction: restore the **exact previous selection and undo history** under
+  its existing lock, but refuse to overwrite a concurrent Creator change.
+- Make RiceProfile's multi-client restore compensating: validate all active
+  files before writing, and revert already-restored client files if a later
+  write fails. A failed profile rollback no longer prevents private labwc menu
+  and login-selection recovery from being attempted independently.
+- Abort in-flight live switches when the session is shutting down. After a
+  nonzero live-panel crash, try the reviewed previous rice once and then one
+  bounded Waybar rescue on the unchanged active recipe; never loop, run
+  generated commands or alter XFCE. Added integration and fault-injection tests.
+- This improves software crash/error recovery; complete compositor-frame
+  readiness, power-loss fault injection and physical multi-app device QA are
+  still open.
+
+## Unreleased — schema-v10 appearance and per-output fallback (8 November 2026)
+
+- Shared validated bitmap type-scale/weight, item gap and hover/focus/disabled
+  colors now apply to native RicePlate and Waybar; existing v1–v9 recipes keep
+  their defaults. Creator catalog, draft/edit/review, RicePack and tests cover
+  the new tokens.
+- Compile output-specific compact/full Waybar configurations from a bounded
+  optional `wlr-randr` snapshot at startup and rescue. Missing output metadata
+  retains the existing safe generic fallback; no resident poller was added.
+
 ## Unreleased — reviewed live shell rice switching (8 November 2026)
 
 - Add explicit `creator-live-status/apply/restore` to the opt-in labwc session:

@@ -148,6 +148,20 @@ class LiveRiceTests(unittest.TestCase):
         self.assertFalse(self.initial_panel.terminated)
         self.assertEqual(self.processes, [])
 
+    def test_shutdown_blocks_output_refresh_without_touching_live_panel(self):
+        self.controller.mode = "waybar"
+        self.controller.stopping = lambda: True
+        with self.assertRaises(live.LiveError) as caught:
+            self.controller.handle({
+                "action": "refresh-outputs", "recipe": None, "sha256": None, "expected": None,
+            })
+        self.assertEqual(caught.exception.code, "session_stopping")
+        self.assertFalse(self.initial_panel.terminated)
+        self.assertEqual(self.processes, [])
+        self.assertEqual(self.controller.handle({
+            "action": "status", "recipe": None, "sha256": None, "expected": None,
+        })["active"], "classic")
+
     def test_live_switch_updates_both_optional_apps_and_restores_on_rollback(self):
         from types import SimpleNamespace
 
@@ -184,6 +198,121 @@ class LiveRiceTests(unittest.TestCase):
         self.assertEqual(self.menu.read_bytes(), old_menu)
         for client in profile.clients:
             self.assertEqual((self.menu_dir / client.filename).read_bytes(), before[client])
+        self.assertFalse(self.initial_panel.terminated)
+
+    def test_selection_durability_failure_recovers_exact_previous_state(self):
+        from types import SimpleNamespace
+
+        (self.menu_dir / ".ricebowl-managed").touch(mode=0o600)
+        profile = riceprofile.ProfileSession.prepare(
+            self.menu_dir, self.env, recipes.load("classic"),
+            which=lambda name: name, run=lambda *args, **kwargs: SimpleNamespace(returncode=0))
+        self.controller.profile = profile
+        before_profiles = {client: (self.menu_dir / client.filename).read_bytes()
+                           for client in profile.clients}
+        before_menu = self.menu.read_bytes()
+        real = recipes.change_selection
+
+        def committed_but_not_durable(*args, **kwargs):
+            real(*args, **kwargs)
+            raise OSError("simulated fsync failure after replacing selection")
+
+        with mock.patch.object(recipes, "change_selection", side_effect=committed_but_not_durable):
+            with self.assertRaises(live.LiveError) as caught:
+                self.change("apply", "chrome", staging._hash("chrome"))
+        self.assertEqual(caught.exception.code, "component_failed")
+        self.assertEqual(recipes.current_selection(), ("classic", None))
+        self.assertIsNone(recipes._selection_snapshot())
+        self.assertEqual(self.menu.read_bytes(), before_menu)
+        self.assertEqual({client: (self.menu_dir / client.filename).read_bytes()
+                          for client in profile.clients}, before_profiles)
+        self.assertFalse(self.initial_panel.terminated)
+        self.assertFalse(self.initial_wallpaper.terminated)
+
+    def test_selection_recovery_preserves_existing_undo_history(self):
+        # First establish a pinned two-entry login history, then simulate a
+        # post-replace failure during another live switch.
+        self.change("apply", "chrome", staging._hash("chrome"))
+        original = recipes._selection_snapshot()
+        real = recipes.change_selection
+
+        def committed_but_not_durable(*args, **kwargs):
+            real(*args, **kwargs)
+            raise OSError("simulated late durability failure")
+
+        with mock.patch.object(recipes, "change_selection", side_effect=committed_but_not_durable):
+            with self.assertRaises(live.LiveError):
+                self.change("apply", "classic", staging._hash("classic"), expected="chrome")
+        self.assertEqual(recipes._selection_snapshot(), original)
+        self.assertEqual(self.controller.active, "chrome")
+
+    def test_shutdown_after_selection_write_recovers_previous_state(self):
+        stopping = False
+        self.controller.stopping = lambda: stopping
+        real = recipes.change_selection
+
+        def commit_before_shutdown(*args, **kwargs):
+            nonlocal stopping
+            result = real(*args, **kwargs)
+            stopping = True
+            return result
+
+        with mock.patch.object(recipes, "change_selection", side_effect=commit_before_shutdown):
+            with self.assertRaises(live.LiveError) as caught:
+                self.change("apply", "chrome", staging._hash("chrome"))
+        self.assertEqual(caught.exception.code, "session_stopping")
+        self.assertIsNone(recipes._selection_snapshot())
+        self.assertEqual(self.controller.active, "classic")
+        self.assertFalse(self.initial_panel.terminated)
+        self.assertTrue(all(process.poll() is not None for _, _, process in self.processes))
+
+    def test_live_panel_crash_has_bounded_waybar_rescue(self):
+        self.initial_panel.exit_code = 7
+        self.controller.rescue_panel()
+        self.assertEqual(self.controller.status()["panel"], "waybar-fallback")
+        self.assertEqual(self.controller.status()["active"], "classic")
+        self.assertEqual(self.processes[-1][0][0], "/usr/bin/waybar")
+        self.assertEqual(recipes.current_selection(), ("classic", None))
+        self.assertIsNot(self.controller.panel, self.initial_panel)
+
+    def test_live_rescue_rejects_recipe_changed_since_activation(self):
+        with mock.patch.object(staging, "_hash", return_value="0" * 64):
+            with self.assertRaises(live.LiveError) as caught:
+                self.controller.rescue_panel()
+        self.assertEqual(caught.exception.code, "recipe_changed")
+        self.assertFalse(self.processes)
+
+    def test_recovery_refuses_to_overwrite_concurrent_selection(self):
+        real = recipes.change_selection
+
+        def concurrent_update(*args, **kwargs):
+            real(*args, **kwargs)
+            real("classic", expected_active="chrome")  # Simulate another Creator writer.
+            raise OSError("simulated durability failure")
+
+        with mock.patch.object(recipes, "change_selection", side_effect=concurrent_update):
+            with self.assertRaises(live.LiveError) as caught:
+                self.change("apply", "chrome", staging._hash("chrome"))
+        self.assertEqual(caught.exception.code, "rollback_failed")
+        self.assertEqual(recipes.current_selection()[0], "classic")
+        self.assertEqual(self.controller.active, "classic")
+
+    def test_profile_rollback_failure_does_not_skip_menu_recovery(self):
+        from types import SimpleNamespace
+
+        (self.menu_dir / ".ricebowl-managed").touch(mode=0o600)
+        profile = riceprofile.ProfileSession.prepare(
+            self.menu_dir, self.env, recipes.load("classic"),
+            which=lambda name: name, run=lambda *args, **kwargs: SimpleNamespace(returncode=0))
+        self.controller.profile = profile
+        before_menu = self.menu.read_bytes()
+        with mock.patch.object(recipes, "change_selection",
+                               side_effect=recipes.SelectionConflict("concurrent update")), \
+             mock.patch.object(profile, "restore", side_effect=riceprofile.ProfileError("I/O error")):
+            with self.assertRaises(live.LiveError) as caught:
+                self.change("apply", "chrome", staging._hash("chrome"))
+        self.assertEqual(caught.exception.code, "rollback_failed")
+        self.assertEqual(self.menu.read_bytes(), before_menu)
         self.assertFalse(self.initial_panel.terminated)
 
     def test_failed_new_panel_keeps_live_and_saved_selection(self):
