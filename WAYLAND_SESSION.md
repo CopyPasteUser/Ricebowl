@@ -688,10 +688,13 @@ least 168×144 logical pixels, the **native menu** draws readable full-resolutio
 bitmap text in a compact, paged action list (including composed menu actions),
 with matched pointer hit targets, PageUp/PageDown and AT-SPI visible rows.
 Narrow sidebar menus switch to top group tabs; typing searches as before.
-Smaller output sizes and **notification details** still use a proportional
-clipping-safety fit with inverse-mapped pointer hits. Normal-sized native menus
-retain their original composition. Real physical-device/Orca usability and
-extreme-size readability remain outstanding.
+RicePop notifications use the same full-resolution compact strategy for active/
+history rows and detail actions; body text wraps to the compact width and
+remains page-reachable using the keyboard, pointer and accessibility actions.
+Outputs smaller than 168×144 still use a proportional clipping-safety fit
+with inverse-mapped pointer hits. Normal-sized menus and notifications retain
+their established layouts. Real physical-device/Orca usability and extreme-size
+readability remain outstanding.
 
 If `wlr-randr --json` provides an enabled-output inventory, the supervised
 Waybar startup/live-apply/rescue path compiles each output's actual logical

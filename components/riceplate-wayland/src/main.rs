@@ -773,6 +773,13 @@ struct RicePlate {
 }
 
 impl RicePlate {
+    fn active_menu_size(&self) -> (u32, u32) {
+        self.active_menu.as_ref()
+            .and_then(|active| self.menu_layer.iter().chain(self.menu_mirrors.iter())
+                .find(|layer| layer.surface.wl_surface() == active))
+            .map_or((native_menu::WIDTH, native_menu::HEIGHT), |layer| layer.size)
+    }
+
     fn accessibility_model(&self) -> accessibility::Model {
         use accessibility::{Model, Target, ROOT};
 
@@ -891,6 +898,8 @@ impl RicePlate {
         }
         if self.menu_state.visible && self.active_menu.is_some() {
             if self.notification_state.open {
+                let popup_size = self.active_menu_size();
+                let compact = native_menu::compact_layout(popup_size);
                 model.add(22_000, ROOT, AccessibleRole::Dialog, "Notifications", None);
                 if self.notification_state.detail_id.is_none() {
                     model.add(22_100, 22_000, AccessibleRole::Tab,
@@ -913,25 +922,33 @@ impl RicePlate {
                               format!("Notification from {}", detail.app_name), None);
                     model.add(22_161, 22_160, AccessibleRole::Label, detail.summary.clone(), None);
                     model.add(22_162, 22_160, AccessibleRole::Label, detail.body.clone(), None);
-                    if self.notification_state.body_page_count() > 1 {
+                    if (if compact { self.notification_state.compact_body_page_count(popup_size) }
+                        else { self.notification_state.body_page_count() }) > 1 {
                         model.add(22_163, 22_160, AccessibleRole::Button,
                                   "Previous message page", Some(Target::NotificationBodyPage(-1)));
                         model.add(22_164, 22_160, AccessibleRole::Button,
                                   "Next message page", Some(Target::NotificationBodyPage(1)));
                     }
                     if !self.notification_state.show_history {
+                        let first = if compact {
+                            self.notification_state.compact_first_action_row(popup_size)
+                        } else { self.notification_state.first_action_row() };
+                        let rows = if compact { ricepop::compact_action_rows(popup_size) }
+                                   else { ricepop::VISIBLE_ROWS };
                         for (index, action) in detail.actions.iter().enumerate()
-                            .skip(self.notification_state.first_action_row())
-                            .take(ricepop::VISIBLE_ROWS) {
+                            .skip(first).take(rows) {
                             model.add(22_300 + index as u64, 22_160, AccessibleRole::Button,
                                       action.label.clone(),
                                       Some(Target::NotificationInvoke(detail.id, action.key.clone())));
                         }
                     }
                 } else {
+                    let first = if compact { self.notification_state.compact_first_row(popup_size) }
+                                else { self.notification_state.first_row() };
+                    let rows = if compact { ricepop::compact_rows(popup_size) }
+                               else { ricepop::VISIBLE_ROWS };
                     for (index, notice) in self.notification_state.visible_notices().iter()
-                        .enumerate().skip(self.notification_state.first_row())
-                        .take(ricepop::VISIBLE_ROWS) {
+                        .enumerate().skip(first).take(rows) {
                         model.add(22_200 + index as u64, 22_000,
                                   AccessibleRole::Button,
                                   format!("View notification from {}: {}", notice.app_name, notice.summary),
@@ -1159,7 +1176,10 @@ impl RicePlate {
                 self.redraw_menu(qh);
             }
             Target::NotificationBodyPage(delta) => {
-                self.notification_state.change_body_page(delta);
+                let size = self.active_menu_size();
+                if native_menu::compact_layout(size) {
+                    self.notification_state.change_compact_body_page(delta, size);
+                } else { self.notification_state.change_body_page(delta); }
                 self.redraw_menu(qh);
             }
             Target::NotificationInvoke(id, key) => {
@@ -1767,7 +1787,10 @@ impl RicePlate {
                 return;
             }
         };
-        if !self.notification_state.open && native_menu::compact_layout(layer.size) {
+        if self.notification_state.open && native_menu::compact_layout(layer.size) {
+            paint_compact_notifications(canvas, &self.recipe, &self.notification_state,
+                                        layer.size);
+        } else if native_menu::compact_layout(layer.size) {
             // Keep the bitmap font at its native pixel size on rotated/small
             // outputs; actions and optional composed sections become a paged
             // list rather than shrinking into unreadable miniature tiles.
@@ -3152,6 +3175,105 @@ fn notification_glyphs(value: &str, limit: usize) -> String {
         .take(limit).collect()
 }
 
+fn paint_compact_notifications(canvas: &mut [u8], style: &PanelStyle,
+                               state: &NotificationState, size: (u32, u32)) {
+    let (width, height) = size;
+    let text_width = ricepop::compact_body_width(width);
+    for pixel in canvas.chunks_exact_mut(4) {
+        pixel.copy_from_slice(&style.background.to_le_bytes());
+    }
+    fill_rect(canvas, width, height, 0, 0, width, 28, style.active);
+    draw_text(canvas, width, height, 8, 10, "Notifications", style.foreground);
+    if state.sync_error {
+        let status = if width < 232 { "Off" } else { "Offline" };
+        draw_text(canvas, width, height, width.saturating_sub(status.len() as u32 * 8 + 4), 10, status,
+                  style.foreground);
+    }
+    let footer = height - ricepop::COMPACT_FOOTER_HEIGHT;
+    fill_rect(canvas, width, height, 0, footer, width, 1, style.foreground);
+    draw_text(canvas, width, height, 8, footer + 9, "Esc Back", style.foreground);
+    draw_text(canvas, width, height, width / 3 + 4, footer + 9, "R Retry",
+              style.foreground);
+    if state.selected_id().is_some() {
+        draw_text(canvas, width, height, width * 2 / 3 + 4, footer + 9,
+                  "Del", style.foreground);
+    }
+    if state.loading || state.error.is_some() {
+        draw_text(canvas, width, height, 8, 76,
+                  state.error.unwrap_or("Loading alerts..."), style.foreground);
+        return;
+    }
+    if state.detail_id.is_none() {
+        fill_rounded_rect(canvas, width, height,
+                          if state.show_history { width / 2 } else { 0 },
+                          30, width / 2, 34, style.task_radius, style.active);
+        draw_text(canvas, width, height, 8, 43,
+                  &format!("Active {}", state.notices.len()), style.foreground);
+        draw_text(canvas, width, height, width / 2 + 8, 43,
+                  &format!("Past {}", state.history.len()), style.foreground);
+        if state.visible_notices().is_empty() {
+            draw_text(canvas, width, height, 8, 76,
+                      if state.show_history { "No past alerts" } else { "No active alerts" },
+                      style.foreground);
+        } else {
+            for (row, notice) in state.visible_notices().iter()
+                .skip(state.compact_first_row(size))
+                .take(ricepop::compact_rows(size)).enumerate() {
+                let index = state.compact_first_row(size) + row;
+                let y = ricepop::COMPACT_ROW_TOP + row as u32 * ricepop::COMPACT_ROW_HEIGHT;
+                if index == state.selected {
+                    fill_rounded_rect(canvas, width, height, 4, y, width - 8,
+                                      ricepop::COMPACT_ROW_HEIGHT - 2,
+                                      style.task_radius, style.active);
+                }
+                let summary = if notice.summary.is_empty() { "(No title)" }
+                              else { &notice.summary };
+                draw_text(canvas, width, height, 10, y + 5,
+                          &notification_glyphs(summary, text_width.saturating_sub(1)),
+                          style.foreground);
+                draw_text(canvas, width, height, 10, y + 19,
+                          &notification_glyphs(&notice.app_name, text_width.saturating_sub(1)),
+                          style.foreground);
+            }
+        }
+    } else if let Some(notice) = state.detail_notice() {
+        draw_text(canvas, width, height, 8, 36,
+                  &notification_glyphs(&notice.summary, text_width), style.foreground);
+        let pages = state.compact_body_page_count(size);
+        let source_width = if pages > 1 { text_width.saturating_sub(8) } else { text_width };
+        draw_text(canvas, width, height, 8, 53,
+                  &notification_glyphs(&notice.app_name, source_width), style.foreground);
+        if pages > 1 {
+            draw_text(canvas, width, height, width.saturating_sub(68), 53,
+                      &format!("{}/{} < >", state.body_page + 1, pages), style.foreground);
+        }
+        let body = ricepop::body_lines_with_width(&notice.body, text_width);
+        for (row, line) in body.iter()
+            .skip(state.body_page * ricepop::compact_body_rows(height))
+            .take(ricepop::compact_body_rows(height)).enumerate() {
+            draw_text(canvas, width, height, 8, 73 + row as u32 * 15,
+                      line, style.foreground);
+        }
+        if !state.show_history && !notice.actions.is_empty() {
+            let top = ricepop::compact_action_top(height);
+            for (row, action) in notice.actions.iter()
+                .skip(state.compact_first_action_row(size))
+                .take(ricepop::compact_action_rows(size)).enumerate() {
+                let index = state.compact_first_action_row(size) + row;
+                let y = top + row as u32 * ricepop::COMPACT_ACTION_HEIGHT;
+                if index == state.selected_action {
+                    fill_rounded_rect(canvas, width, height, 4, y, width - 8,
+                                      ricepop::COMPACT_ACTION_HEIGHT - 2,
+                                      style.task_radius, style.active);
+                }
+                draw_text(canvas, width, height, 10, y + 9,
+                          &notification_glyphs(&action.label, text_width.saturating_sub(1)),
+                          style.foreground);
+            }
+        }
+    }
+}
+
 fn paint_notifications(canvas: &mut [u8], style: &PanelStyle, state: &NotificationState) {
     let width = native_menu::WIDTH;
     let height = native_menu::HEIGHT;
@@ -4140,6 +4262,12 @@ impl KeyboardHandler for RicePlate {
             return;
         }
         if self.notification_state.open {
+            let size = self.active_menu_size();
+            let compact = native_menu::compact_layout(size);
+            let page_rows = if compact { ricepop::compact_rows(size) }
+                            else { ricepop::VISIBLE_ROWS };
+            let page_actions = if compact { ricepop::compact_action_rows(size) }
+                               else { ricepop::VISIBLE_ROWS };
             let detail = self.notification_state.detail_id.is_some();
             match event.keysym {
                 Keysym::Escape | Keysym::BackSpace => {
@@ -4148,8 +4276,14 @@ impl KeyboardHandler for RicePlate {
                 }
                 Keysym::Left if !detail => self.notification_state.select_tab(false),
                 Keysym::Right if !detail => self.notification_state.select_tab(true),
-                Keysym::Left if detail => self.notification_state.change_body_page(-1),
-                Keysym::Right if detail => self.notification_state.change_body_page(1),
+                Keysym::Left if detail => {
+                    if compact { self.notification_state.change_compact_body_page(-1, size); }
+                    else { self.notification_state.change_body_page(-1); }
+                }
+                Keysym::Right if detail => {
+                    if compact { self.notification_state.change_compact_body_page(1, size); }
+                    else { self.notification_state.change_body_page(1); }
+                }
                 Keysym::Up => {
                     if detail { self.notification_state.select_action(-1); }
                     else { self.notification_state.select(-1); }
@@ -4163,12 +4297,12 @@ impl KeyboardHandler for RicePlate {
                     else { self.notification_state.select(-1); }
                 }
                 Keysym::Prior => {
-                    if detail { self.notification_state.select_action(-(ricepop::VISIBLE_ROWS as isize)); }
-                    else { self.notification_state.select(-(ricepop::VISIBLE_ROWS as isize)); }
+                    if detail { self.notification_state.select_action(-(page_actions as isize)); }
+                    else { self.notification_state.select(-(page_rows as isize)); }
                 }
                 Keysym::Next => {
-                    if detail { self.notification_state.select_action(ricepop::VISIBLE_ROWS as isize); }
-                    else { self.notification_state.select(ricepop::VISIBLE_ROWS as isize); }
+                    if detail { self.notification_state.select_action(page_actions as isize); }
+                    else { self.notification_state.select(page_rows as isize); }
                 }
                 Keysym::r | Keysym::R => {
                     self.request_notifications(NotificationIntent::Refresh, qh);
@@ -4434,7 +4568,7 @@ impl PointerHandler for RicePlate {
                 let menu_size = self.menu_layer.iter().chain(self.menu_mirrors.iter())
                     .find(|layer| layer.surface.wl_surface() == &event.surface)
                     .map_or((native_menu::WIDTH, native_menu::HEIGHT), |layer| layer.size);
-                let compact = !self.notification_state.open && native_menu::compact_layout(menu_size);
+                let compact = native_menu::compact_layout(menu_size);
                 let pointer = if compact { event.position }
                               else { native_menu::input_coords(event.position, menu_size) };
                 // Hover and keyboard selection share one state. Update only
@@ -4459,7 +4593,9 @@ impl PointerHandler for RicePlate {
                 } = event.kind
                 {
                     if self.notification_state.open {
-                        match self.notification_state.hit(pointer.0, pointer.1) {
+                        match if compact { self.notification_state.compact_hit(
+                            pointer.0, pointer.1, menu_size) }
+                            else { self.notification_state.hit(pointer.0, pointer.1) } {
                             Some(ricepop::Hit::Row(index)) => {
                                 self.notification_state.open_detail(index);
                                 self.redraw_menu(qh);
@@ -4471,7 +4607,9 @@ impl PointerHandler for RicePlate {
                                 }
                             }
                             Some(ricepop::Hit::BodyPage(delta)) => {
-                                self.notification_state.change_body_page(delta);
+                                if compact {
+                                    self.notification_state.change_compact_body_page(delta, menu_size);
+                                } else { self.notification_state.change_body_page(delta); }
                                 self.redraw_menu(qh);
                             }
                             Some(ricepop::Hit::Tab(history)) => {
@@ -5143,6 +5281,46 @@ mod tests {
         state.close();
         assert!(state.notices.is_empty());
         assert!(state.history.is_empty());
+    }
+
+    #[test]
+    fn compact_ricepop_renders_full_resolution_list_and_detail_without_scaling() {
+        let style = recipe::load("classic").unwrap();
+        let size = (168, 144);
+        let mut state = NotificationState::default();
+        let revision = state.begin();
+        let len = (size.0 * size.1 * 4) as usize;
+        let mut loading = vec![0_u8; len];
+        let mut list = vec![0_u8; len];
+        let mut detail = vec![0_u8; len];
+        paint_compact_notifications(&mut loading, &style, &state, size);
+        assert!(state.update(revision, Ok(ricepop::Snapshot {
+            active: vec![ricepop::Notice {
+                id: 31, summary: "Compact message".into(), app_name: "Messages".into(),
+                body: "A longer notification that must remain readable".into(),
+                actions: vec![ricepop::Action {
+                    key: "open".into(), label: "Open message".into(),
+                }], ..ricepop::Notice::default()
+            }], history: vec![],
+        })));
+        paint_compact_notifications(&mut list, &style, &state, size);
+        assert!(state.open_detail(0));
+        paint_compact_notifications(&mut detail, &style, &state, size);
+        assert_ne!(loading, list);
+        assert_ne!(list, detail);
+        assert_eq!(&detail[..4], &style.active.to_le_bytes());
+        assert!(detail.chunks_exact(4).any(|p| p == style.foreground.to_le_bytes()));
+
+        // Reloading a detail must never leak stale cached message text into
+        // the compact popup. The original full-size painter masks it.
+        state.begin();
+        let mut reloading_detail = vec![0_u8; len];
+        paint_compact_notifications(&mut reloading_detail, &style, &state, size);
+        let mut fresh = NotificationState::default();
+        fresh.begin();
+        let mut fresh_loading = vec![0_u8; len];
+        paint_compact_notifications(&mut fresh_loading, &style, &fresh, size);
+        assert_eq!(reloading_detail, fresh_loading);
     }
 
     #[test]

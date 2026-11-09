@@ -19,20 +19,51 @@ pub enum Hit { Row(usize), Action(usize), BodyPage(isize), Tab(bool), Back, Refr
 
 pub const BODY_WIDTH: usize = 37;
 pub const BODY_LINES_PER_PAGE: usize = 2;
+pub const COMPACT_ROW_TOP: u32 = 70;
+pub const COMPACT_ROW_HEIGHT: u32 = 34;
+pub const COMPACT_FOOTER_HEIGHT: u32 = 26;
+pub const COMPACT_ACTION_HEIGHT: u32 = 30;
+
+pub fn compact_rows(size: (u32, u32)) -> usize {
+    (size.1.saturating_sub(COMPACT_ROW_TOP + COMPACT_FOOTER_HEIGHT)
+        / COMPACT_ROW_HEIGHT).clamp(1, VISIBLE_ROWS as u32) as usize
+}
+
+pub fn compact_action_top(height: u32) -> u32 {
+    if height < 174 { 88 } else { 118 }
+}
+
+pub fn compact_action_rows(size: (u32, u32)) -> usize {
+    (size.1.saturating_sub(compact_action_top(size.1) + COMPACT_FOOTER_HEIGHT)
+        / COMPACT_ACTION_HEIGHT).clamp(1, VISIBLE_ROWS as u32) as usize
+}
+
+pub fn compact_body_width(width: u32) -> usize {
+    (width.saturating_sub(16) / 8).max(1) as usize
+}
+
+pub fn compact_body_rows(height: u32) -> usize {
+    if height < 174 { 1 } else { BODY_LINES_PER_PAGE }
+}
 
 /// Predictable, bounded word wrapping; preserves authored paragraph breaks.
 /// Full original text remains available to accessibility clients.
 pub fn body_lines(body: &str) -> Vec<String> {
+    body_lines_with_width(body, BODY_WIDTH)
+}
+
+pub fn body_lines_with_width(body: &str, width: usize) -> Vec<String> {
+    let width = width.clamp(1, BODY_WIDTH);
     let mut lines = Vec::new();
     for paragraph in body.split('\n') {
         let mut line = String::new();
         for word in paragraph.split_whitespace() {
             let length = line.chars().count();
-            if length > 0 && length + 1 + word.chars().count() > BODY_WIDTH {
+            if length > 0 && length + 1 + word.chars().count() > width {
                 lines.push(std::mem::take(&mut line));
             } else if length > 0 { line.push(' '); }
             for character in word.chars() {
-                if line.chars().count() == BODY_WIDTH {
+                if line.chars().count() == width {
                     lines.push(std::mem::take(&mut line));
                 }
                 line.push(character);
@@ -226,6 +257,25 @@ impl State {
             .clamp(0, self.body_page_count() as isize - 1) as usize;
     }
 
+    pub fn compact_body_page_count(&self, size: (u32, u32)) -> usize {
+        self.detail_notice().map_or(1, |notice|
+            body_lines_with_width(&notice.body, compact_body_width(size.0)).len()
+                .div_ceil(compact_body_rows(size.1)).max(1))
+    }
+
+    pub fn change_compact_body_page(&mut self, delta: isize, size: (u32, u32)) {
+        self.body_page = (self.body_page as isize + delta)
+            .clamp(0, self.compact_body_page_count(size) as isize - 1) as usize;
+    }
+
+    pub fn compact_first_row(&self, size: (u32, u32)) -> usize {
+        (self.selected / compact_rows(size)) * compact_rows(size)
+    }
+
+    pub fn compact_first_action_row(&self, size: (u32, u32)) -> usize {
+        (self.selected_action / compact_action_rows(size)) * compact_action_rows(size)
+    }
+
     pub fn first_action_row(&self) -> usize {
         (self.selected_action / VISIBLE_ROWS) * VISIBLE_ROWS
     }
@@ -286,6 +336,48 @@ impl State {
             .contains(&y) && !self.loading && self.error.is_none() {
             let index = self.first_row() + ((y as u32 - ROW_TOP) / ROW_HEIGHT) as usize;
             return (index < self.visible_notices().len()).then_some(Hit::Row(index));
+        }
+        None
+    }
+
+    /// Share exact compact hit geometry with the painter and accessibility
+    /// viewport. Unsupported microscopic outputs keep the scaled old view.
+    pub fn compact_hit(&self, x: f64, y: f64, size: (u32, u32)) -> Option<Hit> {
+        if !self.open || !x.is_finite() || !y.is_finite()
+            || x < 0.0 || y < 0.0 || x >= f64::from(size.0) || y >= f64::from(size.1) {
+            return None;
+        }
+        let width = f64::from(size.0);
+        let footer = f64::from(size.1.saturating_sub(COMPACT_FOOTER_HEIGHT));
+        if y >= footer {
+            return Some(if x < width / 3.0 { Hit::Back }
+                else if x < width * 2.0 / 3.0 { Hit::Refresh }
+                else if self.selected_id().is_some() { Hit::Dismiss }
+                else { return None });
+        }
+        if self.detail_id.is_none() {
+            if (30.0..64.0).contains(&y) { return Some(Hit::Tab(x >= width / 2.0)); }
+            if y >= f64::from(COMPACT_ROW_TOP) {
+                let row = ((y as u32 - COMPACT_ROW_TOP) / COMPACT_ROW_HEIGHT) as usize;
+                if row < compact_rows(size) {
+                    let index = self.compact_first_row(size) + row;
+                    if !self.loading && self.error.is_none() && index < self.visible_notices().len() {
+                        return Some(Hit::Row(index));
+                    }
+                }
+            }
+        } else {
+            let top = compact_action_top(size.1);
+            if y >= f64::from(top) {
+                let row = ((y as u32 - top) / COMPACT_ACTION_HEIGHT) as usize;
+                if row < compact_action_rows(size) {
+                    let index = self.compact_first_action_row(size) + row;
+                    return self.action_at(index).map(|_| Hit::Action(index));
+                }
+            } else if (66.0..f64::from(top)).contains(&y)
+                      && self.compact_body_page_count(size) > 1 {
+                return Some(Hit::BodyPage(if x < width / 2.0 { -1 } else { 1 }));
+            }
         }
         None
     }
@@ -440,6 +532,50 @@ pub fn run(request: &Request) -> Result<Snapshot, &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compact_notification_hit_and_paging_keep_rows_reachable() {
+        let size = (168, 144);
+        let mut state = State::default();
+        let current = state.begin();
+        let notices = (1..=5).map(|id| Notice {
+            id, summary: format!("Notification {id}"), app_name: "App".into(),
+            body: "An important message with more than nineteen characters".into(),
+            actions: (0..4).map(|index| Action {
+                key: index.to_string(), label: format!("Action {index}"),
+            }).collect(), urgency: String::new(),
+        }).collect();
+        assert!(state.update(current, Ok(Snapshot { active: notices, history: vec![] })));
+        assert_eq!(compact_rows(size), 1);
+        assert_eq!(state.compact_hit(15.0, 80.0, size), Some(Hit::Row(0)));
+        state.select(3);
+        assert_eq!(state.compact_first_row(size), 3);
+        assert_eq!(state.compact_hit(15.0, 80.0, size), Some(Hit::Row(3)));
+        assert_eq!(state.compact_hit(160.0, 135.0, size), Some(Hit::Dismiss));
+        assert_eq!(state.compact_hit(170.0, 80.0, size), None);
+        assert!(state.open_detail(3));
+        assert!(state.compact_body_page_count(size) > 1);
+        assert_eq!(state.compact_hit(145.0, 76.0, size), Some(Hit::BodyPage(1)));
+        state.change_compact_body_page(1, size);
+        assert_eq!(state.body_page, 1);
+        assert_eq!(compact_action_rows(size), 1);
+        state.select_action(2);
+        assert_eq!(state.compact_first_action_row(size), 2);
+        assert_eq!(state.compact_hit(15.0, 95.0, size), Some(Hit::Action(2)));
+        assert_eq!(state.compact_hit(f64::NAN, 95.0, size), None);
+        assert_eq!(state.compact_hit(15.0, 144.0, size), None);
+    }
+
+    #[test]
+    fn compact_body_wrap_preserves_all_content_without_narrow_clipping() {
+        let text = "A longer text that needs wrapping";
+        let lines = body_lines_with_width(text, 12);
+        assert!(lines.len() > 2);
+        assert!(lines.iter().all(|line| line.chars().count() <= 12));
+        assert_eq!(lines.join(" "), text);
+        assert_eq!(compact_rows((240, 304)), VISIBLE_ROWS);
+        assert_eq!(compact_action_rows((240, 304)), VISIBLE_ROWS);
+    }
 
     #[test]
     fn active_only_malformed_or_ambiguous_data_fails_closed() {
