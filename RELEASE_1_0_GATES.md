@@ -31,6 +31,13 @@ physical-device compatibility.
   metapackage have reproducible Debian builds. CI checks a disposable
   Ubuntu 24.04 install/reinstall/purge and that package removal leaves
   synthetic user configuration untouched. Does not certify live DM login.
+- [x] An isolated Ubuntu 24.04 job installs Core/Meta from the immutable
+  previous preview1 release, upgrades to preview2, rejects corrupted
+  packages without losing the old installation, downgrades back to preview1,
+  re-upgrades and purges. Pinned old source tree, version provenance and
+  test-user recipe/XFCE state checks prevent an in-name-only upgrade test.
+  Only Core and Meta change versions; native/session stay on their existing
+  preview revisions.
 - [ ] Installation, upgrade, uninstall and rollback pass from clean systems.
 - [ ] Native RicePlate/RiceSpice/RicePop feature parity and mockup-to-rice
   authoring gates from `RICEBOWL_DE_ROADMAP.md` are satisfied.

@@ -3,7 +3,7 @@
 # Restrict the source manifest to git-tracked Wayland runtime files.
 set -euo pipefail
 project_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
-version='0.1.0~preview1'
+version='0.1.0~preview2'
 output=${1:-"$project_root/dist/ricebowl-wayland-core_${version}_all.deb"}
 if [[ "$output" != /*.deb ]]; then
     echo "Output must be an absolute .deb path" >&2; exit 2
@@ -71,6 +71,19 @@ if (( count < 40 )) || [[ ! -f "$payload/macrice/de/session.py" ||
     echo "Incomplete tracked Wayland application payload" >&2
     exit 1
 fi
+# Preview2 records package/source provenance inside the installed package.
+# The former preview1 omitted this immutable file. Upgrade/downgrade QA
+# checks both its addition and removal, not just dpkg's version string.
+source_commit=$(git -C "$project_root" rev-parse --verify HEAD)
+if [[ ! "$source_commit" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "Invalid package source commit" >&2; exit 1
+fi
+buildinfo="$stage/usr/lib/ricebowl-wayland/BUILDINFO"
+install -d -m 0755 "$(dirname -- "$buildinfo")"
+printf 'format=1\nversion=%s\nsource_commit=%s\nsource_date_epoch=%s\n' \
+    "$version" "$source_commit" "$package_epoch" > "$buildinfo"
+chmod 0644 "$buildinfo"
+
 find "$stage" -exec touch -h -d "@$package_epoch" -- {} +
 dpkg-deb --build --root-owner-group "$stage" "$output"
 echo "Built $output from $count tracked runtime files (not installed)"

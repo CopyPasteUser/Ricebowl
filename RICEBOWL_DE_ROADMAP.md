@@ -15,9 +15,15 @@ installation and is not yet a finished desktop environment.
   resolves core, session and native RicePlate together. No postinst or
   session-default/desktop mutation. CI runs isolated Ubuntu clean install,
   reinstall and purge and checks user state preservation.
-- [ ] Prove **real old-version to new-version** apt upgrades and rollback on
-  Mint 22, login manager selection, polkit/portals and physical hardware.
-  A CI reinstall of the same preview is not an upgrade test.
+- [x] Prove genuine **Ubuntu 24.04** Core/Meta Debian transitions from
+  the pinned previous-release commit (preview1) to preview2, including a
+  corrupt package rejection, explicit downgrade, re-upgrade, purge and
+  test-user recipe/XFCE-data checksums. Store deterministic source/version
+  BUILDINFO in the new core package; preserve backwards-compatible session.
+- [ ] Test Mint 22 dependency resolution, changed native/session packages,
+  longer real-world version chains, actual display-manager login and
+  selected-rice migrations on physical hardware. Software container tests
+  are not a user-device release signoff.
 
 
 ## The product

@@ -9,6 +9,8 @@ on:
       - 'scripts/build_wayland_session_deb.sh'
       - 'scripts/build_wayland_core_deb.sh'
       - 'scripts/build_wayland_desktop_deb.sh'
+      - 'scripts/smoke_wayland_upgrade_rollback.sh'
+      - 'tests/test_wayland_upgrade.py'
       - 'tests/test_wayland_bundle.py'
       - 'packaging/wayland/ricebowl-wayland-app'
       - 'packaging/wayland/ricebowl-wayland-command'
@@ -58,6 +60,8 @@ on:
       - 'scripts/build_wayland_session_deb.sh'
       - 'scripts/build_wayland_core_deb.sh'
       - 'scripts/build_wayland_desktop_deb.sh'
+      - 'scripts/smoke_wayland_upgrade_rollback.sh'
+      - 'tests/test_wayland_upgrade.py'
       - 'tests/test_wayland_bundle.py'
       - 'packaging/wayland/ricebowl-wayland-app'
       - 'packaging/wayland/ricebowl-wayland-command'
@@ -188,8 +192,8 @@ jobs:
         run: |
           set -eu
           artifact="$PWD/dist/riceplate-native-preview"
-          core="$artifact/ricebowl-wayland-core_0.1.0~preview1_all.deb"
-          bundle="$artifact/ricebowl-wayland-desktop_0.1.0~preview1_amd64.deb"
+          core="$artifact/ricebowl-wayland-core_0.1.0~preview2_all.deb"
+          bundle="$artifact/ricebowl-wayland-desktop_0.1.0~preview2_amd64.deb"
           bash scripts/build_wayland_core_deb.sh "$core"
           bash scripts/build_wayland_core_deb.sh "$RUNNER_TEMP/ricebowl-core-rebuild.deb"
           cmp "$core" "$RUNNER_TEMP/ricebowl-core-rebuild.deb"
@@ -216,10 +220,10 @@ jobs:
               export DEBIAN_FRONTEND=noninteractive
               apt-get update -qq
               apt-get install -y --no-install-recommends \
-                /packages/ricebowl-wayland-core_0.1.0~preview1_all.deb \
+                /packages/ricebowl-wayland-core_0.1.0~preview2_all.deb \
                 /packages/ricebowl-wayland-session_0.1.0~preview3_all.deb \
                 /packages/ricebowl-riceplate-native_0.1.0~preview1_amd64.deb \
-                /packages/ricebowl-wayland-desktop_0.1.0~preview1_amd64.deb
+                /packages/ricebowl-wayland-desktop_0.1.0~preview2_amd64.deb
               dpkg-query -W ricebowl-wayland-desktop | grep -q "^ricebowl-wayland-desktop[[:space:]]"
               /usr/bin/ricebowl-wayland-app de --help >/dev/null
               test -x /usr/lib/ricebowl-wayland/bin/ricebowl
@@ -230,10 +234,10 @@ jobs:
               mkdir -p /root/.config/ricebowl
               printf "%s\n" user-state > /root/.config/ricebowl/upgrade-preservation-marker
               apt-get install -y --no-install-recommends --reinstall \
-                /packages/ricebowl-wayland-core_0.1.0~preview1_all.deb \
+                /packages/ricebowl-wayland-core_0.1.0~preview2_all.deb \
                 /packages/ricebowl-wayland-session_0.1.0~preview3_all.deb \
                 /packages/ricebowl-riceplate-native_0.1.0~preview1_amd64.deb \
-                /packages/ricebowl-wayland-desktop_0.1.0~preview1_amd64.deb
+                /packages/ricebowl-wayland-desktop_0.1.0~preview2_amd64.deb
               test "$(cat /root/.config/ricebowl/upgrade-preservation-marker)" = user-state
               /usr/bin/ricebowl-wayland-app de --help >/dev/null
               apt-get purge -y ricebowl-wayland-desktop ricebowl-wayland-core \
@@ -246,6 +250,13 @@ jobs:
               test "$(cat /root/.config/ricebowl/upgrade-preservation-marker)" = user-state
               echo "Clean install, reinstall and purge preserved user state"
             '
+      - name: Upgrade real previous Debian previews, reject corruption and roll back
+        timeout-minutes: 9
+        run: |
+          set -eu
+          bash -n scripts/smoke_wayland_upgrade_rollback.sh
+          git fetch --no-tags --depth=1 origin b3d615a7cc508049050eb06c7952ef5a8d26e598
+          bash scripts/smoke_wayland_upgrade_rollback.sh "$PWD/dist/riceplate-native-preview"
       - name: Validate both declarative Creator examples
         run: /usr/bin/python3 -m unittest discover -s tests -p test_de_creator_examples.py -v
       - name: Prove Creator install and recovery through the real Wayland supervisor socket
