@@ -137,10 +137,18 @@ class HeadlessRenderTests(unittest.TestCase):
             descendant = None
             try:
                 deadline = time.monotonic() + 3
-                while not marker.exists() and time.monotonic() < deadline:
+                # The descendant creates its marker before writing its PID.
+                # Waiting for existence alone can race with that write.
+                while time.monotonic() < deadline:
+                    try:
+                        marker_pid = marker.read_text().strip()
+                    except FileNotFoundError:
+                        marker_pid = ""
+                    if marker_pid.isdecimal():
+                        descendant = int(marker_pid)
+                        break
                     time.sleep(0.02)
-                self.assertTrue(marker.exists(), "descendant did not start")
-                descendant = int(marker.read_text())
+                self.assertIsNotNone(descendant, "descendant did not publish its PID")
                 leader.wait(timeout=2)
                 self.assertIn(descendant, render._owned_session_pids(leader.pid, token),
                               "orphan is not discoverable as an owned process")

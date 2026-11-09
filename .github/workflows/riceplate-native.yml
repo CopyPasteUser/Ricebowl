@@ -12,16 +12,22 @@ on:
       - 'scripts/check_wayland_menu_outputs.py'
       - 'scripts/compare_wayland_captures.py'
       - 'scripts/verify_wayland_creator_examples.py'
+      - 'scripts/verify_wayland_creator_handoff.py'
       - 'tests/test_de_render.py'
       - 'tests/test_de_visual_qa.py'
       - 'tests/test_de_calendar_outputs.py'
       - 'tests/test_de_menu_outputs.py'
       - 'tests/test_de_creator_examples.py'
+      - 'tests/test_wayland_creator_e2e.py'
+      - 'tests/test_wayland_creator_handoff.py'
       - 'examples/wayland/**'
       - 'tests/fixtures/riceplate-desktop-v5-overflow.json'
       - 'tests/fixtures/riceplate-controls-v7.json'
       - 'macrice/de/capture.py'
       - 'macrice/de/render.py'
+      - 'macrice/de/creator_activation.py'
+      - 'macrice/de/creator_workspace.py'
+      - 'macrice/de/recipes.py'
       - 'macrice/cli.py'
   pull_request:
     paths:
@@ -34,16 +40,22 @@ on:
       - 'scripts/check_wayland_menu_outputs.py'
       - 'scripts/compare_wayland_captures.py'
       - 'scripts/verify_wayland_creator_examples.py'
+      - 'scripts/verify_wayland_creator_handoff.py'
       - 'tests/test_de_render.py'
       - 'tests/test_de_visual_qa.py'
       - 'tests/test_de_calendar_outputs.py'
       - 'tests/test_de_menu_outputs.py'
       - 'tests/test_de_creator_examples.py'
+      - 'tests/test_wayland_creator_e2e.py'
+      - 'tests/test_wayland_creator_handoff.py'
       - 'examples/wayland/**'
       - 'tests/fixtures/riceplate-desktop-v5-overflow.json'
       - 'tests/fixtures/riceplate-controls-v7.json'
       - 'macrice/de/capture.py'
       - 'macrice/de/render.py'
+      - 'macrice/de/creator_activation.py'
+      - 'macrice/de/creator_workspace.py'
+      - 'macrice/de/recipes.py'
       - 'macrice/cli.py'
 
 permissions:
@@ -97,6 +109,10 @@ jobs:
           (cd dist/riceplate-native-preview && sha256sum -c SHA256SUMS)
       - name: Validate both declarative Creator examples
         run: /usr/bin/python3 -m unittest discover -s tests -p test_de_creator_examples.py -v
+      - name: Prove Creator install and recovery through the real Wayland supervisor socket
+        run: |
+          /usr/bin/python3 -m unittest \
+            tests.test_wayland_creator_e2e tests.test_wayland_creator_handoff -v
       - name: Validate two-output calendar pixel analyzer
         run: /usr/bin/python3 -m unittest discover -s tests -p test_de_calendar_outputs.py -v
       - name: Validate two-output menu pixel analyzer
@@ -233,6 +249,14 @@ jobs:
           export PATH="$PWD/components/riceplate-wayland/target/release:$PATH"
           python3 -m scripts.verify_wayland_creator_examples \
             --output-dir "$PWD/dist/riceplate-native-preview/creator-examples"
+      - name: Render installed Creator drafts in real isolated Wayland compositors
+        run: |
+          set -eu
+          mkdir -p dist/riceplate-native-preview/creator-handoff
+          export PATH="$PWD/components/riceplate-wayland/target/release:$PATH"
+          timeout -k 5s 160s dbus-run-session -- /usr/bin/python3 \
+            -m scripts.verify_wayland_creator_handoff \
+            --output-dir "$PWD/dist/riceplate-native-preview/creator-handoff"
       - name: Archive smoke-tested native RicePlate preview binary
         uses: actions/upload-artifact@v4
         with:
