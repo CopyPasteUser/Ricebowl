@@ -728,8 +728,8 @@ depend on the XFCE session.
   renderer and four screen geometries in a background worker. A user-local
   application entry and CI GTK/Xvfb creation/edit/save/undo screenshot smoke
   are included. There is no active-session apply button, new daemon or AI
-  inference requirement. Richer tree editing, assets, visual overlays,
-  interactive mockup conversion and physical hardware acceptance remain open.
+  inference requirement. Richer tree editing, asset UI, visual overlays,
+  interactive mockup conversion and physical hardware acceptance were deferred.
 - [x] Deliver **Rice Creator 0.2 desktop-composition canvas**: a separate,
   accurately letterboxed logical-coordinate GTK authoring view with selectable
   schema-v10 desktop widgets, status components, shortcuts and reserved window
@@ -738,9 +738,22 @@ depend on the XFCE session.
   use the existing strict parser. Adding/removing layers and saving/undoing
   write only private immutable versions. Real native screenshots remain a
   separate on-demand tab, never a fabricated canvas; GTK/Xvfb smoke and pure
-  input/validation tests cover the workflow. Custom wallpaper/icon/font
-  import, nested panel-group child editing and physical keyboard/AT acceptance
-  remain future Creator milestones.
+  input/validation tests cover the workflow. Custom icon/font import,
+  nested panel-group child editing and physical keyboard/AT acceptance remain
+  future Creator milestones; wallpaper import arrives in 0.3.
+- [x] Deliver **Rice Creator 0.3 local wallpaper library and attribution**:
+  list verified existing owner-private SHA-256 PNG assets alongside bundled
+  artwork; add GTK file-picker import, bounded import name, author, license,
+  origin, optional public source reference, local preview and missing-image
+  feedback. Preserve no-symlink/2 MiB/4096 px/PNG integrity checks from the
+  existing asset core, with immutable owner-only provenance sidecars. The
+  draft editor now allows schema-v6+ content-addressed asset IDs, and Creator
+  export attaches declared per-wallpaper attribution to deterministic RicePack
+  v3 (without applying, importing or running code). Add unit security/roundtrip
+  checks, native GTK import/save/revert checks and isolated CI Xvfb smoke.
+  Custom icon themes, fonts, multiple image assets per pack, nested component
+  children, visual reference overlays and physical hardware acceptance remain
+  separate milestones with new renderer/pack/schema contracts as needed.
 - [x] Implement **Wayland RicePack v1 recipe exchange** (`de pack-export`,
   `de pack-inspect`, `de pack-import`): reproducible owner-private `.ricepack`
   archives, canonical schema-v1–v5 recipe, SHA-256 byte/semantic validation,

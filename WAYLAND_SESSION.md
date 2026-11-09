@@ -922,7 +922,7 @@ to active configuration or bypass native safety checks. A Creator must compare
 feature IDs and versions before constructing a UI; unsupported widget actions
 must remain disabled or request a new shared primitive.
 
-#### Rice Creator 0.2 — interactive desktop composition
+#### Rice Creator 0.3 — private wallpaper library and attribution
 
 Launch `ricebowl creator` (or `macrice creator` from a checkout); the regular
 user-local installer also adds a **Rice Creator (experimental)** application
@@ -960,6 +960,26 @@ the distro's `python3-cairo` package (also installed by the documented Debian
 setup) to produce an image in memory; no
 `gi._gi_cairo` GTK signal converter or extra Creator daemon is required.
 
+In the **Wallpaper library** inspector, choose any bundled wallpaper or import
+an existing owner-controlled `.png` via the GTK file picker. The safe import
+accepts only inspected 8-bit RGB/RGBA PNG data (maximum **2 MiB**, 4096 pixels
+per side, bounded raster); it rejects symlink paths, unsafe permissions,
+oversized/corrupt chunks, hostile compression and conflicting attribution
+for the same content hash.
+The image is stored once as an immutable, private, SHA-256-addressed asset.
+Creator also keeps an immutable, 0600 sidecar with your chosen display name
+and **user-declared** author, license, origin and optional public source
+reference. These are not legal or license verification. Old CLI-imported PNGs
+are listed with honest unspecified attribution; damaged assets are skipped.
+The inspector previews the verified asset and marks missing references clearly.
+Selecting an image changes only the *unsaved draft*; click **Save version** to
+persist it, or reopen the previous version to undo. The GUI ignores wheel
+events over the wallpaper selector so scrolling the inspector cannot change
+the selection accidentally. Exports include the PNG and its attribution in
+the existing deterministic **RicePack v3**, with no active-session apply.
+Other arbitrary icon/font assets and reference-image conversion are not
+supported by the current schema/pack and require separate runtime work.
+
 Saved drafts are owner-only files in the XDG state directory under
 `ricebowl/creator/drafts/` (default `~/.local/state/ricebowl/creator/drafts/`).
 Every save creates a **new**, non-overwriting version, shows the semantic
@@ -978,7 +998,7 @@ cache of private screen pixels remains. Missing `labwc`, `grim`, `wlr-randr`,
 state instead of an illustrated preview. The preview is a static snapshot, not
 an interactive nested session. Hardware/input QA and UI-side reviewed live
 apply/rollback remain later milestones. Existing CLI commands continue to
-offer explicit reviewed apply and restore; the Creator 0.2 GUI **never** calls
+offer explicit reviewed apply and restore; the Creator 0.3 GUI **never** calls
 them. No AI runtime, internet account or arbitrary plugin code is required;
 the optional visual editor uses the documented GTK/PyGObject and Cairo packages.
 

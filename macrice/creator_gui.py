@@ -15,7 +15,7 @@ import threading
 from pathlib import Path
 
 from .de import creator_layout as layout_engine, creator_workspace as workspace
-from .de import drafts, recipes, render, review
+from .de import assets, creator_assets, drafts, recipes, render, review
 
 
 # All paths below are existing allowlisted Creator draft-edit fields. Gtk owns
@@ -28,7 +28,6 @@ FIELDS = (
         ("/panel/position", "Panel edge", "choice", ("top", "bottom")),
         ("/panel/height", "Panel height (px)", "number", (28, 64)),
         ("/menu/presentation", "Start menu", "choice", ("tabs", "sidebar")),
-        ("/desktop/wallpaper", "Wallpaper", "choice", tuple(sorted(recipes.WALLPAPERS))),
         ("/responsive/compact_max_width", "Compact below (px)", "number", (480, 1440)),
     )),
     ("Surface colors", (
@@ -380,7 +379,7 @@ def run() -> int:
         def _load(self, info: workspace.DraftInfo, *, reset_history=False):
             report = review.review(str(info.path))
             if report["recipe"]["schema_version"] != 10:
-                raise workspace.WorkspaceError("Creator 0.2 currently edits schema-v10 recipes only")
+                raise workspace.WorkspaceError("Creator 0.3 currently edits schema-v10 recipes only")
             self._render_generation += 1
             self.info, self.baseline, self.pending = info, report["recipe"], {}
             self.working = copy.deepcopy(self.baseline)
@@ -404,6 +403,7 @@ def run() -> int:
             assert self.baseline is not None
             self._building = True
             self._build_layer_inspector()
+            self._build_wallpaper_inspector()
             for title, fields in FIELDS:
                 expander = Gtk.Expander(label=title)
                 expander.set_expanded(title in ("Rice identity", "Shell", "Surface colors"))
@@ -459,6 +459,184 @@ def run() -> int:
                 self._build_lane(lane)
             self.inspector.show_all()
             self._building = False
+
+        def _build_wallpaper_inspector(self):
+            expander = Gtk.Expander(label="Wallpaper library · local PNG assets")
+            expander.set_expanded(True)
+            self.inspector.pack_start(expander, False, False, 0)
+            body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            body.set_margin_top(10)
+            body.set_margin_bottom(12)
+            expander.add(body)
+            body.pack_start(self._text(
+                "Choose an included wallpaper or a verified private PNG. "
+                "Import never changes the current desktop.",
+                "creator-layer-hint", wrap=True), False, False, 0)
+            selection = Gtk.Box(spacing=6)
+            self.wallpaper_choice = Gtk.ComboBoxText()
+            self.wallpaper_choice.set_hexpand(True)
+            self.wallpaper_choice.set_tooltip_text("Selected draft wallpaper")
+            self.wallpaper_choice.connect("changed", self._wallpaper_selected)
+            # Scrolling the long inspector must never accidentally change a rice.
+            self.wallpaper_choice.connect("scroll-event", lambda *_: True)
+            selection.pack_start(self.wallpaper_choice, True, True, 0)
+            selection.pack_start(self._button("Refresh", lambda _b:
+                self._refresh_asset_list()), False, False, 0)
+            body.pack_start(selection, False, False, 0)
+            self.wallpaper_image = Gtk.Image()
+            self.wallpaper_image.set_size_request(-1, 92)
+            self.wallpaper_image.set_halign(Gtk.Align.CENTER)
+            body.pack_start(self.wallpaper_image, False, False, 0)
+            self.wallpaper_details = self._text("", "creator-layer-hint", wrap=True)
+            self.wallpaper_details.set_selectable(True)
+            body.pack_start(self.wallpaper_details, False, False, 0)
+
+            body.pack_start(self._text("IMPORT ONE PNG · maximum 2 MiB, 4096 px, RGB/RGBA",
+                                       "creator-rail-label"), False, False, 0)
+            grid = Gtk.Grid(row_spacing=6, column_spacing=8)
+            body.pack_start(grid, False, False, 0)
+            self.asset_label = Gtk.Entry()
+            self.asset_label.set_max_length(60)
+            self.asset_label.set_placeholder_text("e.g. Original summer hills")
+            self.asset_author = Gtk.Entry()
+            self.asset_author.set_max_length(80)
+            self.asset_author.set_placeholder_text("Name or team (optional)")
+            self.asset_source = Gtk.Entry()
+            self.asset_source.set_max_length(256)
+            self.asset_source.set_placeholder_text("Public source reference (optional)")
+            self.asset_license = Gtk.ComboBoxText()
+            for key in ("unspecified", "CC0-1.0", "CC-BY-4.0", "MIT", "custom"):
+                self.asset_license.append(key, key)
+            self.asset_license.set_active_id("unspecified")
+            self.asset_origin = Gtk.ComboBoxText()
+            for key in ("unspecified", "original", "ai-assisted", "adapted"):
+                self.asset_origin.append(key, key)
+            self.asset_origin.set_active_id("unspecified")
+            for row, (title, field) in enumerate((("Image name", self.asset_label),
+                                                   ("Author", self.asset_author),
+                                                   ("License", self.asset_license),
+                                                   ("Origin", self.asset_origin),
+                                                   ("Source", self.asset_source))):
+                label = self._text(title, "creator-layer-hint")
+                label.set_text("_" + title)
+                label.set_use_underline(True)
+                label.set_mnemonic_widget(field)
+                field.set_hexpand(True)
+                grid.attach(label, 0, row, 1, 1)
+                grid.attach(field, 1, row, 1, 1)
+            body.pack_start(self._text(
+                "Attribution is declared by you, not license-verified. "
+                "Keep rights and source information accurate.",
+                "creator-layer-hint", wrap=True), False, False, 0)
+            body.pack_start(self._button("Import PNG…", self._import_wallpaper),
+                            False, False, 0)
+            self._refresh_asset_list()
+
+        def _refresh_asset_list(self, selected_id=None):
+            if self.working is None:
+                return
+            chosen = (selected_id or self.working['desktop']['wallpaper'])
+            previous = self._building
+            self._building = True
+            self.wallpaper_choice.remove_all()
+            for asset_id in sorted(recipes.WALLPAPERS):
+                self.wallpaper_choice.append(asset_id,
+                                             "Included · " + asset_id.replace('-', ' ').title())
+            try:
+                imported = creator_assets.catalog()
+            except (assets.AssetError, OSError) as exc:
+                imported = []
+                self._status(f"Wallpaper library unavailable: {exc}", error=True)
+            for row in imported:
+                self.wallpaper_choice.append(row.asset_id, "Private · " + row.label)
+            if chosen not in recipes.WALLPAPERS and not any(row.asset_id == chosen for row in imported):
+                self.wallpaper_choice.append(chosen, "Not listed / unavailable · " + chosen[:18])
+            self.wallpaper_choice.set_active_id(chosen)
+            self._building = previous
+            self._show_wallpaper(chosen)
+
+        def _show_wallpaper(self, selected):
+            if not selected:
+                return
+            try:
+                if assets.ASSET_ID.fullmatch(selected):
+                    row = creator_assets.entry(selected)
+                    path = assets.read(selected)[0]
+                    declared = row.provenance
+                    size_label = (f"{row.size} B" if row.size < 1024 else
+                                  f"{row.size / 1024:.1f} KiB")
+                    info = (f"{row.label} · {row.width}×{row.height} · "
+                            f"{size_label}\n"
+                            f"{declared['license']} · {declared['origin']} · "
+                            f"by {declared['author'] or 'unknown'}\n"
+                            f"Source: {declared['source_reference'] or 'not declared'}")
+                else:
+                    if selected not in recipes.WALLPAPERS:
+                        raise assets.AssetError("Unknown bundled wallpaper")
+                    path = (Path(__file__).resolve().parents[1] / "assets" / "wallpapers" /
+                            (selected + ".jpg"))
+                    info = "Included RiceBowl artwork · available in the standard installation"
+                thumbnail = GdkPixbuf.Pixbuf.new_from_file_at_scale(str(path), 310, 148, True)
+                self.wallpaper_image.set_from_pixbuf(thumbnail)
+                self.wallpaper_details.set_text(info)
+            except (assets.AssetError, GLib.Error, OSError, ValueError) as exc:
+                self.wallpaper_image.set_from_icon_name("image-missing", Gtk.IconSize.DIALOG)
+                self.wallpaper_details.set_text(f"Image unavailable: {exc}. Choose a different wallpaper.")
+
+        def _wallpaper_selected(self, widget):
+            if self._building or self.working is None or self._busy:
+                return
+            selected = widget.get_active_id()
+            if selected is None:
+                return
+            try:
+                if assets.ASSET_ID.fullmatch(selected):
+                    creator_assets.entry(selected)
+                elif selected not in recipes.WALLPAPERS:
+                    raise assets.AssetError("Unknown wallpaper")
+                self._change("/desktop/wallpaper", selected)
+                self._show_wallpaper(selected)
+            except (assets.AssetError, OSError) as exc:
+                self._status(f"Cannot select wallpaper: {exc}", error=True)
+
+        def _import_wallpaper(self, _button):
+            if self.working is None or self._busy:
+                return
+            declaration = {"author": self.asset_author.get_text(),
+                           "license": self.asset_license.get_active_id(),
+                           "origin": self.asset_origin.get_active_id(),
+                           "source_reference": self.asset_source.get_text()}
+            # Validate before opening the picker; an invalid declaration must
+            # never leave a newly installed asset with incomplete attribution.
+            try:
+                from .de import pack
+                pack._provenance(declaration)
+                label = creator_assets._label(self.asset_label.get_text())
+            except (ValueError, TypeError, assets.AssetError) as exc:
+                self._status(f"Check image name / attribution: {exc}", error=True)
+                return
+            chooser = Gtk.FileChooserDialog(title="Import a local PNG wallpaper", transient_for=self,
+                                            action=Gtk.FileChooserAction.OPEN)
+            chooser.add_buttons("Cancel", Gtk.ResponseType.CANCEL,
+                                "Import PNG", Gtk.ResponseType.ACCEPT)
+            restriction = Gtk.FileFilter()
+            restriction.set_name("PNG images (*.png)")
+            restriction.add_pattern("*.png")
+            chooser.add_filter(restriction)
+            response = chooser.run()
+            source = Path(chooser.get_filename()) if response == Gtk.ResponseType.ACCEPT else None
+            chooser.destroy()
+            if source is None:
+                return
+            try:
+                row = creator_assets.import_wallpaper(source, label=label, provenance=declaration)
+                self._refresh_asset_list(row.asset_id)
+                self._change("/desktop/wallpaper", row.asset_id)
+                self._status("Verified PNG imported privately; save a new draft version to use it.",
+                             success=True)
+            except (assets.AssetError, OSError, ValueError) as exc:
+                self._status(f"Cannot import PNG: {exc}. Use an owner-controlled RGB/RGBA PNG.",
+                             error=True)
 
         def _build_layer_inspector(self):
             expander = Gtk.Expander(label="Desktop layers · visual editor")
@@ -1133,8 +1311,8 @@ def run() -> int:
     def smoke_test():
         nonlocal smoke_failed
         try:
-            if not os.environ.get("XDG_STATE_HOME"):
-                raise RuntimeError("Creator smoke requires an isolated XDG_STATE_HOME")
+            if not os.environ.get("XDG_STATE_HOME") or not os.environ.get("XDG_CONFIG_HOME"):
+                raise RuntimeError("Creator smoke requires isolated XDG state and config")
             window = windows[0]
             window._create("heritage")
             assert window.info is not None and window.info.recipe_id.startswith("creator-")
@@ -1164,6 +1342,21 @@ def run() -> int:
             assert saved.composition.widgets[2].widget_id in saved.composition.compact_hide_widgets
             window._refresh_canvas_pixels()
             assert window.canvas_image.get_pixbuf() is not None
+            # Exercise the actual asset catalog and GTK choice binding. A PNG
+            # shipped with the repo is a valid owner-controlled, tiny test image.
+            sample = (Path(__file__).resolve().parents[1] / "assets" / "themes" /
+                      "RiceHub-Ten-Dark" / "xfwm4" / "maximize-active.png")
+            declared = dict(creator_assets.UNKNOWN_PROVENANCE)
+            imported = creator_assets.import_wallpaper(sample, label="Creator smoke PNG",
+                                                       provenance=declared)
+            window._refresh_asset_list()
+            window.wallpaper_choice.set_active_id(imported.asset_id)
+            assert window.working['desktop']['wallpaper'] == imported.asset_id
+            assert window.pending['/desktop/wallpaper'] == imported.asset_id
+            assert window._commit_pending()
+            with tempfile.TemporaryDirectory(prefix="ricebowl-creator-pack-test-") as temp:
+                receipt = workspace.export_draft(window.info, Path(temp) / "smoke.ricepack")
+                assert receipt['pack_version'] == 3 and not receipt['applied']
             path = os.environ.get("RICEBOWL_CREATOR_SMOKE_CAPTURE")
             if path:
                 window.queue_draw()
