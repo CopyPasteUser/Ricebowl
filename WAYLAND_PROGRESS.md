@@ -70,6 +70,10 @@ ricebowl de start --nested --panel native --recipe quick-controls
 
 For the optional separate **RiceBowl (Wayland Preview)** login entry, follow the [reviewable .deb installation steps](WAYLAND_SESSION.md#build-and-opt-in-debianubuntumint). Never replace the only working session while testing. **Real network, audio, clock and display controls can change system state even when opened from a preview.**
 
+The native CI also builds a **separate, removable amd64 preview `.deb`** for
+`riceplate-native` with reproducibility and binary-integrity checks. It is an
+optional experimental component, not an auto-installed or signed 1.0 desktop.
+
 ## What's left for 1.0
 
 1. **Real desktop:** verified login/logout, XWayland, portals, Flatpak integration, clipboard, polkit, lock and suspend/resume.

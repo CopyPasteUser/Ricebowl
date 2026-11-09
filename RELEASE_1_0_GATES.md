@@ -20,6 +20,10 @@ physical-device compatibility.
 - [x] Native RicePlate CI emits an explicitly experimental, checksummed
   Ubuntu 24.04 preview binary plus its resolved Cargo.lock for QA download;
   this is **not** a reproducible or signed 1.0 distribution.
+- [x] A separate amd64 native RicePlate preview `.deb` is assembled from that
+  tested executable with dynamically derived shared-library dependencies; CI
+  checks repeat-build identity and verifies the extracted binary matches.
+  The artifact is opt-in and does not replace the XFCE login or full installer.
 - [ ] Installation, upgrade, uninstall and rollback pass from clean systems.
 - [ ] Native RicePlate/RiceSpice/RicePop feature parity and mockup-to-rice
   authoring gates from `RICEBOWL_DE_ROADMAP.md` are satisfied.

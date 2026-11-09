@@ -1,0 +1,9 @@
+Package: ricebowl-riceplate-native
+Version: 0.1.0~preview1
+Section: x11
+Priority: optional
+Architecture: amd64
+Maintainer: CopyPasteUser
+Description: Experimental native RicePlate panel for opt-in RiceBowl Wayland
+ Ships the prebuilt x86-64 RicePlate binary as a separate, removable package.
+ Does not install a session entry, replace XFCE, or select a default panel.
