@@ -635,6 +635,25 @@ desktop, has bounded memory/CPU overhead and honest error states, and passes
 real labwc device checks plus targeted integration tests. No new repo, shared
 daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
 
+**Implementation snapshot (experimental; hardware checks outstanding):**
+
+- [x] Implement optional `ricebowl riceclip` command and GTK3 searchable history
+  window, clipboard copy-back, pins, pause, clear and stop controls. The service
+  is explicitly started, uses `wl-paste --watch`, holds bounded text, URI and
+  PNG entries only in RAM and exposes a private per-user Unix socket. No new
+  persistent service, clipboard log or repository was added.
+- [x] Implement optional `ricebowl riceshot` command with full, output and
+  interactive region selection using `grim`/`slurp`, optional `swappy`
+  annotations, clipboard copy and exclusive 0600 PNG saves. No background
+  screenshot process was added.
+- [x] Add guarded installer launchers, menu entries and targeted unit tests.
+- [ ] Verify runtime protocols, session shutdown and UI interactions on a
+  physical labwc seat; add lock-aware clearing, app exclusions, retention
+  settings, focus and keyboard accessibility acceptance, and RicePlate
+  shortcut integration where supported.
+- [ ] Verify compositor/portal policy, permission denial, multi-output scaling,
+  annotation editing and clipboard/save behavior on actual Wayland hardware.
+
 ### 4 — The Rice ecosystem
 
 - [x] Provide an initial safe author entrypoint for bundled-to-private recipe

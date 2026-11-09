@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -30,7 +31,7 @@ class CaptureError(ValueError):
         }[code])
 
 
-def capture(output: Path | None) -> dict[str, object]:
+def capture(output: Path | None, *, geometry: str | None = None) -> dict[str, object]:
     """Capture on explicit invocation; never overwrite files, including symlinks."""
     if output is None or not output.is_absolute() or output.suffix.lower() != ".png":
         raise CaptureError("invalid_capture_request")
@@ -39,6 +40,13 @@ def capture(output: Path | None) -> dict[str, object]:
     grim = shutil.which("grim")
     if not os.environ.get("WAYLAND_DISPLAY") or not grim:
         raise CaptureError("capture_unavailable")
+    # Only accept the bounded rectangle grammar emitted by slurp.
+    if geometry is not None:
+        match = re.fullmatch(r"(-?\d+),(-?\d+) (\d+)x(\d+)", geometry)
+        if not match or not (0 < int(match[3]) <= MAX_DIMENSION
+                             and 0 < int(match[4]) <= MAX_DIMENSION
+                             and int(match[3]) * int(match[4]) <= MAX_PIXELS):
+            raise CaptureError("invalid_capture_request")
 
     try:
         descriptor, temporary = tempfile.mkstemp(prefix=".ricebowl-capture-", dir=output.parent)
@@ -47,7 +55,8 @@ def capture(output: Path | None) -> dict[str, object]:
     try:
         with os.fdopen(descriptor, "wb") as stream:
             try:
-                subprocess.run([grim, "-"], stdout=stream, stderr=subprocess.DEVNULL,
+                subprocess.run([grim, *(["-g", geometry] if geometry else []), "-"],
+                               stdout=stream, stderr=subprocess.DEVNULL,
                                timeout=30, check=True)
             except (OSError, subprocess.SubprocessError) as exc:
                 raise CaptureError("capture_failed") from exc

@@ -49,6 +49,19 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("gui", help="Open the native GTK settings manager")
     commands.add_parser("hub", help="Open RiceBowl: discover, apply and restore desktop rices")
     commands.add_parser("creator", help="Open the offline Wayland Rice Creator (experimental)")
+    clip = commands.add_parser("riceclip", help="Optional private Wayland clipboard history")
+    clip.add_argument("action", nargs="?", default="open",
+                      choices=("open", "start", "serve", "ingest", "list", "status",
+                               "clear", "pause", "resume", "copy", "pin", "unpin", "stop"))
+    clip.add_argument("--id", help="History item ID for copy/pin/unpin")
+    clip.add_argument("--mime", choices=("text/plain;charset=utf-8", "text/uri-list", "image/png"),
+                      help=argparse.SUPPRESS)
+    shot = commands.add_parser("riceshot", help="Capture a Wayland screenshot on demand")
+    shot.add_argument("--mode", choices=("region", "monitor", "full"), default="region")
+    shot.add_argument("--output", type=Path, help="New absolute PNG filename (never overwritten)")
+    shot.add_argument("--clipboard", action="store_true", help="Copy the PNG to the clipboard")
+    shot.add_argument("--annotate", action="store_true", help="Open optional swappy annotation editor")
+    shot.add_argument("--notify", action="store_true", help=argparse.SUPPRESS)
     commands.add_parser("preview", help="Preview the complete desktop and apply or restore its Rice")
     aero = commands.add_parser("aero-shell", help="Run or toggle the Windows 7-inspired taskbar and Start menu")
     ten_shell = commands.add_parser("windows10-shell", help="Run or quit the Windows 10-inspired taskbar and Start menu")
@@ -181,6 +194,31 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
+        if args.command == "riceclip":
+            from .de.riceclip import run
+            return run(args.action, identifier=args.id, mime=args.mime)
+        if args.command == "riceshot":
+            from .de.riceshot import ShotError, shoot
+
+            def desktop_message(message: str) -> None:
+                if args.notify:
+                    try:
+                        subprocess.run(["notify-send", "RiceShot", message],
+                                       check=False, timeout=3,
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    except (OSError, subprocess.TimeoutExpired):
+                        pass
+
+            try:
+                location = shoot(mode=args.mode, destination=args.output,
+                                 clipboard=args.clipboard, annotate=args.annotate)
+            except ShotError as exc:
+                desktop_message(str(exc))
+                raise
+            message = f"Saved: {location}" if location else "Copied to clipboard"
+            desktop_message(message)
+            print(f"RiceShot {message}")
+            return 0
         if args.command == "riceware":
             from .riceware_cli import run as run_riceware
             return run_riceware(args)

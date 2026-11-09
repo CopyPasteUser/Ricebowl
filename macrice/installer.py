@@ -26,6 +26,8 @@ FAST_TOGGLE_MARKER = "# Managed by RiceHub fast keyboard toggles"
 RICEBOWL_LAUNCHER_MARKER = "# Managed by RiceBowl XFCE"
 RICEBOWL_DESKTOP_MARKER = "X-RiceBowl-Managed=true"
 CREATOR_DESKTOP_MARKER = "X-RiceBowl-Creator-Managed=true"
+CLIP_DESKTOP_MARKER = "X-RiceClip-Managed=true"
+SHOT_DESKTOP_MARKER = "X-RiceShot-Managed=true"
 
 
 class InstallationError(RuntimeError):
@@ -70,6 +72,9 @@ def _check_layout(source: Path) -> None:
         "macrice/de/__init__.py",
         "macrice/de/diagnostics.py",
         "macrice/de/session.py",
+        "macrice/de/riceclip.py",
+        "macrice/de/riceclip_ui.py",
+        "macrice/de/riceshot.py",
         "macrice/de/resources/labwc/rc.xml",
         "macrice/de/resources/labwc/menu.xml",
         "macrice/de/recipes.py",
@@ -289,6 +294,7 @@ def _write_entrypoints(installed: Path) -> None:
         + '    exec /usr/bin/python3 "' + str(installed / "launcher.py") + '" update "$@" ;;\n'
         + '  de) exec /usr/bin/python3 "' + str(installed / "launcher.py") + '" "$@" ;;\n'
         + '  creator) exec /usr/bin/python3 "' + str(installed / "launcher.py") + '" "$@" ;;\n'
+        + '  riceclip|riceshot) exec /usr/bin/python3 "' + str(installed / "launcher.py") + '" "$@" ;;\n'
         + '  *) exec /usr/bin/python3 "' + str(installed / "launcher.py") + '" hub "$@" ;;\n'
         + 'esac\n'
     )
@@ -351,6 +357,18 @@ def _write_entrypoints(installed: Path) -> None:
         f"{CREATOR_DESKTOP_MARKER}\n"
     )
     _atomic_write(creator_desktop, creator_desktop_content, 0o644)
+    for filename, title, comment, invocation, icon, marker in (
+        ("riceclip.desktop", "RiceClip", "Private session clipboard history",
+         "riceclip open", "edit-paste", CLIP_DESKTOP_MARKER),
+        ("riceshot.desktop", "RiceShot", "Capture a Wayland screen region",
+         "riceshot --mode region --notify", "camera-photo", SHOT_DESKTOP_MARKER),
+    ):
+        _atomic_write(applications / filename,
+                      "[Desktop Entry]\nType=Application\nVersion=1.0\n"
+                      f"Name={title}\nComment={comment}\n"
+                      f'Exec="{bowl_launcher}" {invocation}\n'
+                      f"Icon={icon}\nTerminal=false\nCategories=Utility;Graphics;\n"
+                      f"StartupNotify=true\n{marker}\n", 0o644)
 
 
 def _check_entrypoints() -> None:
@@ -364,6 +382,8 @@ def _check_entrypoints() -> None:
         (data_home() / "applications/ricebowl.desktop", RICEBOWL_DESKTOP_MARKER),
         (data_home() / "applications/ricehub.desktop", HUB_DESKTOP_MARKER),
         (data_home() / "applications/ricebowl-creator.desktop", CREATOR_DESKTOP_MARKER),
+        (data_home() / "applications/riceclip.desktop", CLIP_DESKTOP_MARKER),
+        (data_home() / "applications/riceshot.desktop", SHOT_DESKTOP_MARKER),
     )
     for path, marker in candidates:
         if path.is_symlink() or (path.exists() and (

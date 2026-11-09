@@ -72,6 +72,9 @@ class InstallerTests(unittest.TestCase):
                 self.assertNotIn("sudo", hub_entry)
                 self.assertIn("Rice Creator", (base / "data/applications/ricebowl-creator.desktop").read_text())
                 self.assertIn("creator)", (base / "bin/ricebowl").read_text())
+                self.assertIn("riceclip|riceshot)", (base / "bin/ricebowl").read_text())
+                self.assertIn("riceclip open", (base / "data/applications/riceclip.desktop").read_text())
+                self.assertIn("riceshot --mode region", (base / "data/applications/riceshot.desktop").read_text())
 
     def test_installed_ricehub_entrypoint_loads_bundled_application(self):
         """The installed launcher must work, not just `python -m macrice`."""
@@ -125,6 +128,15 @@ class InstallerTests(unittest.TestCase):
             )
             self.assertEqual(de_help.returncode, 0, de_help.stderr)
             self.assertIn("--json", de_help.stdout)
+            for utility in ("riceclip", "riceshot"):
+                with self.subTest(utility=utility):
+                    help_result = subprocess.run(
+                        [str(base / "bin/ricebowl"), utility, "--help"],
+                        env=environment, capture_output=True, text=True,
+                        timeout=15, check=False,
+                    )
+                    self.assertEqual(help_result.returncode, 0, help_result.stderr)
+                    self.assertIn(utility, help_result.stdout)
 
     def test_fast_toggle_prefers_dbus_and_falls_back_for_cold_shell(self):
         with tempfile.TemporaryDirectory() as directory:
