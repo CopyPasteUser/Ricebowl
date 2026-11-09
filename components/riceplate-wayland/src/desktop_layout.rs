@@ -77,19 +77,23 @@ fn place_rects(
             reserved.iter().chain(placed.iter()).all(|other| !candidate.intersects(*other))
         };
         let selected = if free(desired) { Some(desired) } else {
-            // Search the full *logical output*, not just the first N columns.
-            // On wide displays a reserved window region can occupy that prefix;
-            // the old count-based limit hid icons despite free space on the
-            // right. Streaming the best candidate avoids a per-output Vec.
+            // Search the full supported logical coordinate range, not just
+            // the first N columns. On wide displays a reserved window region
+            // can occupy that prefix, hiding icons despite free space on the
+            // right. Cap compositor-reported dimensions to the same bounded
+            // coordinate range as saved positions; malformed giant modes
+            // must not cause millions of geometry checks or UI stalls.
             let step_x = item_w.saturating_add(GAP).max(1);
             let step_y = item_h.saturating_add(GAP).max(1);
-            let cols = max_x / step_x;
-            let rows = (max_y - upper) / step_y;
+            let search_max_x = max_x.min(MAX_SAVED_POSITION);
+            let search_max_y = max_y.min(upper.saturating_add(MAX_SAVED_POSITION));
+            let cols = search_max_x / step_x;
+            let rows = (search_max_y - upper) / step_y;
             let mut best: Option<((u32, u32, u32), (u32, u32))> = None;
             for row in 0..=rows.saturating_add(1) {
-                let y = if row > rows { max_y } else { upper + row * step_y };
+                let y = if row > rows { search_max_y } else { upper + row * step_y };
                 for col in 0..=cols.saturating_add(1) {
-                    let x = if col > cols { max_x } else { col * step_x };
+                    let x = if col > cols { search_max_x } else { col * step_x };
                     let candidate = (x, y);
                     if !free(candidate) { continue; }
                     let key = (x.abs_diff(desired.0) + y.abs_diff(desired.1), y, x);
@@ -281,6 +285,17 @@ mod tests {
         assert!(small.iter().all(Option::is_some));
         assert_eq!(wide, place_rects(&icons, ICON_WIDTH, ICON_HEIGHT, 1920, 900,
                                       false, 40, &[region]));
+    }
+
+    #[test]
+    fn malformed_giant_output_does_not_expand_the_collision_search() {
+        let region = Rect { x: 0, y: 0, w: 2048, h: 2048 };
+        let icon = [(32, 96)];
+        let result = place_rects(&icon, ICON_WIDTH, ICON_HEIGHT, 1_000_000, 1_000_000,
+                                 true, 44, &[region]);
+        let (x, y) = result[0].expect("bounded coordinates still offer free space");
+        assert!(x <= MAX_SAVED_POSITION && y <= MAX_SAVED_POSITION + 52);
+        assert!(x >= 2048 || y >= 2048);
     }
 
     #[test]

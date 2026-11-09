@@ -598,10 +598,10 @@ depend on the XFCE session.
   and real-device acceptance remain separate release gates.
 - [x] **Foundation Sprint 1: full-output collision recovery** — when a saved
   desktop shortcut or widget collides with a reserved window region, inspect
-  free cells throughout the compositor's logical output rather than only the
-  first few columns. Preserve nearest-first deterministic placement without
-  allocating a candidate list. Regression tests cover wide-output reserved
-  regions, mode changes, two simultaneous icons and collision safety. No
+  free cells throughout the supported logical coordinate range rather than
+  only the first few columns. Preserve nearest-first deterministic placement
+  with bounded work and no candidate list. Regression tests cover wide-output
+  reserved regions, mode changes, giant invalid modes and collision safety. No
   window-manager control or cross-monitor dragging is implied.
 - [x] Add **first native shortcut editing interactions**: distinguish click
   from pointer drag, expose an on-demand keyboard focus frame and 16-pixel
