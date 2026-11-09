@@ -38,6 +38,23 @@ headless D-Bus introspection cannot certify.
 
 ## Prerequisites
 
+Run `ricebowl de check --json` (or `ricebowl-wayland-app de check --json`
+when using the standalone package) from your normal desktop first. The
+read-only preflight now checks the same required executables as the session
+launcher, including the Waybar recovery path, and reports three distinct
+booleans: `nested_prerequisites_ready`, `login_prerequisites_ready`, and
+`native_login_prerequisites_ready`. A full login requires `swayidle` in
+addition to the nested-preview requirements; a native login also needs
+`riceplate-native`. The command exits nonzero when full-login prerequisites
+are missing and lists each missing program. It does not start a compositor,
+inspect user files, or change the current session.
+
+These booleans check **executable availability only**. They do not prove
+that the login entry is installed, the D-Bus bus is responsive, the runtime
+directory is valid, portal backends work, or the GPU, devices, lock and
+screen reader pass physical acceptance. `standalone_de_ready` intentionally
+remains `false` until the complete 1.0 release gates are met.
+
 - Linux display manager that enumerates `/usr/share/wayland-sessions`
   (check your specific login manager on the actual computer).
 - Either the standalone `ricebowl-wayland-core` package or the legacy

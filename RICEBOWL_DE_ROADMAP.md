@@ -7,6 +7,12 @@ installation and is not yet a finished desktop environment.
 
 ### Standalone desktop packaging checkpoint (November 2026)
 
+- [x] Align `de check` with the real labwc launcher prerequisites: distinguish
+  nested preview, protected full login (`swayidle`) and native RicePlate login
+  (additional binary). Missing mandatory tools now produce a failing preflight
+  instead of false success from finding only labwc. It remains read-only and
+  explicitly does not certify the D-Bus connection, portal or physical login.
+
 - [x] Add a reproducible, tracked-source, read-only `ricebowl-wayland-core`
   Debian package with independent CLI and bundled Wayland resources/Creator.
   The login package prefers it while remaining backward compatible with the

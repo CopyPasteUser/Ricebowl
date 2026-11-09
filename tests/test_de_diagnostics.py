@@ -17,11 +17,15 @@ class DesktopEnvironmentPreflightTests(unittest.TestCase):
             which=lambda name: f"/usr/bin/{name}" if name in tools else None,
         )
         self.assertTrue(report.compositor_available)
+        self.assertFalse(report.nested_prerequisites_ready)
+        self.assertFalse(report.login_prerequisites_ready)
+        self.assertFalse(report.native_login_prerequisites_ready)
         self.assertFalse(report.standalone_de_ready)
         self.assertEqual(report.session_type, "wayland")
         self.assertEqual(report.checks[-1].status, "planned")
         self.assertEqual({c.key for c in report.checks},
-                         {"labwc", "xwayland", "session-bus", "riceplate", "integration"})
+                         {"labwc", "xwayland", "session-bus", "riceplate", "integration",
+                          "waybar", "foot", "fuzzel", "swaylock", "swayidle"})
 
     def test_unknown_session_and_missing_tools_are_reported_truthfully(self):
         report = inspect(environment={"XDG_SESSION_TYPE": "custom", "DISPLAY": ":0"},
@@ -40,6 +44,56 @@ class DesktopEnvironmentPreflightTests(unittest.TestCase):
         self.assertIn("does not validate", report.checks[3].detail)
         self.assertFalse(report.standalone_de_ready)
         self.assertEqual(report.checks[-1].status, "planned")
+
+    def test_nested_and_login_require_exact_session_dependencies(self):
+        base = {"labwc", "waybar", "foot", "fuzzel", "swaylock", "dbus-run-session"}
+
+        def report_with(tools):
+            return inspect(environment={"XDG_SESSION_TYPE": "x11"},
+                           which=lambda name: f"/usr/bin/{name}" if name in tools else None)
+
+        nested = report_with(base)
+        self.assertTrue(nested.nested_prerequisites_ready)
+        self.assertFalse(nested.login_prerequisites_ready)
+        self.assertFalse(nested.native_login_prerequisites_ready)
+        self.assertEqual(next(c for c in nested.checks if c.key == "swayidle").status,
+                         "missing")
+
+        login = report_with(base | {"swayidle"})
+        self.assertTrue(login.login_prerequisites_ready)
+        self.assertFalse(login.native_login_prerequisites_ready)
+        self.assertFalse(login.standalone_de_ready)
+
+        native = report_with(base | {"swayidle", "riceplate-native"})
+        self.assertTrue(native.native_login_prerequisites_ready)
+        self.assertFalse(native.standalone_de_ready)
+
+        for required in ("labwc", "waybar", "foot", "fuzzel", "swaylock"):
+            with self.subTest(missing=required):
+                self.assertFalse(report_with((base | {"swayidle"}) - {required})
+                                 .login_prerequisites_ready)
+
+    def test_session_bus_is_required_even_with_all_binaries(self):
+        tools = {"labwc", "waybar", "foot", "fuzzel", "swaylock", "swayidle",
+                 "riceplate-native"}
+        report = inspect(environment={},
+                         which=lambda name: f"/usr/bin/{name}" if name in tools else None)
+        self.assertFalse(report.nested_prerequisites_ready)
+        self.assertFalse(report.login_prerequisites_ready)
+        self.assertFalse(report.native_login_prerequisites_ready)
+
+    def test_cli_exit_code_reflects_full_login_dependencies(self):
+        base = {"labwc", "waybar", "foot", "fuzzel", "swaylock", "dbus-run-session"}
+        for tools, expected in ((base, 1), (base | {"swayidle"}, 0)):
+            with self.subTest(expected=expected):
+                report = inspect(environment={},
+                                 which=lambda name: f"/usr/bin/{name}" if name in tools else None)
+                output = io.StringIO()
+                with patch("macrice.de.diagnostics.inspect", return_value=report), \
+                     patch("sys.stdout", output):
+                    self.assertEqual(main(["de", "check"]), expected)
+                self.assertIn("Wayland login prerequisites:", output.getvalue())
+                self.assertIn("hardware acceptance: not verified", output.getvalue())
 
     def test_does_not_expose_network_or_private_environment(self):
         private = "wifi-name-or-secret"

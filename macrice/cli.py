@@ -673,8 +673,14 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"RiceBowl DE / labwc preflight (current session: {report.session_type})")
                 for check in report.checks:
                     print(f"[{check.status.upper():8}] {check.label}: {check.detail}")
-                print("Wayland preview: optional login session available; complete RiceBowl DE pending")
-            return 0 if report.compositor_available else 1
+                print("Nested preview prerequisites: " +
+                      ("available" if report.nested_prerequisites_ready else "incomplete"))
+                print("Wayland login prerequisites: " +
+                      ("available" if report.login_prerequisites_ready else "incomplete"))
+                print("Native login prerequisites: " +
+                      ("available" if report.native_login_prerequisites_ready else "incomplete"))
+                print("Actual login, portal consent and hardware acceptance: not verified")
+            return 0 if report.login_prerequisites_ready else 1
         if args.command in (None, "gui"):
             from .gui import run
             return run()
