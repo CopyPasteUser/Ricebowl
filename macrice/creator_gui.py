@@ -16,7 +16,8 @@ import tempfile
 import threading
 from pathlib import Path
 
-from .de import creator_layout as layout_engine, creator_workspace as workspace
+from .de import (creator_activation, creator_layout as layout_engine,
+                 creator_workspace as workspace)
 from .de import (assets, creator_assets, creator_iteration, creator_mapping, creator_reference, creator_regions,
                  creator_structure, drafts,
                  recipes, render, review, style_assets)
@@ -251,6 +252,31 @@ def run() -> int:
             scroll.add(self.draft_list)
             sidebar.pack_start(self._text("Drafts are private. Saving never applies a rice.",
                                           "hub-hint", wrap=True), False, False, 4)
+            sidebar.pack_start(self._text("WAYLAND HANDOFF", "creator-rail-label"),
+                               False, False, 7)
+            self.wayland_btn = Gtk.MenuButton(label="Install / switch…")
+            self.wayland_btn.get_style_context().add_class("hub-action")
+            self.wayland_btn.set_size_request(-1, 36)
+            sidebar.pack_start(self.wayland_btn, False, False, 0)
+            self.wayland_menu = Gtk.Popover.new(self.wayland_btn)
+            wayland_actions = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=7)
+            wayland_actions.set_border_width(10)
+            self.wayland_menu.add(wayland_actions)
+            self.wayland_btn.set_popover(self.wayland_menu)
+            self.install_btn = self._button("Install saved version…", self._install_draft)
+            self.fork_btn = self._button("Fork as new rice ID", self._fork_draft)
+            self.apply_btn = self._button("Apply in Wayland…", lambda _: self._live_action("apply"))
+            self.restore_btn = self._button("Restore previous rice…",
+                                            lambda _: self._live_action("restore"))
+            for button in (self.install_btn, self.fork_btn, self.apply_btn, self.restore_btn):
+                wayland_actions.pack_start(button, False, False, 0)
+            self.install_btn.set_tooltip_text("Copy the validated saved version into your private rice collection")
+            self.fork_btn.set_tooltip_text("Keep the full layout under a fresh ID when another version is installed")
+            self.apply_btn.set_tooltip_text("Only in a running opt-in RiceBowl Wayland session")
+            self.restore_btn.set_tooltip_text("Restore the previously active Wayland rice")
+            sidebar.pack_start(self._text(
+                "Live changes require an opt-in RiceBowl Wayland session and explicit confirmation.",
+                "hub-hint", wrap=True), False, False, 4)
 
             content = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
             self.main.pack2(content, resize=True, shrink=False)
@@ -497,6 +523,7 @@ def run() -> int:
             status_box.set_border_width(8)
             outer.pack_start(status_box, False, False, 0)
             self.status = self._text("Choose a template to begin.", "creator-status")
+            self.status.set_line_wrap(True)
             status_box.pack_start(self.status, True, True, 0)
             self._actions()
 
@@ -513,6 +540,14 @@ def run() -> int:
             self.render_btn.set_sensitive(selected and not self._busy)
             self.export_btn.set_sensitive(selected and not self._busy)
             self.undo_btn.set_sensitive(bool(self._history) and not self._busy)
+            can_install = selected and not self.pending and not self._busy
+            live_session = bool(os.environ.get("WAYLAND_DISPLAY"))
+            self.install_btn.set_sensitive(can_install)
+            self.fork_btn.set_sensitive(can_install)
+            self.apply_btn.set_sensitive(can_install and live_session)
+            self.restore_btn.set_sensitive(not self._busy and live_session and not self.pending)
+            self.wayland_btn.set_sensitive(can_install or
+                                           (live_session and not self.pending and not self._busy))
             self.reference_import.set_sensitive(selected and not self.pending and
                                                 not self._busy and not self._mapping_busy)
             self.reference_clear.set_sensitive(self._reference is not None and
@@ -1882,6 +1917,135 @@ def run() -> int:
         def _save(self, _button):
             self._commit_pending()
 
+        def _confirm_handoff(self, title: str, detail: str, action: str) -> bool:
+            dialog = Gtk.MessageDialog(transient_for=self, modal=True,
+                                       message_type=Gtk.MessageType.QUESTION,
+                                       buttons=Gtk.ButtonsType.NONE, text=title)
+            dialog.format_secondary_text(detail)
+            dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+            dialog.add_button(action, Gtk.ResponseType.OK)
+            dialog.set_default_response(Gtk.ResponseType.CANCEL)
+            response = dialog.run()
+            dialog.destroy()
+            return response == Gtk.ResponseType.OK
+
+        def _install_draft(self, _button):
+            self.wayland_menu.popdown()
+            if self._busy or self.pending or self.info is None:
+                return
+            try:
+                plan = creator_activation.inspect_install(self.info)
+            except (creator_activation.ActivationError, OSError) as exc:
+                self._status(f"Installation unavailable: {exc}", error=True)
+                return
+            if plan.already_installed:
+                self._status("This exact saved version is already installed. Nothing changed.",
+                             success=True)
+                return
+            if not self._confirm_handoff("Install this saved rice?",
+                    f"{plan.draft.recipe_id} · SHA-256 {plan.draft.semantic_sha256[:12]}\n\n"
+                    "Copies this immutable version into your private Wayland rice collection. "
+                    "It will not change either desktop or the next login selection.",
+                    "Install version"):
+                return
+            try:
+                creator_activation.install(plan)
+                self._status(f"Installed {plan.draft.recipe_id}. No desktop or login changed.",
+                             success=True)
+            except (creator_activation.ActivationError, OSError) as exc:
+                self._status(f"Installation blocked: {exc}", error=True)
+
+        def _fork_draft(self, _button):
+            self.wayland_menu.popdown()
+            if self._busy or self.pending or self.info is None:
+                return
+            try:
+                new = workspace.fork_version(self.info)
+                self._load(new, reset_history=True)
+                self._refresh_drafts()
+                self._status(f"Forked saved layout as {new.recipe_id}. Not installed or applied.",
+                             success=True)
+            except (workspace.WorkspaceError, recipes.RecipeError, OSError) as exc:
+                self._status(f"Could not fork version: {exc}", error=True)
+
+        def _live_action(self, action: str):
+            self.wayland_menu.popdown()
+            if (self._busy or self.pending or not os.environ.get("WAYLAND_DISPLAY") or
+                    (action == "apply" and self.info is None)):
+                return
+            draft = self.info
+            self._busy = True
+            self._actions()
+            self._status("Checking the active RiceBowl Wayland session…")
+
+            def prepare():
+                try:
+                    plan = (creator_activation.inspect_live(draft) if action == "apply" else
+                            creator_activation.inspect_restore())
+                    error = None
+                except (creator_activation.ActivationError, OSError) as exc:
+                    plan, error = None, str(exc)
+                GLib.idle_add(self._live_review, action, plan, error)
+
+            threading.Thread(target=prepare, name="ricebowl-creator-live-review",
+                             daemon=False).start()
+
+        def _live_review(self, action, plan, error):
+            if not self.get_visible():
+                self._busy = False
+                return False
+            if error:
+                self._busy = False
+                self._actions()
+                self._status(f"Live change unavailable: {error}", error=True)
+                return False
+            if action == "apply":
+                title = "Apply this saved rice to Wayland?"
+                detail = (f"{plan.draft.recipe_id} · SHA-256 {plan.draft.semantic_sha256[:12]}\n"
+                          f"Current rice: {plan.expected_active}\n\n"
+                          "Changes the active RiceBowl panel, wallpaper and supported profiles. "
+                          "The supervisor performs preflight checks and rolls back on failure. "
+                          + ("The choice also persists for the next login." if plan.next_login_persisted
+                             else "This is a nested session; the choice will not persist."))
+                label = "Apply live"
+            else:
+                title = "Restore the previous Wayland rice?"
+                detail = (f"Current: {plan.expected_active}\nRestore: {plan.previous}\n\n"
+                          "The supervisor verifies the active rice and restores the previous "
+                          "selection with rollback on failure.")
+                label = "Restore live"
+            if not self._confirm_handoff(title, detail, label):
+                self._busy = False
+                self._actions()
+                self._status("Live change cancelled. Desktop unchanged.")
+                return False
+            self._status(f"{label} requested. Waiting for the Wayland supervisor…")
+
+            def work():
+                try:
+                    response = (creator_activation.apply_live(plan) if action == "apply" else
+                                creator_activation.restore_live(plan))
+                    error_message = None
+                except (creator_activation.ActivationError, OSError) as exc:
+                    response, error_message = None, str(exc)
+                GLib.idle_add(self._live_done, response, error_message)
+
+            threading.Thread(target=work, name="ricebowl-creator-live-change",
+                             daemon=False).start()
+            return False
+
+        def _live_done(self, response, error):
+            self._busy = False
+            if self.get_visible():
+                self._actions()
+                if error:
+                    self._status(f"Live change not confirmed: {error}", error=True)
+                else:
+                    self._status(f"Active Wayland rice: {response['active']}. "
+                                 "Restore is available when a previous version exists.",
+                                 success=True)
+            return False
+
         def _undo(self, _button):
             if self._busy or not self._discard_pending() or not self._history:
                 return
@@ -2949,6 +3113,22 @@ def run() -> int:
                 window._reference_unlink(None)
                 assert not window.compare_btn.get_sensitive()
                 assert window._reference is None
+            # Handoff is explicitly confirmed, owner-private and offline in
+            # this X11 smoke; never create a live compositor as part of CI.
+            from unittest.mock import patch
+            assert window.install_btn.get_sensitive()
+            with patch.object(window, "_confirm_handoff", return_value=True):
+                window.install_btn.clicked()
+            assert recipes.load(window.info.recipe_id).recipe_id == window.info.recipe_id
+            assert "Installed" in window.status.get_text()
+            installed_id = window.info.recipe_id
+            window.fork_btn.clicked()
+            assert window.info.recipe_id != installed_id
+            assert recipes.load(installed_id).recipe_id == installed_id
+            assert "Not installed or applied" in window.status.get_text()
+            if not os.environ.get("WAYLAND_DISPLAY"):
+                assert not window.apply_btn.get_sensitive()
+                assert not window.restore_btn.get_sensitive()
             path = os.environ.get("RICEBOWL_CREATOR_SMOKE_CAPTURE")
             if path:
                 window.queue_draw()

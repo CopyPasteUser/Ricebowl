@@ -976,6 +976,16 @@ depend on the XFCE session.
   previous-rice restore and one fingerprint-verified Waybar rescue. Tests inject
   I/O, concurrent selection and panel crashes; no claim of power-cut atomicity,
   compositor-frame synchronization or physical suspend/relogin acceptance.
+- [x] Connect **GTK Creator 0.9 to the opt-in live Wayland transaction**:
+  saved private revisions can be installed explicitly and idempotently with
+  a SHA-256 guard on the *actual* imported bytes; an existing differing ID is
+  never replaced, but an immutable revision can be forked to a new ID while
+  retaining its full composition. Separate confirmed live apply/restore reviews the running
+  supervisor, requires a matching installed recipe, passes active-selection
+  CAS and semantic fingerprint to the established rollback-capable controller.
+  X11 has no live activation, unsaved edits block handoff and uncertain socket
+  completion is reported as unconfirmed. Unit tests cover stale files, races,
+  ID collisions and live conflicts; device-level operation remains unaccepted.
 - [x] Publish two **honest schema-v5 Creator demonstrators** under
   `examples/wayland/`: a classic-OS-inspired workstation and a structurally
   distinct original Orbit concept. They use only shared native primitives,

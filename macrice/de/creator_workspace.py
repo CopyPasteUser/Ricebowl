@@ -143,6 +143,31 @@ def save_revision(source: Path, changes: dict[str, Any], *, expected_sha256: str
         os.unlink(patch_name)
 
 
+def fork_version(info: DraftInfo) -> DraftInfo:
+    """Copy a reviewed immutable draft to a fresh ID, keeping its full layout.
+
+    Useful when an earlier version of the same ID is already installed. The
+    installed recipe and the source draft are never replaced or modified.
+    """
+    folder = _private_directory()
+    if info.path.parent != folder:
+        raise WorkspaceError("Open a draft from the private Creator workspace")
+    current = open_draft(info.path)
+    if current.semantic_sha256 != info.semantic_sha256:
+        raise WorkspaceError("Draft changed on disk. Reopen before forking")
+    raw = recipes._read_import_source(info.path)
+    parsed = recipes.parse(raw)
+    if review._semantic_hash(review._manifest(parsed)) != info.semantic_sha256:
+        raise WorkspaceError("Draft changed during copy. Reopen before forking")
+    manifest = json.loads(raw)
+    manifest["id"] = f"creator-{secrets.token_hex(6)}"
+    payload = (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    recipes.parse(payload)
+    target = _new_file(folder)
+    recipes._write_private_new(target, payload)
+    return open_draft(target)
+
+
 def upgrade_to_artwork(info: DraftInfo) -> DraftInfo:
     """Create a new immutable v11 draft from a saved v10 draft; never overwrite."""
     checked = open_draft(info.path)
