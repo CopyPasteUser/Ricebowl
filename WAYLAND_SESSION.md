@@ -7,6 +7,35 @@ and its backups stay intact.
 Mint 22/Ubuntu 24.04's labwc **0.7.1** is supported by using its
 `--startup` command and requesting compositor exit when the shell finishes.
 
+## Portal integration acceptance (isolated CI)
+
+The session package already routes FileChooser through GTK and Screenshot /
+ScreenCast through the wlroots backend. A new CI smoke now launches a **real
+headless labwc**, imports its socket into a **private D-Bus activation
+environment**, and introspects `org.freedesktop.portal.Desktop` for the
+FileChooser, Screenshot and ScreenCast interfaces. It fails when portal
+activation or any required interface is missing. It never opens dialogs,
+captures screen content, grants access, or touches the active XFCE session.
+
+Run the acceptance on a system with labwc, xdg-desktop-portal, both
+xdg-desktop-portal-gtk and xdg-desktop-portal-wlr, gdbus and dbus-run-session:
+
+```bash
+timeout -k 5s 40s sh scripts/smoke_wayland_portals.sh
+```
+
+**This is protocol discovery, not completed Flatpak or screencast
+certification.** Before 1.0, log into the physical RiceBowl Wayland session
+and verify: (1) a real sandboxed Flatpak file-open and file-save dialog
+with consent and cancellation; (2) a real PipeWire ScreenCast sharing flow
+in a browser or conferencing client, with visible consent, output selection,
+frame delivery and clean stop/revoke; (3) screenshot consent and rejection;
+(4) denied requests and missing-backend behavior; (5) dual-display selection,
+hotplug and suspend/resume. Verify the same on both Waybar and native
+RicePlate sessions without altering XFCE. ScreenCast may need a working
+PipeWire user session and compositor-specific chooser configuration that a
+headless D-Bus introspection cannot certify.
+
 ## Prerequisites
 
 - Linux display manager that enumerates `/usr/share/wayland-sessions`
