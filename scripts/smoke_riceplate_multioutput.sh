@@ -26,6 +26,7 @@ dbus-run-session -- sh -eu -c '
         --startup true >"$runtime/labwc.log" 2>&1 &
     compositor=$!
     plate=
+    watcher=
     cleanup() {
         status=$?
         if [ "$status" -ne 0 ]; then
@@ -42,6 +43,7 @@ dbus-run-session -- sh -eu -c '
             wlr-randr >&2 || :
         fi
         if [ -n "$plate" ]; then kill "$plate" 2>/dev/null || :; wait "$plate" 2>/dev/null || :; fi
+        if [ -n "$watcher" ]; then kill "$watcher" 2>/dev/null || :; wait "$watcher" 2>/dev/null || :; fi
         kill "$compositor" 2>/dev/null || :
         wait "$compositor" 2>/dev/null || :
     }
@@ -54,6 +56,16 @@ dbus-run-session -- sh -eu -c '
     done
     [ -S "$runtime/wayland-0" ] || { echo "No headless Wayland socket" >&2; exit 1; }
     export WAYLAND_DISPLAY=wayland-0
+    # This Rust Wayland listener creates no surface and emits only changes,
+    # never the initial inventory. It is used solely by the Waybar fallback.
+    RICEBOWL_DE_SHELL_CHILD=1 "$native" --watch-outputs \
+        >"$runtime/output-events.log" 2>"$runtime/output-watch.log" &
+    watcher=$!
+    sleep 0.4
+    kill -0 "$watcher" 2>/dev/null || { cat "$runtime/output-watch.log" >&2; exit 1; }
+    [ ! -s "$runtime/output-events.log" ] || {
+        echo "Initial output inventory incorrectly caused a refresh" >&2; exit 1;
+    }
     "$native" --recipe classic >"$runtime/plate.log" 2>&1 &
     plate=$!
     count=0
@@ -76,6 +88,11 @@ dbus-run-session -- sh -eu -c '
         "$runtime/first.png" "$runtime/second.png"
     wlr-randr --output "$second" --off
     sleep 0.6
+    grep -q "^changed$" "$runtime/output-events.log" || {
+        echo "Output watcher missed headless hot-unplug" >&2
+        cat "$runtime/output-watch.log" >&2
+        exit 1
+    }
     grim -o "$first" "$runtime/first-after-off.png"
     /usr/bin/python3 "$source_root/scripts/check_wayland_panel_outputs.py" \
         "$runtime/first-after-off.png"
