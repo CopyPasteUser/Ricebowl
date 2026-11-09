@@ -47,7 +47,7 @@ class WaylandBundleTests(unittest.TestCase):
                          "macrice/creator_gui.py", "assets/wallpapers/aurora-night.jpg",
                          "examples/wayland/heritage-modern-v10.json"):
                 self.assertTrue((application / path).is_file(), path)
-            buildinfo = extracted / "usr/share/doc/ricebowl-wayland-core/BUILDINFO"
+            buildinfo = extracted / "usr/lib/ricebowl-wayland/BUILDINFO"
             self.assertTrue(buildinfo.is_file())
             lines = buildinfo.read_text(encoding="utf-8").splitlines()
             self.assertIn("format=1", lines)
