@@ -9,6 +9,8 @@ on:
       - 'scripts/build_wayland_session_deb.sh'
       - 'scripts/test_wayland_package_reproducibility.sh'
       - 'scripts/smoke_riceplate_native.sh'
+      - 'scripts/smoke_riceplate_windows.sh'
+      - 'scripts/check_wayland_window_outputs.py'
       - 'scripts/smoke_riceplate_multioutput.sh'
       - 'scripts/check_wayland_panel_outputs.py'
       - 'scripts/check_wayland_calendar_outputs.py'
@@ -17,6 +19,7 @@ on:
       - 'scripts/verify_wayland_creator_examples.py'
       - 'scripts/verify_wayland_creator_handoff.py'
       - 'tests/test_de_render.py'
+      - 'tests/test_de_window_outputs.py'
       - 'tests/test_de_visual_qa.py'
       - 'tests/test_de_calendar_outputs.py'
       - 'tests/test_de_menu_outputs.py'
@@ -41,6 +44,8 @@ on:
       - 'scripts/build_wayland_session_deb.sh'
       - 'scripts/test_wayland_package_reproducibility.sh'
       - 'scripts/smoke_riceplate_native.sh'
+      - 'scripts/smoke_riceplate_windows.sh'
+      - 'scripts/check_wayland_window_outputs.py'
       - 'scripts/smoke_riceplate_multioutput.sh'
       - 'scripts/check_wayland_panel_outputs.py'
       - 'scripts/check_wayland_calendar_outputs.py'
@@ -49,6 +54,7 @@ on:
       - 'scripts/verify_wayland_creator_examples.py'
       - 'scripts/verify_wayland_creator_handoff.py'
       - 'tests/test_de_render.py'
+      - 'tests/test_de_window_outputs.py'
       - 'tests/test_de_visual_qa.py'
       - 'tests/test_de_calendar_outputs.py'
       - 'tests/test_de_menu_outputs.py'
@@ -79,12 +85,13 @@ jobs:
       - name: Install native Wayland and keyboard build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libxkbcommon-dev libdbus-1-dev pkg-config labwc grim wlr-randr swaybg python3-pil dbus-user-session dbus-x11 dpkg-dev binutils
+          sudo apt-get install -y libxkbcommon-dev libdbus-1-dev pkg-config labwc grim foot wlr-randr swaybg python3-pil dbus-user-session dbus-x11 dpkg-dev binutils
       - name: Build and test native RicePlate
         run: |
           cargo test --manifest-path components/riceplate-wayland/Cargo.toml
           cargo build --release --manifest-path components/riceplate-wayland/Cargo.toml
           sh -n scripts/smoke_riceplate_native.sh
+          sh -n scripts/smoke_riceplate_windows.sh
           sh -n scripts/smoke_riceplate_multioutput.sh
       - name: Prepare native preview artifact with build provenance
         run: |
@@ -149,6 +156,10 @@ jobs:
         run: /usr/bin/python3 -m unittest discover -s tests -p test_de_menu_outputs.py -v
       - name: Boot native Wayland layer surface
         run: timeout -k 5s 70s sh scripts/smoke_riceplate_native.sh
+      - name: Prove live Wayland application taskbar lifecycle
+        run: |
+          /usr/bin/python3 -m unittest tests.test_de_window_outputs -v
+          timeout -k 5s 45s sh scripts/smoke_riceplate_windows.sh
       - name: Prove two native outputs, secondary calendar/menu and hotplug
         run: timeout -k 5s 70s sh scripts/smoke_riceplate_multioutput.sh
       - name: Render validated recipe in isolated Creator compositor

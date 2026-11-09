@@ -20,6 +20,9 @@ physical-device compatibility.
 - [x] Native RicePlate CI emits an explicitly experimental, checksummed
   Ubuntu 24.04 preview binary plus its resolved Cargo.lock for QA download;
   this is **not** a reproducible or signed 1.0 distribution.
+- [x] Headless native CI has a separate real Wayland terminal integration
+  check for task appearance, panel painting and task removal on close;
+  this is **not** proof of physical click/focus or XWayland compatibility.
 - [x] A separate amd64 native RicePlate preview `.deb` is assembled from that
   tested executable with dynamically derived shared-library dependencies; CI
   checks repeat-build identity and verifies the extracted binary matches.
