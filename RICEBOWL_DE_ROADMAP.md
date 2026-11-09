@@ -1023,6 +1023,13 @@ depend on the XFCE session.
   preserves the older open/paint/close checks. The helper is not installed
   and cannot inject input into a user session. Physical pointer, keyboard,
   screen-reader and mixed-DPI testing remain independent 1.0 gates.
+- [x] Extend the **headless application compatibility gate** to launch a real
+  X11 `xterm` through labwc's XWayland-aware startup environment, then require
+  the same native RicePlate task lifecycle and pointer minimize/restore as a
+  Wayland-native terminal. Keep the startup probe confined to isolated CI and
+  fix `de check` to report whether the optional RicePlate binary is actually
+  installed instead of calling the implemented shell planned. Neither check
+  establishes clipboard/portal compatibility or physical GPU/session QA.
 - [x] Publish two **honest schema-v5 Creator demonstrators** under
   `examples/wayland/`: a classic-OS-inspired workstation and a structurally
   distinct original Orbit concept. They use only shared native primitives,
