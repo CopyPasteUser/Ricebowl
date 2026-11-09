@@ -7,6 +7,24 @@ use crate::{installed_apps::{self, App}, recipe::{MenuContentKind, MenuPresentat
 
 pub const WIDTH: u32 = 320;
 pub const HEIGHT: u32 = 304;
+
+/// Keep the entire native menu reachable on a small or rotated logical output.
+/// A fixed-ratio fit is used only when the original dimensions cannot fit;
+/// the painter and pointer coordinate transform share this geometry.
+pub fn fitted_size(output_width: u32, output_height: u32, panel_height: u32) -> (u32, u32) {
+    let available_width = output_width.saturating_sub(8).max(1);
+    let available_height = output_height.saturating_sub(panel_height.saturating_add(8)).max(1);
+    let scale = (available_width as f64 / WIDTH as f64)
+        .min(available_height as f64 / HEIGHT as f64)
+        .min(1.0);
+    ((WIDTH as f64 * scale).floor().max(1.0) as u32,
+     (HEIGHT as f64 * scale).floor().max(1.0) as u32)
+}
+
+pub fn input_coords(position: (f64, f64), size: (u32, u32)) -> (f64, f64) {
+    (position.0 * f64::from(WIDTH) / f64::from(size.0.max(1)),
+     position.1 * f64::from(HEIGHT) / f64::from(size.1.max(1)))
+}
 pub const TAB_TOP: u32 = 46;
 pub const TAB_HEIGHT: u32 = 40;
 pub const SIDEBAR_WIDTH: u32 = 112;
@@ -392,6 +410,19 @@ mod tests {
         assert_eq!(state.current_action(&data), Some("applications"));
         state.close();
         assert_eq!(state.hit(&data, 15.0, 120.0), None);
+    }
+
+    #[test]
+    fn native_popup_fits_rotated_small_outputs_and_maps_pointer_back() {
+        assert_eq!(fitted_size(1920, 1080, 40), (WIDTH, HEIGHT));
+        let tiny = fitted_size(320, 240, 36);
+        assert!(tiny.0 <= 320 && tiny.1 <= 196);
+        assert!(tiny.0 > 0 && tiny.1 > 0);
+        let origin = input_coords((0.0, 0.0), tiny);
+        assert_eq!(origin, (0.0, 0.0));
+        let center = input_coords((f64::from(tiny.0) / 2.0,
+                                   f64::from(tiny.1) / 2.0), tiny);
+        assert_eq!(center, (f64::from(WIDTH) / 2.0, f64::from(HEIGHT) / 2.0));
     }
 
     #[test]
