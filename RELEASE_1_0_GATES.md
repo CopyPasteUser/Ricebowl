@@ -27,6 +27,10 @@ physical-device compatibility.
   tested executable with dynamically derived shared-library dependencies; CI
   checks repeat-build identity and verifies the extracted binary matches.
   The artifact is opt-in and does not replace the XFCE login or full installer.
+- [x] The optional standalone Wayland core and dependency-only desktop
+  metapackage have reproducible Debian builds. CI checks a disposable
+  Ubuntu 24.04 install/reinstall/purge and that package removal leaves
+  synthetic user configuration untouched. Does not certify live DM login.
 - [ ] Installation, upgrade, uninstall and rollback pass from clean systems.
 - [ ] Native RicePlate/RiceSpice/RicePop feature parity and mockup-to-rice
   authoring gates from `RICEBOWL_DE_ROADMAP.md` are satisfied.

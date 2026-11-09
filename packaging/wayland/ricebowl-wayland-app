@@ -1,0 +1,4 @@
+#!/bin/sh
+# Dedicated packaged runtime: never dispatches to the installed XFCE rice.
+set -eu
+exec /usr/bin/python3 -B /usr/lib/ricebowl-wayland/launcher.py "$@"

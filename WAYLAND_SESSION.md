@@ -40,7 +40,8 @@ headless D-Bus introspection cannot certify.
 
 - Linux display manager that enumerates `/usr/share/wayland-sessions`
   (check your specific login manager on the actual computer).
-- User-local RiceBowl already installed with `bash install.sh`.
+- Either the standalone `ricebowl-wayland-core` package or the legacy
+  user-local RiceBowl installed with `bash install.sh`.
 - `labwc`, `waybar`, `foot`, `fuzzel`, `swaylock`, a proper logind
   `XDG_RUNTIME_DIR` and D-Bus user session.
 - `xdg-desktop-portal`, GTK and wlroots portal backends for file pickers
@@ -63,6 +64,70 @@ supports the standard `SOURCE_DATE_EPOCH` override. Run
 `sh scripts/test_wayland_package_reproducibility.sh` to verify that two builds
 at different wall-clock times are byte-for-byte identical. This verifies the
 small **session-entry package**, not a complete RiceBowl 1.0 application bundle.
+
+## Complete standalone Wayland Debian preview (amd64)
+
+**New:** The four-package bundle no longer needs a prior user-local RiceBowl
+installation. It provides a tracked-source application tree under
+`/usr/lib/ricebowl-wayland`, an independent `/usr/bin/ricebowl-wayland-app`
+command, the login session, and the native Rust panel. Its aggregate package
+`ricebowl-wayland-desktop` is dependency-only; no maintainer scripts enable
+the desktop, select a login session, migrate user files, or change XFCE.
+
+From a clean Git checkout on an Ubuntu 24.04/Mint 22 **amd64 build machine**:
+
+```bash
+bash scripts/build_wayland_core_deb.sh
+sh scripts/build_wayland_session_deb.sh
+cargo build --release --manifest-path components/riceplate-wayland/Cargo.toml
+sh scripts/build_riceplate_native_deb.sh \
+    "$PWD/components/riceplate-wayland/target/release/riceplate-native" \
+    "$PWD/dist/ricebowl-riceplate-native_0.1.0~preview1_amd64.deb"
+sh scripts/build_wayland_desktop_deb.sh
+
+# Inspect the packages before any host installation.
+dpkg-deb -I dist/ricebowl-wayland-desktop_0.1.0~preview1_amd64.deb
+sudo apt install \
+    ./dist/ricebowl-wayland-core_0.1.0~preview1_all.deb \
+    ./dist/ricebowl-wayland-session_0.1.0~preview3_all.deb \
+    ./dist/ricebowl-riceplate-native_0.1.0~preview1_amd64.deb \
+    ./dist/ricebowl-wayland-desktop_0.1.0~preview1_amd64.deb
+
+ricebowl-wayland-app de check --json
+```
+
+Log out and **manually** select either RiceBowl Wayland Preview (Waybar) or
+Native Wayland Preview (RicePlate) in your login manager. The existing XFCE
+selection stays available; neither package changes the default session.
+The login wrapper **prefers** the versioned packaged application and only
+falls back to `~/.local/bin/ricebowl` if that package is absent, for users
+of the original session-only preview. No global `ricebowl` command replaces
+the existing user-local XFCE installation.
+
+To remove the four preview packages:
+
+```bash
+sudo apt purge ricebowl-wayland-desktop ricebowl-wayland-core \
+    ricebowl-wayland-session ricebowl-riceplate-native
+```
+
+This removes package-owned binaries and session entries, **not** owner-local
+`~/.config/ricebowl`, recipe drafts or appearance choices. Make a backup of
+those separately if needed. Only sign out of the Wayland session before
+uninstalling; never remove running executable files to test rollback.
+
+GitHub CI builds all four packages reproducibly, tests the extracted runtime,
+then installs, **reinstalls** and purges them in a disposable Ubuntu 24.04
+container, checking file ownership and that a synthetic user-state marker
+survives. This is an actual package lifecycle test, not proof of in-place
+**cross-version upgrades**, Mint-specific dependencies, real login-manager
+selection, or suspend/monitor behavior on your ThinkPad. Those gates stay open.
+
+### Legacy user-local setup
+
+The session-only package still supports the established user-local
+`bash install.sh` deployment, so machines using it are not forced to
+migrate. That older flow follows below.
 
 ## Build and opt in (Debian/Ubuntu/Mint)
 

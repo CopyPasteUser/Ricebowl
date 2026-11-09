@@ -7,6 +7,11 @@ on:
       - 'components/riceplate-wayland/**'
       - 'packaging/wayland/**'
       - 'scripts/build_wayland_session_deb.sh'
+      - 'scripts/build_wayland_core_deb.sh'
+      - 'scripts/build_wayland_desktop_deb.sh'
+      - 'tests/test_wayland_bundle.py'
+      - 'packaging/wayland/ricebowl-wayland-app'
+      - 'packaging/wayland/ricebowl-wayland-command'
       - 'scripts/test_wayland_package_reproducibility.sh'
       - 'scripts/smoke_riceplate_native.sh'
       - 'scripts/smoke_riceplate_windows.sh'
@@ -51,6 +56,11 @@ on:
       - 'components/riceplate-wayland/**'
       - 'packaging/wayland/**'
       - 'scripts/build_wayland_session_deb.sh'
+      - 'scripts/build_wayland_core_deb.sh'
+      - 'scripts/build_wayland_desktop_deb.sh'
+      - 'tests/test_wayland_bundle.py'
+      - 'packaging/wayland/ricebowl-wayland-app'
+      - 'packaging/wayland/ricebowl-wayland-command'
       - 'scripts/test_wayland_package_reproducibility.sh'
       - 'scripts/smoke_riceplate_native.sh'
       - 'scripts/smoke_riceplate_windows.sh'
@@ -174,6 +184,68 @@ jobs:
           grep -Fxq 'Exec=/usr/bin/ricebowl-wayland-session' \
             "$private_root/usr/share/wayland-sessions/ricebowl.desktop"
           (cd "$artifact" && sha256sum "$(basename "$session")" >> SHA256SUMS && sha256sum -c SHA256SUMS)
+      - name: Package complete standalone Wayland app and aggregate desktop
+        run: |
+          set -eu
+          artifact="$PWD/dist/riceplate-native-preview"
+          core="$artifact/ricebowl-wayland-core_0.1.0~preview1_all.deb"
+          bundle="$artifact/ricebowl-wayland-desktop_0.1.0~preview1_amd64.deb"
+          bash scripts/build_wayland_core_deb.sh "$core"
+          bash scripts/build_wayland_core_deb.sh "$RUNNER_TEMP/ricebowl-core-rebuild.deb"
+          cmp "$core" "$RUNNER_TEMP/ricebowl-core-rebuild.deb"
+          sh scripts/build_wayland_desktop_deb.sh "$bundle"
+          sh scripts/build_wayland_desktop_deb.sh "$RUNNER_TEMP/ricebowl-desktop-rebuild.deb"
+          cmp "$bundle" "$RUNNER_TEMP/ricebowl-desktop-rebuild.deb"
+          isolated="$RUNNER_TEMP/ricebowl-standalone-root"
+          mkdir -p "$isolated"
+          dpkg-deb -x "$core" "$isolated"
+          dpkg-deb -x "$bundle" "$isolated"
+          test -f "$isolated/usr/lib/ricebowl-wayland/macrice/de/session.py"
+          test -f "$isolated/usr/lib/ricebowl-wayland/macrice/creator_gui.py"
+          test -x "$isolated/usr/bin/ricebowl-wayland-app"
+          test -x "$isolated/usr/lib/ricebowl-wayland/bin/ricebowl"
+          /usr/bin/python3 -B "$isolated/usr/lib/ricebowl-wayland/launcher.py" de --help
+          (cd "$artifact" && sha256sum "$(basename "$core")" "$(basename "$bundle")" >> SHA256SUMS && sha256sum -c SHA256SUMS)
+      - name: Install, reinstall and purge complete preview in disposable Ubuntu
+        timeout-minutes: 9
+        run: |
+          set -eu
+          docker run --rm --pull=missing \
+            --volume "$PWD/dist/riceplate-native-preview:/packages:ro" \
+            ubuntu:24.04 bash -ceu '
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update -qq
+              apt-get install -y --no-install-recommends \
+                /packages/ricebowl-wayland-core_0.1.0~preview1_all.deb \
+                /packages/ricebowl-wayland-session_0.1.0~preview3_all.deb \
+                /packages/ricebowl-riceplate-native_0.1.0~preview1_amd64.deb \
+                /packages/ricebowl-wayland-desktop_0.1.0~preview1_amd64.deb
+              dpkg-query -W ricebowl-wayland-desktop | grep -q "^ricebowl-wayland-desktop[[:space:]]"
+              /usr/bin/ricebowl-wayland-app de --help >/dev/null
+              test -x /usr/lib/ricebowl-wayland/bin/ricebowl
+              test "$(PATH=/usr/lib/ricebowl-wayland/bin:$PATH command -v ricebowl)" = /usr/lib/ricebowl-wayland/bin/ricebowl
+              test -e /usr/share/wayland-sessions/ricebowl.desktop
+              test -e /usr/share/wayland-sessions/ricebowl-native.desktop
+              test -x /usr/bin/riceplate-native
+              mkdir -p /root/.config/ricebowl
+              printf "%s\n" user-state > /root/.config/ricebowl/upgrade-preservation-marker
+              apt-get install -y --no-install-recommends --reinstall \
+                /packages/ricebowl-wayland-core_0.1.0~preview1_all.deb \
+                /packages/ricebowl-wayland-session_0.1.0~preview3_all.deb \
+                /packages/ricebowl-riceplate-native_0.1.0~preview1_amd64.deb \
+                /packages/ricebowl-wayland-desktop_0.1.0~preview1_amd64.deb
+              test "$(cat /root/.config/ricebowl/upgrade-preservation-marker)" = user-state
+              /usr/bin/ricebowl-wayland-app de --help >/dev/null
+              apt-get purge -y ricebowl-wayland-desktop ricebowl-wayland-core \
+                ricebowl-wayland-session ricebowl-riceplate-native
+              test ! -e /usr/bin/ricebowl-wayland-app
+              test ! -e /usr/lib/ricebowl-wayland/launcher.py
+              test ! -e /usr/share/wayland-sessions/ricebowl.desktop
+              test ! -e /usr/share/wayland-sessions/ricebowl-native.desktop
+              test ! -e /usr/bin/riceplate-native
+              test "$(cat /root/.config/ricebowl/upgrade-preservation-marker)" = user-state
+              echo "Clean install, reinstall and purge preserved user state"
+            '
       - name: Validate both declarative Creator examples
         run: /usr/bin/python3 -m unittest discover -s tests -p test_de_creator_examples.py -v
       - name: Prove Creator install and recovery through the real Wayland supervisor socket

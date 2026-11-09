@@ -5,6 +5,21 @@ physical acceptance outstanding.** RiceBowl 0.9.x is still an XFCE/X11
 rice manager. The separate Wayland login-session package requires explicit
 installation and is not yet a finished desktop environment.
 
+### Standalone desktop packaging checkpoint (November 2026)
+
+- [x] Add a reproducible, tracked-source, read-only `ricebowl-wayland-core`
+  Debian package with independent CLI and bundled Wayland resources/Creator.
+  The login package prefers it while remaining backward compatible with the
+  existing user-local RiceBowl installation.
+- [x] Add a dependency-only `ricebowl-wayland-desktop` meta package that
+  resolves core, session and native RicePlate together. No postinst or
+  session-default/desktop mutation. CI runs isolated Ubuntu clean install,
+  reinstall and purge and checks user state preservation.
+- [ ] Prove **real old-version to new-version** apt upgrades and rollback on
+  Mint 22, login manager selection, polkit/portals and physical hardware.
+  A CI reinstall of the same preview is not an upgrade test.
+
+
 ## The product
 
 RiceBowl will be a lightweight, modular **floating** desktop environment on
