@@ -3,6 +3,12 @@
 # Runs only in a disposable headless labwc compositor, never in the login session.
 set -eu
 
+mode=${1:-native}
+case "$mode" in
+    native|--xwayland) ;;
+    *) echo "Usage: $0 [--xwayland]" >&2; exit 2 ;;
+esac
+
 source_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 native="$source_root/components/riceplate-wayland/target/release/riceplate-native"
 clicker="$source_root/components/riceplate-wayland/target/release/examples/wayland_pointer_click"
@@ -11,6 +17,11 @@ test -x "$clicker"
 for executable in labwc grim foot wlr-randr dbus-run-session; do
     command -v "$executable" >/dev/null || { echo "Missing test dependency: $executable" >&2; exit 1; }
 done
+if [ "$mode" = "--xwayland" ]; then
+    for executable in Xwayland xterm; do
+        command -v "$executable" >/dev/null || { echo "Missing XWayland test dependency: $executable" >&2; exit 1; }
+    done
+fi
 runtime=$(mktemp -d)
 chmod 0700 "$runtime"
 trap 'rm -r -- "$runtime"' EXIT
@@ -25,8 +36,17 @@ dbus-run-session -- sh -eu -c '
     runtime=$2
     native=$3
     clicker=$4
-    labwc --config-dir "$source_root/macrice/de/resources/labwc" \
-        --startup true >"$runtime/labwc.log" 2>&1 &
+    mode=$5
+    if [ "$mode" = "--xwayland" ]; then
+        labwc --config-dir "$source_root/macrice/de/resources/labwc" \
+            --startup "sh \"$source_root/scripts/wayland_xwayland_smoke_client.sh\" \"$runtime\"" \
+            >"$runtime/labwc.log" 2>&1 &
+        app_id=RiceBowlXwaylandSmoke
+    else
+        labwc --config-dir "$source_root/macrice/de/resources/labwc" \
+            --startup true >"$runtime/labwc.log" 2>&1 &
+        app_id=ricebowl-wayland-smoke
+    fi
     compositor=$!
     plate=
     window=
@@ -72,18 +92,30 @@ dbus-run-session -- sh -eu -c '
     sleep 0.25
     WAYLAND_DISPLAY=wayland-0 grim - >"$runtime/before.png"
 
-    WAYLAND_DISPLAY=wayland-0 foot --app-id=ricebowl-wayland-smoke \
-        --title=RiceBowl-Window-Smoke /bin/sh -c "sleep 30" \
-        >"$runtime/window.log" 2>&1 &
-    window=$!
+    if [ "$mode" = "--xwayland" ]; then
+        : >"$runtime/launch-client"
+        count=0
+        while [ ! -s "$runtime/client.pid" ] && [ "$count" -lt 40 ]; do
+            sleep 0.25
+            count=$((count + 1))
+        done
+        test -s "$runtime/client.pid" || { echo "XWayland client failed to launch" >&2; sed -n "1,80p" "$runtime/labwc.log" >&2; exit 1; }
+        window=$(sed -n "1p" "$runtime/client.pid")
+    else
+        WAYLAND_DISPLAY=wayland-0 foot --app-id="$app_id" \
+            --title=RiceBowl-Window-Smoke /bin/sh -c "sleep 30" \
+            >"$runtime/window.log" 2>&1 &
+        window=$!
+    fi
     count=0
     while [ "$count" -lt 40 ]; do
-        if grep -Fq "event=ready app_id=\"ricebowl-wayland-smoke\"" "$runtime/panel.log"; then
+        if grep -Fq "event=ready app_id=\"$app_id\"" "$runtime/panel.log"; then
             break
         fi
         if ! kill -0 "$window" 2>/dev/null; then
             echo "Real Wayland application exited without a task" >&2
-            sed -n "1,60p" "$runtime/window.log" >&2
+            if [ -f "$runtime/window.log" ]; then sed -n "1,60p" "$runtime/window.log" >&2; fi
+            sed -n "1,60p" "$runtime/labwc.log" >&2
             sed -n "1,60p" "$runtime/panel.log" >&2
             exit 1
         fi
@@ -101,7 +133,7 @@ dbus-run-session -- sh -eu -c '
     # Use compositor input, not direct protocol calls to the window under test.
     # This exercises the RicePlate pointer hit test and click handler.
     last_task_state() {
-        grep -F "event=ready app_id=\"ricebowl-wayland-smoke\"" "$runtime/panel.log" \
+        grep -F "event=ready app_id=\"$app_id\"" "$runtime/panel.log" \
             | tail -n 1 || :
     }
     wait_window_state() {
@@ -131,7 +163,7 @@ dbus-run-session -- sh -eu -c '
     window=
     count=0
     while [ "$count" -lt 40 ] &&
-        ! grep -Fq "event=closed app_id=\"ricebowl-wayland-smoke\"" "$runtime/panel.log"; do
+        ! grep -Fq "event=closed app_id=\"$app_id\"" "$runtime/panel.log"; do
         sleep 0.25
         count=$((count + 1))
     done
@@ -146,5 +178,5 @@ dbus-run-session -- sh -eu -c '
     /usr/bin/python3 "$source_root/scripts/check_wayland_window_outputs.py" \
         "$runtime/before.png" "$runtime/opened.png" "$runtime/closed.png"
     kill -0 "$plate"
-    echo "Native RicePlate observed and painted a real Wayland window lifecycle"
-' sh "$source_root" "$runtime" "$native" "$clicker"
+    echo "Native RicePlate observed and painted a real $mode window lifecycle"
+' sh "$source_root" "$runtime" "$native" "$clicker" "$mode"

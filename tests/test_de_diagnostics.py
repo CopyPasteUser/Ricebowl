@@ -30,6 +30,16 @@ class DesktopEnvironmentPreflightTests(unittest.TestCase):
         self.assertFalse(report.compositor_available)
         self.assertEqual(report.checks[0].status, "missing")
         self.assertEqual(report.checks[2].status, "optional")
+        self.assertEqual(report.checks[3].status, "optional")
+
+    def test_native_preview_is_detected_without_claiming_runtime_acceptance(self):
+        tools = {"labwc", "dbus-run-session", "Xwayland", "riceplate-native"}
+        report = inspect(environment={"XDG_SESSION_TYPE": "wayland"},
+                         which=lambda name: f"/usr/bin/{name}" if name in tools else None)
+        self.assertEqual(report.checks[3].status, "ok")
+        self.assertIn("does not validate", report.checks[3].detail)
+        self.assertFalse(report.standalone_de_ready)
+        self.assertEqual(report.checks[-1].status, "planned")
 
     def test_does_not_expose_network_or_private_environment(self):
         private = "wifi-name-or-secret"

@@ -1,4 +1,4 @@
-"""Side-effect-free preflight for a future RiceBowl labwc session.
+"""Side-effect-free preflight for the opt-in RiceBowl labwc session.
 
 The presence of a compositor alone never means the complete Wayland desktop
 is ready. This module intentionally does not inspect private user files or
@@ -55,6 +55,7 @@ def inspect(
 
     labwc = bool(which("labwc"))
     xwayland = bool(which("Xwayland"))
+    riceplate = bool(which("riceplate-native"))
     session_bus = bool(env.get("DBUS_SESSION_BUS_ADDRESS")) or bool(which("dbus-run-session"))
     checks = (
         Check("labwc", "ok" if labwc else "missing", "labwc compositor",
@@ -64,8 +65,9 @@ def inspect(
               "No session bus detected; user session integration will need one."),
         Check("xwayland", "ok" if xwayland else "optional", "XWayland compatibility",
               "Available" if xwayland else "Not found; legacy X11 apps may not run."),
-        Check("riceplate", "planned", "RicePlate Wayland shell",
-              "Not implemented yet; current RiceBowl panels are XFCE/X11 based."),
+        Check("riceplate", "ok" if riceplate else "optional", "Native RicePlate preview",
+              "Native panel executable found; this does not validate compositor or device integration."
+              if riceplate else "Not installed; the separate Waybar Wayland preview remains available."),
         Check("integration", "planned", "Portal, lock and power integration",
               "Session and device integration must pass real hardware tests."),
     )
