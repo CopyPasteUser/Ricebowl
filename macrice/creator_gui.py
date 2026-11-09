@@ -10,12 +10,13 @@ import copy
 import io
 import json
 import os
+import stat
 import tempfile
 import threading
 from pathlib import Path
 
 from .de import creator_layout as layout_engine, creator_workspace as workspace
-from .de import (assets, creator_assets, creator_reference, creator_structure, drafts,
+from .de import (assets, creator_assets, creator_mapping, creator_reference, creator_structure, drafts,
                  recipes, render, review, style_assets)
 
 
@@ -168,6 +169,10 @@ def run() -> int:
             self._capture_size: tuple[int, int] | None = None
             self._reference: creator_reference.ReferenceInfo | None = None
             self._comparison_views: dict[str, bytes] = {}
+            self._mapping: dict | None = None
+            self._mapping_checks: dict[str, object] = {}
+            self._mapping_busy = False
+            self._mapping_generation = 0
             self._history: list[Path] = []
             self._selected_layer: tuple[str, int] | None = None
             self._drag: tuple[tuple[str, int], float, float, int, int] | None = None
@@ -347,6 +352,34 @@ def run() -> int:
                 "Compare a real capture at the same resolution. Pixel changes are not fidelity scores.",
                 "creator-preview-note", wrap=True)
             reference_bar.pack_start(self.reference_metrics, False, False, 0)
+            mapping_expander = Gtk.Expander(label="REFERENCE MAPPING · REVIEW BEFORE EDITING")
+            mapping_expander.set_expanded(False)
+            reference_bar.pack_start(mapping_expander, False, False, 0)
+            mapping_body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=7)
+            mapping_body.set_margin_top(8)
+            mapping_body.set_margin_bottom(7)
+            mapping_expander.add(mapping_body)
+            mapping_controls = Gtk.Box(spacing=6)
+            mapping_body.pack_start(mapping_controls, False, False, 0)
+            self.mapping_analyze = self._button("Analyze offline", self._mapping_analyze)
+            self.mapping_import = self._button("Import JSON…", self._mapping_import)
+            self.mapping_export = self._button("Export hints…", self._mapping_export)
+            for control in (self.mapping_analyze, self.mapping_import, self.mapping_export):
+                mapping_controls.pack_start(control, True, True, 0)
+            self.mapping_info = self._text(
+                "Analyze a reference for panel and color hints, or import strictly validated "
+                "AI proposals. Nothing changes until you approve and Save version.",
+                "creator-preview-note", wrap=True)
+            mapping_body.pack_start(self.mapping_info, False, False, 0)
+            mapping_scroll = Gtk.ScrolledWindow()
+            mapping_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            mapping_scroll.set_size_request(-1, 146)
+            mapping_body.pack_start(mapping_scroll, False, False, 0)
+            self.mapping_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=7)
+            mapping_scroll.add(self.mapping_list)
+            self.mapping_apply = self._button("Use checked hints in unsaved draft",
+                                              self._mapping_apply, primary=True)
+            mapping_body.pack_start(self.mapping_apply, False, False, 0)
             self.preview_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
             self.preview_box.set_halign(Gtk.Align.CENTER)
             self.preview_box.set_valign(Gtk.Align.CENTER)
@@ -397,14 +430,24 @@ def run() -> int:
             self.render_btn.set_sensitive(selected and not self._busy)
             self.export_btn.set_sensitive(selected and not self._busy)
             self.undo_btn.set_sensitive(bool(self._history) and not self._busy)
-            self.reference_import.set_sensitive(selected and not self.pending and not self._busy)
-            self.reference_clear.set_sensitive(self._reference is not None and not self._busy)
+            self.reference_import.set_sensitive(selected and not self.pending and
+                                                not self._busy and not self._mapping_busy)
+            self.reference_clear.set_sensitive(self._reference is not None and
+                                               not self._busy and not self._mapping_busy)
             self.compare_btn.set_sensitive(bool(self._reference and self._capture_bytes
                                                 and self._capture_size == (
                                                     self._reference.width, self._reference.height)
                                                 and not self.pending and not self._busy))
             self.reference_mode.set_sensitive(bool(self._comparison_views) and not self._busy)
             self.geometry.set_sensitive(not self._busy)
+            can_map = bool(selected and self._reference and not self.pending
+                           and not self._busy and not self._mapping_busy)
+            self.mapping_analyze.set_sensitive(can_map)
+            self.mapping_import.set_sensitive(can_map)
+            self.mapping_export.set_sensitive(bool(self._mapping) and not self._busy
+                                              and not self._mapping_busy and not self.pending)
+            self.mapping_apply.set_sensitive(can_map and any(
+                widget.get_active() for widget in self._mapping_checks.values()))
 
         def _refresh_drafts(self):
             for child in self.draft_list.get_children():
@@ -462,6 +505,7 @@ def run() -> int:
             if report["recipe"]["schema_version"] not in (10, 11):
                 raise workspace.WorkspaceError("Creator edits validated schema-v10/v11 recipes only")
             self._render_generation += 1
+            self._mapping_reset()
             self.info, self.baseline, self.pending = info, report["recipe"], {}
             self.working = copy.deepcopy(self.baseline)
             self._panel_compact = False
@@ -512,7 +556,7 @@ def run() -> int:
                     label_widget = self._text(label, "hub-body")
                     label_widget.set_size_request(112, -1)
                     grid.attach(label_widget, 0, index, 1, 1)
-                    current = _get_field(self.baseline, path)
+                    current = _get_field(self.working, path)
                     if kind == "text":
                         widget = Gtk.Entry()
                         widget.set_max_length(60)
@@ -1686,6 +1730,8 @@ def run() -> int:
         def _change(self, path, value):
             if self._building or self.baseline is None:
                 return
+            if self._mapping is not None or self._mapping_busy:
+                self._mapping_reset()
             assert self.working is not None
             target = self.working
             parts = path.lstrip("/").split("/")
@@ -1819,8 +1865,194 @@ def run() -> int:
                     f"{self._reference.name} · {self._reference.width} × {self._reference.height} "
                     f"· SHA-256 {self._reference.sha256[:12]} · private, not exported")
 
+        def _mapping_reset(self):
+            """Invalidate mappings when the draft or reference identity changes."""
+            self._mapping_generation += 1
+            self._mapping_busy = False
+            self._mapping = None
+            self._mapping_checks = {}
+            if hasattr(self, "mapping_list"):
+                for child in self.mapping_list.get_children():
+                    self.mapping_list.remove(child)
+                self.mapping_info.set_text(
+                    "No current mapping. Analyze the reference or import new proposals.")
+
+        def _mapping_set_result(self, mapping: dict):
+            assert self.info is not None and self._reference is not None
+            creator_mapping.validate(
+                mapping, reference_sha256=self._reference.sha256,
+                recipe_sha256=self.info.semantic_sha256,
+                size=(self._reference.width, self._reference.height),
+                manifest=self.baseline)
+            self._mapping_reset()
+            self._mapping = mapping
+            for item in mapping["suggestions"]:
+                path = item["path"]
+                if item["value"] == _get_field(self.working, path):
+                    continue
+                row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+                value = item["value"]
+                display = (f"{len(value)} declarative nodes" if isinstance(value, list)
+                           else str(value))
+                checkbox = Gtk.CheckButton(label=f"{path}  →  {display}")
+                checkbox.set_tooltip_text(item["evidence"])
+                # External confidence is only a claim from untrusted input;
+                # all externally authored edits require deliberate selection.
+                checkbox.set_active(mapping["source"] == "offline" and
+                                    item["confidence"] >= 0.72)
+                checkbox.connect("toggled", lambda *_: self._actions())
+                row.pack_start(checkbox, False, False, 0)
+                source_label = ("offline heuristic" if mapping["source"] == "offline"
+                                else "unverified external estimate")
+                explanation = self._text(
+                    f"{item['confidence']:.0%} {source_label} · {item['evidence']}",
+                    "creator-layer-hint", wrap=True)
+                explanation.set_margin_start(22)
+                row.pack_start(explanation, False, False, 0)
+                self.mapping_list.pack_start(row, False, False, 0)
+                self._mapping_checks[path] = checkbox
+            if not self._mapping_checks:
+                self.mapping_list.pack_start(self._text(
+                    "Nothing new to apply; all proposed values match the current draft.",
+                    "creator-layer-hint", wrap=True), False, False, 0)
+            region_summary = ", ".join(f"{item['kind']} {item['width']}×{item['height']}"
+                                       for item in mapping["regions"]) or "none"
+            self.mapping_info.set_text(
+                f"{mapping['source']} proposals · {len(mapping['suggestions'])} hints · "
+                f"detected regions: {region_summary}. " + " ".join(mapping["notes"]))
+            self.mapping_list.show_all()
+            self._actions()
+
+        def _mapping_analyze(self, _button):
+            if self._busy or self._mapping_busy or self.pending or not self.info or not self._reference:
+                return
+            info, reference = self.info, self._reference
+            self._mapping_reset()
+            self._mapping_busy = True
+            generation = self._mapping_generation
+            self.mapping_info.set_text("Analyzing the private PNG offline…")
+            self._actions()
+
+            def work():
+                try:
+                    data = creator_reference.image_bytes(info.recipe_id)
+                    result = creator_mapping.analyze(
+                        data, reference_sha256=reference.sha256,
+                        recipe_sha256=info.semantic_sha256)
+                    error = None
+                except (creator_mapping.MappingError, creator_reference.ReferenceError,
+                        ValueError, OSError) as exc:
+                    result, error = None, str(exc)
+                GLib.idle_add(self._mapping_complete, generation, result, error)
+
+            threading.Thread(target=work, name="ricebowl-creator-mapping", daemon=False).start()
+
+        def _mapping_complete(self, generation, result, error):
+            if generation != self._mapping_generation:
+                return False
+            self._mapping_busy = False
+            if error:
+                self.mapping_info.set_text("Reference analysis unavailable. Retry or import JSON.")
+                self._status(f"Mapping analysis failed: {error}", error=True)
+            else:
+                try:
+                    self._mapping_set_result(result)
+                    self._status("Offline hints ready for review. No changes applied.",
+                                 success=True)
+                except creator_mapping.MappingError as exc:
+                    self._status(f"Mapping rejected: {exc}", error=True)
+            self._actions()
+            return False
+
+        def _mapping_import(self, _button):
+            if self._busy or self._mapping_busy or self.pending or not self.info or not self._reference:
+                return
+            chooser = Gtk.FileChooserDialog(
+                title="Import reviewable reference mapping JSON", transient_for=self,
+                action=Gtk.FileChooserAction.OPEN)
+            chooser.add_buttons("Cancel", Gtk.ResponseType.CANCEL,
+                                "Validate proposals", Gtk.ResponseType.ACCEPT)
+            files = Gtk.FileFilter()
+            files.set_name("Mapping proposals (JSON)")
+            files.add_pattern("*.json")
+            chooser.add_filter(files)
+            response = chooser.run()
+            source = Path(chooser.get_filename()) if response == Gtk.ResponseType.ACCEPT else None
+            chooser.destroy()
+            if source is None:
+                return
+            try:
+                descriptor = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+                with os.fdopen(descriptor, "rb") as stream:
+                    metadata = os.fstat(stream.fileno())
+                    if (not stat.S_ISREG(metadata.st_mode) or
+                            metadata.st_uid != os.geteuid() or
+                            metadata.st_mode & 0o022 or
+                            metadata.st_size > creator_mapping.MAX_MAPPING_BYTES):
+                        raise creator_mapping.MappingError(
+                            "Mapping must be an owner-controlled JSON file under 24 KiB")
+                    raw = stream.read(creator_mapping.MAX_MAPPING_BYTES + 1)
+                mapping = creator_mapping.validate(
+                    raw, reference_sha256=self._reference.sha256,
+                    recipe_sha256=self.info.semantic_sha256,
+                    size=(self._reference.width, self._reference.height),
+                    manifest=self.baseline)
+                self._mapping_set_result(mapping)
+                self._status("JSON mapping validated. Review each checkbox before using hints.",
+                             success=True)
+            except (OSError, creator_mapping.MappingError) as exc:
+                self._status(f"Mapping import blocked: {exc}", error=True)
+
+        def _mapping_export(self, _button):
+            if not self._mapping or not self.info or self.pending or self._mapping_busy:
+                return
+            chooser = Gtk.FileChooserDialog(title="Export private mapping hints JSON",
+                                            transient_for=self, action=Gtk.FileChooserAction.SAVE)
+            chooser.add_buttons("Cancel", Gtk.ResponseType.CANCEL,
+                                "Export hints", Gtk.ResponseType.ACCEPT)
+            chooser.set_do_overwrite_confirmation(False)
+            chooser.set_current_name(f"{self.info.recipe_id}-mapping.json")
+            response = chooser.run()
+            destination = Path(chooser.get_filename()) if response == Gtk.ResponseType.ACCEPT else None
+            chooser.destroy()
+            if destination is None:
+                return
+            try:
+                payload = (json.dumps(self._mapping, ensure_ascii=False, indent=2) + "\n").encode()
+                if len(payload) > creator_mapping.MAX_MAPPING_BYTES:
+                    raise creator_mapping.MappingError("Mapping exceeds safe export limit")
+                recipes._write_private_new(destination, payload)
+                self._status("Mapping hints exported privately without screenshot pixels.",
+                             success=True)
+            except (OSError, creator_mapping.MappingError, recipes.RecipeError) as exc:
+                self._status(f"Mapping export failed: {exc}. Choose a new filename.", error=True)
+
+        def _mapping_apply(self, _button):
+            if (not self._mapping or not self.info or not self._reference or self.pending
+                    or self._busy or self._mapping_busy):
+                return
+            checked = {path for path, widget in self._mapping_checks.items()
+                       if widget.get_active()}
+            try:
+                changes = creator_mapping.selected_changes(
+                    self._mapping, checked, reference_sha256=self._reference.sha256,
+                    recipe_sha256=self.info.semantic_sha256,
+                    size=(self._reference.width, self._reference.height),
+                    manifest=self.baseline)
+            except creator_mapping.MappingError as exc:
+                self._status(f"Suggestions rejected: {exc}", error=True)
+                return
+            self._mapping_reset()
+            for path, value in changes.items():
+                self._change(path, value)
+            self._build_inspector()
+            self._queue_canvas()
+            self._actions()
+            self._status(f"{len(changes)} reviewed hints in unsaved draft. "
+                         "Inspect fields and Save version to persist.", success=True)
+
         def _reference_choose(self, _button):
-            if self._busy or self.info is None or self.pending:
+            if self._busy or self._mapping_busy or self.info is None or self.pending:
                 self._status("Save the draft before selecting a reference.", error=True)
                 return
             chooser = Gtk.FileChooserDialog(title="Choose a reference PNG screenshot",
@@ -1838,6 +2070,7 @@ def run() -> int:
                 return
             try:
                 self._reference = creator_reference.select(self.info.recipe_id, source)
+                self._mapping_reset()
                 self._comparison_views = {
                     "reference": creator_reference.image_bytes(self.info.recipe_id)}
                 self.reference_mode.set_active_id("reference")
@@ -1856,11 +2089,12 @@ def run() -> int:
             self._actions()
 
         def _reference_unlink(self, _button):
-            if self._busy or self.info is None or self._reference is None:
+            if self._busy or self._mapping_busy or self.info is None or self._reference is None:
                 return
             try:
                 creator_reference.clear(self.info.recipe_id)
                 self._reference = None
+                self._mapping_reset()
                 self._comparison_views = {}
                 self.reference_mode.set_active_id("native")
                 self._reference_label()
@@ -2134,6 +2368,29 @@ def run() -> int:
                 assert window.preview_image.get_pixbuf() is not None
                 window.reference_mode.set_active_id("heatmap")
                 assert "difference" in window.preview_caption.get_text().lower()
+                # v0.7: no ML inference is necessary to verify that external
+                # declarative proposals stay behind an explicit GTK approval.
+                requested_height = (50 if window.working["panel"]["height"] != 50 else 51)
+                untrusted = {
+                    "mapping_version": 1, "source": "external",
+                    "reference_sha256": window._reference.sha256,
+                    "recipe_sha256": window.info.semantic_sha256,
+                    "reference_size": {"width": 48, "height": 48},
+                    "regions": [], "notes": ["Explicitly reviewed mapping smoke"],
+                    "suggestions": [{"path": "/panel/height", "value": requested_height,
+                                     "confidence": 0.9,
+                                     "evidence": "Fixture proposal; no screenshot semantics asserted"}],
+                }
+                window._mapping_set_result(untrusted)
+                assert not window.mapping_apply.get_sensitive(), (
+                    "Externally claimed confidence must never preselect a change")
+                window._mapping_checks["/panel/height"].set_active(True)
+                assert window.mapping_apply.get_sensitive()
+                window._mapping_apply(None)
+                assert window.pending["/panel/height"] == requested_height
+                assert window._mapping is None
+                assert window._commit_pending()
+                assert recipes.load(str(window.info.path)).height == requested_height
                 window._reference_unlink(None)
                 assert not window.compare_btn.get_sensitive()
                 assert window._reference is None
