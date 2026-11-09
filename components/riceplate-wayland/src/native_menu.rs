@@ -293,6 +293,22 @@ impl MenuState {
         self.selected = (self.selected as isize + delta).rem_euclid(count as isize) as usize;
     }
 
+    /// Home/End jump to the real first/last action in the current group,
+    /// saved view or search results; no invisible recipe actions are invented.
+    pub fn select_edge(&mut self, menu: &NativeMenu, last: bool) {
+        let count = self.actions(menu).len();
+        self.selected = if last { count.saturating_sub(1) } else { 0 };
+    }
+
+    /// PageUp/PageDown advance the visible viewport without wrapping around
+    /// a long search result. Arrow keys retain their existing cyclic behavior.
+    pub fn page_by(&mut self, menu: &NativeMenu, delta: isize) {
+        let count = self.actions(menu).len();
+        if count == 0 { self.selected = 0; return; }
+        self.selected = self.selected.saturating_add_signed(delta)
+            .min(count - 1);
+    }
+
     pub fn current_action<'a>(&'a self, menu: &'a NativeMenu) -> Option<&'a str> {
         self.actions(menu).get(self.selected).copied()
     }
@@ -562,5 +578,43 @@ mod tests {
         assert_eq!(state.hit(&data, 20.0, 198.0), Some(Hit::Action(1)));
         assert!(state.toggle_pin(&data));
         assert_eq!(state.actions(&data), vec!["desktop:a.desktop"]);
+    }
+
+    #[test]
+    fn keyboard_page_and_edge_navigation_remain_in_visible_action_bounds() {
+        let mut data = menu();
+        data.groups[0].actions = vec!["terminal".into(), "audio-up".into(),
+            "audio-down".into(), "lock".into(), "wifi-toggle".into(),
+            "notifications".into(), "logout".into()];
+        let mut state = MenuState::default();
+        state.open();
+        state.select_edge(&data, true);
+        assert_eq!(state.current_action(&data), Some("logout"));
+        assert_eq!(state.first_action_row(), 4);
+        assert_eq!(state.hit(&data, 15.0, 108.0), Some(Hit::Action(4)));
+        state.page_by(&data, -(VISIBLE_ACTIONS as isize));
+        assert_eq!(state.current_action(&data), Some("audio-down"));
+        state.page_by(&data, -(VISIBLE_ACTIONS as isize));
+        assert_eq!(state.current_action(&data), Some("terminal"));
+        state.page_by(&data, 100);
+        assert_eq!(state.current_action(&data), Some("logout"));
+        state.select_edge(&data, false);
+        assert_eq!(state.current_action(&data), Some("terminal"));
+        state.open_group(1);
+        state.select_edge(&data, true);
+        assert_eq!(state.current_action(&data), Some("logout"));
+    }
+
+    #[test]
+    fn keyboard_navigation_safely_handles_empty_saved_view() {
+        let data = menu();
+        let mut state = MenuState::default();
+        state.open();
+        state.show_saved();
+        state.select_edge(&data, true);
+        state.page_by(&data, VISIBLE_ACTIONS as isize);
+        state.select_by(&data, -1);
+        assert_eq!(state.selected, 0);
+        assert_eq!(state.current_action(&data), None);
     }
 }

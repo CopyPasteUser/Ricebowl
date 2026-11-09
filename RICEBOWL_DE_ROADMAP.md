@@ -247,6 +247,12 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   Document Creator edits/semantic review and capture a native composed-menu
   screenshot in CI. Historical OS iconography, larger responsive content
   layouts and physical keyboard/Orca QA remain separate release gates.
+- [x] **Foundation Sprint 1: native menu interaction hardening** — keep the
+  existing recipe-bound menus but make pointer hover update action selection,
+  add Shift+Tab, Home/End and bounded PageUp/PageDown keyboard navigation,
+  and give an empty saved-action menu a real accessible Close focus target.
+  Rust regression tests cover search paging, edge selection and empty states.
+  Full popup resizing and physical-device/Orca validation remain open.
 - [x] Show a **real, read-only native battery percentage** in RicePlate from
   Linux's fixed `/sys/class/power_supply`, with charging state, explicit
   no-battery/unknown labels, multi-battery handling and bounded once-per-minute
@@ -590,6 +596,13 @@ depend on the XFCE session.
   The reserved workspace is **not** labwc window placement or tiling; Waybar
   does not render the native widgets, and rich widget composition, authoring UI
   and real-device acceptance remain separate release gates.
+- [x] **Foundation Sprint 1: full-output collision recovery** — when a saved
+  desktop shortcut or widget collides with a reserved window region, inspect
+  free cells throughout the compositor's logical output rather than only the
+  first few columns. Preserve nearest-first deterministic placement without
+  allocating a candidate list. Regression tests cover wide-output reserved
+  regions, mode changes, two simultaneous icons and collision safety. No
+  window-manager control or cross-monitor dragging is implied.
 - [x] Add **first native shortcut editing interactions**: distinguish click
   from pointer drag, expose an on-demand keyboard focus frame and 16-pixel
   arrow-key moves, and persist positions separately for each selected rice in
