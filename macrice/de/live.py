@@ -100,7 +100,7 @@ def _read_message(stream: socket.socket) -> dict:
         raise LiveError("Malformed live request", code="invalid_live_request") from exc
     if not isinstance(data, dict) or set(data) != {"action", "recipe", "sha256", "expected"}:
         raise LiveError("Invalid live request fields", code="invalid_live_request")
-    if (data["action"] not in ("status", "apply", "restore")
+    if (data["action"] not in ("status", "apply", "restore", "refresh-outputs")
             or any(value is not None and type(value) is not str for value in data.values())):
         raise LiveError("Unsupported live request", code="invalid_live_request")
     return data

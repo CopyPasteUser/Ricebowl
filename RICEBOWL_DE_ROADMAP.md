@@ -643,10 +643,16 @@ depend on the XFCE session.
     bounded `wlr-randr --json` inventory at session start, live apply and
     Waybar rescue; missing inventory degrades to the safe original layout.
     Waybar config has output-scoped bar/CSS variants without extra polling.
-  - [ ] Reload Waybar when a currently connected monitor changes logical mode,
-    ensure new hotplug outputs always receive a bar, and extend adaptive native
-    menu and desktop controls. Portable font-family assets, fluid type sizes,
-    rich icon tokens and reduced-motion semantics are still open.
+  - [x] Make **previously unknown hotplug outputs receive a compact Waybar**:
+    append a validated catch-all bar with exclusions for every known output,
+    avoiding duplicate bars on existing outputs. On a confirmed RiceSpice
+    mode/scale change, ask only the owner-private live supervisor to rebuild
+    the current recipe's Waybar process; retain the old bar if the new one
+    exits on startup. No global process signals or polling.
+  - [ ] React to **external** output mode/scale changes without requiring a
+    new login, extend adaptive native menu and desktop controls, and add
+    portable font families, fluid type sizes, rich icons and reduced-motion
+    semantics. Physical hotplug and mixed-DPI acceptance remain outstanding.
 - [x] Allow safe offline import/export of validated, non-executable, panel-only
   JSON recipes into a private per-user collection; preview by imported ID.
   Full multi-component RicePacks with artwork, screenshot conversion and a

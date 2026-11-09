@@ -1171,8 +1171,9 @@ def waybar_output_configs(recipe: PanelRecipe,
                           output_widths: dict[str, int]) -> tuple[str, str]:
     """Generate one width-aware Waybar instance per currently known output.
 
-    Waybar can follow output hotplug; a changed *mode* requires recompilation
-    at the next supervised restart. Unknown outputs use the classic fallback.
+    A final catch-all bar is limited to outputs *not* present at compilation.
+    Waybar can then follow hotplug without leaving newly connected monitors
+    without a panel. A changed mode still needs a supervised refresh.
     """
     if (not output_widths or len(output_widths) > 8 or
             any(type(name) is not str or
@@ -1192,6 +1193,15 @@ def waybar_output_configs(recipe: PanelRecipe,
         # variants overwriting one another's CSS when both are visible.
         scoped = css.replace("#custom-rice-", f"window#waybar.rice-output-{index} #custom-rice-")
         styles.append(scoped)
+    # Waybar documents '!name' exclusions followed by '*' as a catch-all.
+    # Make this bar compact: the width of a yet-unseen output is unknown.
+    config, css = waybar_config(recipe, screen_width=320)
+    fallback = json.loads(config)
+    fallback["name"] = "rice-output-fallback"
+    fallback["output"] = [*(f"!{name}" for name in sorted(output_widths)), "*"]
+    bars.append(fallback)
+    styles.append(css.replace("#custom-rice-",
+                              "window#waybar.rice-output-fallback #custom-rice-"))
     return json.dumps(bars, ensure_ascii=False, indent=2), "\n".join(styles)
 
 

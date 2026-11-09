@@ -685,10 +685,14 @@ Recipes v1–v9 retain their original rendering defaults.
 If `wlr-randr --json` provides an enabled-output inventory, the supervised
 Waybar startup/live-apply/rescue path compiles each output's actual logical
 width into a separate named bar with its own compact/full layout and scoped
-CSS. If the utility fails, the unchanged generic fallback is used. A running
-Waybar bar does **not** automatically recompile when an existing monitor's
-resolution/scale changes; relaunching the supervised panel is required.
-No new monitor poller, daemon or user-shell command is introduced.
+CSS. One extra compact bar excludes all known names and catches a *new*
+hotplug output without duplicating the others. If the utility fails, the
+unchanged generic fallback is used. After a user **confirms** a mode or scale
+change in RiceSpice's guarded monitor editor, its detached rollback worker
+asks the owner-private live shell supervisor to refresh only that session's
+Waybar, keeping the current panel when the replacement fails. **External**
+mode/scale changes still require an explicit session refresh or next login.
+No new monitor poller, daemon, system-wide signal or shell command is added.
 
 The default **Waybar-backed** Wayland session is separately checked in CI
 with two genuine labwc headless outputs. The smoke captures the bar on each,

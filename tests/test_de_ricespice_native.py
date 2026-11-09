@@ -288,6 +288,27 @@ class WaylandMonitorTests(unittest.TestCase):
             self.assertEqual(applied, [("1280x720@60.000000Hz", 1.5)])
             self.assertEqual(display_guard.read_status(change)[0], "kept")
 
+    def test_confirmed_mode_change_requests_owner_only_waybar_refresh(self):
+        with tempfile.TemporaryDirectory() as runtime:
+            change = display_guard.DisplayChange("f" * 32, Path(runtime))
+            display_guard._write_new(display_guard._request_path(change), {
+                "name": "eDP-1", "mode": "1280x720@60.000000Hz", "scale": 1.5,
+                "old_mode": "1920x1080@60.000000Hz", "old_scale": 1.0,
+            })
+
+            def apply(_name, _mode, _scale):
+                display_guard._write_new(display_guard._keep_path(change), {"keep": True})
+
+            with mock.patch("macrice.de.wayland_displays.inventory",
+                            return_value=wayland_displays.parse(SAMPLE_MONITORS)), \
+                    mock.patch("macrice.de.wayland_displays._set", side_effect=apply), \
+                    mock.patch("macrice.de.wayland_displays._matches", return_value=True), \
+                    mock.patch.dict(os.environ, {"RICEBOWL_DE_LIVE": "1"}), \
+                    mock.patch("macrice.de.live.request", return_value={"ok": True}) as refresh:
+                self.assertEqual(wayland_displays.run_worker(change), 0)
+            refresh.assert_called_once_with("refresh-outputs")
+            self.assertEqual(display_guard.read_status(change)[0], "kept")
+
     def test_worker_rejects_stale_topology_before_changing_output(self):
         with tempfile.TemporaryDirectory() as runtime:
             change = display_guard.DisplayChange("c" * 32, Path(runtime))

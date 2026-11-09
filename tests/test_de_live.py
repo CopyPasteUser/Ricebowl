@@ -97,6 +97,39 @@ class LiveRiceTests(unittest.TestCase):
         self.assertEqual((restored["active"], restored["previous"]), ("classic", "chrome"))
         self.assertEqual(recipes.current_selection(), ("classic", "chrome"))
 
+    def test_refresh_outputs_restarts_only_waybar_and_preserves_active_selection(self):
+        self.controller.mode = "waybar"
+        response = self.controller.handle({
+            "action": "refresh-outputs", "recipe": None, "sha256": None, "expected": None,
+        })
+        self.assertTrue(response["changed"])
+        self.assertEqual(response["active"], "classic")
+        self.assertEqual(recipes.current_selection(), ("classic", None))
+        self.assertTrue(self.initial_panel.terminated)
+        self.assertFalse(self.initial_wallpaper.terminated)
+        self.assertEqual(len(self.processes), 1)
+        self.assertIn("--config", self.processes[0][0])
+        self.assertTrue(self.controller.panel.poll() is None)
+
+    def test_refresh_outputs_fails_closed_with_old_bar_alive(self):
+        self.controller.mode = "waybar"
+        self.controller.which = lambda name: None if name == "waybar" else self.tools.get(name)
+        with self.assertRaises(live.LiveError) as caught:
+            self.controller.handle({
+                "action": "refresh-outputs", "recipe": None, "sha256": None, "expected": None,
+            })
+        self.assertEqual(caught.exception.code, "component_failed")
+        self.assertFalse(self.initial_panel.terminated)
+        self.assertEqual(recipes.current_selection(), ("classic", None))
+
+    def test_native_refresh_outputs_does_not_restart_panel(self):
+        response = self.controller.handle({
+            "action": "refresh-outputs", "recipe": None, "sha256": None, "expected": None,
+        })
+        self.assertFalse(response["changed"])
+        self.assertFalse(self.initial_panel.terminated)
+        self.assertEqual(self.processes, [])
+
     def test_live_switch_updates_both_optional_apps_and_restores_on_rollback(self):
         from types import SimpleNamespace
 
