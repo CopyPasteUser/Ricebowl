@@ -700,8 +700,10 @@ unchanged generic fallback is used. After a user **confirms** a mode or scale
 change in RiceSpice's guarded monitor editor, its detached rollback worker
 asks the owner-private live shell supervisor to refresh only that session's
 Waybar, keeping the current panel when the replacement fails. **External**
-mode/scale changes still require an explicit session refresh or next login.
-No new monitor poller, daemon, system-wide signal or shell command is added.
+mode/scale changes can be followed with `ricebowl de display-refresh --json`
+(only inside the active, managed Wayland session), or with a new login.
+No new monitor poller, daemon, system-wide signal or recipe-supplied shell
+command is added.
 
 The default **Waybar-backed** Wayland session is separately checked in CI
 with two genuine labwc headless outputs. The smoke captures the bar on each,

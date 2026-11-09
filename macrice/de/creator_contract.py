@@ -169,7 +169,8 @@ def describe_live() -> dict[str, object]:
     """Explicit activation contract for one supervised opt-in labwc session."""
     return {
         "live_version": 1,
-        "commands": ["creator-live-status", "creator-live-apply", "creator-live-restore"],
+        "commands": ["creator-live-status", "creator-live-apply", "creator-live-restore",
+                     "display-refresh"],
         "transport": "owner-only UNIX socket in XDG_RUNTIME_DIR, per Wayland display",
         "required_review": "de review semantic SHA-256 before creator-live-apply",
         "components": ["RicePlate native or Waybar", "swaybg wallpaper", "labwc root menu",
@@ -316,6 +317,9 @@ def describe_creator_api() -> dict[str, object]:
             {"command": "creator-live-restore", "effect": "restore previous live shell rice",
              "cli": "de creator-live-restore --json", "contract_version": 1,
              "mutates_active_session": True},
+            {"command": "display-refresh", "effect": "refresh output-aware Waybar after external mode changes",
+             "cli": "de display-refresh --json", "contract_version": 1,
+             "mutates_active_session": True},
         ],
         "ricepack": describe_ricepack(),
         "staging": describe_staging(),
@@ -330,7 +334,7 @@ def describe_creator_api() -> dict[str, object]:
     private_writes = {"draft-edit", "render", "visual-baseline", "capture",
                       "pack-export", "pack-import", "asset-import"}
     next_login = {"creator-stage", "creator-rollback"}
-    active_wayland = {"creator-live-apply", "creator-live-restore"}
+    active_wayland = {"creator-live-apply", "creator-live-restore", "display-refresh"}
     active_user = {"notification-dismiss", "notification-invoke", "audio-default"}
     for command in contract["commands"]:
         name = command["command"]
