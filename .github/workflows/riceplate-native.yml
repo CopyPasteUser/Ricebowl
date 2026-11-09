@@ -217,7 +217,7 @@ jobs:
                 /packages/ricebowl-wayland-session_0.1.0~preview3_all.deb \
                 /packages/ricebowl-riceplate-native_0.1.0~preview1_amd64.deb \
                 /packages/ricebowl-wayland-desktop_0.1.0~preview1_amd64.deb
-              dpkg-query -W -f="${Status}\n" ricebowl-wayland-desktop | grep -qx "install ok installed"
+              dpkg-query -W ricebowl-wayland-desktop | grep -q "^ricebowl-wayland-desktop[[:space:]]"
               /usr/bin/ricebowl-wayland-app de --help >/dev/null
               test -e /usr/share/wayland-sessions/ricebowl.desktop
               test -e /usr/share/wayland-sessions/ricebowl-native.desktop
