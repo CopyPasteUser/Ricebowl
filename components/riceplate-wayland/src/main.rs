@@ -658,6 +658,7 @@ struct IconDrag {
     anchor: (f64, f64),
     started: (u32, u32),
     moved: bool,
+    original_positions: icon_positions::OutputPositions,
 }
 
 struct MenuLayer {
@@ -2120,6 +2121,62 @@ impl RicePlate {
         }
         self.reflow_icons();
         self.icon_position_dirty = true;
+    }
+
+    fn finish_cross_output_drag(&mut self, drag: &IconDrag, pointer: (f64, f64)) -> bool {
+        let Some(source_layer) = self.icon_layers.get(drag.index) else { return false };
+        let Some(current) = source_layer.placed else { return false };
+        let Some(source_output) = source_layer.bound_output.as_ref()
+            .or(self.primary_output.as_ref()).or(source_layer.output.as_ref()) else {
+            return false;
+        };
+        let Some(source_origin) = self.outputs.info(source_output)
+            .and_then(|info| info.logical_position) else { return false };
+        let Some(source_name) = self.icon_output_name(drag.index) else { return false };
+        let recipe_index = source_layer.recipe_index;
+        // Only currently configured, named shell outputs are valid targets.
+        // Without xdg-output logical geometry retain the single-display drag.
+        let target = self.icon_layers.iter().enumerate().find_map(|(index, layer)| {
+            if index == drag.index || layer.recipe_index != recipe_index || !layer.configured {
+                return None;
+            }
+            let output = layer.bound_output.as_ref()
+                .or(self.primary_output.as_ref()).or(layer.output.as_ref())?;
+            let info = self.outputs.info(output)?;
+            let name = info.name.as_ref()?;
+            if name == &source_name { return None; }
+            let coords = desktop_layout::cross_output_drop(
+                source_origin, current, pointer, drag.anchor,
+                info.logical_position?, self.logical_output_size(output)?,
+            )?;
+            Some((index, name.clone(), coords))
+        });
+        let Some((target_index, name, desired)) = target else { return false };
+        // Discard transient moves against the source output. A cross-monitor
+        // drop should not rewrite its previous layout or mirrored fallback.
+        let mut next = drag.original_positions.clone();
+        let transferred = match next.transfer(&self.recipe.desktop_icons, recipe_index, &name,
+            icon_positions::Coordinates { x: desired.0, y: desired.1 }) {
+            Ok(()) => { self.icon_outputs = next; true }
+            Err(error) => {
+                eprintln!("RicePlate: cross-output icon drop refused: {error}");
+                self.icon_outputs = drag.original_positions.clone();
+                false
+            }
+        };
+        self.focused_icon = None;
+        self.keyboard_icon_surface = None;
+        self.reflow_icons();
+        if transferred && self.icon_layers[target_index].placed.is_none() {
+            // A reserved window region or very small display can have no free
+            // icon cell. Never save an assignment that hides the shortcut.
+            self.icon_outputs = drag.original_positions.clone();
+            self.reflow_icons();
+            eprintln!("RicePlate: target display has no usable icon position");
+        }
+        self.icon_position_dirty = true;
+        self.save_icon_positions();
+        true
     }
 
     fn assign_icon_to_next_output(&mut self, layer_index: usize) {
@@ -4740,6 +4797,7 @@ impl PointerHandler for RicePlate {
                         if let Some(position) = self.icon_layers[index].placed {
                             self.icon_drag = Some(IconDrag {
                                 index, anchor: event.position, started: position, moved: false,
+                                original_positions: self.icon_outputs.clone(),
                             });
                         }
                     }
@@ -4765,7 +4823,8 @@ impl PointerHandler for RicePlate {
                                 let action = self.recipe.desktop_icons[
                                     self.icon_layers[index].recipe_index].action.clone();
                                 self.activate_action(&action, qh);
-                            } else if drag.index == index {
+                            } else if drag.index == index
+                                && !self.finish_cross_output_drag(&drag, event.position) {
                                 self.save_icon_positions();
                             }
                         }

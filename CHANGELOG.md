@@ -1,5 +1,18 @@
 # RiceBowl changelog
 
+## Unreleased — native cross-display shortcut drops (9 November 2026)
+
+- Allow a grabbed desktop shortcut to move to another configured, named Wayland
+  output on release using compositor logical positions (including negative
+  origins and fractional-scaled logical geometry). Restore its original source
+  layout rather than saving transient edge movements.
+- Make target position and output ownership one validated private-state update;
+  reject unready, unnamed, missing-geometry or unplaceable targets without
+  hiding shortcuts. Keep `F6` / `F7` keyboard assignment and the XFCE fallback.
+- Rust tests cover adjacent/left displays, output gaps, invalid input, state
+  integrity and independent source/target coordinates. Physical multi-monitor
+  pointer grabs and mixed-DPI acceptance remain open.
+
 ## Unreleased — guarded live rice failure recovery (8 November 2026)
 
 - Repair the post-replacement durability-failure window in the live selection

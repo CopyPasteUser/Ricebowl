@@ -300,6 +300,17 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   screen readers receive action hints. This is keyboard-based output
   ownership, **not cross-monitor pointer dragging**. Physical mixed-DPI,
   hotplug, keyboard focus and Orca acceptance remain pending.
+- [x] **Foundation Sprint 3: native pointer drops between outputs** — use the
+  source icon surface's implicit Wayland grab and known xdg-output logical
+  rectangles to identify a different connected named display when the left
+  mouse button is released. Validate and commit destination coordinates plus
+  ownership together, preserve the original source layout, and reject invalid
+  or unplaceable destinations without hiding the shortcut. Keep `F6`/`F7` as
+  the non-drag alternative; no new daemon or schema migration. Rust geometry
+  and private-state tests cover negative origins, gaps, malformed values and
+  rollback. Real compositor pointer grabs, hotplug and mixed-DPI hardware
+  sign-off remain open; the dragged icon does not float across the monitor
+  boundary before release.
 - [ ] Build a Wayland-native panel through `wlr-layer-shell`.
 - [ ] Populate tasks/windows through a supported foreign-toplevel protocol.
 - [ ] Implement launchers, task groups, tray, calendar, menus and keyboard
@@ -633,7 +644,8 @@ depend on the XFCE session.
 - [ ] Complete native desktop interaction and accessibility: basic
   move/focus/key controls, independent named-monitor saved positions,
   hotplug/reflow, bounded v8 desktop status widgets and AT-SPI status labels
-  are implemented; cross-monitor dragging, richer configurable widgets,
+  are implemented; cross-monitor drop logic has software coverage but needs
+  hardware interaction QA. Richer configurable widgets,
   widget keyboard semantics where appropriate and physical-device Orca QA
   remain open.
 - [ ] Implement visually configurable, truly interactive native start menus
