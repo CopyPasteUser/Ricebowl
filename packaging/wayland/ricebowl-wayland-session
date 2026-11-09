@@ -14,9 +14,16 @@ case "$#" in
         exit 2
         ;;
 esac
-if [ -z "${HOME:-}" ] || [ ! -x "$HOME/.local/bin/ricebowl" ]; then
-    echo "RiceBowl: install the user-local RiceBowl application before selecting this session." >&2
-    exit 1
+# A complete Wayland install has its own versioned, read-only application
+# tree. Prefer it over any unrelated user-local XFCE installation. Keep the
+# original user-local path for machines with the legacy session-only package.
+app=/usr/bin/ricebowl-wayland-app
+if [ ! -x "$app" ]; then
+    if [ -z "${HOME:-}" ] || [ ! -x "$HOME/.local/bin/ricebowl" ]; then
+        echo "RiceBowl: install ricebowl-wayland-core or the user-local application before selecting this session." >&2
+        exit 1
+    fi
+    app="$HOME/.local/bin/ricebowl"
 fi
 if [ "$#" -eq 1 ] && ! command -v riceplate-native >/dev/null 2>&1; then
     echo "RiceBowl: riceplate-native is not installed; select the regular Wayland Preview instead." >&2
@@ -25,6 +32,6 @@ fi
 RICEBOWL_DM_SESSION=1
 export RICEBOWL_DM_SESSION
 if [ "$#" -eq 1 ]; then
-    exec "$HOME/.local/bin/ricebowl" de start --panel native
+    exec "$app" de start --panel native
 fi
-exec "$HOME/.local/bin/ricebowl" de start
+exec "$app" de start
