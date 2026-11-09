@@ -1,0 +1,42 @@
+name: RiceBowl portal integration
+
+on:
+  push:
+    paths:
+      - '.github/workflows/wayland-portals.yml'
+      - 'scripts/check_wayland_portals.py'
+      - 'scripts/smoke_wayland_portals.sh'
+      - 'scripts/wayland_portals_smoke_client.sh'
+      - 'packaging/wayland/ricebowl-portals.conf'
+      - 'tests/test_wayland_portal_probe.py'
+  pull_request:
+    paths:
+      - '.github/workflows/wayland-portals.yml'
+      - 'scripts/check_wayland_portals.py'
+      - 'scripts/smoke_wayland_portals.sh'
+      - 'scripts/wayland_portals_smoke_client.sh'
+      - 'packaging/wayland/ricebowl-portals.conf'
+      - 'tests/test_wayland_portal_probe.py'
+
+permissions:
+  contents: read
+
+jobs:
+  portal-interop:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated Wayland and portal dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y labwc xdg-desktop-portal \
+            xdg-desktop-portal-gtk xdg-desktop-portal-wlr \
+            dbus-user-session dbus-x11 libglib2.0-bin pipewire
+      - name: Validate scripts and portal interface contract
+        run: |
+          sh -n scripts/smoke_wayland_portals.sh
+          sh -n scripts/wayland_portals_smoke_client.sh
+          /usr/bin/python3 -m unittest discover -s tests -p test_wayland_portal_probe.py -v
+      - name: Prove live portal D-Bus activation in headless labwc
+        run: timeout -k 5s 40s sh scripts/smoke_wayland_portals.sh
