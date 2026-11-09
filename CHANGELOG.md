@@ -1,5 +1,14 @@
 # RiceBowl changelog
 
+## Unreleased — isolated native RicePlate preview package (9 November 2026)
+
+- Build an optional architecture-specific `.deb` from the already CI-tested
+  Rust executable, deriving shared-library dependencies from its actual ELF.
+  The package contains no login entry, post-install scripts or XFCE changes.
+- Verify reproducible package bytes, identical packaged binary and explicit
+  non-overwrite behavior. The full 1.0 installer and device upgrade/rollback
+  acceptance remain separate gates.
+
 ## Unreleased — shared native desktop action widgets (9 November 2026)
 
 - Reuse strictly allowlisted schema-v9 action component bindings on the desktop,

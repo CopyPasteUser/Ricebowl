@@ -1080,6 +1080,12 @@ component, and incompatible clients degrade gracefully.
 - [x] Make the isolated *preview login-session* Debian package byte-for-byte
   reproducible across wall-clock build times; 1.0 application/binary packaging
   remains an independent release gate.
+- [x] Build a separate **amd64 native RicePlate preview `.deb`** from the CI
+  Rust executable with versioned dependencies derived by `dpkg-shlibdeps`,
+  deterministic archive metadata, exact extracted-binary comparison and no
+  install scripts. It does not replace XFCE or provide the complete desktop
+  distribution; real install/upgrade/uninstall QA and reproducible Rust inputs
+  still gate 1.0.
 - [ ] Measure cold start, settled PSS/RSS, CPU wakeups, relogin, long-running
   memory and mixed-DPI behavior for X11 and Wayland on actual devices.
 - [ ] Remove redundant processes only after their responsibilities have been

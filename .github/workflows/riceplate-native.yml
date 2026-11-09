@@ -59,7 +59,7 @@ jobs:
       - name: Install native Wayland and keyboard build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libxkbcommon-dev libdbus-1-dev pkg-config labwc grim wlr-randr swaybg python3-pil dbus-user-session dbus-x11
+          sudo apt-get install -y libxkbcommon-dev libdbus-1-dev pkg-config labwc grim wlr-randr swaybg python3-pil dbus-user-session dbus-x11 dpkg-dev binutils
       - name: Build and test native RicePlate
         run: |
           cargo test --manifest-path components/riceplate-wayland/Cargo.toml
@@ -78,6 +78,22 @@ jobs:
           printf 'Git commit: %s\nToolchain: %s\nBuild host: Ubuntu 24.04 x86_64\nStatus: experimental native panel, not a full desktop release\n' \
             "$GITHUB_SHA" "$(rustc --version)" > dist/riceplate-native-preview/BUILDINFO.txt
           (cd dist/riceplate-native-preview && sha256sum riceplate-native Cargo.lock > SHA256SUMS)
+      - name: Build reproducible, removable native amd64 preview package
+        run: |
+          set -eu
+          sh -n scripts/build_riceplate_native_deb.sh
+          binary="$PWD/components/riceplate-wayland/target/release/riceplate-native"
+          output="$PWD/dist/riceplate-native-preview/ricebowl-riceplate-native_0.1.0~preview1_amd64.deb"
+          sh scripts/build_riceplate_native_deb.sh "$binary" "$output"
+          second="$RUNNER_TEMP/riceplate-reproducibility.deb"
+          sh scripts/build_riceplate_native_deb.sh "$binary" "$second"
+          cmp "$output" "$second"
+          test "$(dpkg-deb --field "$output" Architecture)" = amd64
+          test -n "$(dpkg-deb --field "$output" Depends)"
+          mkdir -p "$RUNNER_TEMP/riceplate-package-check"
+          dpkg-deb --extract "$output" "$RUNNER_TEMP/riceplate-package-check"
+          cmp "$binary" "$RUNNER_TEMP/riceplate-package-check/usr/bin/riceplate-native"
+          (cd dist/riceplate-native-preview && sha256sum "$(basename "$output")" >> SHA256SUMS)
           (cd dist/riceplate-native-preview && sha256sum -c SHA256SUMS)
       - name: Validate both declarative Creator examples
         run: /usr/bin/python3 -m unittest discover -s tests -p test_de_creator_examples.py -v
