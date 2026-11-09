@@ -13,7 +13,7 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
-from . import recipes, review
+from . import assets, recipes, review
 from .creator_contract import EDIT_VERSION, EDITABLE_PATHS, MAX_EDIT_BYTES, MAX_OPERATIONS
 
 
@@ -57,7 +57,8 @@ def _allowed_value(path: str, value: Any, schema_version: int,
     if path == "/menu/presentation":
         return type(value) is str and value in ("tabs", "sidebar")
     if path == "/desktop/wallpaper":
-        return type(value) is str and value in recipes.WALLPAPERS
+        return (type(value) is str and (value in recipes.WALLPAPERS
+                or schema_version >= 6 and assets.ASSET_ID.fullmatch(value) is not None))
     if path == "/desktop/icons":
         try:
             recipes._parse_desktop_icons(value)

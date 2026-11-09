@@ -218,11 +218,13 @@ def _new_archive(destination: Path, payload: bytes) -> None:
 
 
 def export_pack(recipe_token: str, destination: Path,
-                *, metadata: Path | None = None) -> dict[str, Any]:
+                *, metadata: Path | None = None,
+                wallpaper_provenance: dict[str, str] | None = None) -> dict[str, Any]:
     """Build reproducible bytes for a validated recipe; do not select/apply it."""
     if not destination.is_absolute() or destination.suffix != ".ricepack":
         raise PackError("Output must be an absolute .ricepack file", code="invalid_output")
     recipe = _read_recipe(recipe_token)
+    declared_wallpaper = wallpaper_provenance
     provenance = dict(_DEFAULT_PROVENANCE)
     wallpaper_provenance = dict(_DEFAULT_PROVENANCE)
     if metadata is None and _ID.fullmatch(recipe_token) and recipe_token not in recipes.BUILTINS:
@@ -230,12 +232,16 @@ def export_pack(recipe_token: str, destination: Path,
         if remembered is not None:
             provenance, wallpaper_provenance = remembered
     if metadata is not None:
+        if declared_wallpaper is not None:
+            raise PackError("Choose either a metadata file or declared wallpaper provenance")
         declared = _parse_object(_read_owned_file(
             metadata, suffix=".json", limit=MAX_METADATA_BYTES))
         if "wallpaper_provenance" in declared:
             wallpaper = declared.pop("wallpaper_provenance")
             wallpaper_provenance = _provenance(wallpaper if type(wallpaper) is dict else {})
         provenance = _provenance(declared)
+    if declared_wallpaper is not None:
+        wallpaper_provenance = _provenance(declared_wallpaper)
     canonical = review._manifest(recipe)
     recipe_payload = _json_bytes(canonical)
     # The canonical form must itself be the exact runtime schema, not a

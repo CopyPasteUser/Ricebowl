@@ -41,8 +41,10 @@ jobs:
           # Exercise the real optional GTK Creator, immutable draft, editor,
           # revision/undo and X11 rendering without touching user settings.
           creator_state="$(mktemp -d -t ricebowl-creator-XXXXXX)"
+          mkdir -m 700 "$creator_state/config"
           mkdir -p dist/creator-gtk-smoke
           RICEBOWL_CREATOR_SMOKE=1 XDG_STATE_HOME="$creator_state" \
+            XDG_CONFIG_HOME="$creator_state/config" \
             RICEBOWL_CREATOR_SMOKE_CAPTURE="$PWD/dist/creator-gtk-smoke/creator.png" \
             timeout 25s dbus-run-session -- xvfb-run -a -s '-screen 0 1600x900x24' \
             /usr/bin/python3 launcher.py creator

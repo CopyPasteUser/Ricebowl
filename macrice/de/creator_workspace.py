@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from . import drafts, pack, recipes, review
+from . import assets, creator_assets, drafts, pack, recipes, review
 from .creator_contract import EDITABLE_PATHS, EDIT_VERSION, MAX_OPERATIONS
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "wayland"
@@ -142,4 +142,7 @@ def save_revision(source: Path, changes: dict[str, Any], *, expected_sha256: str
 def export_draft(info: DraftInfo, destination: Path) -> dict[str, Any]:
     if open_draft(info.path).semantic_sha256 != info.semantic_sha256:
         raise WorkspaceError("Draft changed on disk. Reload before exporting")
-    return pack.export_pack(str(info.path), destination)
+    recipe = recipes.load(str(info.path))
+    declared = (creator_assets.entry(recipe.wallpaper).provenance
+                if assets.ASSET_ID.fullmatch(recipe.wallpaper or "") else None)
+    return pack.export_pack(str(info.path), destination, wallpaper_provenance=declared)
