@@ -23,7 +23,9 @@ on:
       - 'scripts/smoke_wayland_portals.sh'
       - 'scripts/wayland_portals_smoke_client.sh'
       - 'scripts/check_wayland_portals.py'
+      - 'scripts/wayland_portal_capture_smoke.py'
       - 'tests/test_wayland_portal_probe.py'
+      - 'tests/test_wayland_portal_capture.py'
       - 'scripts/wayland_clipboard_smoke_client.sh'
       - 'scripts/check_wayland_window_outputs.py'
       - 'scripts/smoke_riceplate_multioutput.sh'
@@ -75,7 +77,9 @@ on:
       - 'scripts/smoke_wayland_portals.sh'
       - 'scripts/wayland_portals_smoke_client.sh'
       - 'scripts/check_wayland_portals.py'
+      - 'scripts/wayland_portal_capture_smoke.py'
       - 'tests/test_wayland_portal_probe.py'
+      - 'tests/test_wayland_portal_capture.py'
       - 'scripts/wayland_clipboard_smoke_client.sh'
       - 'scripts/check_wayland_window_outputs.py'
       - 'scripts/smoke_riceplate_multioutput.sh'
@@ -119,7 +123,7 @@ jobs:
       - name: Install native Wayland and keyboard build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libxkbcommon-dev libdbus-1-dev pkg-config labwc grim foot xwayland xterm xclip wl-clipboard wlr-randr swaybg python3-pil dbus-user-session dbus-x11 dpkg-dev binutils xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-wlr libglib2.0-bin pipewire
+          sudo apt-get install -y libxkbcommon-dev libdbus-1-dev pkg-config labwc grim foot xwayland xterm xclip wl-clipboard wlr-randr swaybg python3-pil python3-gi dbus-user-session dbus-x11 dpkg-dev binutils xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-wlr libglib2.0-bin pipewire
       - name: Build and test native RicePlate
         run: |
           /usr/bin/python3 -m unittest tests.test_de_session -v
@@ -133,12 +137,13 @@ jobs:
           sh -n scripts/smoke_wayland_clipboard.sh
           sh -n scripts/wayland_clipboard_smoke_client.sh
           sh -n scripts/smoke_riceplate_multioutput.sh
-      - name: Validate real GTK and wlroots portal activation in isolated labwc
+      - name: Validate portal screenshot and headless ScreenCast negotiation
         run: |
           sh -n scripts/smoke_wayland_portals.sh
           sh -n scripts/wayland_portals_smoke_client.sh
           /usr/bin/python3 -m unittest discover -s tests -p test_wayland_portal_probe.py -v
-          timeout -k 5s 40s sh scripts/smoke_wayland_portals.sh
+          /usr/bin/python3 -m unittest discover -s tests -p test_wayland_portal_capture.py -v
+          timeout -k 5s 80s sh scripts/smoke_wayland_portals.sh
       - name: Prepare native preview artifact with build provenance
         run: |
           set -eu

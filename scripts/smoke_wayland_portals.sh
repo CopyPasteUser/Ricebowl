@@ -25,9 +25,17 @@ mkdir -m 0700 "$runtime/config"
 mkdir -m 0700 "$runtime/config/xdg-desktop-portal"
 cp "$root/packaging/wayland/ricebowl-portals.conf" \
     "$runtime/config/xdg-desktop-portal/ricebowl-portals.conf"
+# CI only: suppress interactive monitor selection for a disposable headless
+# compositor. The installed package never receives this chooser override.
+mkdir -m 0700 "$runtime/config/xdg-desktop-portal-wlr" "$runtime/cache" "$runtime/tmp"
+printf '[screencast]\nchooser_type=none\n' \
+    >"$runtime/config/xdg-desktop-portal-wlr/config"
+: >"$runtime/.ricebowl-portal-ci"
 export XDG_RUNTIME_DIR="$runtime"
 export PIPEWIRE_RUNTIME_DIR="$runtime"
 export XDG_CONFIG_HOME="$runtime/config"
+export XDG_CACHE_HOME="$runtime/cache"
+export TMPDIR="$runtime/tmp"
 export XDG_CURRENT_DESKTOP=RiceBowl:labwc:wlroots
 export XDG_SESSION_DESKTOP=ricebowl
 export XDG_SESSION_TYPE=wayland
@@ -36,6 +44,7 @@ export WLR_HEADLESS_OUTPUTS=1
 export WLR_RENDERER=pixman
 export LABWC_UPDATE_ACTIVATION_ENV=0
 export RICEBOWL_DE_NESTED=1
+export RICEBOWL_PORTAL_CAPTURE_CI=1
 
 # The compositor provides the WAYLAND_DISPLAY socket; the client imports it
 # into this *private* D-Bus daemon before activation of xdg-desktop-portal.
@@ -77,7 +86,7 @@ dbus-run-session -- sh -eu -c '
     compositor=$!
     attempt=0
     while [ ! -f "$runtime/portals-ok" ] && [ ! -f "$runtime/portals-failed" ] \
-          && [ "$attempt" -lt 100 ]; do
+          && [ "$attempt" -lt 260 ]; do
         kill -0 "$compositor" 2>/dev/null || break
         attempt=$((attempt + 1))
         sleep 0.25
@@ -91,5 +100,5 @@ dbus-run-session -- sh -eu -c '
         done
         exit 1
     fi
-    echo "RiceBowl portal interfaces reachable in isolated labwc D-Bus session"
+    echo "RiceBowl portal interfaces and capture requests passed in isolated labwc"
 ' sh "$root" "$runtime"

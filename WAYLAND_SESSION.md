@@ -9,23 +9,39 @@ Mint 22/Ubuntu 24.04's labwc **0.7.1** is supported by using its
 
 ## Portal integration acceptance (isolated CI)
 
-The session package already routes FileChooser through GTK and Screenshot /
-ScreenCast through the wlroots backend. A new CI smoke now launches a **real
-headless labwc**, imports its socket into a **private D-Bus activation
-environment**, and introspects `org.freedesktop.portal.Desktop` for the
-FileChooser, Screenshot and ScreenCast interfaces. It fails when portal
-activation or any required interface is missing. It never opens dialogs,
-captures screen content, grants access, or touches the active XFCE session.
+The session package routes FileChooser through GTK and Screenshot/ScreenCast
+through the wlroots backend. The dedicated CI smoke launches a **real headless
+labwc** with a private D-Bus and PipeWire runtime. It checks the FileChooser,
+Screenshot and ScreenCast interfaces, then requests a **real PNG screenshot**
+and validates its size/dimensions. It also creates a ScreenCast session and
+selects its sole headless monitor, then **attempts** `Start`. A successful
+`Start` must return PipeWire node IDs and a valid remote socket FD. On this
+CI runner the **pixman software renderer** instead produces portal response
+code 2 at `Start`, a known wlroots ScreenCast limitation
+([upstream issue](https://github.com/emersion/xdg-desktop-portal-wlr/issues/289)).
+Only the explicitly isolated headless pixman lane reports this as
+`PORTAL_CAPTURE_LIMIT`, **never** as a verified ScreenCast stream. All other
+method failures, missing screenshot, malformed PNG or bad FD remain fatal.
 
-Run the acceptance on a system with labwc, xdg-desktop-portal, both
-xdg-desktop-portal-gtk and xdg-desktop-portal-wlr, gdbus and dbus-run-session:
+Only the disposable CI `XDG_CONFIG_HOME` sets wlroots
+`[screencast] chooser_type=none` for unattended headless selection; the
+installed portal configuration **never** disables the user's output chooser.
+The capture client also requires a private marker, runtime mode 0700, nested
+headless compositor socket and explicit CI flag. It cannot silently capture
+the user's XFCE/Wayland desktop. No interactive consent is exercised here.
+
+Run acceptance on a system with labwc, PipeWire, PyGObject (`python3-gi`),
+xdg-desktop-portal, both GTK and wlroots portal backends, gdbus and
+dbus-run-session:
 
 ```bash
-timeout -k 5s 40s sh scripts/smoke_wayland_portals.sh
+timeout -k 5s 80s sh scripts/smoke_wayland_portals.sh
 ```
 
-**This is protocol discovery, not completed Flatpak or screencast
-certification.** Before 1.0, log into the physical RiceBowl Wayland session
+**This verifies an actual headless Screenshot and ScreenCast negotiation,
+not a completed PipeWire remote handshake, Flatpak or streamed-frame
+certification.** Before 1.0, log into the
+physical RiceBowl Wayland session
 and verify: (1) a real sandboxed Flatpak file-open and file-save dialog
 with consent and cancellation; (2) a real PipeWire ScreenCast sharing flow
 in a browser or conferencing client, with visible consent, output selection,
@@ -34,7 +50,7 @@ frame delivery and clean stop/revoke; (3) screenshot consent and rejection;
 hotplug and suspend/resume. Verify the same on both Waybar and native
 RicePlate sessions without altering XFCE. ScreenCast may need a working
 PipeWire user session and compositor-specific chooser configuration that a
-headless D-Bus introspection cannot certify.
+single headless screen with automatic output selection cannot certify.
 
 ## Prerequisites
 
