@@ -8,7 +8,7 @@
 
 A modular Linux desktop project with seven OS-inspired styles, an experimental Wayland environment and tools for building your own rices.
 
-[Gallery](screenshots/current/README.md) · [Desktop status](DESKTOP_ENVIRONMENT_STATUS.md) · [Wayland guide](WAYLAND_SESSION.md) · [Roadmap](RICEBOWL_DE_ROADMAP.md)
+[XFCE gallery](screenshots/current/README.md) · **[Wayland progress & screenshots](WAYLAND_PROGRESS.md)** · [Desktop status](DESKTOP_ENVIRONMENT_STATUS.md) · [Roadmap](RICEBOWL_DE_ROADMAP.md)
 
 </div>
 
@@ -23,6 +23,21 @@ A modular Linux desktop project with seven OS-inspired styles, an experimental W
 - **Rice ecosystem:** optional, validated appearance integration with [RiceField](https://github.com/CopyPasteUser/Ricefield) and [Taskotto](https://github.com/CopyPasteUser/Taskotto).
 
 XFCE/X11 remains the default. The Wayland session and Creator are **previews**, not a finished replacement desktop or automatic screenshot-to-desktop converter. Hardware, accessibility and multi-monitor acceptance are still in progress.
+
+## Wayland desktop — progress
+
+**Experimental / opt-in · November 2026.** RiceBowl's Wayland path is a modular **labwc + native Rust RicePlate** desktop, not merely a re-skinned Waybar.
+
+| Implemented in the preview | Not yet accepted for stable 1.0 |
+| --- | --- |
+| RicePlate: taskbar, app menus, desktop shortcuts, calendar, widgets and experimental system tray | Physical app/focus, tray, mixed-DPI and accessibility QA |
+| RiceSpice: network/audio/Bluetooth, guarded display controls, input and accessibility settings | Real-device behavior, suspend/lock and monitor recovery |
+| RicePop: Mako-backed notification inbox and audio/brightness OSD | Actual media keys, screen reader and failure/restart QA |
+| Rice Creator 0.9: editable recipes, isolated native renders, reference-image regions and RicePack v4 export | Automatic screenshot-to-rice conversion, visual fidelity and hardware acceptance |
+
+**Real Wayland screenshots exist:** the [successful native labwc/RicePlate CI run](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42625109733) contains PNGs of panels, menus, widgets, different layouts and Creator examples. These are **headless compositor screenshots**, not hardware screenshots; GitHub Actions artifacts expire. The existing [XFCE gallery](screenshots/current/README.md) must not be mistaken for Wayland.
+
+**[Full Wayland progress, screenshot index and reproduction steps →](WAYLAND_PROGRESS.md)**
 
 ## Try it
 
