@@ -11,6 +11,7 @@ on:
       - 'scripts/build_wayland_desktop_deb.sh'
       - 'tests/test_wayland_bundle.py'
       - 'packaging/wayland/ricebowl-wayland-app'
+      - 'packaging/wayland/ricebowl-wayland-command'
       - 'scripts/test_wayland_package_reproducibility.sh'
       - 'scripts/smoke_riceplate_native.sh'
       - 'scripts/smoke_riceplate_windows.sh'
@@ -59,6 +60,7 @@ on:
       - 'scripts/build_wayland_desktop_deb.sh'
       - 'tests/test_wayland_bundle.py'
       - 'packaging/wayland/ricebowl-wayland-app'
+      - 'packaging/wayland/ricebowl-wayland-command'
       - 'scripts/test_wayland_package_reproducibility.sh'
       - 'scripts/smoke_riceplate_native.sh'
       - 'scripts/smoke_riceplate_windows.sh'
@@ -201,6 +203,7 @@ jobs:
           test -f "$isolated/usr/lib/ricebowl-wayland/macrice/de/session.py"
           test -f "$isolated/usr/lib/ricebowl-wayland/macrice/creator_gui.py"
           test -x "$isolated/usr/bin/ricebowl-wayland-app"
+          test -x "$isolated/usr/lib/ricebowl-wayland/bin/ricebowl"
           /usr/bin/python3 -B "$isolated/usr/lib/ricebowl-wayland/launcher.py" de --help
           (cd "$artifact" && sha256sum "$(basename "$core")" "$(basename "$bundle")" >> SHA256SUMS && sha256sum -c SHA256SUMS)
       - name: Install, reinstall and purge complete preview in disposable Ubuntu
@@ -219,6 +222,8 @@ jobs:
                 /packages/ricebowl-wayland-desktop_0.1.0~preview1_amd64.deb
               dpkg-query -W ricebowl-wayland-desktop | grep -q "^ricebowl-wayland-desktop[[:space:]]"
               /usr/bin/ricebowl-wayland-app de --help >/dev/null
+              test -x /usr/lib/ricebowl-wayland/bin/ricebowl
+              test "$(PATH=/usr/lib/ricebowl-wayland/bin:$PATH command -v ricebowl)" = /usr/lib/ricebowl-wayland/bin/ricebowl
               test -e /usr/share/wayland-sessions/ricebowl.desktop
               test -e /usr/share/wayland-sessions/ricebowl-native.desktop
               test -x /usr/bin/riceplate-native
