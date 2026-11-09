@@ -1879,6 +1879,8 @@ def run() -> int:
 
         def _mapping_set_result(self, mapping: dict):
             assert self.info is not None and self._reference is not None
+            creator_mapping.ensure_current_reference(
+                self.info.recipe_id, self._reference.sha256)
             creator_mapping.validate(
                 mapping, reference_sha256=self._reference.sha256,
                 recipe_sha256=self.info.semantic_sha256,
@@ -1886,6 +1888,13 @@ def run() -> int:
                 manifest=self.baseline)
             self._mapping_reset()
             self._mapping = mapping
+            property_labels = {path: label for _group, fields in FIELDS
+                               for path, label, _kind, _options in fields}
+            property_labels.update({
+                "/panel/layout/start": "Panel · start lane",
+                "/panel/layout/center": "Panel · center lane",
+                "/panel/layout/end": "Panel · end lane",
+            })
             for item in mapping["suggestions"]:
                 path = item["path"]
                 if item["value"] == _get_field(self.working, path):
@@ -1894,18 +1903,21 @@ def run() -> int:
                 value = item["value"]
                 display = (f"{len(value)} declarative nodes" if isinstance(value, list)
                            else str(value))
-                checkbox = Gtk.CheckButton(label=f"{path}  →  {display}")
-                checkbox.set_tooltip_text(item["evidence"])
+                checkbox = Gtk.CheckButton(
+                    label=f"{property_labels.get(path, path)}  →  {display}")
+                checkbox.set_tooltip_text(f"{path}\n{item['evidence']}")
                 # External confidence is only a claim from untrusted input;
                 # all externally authored edits require deliberate selection.
                 checkbox.set_active(mapping["source"] == "offline" and
                                     item["confidence"] >= 0.72)
                 checkbox.connect("toggled", lambda *_: self._actions())
                 row.pack_start(checkbox, False, False, 0)
-                source_label = ("offline heuristic" if mapping["source"] == "offline"
-                                else "unverified external estimate")
+                strength = ("strong" if item["confidence"] >= 0.8 else
+                            "moderate" if item["confidence"] >= 0.55 else "tentative")
+                source_label = (f"{strength} offline hint" if mapping["source"] == "offline"
+                                else "unverified external claim")
                 explanation = self._text(
-                    f"{item['confidence']:.0%} {source_label} · {item['evidence']}",
+                    f"{path} · {source_label} · {item['evidence']}",
                     "creator-layer-hint", wrap=True)
                 explanation.set_margin_start(22)
                 row.pack_start(explanation, False, False, 0)
@@ -1992,7 +2004,9 @@ def run() -> int:
                         raise creator_mapping.MappingError(
                             "Mapping must be an owner-controlled JSON file under 24 KiB")
                     raw = stream.read(creator_mapping.MAX_MAPPING_BYTES + 1)
-                mapping = creator_mapping.validate(
+                creator_mapping.ensure_current_reference(
+                    self.info.recipe_id, self._reference.sha256)
+                mapping = creator_mapping.import_proposals(
                     raw, reference_sha256=self._reference.sha256,
                     recipe_sha256=self.info.semantic_sha256,
                     size=(self._reference.width, self._reference.height),
@@ -2018,6 +2032,8 @@ def run() -> int:
             if destination is None:
                 return
             try:
+                creator_mapping.ensure_current_reference(
+                    self.info.recipe_id, self._reference.sha256)
                 payload = (json.dumps(self._mapping, ensure_ascii=False, indent=2) + "\n").encode()
                 if len(payload) > creator_mapping.MAX_MAPPING_BYTES:
                     raise creator_mapping.MappingError("Mapping exceeds safe export limit")
@@ -2034,6 +2050,8 @@ def run() -> int:
             checked = {path for path, widget in self._mapping_checks.items()
                        if widget.get_active()}
             try:
+                creator_mapping.ensure_current_reference(
+                    self.info.recipe_id, self._reference.sha256)
                 changes = creator_mapping.selected_changes(
                     self._mapping, checked, reference_sha256=self._reference.sha256,
                     recipe_sha256=self.info.semantic_sha256,
@@ -2372,7 +2390,7 @@ def run() -> int:
                 # declarative proposals stay behind an explicit GTK approval.
                 requested_height = (50 if window.working["panel"]["height"] != 50 else 51)
                 untrusted = {
-                    "mapping_version": 1, "source": "external",
+                    "mapping_version": 1, "source": "offline",
                     "reference_sha256": window._reference.sha256,
                     "recipe_sha256": window.info.semantic_sha256,
                     "reference_size": {"width": 48, "height": 48},
@@ -2381,7 +2399,13 @@ def run() -> int:
                                      "confidence": 0.9,
                                      "evidence": "Fixture proposal; no screenshot semantics asserted"}],
                 }
-                window._mapping_set_result(untrusted)
+                imported = creator_mapping.import_proposals(
+                    json.dumps(untrusted).encode("utf-8"),
+                    reference_sha256=window._reference.sha256,
+                    recipe_sha256=window.info.semantic_sha256,
+                    size=(48, 48), manifest=window.baseline)
+                assert imported["source"] == "external"
+                window._mapping_set_result(imported)
                 assert not window.mapping_apply.get_sensitive(), (
                     "Externally claimed confidence must never preselect a change")
                 window._mapping_checks["/panel/height"].set_active(True)
