@@ -1,11 +1,11 @@
 Package: ricebowl-wayland-session
-Version: 0.1.0~preview2
+Version: 0.1.0~preview3
 Section: x11
 Priority: optional
 Architecture: all
 Maintainer: CopyPasteUser
-Depends: labwc, waybar, foot, fuzzel, swaylock, dbus-user-session, xdg-desktop-portal, xdg-desktop-portal-gtk, xdg-desktop-portal-wlr
-Recommends: xwayland, swaybg, swayidle, wl-clipboard
+Depends: labwc, waybar, foot, fuzzel, swaylock, swayidle, dbus-user-session, xdg-desktop-portal, xdg-desktop-portal-gtk, xdg-desktop-portal-wlr
+Recommends: xwayland, swaybg, wl-clipboard
 Description: Optional preview login sessions for RiceBowl on labwc
  Installs separate Waybar and native RicePlate session chooser entries, a
  small launcher which delegates to the user's RiceBowl installation, and
