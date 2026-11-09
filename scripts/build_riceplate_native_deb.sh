@@ -55,7 +55,8 @@ export LC_ALL
 mkdir -p -- "$(dirname -- "$output")"
 stage=$(mktemp -d)
 trap 'rm -r -- "$stage"' EXIT
-install -D -m 0755 "$source_binary" "$stage/usr/bin/riceplate-native"
+package_root="$stage/debian/ricebowl-riceplate-native"
+install -D -m 0755 "$source_binary" "$package_root/usr/bin/riceplate-native"
 
 # dpkg-shlibdeps derives the actual versioned shared-library requirements
 # from the supplied ELF on the build host; no guessed ABI floors.
@@ -64,16 +65,16 @@ printf '%s\n' 'Source: ricebowl-riceplate-native' \
     'Section: x11' 'Priority: optional' 'Maintainer: CopyPasteUser' \
     '' 'Package: ricebowl-riceplate-native' 'Architecture: amd64' \
     'Description: Native RicePlate preview' > "$stage/debian/control"
-dependencies=$(cd "$stage" && dpkg-shlibdeps -O -e"$stage/usr/bin/riceplate-native" |
+dependencies=$(cd "$stage" && dpkg-shlibdeps -O -e"$package_root/usr/bin/riceplate-native" |
     sed -n 's/^shlibs:Depends=//p')
 if [ -z "$dependencies" ]; then
     echo "Could not derive dynamic dependencies for the native binary." >&2
     exit 1
 fi
+mkdir -p "$package_root/DEBIAN"
 awk -v depends="$dependencies" \
     '/^Description:/ {print "Depends: " depends} {print}' \
-    "$project_root/packaging/wayland/native-control.in" > "$stage/DEBIAN/control"
-rm -r -- "$stage/debian"
-find "$stage" -exec touch -h -d "@$package_epoch" -- {} +
-dpkg-deb --build --root-owner-group "$stage" "$output"
+    "$project_root/packaging/wayland/native-control.in" > "$package_root/DEBIAN/control"
+find "$package_root" -exec touch -h -d "@$package_epoch" -- {} +
+dpkg-deb --build --root-owner-group "$package_root" "$output"
 echo "Built $output (not installed)"
