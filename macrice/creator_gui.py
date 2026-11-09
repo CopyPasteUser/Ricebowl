@@ -1600,8 +1600,12 @@ def run() -> int:
             assert window.info.path == initial.path
             # Exercise the real 2-D editor rather than only its pure model:
             # add one static layer, move it, set compact visibility, persist.
+            assert window.layer_choices.set_active_id("text"), "Static text choice missing"
             window._add_layer(None)
-            assert window._selected_layer == ('widget', 2)
+            assert window._selected_layer == ('widget', 2), (
+                f"Adding a text widget selected {window._selected_layer!r}; "
+                f"widget count={len(window.working['composition']['widgets'])}; "
+                f"choice={window.layer_choices.get_active_id()!r}")
             window._move_selected(168, 568, snap=8)
             window._set_compact_hidden(True)
             assert len(window.working['composition']['widgets']) == 3
