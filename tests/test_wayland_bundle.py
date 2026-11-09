@@ -36,6 +36,8 @@ class WaylandBundleTests(unittest.TestCase):
                              "ricebowl-wayland-core")
             self.assertEqual(run("dpkg-deb", "-f", str(first), "Architecture").stdout.strip(),
                              "all")
+            self.assertEqual(run("dpkg-deb", "-f", str(first), "Version").stdout.strip(),
+                             "0.1.0~preview2")
             self.assertIn("python3-gi", run("dpkg-deb", "-f", str(first), "Depends").stdout)
             extracted = root / "extracted"
             self.assertEqual(run("dpkg-deb", "-x", str(first), str(extracted)).returncode, 0)
@@ -45,6 +47,16 @@ class WaylandBundleTests(unittest.TestCase):
                          "macrice/creator_gui.py", "assets/wallpapers/aurora-night.jpg",
                          "examples/wayland/heritage-modern-v10.json"):
                 self.assertTrue((application / path).is_file(), path)
+            buildinfo = extracted / "usr/share/doc/ricebowl-wayland-core/BUILDINFO"
+            self.assertTrue(buildinfo.is_file())
+            lines = buildinfo.read_text(encoding="utf-8").splitlines()
+            self.assertIn("format=1", lines)
+            self.assertIn("version=0.1.0~preview2", lines)
+            self.assertIn("source_date_epoch=1704067200", lines)
+            commit = subprocess.check_output(
+                ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
+                text=True, timeout=10).strip()
+            self.assertIn(f"source_commit={commit}", lines)
             self.assertTrue((extracted / "usr/bin/ricebowl-wayland-app").is_file())
             private_command = extracted / "usr/lib/ricebowl-wayland/bin/ricebowl"
             self.assertTrue(private_command.is_file())
@@ -74,10 +86,13 @@ class WaylandBundleTests(unittest.TestCase):
             self.assertEqual(first.read_bytes(), second.read_bytes())
             self.assertEqual(run("dpkg-deb", "-f", str(first), "Package").stdout.strip(),
                              "ricebowl-wayland-desktop")
+            self.assertEqual(run("dpkg-deb", "-f", str(first), "Version").stdout.strip(),
+                             "0.1.0~preview2")
             dependencies = run("dpkg-deb", "-f", str(first), "Depends").stdout
             for name in ("ricebowl-wayland-core", "ricebowl-wayland-session",
                          "ricebowl-riceplate-native"):
                 self.assertIn(name, dependencies)
+            self.assertIn("ricebowl-wayland-core (= 0.1.0~preview2)", dependencies)
             archive = run("dpkg-deb", "--contents", str(first)).stdout
             self.assertNotIn("postinst", archive)
             self.assertNotIn("usr/bin/", archive)
