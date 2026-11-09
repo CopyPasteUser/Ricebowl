@@ -160,7 +160,7 @@ class RiceSpicePreferenceTests(unittest.TestCase):
         baseline = preferences.load()
         preferences.save({**baseline, "input_enabled": True,
                           "accessibility_enabled": True, "repeat_rate": 50}, expected=baseline)
-        tools = {name: f"/usr/bin/{name}" for name in session.REQUIRED_TOOLS}
+        tools = {name: f"/usr/bin/{name}" for name in (*session.REQUIRED_TOOLS, "swayidle")}
         with tempfile.TemporaryDirectory() as runtime:
             Path(runtime).chmod(0o700)
             env = {"XDG_RUNTIME_DIR": runtime,
@@ -186,7 +186,7 @@ class RiceSpicePreferenceTests(unittest.TestCase):
         original = preferences.load()
         preferences.save({**original, "accessibility_enabled": True,
                           "screen_reader_enabled": True}, expected=original)
-        tools = {name: f"/usr/bin/{name}" for name in session.REQUIRED_TOOLS}
+        tools = {name: f"/usr/bin/{name}" for name in (*session.REQUIRED_TOOLS, "swayidle")}
         with tempfile.TemporaryDirectory() as runtime:
             Path(runtime).chmod(0o700)
             env = {"XDG_RUNTIME_DIR": runtime,
