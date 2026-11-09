@@ -39,7 +39,7 @@ The project has moved beyond a session wrapper. The core shell and system module
 
 | Area | Available in the experimental session | Not yet signed off |
 | --- | --- | --- |
-| **Session & recovery** | Optional labwc login or nested preview; supervised processes, reversible rice selection and a Waybar fallback | Login/relogin, crashes, suspend and recovery on actual hardware |
+| **Session & recovery** | Separate opt-in Waybar and native RicePlate labwc login choices (the latter appears with an installed native binary), nested preview, supervised processes, reversible rice selection and Waybar crash fallback | Login/relogin, crashes, suspend and recovery on actual hardware |
 | **RicePlate** · Rust | Per-output taskbar and grouped windows, launcher, tab/sidebar menus, keyboard navigation, native tray/DBusMenu, calendar and desktop shortcuts | Real application focus, third-party tray menus, mixed-DPI, input and Orca |
 | **Desktop layout** | Reflowing shortcuts, widgets and shared action/status components; bounded appearance tokens and custom artwork | Full composition flexibility and reliable physical multi-monitor interaction |
 | **RiceSpice** · GTK | NetworkManager/WirePlumber/BlueZ controls; audio streams, VPN import, display trials with rollback, power, time and input/accessibility preferences | Hardware interoperability, monitor restoration and accessibility testing |
@@ -73,6 +73,10 @@ For the optional separate **RiceBowl (Wayland Preview)** login entry, follow the
 The native CI also builds a **separate, removable amd64 preview `.deb`** for
 `riceplate-native` with reproducibility and binary-integrity checks. It is an
 optional experimental component, not an auto-installed or signed 1.0 desktop.
+Installing that native preview package together with the reproducible session
+entry package exposes **RiceBowl (Native Wayland Preview)** in compatible login
+managers. The ordinary Waybar-backed entry remains available; native session
+selection never changes the XFCE default.
 
 ## What's left for 1.0
 

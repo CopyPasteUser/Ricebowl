@@ -44,8 +44,8 @@ sh scripts/build_wayland_session_deb.sh
 Review the package before installing:
 
 ```bash
-dpkg-deb --contents dist/ricebowl-wayland-session_0.1.0~preview1_all.deb
-sudo apt install ./dist/ricebowl-wayland-session_0.1.0~preview1_all.deb
+dpkg-deb --contents dist/ricebowl-wayland-session_0.1.0~preview2_all.deb
+sudo apt install ./dist/ricebowl-wayland-session_0.1.0~preview2_all.deb
 ```
 
 Log out. In the login manager's session selector, choose
@@ -53,6 +53,20 @@ Log out. In the login manager's session selector, choose
 independent choice. If the entry is not shown, use the current XFCE session
 and inspect the display manager's session-directory support before changing
 system settings.
+
+The same package now also provides **RiceBowl (Native Wayland Preview)**.
+This second entry starts native Rust RicePlate as the sole panel (`--panel
+native`); if it crashes during startup, the existing supervisor can recover
+with Waybar. The native entry uses `TryExec=/usr/bin/riceplate-native`, so it
+is normally hidden until the *separate, optional* native RicePlate preview
+package is installed in `/usr/bin`. A user-local Cargo binary on its own does
+not make this login-manager choice visible. The ordinary Wayland Preview
+continues to start Waybar by default, and neither choice touches XFCE.
+
+Both entries require a working user-local RiceBowl installation. If native
+RicePlate is missing, the native launcher fails before entering a compositor;
+select the normal Wayland Preview or XFCE and install the optional binary
+separately. No RiceBowl session is selected automatically.
 
 **Nothing in the ordinary `bash install.sh` enables this session.** Do not
 install the preview package on a production-only machine without keeping a
@@ -1630,8 +1644,11 @@ ricebowl de start --nested --panel native --recipe chrome
 The experimental Rust crate does not yet ship a committed `Cargo.lock`; a
 reproducible locked native-binary package remains a 1.0 release gate.
 
-This is an explicit developer opt-in, **not** the login-manager default. The
-temporary Waybar dependency remains installed and available for recovery: if
+This is an explicit developer opt-in. When its optional native package is
+installed in `/usr/bin`, the login manager additionally offers the separate
+**Native Wayland Preview** choice described above; the regular Wayland
+Preview still defaults to Waybar. The temporary Waybar dependency remains
+installed and available for recovery: if
 RicePlate crashes or cannot start after session preflight, the session logs
 the problem and restores Waybar automatically. A deliberate clean panel exit
 or an external session shutdown does not restart Waybar. If the native binary
