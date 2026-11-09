@@ -89,7 +89,7 @@ def main() -> None:
                 raise RuntimeError("Portal screenshot is not a real PNG")
         print("Screenshot portal returned a real headless PNG", flush=True)
 
-        session = request(CAST, "CreateSession", "(a{sv},)", ({
+        session = request(CAST, "CreateSession", "(a{sv})", ({
             "session_handle_token": GLib.Variant("s", "ricebowl_smoke_session"),
         },)).get("session_handle")
         if not isinstance(session, str) or not session.startswith("/org/freedesktop/portal/desktop/session/"):

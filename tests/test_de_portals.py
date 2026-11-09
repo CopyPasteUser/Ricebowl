@@ -44,6 +44,11 @@ class WaylandPortalTests(unittest.TestCase):
         self.assertIn("dbus-update-activation-environment", harness)
         self.assertNotIn("--systemd", harness)
 
+    def test_create_session_uses_valid_glib_tuple_signature(self):
+        client = (project_root() / "scripts/check_wayland_portals.py").read_text(
+            encoding="utf-8")
+        self.assertIn('request(CAST, "CreateSession", "(a{sv})"', client)
+
 
 if __name__ == "__main__":
     unittest.main()
