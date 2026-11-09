@@ -42,6 +42,8 @@ on:
       - 'macrice/de/creator_activation.py'
       - 'macrice/de/creator_workspace.py'
       - 'macrice/de/recipes.py'
+      - 'macrice/de/session.py'
+      - 'tests/test_de_session.py'
       - 'macrice/cli.py'
   pull_request:
     paths:
@@ -84,6 +86,8 @@ on:
       - 'macrice/de/creator_activation.py'
       - 'macrice/de/creator_workspace.py'
       - 'macrice/de/recipes.py'
+      - 'macrice/de/session.py'
+      - 'tests/test_de_session.py'
       - 'macrice/cli.py'
 
 permissions:
@@ -102,6 +106,7 @@ jobs:
           sudo apt-get install -y libxkbcommon-dev libdbus-1-dev pkg-config labwc grim foot xwayland xterm xclip wl-clipboard wlr-randr swaybg python3-pil dbus-user-session dbus-x11 dpkg-dev binutils xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-wlr libglib2.0-bin pipewire
       - name: Build and test native RicePlate
         run: |
+          /usr/bin/python3 -m unittest tests.test_de_session -v
           cargo test --manifest-path components/riceplate-wayland/Cargo.toml
           cargo build --release --manifest-path components/riceplate-wayland/Cargo.toml
           cargo build --release --manifest-path components/riceplate-wayland/Cargo.toml \

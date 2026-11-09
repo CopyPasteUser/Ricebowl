@@ -102,6 +102,33 @@ RicePlate is missing, the native launcher fails before entering a compositor;
 select the normal Wayland Preview or XFCE and install the optional binary
 separately. No RiceBowl session is selected automatically.
 
+### Wake and lost-lock-watcher recovery
+
+In a full RiceBowl Wayland login, the supervisor now compares Linux
+`CLOCK_BOOTTIME` with `CLOCK_MONOTONIC`. A difference jump of at least
+1.5 seconds indicates suspend/resume; ordinary idle time or system clock
+adjustments do not. After a 1.5-second compositor/output-settle window,
+Waybar's output-specific recipe is compared with its last known version and
+refreshed **only if the effective configuration changed**. Native RicePlate
+continues listening to `wl_output` directly. Detection adds no daemon,
+network traffic or standalone polling timer, and is disabled in nested
+previews and on kernels without `CLOCK_BOOTTIME`.
+
+An unexpectedly dead `swayidle` listener now ends **both live and
+non-live** full sessions, including the native panel, rather than entering
+an unprotected Waybar recovery loop. A session with a healthy lock watcher
+but a failed panel still uses the existing bounded previous-rice/Waybar
+fallback. The launcher's return to the login manager is intentional on
+security-guard failure; XFCE and the global labwc configuration are not
+modified.
+
+This is **not** physical suspend testing. Check on real hardware: suspend
+via RiceSpice, physical lid close, power button, wake-to-locked state,
+prompt/unlock, USB-C dock reconnect, output layout/different scaling,
+repeated sleep cycles, and whether PipeWire/audio and portals recover.
+Also check that killing the session's `swayidle` exits RiceBowl without
+starting another panel. Save logs before restarting if that fails.
+
 In preview3, **Lock screen** waits for `swaylock -f` to return after
 obtaining the lock surface, rather than declaring success merely because a
 locker process was launched. **Suspend** first completes the same lock

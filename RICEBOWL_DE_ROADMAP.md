@@ -139,6 +139,15 @@ installing, replacing or disabling anything; unit and installer tests pass.
   reject failures/timeouts instead of claiming a secured suspend. Preview3
   installs swayidle as a dependency; real lid/resume locking acceptance is
   still outstanding.
+- [x] Detect resume without an extra daemon by comparing Linux BOOTTIME and
+  MONOTONIC; re-evaluate Waybar output-specific layouts once after output
+  settlement and preserve the old panel if reconfigure fails. Keep native
+  RicePlate's wl_output listener and nested preview unchanged.
+- [x] Extend essential idle-lock watcher failure handling to non-live and
+  live-RPC-unavailable session modes. Native fallback cannot start Waybar
+  after an unsafe idle-watcher failure; it exits the opt-in session instead.
+  Regression tests inject synthetic clock gaps and dead watchers.
+  **Actual suspend/lock/dock hardware sign-off remains open.**
 - [ ] Validate actual login-manager discovery, compositor boot, XWayland,
   portal screencast/file picker, polkit, input methods, clipboard, lock and
   multi-monitor behavior on physical Mint hardware.
