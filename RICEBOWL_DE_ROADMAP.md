@@ -1030,6 +1030,12 @@ depend on the XFCE session.
   fix `de check` to report whether the optional RicePlate binary is actually
   installed instead of calling the implemented shell planned. Neither check
   establishes clipboard/portal compatibility or physical GPU/session QA.
+- [x] Add **bidirectional native Wayland/XWayland text clipboard CI** using
+  compositor-owned `DISPLAY`/`WAYLAND_DISPLAY`, a live `wl-copy` owner,
+  `xclip`, and `wl-paste`. Test both transfer directions with isolated marker
+  data and bounded timeouts, without touching the user's login clipboard.
+  This is not sign-off for rich MIME, drag-and-drop, sandboxed Flatpaks,
+  portals, password managers or physical-device clipboard interaction.
 - [x] Publish two **honest schema-v5 Creator demonstrators** under
   `examples/wayland/`: a classic-OS-inspired workstation and a structurally
   distinct original Orbit concept. They use only shared native primitives,
