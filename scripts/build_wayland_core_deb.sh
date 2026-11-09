@@ -34,6 +34,8 @@ payload="$stage/usr/lib/ricebowl-wayland"
 install -D -m 0644 "$project_root/packaging/wayland/core-control" "$stage/DEBIAN/control"
 install -D -m 0755 "$project_root/packaging/wayland/ricebowl-wayland-app" \
     "$stage/usr/bin/ricebowl-wayland-app"
+install -D -m 0755 "$project_root/packaging/wayland/ricebowl-wayland-command" \
+    "$stage/usr/lib/ricebowl-wayland/bin/ricebowl"
 
 # Copy only tracked files. Never package local edits, caches, bytecode, a
 # checkout's .git, or unexpected symlinks. Python __file__ paths still point
