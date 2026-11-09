@@ -1,97 +1,101 @@
-# RiceBowl Wayland — progress, screenshots and release readiness
+<p align="center">
+  <img src="assets/ricebowl-symbolic.svg" alt="RiceBowl" width="68">
+</p>
 
-**Snapshot: 9 November 2026 · Experimental, opt-in labwc/RicePlate desktop · Not a stable 1.0 release**
+<h1 align="center">RiceBowl on Wayland</h1>
 
-RiceBowl is transitioning from an XFCE/X11 ricing suite to a lightweight, modular, floating **Wayland desktop built on upstream [labwc](https://labwc.github.io/)**. This is more than a Waybar theme: the experimental session has a native Rust shell, configurable menus and desktop surfaces, settings, notifications, and a visual recipe editor.
+<p align="center"><strong>A real desktop shell, built from reusable parts.</strong></p>
 
-**XFCE/X11 is still the supported default.** The Wayland session does not silently replace the login session, the existing panel, the user's global labwc configuration, or personal XFCE settings. Implemented code, successful headless CI and physical hardware acceptance are *different* levels of evidence.
+<p align="center">
+  An experimental <strong>labwc + native Rust RicePlate</strong> desktop, with RiceSpice settings, RicePop notifications and a visual Rice Creator.
+</p>
 
-[Try the preview](#try-it-safely) · [Screenshot evidence](#real-wayland-screenshots) · [Detailed feature matrix](DESKTOP_ENVIRONMENT_STATUS.md) · [Full development roadmap](RICEBOWL_DE_ROADMAP.md) · [Implementation guide](WAYLAND_SESSION.md)
+<p align="center">
+  <strong>PREVIEW · OPT-IN · NOT 1.0</strong><br>
+  <a href="#screenshots">Screenshots</a> · <a href="#what-works">Implementation status</a> · <a href="#try-it">Try it</a> · <a href="#whats-left-for-10">Release blockers</a>
+</p>
 
-## Architecture at a glance
+---
 
-| Layer | Responsibility | State |
+## Screenshots
+
+These are **actual native RicePlate frames captured inside labwc**, not design mockups or XFCE screenshots. The previews below are optimized WebP copies of real CI PNGs, checked into the repository so they **load directly and do not expire**. All images were captured with a *headless* compositor and simulated device state; they are **not** proof of a functioning physical desktop.
+
+| Orbit Studio · original composition | Heritage Modern · classic composition |
+| :---: | :---: |
+| [![Orbit Studio: dark abstract wallpaper, upper RicePlate panel, launcher shortcuts and status widgets](screenshots/wayland/orbit.webp)](screenshots/wayland/orbit.webp) | [![Heritage Modern: teal desktop, bottom panel and native widgets](screenshots/wayland/heritage.webp)](screenshots/wayland/heritage.webp) |
+| Upper panel, independent widget placement and custom design tokens | Lower taskbar, desktop shortcuts and an entirely different layout |
+
+| Native desktop workspace | Sidebar launcher menu |
+| :---: | :---: |
+| [![Real headless labwc workspace running native RicePlate with original desktop shortcuts](screenshots/wayland/workspace.webp)](screenshots/wayland/workspace.webp) | [![RicePlate native sidebar menu showing Programs and Session navigation](screenshots/wayland/menu.webp)](screenshots/wayland/menu.webp) |
+| Live compositor framebuffer, not a pre-rendered design | Actual Wayland menu surface; cropped for readability |
+
+[**Open the screenshot gallery →**](screenshots/wayland/README.md) · [**CI run and full-resolution originals →**](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42625109733)
+
+## What works
+
+The project has moved beyond a session wrapper. The core shell and system modules exist in source, and native/headless CI exercises important rendering and lifecycle paths. **Device-level usability and stable-release readiness remain separate acceptance gates.**
+
+| Area | Available in the experimental session | Not yet signed off |
 | --- | --- | --- |
-| **labwc** | Floating window placement, compositor and XWayland clients | Integrated into the optional login/nested session; upstream compositor, not a fork |
-| **RicePlate** | Native Rust layer-shell panels, task groups, launcher/menus, desktop shortcuts, tray, calendar, widgets | Implemented as an experimental shell; headless native CI, real-device input/focus QA outstanding |
-| **RiceSpice** | On-demand GTK settings for network, sound, Bluetooth, displays, input, accessibility, power and appearance | Functional guarded controls and explicit readback; hardware/permission and accessibility QA outstanding |
-| **RicePop** | Native notification inbox and volume/brightness OSD | Uses Mako as notification owner; real device/media-key/action and Orca QA outstanding |
-| **Rice Creator** | Offline recipe authoring, isolated native render, reference comparison and safe RicePack exports | **0.9 experimental**; human-guided regions/corrections, not automatic screenshot-to-desktop conversion |
-| **Waybar fallback** | Minimal usable panel if RicePlate cannot run | Deliberately retained for recovery, not visual or feature parity |
+| **Session & recovery** | Optional labwc login or nested preview; supervised processes, reversible rice selection and a Waybar fallback | Login/relogin, crashes, suspend and recovery on actual hardware |
+| **RicePlate** · Rust | Per-output taskbar and grouped windows, launcher, tab/sidebar menus, keyboard navigation, native tray/DBusMenu, calendar and desktop shortcuts | Real application focus, third-party tray menus, mixed-DPI, input and Orca |
+| **Desktop layout** | Reflowing shortcuts, widgets and shared action/status components; bounded appearance tokens and custom artwork | Full composition flexibility and reliable physical multi-monitor interaction |
+| **RiceSpice** · GTK | NetworkManager/WirePlumber/BlueZ controls; audio streams, VPN import, display trials with rollback, power, time and input/accessibility preferences | Hardware interoperability, monitor restoration and accessibility testing |
+| **RicePop** | Mako-backed notification inbox, explicit actions, volume/backlight OSD | Media keys, notifications, service restarts and screen-reader behavior on devices |
+| **Rice Creator 0.9** | Editable recipes, reusable parts, native isolated renders, reference-image selection and visual error comparisons; validated RicePack v4 exports | Automatic screenshot-to-rice generation, historical fidelity and final designer UX |
+| **Ecosystem** | Optional data-only RiceProfile integration with RiceField and Taskotto, guarded apply/revert | Frame-atomic changes across unrelated applications are **not** supported |
 
-The compositor retains ownership of ordinary application windows and their decorations. A rice can restyle and rearrange RiceBowl-owned components; it cannot guarantee a pixel-perfect Windows/macOS desktop or restyle arbitrary third-party app chrome.
+**Architecture:** labwc manages floating windows and compositing. RicePlate draws the shell and desktop surfaces. RiceSpice handles user-invoked system settings; RicePop presents notifications without replacing Mako as notification owner. Creator produces validated data, **not arbitrary executable desktop scripts**. Ordinary GTK/Qt application decorations remain owned by their toolkit/window manager.
 
-## Implementation status
+For the complete feature contracts and caveats, see the [engineering status matrix](DESKTOP_ENVIRONMENT_STATUS.md), [Wayland session guide](WAYLAND_SESSION.md) and [canonical development roadmap](RICEBOWL_DE_ROADMAP.md).
 
-| Area | Available today | Still outstanding before 1.0 |
-| --- | --- | --- |
-| **Session and recovery** | Separate opt-in Wayland login entry, nested session, startup supervision, private labwc configuration, cleaned-up exit, guarded live recipe selection, rollback and bounded Waybar rescue | Physical login/logout/relogin, suspend/lock, crash/display recovery, install/upgrade/uninstall checks |
-| **Native panel and app menu** | Per-output layer-shell panels, real window discovery/grouping, launcher, keyboard navigation, tab/sidebar menus, fixed allowlisted actions, calendar, search, responsive layouts | Third-party app/focus QA, full localization/icon system, long-run performance, final small-screen accessibility |
-| **Desktop / layout** | Movable shortcut icons, named-output positions, tested cross-output drops, hotplug reflow, schema-v8 read-only widgets and schema-v9 shared status/action components | Real mouse grab and mixed-DPI/multi-monitor validation, richer layout primitives, dependable output identity |
-| **Hardware state and quick actions** | NetworkManager/WirePlumber state, real bounded Wi-Fi/mute/volume actions with disabled/busy/error feedback; battery readout | Physical networking/audio edge cases and device-specific interoperability |
-| **RiceSpice** | Audio device/stream and MPRIS controls; Wi-Fi/NetworkManager profiles, selected VPN import, Bluetooth/power/date-time; guarded wlroots display mode/scale/position trials and manually recalled layouts; next-login input/accessibility preferences | Real hardware regressions, auto monitor layout restore, advanced EAP-TLS/vendor VPN editing, broad accessibility/Orca signoff |
-| **RicePop** | Mako-backed Active/Past lists, verified actions/dismissal, event-driven sink OSD and supported brightness keys/backlight OSD | Actual Mako/keyboard/notification-owner/restart behavior on devices; broader scripts and screen-reader UX |
-| **Creator / formats** | Schema-v1–v11 validated recipes; reusable components, editable nested layout, private PNG/icon/font assets, isolated real RicePlate renders, source-region selection and repeatable visual comparison; guarded RicePack v4 export and compatibility checks | Semantic screenshot-to-rice generation, layout fidelity across disparate designs, human baseline review, real-screen acceptance |
-| **App ecosystem** | Optional data-only RiceProfile v1 integration with compatible RiceField and Taskotto, validation and best-effort revert | Guaranteed synchronized multi-process frame update is **not** claimed |
+## Try it
 
-**Terminology matters:** A working *native component* is not automatically a working desktop-wide feature. Native status text does not mean every control is interactive. The fallback Waybar panel deliberately shows unsupported interactive state as unavailable instead of pretending to control hardware.
-
-## Real Wayland screenshots
-
-There are **real compositor framebuffer captures**, not just mockups. They were produced in an isolated headless **labwc + native RicePlate** run and archived by GitHub Actions.
-
-**Evidence:** [Successful Native RicePlate CI run #42625109733](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42625109733) on source commit [`8001a0a`](https://github.com/CopyPasteUser/Ricebowl/commit/8001a0a24db469358f420cc82a8ccaf4522b26c6) (9 November 2026). Open that run's **Artifacts → `riceplate-native-preview-8001a0a...`**, then browse the PNGs below.
-
-| Capture inside the CI artifact | What it shows | What it does **not** prove |
-| --- | --- | --- |
-| `isolated-v5.png` | Real isolated 1024×768 native shell, classic-style panel/shortcuts and wallpaper | Full installed-login integration or actual desktop usage |
-| `creator-examples/orbit-studio-v10-1366x768-scale-1-0.png` | Original orbit-themed composition with top panel, live-data slots and visual tokens | Final artistic polish or working Wi-Fi in CI |
-| `creator-examples/heritage-modern-v10-1366x768-scale-1-0.png` | Structurally distinct classic layout, bottom panel and read-only desktop widgets | Pixel-perfect historical fidelity |
-| `menu-sidebar-v6.png` | Native sidebar menu rendered as a real Wayland layer surface | Physical mouse/keyboard focus and third-party app compatibility |
-| `calendar-v5.png` / `components-v9.png` | Calendar and shared status/widget surfaces | Complete localization or live hardware values |
-| `desktop-v5-1024x768.png`, `desktop-v5-1920x1080.png`, `desktop-v5-scale-125.png` | Actual native geometry captures at multiple sizes/scales | Mixed-DPI monitor/device acceptance |
-| `multioutput/*` | Separate panel/menu/calendar/shortcut captures before and after simulated output changes | Real dock, GPU, monitor hotplug or sleep behavior |
-
-The artifact includes `capture-manifest.json` and `creator-examples/manifest.json` with source revision, environment, capture dimensions and SHA-256 hashes. The screenshot bytes and these manifests were checked for consistency when preparing this page. They are **CI screenshots with synthetic/headless device state**; labels such as `N/A` are expected and should not be misrepresented as a functional network connection.
-
-**Retention warning:** GitHub Actions artifacts are temporary (this run's archive expires on **23 November 2026**). This document links to the reproducible workflow and source rather than embedding images that would silently disappear. The canonical XFCE/X11 [screenshot gallery](screenshots/current/README.md) is **not** a Wayland gallery. To create fresh Wayland evidence after expiry, rerun [the native workflow](.github/workflows/riceplate-native.yml) on the intended revision, or follow the [capture commands](WAYLAND_SESSION.md) in an isolated preview. Do not substitute stylized concept art for a screenshot.
-
-### Reproduce the headless capture tests
-
-The [native CI job](.github/workflows/riceplate-native.yml) builds RicePlate, runs its Rust tests, starts labwc on a headless wlroots backend with pixman, renders actual screenshots using `grim` and validates pixel/geometry/capture receipts. The [Creator demonstrator test](scripts/verify_wayland_creator_examples.py) exercises distinct recipes at 1024×768, 1366×768, 1920×1080 and scale 1.25.
-
-Download the workflow artifact from GitHub to inspect the exact PNGs; it is not a proof of a physical monitor, XWayland app, or screen-reader session.
-
-## Try it safely
-
-The normal RiceBowl install stays on XFCE/X11. Before entering a separate preview, use:
+Keep XFCE/X11 installed and selectable. Installing ordinary RiceBowl does **not** activate the Wayland session. In an existing compatible Linux desktop, with the [documented dependencies](WAYLAND_SESSION.md#prerequisites) installed:
 
 ```bash
 ricebowl de check --json
 ricebowl de catalog --json
-# Explicit nested compositor: check prerequisites and keep XFCE available.
 ricebowl de start --nested --panel native
 ```
 
-For a native preview with supported quick controls, first review/import the bundled recipe and then start the nested session:
+To inspect native controls using the bundled example (importing the recipe does not activate it):
 
 ```bash
 ricebowl de recipe-import --recipe "$PWD/examples/wayland/quick-controls.json"
 ricebowl de start --nested --panel native --recipe quick-controls
 ```
 
-For an independent login session, follow [the package review and opt-in instructions](WAYLAND_SESSION.md#build-and-opt-in-debianubuntumint). That package only adds a *selectable* session entry; it does not make Wayland the default.
+For the optional separate **RiceBowl (Wayland Preview)** login entry, follow the [reviewable .deb installation steps](WAYLAND_SESSION.md#build-and-opt-in-debianubuntumint). Never replace the only working session while testing. **Real network, audio, clock and display controls can change system state even when opened from a preview.**
 
-**Safety:** Wi-Fi, sound, date/time and display settings are real system operations even when the settings UI is opened as a preview. Avoid disrupting your only network connection or a remote session. Display trials have a bounded rollback, but hardware validation is still required. Keep an independently working XFCE login available.
+## What's left for 1.0
 
-## Remaining release gates, in order
+1. **Real desktop:** verified login/logout, XWayland, portals, Flatpak integration, clipboard, polkit, lock and suspend/resume.
+2. **Input and displays:** real multi-monitor and mixed-DPI behavior, hotplug, pointer drag, native tray/focus and Orca/AT-SPI.
+3. **Device controls:** failures and restarts across Wi-Fi, audio, Bluetooth, display, notifications, media keys and backlight.
+4. **Creator and switching:** visual/functional QA of two genuinely distinct rices; safe install, restore and supported RiceField/Taskotto integration.
+5. **Release evidence:** current-SHA automated CI, verified installers and rollback, cold start/settled CPU and memory measurements, owner hardware sign-off.
 
-1. **Physical session:** login/logout, repeated sessions, compositor recovery, XWayland and portals, clipboard, polkit, lock/suspend and clean return to XFCE.
-2. **Real input and displays:** one/two monitors, mixed DPI, hotplug, menus/tray/DBusMenu focus, pointer cross-output drag, keyboard navigation and Orca/AT-SPI.
-3. **System controls:** network/audio/Bluetooth/display actions, failure states, backlight/media keys and notification actions across missing/restarting services.
-4. **Creator and ecosystem:** verify two genuinely different designs, local reference comparison, import/export, explicit live apply/revert and real RiceField/Taskotto integration.
-5. **Release quality:** current-HEAD CI, installer and rollback checks, performance baselines for cold start/settled PSS/CPU, sustained memory behavior, owner hardware signoff and reviewed release metadata.
+There is **no honest percentage-complete number** yet. Tested source paths and screenshots do not substitute for physical acceptance. [Release-gate checklist](RELEASE_1_0_GATES.md) · [Full roadmap](RICEBOWL_DE_ROADMAP.md).
 
-**No percentage-complete claim:** Passing component tests cannot be converted honestly into a percentage of complete desktop functionality. Track explicit gates rather than guessing a release date.
+<details>
+<summary><strong>Screenshot provenance & reproducibility</strong></summary>
 
-[Feature-by-feature matrix](DESKTOP_ENVIRONMENT_STATUS.md) · [Detailed Wayland/Creator guide](WAYLAND_SESSION.md) · [Roadmap and evidence](RICEBOWL_DE_ROADMAP.md) · [1.0 release gates](RELEASE_1_0_GATES.md) · [Example rice recipes](examples/wayland/README.md)
+All four images are downscaled WebP previews of the real PNG outputs of [Native RicePlate prototype CI #42625109733](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42625109733), source commit [`8001a0a`](https://github.com/CopyPasteUser/Ricebowl/commit/8001a0a24db469358f420cc82a8ccaf4522b26c6), 9 November 2026. The CI compositor was labwc with a headless wlroots backend and pixman renderer; framebuffers were captured using `grim`.
+
+| Committed image | Source PNG inside the original CI artifact |
+| --- | --- |
+| `screenshots/wayland/orbit.webp` | `creator-examples/orbit-studio-v10-1366x768-scale-1-0.png` |
+| `screenshots/wayland/heritage.webp` | `creator-examples/heritage-modern-v10-1366x768-scale-1-0.png` |
+| `screenshots/wayland/workspace.webp` | `isolated-v5.png` |
+| `screenshots/wayland/menu.webp` | `menu-sidebar-v6.png` (cropped) |
+
+The source CI artifact contains `capture-manifest.json` and `creator-examples/manifest.json` with source revision and source-image hashes. Those original artifacts expire after their GitHub Actions retention period; **the four committed previews do not**. Reproduce captures using [.github/workflows/riceplate-native.yml](.github/workflows/riceplate-native.yml) and [the recipe examples](examples/wayland/README.md).
+
+</details>
+
+---
+
+[**RiceBowl README**](README.md) · [**All Wayland docs**](WAYLAND_SESSION.md) · [**Release status**](DESKTOP_ENVIRONMENT_STATUS.md) · [**Screenshots**](screenshots/wayland/README.md)

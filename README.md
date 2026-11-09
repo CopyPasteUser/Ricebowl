@@ -24,20 +24,17 @@ A modular Linux desktop project with seven OS-inspired styles, an experimental W
 
 XFCE/X11 remains the default. The Wayland session and Creator are **previews**, not a finished replacement desktop or automatic screenshot-to-desktop converter. Hardware, accessibility and multi-monitor acceptance are still in progress.
 
-## Wayland desktop — progress
+## Wayland desktop · experimental preview
 
-**Experimental / opt-in · November 2026.** RiceBowl's Wayland path is a modular **labwc + native Rust RicePlate** desktop, not merely a re-skinned Waybar.
+[![Orbit Studio: real native RicePlate desktop in an isolated labwc Wayland session](screenshots/wayland/orbit.webp)](WAYLAND_PROGRESS.md)
 
-| Implemented in the preview | Not yet accepted for stable 1.0 |
-| --- | --- |
-| RicePlate: taskbar, app menus, desktop shortcuts, calendar, widgets and experimental system tray | Physical app/focus, tray, mixed-DPI and accessibility QA |
-| RiceSpice: network/audio/Bluetooth, guarded display controls, input and accessibility settings | Real-device behavior, suspend/lock and monitor recovery |
-| RicePop: Mako-backed notification inbox and audio/brightness OSD | Actual media keys, screen reader and failure/restart QA |
-| Rice Creator 0.9: editable recipes, isolated native renders, reference-image regions and RicePack v4 export | Automatic screenshot-to-rice conversion, visual fidelity and hardware acceptance |
+*Orbit Studio — actual headless labwc/RicePlate capture, not a concept render.*
 
-**Real Wayland screenshots exist:** the [successful native labwc/RicePlate CI run](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42625109733) contains PNGs of panels, menus, widgets, different layouts and Creator examples. These are **headless compositor screenshots**, not hardware screenshots; GitHub Actions artifacts expire. The existing [XFCE gallery](screenshots/current/README.md) must not be mistaken for Wayland.
+RiceBowl's next desktop is built around **labwc + native Rust RicePlate**. It already includes a configurable taskbar, launcher, desktop shortcuts, widgets and live rice switching, plus RiceSpice settings, RicePop notifications and **Rice Creator 0.9**.
 
-**[Full Wayland progress, screenshot index and reproduction steps →](WAYLAND_PROGRESS.md)**
+The preview is **opt-in, not stable 1.0**: real-device login, multi-monitor/HiDPI, focus, accessibility, hardware controls and performance sign-off remain open. XFCE/X11 stays the supported default.
+
+**[See four real Wayland screenshots and detailed progress →](WAYLAND_PROGRESS.md)** · [Screenshot gallery](screenshots/wayland/README.md)
 
 ## Try it
 
