@@ -1076,8 +1076,18 @@ has terminated its labwc/RicePlate children; no background compositor or
 cache of private screen pixels remains. Missing `labwc`, `grim`, `wlr-randr`,
 `swaybg` or the native `riceplate-native` binary yields an explicit unavailable
 state instead of an illustrated preview. The preview is a static snapshot, not
-an interactive nested session. Hardware/input QA and UI-side reviewed live
-apply/rollback remain later milestones. Existing CLI commands continue to
+an interactive nested session. The GTK Creator now also exposes a separate
+**Install / switch…** menu. After **Save version**, choose **Install saved
+version…** to install that exact reviewed SHA-256 into the owner-private
+Wayland recipe collection; the desktop does not change. From within an opt-in
+RiceBowl Wayland session, **Apply in Wayland…** and **Restore previous rice…**
+check the live supervisor and require a second explicit confirmation. The
+supervisor owns CAS-protected switching and compensated rollback, not the GTK
+process. Conflicting installed IDs are never overwritten: choose **Fork as new
+rice ID** to copy a revised saved layout under a new identity, then install
+it explicitly. This is experimental;
+hardware/input QA and stable-release acceptance are still required. Existing
+CLI commands continue to
 offer explicit reviewed apply and restore; the Creator 0.4 GUI **never** calls
 them. No AI runtime, internet account or arbitrary plugin code is required;
 the optional visual editor uses the documented GTK/PyGObject and Cairo packages.

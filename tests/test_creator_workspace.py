@@ -1,6 +1,7 @@
 """Creator desktop authoring must remain offline, private and non-destructive."""
 
 import os
+from dataclasses import replace
 from pathlib import Path
 import tempfile
 import unittest
@@ -62,6 +63,21 @@ class CreatorWorkspaceTests(unittest.TestCase):
             workspace.save_revision(revised.path, {"/panel/height": 55},
                                     expected_sha256=original.semantic_sha256)
         self.assertEqual(len(workspace.list_drafts()), 2)
+
+    def test_fork_saved_version_preserves_layout_but_uses_new_rice_id(self):
+        original = workspace.create_draft("orbit")
+        revised, _ = workspace.save_revision(original.path, {"/panel/height": 49},
+                                              expected_sha256=original.semantic_sha256)
+        source = revised.path.read_bytes()
+        fork = workspace.fork_version(revised)
+        self.assertNotEqual(fork.recipe_id, revised.recipe_id)
+        self.assertEqual(recipes.load(str(fork.path)).height, 49)
+        self.assertEqual(recipes.load(str(fork.path)).layout,
+                         recipes.load(str(revised.path)).layout)
+        self.assertEqual(revised.path.read_bytes(), source)
+        self.assertEqual(fork.path.stat().st_mode & 0o777, 0o600)
+        with self.assertRaisesRegex(workspace.WorkspaceError, "Reopen"):
+            workspace.fork_version(replace(original, semantic_sha256="0" * 64))
 
     def test_invalid_or_oversized_changes_publish_nothing(self):
         info = workspace.create_draft("heritage")

@@ -735,10 +735,18 @@ def _private_recipe_dir(*, create: bool) -> Path:
     return directory
 
 
-def import_recipe(source: Path) -> tuple[PanelRecipe, Path]:
+def import_recipe(source: Path, *, expected_semantic_sha256: str | None = None
+                  ) -> tuple[PanelRecipe, Path]:
     """Import validated offline JSON into the user collection, without applying it."""
     payload = _read_import_source(source)
     recipe = parse(payload)
+    if expected_semantic_sha256 is not None:
+        # Check the exact bytes read for installation, not an earlier review of
+        # the source path: the Creator draft may have changed in between.
+        from . import review
+        actual = review._semantic_hash(review._manifest(recipe))
+        if actual != expected_semantic_sha256:
+            raise RecipeFingerprintMismatch("Recipe changed since Creator review")
     if recipe.recipe_id in BUILTINS:
         raise RecipeError("Cannot import a recipe with a reserved built-in ID")
     destination = _private_recipe_dir(create=True) / f"{recipe.recipe_id}.json"

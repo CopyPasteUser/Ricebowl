@@ -22,7 +22,7 @@ secondary pages; prototypes and the release roadmap do not crowd the selector.
 - The macOS selection currently previews its wallpaper rather than a full
   desktop capture; the hub labels that distinction explicitly.
 
-## Rice Creator workspace (GTK3, experimental 0.8)
+## Rice Creator workspace (GTK3, experimental 0.9)
 
 The Creator is a compact desktop authoring instrument, not a themed desktop
 simulation. Its one memorable surface is the **central real-shell capture**:
@@ -43,8 +43,16 @@ The left rail contains four real starting templates and saved draft versions; th
 right scrollable inspector groups actual schema-v11 properties and structurally
 editable panel lanes. Actions form a clear reversible sequence: create → edit
 → save a new private version → render → optionally export. The latest and
-previous versions remain distinct; the GUI does not expose active apply until
-hardware acceptance and safe confirmation UX are separately reviewed.
+previous versions remain distinct. A separate **Install / switch…** popover
+offers the guarded path from an immutable saved version to an installed recipe,
+plus a one-click non-destructive fork under a new rice ID when a prior version
+is installed,
+then an explicitly confirmed live apply/restore only in an opt-in RiceBowl
+Wayland session. Save and preview never activate a rice. The status view and
+confirmation name the reviewed recipe SHA, current selection, persistence and
+restoration; each live operation uses the existing supervisor's compare-and-swap
+and compensated rollback. These experimental controls still require physical
+hardware acceptance before any stable-release claim.
 
 The Wallpaper library is a native GTK expander in the same scrollable inspector:
 one image selector with included/private labels, a genuine thumbnail and
