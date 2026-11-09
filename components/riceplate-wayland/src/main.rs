@@ -3198,6 +3198,11 @@ fn paint_compact_notifications(canvas: &mut [u8], style: &PanelStyle,
         draw_text(canvas, width, height, width * 2 / 3 + 4, footer + 9,
                   "Del", style.foreground);
     }
+    if state.loading || state.error.is_some() {
+        draw_text(canvas, width, height, 8, 76,
+                  state.error.unwrap_or("Loading alerts..."), style.foreground);
+        return;
+    }
     if state.detail_id.is_none() {
         fill_rounded_rect(canvas, width, height,
                           if state.show_history { width / 2 } else { 0 },
@@ -3206,10 +3211,7 @@ fn paint_compact_notifications(canvas: &mut [u8], style: &PanelStyle,
                   &format!("Active {}", state.notices.len()), style.foreground);
         draw_text(canvas, width, height, width / 2 + 8, 43,
                   &format!("Past {}", state.history.len()), style.foreground);
-        if state.loading || state.error.is_some() {
-            draw_text(canvas, width, height, 8, 76,
-                      state.error.unwrap_or("Loading alerts..."), style.foreground);
-        } else if state.visible_notices().is_empty() {
+        if state.visible_notices().is_empty() {
             draw_text(canvas, width, height, 8, 76,
                       if state.show_history { "No past alerts" } else { "No active alerts" },
                       style.foreground);
@@ -5308,6 +5310,17 @@ mod tests {
         assert_ne!(list, detail);
         assert_eq!(&detail[..4], &style.active.to_le_bytes());
         assert!(detail.chunks_exact(4).any(|p| p == style.foreground.to_le_bytes()));
+
+        // Reloading a detail must never leak stale cached message text into
+        // the compact popup. The original full-size painter masks it.
+        state.begin();
+        let mut reloading_detail = vec![0_u8; len];
+        paint_compact_notifications(&mut reloading_detail, &style, &state, size);
+        let mut fresh = NotificationState::default();
+        fresh.begin();
+        let mut fresh_loading = vec![0_u8; len];
+        paint_compact_notifications(&mut fresh_loading, &style, &fresh, size);
+        assert_eq!(reloading_detail, fresh_loading);
     }
 
     #[test]
