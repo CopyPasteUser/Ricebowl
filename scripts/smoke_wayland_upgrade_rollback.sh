@@ -72,7 +72,7 @@ new_core=/after/ricebowl-wayland-core_0.1.0~preview2_all.deb
 new_meta=/after/ricebowl-wayland-desktop_0.1.0~preview2_amd64.deb
 session=/after/ricebowl-wayland-session_0.1.0~preview3_all.deb
 native=/after/ricebowl-riceplate-native_0.1.0~preview1_amd64.deb
-version() { dpkg-query -W -f='\${Version}' "$1"; }
+version() { dpkg-query -W -f='${Version}' "$1"; }
 check_version() { test "$(version "$1")" = "$2"; }
 check_user_state() {
     sha256sum -c --status /tmp/ricebowl-user-before.sha256
