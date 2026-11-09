@@ -92,21 +92,22 @@ def describe_render() -> dict[str, object]:
 
 
 def describe_ricepack() -> dict[str, object]:
-    """Portable v2/v3 archives, optionally with one content-addressed PNG."""
+    """Portable v2/v3/v4 archives with verified private visual assets."""
     return {
-        "pack_version": 3,
-        "accepts_older_versions": [1, 2],
+        "pack_version": 4,
+        "accepts_older_versions": [1, 2, 3],
         "format": "org.ricebowl.ricepack",
         "extension": ".ricepack",
-        "entries": ["ricepack.json", "recipe.json", "assets/wallpaper.png (v3 only)"],
-        "maximum_archive_bytes": 3 * 1024 * 1024,
-        "recipe_schema_versions": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-        "asset_support": "bundled wallpaper receipts or one embedded SHA256-addressed PNG (v3)",
-        "asset_manifest": {"since_version": 2, "version": 1,
+        "entries": ["ricepack.json", "recipe.json", "assets/wallpaper.png (v3/v4)",
+                    "assets/font.ttf (v4)", "assets/icons/{action}.png (v4)"],
+        "maximum_archive_bytes": 6 * 1024 * 1024,
+        "recipe_schema_versions": list(range(1, 12)),
+        "asset_support": "content-addressed wallpaper, up to one TrueType font and three 48px RGBA icons",
+        "asset_manifest": {"since_version": 2, "version": 2,
                            "fields": ["id", "sha256", "provenance"],
                            "declared_provenance": ["author", "license", "origin", "source_reference"],
                            "installed_wallpaper_must_match_digest": True},
-        "third_party_assets": "one-owner-controlled-PNG-wallpaper-only",
+        "third_party_assets": "owner-controlled-PNG-wallpaper-and-verified-private-v4-font-and-icons",
         "arbitrary_code_or_scripts": False,
         "deterministic_export": True,
         "provenance": {
@@ -198,9 +199,9 @@ def describe_creator_api() -> dict[str, object]:
         "discovery": "ricebowl de creator-api --json",
         "feature_negotiation": {
             "mode": "read-only-discovery-before-use",
-            "recipe_schema_versions": list(range(1, 11)),
-            "recommended_authoring_schema": 10,
-            "catalog_version": 11,
+            "recipe_schema_versions": list(range(1, 12)),
+            "recommended_authoring_schema": 11,
+            "catalog_version": 12,
             "features": [
                 {"id": "shared-status-action-bindings", "supported": True,
                  "since_schema": 9, "runtime": "native; Waybar actions disabled when unverifiable"},
@@ -208,6 +209,8 @@ def describe_creator_api() -> dict[str, object]:
                  "since_schema": 9, "runtime": "native-only-read-only"},
                 {"id": "cross-surface-design-tokens", "supported": True,
                  "since_schema": 10, "runtime": "native; Waybar appearance and per-output layout"},
+                {"id": "private-native-font-and-icon-assets", "supported": True,
+                 "since_schema": 11, "runtime": "native-only; owner-private TTF and 48px RGBA icons"},
                 {"id": "private-drafts-and-packaging", "supported": True,
                  "runtime": "offline-CLI"},
                 {"id": "isolated-native-multisize-preview", "supported": True,
@@ -243,7 +246,7 @@ def describe_creator_api() -> dict[str, object]:
         "next_login_selection_mutation": "creator-stage/rollback only; requires explicit invocation",
         "commands": [
             {"command": "catalog", "effect": "read-only component discovery",
-             "cli": "de catalog --json", "contract_version": 11},
+             "cli": "de catalog --json", "contract_version": 12},
             {"command": "review", "effect": "validate recipe and compare semantic diffs",
              "cli": "de review --recipe ID [--compare ID] --json", "contract_version": 1},
             {"command": "draft-edit", "effect": "create private reviewed JSON draft",
@@ -275,11 +278,11 @@ def describe_creator_api() -> dict[str, object]:
              "contract_version": 1, "mutates_active_session": True},
             {"command": "pack-export", "effect": "create portable validated recipe archive",
              "cli": "de pack-export --recipe ID --output NEW.ricepack --json",
-             "contract_version": 3},
+             "contract_version": 4},
             {"command": "pack-inspect", "effect": "verify archive, schema and fingerprints",
-             "cli": "de pack-inspect --package FILE.ricepack --json", "contract_version": 3},
+             "cli": "de pack-inspect --package FILE.ricepack --json", "contract_version": 4},
             {"command": "pack-import", "effect": "install private recipe without selecting it",
-             "cli": "de pack-import --package FILE.ricepack --json", "contract_version": 3},
+             "cli": "de pack-import --package FILE.ricepack --json", "contract_version": 4},
             {"command": "asset-import", "effect": "store a reviewed PNG as a private SHA256 asset; no apply",
              "cli": "de asset-import --asset /absolute/image.png --json", "contract_version": 1},
             {"command": "creator-status", "effect": "read next Wayland login choice and fingerprint",
@@ -302,8 +305,8 @@ def describe_creator_api() -> dict[str, object]:
         "staging": describe_staging(),
         "live": describe_live(),
         "limitations": [
-            "Not a screenshot-to-rice converter or editable GUI",
-            "Schema-v1..v10 shell preview; v9 shares component bindings, v10 adds bounded appearance tokens; v6+ supports one bounded PNG wallpaper",
+            "Not an automatic screenshot-to-rice converter",
+            "Schema-v1..v11 shell preview; v11 adds private native TTF and 48px RGBA icons; v6+ supports bounded wallpaper PNG",
             "Live apply is explicit and supervised; Wayland session remains experimental",
             "Native tray, complete settings, notification center and physical multi-monitor acceptance remain open",
         ],
@@ -335,6 +338,8 @@ EDITABLE_PATHS = frozenset((
     "/desktop/icons",
     "/composition/widgets", "/composition/window_region", "/composition/compact_hide_widgets",
     "/components",
+    "/artwork/font", "/artwork/icons",
+    "/artwork/icons/applications", "/artwork/icons/terminal", "/artwork/icons/lock",
     *(f"/appearance/{name}" for name in
       ("font_scale", "font_weight", "item_spacing", "hover", "focus", "disabled")),
     "/tokens/label_padding", "/tokens/task_radius",

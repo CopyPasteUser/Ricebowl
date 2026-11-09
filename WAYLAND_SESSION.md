@@ -924,12 +924,16 @@ must remain disabled or request a new shared primitive.
 
 #### Rice Creator 0.4 — component and nested panel editor
 
+Creator 0.5 preserves the component and panel workflow below; new drafts are
+schema v11, and legacy saved v10 drafts can be upgraded as an **additional
+immutable version**. See the [0.5 visual asset contract](#rice-creator-05--private-font-and-icon-assets).
+
 Launch `ricebowl creator` (or `macrice creator` from a checkout); the regular
 user-local installer also adds a **Rice Creator (experimental)** application
 entry. This is an on-demand GTK3 desktop application, **not** part of Wayland
 login, RicePlate's resident process or the XFCE rice selector.
 
-The first graphical authoring slice consumes the actual schema-v10 Runtime
+The graphical authoring workspace consumes the actual schema-v11 Runtime
 contract: create from the Heritage Modern, Orbit Studio, Classic or Chrome
 template; edit the panel edge/height, two menu presentations, bundled wallpaper,
 responsive cutoff, font/spacing/state colors and reorder, remove or add supported
@@ -998,8 +1002,8 @@ persist it, or reopen the previous version to undo. The GUI ignores wheel
 events over the wallpaper selector so scrolling the inspector cannot change
 the selection accidentally. Exports include the PNG and its attribution in
 the existing deterministic **RicePack v3**, with no active-session apply.
-Other arbitrary icon/font assets and reference-image conversion are not
-supported by the current schema/pack and require separate runtime work.
+Schema-v11 font/icon artwork is documented separately below; arbitrary
+reference-image conversion remains unsupported.
 
 Saved drafts are owner-only files in the XDG state directory under
 `ricebowl/creator/drafts/` (default `~/.local/state/ricebowl/creator/drafts/`).
@@ -1023,16 +1027,50 @@ offer explicit reviewed apply and restore; the Creator 0.4 GUI **never** calls
 them. No AI runtime, internet account or arbitrary plugin code is required;
 the optional visual editor uses the documented GTK/PyGObject and Cairo packages.
 
+#### Rice Creator 0.5 — private font and icon assets
+
+Creator 0.5 adds a **Visual asset library** in the inspector. Import original
+or appropriately licensed `.ttf` faces (TrueType outlines, maximum **1 MiB**)
+and **48×48 8-bit RGBA** `.png` desktop shortcut graphics (maximum **128 KiB**).
+The file picker never installs a system font, changes XFCE icon themes or
+reads an arbitrary recipe-supplied path. Each import verifies file ownership,
+permissions, format and size, then writes immutable owner-private bytes
+addressed by SHA-256 and a separate immutable declared-attribution record.
+Name, author, license, origin and source reference are visible in the Creator;
+these declarations are **not** an independent verification of legal rights.
+
+One schema-v11 `artwork.font` selects the native text font; each action key
+(`applications`, `terminal`, `lock`) under `artwork.icons` selects an optional
+custom desktop shortcut image. `builtin` is always available. Existing recipe
+versions v1–v10 are still accepted, and existing saved drafts can be upgraded
+to a **new private v11 revision** without overwriting the old file. The current
+native Rust RicePlate renderer validates the private assets by permission,
+type, size and SHA-256 before creating Wayland surfaces, caches glyph masks at
+startup and draws the PNGs in the existing focusable shortcut rectangles.
+It does not promise full Unicode shaping, custom system-wide icon themes or
+font support in the Waybar fallback; that fallback retains standard fonts.
+
+**RicePack v4** is selected when the exported recipe actually references a
+private font or shortcut icon. The deterministic, uncompressed archive carries
+only referenced `assets/font.ttf` and/or `assets/icons/{action}.png` files,
+their original SHA-256 identities and declared attribution; a private PNG
+wallpaper can coexist in `assets/wallpaper.png`. Archive names, file types,
+size, contents, recipe semantic fingerprint, owner and mode are checked before
+installing assets or the recipe. Import never activates the rice. Legacy
+bundled-only exports remain v2 and wallpaper-only exports remain v3 for byte
+compatibility. Visual appearance needs actual multi-DPI Wayland hardware QA.
+
 The **Wayland RicePack v2** is a reproducible, local `.ricepack` ZIP with exactly
 `ricepack.json` (format version, recipe identity, SHA-256 checksums and declared
-provenance) and `recipe.json` (canonical schema-v1–v10 recipe). There is no
+provenance) and `recipe.json` (canonical schema-v1–v11 recipe). There is no
 unpacking arbitrary archive paths or executing commands. Existing *bundled*
 wallpapers are referenced by known IDs only. V2 records their exact SHA-256.
 **V3** additionally carries one locally imported PNG wallpaper as the exact
 third entry `assets/wallpaper.png` for a schema-v6 recipe. Its SHA-256-derived
 `asset-…` ID is verified on import and runtime resolution, and the image is
-stored separately as a private `0600` file. Other artwork, fonts, icons,
-commands and scripts are not supported. Older v1/v2 packs remain readable;
+stored separately as a private `0600` file. **V4** additionally supports the
+limited schema-v11 font and desktop icon assets described below. Commands and
+scripts remain forbidden. Older v1/v2/v3 packs remain readable;
 exports with only bundled artwork retain deterministic v2 bytes.
 
 To create a portable rice with an **original or properly licensed PNG**:

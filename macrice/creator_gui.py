@@ -15,7 +15,7 @@ import threading
 from pathlib import Path
 
 from .de import creator_layout as layout_engine, creator_workspace as workspace
-from .de import assets, creator_assets, creator_structure, drafts, recipes, render, review
+from .de import assets, creator_assets, creator_structure, drafts, recipes, render, review, style_assets
 
 
 # All paths below are existing allowlisted Creator draft-edit fields. Gtk owns
@@ -386,7 +386,7 @@ def run() -> int:
                 info = workspace.create_draft(template)
                 self._load(info, reset_history=True)
                 self._refresh_drafts()
-                self._status("Private schema-v10 draft created. Edit, save a version, then render.",
+                self._status("Private schema-v11 draft created. Edit, save a version, then render.",
                              success=True)
             except (workspace.WorkspaceError, recipes.RecipeError, OSError) as exc:
                 self._status(f"Could not create draft: {exc}", error=True)
@@ -402,8 +402,8 @@ def run() -> int:
 
         def _load(self, info: workspace.DraftInfo, *, reset_history=False):
             report = review.review(str(info.path))
-            if report["recipe"]["schema_version"] != 10:
-                raise workspace.WorkspaceError("Creator 0.4 currently edits schema-v10 recipes only")
+            if report["recipe"]["schema_version"] not in (10, 11):
+                raise workspace.WorkspaceError("Creator edits validated schema-v10/v11 recipes only")
             self._render_generation += 1
             self.info, self.baseline, self.pending = info, report["recipe"], {}
             self.working = copy.deepcopy(self.baseline)
@@ -415,8 +415,8 @@ def run() -> int:
             self._preview_fit = None
             self.preview_image.set_from_icon_name("video-display", Gtk.IconSize.DIALOG)
             self.preview_caption.set_text("Preview not rendered for this saved version.")
-            self.diff.set_text(f"Recipe: {info.recipe_id} · Schema v10 · SHA {info.semantic_sha256[:12]}")
-            self.inspector_context.set_text(f"Editing {info.name} · schema v10 · offline draft")
+            self.diff.set_text(f"Recipe: {info.recipe_id} · Schema v{report['recipe']['schema_version']} · SHA {info.semantic_sha256[:12]}")
+            self.inspector_context.set_text(f"Editing {info.name} · schema v{report['recipe']['schema_version']} · offline draft")
             self._build_inspector()
             self._queue_canvas()
             self._actions()
@@ -429,6 +429,7 @@ def run() -> int:
             self._build_layer_inspector()
             self._build_wallpaper_inspector()
             self._build_component_inspector()
+            self._build_style_inspector()
             for title, fields in FIELDS:
                 expander = Gtk.Expander(label=title)
                 expander.set_expanded(title in ("Rice identity", "Shell", "Surface colors"))
@@ -725,6 +726,200 @@ def run() -> int:
                 actions.pack_start(button, True, True, 0)
             body.pack_start(actions, False, False, 0)
             self._refresh_component_library()
+
+        def _build_style_inspector(self):
+            expander = Gtk.Expander(label="Visual asset library · fonts and icon artwork")
+            expander.set_expanded(True)
+            self.inspector.pack_start(expander, False, False, 0)
+            body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            body.set_margin_top(10)
+            body.set_margin_bottom(12)
+            expander.add(body)
+            if self.working["schema_version"] == 10:
+                body.pack_start(self._text(
+                    "This saved draft uses schema v10. Upgrade to v11 in a new private "
+                    "version before importing icon or font artwork.",
+                    "creator-layer-hint", wrap=True), False, False, 0)
+                body.pack_start(self._button("Upgrade saved draft to v11", self._upgrade_artwork),
+                                False, False, 0)
+                return
+            body.pack_start(self._text(
+                "Icons are original/licensed 48×48 RGBA PNGs. Fonts are TrueType "
+                "(.ttf, up to 1 MiB). Neither changes installed system themes. "
+                "Save a version before rendering or exporting.",
+                "creator-layer-hint", wrap=True), False, False, 0)
+            self.style_choices = {}
+            for key, label in (("font", "Text font"),
+                               ("applications", "Applications icon"),
+                               ("terminal", "Terminal icon"),
+                               ("lock", "Lock icon")):
+                field = Gtk.Box(spacing=6)
+                choice = Gtk.ComboBoxText()
+                choice.set_hexpand(True)
+                choice.connect("scroll-event", lambda *_: True)
+                choice.connect("changed", lambda widget, field_key=key:
+                               self._style_selected(field_key, widget))
+                self.style_choices[key] = choice
+                field.pack_start(choice, True, True, 0)
+                button = self._button("Import…", lambda _b, field_key=key:
+                                      self._import_style_asset(field_key))
+                field.pack_start(button, False, False, 0)
+                body.pack_start(self._text(label, "creator-rail-label"), False, False, 0)
+                body.pack_start(field, False, False, 0)
+            self.style_details = self._text("", "creator-layer-hint", wrap=True)
+            self.style_details.set_selectable(True)
+            body.pack_start(self.style_details, False, False, 0)
+            self.style_preview = Gtk.Image()
+            self.style_preview.set_halign(Gtk.Align.START)
+            body.pack_start(self.style_preview, False, False, 0)
+            body.pack_start(self._text("ATTRIBUTION FOR NEW FONT / ICON",
+                                       "creator-rail-label"), False, False, 0)
+            grid = Gtk.Grid(row_spacing=5, column_spacing=8)
+            body.pack_start(grid, False, False, 0)
+            self.style_label = Gtk.Entry()
+            self.style_label.set_max_length(60)
+            self.style_label.set_placeholder_text("Artwork or font name")
+            self.style_author = Gtk.Entry()
+            self.style_author.set_max_length(80)
+            self.style_source = Gtk.Entry()
+            self.style_source.set_max_length(256)
+            self.style_license = Gtk.ComboBoxText()
+            for value in ("unspecified", "CC0-1.0", "CC-BY-4.0", "MIT", "custom"):
+                self.style_license.append(value, value)
+            self.style_license.set_active_id("unspecified")
+            self.style_origin = Gtk.ComboBoxText()
+            for value in ("unspecified", "original", "ai-assisted", "adapted"):
+                self.style_origin.append(value, value)
+            self.style_origin.set_active_id("unspecified")
+            for index, (label, widget) in enumerate((
+                    ("Name", self.style_label), ("Author", self.style_author),
+                    ("License", self.style_license), ("Origin", self.style_origin),
+                    ("Source", self.style_source))):
+                caption = self._text("_" + label, "creator-layer-hint")
+                caption.set_use_underline(True)
+                caption.set_mnemonic_widget(widget)
+                grid.attach(caption, 0, index, 1, 1)
+                grid.attach(widget, 1, index, 1, 1)
+            self._refresh_style_choices()
+
+        def _refresh_style_choices(self):
+            if self.working is None or self.working["schema_version"] < 11:
+                return
+            prior = self._building
+            self._building = True
+            for field, choice in self.style_choices.items():
+                kind = "font" if field == "font" else "icon"
+                current = (self.working["artwork"]["font"] if field == "font" else
+                           self.working["artwork"]["icons"][field])
+                choice.remove_all()
+                choice.append("builtin", "RicePlate built-in")
+                known = {"builtin"}
+                for item in style_assets.list_assets(kind):
+                    known.add(item.identifier)
+                    choice.append(item.identifier, item.label + " · " + item.identifier[:13])
+                if current not in known:
+                    choice.append(current, "Missing private asset · " + current[:13])
+                choice.set_active_id(current)
+            self._building = prior
+            self._refresh_style_preview()
+
+        def _refresh_style_preview(self):
+            if self.working is None or self.working["schema_version"] < 11:
+                return
+            fields = []
+            illustration = None
+            for key in ("font", *style_assets.ICON_ACTIONS):
+                identifier = (self.working["artwork"]["font"] if key == "font" else
+                              self.working["artwork"]["icons"][key])
+                if identifier == "builtin":
+                    continue
+                try:
+                    entry = style_assets.entry(identifier)
+                    fields.append(f"{key}: {entry.label} · {entry.provenance['license']} "
+                                  f"· {entry.provenance['author'] or 'author unspecified'}")
+                    if illustration is None and key != "font":
+                        image = GdkPixbuf.PixbufLoader.new_with_type("png")
+                        image.write(style_assets.read(identifier))
+                        image.close()
+                        illustration = image.get_pixbuf()
+                except (style_assets.StyleAssetError, ValueError, GLib.Error, OSError):
+                    fields.append(f"{key}: missing or damaged private asset · {identifier[:13]}")
+            self.style_details.set_text("\n".join(fields) if fields else
+                "Built-in font and icons selected. Private assets are hashed and included "
+                "in RicePack v4 only when referenced.")
+            self.style_preview.set_from_pixbuf(illustration)
+
+        def _style_selected(self, field, widget):
+            if self._building or self._busy or self.working is None:
+                return
+            selected = widget.get_active_id()
+            if selected is None:
+                return
+            try:
+                if selected != "builtin":
+                    item = style_assets.entry(selected)
+                    if item.kind != ("font" if field == "font" else "icon"):
+                        raise style_assets.StyleAssetError("Wrong asset type")
+                pointer = ("/artwork/font" if field == "font" else
+                           "/artwork/icons/" + field)
+                self._change(pointer, selected)
+                self._refresh_style_preview()
+            except (style_assets.StyleAssetError, OSError) as exc:
+                self._status(f"Cannot choose visual asset: {exc}", error=True)
+
+        def _import_style_asset(self, field):
+            if self._busy or self.working is None:
+                return
+            kind = "font" if field == "font" else "icon"
+            declared = {"author": self.style_author.get_text(),
+                        "license": self.style_license.get_active_id(),
+                        "origin": self.style_origin.get_active_id(),
+                        "source_reference": self.style_source.get_text()}
+            try:
+                from .de import pack
+                pack._provenance(declared)
+                label = self.style_label.get_text().strip()
+                if not label:
+                    raise style_assets.StyleAssetError("Name the asset before importing")
+            except (ValueError, TypeError) as exc:
+                self._status(f"Check visual asset attribution: {exc}", error=True)
+                return
+            chooser = Gtk.FileChooserDialog(
+                title="Import private font" if kind == "font" else "Import private icon PNG",
+                transient_for=self, action=Gtk.FileChooserAction.OPEN)
+            chooser.add_buttons("Cancel", Gtk.ResponseType.CANCEL,
+                                "Import", Gtk.ResponseType.ACCEPT)
+            restriction = Gtk.FileFilter()
+            restriction.set_name("TrueType (*.ttf)" if kind == "font" else "RGBA PNG (*.png)")
+            restriction.add_pattern("*.ttf" if kind == "font" else "*.png")
+            chooser.add_filter(restriction)
+            response = chooser.run()
+            source = Path(chooser.get_filename()) if response == Gtk.ResponseType.ACCEPT else None
+            chooser.destroy()
+            if source is None:
+                return
+            try:
+                item = style_assets.import_asset(source, kind=kind, label=label,
+                                                 provenance=declared)
+                self._refresh_style_choices()
+                self.style_choices[field].set_active_id(item.identifier)
+                self._status(f"Imported private {kind} · save version to use it.", success=True)
+            except (style_assets.StyleAssetError, OSError, ValueError) as exc:
+                self._status(f"Visual asset import rejected: {exc}", error=True)
+
+        def _upgrade_artwork(self, _button):
+            if self._busy or self.info is None or not self._commit_pending():
+                return
+            try:
+                previous = self.info
+                updated = workspace.upgrade_to_artwork(previous)
+                self._history.append(previous.path)
+                self._load(updated)
+                self._refresh_drafts()
+                self._status("Created new v11 version. Previous v10 draft remains intact.",
+                             success=True)
+            except (workspace.WorkspaceError, recipes.RecipeError, OSError) as exc:
+                self._status(f"Could not upgrade draft safely: {exc}", error=True)
 
         def _component_role_changed(self, _widget):
             role = self.component_role.get_active_id()
@@ -1653,6 +1848,23 @@ def run() -> int:
             with tempfile.TemporaryDirectory(prefix="ricebowl-creator-pack-test-") as temp:
                 receipt = workspace.export_draft(window.info, Path(temp) / "smoke.ricepack")
                 assert receipt['pack_version'] == 3 and not receipt['applied']
+                # v0.5: exercise the actual GTK selector, the schema-v11 edit
+                # pathway and v4 archive export without touching the session.
+                source = Path(temp) / "creator-shortcut.png"
+                icon = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, True, 8, 48, 48)
+                icon.fill(0x438bd4ff)
+                icon.savev(str(source), "png", [], [])
+                declared_icon = style_assets.import_asset(
+                    source, kind="icon", label="Creator GTK icon",
+                    provenance={"author": "RiceBowl", "license": "CC0-1.0",
+                                "origin": "original", "source_reference": "GTK smoke"})
+                window._refresh_style_choices()
+                window.style_choices["applications"].set_active_id(declared_icon.identifier)
+                assert window.pending["/artwork/icons/applications"] == declared_icon.identifier
+                assert window._commit_pending()
+                assert recipes.load(str(window.info.path)).artwork.icons[0] == declared_icon.identifier
+                packed = workspace.export_draft(window.info, Path(temp) / "smoke-art.ricepack")
+                assert packed["pack_version"] == 4 and not packed["applied"]
             path = os.environ.get("RICEBOWL_CREATOR_SMOKE_CAPTURE")
             if path:
                 window.queue_draw()

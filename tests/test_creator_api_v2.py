@@ -13,13 +13,14 @@ class CreatorApiV2Tests(unittest.TestCase):
         self.assertEqual(api["api_version"], 2)
         self.assertEqual(features["catalog_version"], cat["catalog_version"])
         self.assertEqual(features["recipe_schema_versions"], cat["recipe"]["schema_versions"])
-        self.assertEqual(features["recommended_authoring_schema"], 10)
+        self.assertEqual(features["recommended_authoring_schema"], 11)
         self.assertEqual(creator_contract.describe_ricepack()["recipe_schema_versions"],
                          features["recipe_schema_versions"])
         flags = {item["id"]: item for item in features["features"]}
         self.assertEqual(len(flags), len(features["features"]))
         self.assertTrue(flags["shared-status-action-bindings"]["supported"])
         self.assertTrue(flags["cross-surface-design-tokens"]["supported"])
+        self.assertTrue(flags["private-native-font-and-icon-assets"]["supported"])
         self.assertFalse(flags["interactive-desktop-widgets"]["supported"])
         self.assertFalse(flags["arbitrary-screenshot-one-click-conversion"]["supported"])
         self.assertFalse(flags["window-decoration-control-across-all-apps"]["supported"])

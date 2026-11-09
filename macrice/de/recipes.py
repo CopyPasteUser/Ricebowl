@@ -138,6 +138,28 @@ class Appearance:
     disabled: str
 
 
+@dataclass(frozen=True)
+class Artwork:
+    """Only named content-addressed local assets; no paths or executable URLs."""
+
+    font: str
+    icons: tuple[str, str, str]
+
+
+def _parse_artwork(raw: Any) -> Artwork:
+    from .style_assets import FONT_ID, ICON_ID, ICON_ACTIONS
+    data = _strict_keys(raw, {"font", "icons"}, "Artwork")
+    names = _strict_keys(data["icons"], set(ICON_ACTIONS), "Desktop icon art")
+    font = data["font"]
+    if type(font) is not str or not (font == "builtin" or FONT_ID.fullmatch(font)):
+        raise RecipeError("Font must name a builtin or content-addressed TrueType asset")
+    icons = tuple(names[key] for key in ICON_ACTIONS)
+    if any(type(value) is not str or not (value == "builtin" or ICON_ID.fullmatch(value))
+           for value in icons):
+        raise RecipeError("Icons must name builtin or content-addressed PNG assets")
+    return Artwork(font, icons)
+
+
 def _parse_appearance(raw: Any) -> Appearance:
     data = _strict_keys(raw, {"font_scale", "font_weight", "item_spacing",
                               "hover", "focus", "disabled"}, "Appearance")
@@ -187,6 +209,7 @@ class PanelRecipe:
     composition: DesktopComposition | None = None
     components: tuple[ComponentDefinition, ...] = ()
     appearance: Appearance | None = None
+    artwork: Artwork | None = None
 
 
 def _parse_components(raw: Any) -> dict[str, ComponentDefinition]:
@@ -477,7 +500,7 @@ def parse(raw: bytes) -> PanelRecipe:
     if not isinstance(data, dict):
         raise RecipeError("Recipe must be a JSON object")
     version = data.get("schema_version")
-    if type(version) is not int or version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10):
+    if type(version) is not int or version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11):
         raise RecipeError("Unsupported RicePlate recipe schema version")
     expected = {"schema_version", "id", "name", "panel", "colors"}
     if version >= 4:
@@ -488,9 +511,12 @@ def parse(raw: bytes) -> PanelRecipe:
         expected.add("components")
     if version >= 10:
         expected.add("appearance")
+    if version >= 11:
+        expected.add("artwork")
     data = _strict_keys(data, expected, "Recipe")
     components = _parse_components(data["components"]) if version >= 9 else {}
     appearance = _parse_appearance(data["appearance"]) if version >= 10 else None
+    artwork = _parse_artwork(data["artwork"]) if version >= 11 else None
     recipe_id = data["id"]
     if not isinstance(recipe_id, str) or not re.fullmatch(r"[a-z][a-z0-9-]{1,31}", recipe_id):
         raise RecipeError("Recipe ID must contain 2-32 lowercase ASCII characters")
@@ -609,7 +635,7 @@ def parse(raw: bytes) -> PanelRecipe:
                        metrics, layout_nodes, version, menu, wallpaper, tokens, compact,
                        desktop_icons,
                        data["menu"].get("presentation", "tabs") if version >= 6 else "tabs",
-                       composition, tuple(components.values()), appearance)
+                       composition, tuple(components.values()), appearance, artwork)
 
 
 def load(token: str) -> PanelRecipe:
@@ -933,7 +959,7 @@ def create_from_template(
     if not destination.is_absolute() or destination.suffix != ".json":
         raise RecipeError("New recipe output must be an absolute .json file path")
     data = json.loads(BUILTINS[source].read_text(encoding="utf-8"))
-    if schema_version in (2, 3, 4, 5, 6, 7, 8, 9, 10):
+    if schema_version in (2, 3, 4, 5, 6, 7, 8, 9, 10, 11):
         data["schema_version"] = schema_version
         data["panel"]["metrics"] = dict(zip(METRIC_FIELDS, METRIC_DEFAULTS))
         if schema_version >= 3:
@@ -993,6 +1019,10 @@ def create_from_template(
                     "font_scale": 1, "font_weight": "regular", "item_spacing": 4,
                     "hover": "#45769b", "focus": "#ffffff", "disabled": "#777777",
                 }
+            if schema_version >= 11:
+                from .style_assets import ICON_ACTIONS
+                data["artwork"] = {"font": "builtin",
+                                   "icons": {action: "builtin" for action in ICON_ACTIONS}}
     elif schema_version != 1:
         raise RecipeError("Unsupported RicePlate template schema version")
     data["id"] = recipe_id

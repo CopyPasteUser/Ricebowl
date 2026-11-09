@@ -188,6 +188,14 @@ pub struct PanelStyle {
     pub desktop_icons: Vec<DesktopIcon>,
     pub composition: Option<DesktopComposition>,
     pub menu: Option<NativeMenu>,
+    pub artwork: Option<ArtworkSelection>,
+    pub native_art: Option<crate::style_art::LoadedArtwork>,
+}
+
+/// Content IDs only: a recipe never supplies a filesystem path.
+pub struct ArtworkSelection {
+    pub font: Option<String>,
+    pub icons: [Option<String>; 3],
 }
 
 #[derive(Deserialize)]
@@ -212,6 +220,36 @@ struct Recipe {
     components: Option<Vec<ComponentInput>>,
     #[serde(default, deserialize_with = "deserialize_present")]
     appearance: Option<Appearance>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    artwork: Option<Artwork>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Artwork {
+    font: String,
+    icons: ArtworkIcons,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ArtworkIcons {
+    applications: String,
+    terminal: String,
+    lock: String,
+}
+
+fn asset_id(value: &str, prefix: &str) -> Result<Option<String>, Box<dyn Error>> {
+    if value == "builtin" {
+        return Ok(None);
+    }
+    let Some(hex) = value.strip_prefix(prefix) else {
+        return Err("Invalid RicePlate visual asset selector".into());
+    };
+    if hex.len() != 64 || !hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) {
+        return Err("Invalid RicePlate visual asset SHA-256 ID".into());
+    }
+    Ok(Some(value.to_owned()))
 }
 
 #[derive(Deserialize)]
@@ -689,7 +727,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
     }
     let recipe: Recipe = serde_json::from_str(raw)?;
     let id = recipe.id.as_bytes();
-    if ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10].contains(&recipe.schema_version)
+    if ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].contains(&recipe.schema_version)
         || id.len() < 2
         || id.len() > 32
         || !id[0].is_ascii_lowercase()
@@ -706,13 +744,13 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
         return Err("RicePlate recipe metadata or dimensions are invalid".into());
     }
     let components = match (recipe.schema_version, recipe.components) {
-        (9 | 10, Some(definitions)) => validate_components(definitions)?,
+        (9 | 10 | 11, Some(definitions)) => validate_components(definitions)?,
         (1..=8, None) => Vec::new(),
         _ => return Err("Component library requires schema v9".into()),
     };
     let widths = match (recipe.schema_version, recipe.panel.metrics) {
         (1, None) => [LAUNCHER_WIDTH, TASK_WIDTH, CLOCK_WIDTH],
-        (2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10, Some(metrics))
+        (2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11, Some(metrics))
             if (64..=256).contains(&metrics.launcher_width)
                 && (96..=256).contains(&metrics.task_width)
                 && (64..=256).contains(&metrics.clock_width) =>
@@ -757,7 +795,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
                 }
             }
         }
-        (3 | 4 | 5 | 6 | 7 | 8 | 9 | 10, None, Some(layout)) => {
+        (3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11, None, Some(layout)) => {
             let source = [layout.start, layout.center, layout.end];
             let mut counts = [0_usize, 0_usize];
             for (index, nodes) in source.iter().enumerate() {
@@ -789,7 +827,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
     let mut task_radius = 4;
     let (font_scale, font_bold, item_spacing, hover, focus, disabled) =
         match (recipe.schema_version, recipe.appearance) {
-            (10, Some(value)) if (1..=2).contains(&value.font_scale)
+            (10 | 11, Some(value)) if (1..=2).contains(&value.font_scale)
                 && ["regular", "bold"].contains(&value.font_weight.as_str())
                 && value.item_spacing <= 16 => (
                     value.font_scale, value.font_weight == "bold", value.item_spacing,
@@ -797,10 +835,22 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
             (1..=9, None) => (1, false, 0, 0, 0, 0),
             _ => return Err("Appearance requires validated schema v10 tokens".into()),
         };
+    let artwork = match (recipe.schema_version, recipe.artwork) {
+        (11, Some(value)) => Some(ArtworkSelection {
+            font: asset_id(&value.font, "font-")?,
+            icons: [
+                asset_id(&value.icons.applications, "icon-")?,
+                asset_id(&value.icons.terminal, "icon-")?,
+                asset_id(&value.icons.lock, "icon-")?,
+            ],
+        }),
+        (1..=10, None) => None,
+        _ => return Err("Visual artwork requires the complete schema v11 contract".into()),
+    };
     let mut desktop_icons = Vec::new();
     let mut native_menu = None;
     let composition = match (recipe.schema_version, recipe.composition) {
-        (8 | 9 | 10, Some(input)) => Some(validate_composition(input, &components,
+        (8 | 9 | 10 | 11, Some(input)) => Some(validate_composition(input, &components,
                                                             recipe.schema_version)?),
         (1..=7, None) => None,
         _ => return Err("Desktop composition requires schema v8 or newer".into()),
@@ -812,7 +862,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
         recipe.tokens,
         recipe.responsive,
     ) {
-        (version @ (4 | 5 | 6 | 7 | 8 | 9 | 10), Some(menu), Some(desktop), Some(tokens), Some(responsive)) => {
+        (version @ (4 | 5 | 6 | 7 | 8 | 9 | 10 | 11), Some(menu), Some(desktop), Some(tokens), Some(responsive)) => {
             validate_menu(&menu, version)?;
             native_menu = Some(NativeMenu {
                 title: menu.title,
@@ -843,7 +893,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
             });
             desktop_icons = match (version, desktop.icons) {
                 (4, None) => Vec::new(),
-                (5 | 6 | 7 | 8 | 9 | 10, Some(icons)) => validate_icons(icons)?,
+                (5 | 6 | 7 | 8 | 9 | 10 | 11, Some(icons)) => validate_icons(icons)?,
                 _ => return Err("Schema v5 requires icons; v4 forbids them".into()),
             };
             let bundled = [
@@ -930,6 +980,8 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
         desktop_icons,
         composition,
         menu: native_menu,
+        artwork,
+        native_art: None,
     })
 }
 
@@ -1168,6 +1220,28 @@ mod tests {
     const LAYOUT_V8: &str = include_str!("../../../tests/fixtures/riceplate-layout-v8.json");
     const COMPONENTS_V9: &str = include_str!("../../../tests/fixtures/riceplate-components-v9.json");
     const APPEARANCE_V10: &str = include_str!("../../../tests/fixtures/riceplate-appearance-v10.json");
+
+    #[test]
+    fn v11_artwork_is_bounded_and_legacy_v10_does_not_accept_it() {
+        let mut data: serde_json::Value = serde_json::from_str(APPEARANCE_V10).unwrap();
+        data["schema_version"] = serde_json::json!(11);
+        data["artwork"] = serde_json::json!({
+            "font": "builtin",
+            "icons": {"applications": "builtin", "terminal": "builtin", "lock": "builtin"},
+        });
+        let style = parse(&data.to_string(), None).unwrap();
+        assert!(style.artwork.is_some());
+        assert!(style.artwork.as_ref().unwrap().icons.iter().all(Option::is_none));
+        data["artwork"]["font"] = serde_json::json!(format!("font-{}", "a".repeat(64)));
+        assert!(parse(&data.to_string(), None).unwrap().artwork.unwrap().font.is_some());
+        data["artwork"]["icons"]["terminal"] = serde_json::json!("../../bin/sh");
+        assert!(parse(&data.to_string(), None).is_err());
+        data["artwork"]["icons"]["terminal"] = serde_json::json!("builtin");
+        data["schema_version"] = serde_json::json!(10);
+        assert!(parse(&data.to_string(), None).is_err());
+        data.as_object_mut().unwrap().remove("artwork");
+        assert!(parse(&data.to_string(), None).is_ok());
+    }
 
     #[test]
     fn v10_appearance_affects_geometry_and_rejects_unsafe_tokens() {

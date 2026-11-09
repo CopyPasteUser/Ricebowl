@@ -21,11 +21,11 @@ from .recipes import (ICON_ACTIONS, ICON_HEIGHT, ICON_WIDTH, MAX_DESKTOP_ICONS,
 def describe() -> dict[str, object]:
     """Describe exactly which panel and early shell primitives are implemented."""
     return {
-        "catalog_version": 11,
+        "catalog_version": 12,
         "scope": "wayland-shell-preview",
         "complete_desktop_environment": False,
         "recipe": {
-            "schema_versions": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+            "schema_versions": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
             "maximum_bytes": MAX_RECIPE_BYTES,
             "sections": ["start", "center", "end"],
             "unique_widgets": True,
@@ -140,6 +140,15 @@ def describe() -> dict[str, object]:
                                "state_colors": ["hover", "focus", "disabled"],
                                "font_family": "native-bundled-8x8-bitmap",
                                "portable_external_fonts": False},
+                "artwork": {"since_schema": 11, "pointer": "/artwork",
+                            "font": "builtin-or-private-sha256-truetype-ttf",
+                            "desktop_icon_actions": ["applications", "terminal", "lock"],
+                            "icons": "builtin-or-private-sha256-48x48-rgba-png",
+                            "storage": "owner-private-content-addressed",
+                            "renderer": "native-riceplate-only",
+                            "waybar_fallback": "uses-default-font-and-icons",
+                            "max_font_bytes": 1024 * 1024,
+                            "max_icon_bytes": 128 * 1024},
                 "responsive": {"compact_max_width": [480, 1440],
                                "native": "live-panel-layout-switch",
                                "waybar": "offline-width-specific-compilation-only"},
@@ -151,7 +160,7 @@ def describe() -> dict[str, object]:
             },
             "custom_commands": False,
             "custom_actions": False,
-            "external_assets": "PNG",
+            "external_assets": "PNG wallpaper; schema-v11 private TTF and RGBA icons",
         },
         "backends": {
             "native": "experimental-rust-layer-shell",

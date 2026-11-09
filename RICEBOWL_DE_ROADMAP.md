@@ -768,6 +768,15 @@ depend on the XFCE session.
   plus GTK Xvfb scenario coverage. Custom icon themes/fonts, visual-reference
   overlays, finer-grained component skins and actual hardware acceptance remain
   future milestones requiring their own renderer/schema/pack contracts.
+- [x] Implement **Rice Creator 0.5 native visual asset authoring**:
+  schema-v11 `artwork` selectors for one TrueType face and three 48×48 RGBA
+  shortcut icons, bounded owner-private SHA-256 storage with immutable declared
+  attribution, GTK import/selection and backward-compatible v10 upgrades.
+  Native Rust reads only verified assets, rasterizes text once, and composites
+  shortcut art; deterministic RicePack v4 includes verified selected assets.
+  Real Wayland display, DPI, font legibility and accessibility require physical
+  acceptance; Waybar custom faces, complete icon themes and AI image-to-rice
+  conversion remain separate future work.
 - [x] Implement **Wayland RicePack v1 recipe exchange** (`de pack-export`,
   `de pack-inspect`, `de pack-import`): reproducible owner-private `.ricepack`
   archives, canonical schema-v1–v5 recipe, SHA-256 byte/semantic validation,
