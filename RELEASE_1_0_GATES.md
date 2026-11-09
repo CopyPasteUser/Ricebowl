@@ -47,6 +47,12 @@ physical-device compatibility.
   private Wayland runtime and D-Bus. It checks the live compositor socket,
   native RicePlate, `swayidle` and a screenshot. This is not a physical display
   manager or GPU login acceptance test.
+- [ ] The same disposable installed-login test kills the native panel and
+  requires a live Waybar recovery, then kills `swayidle` and requires the
+  unprotected compositor to exit. A fresh native login must work afterward.
+  This proves packaged software failure paths in CI, not real suspend,
+  crash recovery or display-manager behavior on physical hardware. Check
+  this box only after the complete native package CI passes.
 - [x] Isolated headless labwc portal CI goes beyond D-Bus introspection:
   verify a real PNG Screenshot, create a ScreenCast session, select a monitor
   and attempt Start. The CI pixman renderer rejects Start with response 2;
