@@ -5169,6 +5169,13 @@ impl Dispatch<ZwlrForeignToplevelManagerV1, ()> for RicePlate {
             _ => {}
         }
     }
+
+    // The compositor creates a new handle in the `toplevel` *event*.
+    // Without an event-created-child specialization, wayland-client panics
+    // before our event handler can add the first real application window.
+    wayland_client::event_created_child!(RicePlate, ZwlrForeignToplevelManagerV1, [
+        zwlr_foreign_toplevel_manager_v1::EVT_TOPLEVEL_OPCODE => (ZwlrForeignToplevelHandleV1, ()),
+    ]);
 }
 
 impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for RicePlate {
