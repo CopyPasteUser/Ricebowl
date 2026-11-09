@@ -1129,6 +1129,48 @@ geometry reconstruction, automatically generated assets or one-click faithful
 desktop cloning. The JSON interface supports an external supervised AI authoring
 loop, not an autonomous screenshot-to-desktop converter.
 
+#### Rice Creator 0.8 — manual region QA
+
+Creator 0.8 adds **Region QA · measure selected areas** below Reference mapping.
+Open a saved draft, load a private reference PNG, then **Render preview** with
+exactly matching pixel dimensions. Open the Region QA disclosure and choose
+**Panel**, **Menu**, **Desktop** or **Unknown**, then enter X, Y, width and height
+in **original reference pixels**, not percent or scaled preview coordinates.
+Select **Mark rectangle**. Each manually reviewed area is numbered, shown in
+the list with a **Remove** button, and outlined in the *Marked regions* real-image
+view. You can mark up to eight areas; zero-size, off-image, duplicated, excessive
+or malformed regions are rejected. The list is operated with normal GTK
+keyboard navigation; mouse dragging is not required.
+
+After running the 0.7 **Analyze offline** action (or importing reviewed external
+mapping geometry), **Use detected** can explicitly copy those geometric bounds
+to the region list. This is not object recognition: even when the source says
+`menu`, the label is only the provided human/heuristic annotation. It does not
+authorize a recipe edit or automatically select a 0.7 proposed change.
+
+Choose **Measure regions** to compare *each* marked rectangle against the
+actual isolated native RicePlate capture, using the existing **Pixel cutoff**
+and **Raster tolerance** controls. The summary shows raw changed-pixel ratio,
+tolerated ratio and mean RGB error **per rectangle**. Neighborhood tolerance
+includes pixels just outside rectangle edges (0/1/2 px), so shifts at the edge
+of a mark are treated consistently with the full-image comparison. All figures
+are pixel errors, never image similarity, recognized components or action QA.
+
+**Export pixel report JSON…** optionally saves a new, owner-private, versioned
+report containing dimensions, marked geometry, policy, raw/tolerated metrics
+and SHA-256 identities for the exact reference PNG, native capture and saved
+recipe. No screenshot pixels, absolute file paths, scripts or AI instructions
+enter the report. An AI assistant can consume it with the discoverable
+`manual_region_qa` contract from `ricebowl de creator-api --json`, but image
+sharing always requires a separate user decision. Changing the output size,
+recipe, reference or region geometry, or changing the comparison policy,
+invalidates measurements. Switching drafts/references discards temporary marks.
+No active desktop changes and no resident analysis process are involved.
+
+**Still open:** click-drag box drawing, trusted semantic icon/menu recognition,
+iterative automatic correction, multi-monitor/fractional scaling hardware QA,
+focus and real interaction testing of reconstructed rices.
+
 #### Rice Creator 0.5 — private font and icon assets
 
 Creator 0.5 adds a **Visual asset library** in the inspector. Import original
