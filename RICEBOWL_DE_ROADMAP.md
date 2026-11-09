@@ -1,3 +1,10 @@
+# RiceBowl DE — Wayland/labwc transition
+
+**Status (November 2026): opt-in labwc session preview implemented;
+physical acceptance outstanding.** RiceBowl 0.9.x is still an XFCE/X11
+rice manager. The separate Wayland login-session package requires explicit
+installation and is not yet a finished desktop environment.
+
 ### Standalone desktop packaging checkpoint (November 2026)
 
 - [x] Add a reproducible, tracked-source, read-only `ricebowl-wayland-core`
@@ -12,12 +19,6 @@
   Mint 22, login manager selection, polkit/portals and physical hardware.
   A CI reinstall of the same preview is not an upgrade test.
 
-# RiceBowl DE — Wayland/labwc transition
-
-**Status (November 2026): opt-in labwc session preview implemented;
-physical acceptance outstanding.** RiceBowl 0.9.x is still an XFCE/X11
-rice manager. The separate Wayland login-session package requires explicit
-installation and is not yet a finished desktop environment.
 
 ## The product
 
