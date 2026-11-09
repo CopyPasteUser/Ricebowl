@@ -7,6 +7,10 @@ physical-device compatibility.
 
 ## Automated checks
 
+- [x] The read-only Wayland `de check` verifies the mandatory launcher
+  executables, separates nested, full and native-login prerequisites and
+  fails when a required program is missing. Availability is not proof of
+  successful login or working hardware.
 - [x] Python package and CLI version agree at the current 0.9.1 baseline.
 - [x] A source archive job is defined for `v1.0.0-rc.N` / `v1.0.0` tags.
 - [x] A stable 1.0 tag is blocked by default until real-device acceptance is
