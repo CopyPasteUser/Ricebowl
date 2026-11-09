@@ -47,6 +47,11 @@ physical-device compatibility.
   private Wayland runtime and D-Bus. It checks the live compositor socket,
   native RicePlate, `swayidle` and a screenshot. This is not a physical display
   manager or GPU login acceptance test.
+- [x] Isolated headless labwc portal CI goes beyond D-Bus introspection:
+  request a real PNG Screenshot and a ScreenCast session, validate returned
+  PipeWire node(s) and a remote FD, then close the session. The unattended
+  output chooser override is CI-private; permission dialogs, frames, Flatpak
+  sandboxes and multi-monitor selection remain unverified on real hardware.
 - [ ] Installation, upgrade, uninstall and rollback pass from clean systems.
 - [ ] Native RicePlate/RiceSpice/RicePop feature parity and mockup-to-rice
   authoring gates from `RICEBOWL_DE_ROADMAP.md` are satisfied.
