@@ -46,6 +46,9 @@ class WaylandBundleTests(unittest.TestCase):
                          "examples/wayland/heritage-modern-v10.json"):
                 self.assertTrue((application / path).is_file(), path)
             self.assertTrue((extracted / "usr/bin/ricebowl-wayland-app").is_file())
+            private_command = extracted / "usr/lib/ricebowl-wayland/bin/ricebowl"
+            self.assertTrue(private_command.is_file())
+            self.assertTrue(os.access(private_command, os.X_OK))
             self.assertFalse(any(p.name == "__pycache__" for p in application.rglob("*")))
             self.assertFalse(any(p.suffix == ".pyc" for p in application.rglob("*")))
             self.assertFalse(any(p.is_symlink() for p in application.rglob("*")))
@@ -83,6 +86,7 @@ class WaylandBundleTests(unittest.TestCase):
     def test_existing_login_wrapper_keeps_legacy_fallback(self):
         contents = SESSION.read_text(encoding="utf-8")
         self.assertIn("app=/usr/bin/ricebowl-wayland-app", contents)
+        self.assertIn('PATH="/usr/lib/ricebowl-wayland/bin:', contents)
         self.assertIn('app="$HOME/.local/bin/ricebowl"', contents)
         self.assertIn('exec "$app" de start --panel native', contents)
         self.assertIn('exec "$app" de start', contents)
