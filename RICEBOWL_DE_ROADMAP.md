@@ -288,6 +288,18 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   recipes. Rust tests cover independent displays, migration, malformed
   locations and atomic private persistence. Real cross-monitor drag and
   mixed-DPI physical-device behavior remain unverified.
+- [x] **Foundation Sprint 2: assign a desktop shortcut to a named output** —
+  add private icon-position schema v3, preserving v1/v2 coordinates and recipe
+  immutability. Focus a native desktop icon and press `F6` to assign it to the
+  next connected named display (deterministic alphabetical cycle); `F7`
+  restores the original mirrored behavior. Unassigned icons remain visible on
+  every output, while assigned icons occupy layout and collision space only
+  on their selected output. If the target disconnects, the icon appears on
+  the primary desktop until its named display returns. Invalid display IDs,
+  stale recipes and malformed state fail closed without partial restore;
+  screen readers receive action hints. This is keyboard-based output
+  ownership, **not cross-monitor pointer dragging**. Physical mixed-DPI,
+  hotplug, keyboard focus and Orca acceptance remain pending.
 - [ ] Build a Wayland-native panel through `wlr-layer-shell`.
 - [ ] Populate tasks/windows through a supported foreign-toplevel protocol.
 - [ ] Implement launchers, task groups, tray, calendar, menus and keyboard

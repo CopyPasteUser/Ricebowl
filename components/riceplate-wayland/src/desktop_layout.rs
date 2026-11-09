@@ -117,8 +117,26 @@ fn place_rects(
 pub fn place(
     icons: &[DesktopIcon], width: u32, height: u32, panel_top: bool, panel_height: u32,
 ) -> Vec<Option<(u32, u32)>> {
-    place_rects(&icons.iter().map(|i| (i.x, i.y)).collect::<Vec<_>>(),
-                ICON_WIDTH, ICON_HEIGHT, width, height, panel_top, panel_height, &[])
+    place_visible(icons, &vec![true; icons.len()], width, height, panel_top, panel_height)
+}
+
+/// Hidden shortcuts must not occupy layout cells or prevent widgets from
+/// using the freed space. Keep the returned indices aligned with the recipe.
+pub fn place_visible(
+    icons: &[DesktopIcon], visible: &[bool], width: u32, height: u32,
+    panel_top: bool, panel_height: u32,
+) -> Vec<Option<(u32, u32)>> {
+    let active: Vec<_> = icons.iter().enumerate()
+        .filter(|(index, _)| visible.get(*index).copied().unwrap_or(false))
+        .map(|(index, icon)| (index, (icon.x, icon.y))).collect();
+    let requests: Vec<_> = active.iter().map(|(_, pos)| *pos).collect();
+    let placed = place_rects(&requests, ICON_WIDTH, ICON_HEIGHT,
+                             width, height, panel_top, panel_height, &[]);
+    let mut result = vec![None; icons.len()];
+    for ((index, _), position) in active.into_iter().zip(placed) {
+        result[index] = position;
+    }
+    result
 }
 
 /// One deterministic cross-region plan. Client windows are not moved; the
@@ -127,10 +145,26 @@ pub fn compose(
     icons: &[DesktopIcon], composition: &DesktopComposition, width: u32, height: u32,
     panel_top: bool, panel_height: u32, compact_max_width: u32,
 ) -> (Vec<Option<(u32, u32)>>, Vec<Option<(u32, u32)>>) {
+    compose_visible(icons, &vec![true; icons.len()], composition, width, height,
+                    panel_top, panel_height, compact_max_width)
+}
+
+pub fn compose_visible(
+    icons: &[DesktopIcon], visible: &[bool], composition: &DesktopComposition,
+    width: u32, height: u32, panel_top: bool, panel_height: u32,
+    compact_max_width: u32,
+) -> (Vec<Option<(u32, u32)>>, Vec<Option<(u32, u32)>>) {
     let region = reserved_region(composition.window_region, width, height);
-    let icon_positions = place_rects(
-        &icons.iter().map(|i| (i.x, i.y)).collect::<Vec<_>>(), ICON_WIDTH, ICON_HEIGHT,
-        width, height, panel_top, panel_height, &[region]);
+    let active_icons: Vec<_> = icons.iter().enumerate()
+        .filter(|(index, _)| visible.get(*index).copied().unwrap_or(false))
+        .map(|(index, icon)| (index, (icon.x, icon.y))).collect();
+    let icon_requests: Vec<_> = active_icons.iter().map(|(_, pos)| *pos).collect();
+    let placed_icons = place_rects(&icon_requests, ICON_WIDTH, ICON_HEIGHT,
+                                   width, height, panel_top, panel_height, &[region]);
+    let mut icon_positions = vec![None; icons.len()];
+    for ((index, _), position) in active_icons.into_iter().zip(placed_icons) {
+        icon_positions[index] = position;
+    }
     let mut reserved = vec![region];
     for &(x, y) in icon_positions.iter().flatten() {
         reserved.push(Rect { x, y, w: ICON_WIDTH, h: ICON_HEIGHT });
@@ -197,6 +231,20 @@ mod tests {
             }
             if width <= 840 { assert!(widget_placements[1].is_none()); }
         }
+    }
+
+    #[test]
+    fn filtered_icons_free_space_for_visible_icons_and_widgets() {
+        let icons = [icon(32, 96), icon(32, 96)];
+        let standalone = place_visible(&icons, &[false, true], 800, 600, true, 44);
+        assert_eq!(standalone, vec![None, Some((32, 96))]);
+        let with_widgets = compose_visible(&icons, &[false, true], &composition(),
+                                           800, 600, true, 44, 640);
+        assert_eq!(with_widgets.0[0], None);
+        assert_eq!(with_widgets.0[1], Some((32, 96)));
+        assert!(with_widgets.1.iter().flatten().all(|(x, y)|
+            !overlaps(*x, *y, 32, 96)));
+        assert_eq!(place_visible(&icons, &[], 800, 600, true, 44), vec![None, None]);
     }
 
     #[test]
