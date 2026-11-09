@@ -141,6 +141,9 @@ class CreatorReferenceTests(unittest.TestCase):
         Image.new("RGB", (24, 16), "#123456").save(second_source)
         second = reference.select(self.draft, second_source)
         self.assertNotEqual(first.sha256, second.sha256)
+        with self.assertRaisesRegex(reference.ReferenceError, "changed during comparison"):
+            reference.compare_capture(self.draft, self._png("#123456"),
+                                      expected_sha256=first.sha256)
         self.assertEqual(reference.selected(self.draft), second)
         self.assertEqual(len(list(reference._folder().glob("reference-*.png"))), 2)
         self.assertEqual(reference.image_bytes(self.draft), second_source.read_bytes())

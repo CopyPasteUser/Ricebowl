@@ -182,11 +182,14 @@ def image_bytes(recipe_id: str) -> bytes:
 
 
 def compare_capture(recipe_id: str, actual: bytes, *, recipe_token: str | None = None,
-                    threshold: int = 24, tolerance_radius: int = 1) -> tuple[dict, dict[str, bytes]]:
+                    threshold: int = 24, tolerance_radius: int = 1,
+                    expected_sha256: str | None = None) -> tuple[dict, dict[str, bytes]]:
     """Compute source/real/50% overlay/wipe/heatmap without persistent outputs."""
     info = selected(recipe_id)
     if info is None:
         raise ReferenceError("Select a reference image before comparing")
+    if expected_sha256 is not None and info.sha256 != expected_sha256:
+        raise ReferenceError("Selected reference changed during comparison; reload it")
     if len(actual) > MAX_PNG_BYTES or _image_size(actual) != (info.width, info.height):
         raise ReferenceError("Native capture and reference resolutions differ; choose matching output size")
     source = _folder() / f"reference-{info.sha256}.png"

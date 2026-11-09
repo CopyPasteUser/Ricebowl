@@ -1913,7 +1913,7 @@ def run() -> int:
                     or self._capture_bytes is None or self._capture_size != (
                         self._reference.width, self._reference.height) or self.pending):
                 return
-            info, image = self.info, self._capture_bytes
+            info, image, reference_sha = self.info, self._capture_bytes, self._reference.sha256
             threshold = self.compare_threshold.get_value_as_int()
             radius = int(self.compare_tolerance.get_active_id() or "1")
             self._busy = True
@@ -1927,7 +1927,8 @@ def run() -> int:
                 try:
                     metrics, images = creator_reference.compare_capture(
                         info.recipe_id, image, recipe_token=str(info.path),
-                        threshold=threshold, tolerance_radius=radius)
+                        threshold=threshold, tolerance_radius=radius,
+                        expected_sha256=reference_sha)
                     error = None
                 except (creator_reference.ReferenceError, OSError, ValueError) as exc:
                     metrics, images, error = None, None, str(exc)
