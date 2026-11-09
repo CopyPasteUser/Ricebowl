@@ -1,0 +1,34 @@
+#!/bin/sh
+# The aggregate Wayland package is dependency-only: apt/dpkg own all removals.
+set -eu
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
+output=${1:-"$root/dist/ricebowl-wayland-desktop_0.1.0~preview1_amd64.deb"}
+case "$output" in /*.deb) ;; *) echo "Output must be absolute .deb" >&2; exit 2;; esac
+if [ -e "$output" ] || [ -L "$output" ]; then
+    echo "Refusing to overwrite existing package: $output" >&2; exit 1
+fi
+if ! command -v dpkg-deb >/dev/null 2>&1; then
+    echo "dpkg-deb is required" >&2; exit 1
+fi
+if [ "$(dpkg --print-architecture)" != amd64 ]; then
+    echo "The native RicePlate bundle currently supports amd64 only" >&2; exit 1
+fi
+if [ -n "${SOURCE_DATE_EPOCH:-}" ]; then
+    epoch=$SOURCE_DATE_EPOCH
+elif git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    epoch=$(git -C "$root" log -1 --format=%ct HEAD)
+else
+    epoch=1704067200
+fi
+case "$epoch" in ''|*[!0-9]*) echo "Invalid SOURCE_DATE_EPOCH" >&2; exit 1;; esac
+export SOURCE_DATE_EPOCH="$epoch"
+export LC_ALL=C
+mkdir -p -- "$(dirname -- "$output")"
+stage=$(mktemp -d)
+trap 'rm -rf -- "$stage"' EXIT
+install -D -m 0644 "$root/packaging/wayland/desktop-control" "$stage/DEBIAN/control"
+# No maintainer scripts or postinst side effects: the default DM session is
+# unchanged and all user settings remain in XDG directories.
+find "$stage" -exec touch -h -d "@$epoch" -- {} +
+dpkg-deb --build --root-owner-group "$stage" "$output"
+echo "Built $output (not installed)"
