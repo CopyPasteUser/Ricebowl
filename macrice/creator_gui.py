@@ -7,13 +7,14 @@ are produced on demand by the same isolated RicePlate renderer as the CLI.
 from __future__ import annotations
 
 import copy
+import io
 import json
 import os
 import tempfile
 import threading
 from pathlib import Path
 
-from .de import creator_workspace as workspace
+from .de import creator_layout as layout_engine, creator_workspace as workspace
 from .de import drafts, recipes, render, review
 
 
@@ -80,13 +81,15 @@ def run() -> int:
         print("Rice Creator needs a graphical desktop session.", file=__import__("sys").stderr)
         return 1
     try:
+        import cairo
         import gi
         gi.require_version("Gtk", "3.0")
         gi.require_version("Gdk", "3.0")
         gi.require_version("GdkPixbuf", "2.0")
         from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk
     except (ImportError, ValueError) as exc:
-        print(f"Rice Creator requires GTK3/PyGObject: {exc}", file=__import__("sys").stderr)
+        print(f"Rice Creator requires GTK3/PyGObject and python3-cairo: {exc}",
+              file=__import__("sys").stderr)
         return 1
 
     from .hub import CSS as HUB_CSS, TOKENS
@@ -96,6 +99,12 @@ def run() -> int:
     #creator-sidebar list, #creator-sidebar listbox, #creator-sidebar listbox row,
     #creator-sidebar scrolledwindow, #creator-sidebar viewport { background: %(sidebar)s; }
     #creator-inspector { background: %(surface)s; border-left: 1px solid %(border)s; }
+    list.creator-layer-list, list.creator-layer-list row {
+      background: %(surface_alt)s; color: %(text)s; }
+    list.creator-layer-list row label { color: %(text)s; }
+    list.creator-layer-list row:hover { background: %(hover)s; }
+    list.creator-layer-list row:selected { background: %(accent)s; }
+    list.creator-layer-list row:selected label { color: #ffffff; }
     #creator-preview { background: %(sidebar)s; }
     .creator-rail-label { color: %(quiet)s; font-size: 11px; font-weight: bold; }
     .creator-preview-note { color: %(muted)s; font-size: 12px; }
@@ -111,6 +120,8 @@ def run() -> int:
     button.creator-template:hover { background: %(hover)s; }
     button.creator-template:focus, button:focus { outline: 2px solid %(accent)s; outline-offset: 1px; }
     .creator-dirty { color: %(warning)s; }
+    .creator-layer-selected { color: %(accent)s; font-weight: bold; }
+    .creator-layer-hint { color: %(quiet)s; font-size: 11px; }
     """ % TOKENS
 
     class CreatorWindow(Gtk.ApplicationWindow):
@@ -121,6 +132,7 @@ def run() -> int:
             self.set_size_request(820, 560)
             self.info: workspace.DraftInfo | None = None
             self.baseline: dict | None = None
+            self.working: dict | None = None
             self.pending: dict[str, object] = {}
             self.layout: dict[str, list[dict]] = {}
             self._building = False
@@ -129,6 +141,11 @@ def run() -> int:
             self._pixbuf = None
             self._preview_fit: tuple[int, int] | None = None
             self._history: list[Path] = []
+            self._selected_layer: tuple[str, int] | None = None
+            self._drag: tuple[tuple[str, int], float, float, int, int] | None = None
+            self._drag_preview: tuple[int, int] | None = None
+            self._last_viewport = None
+            self._canvas_refresh_queued = False
             self._build()
             self._refresh_drafts()
             self.connect("delete-event", self._close)
@@ -201,7 +218,7 @@ def run() -> int:
             content.pack1(preview, resize=True, shrink=False)
             head = Gtk.Box(spacing=12)
             preview.pack_start(head, False, False, 0)
-            head.pack_start(self._text("REAL SHELL PREVIEW", "creator-rail-label"), True, True, 0)
+            head.pack_start(self._text("DESKTOP COMPOSITION", "creator-rail-label"), True, True, 0)
             self.geometry = Gtk.ComboBoxText()
             for key, label in (("1024,768,1", "1024 × 768"),
                                ("1366,768,1", "1366 × 768"),
@@ -209,13 +226,55 @@ def run() -> int:
                                ("1366,768,1.25", "1366 × 768 · 125%")):
                 self.geometry.append(key, label)
             self.geometry.set_active_id("1366,768,1")
+            self.geometry.connect("changed", self._geometry_changed)
             head.pack_start(self.geometry, False, False, 0)
+            self.visual_stack = Gtk.Stack()
+            self.visual_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+            self.visual_switch = Gtk.StackSwitcher()
+            self.visual_switch.set_stack(self.visual_stack)
+            preview.pack_start(self.visual_switch, False, False, 0)
             frame = Gtk.Frame()
             frame.set_shadow_type(Gtk.ShadowType.IN)
             preview.pack_start(frame, True, True, 0)
+            frame.add(self.visual_stack)
+
+            # This is a clearly labeled, editable *schematic*. Only the other
+            # stack page displays pixels from the supervised real renderer.
+            canvas_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            # Draw into an owner-local Cairo image and display via GdkPixbuf.
+            # This avoids requiring the optional gi._gi_cairo foreign converter
+            # for the GTK "draw" signal while retaining native GTK input.
+            self.canvas = Gtk.EventBox()
+            self.canvas.set_size_request(245, 235)
+            self.canvas.set_hexpand(True)
+            self.canvas.set_vexpand(True)
+            self.canvas.set_can_focus(True)
+            self.canvas.set_tooltip_text("Click a layer; drag or press arrow keys to move it")
+            self.canvas_image = Gtk.Image()
+            self.canvas.add(self.canvas_image)
+            self.canvas.add_events(Gdk.EventMask.BUTTON_PRESS_MASK |
+                                   Gdk.EventMask.BUTTON_RELEASE_MASK |
+                                   Gdk.EventMask.POINTER_MOTION_MASK |
+                                   Gdk.EventMask.KEY_PRESS_MASK)
+            self.canvas.connect("size-allocate", lambda *_: self._queue_canvas())
+            self.canvas.connect("button-press-event", self._canvas_press)
+            self.canvas.connect("motion-notify-event", self._canvas_motion)
+            self.canvas.connect("button-release-event", self._canvas_release)
+            self.canvas.connect("key-press-event", self._canvas_key)
+            canvas_container.pack_start(self.canvas, True, True, 0)
+            self.canvas_help = self._text(
+                "SCHEMATIC · Select layers in the canvas or inspector. Drag to move; "
+                "arrow keys nudge 8 px, Shift+arrows 1 px. Render for real shell pixels.",
+                "creator-layer-hint", wrap=True)
+            self.canvas_help.set_margin_start(12)
+            self.canvas_help.set_margin_end(12)
+            self.canvas_help.set_margin_bottom(12)
+            canvas_container.pack_start(self.canvas_help, False, False, 0)
+            self.visual_stack.add_titled(canvas_container, "canvas", "Edit layout")
+
             self.preview_scroller = Gtk.ScrolledWindow()
             self.preview_scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-            frame.add(self.preview_scroller)
+            self.visual_stack.add_titled(self.preview_scroller, "native", "Native capture")
             self.preview_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
             self.preview_box.set_halign(Gtk.Align.CENTER)
             self.preview_box.set_valign(Gtk.Align.CENTER)
@@ -321,10 +380,12 @@ def run() -> int:
         def _load(self, info: workspace.DraftInfo, *, reset_history=False):
             report = review.review(str(info.path))
             if report["recipe"]["schema_version"] != 10:
-                raise workspace.WorkspaceError("Creator 0.1 currently edits schema-v10 recipes only")
+                raise workspace.WorkspaceError("Creator 0.2 currently edits schema-v10 recipes only")
             self._render_generation += 1
             self.info, self.baseline, self.pending = info, report["recipe"], {}
+            self.working = copy.deepcopy(self.baseline)
             self.layout = copy.deepcopy(self.baseline["panel"]["layout"])
+            self._selected_layer, self._drag, self._drag_preview = None, None, None
             if reset_history:
                 self._history = []
             self._pixbuf = None
@@ -334,6 +395,7 @@ def run() -> int:
             self.diff.set_text(f"Recipe: {info.recipe_id} · Schema v10 · SHA {info.semantic_sha256[:12]}")
             self.inspector_context.set_text(f"Editing {info.name} · schema v10 · offline draft")
             self._build_inspector()
+            self._queue_canvas()
             self._actions()
 
         def _build_inspector(self):
@@ -341,6 +403,7 @@ def run() -> int:
                 self.inspector.remove(child)
             assert self.baseline is not None
             self._building = True
+            self._build_layer_inspector()
             for title, fields in FIELDS:
                 expander = Gtk.Expander(label=title)
                 expander.set_expanded(title in ("Rice identity", "Shell", "Surface colors"))
@@ -396,6 +459,442 @@ def run() -> int:
                 self._build_lane(lane)
             self.inspector.show_all()
             self._building = False
+
+        def _build_layer_inspector(self):
+            expander = Gtk.Expander(label="Desktop layers · visual editor")
+            expander.set_expanded(True)
+            self.inspector.pack_start(expander, False, False, 0)
+            body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            body.set_margin_top(10)
+            body.set_margin_bottom(10)
+            expander.add(body)
+            body.pack_start(self._text("Choose a layer or click it on the canvas.",
+                                       "creator-layer-hint", wrap=True), False, False, 0)
+            self.layer_list = Gtk.ListBox()
+            self.layer_list.get_style_context().add_class('creator-layer-list')
+            self.layer_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
+            self.layer_list.connect("row-selected", self._layer_selected)
+            body.pack_start(self.layer_list, False, False, 0)
+
+            add_row = Gtk.Box(spacing=6)
+            self.layer_choices = Gtk.ComboBoxText()
+            for key, title in (("text", "Static text"), ("clock", "Clock"),
+                               ("date", "Date"), ("system", "System info")):
+                self.layer_choices.append(key, title)
+            for component in self.baseline.get("components", []):
+                if component["role"] == "status":
+                    self.layer_choices.append("component:" + component["id"],
+                                              "Status: " + component["label"])
+            for action, label in (("applications", "Applications"),
+                                  ("terminal", "Terminal"), ("lock", "Lock")):
+                self.layer_choices.append("icon:" + action, "Shortcut: " + label)
+            self.layer_choices.set_active(0)
+            add_row.pack_start(self.layer_choices, True, True, 0)
+            add = self._button("Add", self._add_layer)
+            add_row.pack_start(add, False, False, 0)
+            body.pack_start(add_row, False, False, 0)
+
+            self.layer_detail = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=7)
+            body.pack_start(self.layer_detail, False, False, 0)
+            self._refresh_layer_list()
+
+        def _layer_keys(self):
+            assert self.working is not None
+            return ([('widget', n) for n in range(len(self.working['composition']['widgets']))] +
+                    [('icon', n) for n in range(len(self.working['desktop']['icons']))] +
+                    [('region', 0)])
+
+        def _refresh_layer_list(self):
+            # Keep GTK's own ListBox navigation and focused-row semantics.
+            previous = self._building
+            self._building = True
+            for row in self.layer_list.get_children():
+                self.layer_list.remove(row)
+            self._layer_order = self._layer_keys()
+            for key in self._layer_order:
+                label = self._text(layout_engine.layer_label(self.working, *key), "hub-body")
+                label.set_margin_top(5)
+                label.set_margin_bottom(5)
+                label.set_margin_start(5)
+                self.layer_list.add(label)
+            if self._selected_layer not in self._layer_order:
+                self._selected_layer = self._layer_order[0] if self._layer_order else None
+            if self._selected_layer is not None:
+                self.layer_list.select_row(self.layer_list.get_row_at_index(
+                    self._layer_order.index(self._selected_layer)))
+            self._building = previous
+            self.layer_list.show_all()
+            self._render_layer_details()
+            self._queue_canvas()
+
+        def _layer_selected(self, _listbox, row):
+            if self._building or row is None:
+                return
+            self._selected_layer = self._layer_order[row.get_index()]
+            self._render_layer_details()
+            self._queue_canvas()
+
+        def _render_layer_details(self):
+            for child in self.layer_detail.get_children():
+                self.layer_detail.remove(child)
+            if self._selected_layer is None or self.working is None:
+                return
+            layer, index = self._selected_layer
+            manifest = self.working
+            item = (manifest['composition']['window_region'] if layer == 'region' else
+                    manifest['composition']['widgets'][index] if layer == 'widget' else
+                    manifest['desktop']['icons'][index])
+            self.layer_detail.pack_start(self._text(
+                layout_engine.layer_label(manifest, layer, index), 'creator-layer-selected',
+                wrap=True), False, False, 0)
+            grid = Gtk.Grid(row_spacing=6, column_spacing=6)
+            self.layer_detail.pack_start(grid, False, False, 0)
+            for row, key in enumerate(('x', 'y', 'width', 'height') if layer == 'region'
+                                      else ('x', 'y')):
+                label = self._text(key.upper() + (' (%)' if layer == 'region' else ' (px)'),
+                                   'creator-layer-hint')
+                upper = (100 if layer == 'region' else
+                         4096 if layer == 'icon' else 16384)
+                minimum = (1 if layer == 'region' and key in ('width', 'height') else
+                           72 if layer == 'icon' and key == 'y' else 0)
+                field = Gtk.SpinButton.new_with_range(minimum, upper, 1)
+                field.set_value(item[key])
+                field.connect('value-changed', lambda w, name=key:
+                              self._edit_layer({name: w.get_value_as_int()}))
+                label.set_mnemonic_widget(field)
+                grid.attach(label, 0, row, 1, 1)
+                grid.attach(field, 1, row, 1, 1)
+            if layer == 'widget' and item['kind'] == 'text':
+                field = Gtk.Entry()
+                field.set_max_length(22)
+                field.set_text(item['text'])
+                field.set_tooltip_text('1–22 Latin letters, digits or basic punctuation')
+                field.connect('activate', lambda w: self._edit_layer({'text': w.get_text()}))
+                field.connect('focus-out-event', lambda w, _e:
+                              (self._edit_layer({'text': w.get_text()}), False)[1])
+                self.layer_detail.pack_start(self._text('Static text · Enter to commit',
+                                                         'creator-layer-hint'), False, False, 0)
+                self.layer_detail.pack_start(field, False, False, 0)
+            if layer == 'icon':
+                field = Gtk.Entry()
+                field.set_max_length(12)
+                field.set_text(item['label'])
+                field.set_tooltip_text('1–12 Latin letters, digits or basic punctuation')
+                field.connect('activate', lambda w: self._edit_layer({'label': w.get_text()}))
+                field.connect('focus-out-event', lambda w, _e:
+                              (self._edit_layer({'label': w.get_text()}), False)[1])
+                self.layer_detail.pack_start(self._text('Shortcut label · Enter to commit',
+                                                         'creator-layer-hint'), False, False, 0)
+                self.layer_detail.pack_start(field, False, False, 0)
+                choice = Gtk.ComboBoxText()
+                for action in sorted(recipes.ICON_ACTIONS):
+                    choice.append(action, action.title())
+                choice.set_active_id(item['action'])
+                choice.connect('changed', lambda w:
+                               self._edit_layer({'action': w.get_active_id()})
+                               if w.get_active_id() else None)
+                self.layer_detail.pack_start(choice, False, False, 0)
+            if layer == 'widget':
+                compact = Gtk.CheckButton(label='Hide on compact displays')
+                compact.set_active(item['id'] in manifest['composition']['compact_hide_widgets'])
+                compact.connect('toggled', lambda w: self._set_compact_hidden(w.get_active()))
+                self.layer_detail.pack_start(compact, False, False, 0)
+            if layer != 'region':
+                remove = self._button('Remove selected layer', self._remove_layer)
+                remove.set_sensitive(not (layer == 'icon' and
+                                          len(manifest['desktop']['icons']) == 1))
+                self.layer_detail.pack_start(remove, False, False, 0)
+            self.layer_detail.show_all()
+
+        def _apply_layout(self, updated):
+            assert self.working is not None
+            paths = ('/composition/widgets', '/composition/window_region',
+                     '/composition/compact_hide_widgets', '/desktop/icons')
+            for path in paths:
+                value = _get_field(updated, path)
+                if value != _get_field(self.working, path):
+                    self._change(path, value)
+
+        def _edit_layer(self, fields):
+            if self._selected_layer is None or self._busy or self.working is None:
+                return
+            try:
+                updated = layout_engine.edit_layer(self.working, *self._selected_layer, fields)
+                self._apply_layout(updated)
+                self._status('Layer updated · Save version to persist.', success=True)
+            except layout_engine.LayoutError as exc:
+                self._status(f'Cannot edit layer: {exc}', error=True)
+
+        def _set_compact_hidden(self, hidden):
+            if self._selected_layer is None or self.working is None:
+                return
+            try:
+                updated = layout_engine.set_compact_hidden(self.working,
+                                                          self._selected_layer[1], hidden)
+                self._apply_layout(updated)
+            except layout_engine.LayoutError as exc:
+                self._status(f'Cannot change compact visibility: {exc}', error=True)
+
+        def _add_layer(self, _button):
+            if self.working is None or self._busy:
+                return
+            kind = self.layer_choices.get_active_id()
+            if kind is None:
+                return
+            try:
+                updated = layout_engine.add_layer(self.working, kind)
+                self._apply_layout(updated)
+                layer = 'icon' if kind.startswith('icon:') else 'widget'
+                items = (self.working['desktop']['icons'] if layer == 'icon' else
+                         self.working['composition']['widgets'])
+                self._selected_layer = (layer, len(items) - 1)
+                self._refresh_layer_list()
+                self._status('Layer added. Save version to keep it.', success=True)
+            except layout_engine.LayoutError as exc:
+                self._status(f'Cannot add layer: {exc}', error=True)
+
+        def _remove_layer(self, _button):
+            if self._selected_layer is None or self.working is None or self._busy:
+                return
+            try:
+                updated = layout_engine.remove_layer(self.working, *self._selected_layer)
+                self._apply_layout(updated)
+                self._selected_layer = None
+                self._refresh_layer_list()
+                self._status('Layer removed in unsaved version. Previous drafts are intact.',
+                             success=True)
+            except layout_engine.LayoutError as exc:
+                self._status(f'Cannot remove layer: {exc}', error=True)
+
+        def _geometry_changed(self, *_args):
+            if hasattr(self, 'canvas'):
+                self._queue_canvas()
+
+        def _screen_geometry(self):
+            selected = self.geometry.get_active_id() or '1366,768,1'
+            width, height, _scale = selected.split(',')
+            return int(width), int(height)
+
+        def _queue_canvas(self):
+            if self._canvas_refresh_queued:
+                return
+            self._canvas_refresh_queued = True
+            GLib.idle_add(self._refresh_canvas_pixels)
+
+        def _refresh_canvas_pixels(self):
+            self._canvas_refresh_queued = False
+            width = max(245, self.canvas.get_allocated_width())
+            height = max(235, self.canvas.get_allocated_height())
+            surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
+            self._paint_canvas(self.canvas, cairo.Context(surface))
+            content = io.BytesIO()
+            surface.write_to_png(content)
+            loader = GdkPixbuf.PixbufLoader.new_with_type('png')
+            loader.write(content.getvalue())
+            loader.close()
+            self.canvas_image.set_from_pixbuf(loader.get_pixbuf())
+            return False
+
+        def _paint_canvas(self, area, cr):
+            width = max(245, area.get_allocated_width())
+            height = max(235, area.get_allocated_height())
+            cr.set_source_rgb(.055, .075, .105)
+            cr.paint()
+            if self.working is None:
+                cr.set_source_rgb(.69, .78, .86)
+                cr.move_to(18, height / 2)
+                cr.set_font_size(14)
+                cr.show_text('Create a draft to edit its desktop layers.')
+                return False
+            screen_w, screen_h = self._screen_geometry()
+            view = layout_engine.fit_viewport(width, height, screen_w, screen_h)
+            self._last_viewport = view
+            recipe = self.working
+
+            def color(value, alpha=1):
+                rgb = tuple(int(value[index:index + 2], 16) / 255 for index in (1, 3, 5))
+                cr.set_source_rgba(*rgb, alpha)
+
+            def rectangle(x, y, w, h, fill, *, border=None, radius=0):
+                # Simple rectilinear geometry intentionally mirrors recipe hit regions.
+                px, py = view.to_canvas(x, y)
+                pw, ph = w * view.scale, h * view.scale
+                cr.rectangle(px, py, pw, ph)
+                color(fill)
+                cr.fill_preserve() if border else cr.fill()
+                if border:
+                    cr.set_line_width(2 if radius else 1)
+                    color(border)
+                    cr.stroke()
+
+            cr.rectangle(view.x - 1, view.y - 1, view.width + 2, view.height + 2)
+            cr.set_source_rgb(.65, .72, .79)
+            cr.stroke()
+            # A schematic canvas intentionally does not imitate the wallpaper.
+            rectangle(0, 0, screen_w, screen_h, '#18364b')
+            cr.save()
+            cr.rectangle(view.x, view.y, view.width, view.height)
+            cr.clip()
+            cr.set_line_width(.5)
+            cr.set_source_rgba(.75, .84, .92, .12)
+            for logical_x in range(0, screen_w, 128):
+                px, _ = view.to_canvas(logical_x, 0)
+                cr.move_to(px, view.y)
+                cr.line_to(px, view.y + view.height)
+            for logical_y in range(0, screen_h, 128):
+                _, py = view.to_canvas(0, logical_y)
+                cr.move_to(view.x, py)
+                cr.line_to(view.x + view.width, py)
+            cr.stroke()
+
+            def selected(kind, index):
+                return self._selected_layer == (kind, index)
+
+            region = recipe['composition']['window_region']
+            rx, ry = screen_w * region['x'] / 100, screen_h * region['y'] / 100
+            if selected('region', 0) and self._drag_preview:
+                rx, ry = self._drag_preview
+            px, py = view.to_canvas(round(rx), round(ry))
+            pw = view.width * region['width'] / 100
+            ph = view.height * region['height'] / 100
+            cr.rectangle(px, py, pw, ph)
+            cr.set_source_rgba(.59, .73, .87, .13)
+            cr.fill_preserve()
+            cr.set_dash([7, 4])
+            cr.set_line_width(2.5 if selected('region', 0) else 1.4)
+            cr.set_source_rgba(.79, .88, 1, 1)
+            cr.stroke()
+            cr.set_dash([])
+            cr.set_source_rgb(.86, .92, 1)
+            cr.set_font_size(11)
+            cr.move_to(px + 8, py + 16)
+            cr.show_text('APPLICATION WINDOWS · RESERVED')
+
+            panel = recipe['panel']
+            panel_y = 0 if panel['position'] == 'top' else screen_h - panel['height']
+            rectangle(0, panel_y, screen_w, panel['height'], recipe['colors']['background'],
+                      border=recipe['colors']['active'])
+            px, py = view.to_canvas(14, panel_y + max(16, panel['height'] / 2 + 4))
+            cr.move_to(px, py)
+            cr.set_font_size(max(8, min(12, 12 * view.scale)))
+            color(recipe['colors']['foreground'])
+            cr.show_text('PANEL · ' + panel['position'].upper())
+
+            for index, icon in enumerate(recipe['desktop']['icons']):
+                x, y = icon['x'], icon['y']
+                if selected('icon', index) and self._drag_preview:
+                    x, y = self._drag_preview
+                rectangle(x, y, recipes.ICON_WIDTH, recipes.ICON_HEIGHT,
+                          '#467187' if selected('icon', index) else '#30566b',
+                          border='#ffe5a0' if selected('icon', index) else '#7398aa')
+                px, py = view.to_canvas(x + 8, y + 33)
+                cr.set_source_rgb(.96, .97, 1)
+                cr.set_font_size(max(8, min(12, 11 * view.scale)))
+                cr.move_to(px, py)
+                cr.show_text(icon['label'][:12])
+
+            hidden = recipe['composition']['compact_hide_widgets']
+            for index, widget in enumerate(recipe['composition']['widgets']):
+                x, y = widget['x'], widget['y']
+                if selected('widget', index) and self._drag_preview:
+                    x, y = self._drag_preview
+                rectangle(x, y, recipes.DESKTOP_WIDGET_WIDTH, recipes.DESKTOP_WIDGET_HEIGHT,
+                          '#335d72' if selected('widget', index) else '#24495e',
+                          border='#ffe5a0' if selected('widget', index) else '#7398aa')
+                px, py = view.to_canvas(x + 12, y + 32)
+                cr.set_source_rgb(.95, .97, 1)
+                cr.set_font_size(max(9, min(14, 13 * view.scale)))
+                cr.move_to(px, py)
+                name = widget.get('text') if widget['kind'] == 'text' else widget.get('ref', widget['kind'])
+                cr.show_text(name[:22])
+                cr.move_to(px, py + max(12, 18 * view.scale))
+                cr.set_font_size(max(8, min(11, 10 * view.scale)))
+                cr.show_text('HIDDEN ON COMPACT' if widget['id'] in hidden else
+                             'DESKTOP WIDGET')
+            cr.restore()
+            if self._selected_layer is not None:
+                area.get_style_context().add_class('creator-layer-selected')
+            return False
+
+        def _canvas_press(self, _area, event):
+            if event.button != 1 or self.working is None or self._busy or self._last_viewport is None:
+                return False
+            x, y = self._last_viewport.to_screen(event.x, event.y)
+            key = layout_engine.hit_test(self.working, x, y, *self._screen_geometry())
+            self._selected_layer = key
+            if key is not None:
+                layer, index = key
+                item = (self.working['composition']['window_region'] if layer == 'region' else
+                        self.working['composition']['widgets'][index] if layer == 'widget' else
+                        self.working['desktop']['icons'][index])
+                sx, sy = ((round(self._screen_geometry()[0] * item['x'] / 100),
+                           round(self._screen_geometry()[1] * item['y'] / 100))
+                          if layer == 'region' else (item['x'], item['y']))
+                self._drag = (key, event.x, event.y, sx, sy)
+            else:
+                self._drag = None
+            self._refresh_layer_list()
+            self.canvas.grab_focus()
+            return True
+
+        def _canvas_motion(self, _area, event):
+            if self._drag is None or self._last_viewport is None:
+                return False
+            _key, start_x, start_y, x, y = self._drag
+            scale = self._last_viewport.scale
+            self._drag_preview = (round(x + (event.x - start_x) / scale),
+                                  round(y + (event.y - start_y) / scale))
+            self._queue_canvas()
+            return True
+
+        def _canvas_release(self, _area, event):
+            if event.button != 1 or self._drag is None:
+                return False
+            key, *_ = self._drag
+            self._drag = None
+            point = self._drag_preview
+            self._drag_preview = None
+            if point is not None:
+                self._move_selected(*point, snap=1 if event.state & Gdk.ModifierType.SHIFT_MASK else 8)
+            self._queue_canvas()
+            return True
+
+        def _canvas_key(self, _area, event):
+            directions = {Gdk.KEY_Left: (-1, 0), Gdk.KEY_Right: (1, 0),
+                          Gdk.KEY_Up: (0, -1), Gdk.KEY_Down: (0, 1)}
+            if (event.keyval not in directions or self._selected_layer is None or
+                    self.working is None or self._busy):
+                return False
+            direction = directions[event.keyval]
+            step = 1 if event.state & Gdk.ModifierType.SHIFT_MASK else 8
+            layer, index = self._selected_layer
+            item = (self.working['composition']['window_region'] if layer == 'region' else
+                    self.working['composition']['widgets'][index] if layer == 'widget' else
+                    self.working['desktop']['icons'][index])
+            width, height = self._screen_geometry()
+            x, y = ((round(width * item['x'] / 100), round(height * item['y'] / 100))
+                    if layer == 'region' else (item['x'], item['y']))
+            if layer == 'region':
+                # Percent-based reserved region: each keypress is one percent.
+                x += round(width / 100) * direction[0]
+                y += round(height / 100) * direction[1]
+            else:
+                x += step * direction[0]
+                y += step * direction[1]
+            self._move_selected(x, y, snap=step)
+            return True
+
+        def _move_selected(self, x, y, *, snap):
+            if self._selected_layer is None or self.working is None:
+                return
+            try:
+                updated = layout_engine.move_layer(self.working, *self._selected_layer,
+                                                  x, y, *self._screen_geometry(), snap=snap)
+                self._apply_layout(updated)
+                self._refresh_layer_list()
+                self.canvas.grab_focus()
+            except layout_engine.LayoutError as exc:
+                self._status(f'Cannot move layer: {exc}', error=True)
 
         def _build_lane(self, lane: str):
             group = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -466,10 +965,20 @@ def run() -> int:
         def _change(self, path, value):
             if self._building or self.baseline is None:
                 return
+            assert self.working is not None
+            target = self.working
+            parts = path.lstrip("/").split("/")
+            for part in parts[:-1]:
+                target = target[part]
+            target[parts[-1]] = copy.deepcopy(value)
             if value == _get_field(self.baseline, path):
                 self.pending.pop(path, None)
             else:
                 self.pending[path] = value
+            if self._pixbuf is not None and self.pending:
+                self.preview_caption.set_text(
+                    "Last native capture is from a saved version. Render again for changed pixels.")
+            self._queue_canvas()
             self._status(f"{len(self.pending)} unsaved properties · Save version before preview/export"
                          if self.pending else "No unsaved changes")
             self._actions()
@@ -551,6 +1060,7 @@ def run() -> int:
                     self.preview_caption.set_text(
                         f"Native RicePlate · {receipt['geometry']['width']} × "
                         f"{receipt['geometry']['height']} · scale {receipt['geometry']['scale']}")
+                    self.visual_stack.set_visible_child_name("native")
                     self._status("Real native capture ready. No desktop settings changed.", success=True)
                 except (GLib.Error, ValueError, KeyError) as exc:
                     self._status(f"Cannot display rendered PNG: {exc}", error=True)
@@ -640,6 +1150,20 @@ def run() -> int:
             assert not window.pending
             window._undo(None)
             assert window.info.path == initial.path
+            # Exercise the real 2-D editor rather than only its pure model:
+            # add one static layer, move it, set compact visibility, persist.
+            window._add_layer(None)
+            assert window._selected_layer == ('widget', 2)
+            window._move_selected(168, 568, snap=8)
+            window._set_compact_hidden(True)
+            assert len(window.working['composition']['widgets']) == 3
+            assert window.working['composition']['widgets'][2]['x'] == 168
+            assert window._commit_pending()
+            saved = recipes.load(str(window.info.path))
+            assert len(saved.composition.widgets) == 3
+            assert saved.composition.widgets[2].widget_id in saved.composition.compact_hide_widgets
+            window._refresh_canvas_pixels()
+            assert window.canvas_image.get_pixbuf() is not None
             path = os.environ.get("RICEBOWL_CREATOR_SMOKE_CAPTURE")
             if path:
                 window.queue_draw()

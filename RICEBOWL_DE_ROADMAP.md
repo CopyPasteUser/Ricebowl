@@ -730,6 +730,17 @@ depend on the XFCE session.
   are included. There is no active-session apply button, new daemon or AI
   inference requirement. Richer tree editing, assets, visual overlays,
   interactive mockup conversion and physical hardware acceptance remain open.
+- [x] Deliver **Rice Creator 0.2 desktop-composition canvas**: a separate,
+  accurately letterboxed logical-coordinate GTK authoring view with selectable
+  schema-v10 desktop widgets, status components, shortcuts and reserved window
+  area. Native GTK layer inspector edits positions, bounded text, shortcut
+  actions and compact visibility; pointer drag and focusable arrow-key nudging
+  use the existing strict parser. Adding/removing layers and saving/undoing
+  write only private immutable versions. Real native screenshots remain a
+  separate on-demand tab, never a fabricated canvas; GTK/Xvfb smoke and pure
+  input/validation tests cover the workflow. Custom wallpaper/icon/font
+  import, nested panel-group child editing and physical keyboard/AT acceptance
+  remain future Creator milestones.
 - [x] Implement **Wayland RicePack v1 recipe exchange** (`de pack-export`,
   `de pack-inspect`, `de pack-import`): reproducible owner-private `.ricepack`
   archives, canonical schema-v1–v5 recipe, SHA-256 byte/semantic validation,

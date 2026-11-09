@@ -22,13 +22,24 @@ secondary pages; prototypes and the release roadmap do not crowd the selector.
 - The macOS selection currently previews its wallpaper rather than a full
   desktop capture; the hub labels that distinction explicitly.
 
-## Rice Creator workspace (GTK3, experimental)
+## Rice Creator workspace (GTK3, experimental 0.2)
 
 The Creator is a compact desktop authoring instrument, not a themed desktop
 simulation. Its one memorable surface is the **central real-shell capture**:
 the preview is deliberately labeled as a static, isolated native RicePlate
 render, with geometry controls and visible loading/unavailable states. The
-left rail contains four real starting templates and saved draft versions; the
+separate **Edit layout** surface is explicitly a schematic coordinate editor,
+not a fake live preview: it shows bounded desktop layers in real logical-pixel
+positions, the reserved window rectangle in percent, and an orientation-only
+panel. Its selectable outline is a functional drag/keyboard target, not
+ornament. Layer selection, the focused canvas and the native GTK inspector
+form a single editing state; arrows nudge eight pixels (Shift: one pixel),
+and every committed move is checked by the Runtime recipe parser. Output
+geometry selection preserves aspect ratio. The layer list uses navy surfaces
+and high-contrast labels with a visible selected row rather than the system's
+default light list background. A fresh native screenshot must be explicitly
+rendered after changes; stale real pixels are never presented as live updates.
+The left rail contains four real starting templates and saved draft versions; the
 right scrollable inspector groups actual schema-v10 properties and structurally
 editable panel lanes. Actions form a clear reversible sequence: create → edit
 → save a new private version → render → optionally export. The latest and

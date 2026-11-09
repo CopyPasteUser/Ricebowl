@@ -922,7 +922,7 @@ to active configuration or bypass native safety checks. A Creator must compare
 feature IDs and versions before constructing a UI; unsupported widget actions
 must remain disabled or request a new shared primitive.
 
-#### Rice Creator 0.1 — optional native GTK workspace
+#### Rice Creator 0.2 — interactive desktop composition
 
 Launch `ricebowl creator` (or `macrice creator` from a checkout); the regular
 user-local installer also adds a **Rice Creator (experimental)** application
@@ -937,6 +937,28 @@ panel nodes in the start/center/end lanes. It understands nested groups as
 reorderable nodes rather than silently flattening them. The same strict parser
 and `draft-edit` allowlist validate every **Save version** operation. Invalid
 or duplicate interactive controls cannot be installed by a failed draft edit.
+
+The optional graphical **Edit layout** canvas now exposes the actual schema-v10
+desktop composition. Choose a widget or shortcut in the layer list or click
+its on-screen outline, then drag it or use the keyboard arrow keys (8 px,
+Shift+arrow for 1 px) to adjust its logical output position. Select the
+reserved application-window rectangle to move it in bounded percentages; its
+width and height are editable in the inspector. The same inspector edits
+static widget text, desktop shortcut label/action, compact-screen hiding,
+and adds or removes strictly allowed status/static widgets and shortcuts.
+Maximums remain **four desktop widgets and eight shortcuts**. Duplicate,
+overlapping or unsupported icon definitions, invalid text, off-bounds regions
+and unknown action bindings fail validation without changing an active desktop.
+All edits use the existing immutable draft revision flow, not a new renderer.
+
+**Edit layout is schematic**, with a gridded logical-coordinate view that
+never claims to display true wallpaper pixels or client windows. Switch to
+**Native capture**, then click **Render preview** for the true headless labwc /
+RicePlate screenshot. The last capture is marked stale when edits are pending;
+output aspect ratio follows the selected preview geometry. The GTK canvas uses
+the distro's `python3-cairo` package (also installed by the documented Debian
+setup) to produce an image in memory; no
+`gi._gi_cairo` GTK signal converter or extra Creator daemon is required.
 
 Saved drafts are owner-only files in the XDG state directory under
 `ricebowl/creator/drafts/` (default `~/.local/state/ricebowl/creator/drafts/`).
@@ -956,9 +978,9 @@ cache of private screen pixels remains. Missing `labwc`, `grim`, `wlr-randr`,
 state instead of an illustrated preview. The preview is a static snapshot, not
 an interactive nested session. Hardware/input QA and UI-side reviewed live
 apply/rollback remain later milestones. Existing CLI commands continue to
-offer explicit reviewed apply and restore; the Creator 0.1 GUI **never** calls
-them. No AI runtime, internet account, arbitrary plugin code or additional
-Python dependency is required for authoring.
+offer explicit reviewed apply and restore; the Creator 0.2 GUI **never** calls
+them. No AI runtime, internet account or arbitrary plugin code is required;
+the optional visual editor uses the documented GTK/PyGObject and Cairo packages.
 
 The **Wayland RicePack v2** is a reproducible, local `.ricepack` ZIP with exactly
 `ricepack.json` (format version, recipe identity, SHA-256 checksums and declared
