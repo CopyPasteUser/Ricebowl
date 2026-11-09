@@ -796,6 +796,19 @@ def shell(
                             output_events = None
                             print(f"RiceBowl: automatic output watch unavailable: {error}",
                                   file=sys.stderr)
+                    # The optional Rust output watcher may be absent in a
+                    # Waybar-only installation. Still record the initial
+                    # output-layout signature, otherwise the first resume
+                    # would restart an unchanged bar unnecessarily.
+                    if mode == "waybar" and last_output_config is None:
+                        try:
+                            from . import recipes
+                            active = live_controller.active
+                            last_output_config = (active, _waybar_recipe_config(
+                                recipes.load(active), env, which)[0])
+                        except (RecipeError, OSError, ValueError) as error:
+                            print(f"RiceBowl: initial output layout unavailable: {error}",
+                                  file=sys.stderr)
                     with listen(env) as listener:
                         auto_restore_attempted = False
                         rescue_attempted = False
