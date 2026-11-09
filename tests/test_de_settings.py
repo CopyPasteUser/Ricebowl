@@ -198,8 +198,8 @@ class RiceSpiceSettingsTests(unittest.TestCase):
     def test_suspend_locks_before_requesting_logind_and_lock_reports_success(self):
         result = mock.Mock(returncode=0)
         with mock.patch.object(backend.shutil, "which",
-                               side_effect=lambda name: "/usr/bin/" + name), \\
-             mock.patch.object(backend.subprocess, "run", return_value=result) as run, \\
+                               side_effect=lambda name: "/usr/bin/" + name), \
+             mock.patch.object(backend.subprocess, "run", return_value=result) as run, \
              mock.patch.dict(backend.os.environ, {"RICEBOWL_DE_NESTED": "0"}):
             backend.power_action("lock")
             self.assertEqual(run.call_args.args[0], ["/usr/bin/swaylock", "-f"])
@@ -212,13 +212,13 @@ class RiceSpiceSettingsTests(unittest.TestCase):
     def test_suspend_refuses_failed_or_unavailable_screen_lock(self):
         with mock.patch.object(backend.shutil, "which",
                                side_effect=lambda name: None if name == "swaylock"
-                               else "/usr/bin/" + name), \\
+                               else "/usr/bin/" + name), \
              mock.patch.object(backend.subprocess, "run") as run:
             with self.assertRaisesRegex(backend.SettingsError, "swaylock"):
                 backend.power_action("suspend")
             run.assert_not_called()
         with mock.patch.object(backend.shutil, "which",
-                               side_effect=lambda name: "/usr/bin/" + name), \\
+                               side_effect=lambda name: "/usr/bin/" + name), \
              mock.patch.object(backend.subprocess, "run",
                                return_value=mock.Mock(returncode=1)) as run:
             with self.assertRaisesRegex(backend.SettingsError, "lock failed"):
@@ -229,7 +229,7 @@ class RiceSpiceSettingsTests(unittest.TestCase):
     def test_suspend_refuses_lock_timeout_without_contacting_logind(self):
         import subprocess
         with mock.patch.object(backend.shutil, "which",
-                               side_effect=lambda name: "/usr/bin/" + name), \\
+                               side_effect=lambda name: "/usr/bin/" + name), \
              mock.patch.object(backend.subprocess, "run",
                                side_effect=subprocess.TimeoutExpired("swaylock", 8)) as run:
             with self.assertRaisesRegex(backend.SettingsError, "could not complete"):
