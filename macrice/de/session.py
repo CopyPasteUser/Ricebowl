@@ -159,6 +159,10 @@ def start(
 
     binaries = {name: which(name) for name in REQUIRED_TOOLS}
     missing = [name for name, path in binaries.items() if not path]
+    # A full login must never become suspend-capable without its idle /
+    # before-sleep lock listener. Nested previews do not own system sleep.
+    if not nested and not which("swayidle"):
+        missing.append("swayidle")
     if missing:
         raise SessionError("Missing Wayland preview dependencies: " + ", ".join(missing))
     if panel == "native" and not which("riceplate-native"):
@@ -673,15 +677,21 @@ def shell(
                     background.append(spawn([agent], env=env, stdin=subprocess.DEVNULL))
                     break
 
-            idle = which("swayidle")
-            locker = which("swaylock")
-            if idle and locker and env.get("RICEBOWL_DE_NESTED") != "1":
+            idle_process: subprocess.Popen[bytes] | None = None
+            if env.get("RICEBOWL_DE_NESTED") != "1":
+                idle = which("swayidle")
+                locker = which("swaylock")
+                if not idle or not locker:
+                    raise SessionError(
+                        "Full Wayland session requires swayidle and swaylock "
+                        "for automatic and pre-suspend screen locking.")
                 lock_command = shlex.join([locker, "-f"])
-                background.append(spawn(
+                idle_process = spawn(
                     [idle, "-w", "timeout", "600", lock_command,
                      "before-sleep", lock_command],
                     env=env, stdin=subprocess.DEVNULL,
-                ))
+                )
+                background.append(idle_process)
 
             shutting_down = False
             shutdown_signal = signal.SIGTERM
@@ -737,6 +747,14 @@ def shell(
                         auto_restore_attempted = False
                         rescue_attempted = False
                         while not shutting_down:
+                            # If swayidle dies, the next suspend could resume
+                            # onto an unlocked screen. End this opt-in session
+                            # rather than silently running without protection.
+                            if idle_process is not None and idle_process.poll() is not None:
+                                print("RiceBowl: idle/lock watcher exited; stopping "
+                                      "unprotected Wayland session", file=sys.stderr)
+                                _stop_process(live_controller.panel)
+                                return 1
                             exit_code = live_controller.panel.poll()
                             if exit_code is not None:
                                 if exit_code == 0:
