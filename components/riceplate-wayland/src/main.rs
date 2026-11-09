@@ -2124,16 +2124,24 @@ impl RicePlate {
 
     fn assign_icon_to_next_output(&mut self, layer_index: usize) {
         let Some(current) = self.icon_output_name(layer_index) else { return; };
-        let mut names: Vec<_> = self.outputs.outputs()
-            .filter(|output| self.logical_output_size(output).is_some())
-            .filter_map(|output| self.outputs.info(&output).and_then(|info| info.name))
+        let recipe_index = self.icon_layers[layer_index].recipe_index;
+        // Only offer outputs for which this process actually owns an icon
+        // surface. The compositor may advertise more outputs than the bounded
+        // secondary layer-shell allocation supports.
+        let mut names: Vec<_> = self.icon_layers.iter()
+            .filter(|layer| layer.recipe_index == recipe_index)
+            .filter_map(|layer| {
+                let output = layer.bound_output.as_ref().or(self.primary_output.as_ref())
+                    .or(layer.output.as_ref())?;
+                self.logical_output_size(output)?;
+                self.outputs.info(output)?.name
+            })
             .collect();
         names.sort();
         names.dedup();
         if names.len() < 2 { return; }
         let next = names.iter().position(|name| name == &current)
             .map_or(0, |index| (index + 1) % names.len());
-        let recipe_index = self.icon_layers[layer_index].recipe_index;
         if let Err(error) = self.icon_outputs.assign(
             &self.recipe.desktop_icons, recipe_index, Some(&names[next]),
         ) {
@@ -2163,9 +2171,15 @@ impl RicePlate {
     }
 
     fn reflow_icons(&mut self) {
-        let connected: Vec<String> = self.outputs.outputs()
-            .filter(|output| self.logical_output_size(output).is_some())
-            .filter_map(|output| self.outputs.info(&output).and_then(|info| info.name))
+        // An advertised output without a shell surface must not swallow
+        // shortcuts assigned to it: recover those on the primary instead.
+        let connected: Vec<String> = self.icon_layers.iter()
+            .filter_map(|layer| {
+                let output = layer.bound_output.as_ref().or(self.primary_output.as_ref())
+                    .or(layer.output.as_ref())?;
+                self.logical_output_size(output)?;
+                self.outputs.info(output)?.name
+            })
             .collect();
         for index in 0..self.icon_layers.len() {
             let layer = &self.icon_layers[index];
