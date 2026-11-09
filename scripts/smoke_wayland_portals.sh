@@ -5,9 +5,14 @@
 set -eu
 
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
-for dependency in labwc pipewire xdg-desktop-portal-wlr dbus-run-session dbus-update-activation-environment; do
+for dependency in labwc pipewire dbus-run-session dbus-update-activation-environment; do
     command -v "$dependency" >/dev/null || { echo "Missing portal test dependency: $dependency" >&2; exit 1; }
 done
+backend_executable=$(command -v xdg-desktop-portal-wlr || :)
+if [ -z "$backend_executable" ] && [ -x /usr/libexec/xdg-desktop-portal-wlr ]; then
+    backend_executable=/usr/libexec/xdg-desktop-portal-wlr
+fi
+test -n "$backend_executable" || { echo 'Missing wlr portal backend executable' >&2; exit 1; }
 runtime=$(mktemp -d)
 chmod 0700 "$runtime"
 cleanup_runtime() {
@@ -41,6 +46,7 @@ export RICEBOWL_DE_NESTED=1
 dbus-run-session -- sh -eu -c '
     root=$1
     runtime=$2
+    backend_executable=$3
     labwc --config-dir "$root/macrice/de/resources/labwc" --startup true \
         >"$runtime/labwc.log" 2>&1 &
     compositor=$!
@@ -80,7 +86,7 @@ dbus-run-session -- sh -eu -c '
         XDG_CONFIG_HOME XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_SESSION_DESKTOP
     # Temporary verbose backend is identical to D-Bus auto activation but
     # records its actual session object registration path on failure.
-    xdg-desktop-portal-wlr -l DEBUG >"$runtime/xdpw.log" 2>&1 &
+    "$backend_executable" -l DEBUG >"$runtime/xdpw.log" 2>&1 &
     backend=$!
     sleep 0.25
     kill -0 "$backend" 2>/dev/null || {
@@ -96,4 +102,4 @@ dbus-run-session -- sh -eu -c '
         sed -n "1,100p" "$runtime/xdpw.log" >&2
         exit 1
     fi
-' sh "$root" "$runtime"
+' sh "$root" "$runtime" "$backend_executable"

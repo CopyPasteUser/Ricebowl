@@ -42,6 +42,7 @@ class WaylandPortalTests(unittest.TestCase):
         self.assertIn("dbus-run-session", harness)
         self.assertIn("mktemp -d", harness)
         self.assertIn("dbus-update-activation-environment", harness)
+        self.assertIn("/usr/libexec/xdg-desktop-portal-wlr", harness)
         self.assertNotIn("--systemd", harness)
 
     def test_create_session_uses_valid_glib_tuple_signature(self):
