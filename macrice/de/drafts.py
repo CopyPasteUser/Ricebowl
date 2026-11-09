@@ -89,6 +89,21 @@ def _allowed_value(path: str, value: Any, schema_version: int,
         except recipes.RecipeError:
             return False
         return True
+    if path.startswith("/artwork/"):
+        if schema_version < 11:
+            return False
+        from .style_assets import ICON_ID, FONT_ID, ICON_ACTIONS
+        if path == "/artwork/font":
+            return type(value) is str and (value == "builtin" or FONT_ID.fullmatch(value) is not None)
+        if path == "/artwork/icons":
+            try:
+                recipes._parse_artwork({"font": "builtin", "icons": value})
+                return True
+            except recipes.RecipeError:
+                return False
+        if path.removeprefix("/artwork/icons/") in ICON_ACTIONS:
+            return type(value) is str and (value == "builtin" or ICON_ID.fullmatch(value) is not None)
+        return False
     if path.startswith("/appearance/"):
         if schema_version < 10:
             return False

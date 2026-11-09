@@ -82,6 +82,10 @@ def _manifest(recipe: recipes.PanelRecipe) -> dict[str, Any]:
     if recipe.appearance is not None:
         from dataclasses import asdict
         result["appearance"] = asdict(recipe.appearance)
+    if recipe.artwork is not None:
+        from .style_assets import ICON_ACTIONS
+        result["artwork"] = {"font": recipe.artwork.font,
+                             "icons": dict(zip(ICON_ACTIONS, recipe.artwork.icons))}
     return result
 
 
@@ -121,6 +125,10 @@ def _fields(manifest: dict[str, Any]) -> dict[str, Any]:
         for token in ("font_scale", "font_weight", "item_spacing",
                       "hover", "focus", "disabled"):
             result[f"/appearance/{token}"] = manifest["appearance"][token]
+    if "artwork" in manifest:
+        result["/artwork/font"] = manifest["artwork"]["font"]
+        for action, asset in manifest["artwork"]["icons"].items():
+            result[f"/artwork/icons/{action}"] = asset
     for token in ("label_padding", "task_radius"):
         result[f"/tokens/{token}"] = manifest.get("tokens", {}).get(token)
     result["/responsive/compact_max_width"] = manifest.get("responsive", {}).get(

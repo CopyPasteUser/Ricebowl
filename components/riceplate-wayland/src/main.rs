@@ -17,6 +17,7 @@ mod native_menu;
 mod osd;
 mod power;
 mod recipe;
+mod style_art;
 mod ricepop;
 mod system_status;
 mod task_groups;
@@ -112,6 +113,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     };
     let mut recipe = recipe::load(recipe_name)?;
+    if let Some(selection) = recipe.artwork.as_ref() {
+        recipe.native_art = Some(style_art::load(selection, recipe.font_scale)?);
+    }
     let icon_outputs = icon_positions::restore(&mut recipe).unwrap_or_else(|error| {
         eprintln!("RicePlate: ignored invalid saved desktop icon positions: {error}");
         icon_positions::OutputPositions::default()
@@ -1907,8 +1911,13 @@ impl RicePlate {
             }
         };
         let icon = &self.recipe.desktop_icons[layer.recipe_index];
+        let icon_index = match icon.action.as_str() {
+            "applications" => Some(0), "terminal" => Some(1), "lock" => Some(2), _ => None,
+        };
+        let icon_pixels = icon_index.and_then(|which| self.recipe.native_art.as_ref()
+            .and_then(|art| art.icons[which].as_ref()));
         paint_icon(canvas, icon, self.recipe.active, self.recipe.foreground,
-                   self.focused_icon == Some(index));
+                   self.focused_icon == Some(index), icon_pixels);
         surface.damage_buffer(0, 0, width as i32, height as i32);
         if let Err(error) = buffer.attach_to(surface) {
             eprintln!("RicePlate: desktop icon attach failed: {error}");
@@ -3121,7 +3130,7 @@ fn paint_calendar(canvas: &mut [u8], style: &PanelStyle, state: &CalendarState) 
 }
 
 fn paint_icon(canvas: &mut [u8], icon: &recipe::DesktopIcon, active: u32,
-              foreground: u32, focused: bool) {
+              foreground: u32, focused: bool, custom: Option<&style_art::IconPixels>) {
     let width = recipe::ICON_WIDTH;
     let height = recipe::ICON_HEIGHT;
     canvas.fill(0); // Leave the surrounding desktop visible.
@@ -3138,18 +3147,19 @@ fn paint_icon(canvas: &mut [u8], icon: &recipe::DesktopIcon, active: u32,
         "lock" => "Lock",
         _ => return,
     };
-    fill_rounded_rect(canvas, width, height, 24, 4, 56, 48, 10, active);
+    if custom.is_some() {
+        // Transparent 48px artwork sits in the existing, keyboard-reachable
+        // 104x88 desktop icon surface. Wayland focus/label stay unchanged.
+        style_art::paint_icon(canvas, width, custom.unwrap(), 28, 4);
+    } else {
+        fill_rounded_rect(canvas, width, height, 24, 4, 56, 48, 10, active);
+    }
     // Contrast backplate prevents white labels from vanishing on bright rices.
     fill_rounded_rect(canvas, width, height, 2, 58, 100, 26, 6, 0xb020_2c36);
-    draw_text(
-        canvas,
-        width,
-        height,
-        52 - (glyph.len() as u32 * 4),
-        24,
-        glyph,
-        foreground,
-    );
+    if custom.is_none() {
+        draw_text(canvas, width, height, 52 - (glyph.len() as u32 * 4),
+                  24, glyph, foreground);
+    }
     draw_text(
         canvas,
         width,
@@ -3244,6 +3254,10 @@ fn draw_text(canvas: &mut [u8], width: u32, height: u32, x: u32, y: u32, text: &
 
 fn draw_rice_text(canvas: &mut [u8], width: u32, height: u32, x: u32, y: u32,
                   text: &str, color: u32, style: &PanelStyle) {
+    if let Some(font) = style.native_art.as_ref().and_then(|art| art.font.as_ref()) {
+        font.draw(canvas, width, height, x, y, text, color, style.font_bold);
+        return;
+    }
     draw_bitmap_text(canvas, width, height, x, y, text, color,
                      style.font_scale, style.font_bold);
 }
@@ -4873,7 +4887,7 @@ mod tests {
             y: 112,
         };
         let mut pixels = vec![255; (recipe::ICON_WIDTH * recipe::ICON_HEIGHT * 4) as usize];
-        paint_icon(&mut pixels, &icon, 0xff4179aa, 0xfff3f7fa, false);
+        paint_icon(&mut pixels, &icon, 0xff4179aa, 0xfff3f7fa, false, None);
         assert_eq!(&pixels[0..4], &[0, 0, 0, 0]);
         assert!(pixels
             .chunks_exact(4)
@@ -4881,7 +4895,7 @@ mod tests {
         assert!(pixels
             .chunks_exact(4)
             .any(|pixel| pixel == 0xfff3f7fa_u32.to_le_bytes()));
-        paint_icon(&mut pixels, &icon, 0xff4179aa, 0xfff3f7fa, true);
+        paint_icon(&mut pixels, &icon, 0xff4179aa, 0xfff3f7fa, true, None);
         assert_eq!(&pixels[0..4], &0xfff3f7fa_u32.to_le_bytes());
         assert_eq!(
             &pixels[((recipe::ICON_HEIGHT - 1) * recipe::ICON_WIDTH * 4) as usize..][..4],

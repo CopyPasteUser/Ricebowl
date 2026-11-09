@@ -99,11 +99,15 @@ def create_draft(template: str, *, name: str | None = None) -> DraftInfo:
     target = _new_file(folder)
     if path is None:
         recipes.create_from_template(source=template, destination=target,
-                                     recipe_id=recipe_id, name=title, schema_version=10)
+                                     recipe_id=recipe_id, name=title, schema_version=11)
     else:
         raw = recipes._read_import_source(path)
         data = json.loads(raw)
         data["id"], data["name"] = recipe_id, title
+        data["schema_version"] = 11
+        from .style_assets import ICON_ACTIONS
+        data["artwork"] = {"font": "builtin",
+                           "icons": {action: "builtin" for action in ICON_ACTIONS}}
         payload = (json.dumps(data, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
         recipes.parse(payload)
         recipes._write_private_new(target, payload)
@@ -137,6 +141,25 @@ def save_revision(source: Path, changes: dict[str, Any], *, expected_sha256: str
         return open_draft(destination), result["changes"]
     finally:
         os.unlink(patch_name)
+
+
+def upgrade_to_artwork(info: DraftInfo) -> DraftInfo:
+    """Create a new immutable v11 draft from a saved v10 draft; never overwrite."""
+    checked = open_draft(info.path)
+    if checked.semantic_sha256 != info.semantic_sha256:
+        raise WorkspaceError("Draft changed on disk. Reopen before upgrading")
+    original = review.review(str(info.path))["recipe"]
+    if original["schema_version"] != 10:
+        raise WorkspaceError("Only saved v10 drafts can be upgraded")
+    from .style_assets import ICON_ACTIONS
+    original["schema_version"] = 11
+    original["artwork"] = {"font": "builtin",
+                           "icons": {action: "builtin" for action in ICON_ACTIONS}}
+    payload = (json.dumps(original, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    recipes.parse(payload)
+    target = _new_file(_private_directory())
+    recipes._write_private_new(target, payload)
+    return open_draft(target)
 
 
 def export_draft(info: DraftInfo, destination: Path) -> dict[str, Any]:

@@ -27,7 +27,7 @@ class CreatorWorkspaceTests(unittest.TestCase):
         self.assertNotEqual(a.recipe_id, b.recipe_id)
         self.assertTrue(a.path.is_file())
         self.assertEqual(a.path.stat().st_mode & 0o777, 0o600)
-        self.assertEqual(recipes.load(str(a.path)).schema_version, 10)
+        self.assertEqual(recipes.load(str(a.path)).schema_version, 11)
         self.assertEqual(recipes.load(str(b.path)).menu_presentation, "sidebar")
         self.assertEqual({x.path for x in workspace.list_drafts()}, {a.path, b.path})
 
@@ -35,7 +35,7 @@ class CreatorWorkspaceTests(unittest.TestCase):
         for template in ("classic", "chrome"):
             with self.subTest(template=template):
                 info = workspace.create_draft(template)
-                self.assertEqual(recipes.load(str(info.path)).schema_version, 10)
+                self.assertEqual(recipes.load(str(info.path)).schema_version, 11)
 
     def test_versioned_change_preserves_original_and_supports_undo(self):
         original = workspace.create_draft("heritage")

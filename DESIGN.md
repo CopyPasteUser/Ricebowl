@@ -22,7 +22,7 @@ secondary pages; prototypes and the release roadmap do not crowd the selector.
 - The macOS selection currently previews its wallpaper rather than a full
   desktop capture; the hub labels that distinction explicitly.
 
-## Rice Creator workspace (GTK3, experimental 0.4)
+## Rice Creator workspace (GTK3, experimental 0.5)
 
 The Creator is a compact desktop authoring instrument, not a themed desktop
 simulation. Its one memorable surface is the **central real-shell capture**:
@@ -40,7 +40,7 @@ and high-contrast labels with a visible selected row rather than the system's
 default light list background. A fresh native screenshot must be explicitly
 rendered after changes; stale real pixels are never presented as live updates.
 The left rail contains four real starting templates and saved draft versions; the
-right scrollable inspector groups actual schema-v10 properties and structurally
+right scrollable inspector groups actual schema-v11 properties and structurally
 editable panel lanes. Actions form a clear reversible sequence: create → edit
 → save a new private version → render → optionally export. The latest and
 previous versions remain distinct; the GUI does not expose active apply until
@@ -65,6 +65,16 @@ and each row has keyboard-accessible move, group/ungroup, edit and insertion
 actions. Native GTK controls handle focus and popup behavior. The existing
 workspace Save version is the single commit action: typing or organizing a
 draft never mutates a current session or rewrites another saved revision.
+
+The v0.5 **Visual asset library** adds native GTK selectors for a private
+TrueType face and three action-specific 48×48 RGBA shortcut icons. Explicit
+file-pickers require named owner-controlled assets and visible attribution.
+SHA-256 identities are immutable; the native renderer checks owner, mode and
+digest before loading the image/font. Older schema-v10 drafts have a separate
+immutable v11 upgrade. Icons fit the existing hit areas; a bounded glyph cache
+renders custom text in native styled panel/widget labels. Waybar still uses
+its standard fonts/icons. RicePack v4 carries selected images, fonts and
+provenance without code, scripts or active-session changes.
 
 The established `macrice/hub.py:TOKENS` palette is the **single runtime color
 source** for Creator chrome; `macrice/creator_gui.py` uses those named tokens

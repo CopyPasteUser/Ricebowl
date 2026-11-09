@@ -162,7 +162,7 @@ class CreatorStructureDraftIntegrationTests(unittest.TestCase):
         }, expected_sha256=info.semantic_sha256)
         self.assertEqual(len(changes), 2)
         self.assertEqual(info.path.read_bytes(), original_bytes)
-        self.assertEqual(recipes.load(str(saved.path)).schema_version, 10)
+        self.assertEqual(recipes.load(str(saved.path)).schema_version, 11)
         destination = Path(self.temp.name) / "studio.ricepack"
         receipt = creator_workspace.export_draft(saved, destination)
         # Without a custom PNG, the portable exporter intentionally uses v2.
