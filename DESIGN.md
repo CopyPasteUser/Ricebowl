@@ -22,7 +22,7 @@ secondary pages; prototypes and the release roadmap do not crowd the selector.
 - The macOS selection currently previews its wallpaper rather than a full
   desktop capture; the hub labels that distinction explicitly.
 
-## Rice Creator workspace (GTK3, experimental 0.3)
+## Rice Creator workspace (GTK3, experimental 0.4)
 
 The Creator is a compact desktop authoring instrument, not a themed desktop
 simulation. Its one memorable surface is the **central real-shell capture**:
@@ -54,6 +54,17 @@ surface. GTK's file picker owns path selection, and scroll-wheel events cannot
 silently change the selected wallpaper while scrolling the inspector. Imported
 images are never confused with a live capture: they are authored assets and
 only become part of an immutable draft after explicit Save version.
+
+The v0.4 **Component library** keeps stable declarative identifiers visible
+alongside real status/action binding selectors. Create, update and remove share
+the same offline recipe validator; the editor visibly names in-use references
+and does not offer deletion of a component still used by any layout or desktop
+widget. The panel inspector now expresses the *actual bounded tree*: wide and
+compact layouts are separate deliberate modes, child groups remain nested,
+and each row has keyboard-accessible move, group/ungroup, edit and insertion
+actions. Native GTK controls handle focus and popup behavior. The existing
+workspace Save version is the single commit action: typing or organizing a
+draft never mutates a current session or rewrites another saved revision.
 
 The established `macrice/hub.py:TOKENS` palette is the **single runtime color
 source** for Creator chrome; `macrice/creator_gui.py` uses those named tokens

@@ -143,11 +143,24 @@ def _parse_edit(payload: bytes, *, schema_version: int,
                 or item["path"] not in EDITABLE_PATHS or item["path"] in seen):
             raise DraftError("Draft contains an unsupported or duplicate edit operation",
                              code="unsupported_operation")
-        if not _allowed_value(item["path"], item["value"], schema_version, components):
-            raise DraftError("Value is outside the supported component property range or type",
-                             code="invalid_value", path=item["path"])
         seen.add(item["path"])
         changes.append((item["path"], item["value"]))
+    # Structural edits can introduce a component and reference it in the same
+    # atomic revision. Validate all layout leaves against the *proposed*
+    # registry, independently of JSON operation order. The final full parser
+    # still rejects broken wide/compact/desktop references on replacement.
+    resolved_components = components
+    for path, value in changes:
+        if path == "/components" and schema_version >= 9:
+            try:
+                resolved_components = recipes._parse_components(value)
+            except recipes.RecipeError as exc:
+                raise DraftError("Invalid proposed component library",
+                                 code="invalid_value", path=path) from exc
+    for path, value in changes:
+        if not _allowed_value(path, value, schema_version, resolved_components):
+            raise DraftError("Value is outside the supported component property range or type",
+                             code="invalid_value", path=path)
     return changes
 
 
