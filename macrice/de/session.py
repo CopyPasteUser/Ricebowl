@@ -806,7 +806,7 @@ def shell(
                             active = live_controller.active
                             last_output_config = (active, _waybar_recipe_config(
                                 recipes.load(active), env, which)[0])
-                        except (RecipeError, OSError, ValueError) as error:
+                        except (RecipeError, OSError, ValueError, TypeError) as error:
                             print(f"RiceBowl: initial output layout unavailable: {error}",
                                   file=sys.stderr)
                     with listen(env) as listener:
