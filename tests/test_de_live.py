@@ -275,12 +275,26 @@ class LiveRiceTests(unittest.TestCase):
         catalog = creator_contract.describe_creator_api()
         commands = {entry["command"] for entry in catalog["commands"]}
         self.assertTrue({"creator-live-apply", "creator-live-restore",
-                         "creator-live-status"} <= commands)
+                         "creator-live-status", "display-refresh"} <= commands)
         self.assertEqual(catalog["live"]["live_version"], 1)
+        self.assertIn("display-refresh", catalog["live"]["commands"])
         with mock.patch.dict(os.environ, self.env), mock.patch("builtins.print") as printed:
             self.assertEqual(cli(["de", "creator-live-status", "--json"]), 2)
         response = json.loads(printed.call_args.args[0])
         self.assertEqual(response["error"]["code"], "live_unavailable")
+
+    def test_display_refresh_cli_calls_only_owner_session_without_recipe_options(self):
+        response = {"version": 1, "ok": True, "active": "classic",
+                    "previous": None, "changed": True}
+        with mock.patch("macrice.de.live.request", return_value=response) as request, \
+                mock.patch("builtins.print") as printed:
+            self.assertEqual(cli(["de", "display-refresh", "--json"]), 0)
+        request.assert_called_once_with("refresh-outputs", recipe=None, sha256=None,
+                                        expected=None)
+        self.assertEqual(json.loads(printed.call_args.args[0]), response)
+        with mock.patch("macrice.de.live.request") as request:
+            self.assertEqual(cli(["de", "display-refresh", "--recipe", "chrome"]), 1)
+            request.assert_not_called()
 
 
 if __name__ == "__main__":

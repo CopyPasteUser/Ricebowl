@@ -652,8 +652,11 @@ depend on the XFCE session.
     mode/scale change, ask only the owner-private live supervisor to rebuild
     the current recipe's Waybar process; retain the old bar if the new one
     exits on startup. No global process signals or polling.
-  - [ ] React to **external** output mode/scale changes without requiring a
-    new login, extend adaptive native menu and desktop controls, and add
+  - [x] Expose explicit `de display-refresh` for **externally changed** output
+    modes/scales, using the same private supervisor and failure-safe replacement
+    as guarded RiceSpice changes; do not secretly poll or signal other Waybars.
+  - [ ] Detect external mode changes *automatically* without polling or a new
+    login, extend adaptive native menu and desktop controls, and add
     portable font families, fluid type sizes, rich icons and reduced-motion
     semantics. Physical hotplug and mixed-DPI acceptance remain outstanding.
 - [x] Allow safe offline import/export of validated, non-executable, panel-only

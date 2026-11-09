@@ -76,6 +76,7 @@ def parser() -> argparse.ArgumentParser:
         "visual-baseline",
         "capture", "render", "creator-status", "creator-stage", "creator-rollback",
         "creator-live-status", "creator-live-apply", "creator-live-restore",
+        "display-refresh",
         "pack-export", "pack-inspect", "pack-import", "asset-import", "notifications", "notification-dismiss",
         "notification-invoke",
         "settings",
@@ -314,7 +315,8 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"Next Wayland login: {result['next_session']} (was: {result['previous']})")
                     print("Current desktop unchanged; one-step rollback remains available")
                 return 0
-            if args.action in ("creator-live-status", "creator-live-apply", "creator-live-restore"):
+            if args.action in ("creator-live-status", "creator-live-apply", "creator-live-restore",
+                               "display-refresh"):
                 if args.nested or args.panel != "waybar":
                     raise ValueError("Live Creator commands connect to the current Wayland session")
                 if (args.action == "creator-live-apply" and
@@ -323,7 +325,8 @@ def main(argv: list[str] | None = None) -> int:
                 if args.action != "creator-live-apply" and args.recipe:
                     raise ValueError("Only creator-live-apply accepts --recipe")
                 from .de.live import LiveError, request
-                action = args.action.removeprefix("creator-live-")
+                action = ("refresh-outputs" if args.action == "display-refresh" else
+                          args.action.removeprefix("creator-live-"))
                 try:
                     result = request(action, recipe=args.recipe, sha256=args.expect_sha256,
                                      expected=args.expect_active)
@@ -333,8 +336,12 @@ def main(argv: list[str] | None = None) -> int:
                 if args.json:
                     print(json.dumps(result, indent=2))
                 elif result["ok"]:
-                    print(f"Active Wayland rice: {result['active']} (previous: "
-                          f"{result['previous'] or 'none'})")
+                    if args.action == "display-refresh":
+                        print("Wayland output layout refreshed" if result["changed"] else
+                              "Native RicePlate already tracks output changes")
+                    else:
+                        print(f"Active Wayland rice: {result['active']} (previous: "
+                              f"{result['previous'] or 'none'})")
                 else:
                     print(f"Live rice: {result['error']['message']}", file=sys.stderr)
                 return 0 if result["ok"] else 2
