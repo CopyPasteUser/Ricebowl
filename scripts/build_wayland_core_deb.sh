@@ -75,10 +75,9 @@ fi
 # The former preview1 omitted this immutable file. Upgrade/downgrade QA
 # checks both its addition and removal, not just dpkg's version string.
 source_commit=$(git -C "$project_root" rev-parse --verify HEAD)
-case "$source_commit" in
-    ????????????????????????????????????????) ;;
-    *) echo "Invalid package source commit" >&2; exit 1 ;;
-esac
+if [[ ! "$source_commit" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "Invalid package source commit" >&2; exit 1
+fi
 buildinfo="$stage/usr/share/doc/ricebowl-wayland-core/BUILDINFO"
 install -d -m 0755 "$(dirname -- "$buildinfo")"
 printf 'format=1\nversion=%s\nsource_commit=%s\nsource_date_epoch=%s\n' \
