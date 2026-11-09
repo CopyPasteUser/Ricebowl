@@ -239,6 +239,32 @@ class WaylandSessionTests(unittest.TestCase):
         self.assertEqual(session._wait_with_idle_guard(panel, LostIdle()), (1, True))
         self.assertTrue(panel.terminated)
 
+    def test_nonlive_shell_does_not_block_when_idle_watcher_dies(self):
+        commands = []
+        class RunningPanel(_FakeProcess):
+            def wait(self, timeout=None):
+                if self.terminated:
+                    return -15
+                raise session.subprocess.TimeoutExpired("waybar", timeout)
+        class CrashedIdle(_FakeProcess):
+            calls = 0
+            def poll(self):
+                self.calls += 1
+                return 4 if self.calls >= 2 else None
+        panel = RunningPanel()
+        def spawn(command, **_kwargs):
+            commands.append(command)
+            return CrashedIdle() if command[0] == "/usr/bin/swayidle" else panel
+        env = {"RICEBOWL_DE_SHELL_CHILD": "1", "RICEBOWL_DE_NESTED": "0",
+               "RICEBOWL_DE_LIVE": "0", "WAYLAND_DISPLAY": "wayland-0"}
+        with mock.patch("macrice.de.session.signal.signal"), \
+             mock.patch("sys.stderr"):
+            self.assertEqual(session.shell(environment=env, which=self.which,
+                                           spawn=spawn), 1)
+        self.assertTrue(panel.terminated)
+        self.assertEqual([cmd[0] for cmd in commands],
+                         ["/usr/bin/swayidle", "/usr/bin/waybar"])
+
     def test_no_idle_guard_keeps_nested_immediate_wait(self):
         proc = _FakeProcess()
         self.assertEqual(session._wait_with_idle_guard(proc, None), (0, False))
