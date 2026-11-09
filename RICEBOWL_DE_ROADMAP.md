@@ -116,6 +116,14 @@ installing, replacing or disabling anything; unit and installer tests pass.
 - [x] Add a versioned RiceSession lifecycle with a supervised temporary native
   Waybar shell, explicit exit, crash termination and ordinary session logs.
 - [x] Provide a separately built **opt-in** Debian session entry package.
+- [x] Add a **second opt-in native RicePlate login choice** alongside the
+  Waybar-backed preview: install only another small `.desktop` entry, hide
+  native selection via `TryExec` until `/usr/bin/riceplate-native` exists,
+  route only `--native` through the established session supervisor with
+  Waybar crash recovery, and reject unknown launcher arguments. The versioned
+  preview2 package is reproducible and removable; no default-session or XFCE
+  changes. Real display-manager discovery and physical login/rollback QA
+  remain open.
 - [x] Launch labwc through bundled `--config-dir`, preserving the user's
   own labwc files and XFCE preferences.
 - [x] Add Mint 22 / labwc 0.7.1-compatible D-Bus activation import and a

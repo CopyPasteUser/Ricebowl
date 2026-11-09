@@ -19,10 +19,61 @@ class SessionPackageTests(unittest.TestCase):
         self.assertEqual(desktop["Desktop Entry"]["Type"], "Application")
         self.assertEqual(desktop["Desktop Entry"]["Exec"], "/usr/bin/ricebowl-wayland-session")
         self.assertIn("RiceBowl;", desktop["Desktop Entry"]["DesktopNames"])
+        native = configparser.ConfigParser(interpolation=None)
+        self.assertEqual(native.read(source / "ricebowl-native.desktop"),
+                         [str(source / "ricebowl-native.desktop")])
+        self.assertEqual(native["Desktop Entry"]["Type"], "Application")
+        self.assertEqual(native["Desktop Entry"]["Exec"],
+                         "/usr/bin/ricebowl-wayland-session --native")
+        self.assertEqual(native["Desktop Entry"]["TryExec"], "/usr/bin/riceplate-native")
+        self.assertEqual(native["Desktop Entry"]["DesktopNames"],
+                         desktop["Desktop Entry"]["DesktopNames"])
         portal = configparser.ConfigParser(interpolation=None)
         portal.read(source / "ricebowl-portals.conf")
         self.assertEqual(portal["preferred"]["org.freedesktop.impl.portal.ScreenCast"], "wlr")
         self.assertEqual(portal["preferred"]["default"], "gtk")
+
+    def test_session_launcher_routes_only_explicit_native_choice(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            home = root / "home"
+            executable = home / ".local/bin/ricebowl"
+            executable.parent.mkdir(parents=True)
+            binary = root / "bin"
+            binary.mkdir()
+            marker = root / "args"
+            executable.write_text(
+                '#!/bin/sh\nprintf "%s\\n" "$@" > "$RICEBOWL_ARGS_FILE"\n',
+                encoding="utf-8")
+            executable.chmod(0o700)
+            script = project_root() / "packaging/wayland/ricebowl-wayland-session"
+            env = {**os.environ, "HOME": str(home), "PATH": str(binary),
+                   "RICEBOWL_ARGS_FILE": str(marker)}
+
+            def invoke(*arguments):
+                return subprocess.run(["/bin/sh", str(script), *arguments],
+                                      capture_output=True, text=True, env=env,
+                                      timeout=5, check=False)
+
+            default = invoke()
+            self.assertEqual(default.returncode, 0, default.stderr)
+            self.assertEqual(marker.read_text().splitlines(), ["de", "start"])
+            marker.unlink()
+            no_binary = invoke("--native")
+            self.assertNotEqual(no_binary.returncode, 0)
+            self.assertIn("riceplate-native", no_binary.stderr)
+            self.assertFalse(marker.exists())
+            for arguments in (("--unexpected",), ("--native", "--unexpected")):
+                result = invoke(*arguments)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(marker.exists())
+            native_binary = binary / "riceplate-native"
+            native_binary.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            native_binary.chmod(0o700)
+            native = invoke("--native")
+            self.assertEqual(native.returncode, 0, native.stderr)
+            self.assertEqual(marker.read_text().splitlines(),
+                             ["de", "start", "--panel", "native"])
 
     @unittest.skipUnless(shutil.which("dpkg-deb"), "Debian package tools not installed")
     def test_package_build_does_not_install_and_refuses_overwrite(self):
@@ -36,9 +87,13 @@ class SessionPackageTests(unittest.TestCase):
                 ["dpkg-deb", "--contents", str(package)], text=True, timeout=10)
             for name in ("usr/bin/ricebowl-wayland-session",
                          "usr/share/wayland-sessions/ricebowl.desktop",
+                         "usr/share/wayland-sessions/ricebowl-native.desktop",
                          "usr/share/xdg-desktop-portal/ricebowl-portals.conf",
                          "usr/lib/systemd/user/ricebowl-session.target"):
                 self.assertIn(name, contents)
+            self.assertEqual(subprocess.check_output(
+                ["dpkg-deb", "--field", str(package), "Version"],
+                text=True, timeout=10).strip(), "0.1.0~preview2")
             result = subprocess.run(["sh", str(script), str(package)], text=True,
                                     capture_output=True, timeout=30, check=False)
             self.assertNotEqual(result.returncode, 0)

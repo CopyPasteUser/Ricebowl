@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=RiceBowl (Native Wayland Preview)
+Comment=Experimental labwc desktop with native Rust RicePlate and Waybar recovery
+Exec=/usr/bin/ricebowl-wayland-session --native
+# Hide this optional choice until the separately packaged native panel exists.
+TryExec=/usr/bin/riceplate-native
+Type=Application
+DesktopNames=RiceBowl;labwc;wlroots;

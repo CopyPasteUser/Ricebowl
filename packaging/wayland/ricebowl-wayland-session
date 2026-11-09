@@ -1,10 +1,30 @@
 #!/bin/sh
 # System-wide login entrypoint; all RiceBowl application code stays user-local.
 set -eu
+case "$#" in
+    0) ;;
+    1)
+        if [ "$1" != "--native" ]; then
+            echo "RiceBowl: unsupported Wayland login mode." >&2
+            exit 2
+        fi
+        ;;
+    *)
+        echo "RiceBowl: unexpected Wayland login arguments." >&2
+        exit 2
+        ;;
+esac
 if [ -z "${HOME:-}" ] || [ ! -x "$HOME/.local/bin/ricebowl" ]; then
     echo "RiceBowl: install the user-local RiceBowl application before selecting this session." >&2
     exit 1
 fi
+if [ "$#" -eq 1 ] && ! command -v riceplate-native >/dev/null 2>&1; then
+    echo "RiceBowl: riceplate-native is not installed; select the regular Wayland Preview instead." >&2
+    exit 1
+fi
 RICEBOWL_DM_SESSION=1
 export RICEBOWL_DM_SESSION
+if [ "$#" -eq 1 ]; then
+    exec "$HOME/.local/bin/ricebowl" de start --panel native
+fi
 exec "$HOME/.local/bin/ricebowl" de start
