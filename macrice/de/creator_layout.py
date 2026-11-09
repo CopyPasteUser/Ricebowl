@@ -64,7 +64,9 @@ def layer_label(manifest: dict[str, Any], layer: str, index: int) -> str:
     if item["kind"] == "text":
         return f"▤  {item['text']}"
     if item["kind"] == "component":
-        return f"◈  {item['ref']} · status"
+        role = next((component["role"] for component in manifest.get("components", [])
+                     if component["id"] == item["ref"]), "component")
+        return f"◈  {item['ref']} · {role}"
     return f"▣  {item['id']} · {item['kind']}"
 
 
@@ -155,10 +157,10 @@ def add_layer(manifest: dict[str, Any], kind: str) -> dict[str, Any]:
     if kind.startswith("component:"):
         ref = kind.partition(":")[2]
         definitions = {item["id"]: item for item in result["components"]}
-        if ref not in definitions or definitions[ref]["role"] != "status":
-            raise LayoutError("Only implemented status components can appear on the desktop")
+        if ref not in definitions or definitions[ref]["role"] not in ("status", "action"):
+            raise LayoutError("Only validated status/action components can appear on the desktop")
         new = {"kind": "component", "ref": ref}
-        stem = "status"
+        stem = definitions[ref]["role"]
     elif kind in recipes.DESKTOP_WIDGET_KINDS:
         new = {"kind": kind}
         if kind == "text":

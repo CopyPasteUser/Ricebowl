@@ -133,6 +133,16 @@ verify Orca announces the launcher, task buttons, tray/overflow context
 menus, grouped menu actions, calendar days and notifications. Check Tab,
 Arrow, Return, Escape, selected/focus changes, closing/reopening dialogs,
 and moving between two outputs without duplicate/stale announcements.
+For schema-v9 **desktop action widgets**, render
+`tests/fixtures/riceplate-desktop-actions-v9.json` in an opt-in nested session.
+Click Settings and verify the real settings hub opens; the Wi-Fi widget must
+show unavailable when no radio is reported and only toggle through its
+verified backend when a device exists. Within a focused output, check
+Tab/Shift-Tab, Enter/Space, pointer press-drag-out/release cancellation,
+AT-SPI action/focus announcements, then disconnect/reconnect an output while
+a widget is focused. Status and text widgets must not intercept app clicks.
+Do not test Wi-Fi disruption over the only remote connection. A headless
+capture proves pixels, not these human input or assistive behaviors.
 Check that disabling the preference or starting a nested preview does not
 start a background AT-SPI bridge. For Enterprise Wi-Fi, test valid CA/server
 names, rejected fake certificates, incorrect passwords, network loss,

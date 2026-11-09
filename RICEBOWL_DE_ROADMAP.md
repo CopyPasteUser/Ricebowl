@@ -311,6 +311,18 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   rollback. Real compositor pointer grabs, hotplug and mixed-DPI hardware
   sign-off remain open; the dragged icon does not float across the monitor
   boundary before release.
+- [x] **Foundation Sprint 4: interactive shared desktop action components** —
+  reuse schema-v9's validated `role: action` bindings on native desktop widget
+  surfaces: fixed Apps/Terminal/Settings/Lock actions and verified Wi-Fi/audio
+  controls use the existing action dispatcher, bounded worker and real device
+  readback. Only action-bound 200×96 surfaces receive pointer input and
+  on-demand keyboard focus; status/text widgets stay input-transparent.
+  Handle press/release cancellation, same-output Tab/Shift-Tab navigation,
+  Enter/Space, visible focus/unavailable/busy/failed states and native AT-SPI
+  button actions. Creator canvas, draft/review/RicePack and catalog share the
+  unchanged versioned contract. Rust parsing/painting tests and a real
+  headless labwc capture exercise an interactive demonstrator. True physical
+  click/focus/Orca/accessibility verification still gates 1.0.
 - [ ] Build a Wayland-native panel through `wlr-layer-shell`.
 - [ ] Populate tasks/windows through a supported foreign-toplevel protocol.
 - [ ] Implement launchers, task groups, tray, calendar, menus and keyboard
@@ -344,9 +356,10 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
     to existing real network/audio/battery/clock backends or the existing
     allowlisted native action/verified control, with no per-rice shell code.
     Python/Rust parsers, Waybar's honest panel-only fallback, Creator review,
-    draft editing, catalog v11 and a real headless v9 fixture share the same
-    contract. Interactive desktop action surfaces, richer state families and
-    physical input/AT acceptance remain open.
+    draft editing, catalog v12 and real headless v9 fixtures share the same
+    contract. Interactive action-bound desktop surfaces now use those same
+    validated bindings; richer state families and physical input/AT acceptance
+    remain open.
   - [x] Add **schema-v9 static desktop text primitives** with safe bounded
     ASCII labels (22 characters), preserved by Creator review/draft/RicePack
     and rendered by native RicePlate. Read-only desktop widget layers on
@@ -643,11 +656,11 @@ depend on the XFCE session.
   device acceptance, approved image baselines and interaction checks remain open.
 - [ ] Complete native desktop interaction and accessibility: basic
   move/focus/key controls, independent named-monitor saved positions,
-  hotplug/reflow, bounded v8 desktop status widgets and AT-SPI status labels
-  are implemented; cross-monitor drop logic has software coverage but needs
-  hardware interaction QA. Richer configurable widgets,
-  widget keyboard semantics where appropriate and physical-device Orca QA
-  remain open.
+  hotplug/reflow, bounded v8 desktop status widgets, v9 validated interactive
+  action widgets with keyboard/pointer/AT-SPI semantics, and AT-SPI status
+  labels are implemented; cross-monitor drop logic has software coverage but
+  needs hardware interaction QA. Richer configurable widgets and physical
+  keyboard/Orca QA remain open.
 - [ ] Implement visually configurable, truly interactive native start menus
   (beyond the initial functional labwc fallback menu), including navigation,
   searching, pinning and reusable layout variants. Action search and pins,

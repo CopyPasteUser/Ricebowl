@@ -75,6 +75,12 @@ def edit_component(manifest: dict[str, Any], action: str,
                           if row["id"] == identifier), None)
             if index is None:
                 raise StructureError("Component to edit no longer exists")
+            # A status can now become a *clickable* desktop action. Never
+            # silently elevate an in-use component's interaction role: create
+            # a new action ID and explicitly rebind the affected surfaces.
+            if (components[index]["role"] != definition["role"]
+                    and component_uses(manifest, identifier)):
+                raise StructureError("In-use component role cannot change; add a new component")
             components[index] = copy.deepcopy(definition)
     elif action == "remove":
         if type(identifier) is not str or identifier not in {c["id"] for c in components}:

@@ -1,0 +1,42 @@
+{
+  "schema_version": 9,
+  "id": "desktop-actions",
+  "name": "Desktop shared action demonstrator",
+  "components": [
+    {"id": "wifi-control", "role": "action", "binding": "wifi-toggle", "label": "Wi-Fi radio"},
+    {"id": "open-settings", "role": "action", "binding": "settings", "label": "Settings"},
+    {"id": "net-status", "role": "status", "binding": "network", "label": "Network"}
+  ],
+  "panel": {
+    "position": "top", "height": 44,
+    "metrics": {"launcher_width": 104, "task_width": 164, "clock_width": 96},
+    "layout": {
+      "start": [{"type": "widget", "id": "launcher"}, {"type": "widget", "id": "tasks"}],
+      "center": [{"type": "label", "text": "Desktop controls"}],
+      "end": [{"type": "component", "ref": "net-status"}, {"type": "widget", "id": "clock"}]
+    }
+  },
+  "colors": {"background": "#203c59", "foreground": "#f3f7fa", "active": "#4179aa"},
+  "menu": {"title": "Shared", "presentation": "sidebar", "groups": [
+    {"title": "Programs", "actions": ["applications", "terminal"]},
+    {"title": "Session", "actions": ["lock", "logout"]}
+  ]},
+  "desktop": {"wallpaper": "luna-hills", "icons": [
+    {"label": "Applications", "action": "applications", "x": 24, "y": 96}
+  ]},
+  "tokens": {"label_padding": 8, "task_radius": 6},
+  "responsive": {"compact_max_width": 840, "compact_layout": {
+    "start": [{"type": "widget", "id": "launcher"}],
+    "center": [{"type": "widget", "id": "tasks"}],
+    "end": [{"type": "widget", "id": "clock"}]
+  }},
+  "composition": {
+    "widgets": [
+      {"id": "desk-settings", "kind": "component", "ref": "open-settings", "x": 160, "y": 108},
+      {"id": "desk-wifi", "kind": "component", "ref": "wifi-control", "x": 160, "y": 220},
+      {"id": "desk-network", "kind": "component", "ref": "net-status", "x": 160, "y": 332}
+    ],
+    "window_region": {"x": 35, "y": 8, "width": 60, "height": 84},
+    "compact_hide_widgets": ["desk-network"]
+  }
+}

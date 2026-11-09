@@ -498,6 +498,18 @@ stable during status changes. The Waybar fallback shows a visibly disabled
 `N/A` control without a click command because it lacks that verified worker.
 These are shared framework controls, never OS-specific costume toggles.
 
+Schema-v9 component references also support **native desktop action widgets**
+when the declared component has `role: action`. Reuse the exact same fixed
+action/verified control dispatcher as panel buttons; only the explicit
+200×96 action surface accepts pointer clicks and on-demand keyboard focus.
+Within the current output, Tab/Shift-Tab cycles action widgets and Enter/Space
+activates the selected one; AT-SPI exposes a button only when enabled.
+Visible normal/focus/hover/disabled and pending/failure states inherit the
+rice's existing active/focus/hover/disabled tokens. Status and text desktop
+widgets remain noninteractive and input-transparent. Do not infer a generic
+execute-script capability or enable Waybar actions where that backend has no
+desktop layer.
+
 **Prioritization:** the reusable Wayland shell/Creator contracts and safe
 switching remain ahead of pixel-perfect historical XP/7/10 menu, titlebar and
 icon fidelity. The latter are separate post-framework acceptance work; existing

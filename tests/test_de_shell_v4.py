@@ -312,7 +312,7 @@ class ShellV4Tests(unittest.TestCase):
         self.assertEqual(data["recipe"]["schema_versions"], list(range(1, 12)))
         extensions = data["recipe"]["shell_extensions"]
         self.assertEqual(extensions["desktop"]["widgets"]["native"],
-                         "read-only-event-driven-per-output")
+                         "read-only-status-or-validated-action-per-output")
         self.assertEqual(extensions["responsive"]["native"], "live-panel-layout-switch")
 
 

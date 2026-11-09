@@ -148,6 +148,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let panel_controls: Vec<_> = recipe.actions.iter()
         .filter(|action| action.control)
         .filter_map(|action| ControlAction::from_id(&action.id)).collect();
+    let desktop_controls: Vec<_> = recipe.composition.as_ref().into_iter()
+        .flat_map(|composition| composition.widgets.iter())
+        .filter_map(|widget| match &widget.kind {
+            recipe::DesktopWidgetKind::Action(action) => ControlAction::from_id(action),
+            _ => None,
+        }).collect();
     let desktop_network = recipe.composition.as_ref().is_some_and(|composition|
         composition.widgets.iter().any(|widget| matches!(&widget.kind,
             recipe::DesktopWidgetKind::System | recipe::DesktopWidgetKind::Network)));
@@ -156,12 +162,13 @@ fn main() -> Result<(), Box<dyn Error>> {
             recipe::DesktopWidgetKind::System | recipe::DesktopWidgetKind::Audio)));
     let poll_network = desktop_network || status_present(Widget::Network)
         || menu_controls.contains(&ControlAction::WifiToggle)
-        || panel_controls.contains(&ControlAction::WifiToggle);
+        || panel_controls.contains(&ControlAction::WifiToggle)
+        || desktop_controls.contains(&ControlAction::WifiToggle);
     // A native full desktop has volume OSD even when a rice omits the audio
     // indicator. Nested design previews retain the old opt-in behavior.
     let full_session = std::env::var("RICEBOWL_DE_NESTED").as_deref() != Ok("1");
     let poll_audio = full_session || desktop_audio || status_present(Widget::Audio)
-        || menu_controls.iter().chain(panel_controls.iter()).any(|action|
+        || menu_controls.iter().chain(panel_controls.iter()).chain(desktop_controls.iter()).any(|action|
             matches!(action, ControlAction::AudioMute | ControlAction::AudioUp | ControlAction::AudioDown));
     let use_tray = status_present(Widget::Tray);
     if preview_calendar && !clock_present {
@@ -224,7 +231,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             placed: Some((icon.x, icon.y)),
         });
     }
-    // Read-only widgets must not intercept pointer input from client windows.
+    // Status/text widgets are input-transparent; explicitly action-bound
+    // widgets alone own their bounded hit rectangle and on-demand keyboard focus.
     let mut widget_layers = Vec::new();
     if let Some(composition) = recipe.composition.as_ref() {
         let empty_input = Region::new(&compositor)?;
@@ -237,8 +245,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             surface.set_size(recipe::DESKTOP_WIDGET_WIDTH, recipe::DESKTOP_WIDGET_HEIGHT);
             surface.set_margin(widget.y as i32, 0, 0, widget.x as i32);
             surface.set_exclusive_zone(-1);
-            surface.set_keyboard_interactivity(KeyboardInteractivity::None);
-            surface.wl_surface().set_input_region(Some(empty_input.wl_region()));
+            if matches!(&widget.kind, recipe::DesktopWidgetKind::Action(_)) {
+                surface.set_keyboard_interactivity(KeyboardInteractivity::OnDemand);
+            } else {
+                surface.set_keyboard_interactivity(KeyboardInteractivity::None);
+                surface.wl_surface().set_input_region(Some(empty_input.wl_region()));
+            }
             surface.commit();
             widget_layers.push(DesktopWidgetLayer {
                 recipe_index, surface, pool: None, configured: false,
@@ -404,6 +416,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         keyboard: None,
         focused_icon: None,
         keyboard_icon_surface: None,
+        focused_widget: None,
+        keyboard_widget_surface: None,
+        pressed_widget: None,
+        hovered_widget: None,
         focused_panel: None,
         focused_target: None,
         icon_drag: None,
@@ -490,6 +506,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                             app.redraw_osd();
                         }
                         app.request_redraw(&redraw_qh);
+                        app.redraw_widgets();
                         state
                     }
                 };
@@ -751,6 +768,10 @@ struct RicePlate {
     keyboard: Option<wl_keyboard::WlKeyboard>,
     focused_icon: Option<usize>,
     keyboard_icon_surface: Option<wl_surface::WlSurface>,
+    focused_widget: Option<usize>,
+    keyboard_widget_surface: Option<wl_surface::WlSurface>,
+    pressed_widget: Option<usize>,
+    hovered_widget: Option<usize>,
     focused_panel: Option<wl_surface::WlSurface>,
     focused_target: Option<KeyboardTarget>,
     icon_drag: Option<IconDrag>,
@@ -892,12 +913,20 @@ impl RicePlate {
                         recipe::DesktopWidgetKind::Battery =>
                             format!("Battery: {}", self.power.label()),
                         recipe::DesktopWidgetKind::Text(value) => value.clone(),
+                        recipe::DesktopWidgetKind::Action(action) => {
+                            format!("{}, {}", widget.title.as_deref().unwrap_or("Action"),
+                                    self.desktop_action_state(action))
+                        }
                     };
-                    let role = if matches!(&widget.kind, recipe::DesktopWidgetKind::Text(_)) {
-                        AccessibleRole::Label
-                    } else { AccessibleRole::Status };
+                    let (role, target) = match &widget.kind {
+                        recipe::DesktopWidgetKind::Text(_) => (AccessibleRole::Label, None),
+                        recipe::DesktopWidgetKind::Action(action) =>
+                            (AccessibleRole::Button, self.desktop_action_enabled(action)
+                                .then(|| Target::DesktopWidget(index))),
+                        _ => (AccessibleRole::Status, None),
+                    };
                     model.add(31_100 + index as u64, 31_000, role,
-                              description, None);
+                              description, target);
                 }
             }
         }
@@ -1110,15 +1139,18 @@ impl RicePlate {
                         None => base,
                     };
                 }
-            } else if let Some(index) = self.focused_icon {
-                if self.keyboard_icon_surface.is_some() {
-                    model.focus = 30_100 + index as u64;
+            } else if let Some(index) = self.focused_icon.filter(|_|
+                self.keyboard_icon_surface.is_some()) {
+                model.focus = 30_100 + index as u64;
+            } else if let Some(index) = self.focused_widget {
+                if self.keyboard_widget_surface.is_some() {
+                    model.focus = 31_100 + index as u64;
                 }
             }
         }
         model.window_focused = self.menu_focused || self.calendar_focused
             || self.tray_popup_focused || self.focused_panel.is_some()
-            || self.keyboard_icon_surface.is_some();
+            || self.keyboard_icon_surface.is_some() || self.keyboard_widget_surface.is_some();
         model
     }
 
@@ -1140,6 +1172,14 @@ impl RicePlate {
                     if let Some(item) = self.recipe.desktop_icons.get(icon.recipe_index) {
                         let action = item.action.clone();
                         self.activate_action(&action, qh);
+                    }
+                }
+            }
+            Target::DesktopWidget(index) => {
+                if let Some(action) = self.widget_action(index).map(str::to_owned) {
+                    if self.desktop_action_enabled(&action) {
+                        self.activate_action(&action, qh);
+                        self.redraw_widgets();
                     }
                 }
             }
@@ -1412,8 +1452,17 @@ impl RicePlate {
                 });
             }
         }
+        let prior_widgets = self.widget_layers.len();
         self.widget_layers.retain(|widget| widget.bound_output.as_ref()
             .is_none_or(|output| outputs.contains(output)));
+        if prior_widgets != self.widget_layers.len() {
+            // Indices are unstable after unplug; never retarget focus or an
+            // in-flight click to another widget.
+            self.focused_widget = None;
+            self.keyboard_widget_surface = None;
+            self.pressed_widget = None;
+            self.hovered_widget = None;
+        }
         if let Some(composition) = self.recipe.composition.as_ref() {
             let empty_input = Region::new(&self.compositor);
             for output in &outputs {
@@ -1433,8 +1482,12 @@ impl RicePlate {
                     surface.set_size(recipe::DESKTOP_WIDGET_WIDTH, recipe::DESKTOP_WIDGET_HEIGHT);
                     surface.set_margin(widget.y as i32, 0, 0, widget.x as i32);
                     surface.set_exclusive_zone(-1);
-                    surface.set_keyboard_interactivity(KeyboardInteractivity::None);
-                    surface.wl_surface().set_input_region(Some(input.wl_region()));
+                    if matches!(&widget.kind, recipe::DesktopWidgetKind::Action(_)) {
+                        surface.set_keyboard_interactivity(KeyboardInteractivity::OnDemand);
+                    } else {
+                        surface.set_keyboard_interactivity(KeyboardInteractivity::None);
+                        surface.wl_surface().set_input_region(Some(input.wl_region()));
+                    }
                     surface.commit();
                     self.widget_layers.push(DesktopWidgetLayer {
                         recipe_index, surface, pool: None, configured: false,
@@ -1721,6 +1774,7 @@ impl RicePlate {
                 else { "Unavailable or denied" });
             if self.menu_state.visible { self.redraw_menu(qh); }
             self.request_redraw(qh);
+            self.redraw_widgets();
             return;
         }
         if self.menu_state.visible {
@@ -2018,6 +2072,32 @@ impl RicePlate {
         layer.surface.commit();
     }
 
+    fn widget_action(&self, index: usize) -> Option<&str> {
+        let layer = self.widget_layers.get(index)?;
+        if layer.placed.is_none() { return None; }
+        let widget = self.recipe.composition.as_ref()?.widgets.get(layer.recipe_index)?;
+        match &widget.kind {
+            recipe::DesktopWidgetKind::Action(action) => Some(action),
+            _ => None,
+        }
+    }
+
+    fn desktop_action_enabled(&self, action: &str) -> bool {
+        ControlAction::from_id(action).is_none_or(|control|
+            control.available(&self.system_status) && self.control_pending.is_none()
+                && self.control_sender.is_some())
+    }
+
+    fn desktop_action_state(&self, action: &str) -> &'static str {
+        let Some(control) = ControlAction::from_id(action) else { return "Press Enter or click"; };
+        if self.control_pending == Some(control) { "Applying..." }
+        else if self.control_pending.is_some() { "Busy" }
+        else if !control.available(&self.system_status) || self.control_sender.is_none() {
+            "Unavailable"
+        } else if self.control_result == Some((control, false)) { "Action failed" }
+        else { "Press Enter or click" }
+    }
+
     fn redraw_widget(&mut self, index: usize) {
         let Some(widget) = self.recipe.composition.as_ref()
             .and_then(|composition| self.widget_layers.get(index)
@@ -2041,7 +2121,16 @@ impl RicePlate {
                 (widget.title.as_deref().unwrap_or("Battery"),
                  vec![self.power.label().to_string()]),
             recipe::DesktopWidgetKind::Text(value) => ("Text", vec![value.clone()]),
+            recipe::DesktopWidgetKind::Action(action) =>
+                (widget.title.as_deref().unwrap_or("Action"),
+                 vec![action.replace('-', " "), self.desktop_action_state(action).to_string()]),
         };
+        let interactive = matches!(&widget.kind, recipe::DesktopWidgetKind::Action(_));
+        let disabled = matches!(&widget.kind, recipe::DesktopWidgetKind::Action(action)
+            if !self.desktop_action_enabled(action));
+        let focused = self.focused_widget == Some(index)
+            && self.keyboard_widget_surface.is_some();
+        let hovered = self.hovered_widget == Some(index);
         let Some(layer) = self.widget_layers.get_mut(index) else { return; };
         if !layer.configured || layer.placed.is_none() { return; }
         let width = recipe::DESKTOP_WIDGET_WIDTH;
@@ -2056,7 +2145,8 @@ impl RicePlate {
                 return;
             }
         };
-        paint_desktop_widget(canvas, title, &lines, &self.recipe);
+        paint_desktop_widget(canvas, title, &lines, &self.recipe,
+                             interactive, focused, hovered, disabled);
         let surface = layer.surface.wl_surface();
         surface.damage_buffer(0, 0, width as i32, height as i32);
         if let Err(error) = buffer.attach_to(surface) {
@@ -2332,6 +2422,12 @@ impl RicePlate {
                 restored && layer.configured
             };
             if restored { self.redraw_widget(index); }
+        }
+        if self.focused_widget.is_some_and(|index| self.widget_action(index).is_none()) {
+            self.focused_widget = None;
+            self.keyboard_widget_surface = None;
+            self.pressed_widget = None;
+            self.hovered_widget = None;
         }
     }
 
@@ -3582,11 +3678,20 @@ fn paint_icon(canvas: &mut [u8], icon: &recipe::DesktopIcon, active: u32,
     );
 }
 
-fn paint_desktop_widget(canvas: &mut [u8], title: &str, lines: &[String], style: &PanelStyle) {
+fn paint_desktop_widget(canvas: &mut [u8], title: &str, lines: &[String], style: &PanelStyle,
+                        interactive: bool, focused: bool, hovered: bool, disabled: bool) {
     let width = recipe::DESKTOP_WIDGET_WIDTH;
     let height = recipe::DESKTOP_WIDGET_HEIGHT;
     canvas.fill(0);
     fill_rounded_rect(canvas, width, height, 0, 0, width, height, 10, style.background);
+    if interactive {
+        let outline = if focused { style.focus } else if disabled { style.disabled }
+                      else if hovered { style.hover } else { style.active };
+        fill_rect(canvas, width, height, 0, 0, width, 2, outline);
+        fill_rect(canvas, width, height, 0, height - 2, width, 2, outline);
+        fill_rect(canvas, width, height, 0, 0, 2, height, outline);
+        fill_rect(canvas, width, height, width - 2, 0, 2, height, outline);
+    }
     fill_rect(canvas, width, height, 12, 31, width - 24, 2, style.active);
     draw_rice_text(canvas, width, height, 12,
                    if style.font_scale == 1 { 12 } else { 9 },
@@ -4166,9 +4271,15 @@ impl SeatHandler for RicePlate {
             self.menu_focused = false;
             self.calendar_focused = false;
             self.keyboard_icon_surface = None;
+            self.keyboard_widget_surface = None;
+            self.pressed_widget = None;
+            self.hovered_widget = None;
             if let Some(index) = self.focused_icon.take() {
                 self.redraw_icon(index);
                 self.save_icon_positions();
+            }
+            if let Some(index) = self.focused_widget.take() {
+                self.redraw_widget(index);
             }
             self.focused_panel = None;
             self.focused_target = None;
@@ -4229,6 +4340,18 @@ impl KeyboardHandler for RicePlate {
             if let Some(index) = next { self.redraw_icon(index); }
             self.save_icon_positions();
         }
+        let next_widget = self.widget_layers.iter().position(|layer|
+            layer.surface.wl_surface() == surface && layer.placed.is_some()
+                && self.recipe.composition.as_ref().and_then(|composition|
+                    composition.widgets.get(layer.recipe_index)).is_some_and(|widget|
+                    matches!(&widget.kind, recipe::DesktopWidgetKind::Action(_))));
+        self.keyboard_widget_surface = next_widget.map(|_| surface.clone());
+        if self.focused_widget != next_widget {
+            let previous = self.focused_widget;
+            self.focused_widget = next_widget;
+            if let Some(index) = previous { self.redraw_widget(index); }
+            if let Some(index) = next_widget { self.redraw_widget(index); }
+        }
     }
 
     fn leave(
@@ -4254,6 +4377,12 @@ impl KeyboardHandler for RicePlate {
                 self.redraw_icon(index);
             }
             self.save_icon_positions();
+        }
+        if self.keyboard_widget_surface.as_ref() == Some(surface) {
+            self.keyboard_widget_surface = None;
+            if let Some(index) = self.focused_widget.take() {
+                self.redraw_widget(index);
+            }
         }
         if self.focused_panel.as_ref() == Some(surface) {
             self.focused_panel = None;
@@ -4382,6 +4511,31 @@ impl KeyboardHandler for RicePlate {
                 Keysym::F7 => self.mirror_icon_on_all_outputs(index),
                 Keysym::Escape => {
                     self.save_icon_positions();
+                }
+                _ => {}
+            }
+            return;
+        }
+        if let Some(index) = self.focused_widget.filter(|_| self.keyboard_widget_surface.is_some()) {
+            match event.keysym {
+                Keysym::Tab | Keysym::ISO_Left_Tab => {
+                    let output = self.widget_layers[index].bound_output.as_ref();
+                    let visible: Vec<_> = self.widget_layers.iter().enumerate()
+                        .map(|(candidate, layer)| layer.bound_output.as_ref() == output
+                            && self.widget_action(candidate).is_some()).collect();
+                    let delta = if event.keysym == Keysym::ISO_Left_Tab { -1 } else { 1 };
+                    if let Some(next) = desktop_layout::navigate(&visible, index, delta) {
+                        self.focused_widget = Some(next);
+                        self.redraw_widget(index);
+                        self.redraw_widget(next);
+                    }
+                }
+                Keysym::Return | Keysym::KP_Enter | Keysym::space => {
+                    if let Some(action) = self.widget_action(index).map(str::to_owned) {
+                        if self.desktop_action_enabled(&action) {
+                            self.activate_action(&action, qh);
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -4826,6 +4980,47 @@ impl PointerHandler for RicePlate {
                             } else if drag.index == index
                                 && !self.finish_cross_output_drag(&drag, event.position) {
                                 self.save_icon_positions();
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                continue;
+            }
+            if let Some(index) = self.widget_layers.iter().position(|layer|
+                &event.surface == layer.surface.wl_surface()) {
+                // Read-only widget input regions are empty. Only declared
+                // actions reach this branch from the compositor.
+                let inside = event.position.0 >= 0.0 && event.position.1 >= 0.0
+                    && event.position.0 < f64::from(recipe::DESKTOP_WIDGET_WIDTH)
+                    && event.position.1 < f64::from(recipe::DESKTOP_WIDGET_HEIGHT);
+                match event.kind {
+                    PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
+                        let next = inside.then_some(index);
+                        if self.hovered_widget != next {
+                            let previous = self.hovered_widget;
+                            self.hovered_widget = next;
+                            if let Some(old) = previous { self.redraw_widget(old); }
+                            self.redraw_widget(index);
+                        }
+                    }
+                    PointerEventKind::Leave { .. } => {
+                        if self.hovered_widget == Some(index) {
+                            self.hovered_widget = None;
+                            self.redraw_widget(index);
+                        }
+                    }
+                    PointerEventKind::Press { button: BTN_LEFT, .. } => {
+                        self.pressed_widget = self.widget_action(index)
+                            .filter(|action| inside && self.desktop_action_enabled(action))
+                            .map(|_| index);
+                    }
+                    PointerEventKind::Release { button: BTN_LEFT, .. } => {
+                        if self.pressed_widget.take() == Some(index) && inside {
+                            if let Some(action) = self.widget_action(index).map(str::to_owned) {
+                                if self.desktop_action_enabled(&action) {
+                                    self.activate_action(&action, qh);
+                                }
                             }
                         }
                     }
@@ -5286,6 +5481,33 @@ mod tests {
                                     Some((ControlAction::WifiToggle, false))));
         let muted = SystemStatus { audio: Audio::Muted, ..working };
         assert_ne!(available, render(&muted, None, None));
+    }
+
+    #[test]
+    fn desktop_action_widgets_have_visible_focus_hover_disabled_and_existing_status_parity() {
+        let style = recipe::parse(
+            include_str!("../../../tests/fixtures/riceplate-desktop-actions-v9.json"),
+            Some("desktop-actions")).unwrap();
+        let widgets = &style.composition.as_ref().unwrap().widgets;
+        assert_eq!(widgets[0].kind, recipe::DesktopWidgetKind::Action("settings".into()));
+        assert_eq!(widgets[1].kind, recipe::DesktopWidgetKind::Action("wifi-toggle".into()));
+        assert_eq!(widgets[2].kind, recipe::DesktopWidgetKind::Network);
+        let len = (recipe::DESKTOP_WIDGET_WIDTH * recipe::DESKTOP_WIDGET_HEIGHT * 4) as usize;
+        let render = |interactive, focused, hovered, disabled| {
+            let mut canvas = vec![0_u8; len];
+            paint_desktop_widget(&mut canvas, "Wi-Fi radio", &["Press Enter".into()], &style,
+                                 interactive, focused, hovered, disabled);
+            canvas
+        };
+        let status = render(false, false, false, false);
+        let ready = render(true, false, false, false);
+        let focused = render(true, true, false, false);
+        assert_ne!(status, ready);
+        assert_ne!(ready, focused);
+        assert_ne!(ready, render(true, false, true, false));
+        assert_ne!(ready, render(true, false, false, true));
+        assert_eq!(&focused[..4], &style.focus.to_le_bytes());
+        assert_eq!(&render(true, false, false, true)[..4], &style.disabled.to_le_bytes());
     }
 
     #[test]

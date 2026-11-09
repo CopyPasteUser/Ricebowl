@@ -1,5 +1,6 @@
 """Creator canvas edits are genuine, bounded schema-v10 draft operations."""
 
+import json
 import os
 from pathlib import Path
 import tempfile
@@ -64,8 +65,12 @@ class CreatorLayoutTests(unittest.TestCase):
         self.assertEqual(len(full["composition"]["widgets"]), recipes.MAX_DESKTOP_WIDGETS)
         with self.assertRaises(layout.LayoutError):
             layout.add_layer(full, "date")
-        with self.assertRaises(layout.LayoutError):
-            layout.add_layer(self.manifest, "component:wifi-switch")
+        control = layout.add_layer(self.manifest, "component:wifi-switch")
+        self.assertEqual(control["composition"]["widgets"][-1]["ref"], "wifi-switch")
+        self.assertEqual(layout.layer_label(control, "widget", 2),
+                         "◈  wifi-switch · action")
+        self.assertEqual(recipes.parse(json.dumps(control).encode()).composition.widgets[2].kind,
+                         "wifi-toggle")
         with self.assertRaises(layout.LayoutError):
             layout.add_layer(self.manifest, "command:rm")
         result = layout.add_layer(self.manifest, "icon:terminal")

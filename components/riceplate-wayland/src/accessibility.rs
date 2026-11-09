@@ -24,6 +24,7 @@ pub enum Target {
     Clock,
     Tray(usize),
     DesktopIcon(usize),
+    DesktopWidget(usize),
     MenuGroup(usize),
     MenuAction(String),
     MenuClose,
