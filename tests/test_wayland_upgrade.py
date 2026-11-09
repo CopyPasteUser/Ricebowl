@@ -57,7 +57,7 @@ class DebianUpgradeContracts(unittest.TestCase):
     def test_provenance_is_part_of_core_package_not_user_config(self):
         builder = (ROOT / "scripts/build_wayland_core_deb.sh").read_text()
         self.assertIn("git -C \"$project_root\" rev-parse --verify HEAD", builder)
-        self.assertIn("usr/share/doc/ricebowl-wayland-core/BUILDINFO", builder)
+        self.assertIn("usr/lib/ricebowl-wayland/BUILDINFO", builder)
         self.assertIn("source_commit=%s", builder)
         self.assertNotIn("HOME/", builder)
         self.assertNotIn("/etc/xdg", builder)
