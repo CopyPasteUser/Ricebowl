@@ -108,6 +108,8 @@ pub enum MenuPresentation {
     #[default]
     Tabs,
     Sidebar,
+    /// Simultaneous left programs / right system actions.
+    Columns,
 }
 
 #[derive(Debug, Clone)]
@@ -582,8 +584,14 @@ fn validate_menu(menu: &Menu, version: u32) -> Result<(), Box<dyn Error>> {
         return Err("Invalid bounded menu title/groups".into());
     }
     if let Some(presentation) = menu.presentation.as_deref() {
-        if version < 6 || !matches!(presentation, "tabs" | "sidebar") {
-            return Err("Menu presentation requires schema v6 and tabs/sidebar".into());
+        if version < 6 || !matches!(presentation, "tabs" | "sidebar" | "columns")
+            || (presentation == "columns" && (version < 12
+                || menu.groups.len() != 3
+                || menu.groups[0].content.is_none()
+                || menu.groups.iter().skip(1).any(|group|
+                    group.content.is_some() || group.actions.len() > 2)))
+        {
+            return Err("Menu presentation is incompatible with this schema or layout".into());
         }
     }
     let mut seen = HashSet::new();
@@ -936,10 +944,10 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
             native_menu = Some(NativeMenu {
                 title: menu.title,
                 palette,
-                presentation: if menu.presentation.as_deref() == Some("sidebar") {
-                    MenuPresentation::Sidebar
-                } else {
-                    MenuPresentation::Tabs
+                presentation: match menu.presentation.as_deref() {
+                    Some("sidebar") => MenuPresentation::Sidebar,
+                    Some("columns") => MenuPresentation::Columns,
+                    _ => MenuPresentation::Tabs,
                 },
                 groups: menu
                     .groups

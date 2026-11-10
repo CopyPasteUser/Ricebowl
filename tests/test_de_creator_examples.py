@@ -86,6 +86,28 @@ class CreatorExamplesTests(unittest.TestCase):
                 self.assertNotIn('"on-click": "nmcli', wide)
                 self.assertIn("window#waybar", css)
 
+    def test_luna_columns_are_data_only_and_backwards_compatible(self):
+        source = json.loads((EXAMPLES / "xp-luna-columns.json").read_text())
+        recipe = recipes.parse(json.dumps(source).encode("utf-8"))
+        self.assertEqual(recipe.recipe_id, "xp-luna-columns")
+        self.assertEqual(recipe.schema_version, 12)
+        self.assertEqual(recipe.menu_presentation, "columns")
+        self.assertEqual([group.title for group in recipe.menu[1]],
+                         ["Programs", "System", "Session"])
+        legacy = recipes.parse((EXAMPLES / "xp-luna.json").read_bytes())
+        self.assertEqual(legacy.menu_presentation, "sidebar")
+        for mutate in (
+            lambda data: data["menu"].update(presentation="unsupported"),
+            lambda data: data.update(schema_version=11),
+            lambda data: data["menu"]["groups"].pop(),
+            lambda data: data["menu"]["groups"][1].update(content=[]),
+            lambda data: data["menu"]["groups"][2]["actions"].append("audio-up"),
+        ):
+            modified = json.loads(json.dumps(source))
+            mutate(modified)
+            with self.assertRaises(recipes.RecipeError):
+                recipes.parse(json.dumps(modified).encode("utf-8"))
+
     def test_modern_examples_roundtrip_as_safe_ricepacks(self):
         import tempfile
         with tempfile.TemporaryDirectory() as folder:

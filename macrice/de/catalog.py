@@ -226,7 +226,7 @@ def describe() -> dict[str, object]:
             {"id": "native-menu", "since_schema": 4,
              "recipe_pointer": "/menu", "native": "interactive-output-local",
              "presentation": {"since_schema": 6, "default": "tabs",
-                              "variants": ["tabs", "sidebar"]},
+                              "variants": ["tabs", "sidebar", "columns"]},
              "content": {"since_schema": 6, "pointer": "/menu/groups/*/content",
                          "sources": ["actions", "favorites", "apps-list", "apps-grid"],
                          "max_sections": 2, "max_visible_items": 4,

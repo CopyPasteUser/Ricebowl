@@ -28,6 +28,10 @@ pub fn input_coords(position: (f64, f64), size: (u32, u32)) -> (f64, f64) {
 pub const TAB_TOP: u32 = 46;
 pub const TAB_HEIGHT: u32 = 40;
 pub const SIDEBAR_WIDTH: u32 = 112;
+pub const COLUMNS_SPLIT: u32 = 164;
+const COLUMNS_LEFT: u32 = 8;
+const COLUMNS_RIGHT: u32 = 172;
+const COLUMNS_TOP: u32 = 92;
 pub const SIDEBAR_ROW_HEIGHT: u32 = 44;
 pub const ACTION_TOP: u32 = 108;
 pub const ACTION_HEIGHT: u32 = 42;
@@ -72,6 +76,7 @@ pub struct MenuTile<'a> {
 
 pub struct MenuSection<'a> {
     pub title: &'a str,
+    pub x: u32,
     pub kind: MenuContentKind,
     pub top: u32,
     pub items: Vec<MenuTile<'a>>,
@@ -163,15 +168,43 @@ impl MenuState {
         if count == 0 {
             return;
         }
-        self.group = (self.group as isize + delta).rem_euclid(count as isize) as usize;
-        self.selected = 0;
-        self.view = View::Groups;
-        self.search.clear();
+        let target = (self.group as isize + delta).rem_euclid(count as isize) as usize;
+        self.select_group(menu, target);
+    }
+
+    /// Select a visible section in columns mode, or switch ordinary menus.
+    pub fn select_group(&mut self, menu: &NativeMenu, index: usize) {
+        if index >= menu.groups.len() { return; }
+        self.open_group(index);
+        if menu.presentation == MenuPresentation::Columns && index > 0 {
+            self.selected = self.composed_sections(menu)
+                .and_then(|sections| sections.into_iter()
+                    .find(|section| section.title == menu.groups[index].title)
+                    .and_then(|section| section.items.first().map(|tile| tile.index)))
+                .unwrap_or(0);
+        }
     }
 
     /// Left/right traverse the two-column grid when a neighbouring tile
     /// exists on the same row; otherwise they retain group switching.
     pub fn horizontal_by(&mut self, menu: &NativeMenu, delta: isize) {
+        if menu.presentation == MenuPresentation::Columns && self.view == View::Groups {
+            if let Some(sections) = self.composed_sections(menu) {
+                let tiles: Vec<_> = sections.iter().flat_map(|section| section.items.iter())
+                    .collect();
+                if let Some(current) = tiles.iter().find(|tile| tile.index == self.selected) {
+                    let target_right = delta > 0;
+                    if (current.x >= COLUMNS_SPLIT) != target_right {
+                        if let Some(target) = tiles.iter()
+                            .filter(|tile| (tile.x >= COLUMNS_SPLIT) == target_right)
+                            .min_by_key(|tile| (tile.y.abs_diff(current.y), tile.index)) {
+                            self.selected = target.index;
+                        }
+                    }
+                }
+            }
+            return;
+        }
         let neighbour = self.composed_sections(menu).and_then(|sections| {
             let tiles: Vec<_> = sections.iter().flat_map(|section| section.items.iter()).collect();
             let current = tiles.iter().find(|tile| tile.index == self.selected && tile.grid)?;
@@ -230,10 +263,71 @@ impl MenuState {
         }
     }
 
+    /// Two genuinely simultaneous columns. Both painter and pointer hit
+    /// testing consume the same tiles, so no decorative dead menu entries.
+    fn column_sections<'a>(&'a self, menu: &'a NativeMenu) -> Option<Vec<MenuSection<'a>>> {
+        let programs = menu.groups.first()?;
+        let sources = programs.content.as_ref()?;
+        let mut result = Vec::with_capacity(sources.len() + menu.groups.len() - 1);
+        let mut index = 0;
+        let mut top = COLUMNS_TOP;
+        let left_width = COLUMNS_SPLIT - COLUMNS_LEFT - 8;
+        for source in sources {
+            let actions: Vec<&str> = match source.kind {
+                MenuContentKind::Actions => programs.actions.iter().map(String::as_str)
+                    .take(source.limit).collect(),
+                MenuContentKind::Favorites => self.pins.iter().filter(|pin|
+                    menu.groups.iter().any(|group| group.actions.contains(pin)))
+                    .map(String::as_str).take(source.limit).collect(),
+                MenuContentKind::AppsList | MenuContentKind::AppsGrid => self.apps.iter()
+                    .map(|app| app.action.as_str()).take(source.limit).collect(),
+            };
+            let grid = source.kind == MenuContentKind::AppsGrid;
+            let row_height = if grid { CONTENT_GRID_HEIGHT } else { CONTENT_LIST_HEIGHT };
+            let mut items = Vec::with_capacity(actions.len());
+            for (position, action) in actions.into_iter().enumerate() {
+                let col = if grid { position % 2 } else { 0 };
+                let row = if grid { position / 2 } else { position };
+                let tile_width = if grid { left_width / 2 } else { left_width };
+                items.push(MenuTile {
+                    action, index, x: COLUMNS_LEFT + col as u32 * tile_width,
+                    y: top + CONTENT_HEADER_HEIGHT + row as u32 * row_height,
+                    width: tile_width, height: row_height, grid,
+                });
+                index += 1;
+            }
+            result.push(MenuSection { title: &source.title, x: COLUMNS_LEFT,
+                                      kind: source.kind, top, items });
+            let rows = if grid { source.limit.div_ceil(2) } else { source.limit };
+            top += CONTENT_HEADER_HEIGHT + rows as u32 * row_height;
+        }
+
+        top = COLUMNS_TOP;
+        let right_width = WIDTH - COLUMNS_RIGHT - 8;
+        for group in menu.groups.iter().skip(1) {
+            let mut items = Vec::with_capacity(group.actions.len());
+            for (row, action) in group.actions.iter().enumerate() {
+                items.push(MenuTile {
+                    action, index, x: COLUMNS_RIGHT,
+                    y: top + CONTENT_HEADER_HEIGHT + row as u32 * CONTENT_LIST_HEIGHT,
+                    width: right_width, height: CONTENT_LIST_HEIGHT, grid: false,
+                });
+                index += 1;
+            }
+            result.push(MenuSection { title: &group.title, x: COLUMNS_RIGHT,
+                kind: MenuContentKind::Actions, top, items });
+            top += CONTENT_HEADER_HEIGHT + group.actions.len() as u32 * CONTENT_LIST_HEIGHT;
+        }
+        Some(result)
+    }
+
     /// Compose only validated sources. Reserving each section's declared
     /// capacity keeps the popup geometry stable when favorites change.
     pub fn composed_sections<'a>(&'a self, menu: &'a NativeMenu) -> Option<Vec<MenuSection<'a>>> {
         if self.view != View::Groups { return None; }
+        if menu.presentation == MenuPresentation::Columns {
+            return self.column_sections(menu);
+        }
         let group = menu.groups.get(self.group)?;
         let composition = group.content.as_ref()?;
         let sidebar = menu.presentation == MenuPresentation::Sidebar;
@@ -264,7 +358,8 @@ impl MenuState {
                     width: tile_width, height: row_height, grid });
                 index += 1;
             }
-            sections.push(MenuSection { title: &source.title, kind: source.kind, top, items });
+            sections.push(MenuSection { title: &source.title, x: left,
+                kind: source.kind, top, items });
             let rows = if grid { source.limit.div_ceil(2) } else { source.limit };
             top += CONTENT_HEADER_HEIGHT + rows as u32 * row_height;
         }
@@ -451,6 +546,61 @@ mod tests {
                 },
             ],
         }
+    }
+
+    #[test]
+    fn columns_show_real_programs_and_system_actions_simultaneously() {
+        let recipe = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let menu = recipe.menu.as_ref().unwrap();
+        assert_eq!(menu.presentation, MenuPresentation::Columns);
+        let mut state = MenuState::default();
+        state.open();
+        // No installed-app fixtures: all real fixed actions remain present.
+        assert_eq!(state.actions(menu), vec![
+            "applications", "terminal", "settings", "notifications", "lock", "logout"
+        ]);
+        assert_eq!(state.hit(menu, 20.0, 116.0), Some(Hit::Action(0)));
+        assert_eq!(state.hit(menu, 200.0, 116.0), Some(Hit::Action(2)));
+        assert_eq!(state.hit(menu, 200.0, 188.0), Some(Hit::Action(4)));
+        assert_eq!(state.hit(menu, 200.0, 218.0), Some(Hit::Action(5)));
+        assert_eq!(state.hit(menu, 164.0, 120.0), None);
+        assert_eq!(state.hit(menu, 200.0, 290.0), Some(Hit::Close));
+
+        state.horizontal_by(menu, 1);
+        assert_eq!(state.current_action(menu), Some("settings"));
+        state.horizontal_by(menu, -1);
+        assert_eq!(state.current_action(menu), Some("applications"));
+        state.select_group(menu, 2);
+        assert_eq!(state.current_action(menu), Some("lock"));
+        state.start_search();
+        for character in "term".chars() {
+            assert!(state.search_input(&character.to_string()));
+        }
+        // Search and saving use the real shared actions, not fake column labels.
+        assert!(state.actions(menu).contains(&"terminal"));
+    }
+
+    #[test]
+    fn columns_remain_scrollable_on_compact_outputs() {
+        let recipe = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let menu = recipe.menu.as_ref().unwrap();
+        let mut state = MenuState::default();
+        state.open();
+        let size = fitted_size(320, 240, 40);
+        assert!(compact_layout(size));
+        assert_eq!(state.compact_hit(menu, 8.0, 50.0, size), Some(Hit::Group(0)));
+        state.select_group(menu, 1);
+        assert_eq!(state.current_action(menu), Some("settings"));
+        state.select_group(menu, 2);
+        assert_eq!(state.current_action(menu), Some("lock"));
+        let action_count = state.actions(menu).len();
+        assert!(action_count >= 6);
+        state.select_edge(menu, true);
+        assert_eq!(state.current_action(menu), Some("logout"));
     }
 
     #[test]

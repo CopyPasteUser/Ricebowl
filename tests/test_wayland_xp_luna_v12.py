@@ -33,6 +33,30 @@ class WaylandLunaTests(unittest.TestCase):
         }))
         self.assertEqual(parsed.compact[0], 1024)
 
+    def test_columns_recipe_and_creator_contract(self):
+        path = LUNA.with_name("xp-luna-columns.json")
+        parsed = recipes.parse(path.read_bytes())
+        self.assertEqual(parsed.recipe_id, "xp-luna-columns")
+        self.assertEqual(parsed.menu_presentation, "columns")
+        self.assertEqual(review._manifest(parsed),
+                         json.loads(path.read_text(encoding="utf-8")))
+        self.assertEqual([item.title for item in parsed.menu[1]],
+                         ["Programs", "System", "Session"])
+        self.assertEqual(catalog.describe()["recipe"]["schema_versions"][-1], 12)
+        self.assertIn("columns", catalog.describe()["recipe"]["menu"]["presentation"]["variants"]
+                      if "menu" in catalog.describe()["recipe"] else
+                      json.dumps(catalog.describe()))
+        edit_schema = creator_schema.describe(12)
+        previous = creator_schema.describe(11)
+        def presentation_values(schema):
+            variants = schema["properties"]["operations"]["items"]["oneOf"]
+            return next(item["properties"]["value"]["enum"] for item in variants
+                        if item["properties"]["path"].get("const") == "/menu/presentation")
+        self.assertIn("columns", presentation_values(edit_schema))
+        self.assertNotIn("columns", presentation_values(previous))
+        self.assertTrue(drafts._allowed_value("/menu/presentation", "columns", 12))
+        self.assertFalse(drafts._allowed_value("/menu/presentation", "columns", 11))
+
     def test_waybar_fallback_keeps_real_click_and_separate_task_colors(self):
         parsed = recipes.parse(LUNA.read_bytes())
         wide, css = recipes.waybar_config(parsed, screen_width=1366)
