@@ -10,4 +10,4 @@ fi
 cd "$project_root"
 PATH="$binary_dir:$PATH" \
     timeout --signal=TERM --kill-after=5s 120s \
-    python3 launcher.py de start --panel native --recipe xp-luna
+    python3 launcher.py de start --panel native --recipe xp-luna-columns
