@@ -30,6 +30,10 @@ small screens fall back to the full-resolution paged menu. AT-SPI exposes
 visible actions rather than hidden tabs. Python Creator validation, schema,
 catalog and Rust agree on the new variant.
 
+See the [real headless Wayland Luna screenshots](../../screenshots/wayland/README.md):
+desktop with the separately running original `swaybg` wallpaper and the opened
+two-column native Start menu. These are CI captures, not hardware acceptance.
+
 The original `xp-luna` rice and any existing private imported recipe remain
 unchanged. The preparation script imports `xp-luna-columns` under a new ID
 and the 120-second TTY test starts only that preview. No display-manager,

@@ -15,9 +15,15 @@ installation and is not yet a finished desktop environment.
   fallback; its labwc menu does not claim native palette support.
 - XFCE/X11 configuration, SDDM autologin and installed preview packages remain
   unchanged. Separate scripts provide a local build and 120-second tty preview.
-- Still open before any 1.0 claim: compiled-Rust CI, real ThinkPad input/
-  focus/power and display acceptance, further Luna icon/window appearance
-  fidelity, and packaging an upgraded core/native release for schema v12.
+- [x] An independent `xp-luna-columns` recipe now offers a native two-column
+  Start menu (programs, system, session) without migrating the original
+  `xp-luna` ID; compiled Rust/Python CI passed for PR #227.
+- [x] Capture both the Luna desktop and opened native Start menu from a real
+  headless labwc compositor in the native smoke suite, with PNG/geometry checks
+  and permanent screenshots after CI verifies the captures (run #42890753472).
+- [ ] Still open before any 1.0 claim: physical ThinkPad input/focus/power and
+  display acceptance, finer icon/window appearance fidelity, and packaging an
+  upgraded core/native release for schema v12.
 
 ### Standalone desktop packaging checkpoint (November 2026)
 

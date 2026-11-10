@@ -4,6 +4,20 @@
 
 **Real headless labwc/RicePlate renders — not mockups or screenshots of a signed-off physical desktop.** These optimized WebP previews are permanently stored in this repository, not linked from a temporary CI artifact. Select an image to view it directly.
 
+## XP Luna · native two-column Start menu
+
+| Desktop with original Luna hills | Opened native Start menu |
+| :---: | :---: |
+| [![XP Luna Wayland desktop with green hills, green Start and blue taskbar](luna-desktop.webp)](luna-desktop.webp) | [![Native XP Luna Start menu showing Programs and Installed Apps left, System and Session right](luna-menu.webp)](luna-menu.webp) |
+| Full 1366×768 compositor capture | Readability crop from an actual 1366×768 compositor capture |
+
+`xp-luna-columns` is an **opt-in successor**, not a replacement of existing
+`xp-luna` imports. The native RicePlate panel/menu and the separate `swaybg`
+wallpaper process were rendered together by headless labwc. The menu is truly
+open in the second capture; it is not composited onto an image afterwards.
+
+Source: [successful native GitHub Actions capture run](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42890753472), 10 November 2026. Permanent copies come from `xp-luna-columns.png` and `xp-luna-columns-menu.png` in its artifact. Hardware status widgets may read `N/A`; this is expected in a virtual headless session. **Physical ThinkPad input, scaling, power and session acceptance remain open.**
+
 ## Two different desktop compositions
 
 | Orbit Studio | Heritage Modern |

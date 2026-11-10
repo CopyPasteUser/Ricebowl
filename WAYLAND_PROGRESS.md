@@ -21,6 +21,15 @@
 
 These are **actual native RicePlate frames captured inside labwc**, not design mockups or XFCE screenshots. The previews below are optimized WebP copies of real CI PNGs, checked into the repository so they **load directly and do not expire**. All images were captured with a *headless* compositor and simulated device state; they are **not** proof of a functioning physical desktop.
 
+### XP Luna · native two-column Start menu
+
+| Luna desktop · Wayland | Luna Start menu · real native surface |
+| :---: | :---: |
+| [![XP Luna desktop with original green hills wallpaper, green Start button and blue Wayland taskbar](screenshots/wayland/luna-desktop.webp)](screenshots/wayland/luna-desktop.webp) | [![XP Luna native two-column Start menu: programs on the left, system and session commands on the right](screenshots/wayland/luna-menu.webp)](screenshots/wayland/luna-menu.webp) |
+| `xp-luna-columns` running with `swaybg` in headless labwc | Opened native menu, cropped from the same real-compositor capture |
+
+The original `xp-luna` recipe is unchanged; the two-column variant is an opt-in successor. Full-resolution, uncropped source captures are in the [native CI workflow](https://github.com/CopyPasteUser/Ricebowl/actions/workflows/riceplate-native.yml).
+
 | Orbit Studio · original composition | Heritage Modern · classic composition |
 | :---: | :---: |
 | [![Orbit Studio: dark abstract wallpaper, upper RicePlate panel, launcher shortcuts and status widgets](screenshots/wayland/orbit.webp)](screenshots/wayland/orbit.webp) | [![Heritage Modern: teal desktop, bottom panel and native widgets](screenshots/wayland/heritage.webp)](screenshots/wayland/heritage.webp) |
