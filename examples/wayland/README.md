@@ -11,6 +11,32 @@ The green launcher and five-color native menu are reusable schema-v12 primitives
 not special-case code for this rice. Launcher hit testing, real task activation,
 app discovery, lock and logout retain their normal shared behavior.
 
+### XP Luna next sprint: real two-column Start menu (native preview)
+
+[`xp-luna-columns.json`](xp-luna-columns.json) is the new **opt-in successor**
+to the original `xp-luna` recipe. On sufficiently large Wayland outputs its
+Start menu now has two *simultaneously interactive* panes: a cream programs
+area on the left (All Programs, Terminal and installed applications) and a
+pale-blue system/session area on the right (RiceSpice, notifications, lock,
+logout). The selected row uses the cobalt header color with white text.
+These are real, allowlisted application/system actions, not decorative labels.
+
+The reusable `menu.presentation = "columns"` variant is accepted **only
+with schema v12 and a bounded three-group layout**; right-hand groups cannot
+supply arbitrary content or more than two actions each. The same computed
+tiles drive painting and pointer hits. Left/right keyboard navigation crosses
+columns, search and saved actions continue using the shared engine, and
+small screens fall back to the full-resolution paged menu. AT-SPI exposes
+visible actions rather than hidden tabs. Python Creator validation, schema,
+catalog and Rust agree on the new variant.
+
+The original `xp-luna` rice and any existing private imported recipe remain
+unchanged. The preparation script imports `xp-luna-columns` under a new ID
+and the 120-second TTY test starts only that preview. No display-manager,
+autologin, package, or XFCE configuration is changed. Existing installed
+`.deb` versions are **not** compatible with this additional menu variant;
+use the rebuilt local native binary via the scripts below.
+
 ### Luna taskbar polish (native Rust preview)
 
 An explicitly decorated schema-v12 launcher now opts into a reusable taskbar
