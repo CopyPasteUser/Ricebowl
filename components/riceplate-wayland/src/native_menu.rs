@@ -146,6 +146,27 @@ impl MenuState {
             .map_or_else(|| action_label(action), |app| app.name.as_str())
     }
 
+    /// The columns rice has a narrow system shelf. Keep the full action names
+    /// for search and assistive technology, but paint short, unambiguous labels
+    /// that actually fit the fixed-width native menu, including unavailable
+    /// logout. Other menu presentations retain their established wording.
+    pub fn visible_label<'a>(&'a self, menu: &NativeMenu, action: &'a str,
+                             logout_enabled: bool) -> &'a str {
+        if menu.presentation == MenuPresentation::Columns {
+            match action {
+                "settings" => return "Settings",
+                "logout" if !logout_enabled => return "Log out (N/A)",
+                "logout" => return "Log out",
+                _ => {}
+            }
+        }
+        if action == "logout" && !logout_enabled {
+            "Log out (unavailable)"
+        } else {
+            self.label(action)
+        }
+    }
+
     pub fn app_path(&self, action: &str) -> Option<&std::path::Path> {
         self.apps.iter().find(|app| app.action == action).map(|app| app.path.as_path())
     }
@@ -580,6 +601,25 @@ mod tests {
         }
         // Search and saving use the real shared actions, not fake column labels.
         assert!(state.actions(menu).contains(&"terminal"));
+        // The visible shelf labels fit without losing their meaning. The
+        // accessible action labels remain complete and shared with search.
+        let right_width = WIDTH - COLUMNS_RIGHT - 8;
+        for action in ["settings", "notifications", "lock", "logout"] {
+            let label = state.visible_label(menu, action, false);
+            assert!(label.len() * 8 <= (right_width - 20) as usize, "{label}");
+        }
+        assert_eq!(state.visible_label(menu, "settings", false), "Settings");
+        assert_eq!(state.visible_label(menu, "logout", false), "Log out (N/A)");
+        assert_eq!(state.visible_label(menu, "logout", true), "Log out");
+        assert_eq!(state.label("settings"), "RiceSpice settings");
+        assert_eq!(state.label("logout"), "Log out of RiceBowl");
+        let original = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna.json"),
+            Some("xp-luna")).unwrap();
+        let legacy_menu = original.menu.as_ref().unwrap();
+        assert_eq!(state.visible_label(legacy_menu, "settings", false), "RiceSpice settings");
+        assert_eq!(state.visible_label(legacy_menu, "logout", false),
+                   "Log out (unavailable)");
     }
 
     #[test]

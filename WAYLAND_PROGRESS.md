@@ -29,6 +29,11 @@ These are **actual native RicePlate frames captured inside labwc**, not design m
 | `xp-luna-columns` running with `swaybg` in headless labwc | Opened native menu, cropped from the same real-compositor capture |
 
 The original `xp-luna` recipe is unchanged; the two-column variant is an opt-in successor. Full-resolution, uncropped source captures are in the [native CI workflow](https://github.com/CopyPasteUser/Ricebowl/actions/workflows/riceplate-native.yml).
+The menu preview now shows the native system shelf with complete, readable
+`Settings`, `Notifications`, `Lock screen` and `Log out (N/A)` labels. The
+longer canonical action names remain available to search and accessibility;
+the [screenshot gallery](screenshots/wayland/README.md) documents both capture
+runs and the remaining physical-device acceptance work.
 
 | Orbit Studio · original composition | Heritage Modern · classic composition |
 | :---: | :---: |

@@ -20,6 +20,10 @@ area on the left (All Programs, Terminal and installed applications) and a
 pale-blue system/session area on the right (RiceSpice, notifications, lock,
 logout). The selected row uses the cobalt header color with white text.
 These are real, allowlisted application/system actions, not decorative labels.
+The narrow system shelf uses fitting on-screen labels (for example `Settings`
+and `Log out (N/A)`), but retains the full canonical action names in native
+search, dispatch and accessibility. A missing session logout is not presented
+as an available command.
 
 The reusable `menu.presentation = "columns"` variant is accepted **only
 with schema v12 and a bounded three-group layout**; right-hand groups cannot

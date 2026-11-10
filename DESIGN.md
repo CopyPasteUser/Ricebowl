@@ -485,6 +485,16 @@ are accepted. The native compact composition is a structural primitive,
 not an icon-accurate Windows XP/7 recreation. Future XP/7-specific structures
 require separately audited primitives, not a CSS-only identity swap.
 
+Schema-v12 `menu.presentation = "columns"` is now an opt-in, bounded native
+two-column composition for `xp-luna-columns`; the original `xp-luna` recipe
+and the legacy sidebar/tabs behavior remain unchanged. The narrow blue
+system shelf shows concise, unambiguous names (`Settings`, `Log out`, or
+`Log out (N/A)` when a real logout session is unavailable), while search,
+action dispatch and AT-SPI keep the complete original action descriptions.
+The shared menu state and tile geometry remain the source of truth for pointer,
+keyboard, paint and screen-reader behavior; visible text is never an executable
+command or a replacement for its canonical action identifier.
+
 Schema-v6 nested panel layouts may also contain a **real, focusable action
 button** (`type: action`, `id`, `label`). Only four fixed IDs are supported:
 `applications`, `terminal`, `settings` and `lock`. Labels are bounded safe ASCII
