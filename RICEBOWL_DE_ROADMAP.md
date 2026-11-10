@@ -21,6 +21,9 @@ installation and is not yet a finished desktop environment.
 - [x] Capture both the Luna desktop and opened native Start menu from a real
   headless labwc compositor in the native smoke suite, with PNG/geometry checks
   and permanent screenshots after CI verifies the captures (run #42890753472).
+- [ ] Fit system and unavailable-session labels in the native two-column shelf
+  without changing canonical actions, search, AT-SPI or narrow-screen behavior;
+  verify with native regression tests and refreshed compositor screenshots.
 - [ ] Still open before any 1.0 claim: physical ThinkPad input/focus/power and
   display acceptance, finer icon/window appearance fidelity, and packaging an
   upgraded core/native release for schema v12.

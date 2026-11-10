@@ -3250,13 +3250,12 @@ fn paint_compact_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
                               style.task_radius,
                               selection);
         }
-        let label = if *action == "logout" && !logout_available() {
-            "Log out (unavailable)"
-        } else { state.label(action) };
+        let unavailable = *action == "logout" && !logout_available();
+        let label = state.visible_label(menu, action, !unavailable);
         let pinned = state.pins.iter().any(|pin| pin.as_str() == *action);
         let text = format!("{}{}", if pinned { "* " } else { "" }, label);
         let limit = width.saturating_sub(24) / (8 * style.font_scale);
-        let color = if label.contains("(unavailable)") && style.disabled != 0 {
+        let color = if unavailable && style.disabled != 0 {
             style.disabled
         } else { fg };
         draw_rice_text(canvas, width, height, 12,
@@ -3372,9 +3371,7 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                 let tile_fg = if columns && tile.index == state.selected {
                     header_fg
                 } else { fg };
-                let label = if tile.action == "logout" && !logout_available() {
-                    "Log out (unavailable)"
-                } else { state.label(tile.action) };
+                let label = state.visible_label(menu, tile.action, logout_available());
                 let pinned = state.pins.iter().any(|pin| pin.as_str() == tile.action);
                 if tile.grid {
                     // A compact letter tile, not a promise of themed app icons.
