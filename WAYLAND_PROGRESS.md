@@ -35,6 +35,13 @@ longer canonical action names remain available to search and accessibility;
 the [screenshot gallery](screenshots/wayland/README.md) documents both capture
 runs and the remaining physical-device acceptance work.
 
+The native shell now accepts an **owner-private TrueType font asset** throughout
+the panel, native Start menu and desktop shortcut labels, with on-demand,
+bounded Unicode glyph caching and a legible fallback. [View the real Luna
+font comparison](screenshots/wayland/README.md#opt-in-portable-font--real-compositor-comparison)
+from [green native run #42904147986](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42904147986).
+This is opt-in per recipe, not a global GTK/Qt or system font setting.
+
 | Orbit Studio · original composition | Heritage Modern · classic composition |
 | :---: | :---: |
 | [![Orbit Studio: dark abstract wallpaper, upper RicePlate panel, launcher shortcuts and status widgets](screenshots/wayland/orbit.webp)](screenshots/wayland/orbit.webp) | [![Heritage Modern: teal desktop, bottom panel and native widgets](screenshots/wayland/heritage.webp)](screenshots/wayland/heritage.webp) |

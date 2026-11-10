@@ -57,6 +57,21 @@ This is rendering only; it does not theme unrelated GTK/Qt windows or install
 new services. Rust pixel regression tests cover both routes, the status shelf,
 active tasks and narrow geometry.
 
+### Optional portable text font · Creator visual assets
+
+Creator can already import a locally owned TrueType `.ttf` (maximum 1 MiB)
+with declared attribution into an owner-private, SHA-256-pinned collection.
+Select the face in **Visual asset library → Text font**, save a new immutable
+draft, then render it in isolated native labwc. The selection travels with a
+verified RicePack v4 export; it does not install fonts globally. Native
+RicePlate now uses that same selected face for panel, Start menu, desktop
+shortcut labels and widgets. Additional Unicode glyphs are cached lazily with
+a fixed limit, rather than being reduced to a small pre-rendered Latin set.
+Absent glyphs still use a readable replacement. Full complex-script shaping,
+automatic system font discovery, a Waybar custom-face path and third-party
+GTK/Qt window fonts are **not** yet implemented. The built-in font and legacy
+recipes retain their former behavior.
+
 **Existing 0.1.0 preview `.deb` packages still contain an older native
 binary.** Test through the source build script below. Do not overwrite the
 installed default session or disable automatic XFCE login to try this style.

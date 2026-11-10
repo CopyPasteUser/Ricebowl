@@ -132,7 +132,7 @@ jobs:
       - name: Install native Wayland and keyboard build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libxkbcommon-dev libdbus-1-dev pkg-config labwc grim foot xwayland xterm xclip wl-clipboard wlr-randr swaybg python3-pil python3-gi dbus-user-session dbus-x11 dpkg-dev binutils xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-wlr libglib2.0-bin pipewire
+          sudo apt-get install -y libxkbcommon-dev libdbus-1-dev pkg-config labwc grim foot xwayland xterm xclip wl-clipboard wlr-randr swaybg fonts-dejavu-core python3-pil python3-gi dbus-user-session dbus-x11 dpkg-dev binutils xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-wlr libglib2.0-bin pipewire
       - name: Build and test native RicePlate
         run: |
           /usr/bin/python3 -m unittest tests.test_de_session -v
@@ -367,6 +367,7 @@ jobs:
               'appearance-v10': (1366, 768, 1),
               'xp-luna-columns': (1366, 768, 1),
               'xp-luna-columns-menu': (1366, 768, 1),
+              'xp-luna-font-menu': (1366, 768, 1),
           }
           captures = {}
           for label in ('shell-v4', 'desktop-v5', 'menu-v5', 'calendar-v5', *expected):
@@ -428,7 +429,13 @@ jobs:
           assert captures['menu-v5'] != captures['desktop-v5'], 'Native menu did not render in Wayland frame'
           assert captures['xp-luna-columns-menu'] != captures['xp-luna-columns'], \
               'XP Luna two-column Start menu was not rendered in real Wayland frame'
-          for label in ('xp-luna-columns', 'xp-luna-columns-menu'):
+          with Image.open(directory / 'xp-luna-columns-menu.png') as base_image, \
+               Image.open(directory / 'xp-luna-font-menu.png') as font_image:
+              base = base_image.convert('RGB').crop((0, 338, 400, 718))
+              custom = font_image.convert('RGB').crop((0, 338, 400, 718))
+              changed = sum(left != right for left, right in zip(base.getdata(), custom.getdata()))
+          assert changed > 500, f'Private TrueType did not change native menu glyph pixels: {changed}'
+          for label in ('xp-luna-columns', 'xp-luna-columns-menu', 'xp-luna-font-menu'):
               with Image.open(directory / f'{label}.png') as image:
                   # swaybg is a separate process from native RicePlate. A
                   # black compositor root is not a faithful Luna screenshot.

@@ -80,9 +80,15 @@ file-pickers require named owner-controlled assets and visible attribution.
 SHA-256 identities are immutable; the native renderer checks owner, mode and
 digest before loading the image/font. Older schema-v10 drafts have a separate
 immutable v11 upgrade. Icons fit the existing hit areas; a bounded glyph cache
-renders custom text in native styled panel/widget labels. Waybar still uses
-its standard fonts/icons. RicePack v4 carries selected images, fonts and
-provenance without code, scripts or active-session changes.
+renders custom text in native styled panel, launcher, menu, desktop-icon and
+widget labels. A user-selected TrueType face retains a bounded font object for
+on-demand Greek/Cyrillic/other Unicode masks, with a 512-glyph FIFO budget
+beyond the prewarmed Latin set. Unsupported glyphs keep a visible fallback;
+this per-codepoint monospace treatment is not complex-script shaping or an
+installed system font. The built-in font remains the default and requires no
+extra resident font allocation. Waybar still uses its standard fonts/icons.
+RicePack v4 carries selected images, fonts and provenance without code,
+scripts or active-session changes.
 
 The v0.6 **Reference / visual QA** strip belongs to the real capture surface,
 not the schematic composition editor. A selected local PNG is checked and

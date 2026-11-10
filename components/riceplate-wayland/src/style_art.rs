@@ -1,14 +1,18 @@
 //! Load private Rice Creator v0.5 assets once before opening Wayland surfaces.
 //! Only content-addressed fonts and 48px PNGs can be used by the renderer.
 
-use std::{collections::HashMap, env, error::Error, fs::{self, OpenOptions},
-          io::{Cursor, Read}, os::unix::fs::{MetadataExt, OpenOptionsExt}, path::PathBuf};
+use std::{collections::{HashMap, VecDeque}, env, error::Error, fs::{self, OpenOptions},
+          io::{Cursor, Read}, os::unix::fs::{MetadataExt, OpenOptionsExt}, path::PathBuf,
+          sync::Mutex};
 
 use sha2::{Digest, Sha256};
 use crate::recipe::ArtworkSelection;
 
 const ICON_MAX: usize = 128 * 1024;
 const FONT_MAX: usize = 1024 * 1024;
+// Keep the common Latin glyphs warm and bound any additional Unicode masks.
+// A glyph occupies no more than 32x32 bytes at the two supported scales.
+const DYNAMIC_GLYPH_LIMIT: usize = 512;
 
 pub struct IconPixels(pub Vec<u8>);
 
@@ -19,8 +23,26 @@ struct Glyph {
 }
 
 pub struct FontSprites {
-    glyphs: HashMap<char, Glyph>,
+    font: fontdue::Font,
+    cache: Mutex<GlyphCache>,
     cell: u32,
+}
+
+struct GlyphCache {
+    glyphs: HashMap<char, Glyph>,
+    dynamic: VecDeque<char>,
+}
+
+impl GlyphCache {
+    fn insert_dynamic(&mut self, character: char, glyph: Glyph) {
+        if self.dynamic.len() == DYNAMIC_GLYPH_LIMIT {
+            if let Some(oldest) = self.dynamic.pop_front() {
+                self.glyphs.remove(&oldest);
+            }
+        }
+        self.dynamic.push_back(character);
+        self.glyphs.insert(character, glyph);
+    }
 }
 
 pub struct LoadedArtwork {
@@ -111,7 +133,9 @@ fn font_glyphs(data: Vec<u8>, scale: u32) -> Result<FontSprites, Box<dyn Error>>
             width: metrics.width as u32, height: metrics.height as u32, pixels,
         });
     }
-    Ok(FontSprites { glyphs, cell })
+    Ok(FontSprites { font, cache: Mutex::new(GlyphCache {
+        glyphs, dynamic: VecDeque::new(),
+    }), cell })
 }
 
 pub fn load(selection: &ArtworkSelection, scale: u32) -> Result<LoadedArtwork, Box<dyn Error>> {
@@ -165,11 +189,25 @@ pub fn paint_icon(canvas: &mut [u8], canvas_width: u32,
 impl FontSprites {
     pub fn draw(&self, canvas: &mut [u8], width: u32, height: u32,
                 x: u32, y: u32, text: &str, color: u32, bold: bool) {
+        // A single lock for this paint avoids per-character allocations and
+        // font rasterization on ordinary repeated compositor redraws.
+        let mut cache = self.cache.lock().unwrap_or_else(|poison| poison.into_inner());
         for (offset, letter) in text.chars().enumerate() {
             if letter.is_control() { continue; }
-            let Some(glyph) = self.glyphs.get(&letter).or_else(|| self.glyphs.get(&'?'))
+            let origin_x = x.saturating_add((offset as u32).saturating_mul(self.cell));
+            if origin_x >= width { break; }
+            if !cache.glyphs.contains_key(&letter) && self.font.lookup_glyph_index(letter) != 0 {
+                let (metrics, pixels) = self.font.rasterize(letter, (self.cell + 2) as f32);
+                if metrics.width <= 32 && metrics.height <= 32 {
+                    cache.insert_dynamic(letter, Glyph {
+                        width: metrics.width as u32,
+                        height: metrics.height as u32,
+                        pixels,
+                    });
+                }
+            }
+            let Some(glyph) = cache.glyphs.get(&letter).or_else(|| cache.glyphs.get(&'?'))
                 else { continue; };
-            let origin_x = x.saturating_add(offset as u32 * self.cell);
             let left = origin_x.saturating_add(self.cell.saturating_sub(glyph.width) / 2);
             let top = y.saturating_add(self.cell.saturating_sub(glyph.height) / 2);
             for row in 0..glyph.height.min(self.cell) {
@@ -196,6 +234,34 @@ impl FontSprites {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extra_unicode_glyph_cache_is_bounded_and_evicts_oldest() {
+        let mut cache = GlyphCache { glyphs: HashMap::new(), dynamic: VecDeque::new() };
+        for index in 0..DYNAMIC_GLYPH_LIMIT + 1 {
+            let letter = char::from_u32(0x400 + index as u32).unwrap();
+            cache.insert_dynamic(letter, Glyph { width: 1, height: 1, pixels: vec![255] });
+        }
+        assert_eq!(cache.dynamic.len(), DYNAMIC_GLYPH_LIMIT);
+        assert_eq!(cache.glyphs.len(), DYNAMIC_GLYPH_LIMIT);
+        assert!(!cache.glyphs.contains_key(&'\u{400}'));
+        assert!(cache.glyphs.contains_key(&char::from_u32(0x400 + DYNAMIC_GLYPH_LIMIT as u32).unwrap()));
+    }
+
+    #[test]
+    fn installed_fixture_rasterizes_greek_only_when_needed() {
+        let Ok(bytes) = fs::read("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf") else {
+            return; // The redistributable system fixture is optional on developers' machines.
+        };
+        let sprites = font_glyphs(bytes, 1).unwrap();
+        assert!(!sprites.cache.lock().unwrap().glyphs.contains_key(&'\u{393}'));
+        let mut canvas = vec![0; 32 * 16 * 4];
+        sprites.draw(&mut canvas, 32, 16, 0, 0, "\u{393}\u{03b5}", 0xffeeddcc, false);
+        let cache = sprites.cache.lock().unwrap();
+        assert!(cache.glyphs.contains_key(&'\u{393}'));
+        assert!(cache.glyphs.contains_key(&'\u{3b5}'));
+        assert!(canvas.chunks_exact(4).any(|pixel| pixel[3] != 0));
+    }
 
     #[test]
     fn transparent_icon_preserves_background_and_opaque_pixels_replace() {
