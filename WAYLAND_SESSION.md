@@ -107,7 +107,15 @@ command, the login session, and the native Rust panel. Its aggregate package
 `ricebowl-wayland-desktop` is dependency-only; no maintainer scripts enable
 the desktop, select a login session, migrate user files, or change XFCE.
 
-From a clean Git checkout on an Ubuntu 24.04/Mint 22 **amd64 build machine**:
+From a Git checkout on an Ubuntu 24.04/Mint 22 **amd64 build machine**:
+
+The Core, Session and Desktop builders now package the files from the
+**committed `HEAD` tree**, not from staged/unstaged edits or untracked files.
+The native package similarly reads its Debian control template from `HEAD`;
+its supplied Rust ELF is still an **external build input** and must be built
+from the intended reviewed source revision. Commit intended source changes
+before building. This makes the Core `BUILDINFO` source commit truthful and
+prevents accidental working-tree contents from silently changing the `.deb`.
 
 ```bash
 bash scripts/build_wayland_core_deb.sh
@@ -118,7 +126,15 @@ sh scripts/build_riceplate_native_deb.sh \
     "$PWD/dist/ricebowl-riceplate-native_0.1.0~preview1_amd64.deb"
 sh scripts/build_wayland_desktop_deb.sh
 
-# Inspect the packages before any host installation.
+# Read-only bundle gate: identity, architectures, dependency versions,
+# committed source provenance, disallowed install paths and maintainer scripts.
+bash scripts/verify_wayland_package_set.sh \
+    "$PWD/dist/ricebowl-wayland-core_0.1.0~preview2_all.deb" \
+    "$PWD/dist/ricebowl-wayland-session_0.1.0~preview3_all.deb" \
+    "$PWD/dist/ricebowl-riceplate-native_0.1.0~preview1_amd64.deb" \
+    "$PWD/dist/ricebowl-wayland-desktop_0.1.0~preview2_amd64.deb"
+
+# Inspect the proposed package installation before confirming it.
 dpkg-deb -I dist/ricebowl-wayland-desktop_0.1.0~preview2_amd64.deb
 sudo apt install \
     ./dist/ricebowl-wayland-core_0.1.0~preview2_all.deb \
@@ -128,6 +144,14 @@ sudo apt install \
 
 ricebowl-wayland-app de check --json
 ```
+
+The gate extracts the four packages into a temporary directory and prints
+their SHA-256 checksums. It neither installs them nor changes the active
+session. A matching checksum proves only that a file matches a **separately
+trusted** checksum; the gate is not code signing, a security audit or a
+substitute for Mint/ThinkPad acceptance. Corrupt metadata, package identity,
+missing files, unexpected XFCE/system paths and lifecycle scripts fail the
+gate. Packaging checks cannot establish the behavior of a running desktop.
 
 Log out and **manually** select either RiceBowl Wayland Preview (Waybar) or
 Native Wayland Preview (RicePlate) in your login manager. The existing XFCE

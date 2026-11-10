@@ -1322,6 +1322,16 @@ component, and incompatible clients degrade gracefully.
   install scripts. It does not replace XFCE or provide the complete desktop
   distribution; real install/upgrade/uninstall QA and reproducible Rust inputs
   still gate 1.0.
+- [x] Harden the standalone Wayland **package provenance**: build Core,
+  Session and Desktop file payloads from the immutable committed Git tree
+  rather than dirty/staged checkout contents; build the native package's
+  control template from the same committed tree. Add a read-only four-package
+  gate for package identities, architecture, dependency floors, Core BUILDINFO,
+  file path ownership and forbidden maintainer scripts. Test staged source
+  changes, untracked imports, provenance tampering, an injected XFCE file and
+  an injected `postinst` in isolated scratch packages. The Rust ELF still
+  requires independent reviewed build-input provenance; the gate does not
+  install or sign artifacts.
 - [ ] Measure cold start, settled PSS/RSS, CPU wakeups, relogin, long-running
   memory and mixed-DPI behavior for X11 and Wayland on actual devices.
 - [ ] Remove redundant processes only after their responsibilities have been

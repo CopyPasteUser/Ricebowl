@@ -11,7 +11,7 @@ fi
 if [[ -e "$output" || -L "$output" ]]; then
     echo "Refusing to overwrite existing package: $output" >&2; exit 1
 fi
-for binary in git dpkg-deb; do
+for binary in git dpkg-deb tar; do
     command -v "$binary" >/dev/null || { echo "$binary is required" >&2; exit 1; }
 done
 if ! git -C "$project_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -28,26 +28,46 @@ fi
 export SOURCE_DATE_EPOCH="$package_epoch"
 export LC_ALL=C
 mkdir -p -- "$(dirname -- "$output")"
-stage=$(mktemp -d)
-trap 'rm -rf -- "$stage"' EXIT
+work=$(mktemp -d)
+trap 'rm -rf -- "$work"' EXIT
+stage="$work/package"
+snapshot="$work/source"
+mkdir -p -- "$stage" "$snapshot"
+# Build from the named Git commit, never from mutable checkout/index files.
+# Otherwise BUILDINFO would claim HEAD even when an uncommitted source edit
+# actually ended up in the package.
+git -C "$project_root" archive -o "$work/source.tar" HEAD -- \
+    packaging/wayland/core-control packaging/wayland/ricebowl-wayland-app \
+    packaging/wayland/ricebowl-wayland-command \
+    launcher.py macrice assets/wallpapers \
+    assets/ricebowl-symbolic.svg assets/macrice-symbolic.svg \
+    assets/ricehub-symbolic.svg examples/wayland
+tar -xf "$work/source.tar" -C "$snapshot"
+for relative in packaging/wayland/core-control \
+    packaging/wayland/ricebowl-wayland-app \
+    packaging/wayland/ricebowl-wayland-command; do
+    if [[ ! -f "$snapshot/$relative" || -L "$snapshot/$relative" ]]; then
+        echo "Committed package source is missing or a symlink: $relative" >&2
+        exit 1
+    fi
+done
 payload="$stage/usr/lib/ricebowl-wayland"
-install -D -m 0644 "$project_root/packaging/wayland/core-control" "$stage/DEBIAN/control"
-install -D -m 0755 "$project_root/packaging/wayland/ricebowl-wayland-app" \
+install -D -m 0644 "$snapshot/packaging/wayland/core-control" "$stage/DEBIAN/control"
+install -D -m 0755 "$snapshot/packaging/wayland/ricebowl-wayland-app" \
     "$stage/usr/bin/ricebowl-wayland-app"
-install -D -m 0755 "$project_root/packaging/wayland/ricebowl-wayland-command" \
+install -D -m 0755 "$snapshot/packaging/wayland/ricebowl-wayland-command" \
     "$stage/usr/lib/ricebowl-wayland/bin/ricebowl"
 
-# Copy only tracked files. Never package local edits, caches, bytecode, a
-# checkout's .git, or unexpected symlinks. Python __file__ paths still point
-# to a real filesystem tree, so recipes, wallpapers and Creator work.
-manifest="$stage/tracked-files"
-git -C "$project_root" ls-files -z -- \
+# Only committed files can enter the package; Python __file__ paths still
+# point to a real tree so recipes, wallpapers and Creator work.
+manifest="$work/tracked-files"
+git -C "$project_root" ls-tree -r -z --name-only HEAD -- \
     launcher.py macrice assets/wallpapers \
     assets/ricebowl-symbolic.svg assets/macrice-symbolic.svg \
     assets/ricehub-symbolic.svg examples/wayland > "$manifest"
 count=0
 while IFS= read -r -d '' relative; do
-    source="$project_root/$relative"
+    source="$snapshot/$relative"
     if [[ ! -f "$source" || -L "$source" ]]; then
         echo "Tracked application source is missing or a symlink: $relative" >&2
         exit 1
@@ -62,7 +82,6 @@ while IFS= read -r -d '' relative; do
     install -D -m "$mode" "$source" "$payload/$relative"
     count=$((count + 1))
 done < "$manifest"
-rm -f -- "$manifest"
 if (( count < 40 )) || [[ ! -f "$payload/macrice/de/session.py" ||
     ! -f "$payload/macrice/de/resources/labwc/rc.xml" ||
     ! -f "$payload/macrice/creator_gui.py" ||

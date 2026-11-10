@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CORE = ROOT / "scripts/build_wayland_core_deb.sh"
 DESKTOP = ROOT / "scripts/build_wayland_desktop_deb.sh"
 SESSION = ROOT / "packaging/wayland/ricebowl-wayland-session"
+VERIFY = ROOT / "scripts/verify_wayland_package_set.sh"
 
 
 def run(*argv: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
@@ -72,6 +73,128 @@ class WaylandBundleTests(unittest.TestCase):
             self.assertIn("Refusing to overwrite", result.stderr)
             invalid = run("bash", str(CORE), "relative.deb", env=env)
             self.assertNotEqual(invalid.returncode, 0)
+
+    def test_packages_use_head_even_with_staged_and_unstaged_changes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / "checkout"
+            added = run("git", "-C", str(ROOT), "worktree", "add", "--detach", "-q",
+                        str(checkout), "HEAD")
+            self.assertEqual(added.returncode, 0, added.stderr)
+            try:
+                # Exercise the new builders in an isolated tree while leaving
+                # the real checkout and its current changes untouched.
+                for name in ("build_wayland_core_deb.sh", "build_wayland_session_deb.sh",
+                             "build_wayland_desktop_deb.sh"):
+                    shutil.copy2(ROOT / "scripts" / name, checkout / "scripts" / name)
+                launcher = checkout / "launcher.py"
+                launcher.write_bytes(b"raise RuntimeError('uncommitted')\n" + launcher.read_bytes())
+                add = run("git", "-C", str(checkout), "add", "launcher.py")
+                self.assertEqual(add.returncode, 0, add.stderr)
+                desktop = checkout / "packaging/wayland/ricebowl.desktop"
+                desktop.write_text(desktop.read_text() + "\n# uncommitted change\n")
+                meta_control = checkout / "packaging/wayland/desktop-control"
+                meta_control.write_text(meta_control.read_text() + "\n# uncommitted\n")
+                core_control = checkout / "packaging/wayland/core-control"
+                core_control.write_text(core_control.read_text() + "\n# uncommitted\n")
+                (checkout / "macrice/injected_module.py").write_text("print('untracked')\n")
+
+                packages = [("bash", "build_wayland_core_deb.sh", "core.deb"),
+                            ("sh", "build_wayland_session_deb.sh", "session.deb"),
+                            ("sh", "build_wayland_desktop_deb.sh", "desktop.deb")]
+                for shell, script, filename in packages:
+                    package = Path(temporary) / filename
+                    result = run(shell, str(checkout / "scripts" / script), str(package))
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                application = Path(temporary) / "application"
+                session = Path(temporary) / "session"
+                self.assertEqual(run("dpkg-deb", "-x", str(Path(temporary) / "core.deb"),
+                                     str(application)).returncode, 0)
+                self.assertEqual(run("dpkg-deb", "-x", str(Path(temporary) / "session.deb"),
+                                     str(session)).returncode, 0)
+                expected_launcher = subprocess.check_output(
+                    ["git", "-C", str(ROOT), "show", "HEAD:launcher.py"], timeout=10)
+                self.assertEqual((application / "usr/lib/ricebowl-wayland/launcher.py").read_bytes(),
+                                 expected_launcher)
+                self.assertFalse((application / "usr/lib/ricebowl-wayland/macrice/injected_module.py").exists())
+                expected_desktop = subprocess.check_output(
+                    ["git", "-C", str(ROOT), "show", "HEAD:packaging/wayland/ricebowl.desktop"],
+                    timeout=10)
+                self.assertEqual((session / "usr/share/wayland-sessions/ricebowl.desktop").read_bytes(),
+                                 expected_desktop)
+                self.assertEqual(run("dpkg-deb", "-f", str(Path(temporary) / "desktop.deb"),
+                                     "Version").stdout.strip(), "0.1.0~preview2")
+                self.assertNotIn("# uncommitted", run(
+                    "dpkg-deb", "-f", str(Path(temporary) / "desktop.deb"),
+                    "Description").stdout)
+            finally:
+                removed = run("git", "-C", str(ROOT), "worktree", "remove", "--force",
+                              str(checkout))
+                self.assertEqual(removed.returncode, 0, removed.stderr)
+
+    @unittest.skipUnless(shutil.which("dpkg-deb") and shutil.which("dpkg"),
+                         "Debian package tools needed")
+    def test_read_only_package_set_gate_and_tampering(self):
+        if run("dpkg", "--print-architecture").stdout.strip() != "amd64":
+            self.skipTest("Native preview currently supports amd64 only")
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            core, session, native, desktop = (folder / name for name in
+                                              ("core.deb", "session.deb", "native.deb", "desktop.deb"))
+            for interpreter, script, target in (("bash", CORE, core),
+                                                ("sh", ROOT / "scripts/build_wayland_session_deb.sh", session),
+                                                ("sh", DESKTOP, desktop)):
+                result = run(interpreter, str(script), str(target))
+                self.assertEqual(result.returncode, 0, result.stderr)
+            fixture = folder / "native-stage"
+            (fixture / "DEBIAN").mkdir(parents=True)
+            (fixture / "usr/bin").mkdir(parents=True)
+            (fixture / "DEBIAN/control").write_text(
+                "Package: ricebowl-riceplate-native\nVersion: 0.1.0~preview1\n"
+                "Architecture: amd64\nMaintainer: RiceBowl QA\n"
+                "Description: isolated package-set fixture\n")
+            shutil.copy2("/bin/true", fixture / "usr/bin/riceplate-native")
+            built = run("dpkg-deb", "--build", "--root-owner-group", str(fixture), str(native))
+            self.assertEqual(built.returncode, 0, built.stderr)
+            argv = ("bash", str(VERIFY), str(core), str(session), str(native), str(desktop))
+            checked = run(*argv)
+            self.assertEqual(checked.returncode, 0, checked.stderr)
+            self.assertIn("Verified four opt-in", checked.stdout)
+
+            extracted = folder / "tamper-stage"
+            self.assertEqual(run("dpkg-deb", "-R", str(core), str(extracted)).returncode, 0)
+            buildinfo = extracted / "usr/lib/ricebowl-wayland/BUILDINFO"
+            buildinfo.write_text(buildinfo.read_text().replace("source_commit=", "source_commit=tampered"))
+            corrupted = folder / "tampered.deb"
+            self.assertEqual(run("dpkg-deb", "--build", "--root-owner-group",
+                                 str(extracted), str(corrupted)).returncode, 0)
+            rejected = run("bash", str(VERIFY), str(corrupted), str(session),
+                           str(native), str(desktop))
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn("provenance", rejected.stderr)
+
+            session_stage = folder / "unsafe-session-stage"
+            self.assertEqual(run("dpkg-deb", "-R", str(session), str(session_stage)).returncode,
+                             0)
+            forbidden = session_stage / "etc/xdg/xfce4/xfconf/xfce-perchannel-xml"
+            forbidden.mkdir(parents=True)
+            (forbidden / "xfce4-panel.xml").write_text("<forbidden/>\n")
+            unsafe = folder / "unsafe-session.deb"
+            self.assertEqual(run("dpkg-deb", "--build", "--root-owner-group",
+                                 str(session_stage), str(unsafe)).returncode, 0)
+            rejected = run("bash", str(VERIFY), str(core), str(unsafe),
+                           str(native), str(desktop))
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn("Unexpected installed path", rejected.stderr)
+
+            (session_stage / "DEBIAN/postinst").write_text("#!/bin/sh\nexit 0\n")
+            (session_stage / "DEBIAN/postinst").chmod(0o755)
+            with_script = folder / "maintainer-script.deb"
+            self.assertEqual(run("dpkg-deb", "--build", "--root-owner-group",
+                                 str(session_stage), str(with_script)).returncode, 0)
+            rejected = run("bash", str(VERIFY), str(core), str(with_script),
+                           str(native), str(desktop))
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn("maintainer scripts", rejected.stderr)
 
     def test_aggregate_package_is_reproducible_and_dependency_only(self):
         if run("dpkg", "--print-architecture").stdout.strip() != "amd64":

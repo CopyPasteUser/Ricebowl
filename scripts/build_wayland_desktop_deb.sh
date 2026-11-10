@@ -15,7 +15,8 @@ if [ "$(dpkg --print-architecture)" != amd64 ]; then
 fi
 if [ -n "${SOURCE_DATE_EPOCH:-}" ]; then
     epoch=$SOURCE_DATE_EPOCH
-elif git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+elif command -v git >/dev/null 2>&1 && \
+    git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     epoch=$(git -C "$root" log -1 --format=%ct HEAD)
 else
     epoch=1704067200
@@ -24,9 +25,23 @@ case "$epoch" in ''|*[!0-9]*) echo "Invalid SOURCE_DATE_EPOCH" >&2; exit 1;; esa
 export SOURCE_DATE_EPOCH="$epoch"
 export LC_ALL=C
 mkdir -p -- "$(dirname -- "$output")"
-stage=$(mktemp -d)
-trap 'rm -rf -- "$stage"' EXIT
-install -D -m 0644 "$root/packaging/wayland/desktop-control" "$stage/DEBIAN/control"
+work=$(mktemp -d)
+trap 'rm -rf -- "$work"' EXIT
+stage="$work/package"
+mkdir -p -- "$stage"
+control="$root/packaging/wayland/desktop-control"
+if command -v git >/dev/null 2>&1 && \
+   git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    command -v tar >/dev/null 2>&1 || { echo "tar is required" >&2; exit 1; }
+    git -C "$root" archive -o "$work/control.tar" HEAD -- packaging/wayland/desktop-control
+    mkdir -p -- "$work/source"
+    tar -xf "$work/control.tar" -C "$work/source"
+    control="$work/source/packaging/wayland/desktop-control"
+fi
+if [ ! -f "$control" ] || [ -L "$control" ]; then
+    echo "Desktop control source is missing or a symlink" >&2; exit 1
+fi
+install -D -m 0644 "$control" "$stage/DEBIAN/control"
 # No maintainer scripts or postinst side effects: the default DM session is
 # unchanged and all user settings remain in XDG directories.
 find "$stage" -exec touch -h -d "@$epoch" -- {} +

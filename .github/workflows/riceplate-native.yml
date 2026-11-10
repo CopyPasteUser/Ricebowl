@@ -9,6 +9,8 @@ on:
       - 'scripts/build_wayland_session_deb.sh'
       - 'scripts/build_wayland_core_deb.sh'
       - 'scripts/build_wayland_desktop_deb.sh'
+      - 'scripts/build_riceplate_native_deb.sh'
+      - 'scripts/verify_wayland_package_set.sh'
       - 'scripts/smoke_wayland_upgrade_rollback.sh'
       - 'scripts/smoke_wayland_packaged_login.sh'
       - 'tests/test_wayland_upgrade.py'
@@ -63,6 +65,8 @@ on:
       - 'scripts/build_wayland_session_deb.sh'
       - 'scripts/build_wayland_core_deb.sh'
       - 'scripts/build_wayland_desktop_deb.sh'
+      - 'scripts/build_riceplate_native_deb.sh'
+      - 'scripts/verify_wayland_package_set.sh'
       - 'scripts/smoke_wayland_upgrade_rollback.sh'
       - 'scripts/smoke_wayland_packaged_login.sh'
       - 'tests/test_wayland_upgrade.py'
@@ -217,6 +221,15 @@ jobs:
           test -x "$isolated/usr/lib/ricebowl-wayland/bin/ricebowl"
           /usr/bin/python3 -B "$isolated/usr/lib/ricebowl-wayland/launcher.py" de --help
           (cd "$artifact" && sha256sum "$(basename "$core")" "$(basename "$bundle")" >> SHA256SUMS && sha256sum -c SHA256SUMS)
+      - name: Reject inconsistent or unsafe Wayland release packages
+        run: |
+          set -eu
+          artifact="$PWD/dist/riceplate-native-preview"
+          bash scripts/verify_wayland_package_set.sh \
+            "$artifact/ricebowl-wayland-core_0.1.0~preview2_all.deb" \
+            "$artifact/ricebowl-wayland-session_0.1.0~preview3_all.deb" \
+            "$artifact/ricebowl-riceplate-native_0.1.0~preview1_amd64.deb" \
+            "$artifact/ricebowl-wayland-desktop_0.1.0~preview2_amd64.deb"
       - name: Install, reinstall and purge complete preview in disposable Ubuntu
         timeout-minutes: 9
         run: |
