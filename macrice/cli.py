@@ -72,7 +72,7 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("session-sync", help="Reconcile active rice after XFCE autostart")
     de = commands.add_parser("de", help="Inspect experimental RiceBowl Wayland desktop prerequisites")
     de.add_argument("action", choices=(
-        "check", "start", "shell", "catalog", "creator-api", "creator-history", "review", "draft-check", "draft-edit", "visual-compare",
+        "check", "start", "shell", "catalog", "creator-api", "creator-history", "creator-schema", "review", "draft-check", "draft-edit", "visual-compare",
         "visual-baseline",
         "capture", "render", "creator-status", "creator-stage", "creator-rollback",
         "creator-live-status", "creator-live-apply", "creator-live-restore",
@@ -268,6 +268,24 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"Verified Creator history: {len(rows)} version(s), newest first")
                     for row in rows:
                         print(f"{row['recipe_id']} · {row['semantic_sha256'][:12]} · {row['path']}")
+                return 0
+            if args.action == "creator-schema":
+                if args.nested or args.panel != "waybar" or not args.recipe:
+                    raise ValueError("de creator-schema requires --recipe ID")
+                from .de import creator_schema, recipes, review
+                parsed = recipes.load(args.recipe)
+                fingerprint = review._semantic_hash(review._manifest(parsed))
+                schema = creator_schema.describe(parsed.schema_version)
+                result = {"ok": True, "applied": False,
+                          "source_semantic_sha256": fingerprint,
+                          "schema_sha256": creator_schema.fingerprint(schema),
+                          "edit_json_schema": schema}
+                if args.json:
+                    print(json.dumps(result, indent=2, ensure_ascii=False))
+                else:
+                    print(f"Creator edit schema for {parsed.recipe_id} v{parsed.schema_version}")
+                    print(f"Reviewed source fingerprint: {fingerprint}")
+                    print("Use --json for the complete JSON Schema; full-parser preflight remains required")
                 return 0
             if args.action == "settings":
                 if args.json or args.nested or args.recipe or args.panel != "waybar":

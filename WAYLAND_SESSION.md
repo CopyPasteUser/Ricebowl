@@ -478,6 +478,13 @@ Agents can now read `ricebowl de catalog --json` and use the
 `authoring.draft_edit` contract to build a **new Wayland draft** from actual
 supported components. The contract publishes editable JSON Pointer paths,
 limits, an explicit `set` operation and an example against `classic`.
+`ricebowl de creator-schema --recipe ID --json` additionally returns a
+standalone JSON Schema 2020-12 for that recipe's actual schema version,
+including value types, enum/range limits and nested data structures.
+It includes a deterministic schema SHA-256 alongside the reviewed source
+SHA-256. This is suitable for IDEs and agent-side early validation without
+adding dependencies to the runtime; the full parser remains mandatory for
+cross-component and complete recipe checks.
 
 For example, save this data as `/absolute/path/panel-edits.json` (an
 owner-controlled regular `.json` file, not group/world writable):
@@ -500,6 +507,7 @@ fingerprints to publish only that reviewed proposal:
 ```bash
 ricebowl de recipe-init --base classic --id my-panel --name "My Panel" \
   --output /absolute/path/my-panel-base.json
+ricebowl de creator-schema --recipe /absolute/path/my-panel-base.json --json
 ricebowl de draft-check --recipe /absolute/path/my-panel-base.json \
   --edit /absolute/path/panel-edits.json --json
 ricebowl de draft-edit --recipe /absolute/path/my-panel-base.json \

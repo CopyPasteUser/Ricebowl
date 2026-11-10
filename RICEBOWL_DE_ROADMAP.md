@@ -901,7 +901,15 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
     through the same full recipe parser and semantic diff as `draft-edit`.
     Agents can pin both source and proposed draft SHA-256 on private creation;
     changed input is rejected without publishing or activating a rice.
-    Formal per-property JSON Schema and immutable source snapshots remain open.
+    Filesystem-level immutable source snapshots remain open.
+  - [x] **Creator property-schema discovery** publishes a standalone JSON
+    Schema 2020-12 per actual recipe version
+    (`de creator-schema --recipe ID --json`). It covers every allowlisted edit path, supported schema-version
+    boundaries, typed panel/desktop/menu/layout components, colors, content-
+    addressed assets and bounded values. A deterministic schema fingerprint
+    accompanies the source recipe fingerprint. Cross-property invariants and
+    duplicate references still require the full parser and `de draft-check`;
+    no schema-only result is treated as safe to apply.
   - [x] **Creator GTK reviewed publication gate** connects the on-demand UI to
     that preflight: scrollable complete before/after values and both semantic
     fingerprints appear before the user authorizes a new private version.

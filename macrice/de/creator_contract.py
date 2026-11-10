@@ -226,6 +226,8 @@ def describe_creator_api() -> dict[str, object]:
                  "runtime": "full-recipe-parser; semantic diff and pinned private draft publication"},
                 {"id": "private-creator-version-lineage", "supported": True,
                  "runtime": "owner-only no-overwrite receipts; GTK history and read-only CLI"},
+                {"id": "recipe-versioned-edit-json-schema", "supported": True,
+                 "runtime": "standalone offline JSON Schema 2020-12; full parser validates cross-property rules"},
                 {"id": "isolated-native-multisize-preview", "supported": True,
                  "runtime": "requires-external-labwc-and-capture-binaries"},
                 {"id": "review-gated-live-rice-switch", "supported": True,
@@ -240,7 +242,8 @@ def describe_creator_api() -> dict[str, object]:
             ],
         },
         "authoring_workflow": [
-            {"step": "discover", "commands": ["creator-api", "catalog"], "effect": "none"},
+            {"step": "discover", "commands": ["creator-api", "catalog", "creator-schema"],
+             "effect": "none"},
             {"step": "draft-and-review", "commands": ["draft-check", "draft-edit", "review",
                                                    "creator-history"],
              "effect": "owner-private-file-only"},
@@ -278,6 +281,8 @@ def describe_creator_api() -> dict[str, object]:
             {"command": "creator-history", "effect": "read verified private Creator draft ancestry",
              "cli": "de creator-history --recipe /absolute/draft.json --json",
              "contract_version": 1},
+            {"command": "creator-schema", "effect": "read per-recipe JSON Schema for bounded edits",
+             "cli": "de creator-schema --recipe ID --json", "contract_version": 1},
             {"command": "draft-edit", "effect": "create private reviewed JSON draft",
              "cli": "de draft-edit --recipe ID --edit FILE --output NEW.json "
                     "--expect-sha256 SOURCE_HASH --expect-draft-sha256 DRAFT_HASH --json",
@@ -411,6 +416,13 @@ def describe() -> dict[str, object]:
             "optional_proposed_hash": "--expect-draft-sha256",
             "hash_format": "64 lowercase hex; same semantic hash as de review",
             "on_mismatch": "refuse creation; no active or private output changes",
+        },
+        "schema_discovery": {
+            "command": "de creator-schema --recipe ID --json",
+            "draft": "JSON Schema 2020-12; version-filtered property constraints",
+            "source_fingerprint": "semantic SHA-256 for --expect-sha256",
+            "schema_fingerprint": "stable canonical SHA-256 for reproducible schema discovery",
+            "cross_property_rules": "always use de draft-check for complete recipe validation",
         },
         "example_source_recipe": "classic",
         "example": {
