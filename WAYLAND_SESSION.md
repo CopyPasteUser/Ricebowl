@@ -486,6 +486,19 @@ SHA-256. This is suitable for IDEs and agent-side early validation without
 adding dependencies to the runtime; the full parser remains mandatory for
 cross-component and complete recipe checks.
 
+For a repeatable starting point, run
+`ricebowl de creator-snapshot --recipe ID --json`. It publishes a canonical
+recipe copy under `XDG_STATE_HOME/ricebowl/creator/snapshots/` (or the default
+user state directory), with a `snapshot-<content-sha256>.json` filename and
+`0400` permissions. The returned absolute `path` can be used as `--recipe`
+for `draft-check`, `draft-edit`, `review` or an isolated preview. Every recipe
+load checks the exact byte hash against the filename, even if someone changes
+only whitespace. Repeated calls reuse an already verified copy without
+overwriting it. Referenced visual assets retain their separate content IDs;
+the snapshot does not duplicate or back up those assets. The owner can still
+change file permissions or delete files, so this is not a privileged immutable
+backup or a replacement for an off-machine backup.
+
 For example, save this data as `/absolute/path/panel-edits.json` (an
 owner-controlled regular `.json` file, not group/world writable):
 
@@ -508,6 +521,8 @@ fingerprints to publish only that reviewed proposal:
 ricebowl de recipe-init --base classic --id my-panel --name "My Panel" \
   --output /absolute/path/my-panel-base.json
 ricebowl de creator-schema --recipe /absolute/path/my-panel-base.json --json
+ricebowl de creator-snapshot --recipe /absolute/path/my-panel-base.json --json
+# To pin the source bytes, use the returned snapshot path as --recipe below.
 ricebowl de draft-check --recipe /absolute/path/my-panel-base.json \
   --edit /absolute/path/panel-edits.json --json
 ricebowl de draft-edit --recipe /absolute/path/my-panel-base.json \

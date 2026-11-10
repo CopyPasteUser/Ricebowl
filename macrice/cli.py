@@ -72,7 +72,7 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("session-sync", help="Reconcile active rice after XFCE autostart")
     de = commands.add_parser("de", help="Inspect experimental RiceBowl Wayland desktop prerequisites")
     de.add_argument("action", choices=(
-        "check", "start", "shell", "catalog", "creator-api", "creator-history", "creator-schema", "review", "draft-check", "draft-edit", "visual-compare",
+        "check", "start", "shell", "catalog", "creator-api", "creator-history", "creator-schema", "creator-snapshot", "review", "draft-check", "draft-edit", "visual-compare",
         "visual-baseline",
         "capture", "render", "creator-status", "creator-stage", "creator-rollback",
         "creator-live-status", "creator-live-apply", "creator-live-restore",
@@ -286,6 +286,27 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"Creator edit schema for {parsed.recipe_id} v{parsed.schema_version}")
                     print(f"Reviewed source fingerprint: {fingerprint}")
                     print("Use --json for the complete JSON Schema; full-parser preflight remains required")
+                return 0
+            if args.action == "creator-snapshot":
+                if args.nested or args.panel != "waybar" or not args.recipe:
+                    raise ValueError("de creator-snapshot requires --recipe ID")
+                from .de.creator_snapshot import SnapshotError, create
+                try:
+                    result = create(args.recipe)
+                except SnapshotError as exc:
+                    if not args.json:
+                        raise
+                    print(json.dumps({"ok": False, "applied": False,
+                                      "error": {"code": "snapshot_unavailable",
+                                                "message": str(exc)}}))
+                    return 2
+                if args.json:
+                    print(json.dumps(result, indent=2, ensure_ascii=False))
+                else:
+                    print(f"Creator source snapshot: {result['path']}")
+                    print(f"Semantic SHA-256: {result['source_semantic_sha256']}")
+                    print("Existing verified copy reused" if not result["created"]
+                          else "New 0400 private snapshot published; no desktop change")
                 return 0
             if args.action == "settings":
                 if args.json or args.nested or args.recipe or args.panel != "waybar":

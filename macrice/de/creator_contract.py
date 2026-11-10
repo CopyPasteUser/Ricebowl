@@ -228,6 +228,8 @@ def describe_creator_api() -> dict[str, object]:
                  "runtime": "owner-only no-overwrite receipts; GTK history and read-only CLI"},
                 {"id": "recipe-versioned-edit-json-schema", "supported": True,
                  "runtime": "standalone offline JSON Schema 2020-12; full parser validates cross-property rules"},
+                {"id": "content-addressed-source-snapshots", "supported": True,
+                 "runtime": "owner-private 0400 canonical copies, exact byte hash checked on every recipe load"},
                 {"id": "isolated-native-multisize-preview", "supported": True,
                  "runtime": "requires-external-labwc-and-capture-binaries"},
                 {"id": "review-gated-live-rice-switch", "supported": True,
@@ -244,7 +246,7 @@ def describe_creator_api() -> dict[str, object]:
         "authoring_workflow": [
             {"step": "discover", "commands": ["creator-api", "catalog", "creator-schema"],
              "effect": "none"},
-            {"step": "draft-and-review", "commands": ["draft-check", "draft-edit", "review",
+            {"step": "draft-and-review", "commands": ["creator-snapshot", "draft-check", "draft-edit", "review",
                                                    "creator-history"],
              "effect": "owner-private-file-only"},
             {"step": "visual-qa", "commands": ["render", "visual-compare"],
@@ -283,6 +285,8 @@ def describe_creator_api() -> dict[str, object]:
              "contract_version": 1},
             {"command": "creator-schema", "effect": "read per-recipe JSON Schema for bounded edits",
              "cli": "de creator-schema --recipe ID --json", "contract_version": 1},
+            {"command": "creator-snapshot", "effect": "publish or reuse an exact private source copy without selection",
+             "cli": "de creator-snapshot --recipe ID --json", "contract_version": 1},
             {"command": "draft-edit", "effect": "create private reviewed JSON draft",
              "cli": "de draft-edit --recipe ID --edit FILE --output NEW.json "
                     "--expect-sha256 SOURCE_HASH --expect-draft-sha256 DRAFT_HASH --json",
@@ -349,7 +353,7 @@ def describe_creator_api() -> dict[str, object]:
             "Native tray, complete settings, notification center and physical multi-monitor acceptance remain open",
         ],
     }
-    private_writes = {"draft-edit", "render", "visual-baseline", "capture",
+    private_writes = {"draft-edit", "creator-snapshot", "render", "visual-baseline", "capture",
                       "pack-export", "pack-import", "asset-import"}
     next_login = {"creator-stage", "creator-rollback"}
     active_wayland = {"creator-live-apply", "creator-live-restore", "display-refresh"}
@@ -423,6 +427,14 @@ def describe() -> dict[str, object]:
             "source_fingerprint": "semantic SHA-256 for --expect-sha256",
             "schema_fingerprint": "stable canonical SHA-256 for reproducible schema discovery",
             "cross_property_rules": "always use de draft-check for complete recipe validation",
+        },
+        "source_snapshot": {
+            "command": "de creator-snapshot --recipe ID --json",
+            "output": "content-addressed 0400 private recipe, never overwritten",
+            "validation": "exact SHA-256 of recipe bytes checked on every recipes.load()",
+            "reusable_as": "de draft-check/draft-edit --recipe /absolute/snapshot-<hash>.json",
+            "limits": "same 64 KiB recipe and full parser; assets retain their own content IDs",
+            "filesystem_immutable": False,
         },
         "example_source_recipe": "classic",
         "example": {

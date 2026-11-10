@@ -910,6 +910,15 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
     accompanies the source recipe fingerprint. Cross-property invariants and
     duplicate references still require the full parser and `de draft-check`;
     no schema-only result is treated as safe to apply.
+  - [x] **Creator reproducible source snapshots** add `de creator-snapshot`
+    for offline, content-addressed recipe copies with a canonical byte-level
+    SHA-256 filename, 0400 mode, 0700 storage, atomic no-overwrite creation
+    and idempotent reuse. Every `recipes.load()` verifies snapshot bytes before
+    parsing, including review/preflight/draft-edit/preview. Existing tampered
+    or symlinked targets are refused, and full semantic fingerprints remain
+    available for checked edits. No active session or XFCE settings change.
+    This is an owner-private sealed snapshot, **not** a privileged Linux
+    `chattr +i` immutable file; the same user can intentionally change it.
   - [x] **Creator GTK reviewed publication gate** connects the on-demand UI to
     that preflight: scrollable complete before/after values and both semantic
     fingerprints appear before the user authorizes a new private version.
