@@ -92,14 +92,15 @@ class CreatorWorkspaceTests(unittest.TestCase):
         data["panel"]["height"] += 1
         original.path.write_text(json.dumps(data) + "\n")
         # The underlying recipe remains owner-private and valid; its fingerprint changed.
-        self.assertNotEqual(workspace.open_draft(original.path).semantic_sha256,
-                            preflight["source_semantic_sha256"])
-        with self.assertRaisesRegex(workspace.WorkspaceError, "Reload"):
+        with self.assertRaisesRegex(workspace.WorkspaceError, "fingerprint"):
+            workspace.open_draft(original.path)
+        with self.assertRaisesRegex(workspace.WorkspaceError, "fingerprint"):
             workspace.save_revision(
                 original.path, {"/panel/height": 47},
                 expected_sha256=preflight["source_semantic_sha256"],
                 expected_draft_sha256=preflight["draft_semantic_sha256"])
-        self.assertEqual(len(workspace.list_drafts()), 1)
+        self.assertEqual(workspace.list_drafts(), [])  # Invalid receipt hides the changed draft.
+        self.assertTrue(original.path.is_file())
         self.assertFalse(list(original.path.parent.glob(".creator-edit-*")))
 
     def test_invalid_preflight_fails_without_creating_private_version(self):

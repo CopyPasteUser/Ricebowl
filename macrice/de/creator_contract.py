@@ -224,6 +224,8 @@ def describe_creator_api() -> dict[str, object]:
                  "runtime": "offline-CLI"},
                 {"id": "read-only-draft-preflight-and-fingerprint-guards", "supported": True,
                  "runtime": "full-recipe-parser; semantic diff and pinned private draft publication"},
+                {"id": "private-creator-version-lineage", "supported": True,
+                 "runtime": "owner-only no-overwrite receipts; GTK history and read-only CLI"},
                 {"id": "isolated-native-multisize-preview", "supported": True,
                  "runtime": "requires-external-labwc-and-capture-binaries"},
                 {"id": "review-gated-live-rice-switch", "supported": True,
@@ -239,7 +241,8 @@ def describe_creator_api() -> dict[str, object]:
         },
         "authoring_workflow": [
             {"step": "discover", "commands": ["creator-api", "catalog"], "effect": "none"},
-            {"step": "draft-and-review", "commands": ["draft-check", "draft-edit", "review"],
+            {"step": "draft-and-review", "commands": ["draft-check", "draft-edit", "review",
+                                                   "creator-history"],
              "effect": "owner-private-file-only"},
             {"step": "visual-qa", "commands": ["render", "visual-compare"],
              "effect": "isolated-native-preview"},
@@ -272,6 +275,9 @@ def describe_creator_api() -> dict[str, object]:
             {"command": "draft-check", "effect": "read-only edit validation and semantic diff",
              "cli": "de draft-check --recipe ID --edit FILE --json",
              "contract_version": EDIT_VERSION},
+            {"command": "creator-history", "effect": "read verified private Creator draft ancestry",
+             "cli": "de creator-history --recipe /absolute/draft.json --json",
+             "contract_version": 1},
             {"command": "draft-edit", "effect": "create private reviewed JSON draft",
              "cli": "de draft-edit --recipe ID --edit FILE --output NEW.json "
                     "--expect-sha256 SOURCE_HASH --expect-draft-sha256 DRAFT_HASH --json",

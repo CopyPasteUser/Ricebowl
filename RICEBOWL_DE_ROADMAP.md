@@ -908,6 +908,16 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
     Save/render/export cancel without publishing when approval is withheld;
     the eventual write rechecks both hashes, including changes made after
     preflight. Existing saved versions and active session remain untouched.
+  - [x] **Creator persistent draft lineage** stores a private, no-overwrite
+    version receipt for every new template, save, fork and schema upgrade.
+    Each receipt binds the parsed recipe fingerprint and the exact predecessor
+    filename/fingerprint, with bounded, no-symlink traversal and corruption
+    detection. GTK Previous version now works after restarting the app; a
+    Version history dialog opens verified ancestors without selecting a live
+    rice; the read-only `de creator-history --json` exposes the same chain to
+    agents. Legacy drafts remain readable but have no authenticated ancestors.
+    A same-user adversary can still edit/delete owner-writable files; this is
+    corruption detection, not filesystem-level immutable snapshots.
 - [x] Ship the first **on-demand GTK3 Rice Creator 0.1 workspace** on top of
   the actual schema-v10 recipe parser and API: four real templates, labeled
   style/structure controls, reordering and bounded addition/removal of existing

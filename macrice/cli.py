@@ -72,7 +72,7 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("session-sync", help="Reconcile active rice after XFCE autostart")
     de = commands.add_parser("de", help="Inspect experimental RiceBowl Wayland desktop prerequisites")
     de.add_argument("action", choices=(
-        "check", "start", "shell", "catalog", "creator-api", "review", "draft-check", "draft-edit", "visual-compare",
+        "check", "start", "shell", "catalog", "creator-api", "creator-history", "review", "draft-check", "draft-edit", "visual-compare",
         "visual-baseline",
         "capture", "render", "creator-status", "creator-stage", "creator-rollback",
         "creator-live-status", "creator-live-apply", "creator-live-restore",
@@ -244,6 +244,30 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"RiceBowl Creator API v{contract['api_version']} (offline, on demand)")
                     for item in contract["commands"]:
                         print(f"  {item['command']:18} {item['effect']}")
+                return 0
+            if args.action == "creator-history":
+                if (args.nested or args.panel != "waybar" or not args.recipe
+                        or not Path(args.recipe).is_absolute()):
+                    raise ValueError("de creator-history requires --recipe /absolute/private-draft.json")
+                from .de import creator_workspace as workspace, recipes
+                try:
+                    chain = workspace.version_history(workspace.open_draft(Path(args.recipe)))
+                except (workspace.WorkspaceError, recipes.RecipeError, OSError) as exc:
+                    if not args.json:
+                        raise
+                    print(json.dumps({"ok": False, "error": {"code": "unverified_history",
+                                                         "message": str(exc)}}))
+                    return 2
+                rows = [{"path": str(info.path), "recipe_id": info.recipe_id,
+                         "name": info.name, "semantic_sha256": info.semantic_sha256,
+                         "modified_ns": info.modified_ns} for info in chain]
+                if args.json:
+                    print(json.dumps({"ok": True, "history_version": 1, "applied": False,
+                                      "versions": rows, "max_versions": 64}, indent=2))
+                else:
+                    print(f"Verified Creator history: {len(rows)} version(s), newest first")
+                    for row in rows:
+                        print(f"{row['recipe_id']} · {row['semantic_sha256'][:12]} · {row['path']}")
                 return 0
             if args.action == "settings":
                 if args.json or args.nested or args.recipe or args.panel != "waybar":

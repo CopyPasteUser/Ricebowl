@@ -24,6 +24,7 @@ class CreatorApiV3Tests(unittest.TestCase):
         self.assertTrue(flags["manual-region-pixel-qa"]["supported"])
         self.assertTrue(flags["interactive-region-correction-qa"]["supported"])
         self.assertTrue(flags["read-only-draft-preflight-and-fingerprint-guards"]["supported"])
+        self.assertTrue(flags["private-creator-version-lineage"]["supported"])
         self.assertEqual(api["manual_region_qa"]["max_regions"], 8)
         self.assertEqual(api["manual_region_qa"]["correction_cycle"]["max_measurements"], 12)
         self.assertTrue(flags["interactive-desktop-widgets"]["supported"])
@@ -51,6 +52,7 @@ class CreatorApiV3Tests(unittest.TestCase):
         self.assertEqual(commands["review"]["mutation_scope"], "none")
         self.assertEqual(commands["render"]["mutation_scope"], "private-file")
         self.assertEqual(commands["draft-check"]["mutation_scope"], "none")
+        self.assertEqual(commands["creator-history"]["mutation_scope"], "none")
         self.assertFalse(commands["draft-check"]["requires_explicit_user_invocation"])
         self.assertEqual(commands["visual-compare"]["mutation_scope"],
                          "private-file-optional")

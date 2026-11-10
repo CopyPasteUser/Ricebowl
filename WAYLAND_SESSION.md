@@ -1294,6 +1294,24 @@ the editor refuses a stale save. Opening another draft with pending changes
 requires an explicit discard confirmation. **Export RicePack** creates a new
 validated `.ricepack` without overwriting, importing or applying anything.
 
+New Creator drafts also have a sibling owner-private `.history` receipt
+(mode `0600`). The receipt binds each saved recipe's validated semantic SHA-256
+to its predecessor's filename and SHA-256. **Previous version** survives
+Creator restarts; **Version history…** shows and reopens up to 64 verified
+versions in the same project lineage. Modified recipes, unsafe/symlinked
+receipts and altered or missing ancestors are rejected during traversal;
+the current valid version remains available if an older link is broken.
+Drafts created before these receipts remain readable without a verified
+predecessor. Like other files owned by your account, receipts can still be
+altered or deleted by a process running as you; this feature detects
+unexpected changes but is not a root-owned immutable backup.
+
+For scripted/AI-assisted authoring, the same private ancestry is available
+read-only using `ricebowl de creator-history --recipe /absolute/draft.json --json`.
+It reports validated semantic hashes and filenames without creating
+or activating anything. A damaged chain returns a structured `unverified_history`
+error instead of silently trusting an altered ancestor.
+
 **Render preview** first asks for review and approval of any pending edits,
 then invokes the exact
 existing isolated native `de render` backend in a worker thread at one of four

@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from . import assets, creator_assets, drafts, pack, recipes, review
+from . import assets, creator_assets, creator_history, drafts, pack, recipes, review
 from .creator_contract import EDITABLE_PATHS, EDIT_VERSION, MAX_OPERATIONS
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "wayland"
@@ -73,8 +73,58 @@ def open_draft(path: Path) -> DraftInfo:
     if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.geteuid()
             or metadata.st_mode & 0o077):
         raise WorkspaceError("Creator draft must be a private regular file")
-    return DraftInfo(path, snapshot["recipe"]["name"], snapshot["summary"]["id"],
+    info = DraftInfo(path, snapshot["recipe"]["name"], snapshot["summary"]["id"],
                      snapshot["summary"]["semantic_sha256"], metadata.st_mtime_ns)
+    if path.parent == _private_directory() and path.name.startswith("draft-"):
+        try:
+            creator_history.read(path, info.semantic_sha256)
+        except creator_history.HistoryError as exc:
+            raise WorkspaceError(str(exc)) from exc
+    return info
+
+
+def _record_version(target: Path, kind: str, *, parent: tuple[str, str] | None = None
+                    ) -> DraftInfo:
+    """Bind a new private recipe to its reviewed parent without overwrites."""
+    info = open_draft(target)
+    try:
+        creator_history.write(target, info.semantic_sha256, kind=kind, parent=parent)
+    except creator_history.HistoryError as exc:
+        raise WorkspaceError(str(exc)) from exc
+    return info
+
+
+def previous_version(info: DraftInfo) -> DraftInfo | None:
+    """Follow one verified parent receipt, including after restarting Creator."""
+    current = open_draft(info.path)
+    if current.semantic_sha256 != info.semantic_sha256:
+        raise WorkspaceError("Creator draft changed since it was opened")
+    if info.path.parent != _private_directory():
+        raise WorkspaceError("Creator history is only available for private workspace drafts")
+    try:
+        receipt = creator_history.read(info.path, current.semantic_sha256)
+    except creator_history.HistoryError as exc:
+        raise WorkspaceError(str(exc)) from exc
+    if receipt is None or receipt["parent"] is None:
+        return None
+    ancestor = open_draft(info.path.parent / receipt["parent"]["filename"])
+    if ancestor.semantic_sha256 != receipt["parent"]["semantic_sha256"]:
+        raise WorkspaceError("An earlier Creator version was modified; history cannot be trusted")
+    return ancestor
+
+
+def version_history(info: DraftInfo) -> list[DraftInfo]:
+    """Newest first; validate each link with a strict 64-version traversal bound."""
+    chain: list[DraftInfo] = []
+    seen: set[Path] = set()
+    current: DraftInfo | None = info
+    while current is not None and len(chain) < creator_history.MAX_HISTORY_DEPTH:
+        if current.path in seen:
+            raise WorkspaceError("Creator version history contains a cycle")
+        seen.add(current.path)
+        chain.append(open_draft(current.path))
+        current = previous_version(current)
+    return chain
 
 
 def list_drafts() -> list[DraftInfo]:
@@ -112,7 +162,7 @@ def create_draft(template: str, *, name: str | None = None) -> DraftInfo:
         payload = (json.dumps(data, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
         recipes.parse(payload)
         recipes._write_private_new(target, payload)
-    return open_draft(target)
+    return _record_version(target, "create")
 
 
 def _revision_patch(source: Path, changes: dict[str, Any], *, expected_sha256: str
@@ -167,7 +217,7 @@ def save_revision(source: Path, changes: dict[str, Any], *, expected_sha256: str
         result = drafts.create_edit(recipe_token=str(source), edit_source=patch_file,
                                     destination=destination, expected_sha256=expected_sha256,
                                     expected_draft_sha256=expected_draft_sha256)
-    return open_draft(destination), result["changes"]
+    return _record_version(destination, "save", parent=(source.name, expected_sha256)), result["changes"]
 
 
 def fork_version(info: DraftInfo) -> DraftInfo:
@@ -192,7 +242,7 @@ def fork_version(info: DraftInfo) -> DraftInfo:
     recipes.parse(payload)
     target = _new_file(folder)
     recipes._write_private_new(target, payload)
-    return open_draft(target)
+    return _record_version(target, "fork", parent=(info.path.name, info.semantic_sha256))
 
 
 def upgrade_to_artwork(info: DraftInfo) -> DraftInfo:
@@ -211,7 +261,7 @@ def upgrade_to_artwork(info: DraftInfo) -> DraftInfo:
     recipes.parse(payload)
     target = _new_file(_private_directory())
     recipes._write_private_new(target, payload)
-    return open_draft(target)
+    return _record_version(target, "upgrade", parent=(info.path.name, info.semantic_sha256))
 
 
 def export_draft(info: DraftInfo, destination: Path) -> dict[str, Any]:

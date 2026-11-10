@@ -42,7 +42,7 @@ def _checked_draft(info: workspace.DraftInfo) -> workspace.DraftInfo:
     try:
         current = workspace.open_draft(info.path)
     except (workspace.WorkspaceError, recipes.RecipeError, OSError) as exc:
-        raise ActivationError("Saved version cannot be reviewed; reopen the draft") from exc
+        raise ActivationError("Saved version changed or cannot be reviewed; reopen the draft") from exc
     if current.semantic_sha256 != info.semantic_sha256 or current.recipe_id != info.recipe_id:
         raise ActivationError("Saved version changed; reopen and review it again")
     return current
