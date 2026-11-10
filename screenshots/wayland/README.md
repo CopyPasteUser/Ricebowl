@@ -46,11 +46,29 @@ in [successful native CI run #42909714051](https://github.com/CopyPasteUser/Rice
 `xp-luna-columns-calendar.png` and `xp-luna-font-calendar.png`. CI opens the
 native calendar popup for each recipe and verifies a visible difference inside
 the calendar surface. The imported font also reaches the native volume OSD;
-that path has Rust paint coverage but **no separate OSD screenshot claim**.
+its own compositor proof is documented immediately below.
 The original bitmap calendar pixels remain the fallback when no private face
 is selected. CI uses an owner-private test asset; no global font configuration
 or existing rice is modified. These previews do not replace physical display,
 keyboard and accessibility acceptance.
+
+### Luna volume OSD · real compositor comparison
+
+| Original bitmap volume overlay | Private TrueType volume overlay |
+| :---: | :---: |
+| [![The real native Luna OSD with its original bitmap Volume and 68 percent labels](luna-osd-default.webp)](luna-osd-default.webp) | [![The real native Luna OSD with owner-private DejaVu Sans Mono for Volume and 68 percent labels](luna-osd-font.webp)](luna-osd-font.webp) |
+| Default `xp-luna-columns` | Temporary `xp-luna-font-preview` |
+
+Real **1366×768 headless labwc/RicePlate screenshots**, cropped around the
+actual overlay, from [successful native CI run #42914562690](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42914562690):
+`xp-luna-columns-osd.png` and `xp-luna-font-osd.png`. The explicit
+`--preview-osd` mode paints a deterministic **simulated** 68% notice into
+the real, input-transparent Wayland overlay; it never changes the system
+volume. The normal volume overlay still expires after 1.8 seconds. This
+capture's 125%-scaled output places the 248×70 logical surface across about
+310×88 physical pixels. A full overlay comparison detects **880 changed
+RGB pixels**, whereas a crop assuming 100% scale missed its left-hand text.
+The proof covers rendering, not hardware mixer events or physical focus.
 
 ### Luna window chrome · real XWayland before/after
 

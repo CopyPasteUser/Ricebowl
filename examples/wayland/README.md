@@ -90,8 +90,10 @@ explicitly selected; other rices keep pixel-identical auxiliary typography.
 Additional Unicode glyphs are cached lazily with
 a fixed limit, rather than being reduced to a small pre-rendered Latin set.
 Absent glyphs still use a readable replacement. Full complex-script shaping,
-automatic system font discovery, a Waybar custom-face path and third-party
-GTK/Qt window fonts are **not** yet implemented. The built-in font and legacy
+automatic font import without user attribution, a Waybar custom-face path and
+third-party GTK/Qt window fonts are **not** yet implemented. Read-only
+Fontconfig discovery and a Creator installed-font chooser are available;
+import still requires explicit user review. The built-in font and legacy
 recipes retain their former behavior.
 
 **Existing 0.1.0 preview `.deb` packages still contain an older native
