@@ -30,6 +30,10 @@ installation and is not yet a finished desktop environment.
   missing-glyph fallback, UTF-8-aware cell measurements and a compositor proof
   comparing built-in versus owner-private fonts, without global font changes
   (green native run #42904147986; permanent `luna-font.webp` gallery crop).
+- [ ] Prove Luna's optional palette-derived labwc server-side titlebars with
+  a real XWayland before/after compositor capture, isolated private
+  `themerc-override` and transaction-safe live switch/restore tests; only
+  mark complete when headless native CI and screenshot inspection pass.
 - [ ] Still open before any 1.0 claim: physical ThinkPad input/focus/power and
   display acceptance, finer icon/window appearance fidelity, and packaging an
   upgraded core/native release for schema v12.

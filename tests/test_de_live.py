@@ -2,6 +2,7 @@
 
 import json
 import os
+import subprocess
 import tempfile
 import threading
 import unittest
@@ -81,6 +82,65 @@ class LiveRiceTests(unittest.TestCase):
     def change(self, action, token=None, digest=None, expected="classic"):
         return self.controller.handle({"action": action, "recipe": token,
                                        "sha256": digest, "expected": expected})
+
+    def import_luna(self):
+        source = self.runtime / "luna.json"
+        source.write_bytes((Path(__file__).resolve().parents[1] /
+                            "examples/wayland/xp-luna-columns.json").read_bytes())
+        source.chmod(0o600)
+        return recipes.import_recipe(source)[0].recipe_id
+
+    def test_luna_chrome_live_switch_and_restore_are_isolated(self):
+        token = self.import_luna()
+        override = self.menu_dir / "themerc-override"
+        self.assertFalse(override.exists())
+        response = self.change("apply", token, staging._hash(token))
+        self.assertTrue(response["changed"])
+        self.assertIn("#1654b5", override.read_text(encoding="utf-8"))
+        self.assertEqual(override.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(recipes.current_selection()[0], token)
+        self.change("restore", expected=token)
+        self.assertFalse(override.exists())
+        self.assertEqual(recipes.current_selection()[0], "classic")
+
+    def test_luna_chrome_rolls_back_on_failed_selection(self):
+        token = self.import_luna()
+        original_menu = self.menu.read_bytes()
+        with mock.patch.object(recipes, "change_selection",
+                               side_effect=recipes.SelectionConflict("concurrent update")):
+            with self.assertRaises(live.LiveError) as caught:
+                self.change("apply", token, staging._hash(token))
+        self.assertEqual(caught.exception.code, "selection_conflict")
+        self.assertEqual(self.menu.read_bytes(), original_menu)
+        self.assertFalse((self.menu_dir / "themerc-override").exists())
+        self.assertEqual(recipes.current_selection(), ("classic", None))
+        self.assertFalse(self.initial_panel.terminated)
+
+    def test_luna_theme_is_removed_if_labwc_reconfigure_fails(self):
+        token = self.import_luna()
+        original_menu = self.menu.read_bytes()
+        self.controller._reconfigure.side_effect = [
+            subprocess.CalledProcessError(1, "labwc --reconfigure"), None,
+        ]
+        with self.assertRaises(live.LiveError) as caught:
+            self.change("apply", token, staging._hash(token))
+        self.assertEqual(caught.exception.code, "component_failed")
+        self.assertEqual(self.menu.read_bytes(), original_menu)
+        self.assertFalse((self.menu_dir / "themerc-override").exists())
+        self.assertEqual(self.controller._reconfigure.call_count, 2)
+        self.assertFalse(self.initial_panel.terminated)
+
+    def test_luna_chrome_is_preserved_if_switch_away_fails(self):
+        token = self.import_luna()
+        self.change("apply", token, staging._hash(token))
+        override = self.menu_dir / "themerc-override"
+        original = override.read_bytes()
+        with mock.patch.object(recipes, "change_selection",
+                               side_effect=recipes.SelectionConflict("concurrent update")):
+            with self.assertRaises(live.LiveError):
+                self.change("apply", "chrome", staging._hash("chrome"), expected=token)
+        self.assertEqual(override.read_bytes(), original)
+        self.assertEqual(recipes.current_selection()[0], token)
 
     def test_native_live_switch_and_explicit_restore_are_persisted(self):
         digest = staging._hash("chrome")

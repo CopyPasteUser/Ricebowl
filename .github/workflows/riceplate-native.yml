@@ -19,6 +19,8 @@ on:
       - 'packaging/wayland/ricebowl-wayland-command'
       - 'scripts/test_wayland_package_reproducibility.sh'
       - 'scripts/smoke_riceplate_native.sh'
+      - 'scripts/smoke_luna_window_chrome.sh'
+      - 'scripts/wayland_luna_chrome_client.sh'
       - 'scripts/smoke_riceplate_windows.sh'
       - 'scripts/wayland_xwayland_smoke_client.sh'
       - 'scripts/smoke_wayland_clipboard.sh'
@@ -77,6 +79,8 @@ on:
       - 'packaging/wayland/ricebowl-wayland-command'
       - 'scripts/test_wayland_package_reproducibility.sh'
       - 'scripts/smoke_riceplate_native.sh'
+      - 'scripts/smoke_luna_window_chrome.sh'
+      - 'scripts/wayland_luna_chrome_client.sh'
       - 'scripts/smoke_riceplate_windows.sh'
       - 'scripts/wayland_xwayland_smoke_client.sh'
       - 'scripts/smoke_wayland_clipboard.sh'
@@ -142,6 +146,8 @@ jobs:
           cargo build --release --manifest-path components/riceplate-wayland/Cargo.toml \
             --example wayland_pointer_click
           sh -n scripts/smoke_riceplate_native.sh
+          sh -n scripts/smoke_luna_window_chrome.sh
+          sh -n scripts/wayland_luna_chrome_client.sh
           sh -n scripts/smoke_riceplate_windows.sh
           sh -n scripts/wayland_xwayland_smoke_client.sh
           sh -n scripts/smoke_wayland_clipboard.sh
@@ -448,6 +454,9 @@ jobs:
                      zip(header, (65, 121, 170))), f'native calendar popup header missing: {header}'
           (directory / 'capture-manifest.json').write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n')
           PY
+      - name: Capture reversible Luna compositor window decorations
+        run: |
+          timeout -k 5s 80s sh scripts/smoke_luna_window_chrome.sh
       - name: Render both Creator demonstrators at four real output geometries
         run: |
           set -eu
