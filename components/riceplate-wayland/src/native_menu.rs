@@ -549,6 +549,59 @@ mod tests {
     }
 
     #[test]
+    fn columns_show_real_programs_and_system_actions_simultaneously() {
+        let recipe = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let menu = recipe.menu.as_ref().unwrap();
+        assert_eq!(menu.presentation, MenuPresentation::Columns);
+        let mut state = MenuState::default();
+        state.open();
+        // No installed-app fixtures: all real fixed actions remain present.
+        assert_eq!(state.actions(menu), vec![
+            "applications", "terminal", "settings", "notifications", "lock", "logout"
+        ]);
+        assert_eq!(state.hit(menu, 20.0, 116.0), Some(Hit::Action(0)));
+        assert_eq!(state.hit(menu, 200.0, 116.0), Some(Hit::Action(2)));
+        assert_eq!(state.hit(menu, 200.0, 188.0), Some(Hit::Action(4)));
+        assert_eq!(state.hit(menu, 200.0, 218.0), Some(Hit::Action(5)));
+        assert_eq!(state.hit(menu, 164.0, 120.0), None);
+        assert_eq!(state.hit(menu, 200.0, 290.0), Some(Hit::Close));
+
+        state.horizontal_by(menu, 1);
+        assert_eq!(state.current_action(menu), Some("settings"));
+        state.horizontal_by(menu, -1);
+        assert_eq!(state.current_action(menu), Some("applications"));
+        state.select_group(menu, 2);
+        assert_eq!(state.current_action(menu), Some("lock"));
+        state.start_search();
+        assert!(state.search_input("term"));
+        // Search and saving use the real shared actions, not fake column labels.
+        assert!(state.actions(menu).contains(&"terminal"));
+    }
+
+    #[test]
+    fn columns_remain_scrollable_on_compact_outputs() {
+        let recipe = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let menu = recipe.menu.as_ref().unwrap();
+        let mut state = MenuState::default();
+        state.open();
+        let size = fitted_size(320, 240, 40);
+        assert!(compact_layout(size));
+        assert_eq!(state.compact_hit(menu, 8.0, 50.0, size), Some(Hit::Group(0)));
+        state.select_group(menu, 1);
+        assert_eq!(state.current_action(menu), Some("settings"));
+        state.select_group(menu, 2);
+        assert_eq!(state.current_action(menu), Some("lock"));
+        let action_count = state.actions(menu).len();
+        assert!(action_count >= 6);
+        state.select_edge(menu, true);
+        assert_eq!(state.current_action(menu), Some("logout"));
+    }
+
+    #[test]
     fn keyboard_cycles_real_actions_and_groups() {
         let data = menu();
         let mut state = MenuState::default();
