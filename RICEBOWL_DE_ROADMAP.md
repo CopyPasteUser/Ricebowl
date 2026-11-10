@@ -43,11 +43,11 @@ installation and is not yet a finished desktop environment.
   asset collection. Public distribution font directories are accepted only
   for unmodified, non-symlink, read-only font files; unrelated root-owned files
   are never accepted. No global GTK/Qt or system font setting is changed.
-- [x] Replace RicePlate's eager Latin-1 TrueType sprite atlas with a bounded
-  512-codepoint, on-demand cache. The selected private font can draw supported
-  Unicode codepoints without a per-rice resident worker; missing characters
-  use the question-mark fallback. The existing fixed-cell text geometry and
-  RicePack v4 asset verification stay compatible.
+- [x] Keep the common Latin TrueType glyphs prewarmed while bounding the
+  additional on-demand Unicode cache to 512 codepoints. The selected private
+  font can draw supported extra Unicode glyphs without a per-rice resident
+  worker; unsupported characters retain a visible fallback. The existing
+  fixed-cell text geometry and RicePack v4 verification stay compatible.
 - [ ] Full script shaping, bidirectional text, variable font metrics, large
   CJK font packages, global toolkit font choices and physical visual/Orca
   verification are distinct follow-up work, not claimed by the glyph cache.
