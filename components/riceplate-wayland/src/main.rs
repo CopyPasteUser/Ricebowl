@@ -3044,8 +3044,8 @@ fn paint_osd(canvas: &mut [u8], style: &PanelStyle, notice: &osd::Notice) {
         pixel.copy_from_slice(&style.background.to_le_bytes());
     }
     fill_rect(canvas, width, height, 0, 0, 4, height, style.active);
-    draw_text(canvas, width, height, 16, 10, notice.title, style.foreground);
-    draw_text(canvas, width, height, 16, 29, &notice.value, style.foreground);
+    draw_auxiliary_text(canvas, width, height, 16, 10, notice.title, style.foreground, style);
+    draw_auxiliary_text(canvas, width, height, 16, 29, &notice.value, style.foreground, style);
     if let Some(percent) = notice.fill {
         fill_rect(canvas, width, height, 16, 54, width - 32, 5, style.active);
         fill_rect(canvas, width, height, 16, 54,
@@ -3647,18 +3647,23 @@ fn paint_notifications(canvas: &mut [u8], style: &PanelStyle, state: &Notificati
 fn paint_calendar(canvas: &mut [u8], style: &PanelStyle, state: &CalendarState) {
     let width = calendar::WIDTH;
     let height = calendar::HEIGHT;
+    let glyph_scale = if style.native_art.as_ref()
+        .and_then(|art| art.font.as_ref()).is_some() { style.font_scale } else { 1 };
+    let large_custom_font = glyph_scale > 1;
     for pixel in canvas.chunks_exact_mut(4) {
         pixel.copy_from_slice(&style.background.to_le_bytes());
     }
     fill_rect(canvas, width, height, 0, 0, width, 56, style.active);
-    draw_text(canvas, width, height, 12, 22,
-              &state.month.format("%B %Y").to_string(), style.foreground);
-    draw_text(canvas, width, height, 262, 22, "<", style.foreground);
-    draw_text(canvas, width, height, 306, 22, ">", style.foreground);
+    let month_label = state.month.format(if large_custom_font { "%b %Y" } else { "%B %Y" })
+        .to_string();
+    draw_auxiliary_text(canvas, width, height, 12, 22,
+              &month_label, style.foreground, style);
+    draw_auxiliary_text(canvas, width, height, 262, 22, "<", style.foreground, style);
+    draw_auxiliary_text(canvas, width, height, 306, 22, ">", style.foreground, style);
     for (index, weekday) in ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].iter().enumerate() {
-        draw_text(canvas, width, height,
+        draw_auxiliary_text(canvas, width, height,
                   calendar::GRID_X + index as u32 * calendar::CELL_WIDTH + 12,
-                  82, weekday, style.foreground);
+                  82, weekday, style.foreground, style);
     }
     let muted = {
         let foreground = style.foreground;
@@ -3683,13 +3688,17 @@ fn paint_calendar(canvas: &mut [u8], style: &PanelStyle, state: &CalendarState) 
                       calendar::CELL_WIDTH - 8, 2, style.foreground);
         }
         let label = day.day().to_string();
-        draw_text(canvas, width, height,
-                  x + (calendar::CELL_WIDTH - label.len() as u32 * 8) / 2,
-                  y + 13, &label, if this_month { style.foreground } else { muted });
+        let label_width = text_pixel_width(&label, glyph_scale);
+        draw_auxiliary_text(canvas, width, height,
+                  x + calendar::CELL_WIDTH.saturating_sub(label_width) / 2,
+                  y + 13, &label, if this_month { style.foreground } else { muted }, style);
     }
     fill_rounded_rect(canvas, width, height, 12, 322, 92, 28, 4, style.active);
-    draw_text(canvas, width, height, 31, 332, "Today", style.foreground);
-    draw_text(canvas, width, height, 183, 332, "Esc to close", style.foreground);
+    draw_auxiliary_text(canvas, width, height, if large_custom_font { 14 } else { 31 },
+                        332, "Today", style.foreground, style);
+    draw_auxiliary_text(canvas, width, height, 183, 332,
+                        if large_custom_font { "Esc" } else { "Esc to close" },
+                        style.foreground, style);
 }
 
 fn paint_icon(canvas: &mut [u8], icon: &recipe::DesktopIcon, style: &PanelStyle,
@@ -3826,6 +3835,18 @@ fn fill_rounded_rect(
 
 fn draw_text(canvas: &mut [u8], width: u32, height: u32, x: u32, y: u32, text: &str, color: u32) {
     draw_bitmap_text(canvas, width, height, x, y, text, color, 1, false);
+}
+
+/// Small auxiliary surfaces historically use fixed 8-pixel bitmap text. Keep
+/// that default byte-for-byte for all existing rices while honoring an
+/// explicitly imported native face on the calendar and OSD.
+fn draw_auxiliary_text(canvas: &mut [u8], width: u32, height: u32, x: u32, y: u32,
+                       text: &str, color: u32, style: &PanelStyle) {
+    if let Some(font) = style.native_art.as_ref().and_then(|art| art.font.as_ref()) {
+        font.draw(canvas, width, height, x, y, text, color, style.font_bold);
+    } else {
+        draw_text(canvas, width, height, x, y, text, color);
+    }
 }
 
 fn text_pixel_width(text: &str, scale: u32) -> u32 {
@@ -5872,6 +5893,17 @@ mod tests {
         assert!(pixels
             .chunks_exact(4)
             .any(|color| color == 0xfff3f7fa_u32.to_le_bytes()));
+    }
+
+    #[test]
+    fn auxiliary_text_keeps_legacy_pixels_when_no_private_font_is_selected() {
+        let style = recipe::load("classic").unwrap();
+        let mut original = vec![0_u8; 150 * 24 * 4];
+        let mut auxiliary = original.clone();
+        draw_text(&mut original, 150, 24, 6, 8, "November 2026", style.foreground);
+        draw_auxiliary_text(&mut auxiliary, 150, 24, 6, 8,
+                            "November 2026", style.foreground, &style);
+        assert_eq!(auxiliary, original);
     }
 
     #[test]

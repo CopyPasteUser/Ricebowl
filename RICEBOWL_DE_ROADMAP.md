@@ -34,6 +34,9 @@ installation and is not yet a finished desktop environment.
   a real XWayland before/after compositor capture, isolated private
   `themerc-override` and transaction-safe live switch/restore tests;
   green native run #42907311728, both screenshots inspected and preserved.
+- [ ] Carry an explicitly selected private TrueType font into the native
+  calendar and volume OSD without changing default bitmap pixels; verify
+  a real headless labwc calendar comparison and capture a permanent preview.
 - [ ] Still open before any 1.0 claim: physical ThinkPad input/focus/power and
   display acceptance, finer icon/window appearance fidelity, and packaging an
   upgraded core/native release for schema v12.
