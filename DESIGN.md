@@ -81,7 +81,10 @@ SHA-256 identities are immutable; the native renderer checks owner, mode and
 digest before loading the image/font. Older schema-v10 drafts have a separate
 immutable v11 upgrade. Icons fit the existing hit areas; a bounded glyph cache
 renders custom text in native styled panel, launcher, menu, desktop-icon and
-widget labels. A user-selected TrueType face retains a bounded font object for
+widget labels, plus the calendar popup and volume OSD when explicitly opted in.
+The latter two preserve the original 8px bitmap painter for built-in-font
+recipes; importing a font must never silently restyle existing auxiliary
+surfaces. A user-selected TrueType face retains a bounded font object for
 on-demand Greek/Cyrillic/other Unicode masks, with a 512-glyph FIFO budget
 beyond the prewarmed Latin set. Unsupported glyphs keep a visible fallback;
 this per-codepoint monospace treatment is not complex-script shaping or an

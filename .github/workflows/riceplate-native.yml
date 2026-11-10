@@ -374,6 +374,8 @@ jobs:
               'xp-luna-columns': (1366, 768, 1),
               'xp-luna-columns-menu': (1366, 768, 1),
               'xp-luna-font-menu': (1366, 768, 1),
+              'xp-luna-columns-calendar': (1366, 768, 1),
+              'xp-luna-font-calendar': (1366, 768, 1),
           }
           captures = {}
           for label in ('shell-v4', 'desktop-v5', 'menu-v5', 'calendar-v5', *expected):
@@ -441,6 +443,14 @@ jobs:
               custom = font_image.convert('RGB').crop((0, 338, 400, 718))
               changed = sum(left != right for left, right in zip(base.getdata(), custom.getdata()))
           assert changed > 500, f'Private TrueType did not change native menu glyph pixels: {changed}'
+          with Image.open(directory / 'xp-luna-columns-calendar.png') as bitmap_image, \
+               Image.open(directory / 'xp-luna-font-calendar.png') as typeface_image:
+              baseline = bitmap_image.convert('RGB').crop((1022, 376, 1358, 728))
+              imported = typeface_image.convert('RGB').crop((1022, 376, 1358, 728))
+              calendar_changed = sum(left != right for left, right in
+                                     zip(baseline.getdata(), imported.getdata()))
+          assert calendar_changed > 200, \
+              f'Private TrueType did not change native calendar glyph pixels: {calendar_changed}'
           for label in ('xp-luna-columns', 'xp-luna-columns-menu', 'xp-luna-font-menu'):
               with Image.open(directory / f'{label}.png') as image:
                   # swaybg is a separate process from native RicePlate. A

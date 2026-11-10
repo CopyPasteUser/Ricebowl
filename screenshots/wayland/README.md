@@ -34,6 +34,24 @@ framebuffers. No font is installed globally, and existing rices retain their
 selected font. Complex shaping, toolkit-wide fonts and physical-DPI acceptance
 are outside this verified feature.
 
+### Luna calendar · native popup font comparison
+
+| Original bitmap calendar | Owner-private DejaVu TrueType calendar |
+| :---: | :---: |
+| [![The native Luna calendar using built-in bitmap text, including its month heading and day grid](luna-calendar-default.webp)](luna-calendar-default.webp) | [![The native Luna calendar using the imported DejaVu Sans Mono TrueType font for its heading, weekday labels and day grid](luna-calendar-font.webp)](luna-calendar-font.webp) |
+| Default `xp-luna-columns` | Temporary `xp-luna-font-preview` |
+
+Both crops are taken from **real 1366×768 headless labwc compositor frames**
+in [successful native CI run #42909714051](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42909714051):
+`xp-luna-columns-calendar.png` and `xp-luna-font-calendar.png`. CI opens the
+native calendar popup for each recipe and verifies a visible difference inside
+the calendar surface. The imported font also reaches the native volume OSD;
+that path has Rust paint coverage but **no separate OSD screenshot claim**.
+The original bitmap calendar pixels remain the fallback when no private face
+is selected. CI uses an owner-private test asset; no global font configuration
+or existing rice is modified. These previews do not replace physical display,
+keyboard and accessibility acceptance.
+
 ### Luna window chrome · real XWayland before/after
 
 | Default labwc server-side window frame | Private Luna palette-driven frame |

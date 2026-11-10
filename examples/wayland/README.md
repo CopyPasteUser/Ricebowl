@@ -84,7 +84,10 @@ Select the face in **Visual asset library → Text font**, save a new immutable
 draft, then render it in isolated native labwc. The selection travels with a
 verified RicePack v4 export; it does not install fonts globally. Native
 RicePlate now uses that same selected face for panel, Start menu, desktop
-shortcut labels and widgets. Additional Unicode glyphs are cached lazily with
+shortcut labels, widgets, the calendar popup and the volume OSD. The calendar
+and OSD retain their legacy 8px bitmap text unless an owner-private face is
+explicitly selected; other rices keep pixel-identical auxiliary typography.
+Additional Unicode glyphs are cached lazily with
 a fixed limit, rather than being reduced to a small pre-rendered Latin set.
 Absent glyphs still use a readable replacement. Full complex-script shaping,
 automatic system font discovery, a Waybar custom-face path and third-party
