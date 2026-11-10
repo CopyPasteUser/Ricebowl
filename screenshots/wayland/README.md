@@ -16,7 +16,7 @@
 wallpaper process were rendered together by headless labwc. The menu is truly
 open in the second capture; it is not composited onto an image afterwards.
 
-Source: [successful native GitHub Actions capture run](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42890753472), 10 November 2026. Permanent copies come from `xp-luna-columns.png` and `xp-luna-columns-menu.png` in its artifact. Hardware status widgets may read `N/A`; this is expected in a virtual headless session. **Physical ThinkPad input, scaling, power and session acceptance remain open.**
+Sources (10 November 2026): the desktop image comes from [native capture run #42890753472](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42890753472), `xp-luna-columns.png`. The updated menu image comes from [native capture run #42898859348](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42898859348), `xp-luna-columns-menu.png`, which verifies readable `Settings` and `Log out (N/A)` labels in the right shelf. Both permanent WebP files are derived directly from real headless compositor captures, not mockups. Hardware status widgets may read `N/A`; this is expected in a virtual headless session. **Physical ThinkPad input, scaling, power and session acceptance remain open.**
 
 ## Two different desktop compositions
 
