@@ -207,14 +207,21 @@ impl MenuState {
                 }
             }
             View::Search => {
-                let query = self.search.to_lowercase();
+                let query = self.search.trim().to_lowercase();
                 let mut result: Vec<_> = all().filter(|action| action_label(action)
                     .to_lowercase().contains(&query)).collect();
                 // Empty search retains the old action list and does not dump
                 // every installed application into the four-row menu.
-                if !query.trim().is_empty() {
-                    result.extend(self.apps.iter().filter(|app| app.matches(&query))
-                                  .map(|app| app.action.as_str()));
+                if !query.is_empty() {
+                    // Exact/prefix name matches should not disappear behind
+                    // generic keyword hits from alphabetically earlier apps.
+                    // The original catalogue order breaks ties predictably.
+                    let mut apps: Vec<_> = self.apps.iter().enumerate()
+                        .filter_map(|(index, app)| app.match_score(&query)
+                            .map(|score| (score, index, app.action.as_str())))
+                        .collect();
+                    apps.sort_by_key(|(score, index, _)| (*score, *index));
+                    result.extend(apps.into_iter().map(|(_, _, action)| action));
                 }
                 result
             }
@@ -615,6 +622,37 @@ mod tests {
         for _ in 0..31 { assert!(state.search_input("a")); }
         assert!(!state.search_input("a"));
         assert!(state.backspace());
+    }
+
+    #[test]
+    fn search_orders_multiword_app_results_by_relevance_not_catalog_position() {
+        let data = menu();
+        let mut state = MenuState::default();
+        let app = |id: &str, name: &str, search: &str| App {
+            action: format!("desktop:{id}.desktop"), name: name.into(),
+            search_text: search.into(), path: format!("/usr/share/applications/{id}.desktop").into(),
+        };
+        state.apps = vec![
+            app("a", "Archive", "archive file manager utility"),
+            app("b", "Manager File", "manager file"),
+            app("c", "File Manager", "file manager"),
+            app("d", "File Manager Plus", "file manager plus"),
+            app("e", "File Manager", "file manager"),
+            app("f", "Audio", "audio music"),
+        ];
+        state.open();
+        state.start_search();
+        for ch in "file manager".chars() {
+            assert!(state.search_input(&ch.to_string()));
+        }
+        assert_eq!(state.actions(&data), vec![
+            "desktop:c.desktop", "desktop:e.desktop", "desktop:d.desktop",
+            "desktop:b.desktop", "desktop:a.desktop",
+        ]);
+        assert_eq!(state.current_action(&data), Some("desktop:c.desktop"));
+        state.select_by(&data, 4);
+        assert_eq!(state.current_action(&data), Some("desktop:a.desktop"));
+        assert!(!state.toggle_pin(&data));
     }
 
     #[test]
