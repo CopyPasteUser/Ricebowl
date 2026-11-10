@@ -90,6 +90,12 @@ beyond the prewarmed Latin set. Unsupported glyphs keep a visible fallback;
 this per-codepoint monospace treatment is not complex-script shaping or an
 installed system font. The built-in font remains the default and requires no
 extra resident font allocation. Waybar still uses its standard fonts/icons.
+The isolated native `--preview-osd` option renders a fixed 68% volume notice
+through the real, input-transparent layer surface; it does not invoke audio
+controls or watch a device. The preview notice intentionally has no expiry so
+headless compositor screenshot CI can capture it reproducibly. Live volume
+notices still expire normally after 1.8 seconds. No installed session starts
+this preview option, and the original/default bitmap OSD is untouched.
 RicePack v4 carries selected images, fonts and provenance without code,
 scripts or active-session changes.
 

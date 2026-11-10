@@ -101,19 +101,21 @@ fn main() -> Result<(), Box<dyn Error>> {
         return output_watch::run();
     }
     if matches!(arguments.as_slice(), [arg] if arg == "--help") {
-        println!("Usage: riceplate-native [--recipe classic|chrome|/absolute/private.json [--preview-menu|--preview-calendar]]\n       riceplate-native --watch-outputs (RiceBowl session only)");
+        println!("Usage: riceplate-native [--recipe classic|chrome|/absolute/private.json [--preview-menu|--preview-calendar|--preview-osd]]\n       riceplate-native --watch-outputs (RiceBowl session only)");
         return Ok(());
     }
-    let (recipe_name, preview_menu, preview_calendar) = match arguments.as_slice() {
-        [] => ("classic", false, false),
-        [flag, recipe] if flag == "--recipe" => (recipe.as_str(), false, false),
+    let (recipe_name, preview_menu, preview_calendar, preview_osd) = match arguments.as_slice() {
+        [] => ("classic", false, false, false),
+        [flag, recipe] if flag == "--recipe" => (recipe.as_str(), false, false, false),
         [flag, recipe, preview] if flag == "--recipe" && preview == "--preview-menu" =>
-            (recipe.as_str(), true, false),
+            (recipe.as_str(), true, false, false),
         [flag, recipe, preview] if flag == "--recipe" && preview == "--preview-calendar" =>
-            (recipe.as_str(), false, true),
+            (recipe.as_str(), false, true, false),
+        [flag, recipe, preview] if flag == "--recipe" && preview == "--preview-osd" =>
+            (recipe.as_str(), false, false, true),
         _ => {
             return Err(
-                "Usage: riceplate-native [--recipe classic|chrome|/absolute/private.json [--preview-menu|--preview-calendar]]".into(),
+                "Usage: riceplate-native [--recipe classic|chrome|/absolute/private.json [--preview-menu|--preview-calendar|--preview-osd]]".into(),
             )
         }
     };
@@ -168,7 +170,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // A native full desktop has volume OSD even when a rice omits the audio
     // indicator. Nested design previews retain the old opt-in behavior.
     let full_session = std::env::var("RICEBOWL_DE_NESTED").as_deref() != Ok("1");
-    let poll_audio = full_session || desktop_audio || status_present(Widget::Audio)
+    let poll_audio = preview_osd || full_session || desktop_audio || status_present(Widget::Audio)
         || menu_controls.iter().chain(panel_controls.iter()).chain(desktop_controls.iter()).any(|action|
             matches!(action, ControlAction::AudioMute | ControlAction::AudioUp | ControlAction::AudioDown));
     let use_tray = status_present(Widget::Tray);
@@ -446,6 +448,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     if preview_menu && !preview_secondary_menu { app.set_menu_visible(true, &qh); }
     if preview_calendar && !preview_secondary_calendar {
         app.set_calendar_visible(true, &qh);
+    }
+    if preview_osd {
+        // Deterministic, read-only native compositor proof. A production OSD
+        // still comes exclusively from verified audio/brightness events; the
+        // preview bypasses the 1.8s expiry only so CI can capture it reliably.
+        app.osd_state.current = Some(osd::Notice {
+            title: "Volume", value: "68%".into(), fill: Some(68),
+        });
+        app.redraw_osd();
     }
     // Keep the native AT-SPI bridge entirely opt-in: the normal lightweight
     // panel never starts an accessibility D-Bus client or background executor.

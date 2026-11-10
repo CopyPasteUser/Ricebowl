@@ -46,7 +46,10 @@ The selected private font now also renders the **native calendar popup and
 volume OSD**; the unselected-font path keeps its legacy bitmap painting.
 [Compare actual native calendar screenshots](screenshots/wayland/README.md#luna-calendar--native-popup-font-comparison)
 from [green CI run #42909714051](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42909714051).
-The volume OSD has Rust paint coverage, but no dedicated compositor capture.
+The [volume OSD now has its own real-compositor before/after comparison](screenshots/wayland/README.md#luna-volume-osd--real-compositor-comparison)
+from [green native run #42914562690](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42914562690).
+That screenshot uses a simulated 68% value; real hardware audio events and
+input transparency still need physical acceptance.
 
 Two-column Luna recipes with a validated palette now also select matching
 **labwc-owned window frames** inside RiceBowl's private session config. Native
