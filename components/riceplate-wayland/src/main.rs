@@ -5621,7 +5621,12 @@ mod tests {
         let green = ((height / 2 * width + 10) * 4) as usize;
         assert_eq!(&panel[green..green + 4], &launcher.background.to_le_bytes());
         let blue = ((height / 2 * width + 115) * 4) as usize;
-        assert_eq!(&panel[blue..blue + 4], &style.background.to_le_bytes());
+        let upper_blue = ((1 * width + 115) * 4) as usize;
+        // Luna uses a graduated blue panel; verify its hue and reflection,
+        // not the obsolete flat background pixel.
+        assert!(panel[blue] > panel[blue + 1] && panel[blue + 1] > panel[blue + 2]);
+        assert_ne!(&panel[blue..blue + 4], &style.background.to_le_bytes());
+        assert_ne!(&panel[blue..blue + 4], &panel[upper_blue..upper_blue + 4]);
 
         let menu = style.menu.as_ref().unwrap();
         let mut state = native_menu::MenuState::default();
