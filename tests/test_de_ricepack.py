@@ -351,12 +351,13 @@ class PortableRicePackTests(unittest.TestCase):
 
     def test_versioned_api_and_cli_cover_safe_authoring_cycle(self):
         spec = creator_contract.describe_creator_api()
-        self.assertEqual(spec["api_version"], 2)
+        self.assertEqual(spec["api_version"], 3)
         self.assertEqual(catalog.describe()["authoring"]["ricepack"],
                          creator_contract.describe_ricepack())
         self.assertTrue(spec["ricepack"]["provenance"]["roundtrip_preserves_attribution"])
         commands = {item["command"] for item in spec["commands"]}
-        self.assertTrue({"catalog", "review", "draft-edit", "render", "visual-compare",
+        self.assertTrue({"catalog", "review", "draft-check", "draft-edit",
+                         "render", "visual-compare",
                          "capture", "pack-export", "pack-inspect", "pack-import"} <= commands)
         with mock.patch("builtins.print") as printed:
             self.assertEqual(cli(["de", "creator-api", "--json"]), 0)

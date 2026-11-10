@@ -475,7 +475,7 @@ comparison, complete RicePack validator or guarantee of functional parity.
 #### Offline Creator component edits (experimental)
 
 Agents can now read `ricebowl de catalog --json` and use the
-`authoring.draft_edit` contract to build a **new panel draft** from actual
+`authoring.draft_edit` contract to build a **new Wayland draft** from actual
 supported components. The contract publishes editable JSON Pointer paths,
 limits, an explicit `set` operation and an example against `classic`.
 
@@ -493,20 +493,26 @@ owner-controlled regular `.json` file, not group/world writable):
 }
 ```
 
-Then validate and create a **new** private runtime-compatible JSON recipe:
+First check the exact semantic diff **without creating a file**. Review its
+`changes`, `source_semantic_sha256` and `draft_semantic_sha256`, then use both
+fingerprints to publish only that reviewed proposal:
 
 ```bash
 ricebowl de recipe-init --base classic --id my-panel --name "My Panel" \
   --output /absolute/path/my-panel-base.json
+ricebowl de draft-check --recipe /absolute/path/my-panel-base.json \
+  --edit /absolute/path/panel-edits.json --json
 ricebowl de draft-edit --recipe /absolute/path/my-panel-base.json \
   --edit /absolute/path/panel-edits.json \
+  --expect-sha256 SOURCE_HASH_FROM_CHECK \
+  --expect-draft-sha256 DRAFT_HASH_FROM_CHECK \
   --output /absolute/path/my-panel-draft.json --json
 ricebowl de review --recipe /absolute/path/my-panel-draft.json \
   --compare /absolute/path/my-panel-base.json --json
 ricebowl de start --nested --recipe /absolute/path/my-panel-draft.json
 ```
 
-The editor supports only validated panel property changes: name, panel edge,
+The editor supports only validated, non-executable recipe properties: name, panel edge,
 height, schema-v1/v2 `start`/`center`/`end` widget lists, schema-v3 typed
 `panel.layout` regions, hex colors and schema-v2/v3/v4 widget widths. Schema
 v4 additionally offers explicit menu, wallpaper, design-token and responsive
@@ -516,7 +522,8 @@ a fresh identity or v2/v3/v4 template. A draft made directly from `classic` rema
 identified as `classic` and can be previewed by absolute path, but cannot be
 imported over the reserved built-in ID. At most 16 `set` operations and 16 KiB of
 edit data are accepted; duplicate paths, unknown components, scripts, external
-assets, unsupported actions and no-op edits are rejected. The destination
+assets, unsupported actions and no-op edits are rejected. Stale source or
+changed proposal fingerprints fail before file creation. The destination
 must not exist; the new file is created with mode `0600` without overwriting
 the source. `--json` uses exit `0` for success, `2` for validation/creation
 failure with a structured error code and (only for allowlisted properties)

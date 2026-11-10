@@ -196,7 +196,7 @@ def describe_creator_api() -> dict[str, object]:
     from . import creator_mapping, creator_regions
 
     contract = {
-        "api_version": 2,
+        "api_version": 3,
         "scope": "experimental-wayland-shell-authoring",
         "transport": "CLI JSON; session-local socket only for explicit live Rice changes",
         "discovery": "ricebowl de creator-api --json",
@@ -222,12 +222,15 @@ def describe_creator_api() -> dict[str, object]:
                  "runtime": "GTK-on-demand; mouse or keyboard regions; bounded private cross-revision pixel journal"},
                 {"id": "private-drafts-and-packaging", "supported": True,
                  "runtime": "offline-CLI"},
+                {"id": "read-only-draft-preflight-and-fingerprint-guards", "supported": True,
+                 "runtime": "full-recipe-parser; semantic diff and pinned private draft publication"},
                 {"id": "isolated-native-multisize-preview", "supported": True,
                  "runtime": "requires-external-labwc-and-capture-binaries"},
                 {"id": "review-gated-live-rice-switch", "supported": True,
                  "runtime": "supervised-opt-in-wayland-only"},
-                {"id": "interactive-desktop-widgets", "supported": False,
-                 "reason": "Only panel action bindings and read-only desktop widgets exist"},
+                {"id": "interactive-desktop-widgets", "supported": True,
+                 "since_schema": 9,
+                 "runtime": "bounded native action components with pointer/keyboard/AT-SPI; physical QA open"},
                 {"id": "arbitrary-screenshot-one-click-conversion", "supported": False,
                  "reason": "Mapping references to supported primitives remains an authoring step"},
                 {"id": "window-decoration-control-across-all-apps", "supported": False,
@@ -236,7 +239,7 @@ def describe_creator_api() -> dict[str, object]:
         },
         "authoring_workflow": [
             {"step": "discover", "commands": ["creator-api", "catalog"], "effect": "none"},
-            {"step": "draft-and-review", "commands": ["draft-edit", "review"],
+            {"step": "draft-and-review", "commands": ["draft-check", "draft-edit", "review"],
              "effect": "owner-private-file-only"},
             {"step": "visual-qa", "commands": ["render", "visual-compare"],
              "effect": "isolated-native-preview"},
@@ -266,8 +269,12 @@ def describe_creator_api() -> dict[str, object]:
              "cli": "de catalog --json", "contract_version": 12},
             {"command": "review", "effect": "validate recipe and compare semantic diffs",
              "cli": "de review --recipe ID [--compare ID] --json", "contract_version": 1},
+            {"command": "draft-check", "effect": "read-only edit validation and semantic diff",
+             "cli": "de draft-check --recipe ID --edit FILE --json",
+             "contract_version": EDIT_VERSION},
             {"command": "draft-edit", "effect": "create private reviewed JSON draft",
-             "cli": "de draft-edit --recipe ID --edit FILE --output NEW.json --json",
+             "cli": "de draft-edit --recipe ID --edit FILE --output NEW.json "
+                    "--expect-sha256 SOURCE_HASH --expect-draft-sha256 DRAFT_HASH --json",
              "contract_version": EDIT_VERSION},
             {"command": "render", "effect": "isolated real native headless screenshot",
              "cli": "de render --recipe ID --output NEW.png --json", "contract_version": 1},
@@ -387,6 +394,18 @@ def describe() -> dict[str, object]:
         "mutates_next_session_selection": False,
         "edits_id_or_schema_version": False,
         "arbitrary_actions_or_scripts": False,
+        "read_only_preflight": {
+            "command": "de draft-check --recipe ID --edit FILE --json",
+            "writes_files": False,
+            "same_full_recipe_parser_as_draft_edit": True,
+            "returns": ["changes", "source_semantic_sha256", "draft_semantic_sha256"],
+        },
+        "guarded_create": {
+            "optional_source_hash": "--expect-sha256",
+            "optional_proposed_hash": "--expect-draft-sha256",
+            "hash_format": "64 lowercase hex; same semantic hash as de review",
+            "on_mismatch": "refuse creation; no active or private output changes",
+        },
         "example_source_recipe": "classic",
         "example": {
             "edit_version": EDIT_VERSION,

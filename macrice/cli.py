@@ -72,7 +72,7 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("session-sync", help="Reconcile active rice after XFCE autostart")
     de = commands.add_parser("de", help="Inspect experimental RiceBowl Wayland desktop prerequisites")
     de.add_argument("action", choices=(
-        "check", "start", "shell", "catalog", "creator-api", "review", "draft-edit", "visual-compare",
+        "check", "start", "shell", "catalog", "creator-api", "review", "draft-check", "draft-edit", "visual-compare",
         "visual-baseline",
         "capture", "render", "creator-status", "creator-stage", "creator-rollback",
         "creator-live-status", "creator-live-apply", "creator-live-restore",
@@ -103,7 +103,7 @@ def parser() -> argparse.ArgumentParser:
                     help="Maximum tolerated changed-pixel fraction for de visual-baseline")
     de.add_argument("--approve-reference", action="store_true",
                     help="Explicitly approve a reviewed reference image for de visual-baseline")
-    de.add_argument("--edit", type=Path, help="Owner-controlled absolute JSON edit operations for de draft-edit")
+    de.add_argument("--edit", type=Path, help="Owner-controlled absolute JSON edit operations for de draft-check/edit")
     de.add_argument("--metadata", type=Path, help="Optional provenance JSON for de pack-export")
     de.add_argument("--package", type=Path, help="Absolute .ricepack file for de pack-inspect/import")
     de.add_argument("--asset", type=Path, help="Absolute owner-controlled .png file for de asset-import")
@@ -114,7 +114,8 @@ def parser() -> argparse.ArgumentParser:
                     help="Playback sink or recording source for de audio-default")
     de.add_argument("--device-name", help="Exact reviewed audio device name for de audio-default")
     de.add_argument("--expect-current", help="Optional previous default for concurrency-safe audio selection")
-    de.add_argument("--expect-sha256", help="Reviewed recipe SHA-256 for Creator stage/live apply")
+    de.add_argument("--expect-sha256", help="Reviewed source SHA-256 for Creator draft or stage/live apply")
+    de.add_argument("--expect-draft-sha256", help="Reviewed proposed draft SHA-256 for de draft-edit")
     de.add_argument("--expect-active", help="Optional selection guard for Creator stage/rollback/live")
     de.add_argument("--panel", choices=("waybar", "native"), default="waybar",
                     help="Session panel (native RicePlate is experimental and falls back to Waybar)")
@@ -187,8 +188,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "de":
             if args.action != "review" and args.compare is not None:
                 raise ValueError("--compare only applies to de review")
-            if args.action != "draft-edit" and args.edit is not None:
-                raise ValueError("--edit only applies to de draft-edit")
+            if args.action not in ("draft-check", "draft-edit") and args.edit is not None:
+                raise ValueError("--edit only applies to de draft-check/edit")
             if args.action != "pack-export" and args.metadata is not None:
                 raise ValueError("--metadata only applies to de pack-export")
             if args.action not in ("pack-inspect", "pack-import") and args.package is not None:
@@ -202,8 +203,11 @@ def main(argv: list[str] | None = None) -> int:
             if args.action != "audio-default" and any(value is not None for value in
                     (args.device_kind, args.device_name, args.expect_current)):
                 raise ValueError("Audio device mutation options only apply to de audio-default")
-            if args.action not in ("creator-stage", "creator-live-apply") and args.expect_sha256 is not None:
-                raise ValueError("--expect-sha256 only applies to Creator stage/live apply")
+            if args.action not in ("draft-check", "draft-edit", "creator-stage",
+                                   "creator-live-apply") and args.expect_sha256 is not None:
+                raise ValueError("--expect-sha256 only applies to Creator draft/stage/live apply")
+            if args.action != "draft-edit" and args.expect_draft_sha256 is not None:
+                raise ValueError("--expect-draft-sha256 only applies to de draft-edit")
             if args.action not in ("creator-stage", "creator-rollback", "creator-live-apply",
                                    "creator-live-restore") and args.expect_active is not None:
                 raise ValueError("--expect-active only applies to Creator selection changes")
@@ -626,14 +630,22 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"Rendered {report['recipe']['id']} in isolated labwc: {report['output']['path']}")
                     print("No active desktop changes; visual and interaction fidelity are not certified")
                 return 0
-            if args.action == "draft-edit":
-                if (args.nested or args.panel != "waybar" or not args.recipe
-                        or not args.edit or not args.output):
-                    raise ValueError("de draft-edit requires --recipe, --edit and --output")
-                from .de.drafts import DraftError, create_edit, invalid_edit
+            if args.action in ("draft-check", "draft-edit"):
+                if (args.nested or args.panel != "waybar" or not args.recipe or not args.edit
+                        or (args.action == "draft-edit" and not args.output)
+                        or (args.action == "draft-check" and args.output)):
+                    raise ValueError("de draft-check needs --recipe and --edit; "
+                                     "de draft-edit additionally requires --output")
+                from .de.drafts import DraftError, check_edit, create_edit, invalid_edit
                 try:
-                    result = create_edit(recipe_token=args.recipe, edit_source=args.edit,
-                                         destination=args.output)
+                    if args.action == "draft-check":
+                        result = check_edit(recipe_token=args.recipe, edit_source=args.edit,
+                                            expected_sha256=args.expect_sha256)
+                    else:
+                        result = create_edit(recipe_token=args.recipe, edit_source=args.edit,
+                                             destination=args.output,
+                                             expected_sha256=args.expect_sha256,
+                                             expected_draft_sha256=args.expect_draft_sha256)
                 except DraftError as exc:
                     if not args.json:
                         raise
@@ -641,6 +653,10 @@ def main(argv: list[str] | None = None) -> int:
                     return 2
                 if args.json:
                     print(json.dumps(result, indent=2, ensure_ascii=False))
+                elif args.action == "draft-check":
+                    print(f"Valid edit for {result['recipe_id']}: {len(result['changes'])} changes")
+                    print(f"Reviewed source fingerprint: {result['source_semantic_sha256']}")
+                    print("Read-only preflight; no file created and no desktop change")
                 else:
                     print(f"Created private draft for {result['recipe_id']} ({len(result['changes'])} changes)")
                     print(f"Review/preview: ricebowl de review --recipe {shlex.quote(str(args.output))}")

@@ -897,6 +897,11 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
     mutation scopes for all advertised commands. This is a read-only
     capability contract; it does not introduce a resident editor or automate
     active-session changes.
+  - [x] **Creator API v3: review-before-create** adds read-only `de draft-check`
+    through the same full recipe parser and semantic diff as `draft-edit`.
+    Agents can pin both source and proposed draft SHA-256 on private creation;
+    changed input is rejected without publishing or activating a rice.
+    Formal per-property JSON Schema and immutable source snapshots remain open.
 - [x] Ship the first **on-demand GTK3 Rice Creator 0.1 workspace** on top of
   the actual schema-v10 recipe parser and API: four real templates, labeled
   style/structure controls, reordering and bounded addition/removal of existing
@@ -1165,11 +1170,13 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
   output first; optional local IPC only if justified) for discovering
   components, creating/editing drafts, validating recipes, previewing the
   real shell, capturing screenshots, comparing to references, exporting packs,
-  and explicitly requested apply/restore. API v2 now publishes stable feature
+  and explicitly requested apply/restore. API v3 now publishes stable feature
   negotiation, supported/unsupported capabilities, mutation scopes and the
-  existing on-demand CLI JSON commands. Per-operation structured errors and
-  explicit activation/restore contracts exist; there is **no** GUI Creator,
-  general plugin runtime or arbitrary screenshot-to-rice conversion. Full
+  existing on-demand CLI JSON commands, including read-only checked edit diffs
+  and two optional reviewed fingerprints on private draft creation.
+  Per-operation structured errors and explicit activation/restore contracts
+  exist; the experimental GTK Creator has no general plugin runtime or
+  automatic screenshot-to-rice conversion. Full
   per-property formal JSON Schema and physical interaction signoff are still
   separate follow-up work.
 - [ ] Make agent-driven changes reviewable and reproducible: immutable source
@@ -1177,7 +1184,9 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
   per-asset license/provenance metadata, clear diff/preview before apply,
   explicit user authorization for active desktop changes and transactional
   rollback. No arbitrary generated scripts, remote asset execution or
-  privileged Creator daemon.
+  privileged Creator daemon. Read-only CLI preflight and checked source/proposal
+  fingerprints are implemented; immutable authoring snapshots and complete
+  approval UX remain separate work.
 - [ ] Implement an **isolated visual QA loop** using real nested labwc /
   RicePlate rendering (not synthetic mockup-only previews): capture
   deterministic multi-resolution and scaling screenshots, compare them

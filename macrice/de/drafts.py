@@ -179,16 +179,13 @@ def _parse_edit(payload: bytes, *, schema_version: int,
     return changes
 
 
-def create_edit(*, recipe_token: str, edit_source: Path, destination: Path) -> dict[str, Any]:
-    """Validate data edits and atomically create a new owner-only recipe.
-
-    The input patch is an owner-controlled .json file, allowed to be 0644;
-    the source recipe retains the existing 0600 requirement. Neither the
-    source nor next-login selection is modified, including on any failure.
-    """
-    if not destination.is_absolute() or destination.suffix != ".json":
-        raise DraftError("Draft destination must be an absolute .json file path",
-                         code="invalid_output")
+def _prepare_edit(*, recipe_token: str, edit_source: Path,
+                  expected_sha256: str | None = None) -> tuple[dict[str, Any], bytes]:
+    """One validation/diff path for read-only preflight and private creation."""
+    if expected_sha256 is not None and (type(expected_sha256) is not str or
+                                        re.fullmatch(r"[a-f0-9]{64}", expected_sha256) is None):
+        raise DraftError("Expected source fingerprint must be 64 lowercase hex characters",
+                         code="invalid_source_fingerprint")
     try:
         original = recipes.load(recipe_token)
         raw = recipes._read_import_source(edit_source)
@@ -202,6 +199,10 @@ def create_edit(*, recipe_token: str, edit_source: Path, destination: Path) -> d
                          code="unavailable_source") from exc
 
     before = review._manifest(original)
+    source_sha256 = review._semantic_hash(before)
+    if expected_sha256 is not None and expected_sha256 != source_sha256:
+        raise DraftError("Source recipe changed since review; inspect it again",
+                         code="source_changed")
     modified = json.loads(json.dumps(before))
     for path, value in operations:
         if path.startswith("/panel/layout/") and modified["schema_version"] < 3:
@@ -244,21 +245,49 @@ def create_edit(*, recipe_token: str, edit_source: Path, destination: Path) -> d
     changes = review.semantic_changes(before, after)
     if not changes:
         raise DraftError("Draft edit must change at least one supported property", code="no_effect")
+    return {
+        "edit_version": EDIT_VERSION,
+        "ok": True,
+        "created": False,
+        "applied": False,
+        "recipe_id": updated.recipe_id,
+        "source_semantic_sha256": source_sha256,
+        "draft_semantic_sha256": review._semantic_hash(after),
+        "changes": changes,
+    }, payload
+
+
+def check_edit(*, recipe_token: str, edit_source: Path,
+               expected_sha256: str | None = None) -> dict[str, Any]:
+    """Read-only full-parser preflight with exact semantic diff; no draft file."""
+    result, _payload = _prepare_edit(recipe_token=recipe_token, edit_source=edit_source,
+                                     expected_sha256=expected_sha256)
+    return {**result, "validated": True}
+
+
+def create_edit(*, recipe_token: str, edit_source: Path, destination: Path,
+                expected_sha256: str | None = None,
+                expected_draft_sha256: str | None = None) -> dict[str, Any]:
+    """Atomically create a private draft only after the same read-only validation."""
+    if not destination.is_absolute() or destination.suffix != ".json":
+        raise DraftError("Draft destination must be an absolute .json file path",
+                         code="invalid_output")
+    if expected_draft_sha256 is not None and (type(expected_draft_sha256) is not str or
+                                              re.fullmatch(r"[a-f0-9]{64}", expected_draft_sha256) is None):
+        raise DraftError("Expected draft fingerprint must be 64 lowercase hex characters",
+                         code="invalid_draft_fingerprint")
+    result, payload = _prepare_edit(recipe_token=recipe_token, edit_source=edit_source,
+                                    expected_sha256=expected_sha256)
+    if (expected_draft_sha256 is not None and
+            expected_draft_sha256 != result["draft_semantic_sha256"]):
+        raise DraftError("Proposed draft changed since preflight; inspect it again",
+                         code="draft_changed")
     try:
         recipes._write_private_new(destination, payload)
     except OSError as exc:
         raise DraftError("Could not safely create draft without overwriting a file",
                          code="output_unavailable") from exc
-    return {
-        "edit_version": EDIT_VERSION,
-        "ok": True,
-        "created": True,
-        "applied": False,
-        "recipe_id": updated.recipe_id,
-        "source_semantic_sha256": review._semantic_hash(before),
-        "draft_semantic_sha256": review._semantic_hash(after),
-        "changes": changes,
-    }
+    return {**result, "created": True}
 
 
 def invalid_edit(error: DraftError | None = None) -> dict[str, Any]:
