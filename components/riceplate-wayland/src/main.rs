@@ -14,6 +14,7 @@ mod icon_positions;
 mod installed_apps;
 mod menu_pins;
 mod native_menu;
+mod panel_chrome;
 mod osd;
 mod output_watch;
 mod power;
@@ -2859,16 +2860,14 @@ fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
                power: &PowerStatus, status: &SystemStatus, tray_state: &tray::State, offset: usize,
                selected: Option<KeyboardTarget>, pending: Option<ControlAction>,
                result: Option<(ControlAction, bool)>) {
-    for pixel in canvas.chunks_exact_mut(4) {
-        pixel.copy_from_slice(&style.background.to_le_bytes());
-    }
-    for placed in recipe::layout(style, width, groups.len()) {
+    let layout = recipe::layout(style, width, groups.len());
+    panel_chrome::background(canvas, width, height, style, &layout);
+    for placed in layout {
         match placed.widget {
             Widget::Launcher => {
                 if let Some(launcher) = style.launcher.as_ref() {
-                    fill_rounded_rect(canvas, width, height, placed.x + 1, 2,
-                                      placed.width.saturating_sub(2), height.saturating_sub(4),
-                                      launcher.radius, launcher.background);
+                    panel_chrome::launcher(canvas, width, height, placed.x, placed.width,
+                                           launcher);
                 } else {
                     fill_rect(canvas, width, height, placed.x, 0, placed.width, height,
                               style.active);
@@ -2929,11 +2928,8 @@ fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
                     } else {
                         view.cell_width
                     };
-                    if group.active {
-                        fill_rounded_rect(canvas, width, height, x, 0,
-                                          cell_width.saturating_sub(2), height,
-                                          style.task_radius, style.active);
-                    }
+                    panel_chrome::task_button(canvas, width, height, x, cell_width,
+                                              group.active, style);
                     let label = task_groups::visible_label(group, cell_width);
                     draw_rice_text(canvas, width, height, x + 10,
                               height.saturating_sub(8 * style.font_scale) / 2,
@@ -5625,7 +5621,12 @@ mod tests {
         let green = ((height / 2 * width + 10) * 4) as usize;
         assert_eq!(&panel[green..green + 4], &launcher.background.to_le_bytes());
         let blue = ((height / 2 * width + 115) * 4) as usize;
-        assert_eq!(&panel[blue..blue + 4], &style.background.to_le_bytes());
+        let upper_blue = ((1 * width + 115) * 4) as usize;
+        // Luna uses a graduated blue panel; verify its hue and reflection,
+        // not the obsolete flat background pixel.
+        assert!(panel[blue] > panel[blue + 1] && panel[blue + 1] > panel[blue + 2]);
+        assert_ne!(&panel[blue..blue + 4], &style.background.to_le_bytes());
+        assert_ne!(&panel[blue..blue + 4], &panel[upper_blue..upper_blue + 4]);
 
         let menu = style.menu.as_ref().unwrap();
         let mut state = native_menu::MenuState::default();
