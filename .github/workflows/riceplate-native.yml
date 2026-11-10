@@ -455,11 +455,20 @@ jobs:
               f'Private TrueType did not change native calendar glyph pixels: {calendar_changed}'
           with Image.open(directory / 'xp-luna-columns-osd.png') as bitmap_image, \
                Image.open(directory / 'xp-luna-font-osd.png') as typeface_image:
+              # A flat OSD background must be visible in BOTH actual Wayland
+              # frames; an absent popup must never pass on wallpaper noise.
+              for frame in (bitmap_image, typeface_image):
+                  backdrop = frame.convert('RGB').getpixel((1110, 25))
+                  assert all(abs(actual - expected) <= 2 for actual, expected in
+                             zip(backdrop, (36, 94, 211))), \
+                      f'Native Luna volume OSD was not visible: {backdrop}'
               baseline = bitmap_image.convert('RGB').crop((1102, 16, 1350, 86))
               imported = typeface_image.convert('RGB').crop((1102, 16, 1350, 86))
               osd_changed = sum(left != right for left, right in
                                 zip(baseline.getdata(), imported.getdata()))
-          assert osd_changed > 200, \
+          # The compact overlay paints only two short glyph strings; the first
+          # real comparator observed 125 changed pixels, not a full menu's 500.
+          assert osd_changed > 60, \
               f'Private TrueType did not change native volume OSD pixels: {osd_changed}'
           for label in ('xp-luna-columns', 'xp-luna-columns-menu', 'xp-luna-font-menu'):
               with Image.open(directory / f'{label}.png') as image:
