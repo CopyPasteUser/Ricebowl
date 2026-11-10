@@ -1146,6 +1146,26 @@ validated rice with native RicePlate and a bundled wallpaper, captures it,
 and stops the session automatically. A new private PNG is published only on
 success. `--scale` accepts 1, 1.25, 1.5 or 2. This is a rendering aid, **not**
 proof of interactive correctness, visual similarity or real-GPU compatibility.
+For a **single reviewable Creator QA bundle**, render all four standard
+geometries using the same isolated native backend. This writes only a new
+private ZIP after *all* captures and their SHA-256 receipts have passed:
+
+```bash
+ricebowl de render-matrix --recipe classic \
+  --output "$HOME/creator-wayland-matrix.zip" --json
+ricebowl de render-matrix-inspect \
+  --matrix "$HOME/creator-wayland-matrix.zip" --json
+```
+
+The four cases are 1024×768, 1366×768, 1920×1080 at scale 1.0, and
+1366×768 at scale 1.25. The archive contains exactly four real PNGs and one
+data-only manifest with the reviewed recipe fingerprint, capture dimensions,
+byte lengths and hashes. Inspection requires no running desktop or extraction
+and rejects changed/missing files, unexpected ZIP entries, invalid PNGs and
+inconsistent geometry. It cannot certify interactions, GPU compatibility,
+human visual fidelity or physical multi-monitor behavior. Use `de
+visual-compare` with separately approved reference images for pixel QA.
+
 For schema-v5 rices the **optional region inspection** also locates the real
 panel, remaining desktop and individual icon hit areas. It identifies clipped
 icons or icons colliding with the panel; this describes geometry, not whether
@@ -1255,8 +1275,8 @@ ricebowl de creator-api --json
 ricebowl de catalog --json
 ```
 
-Creator API **v2** returns a machine-readable `feature_negotiation` block:
-supported recipe schemas (currently v1–v10), the recommended authoring schema,
+Creator API **v3** returns a machine-readable `feature_negotiation` block:
+supported recipe schemas (currently v1–v11), the recommended authoring schema,
 matching catalog version, and truthful supported/unsupported feature IDs.
 The `authoring_workflow` lists existing read-only discovery, private draft,
 native preview, package and explicitly reviewed activation operations. Every

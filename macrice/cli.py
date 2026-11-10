@@ -74,7 +74,8 @@ def parser() -> argparse.ArgumentParser:
     de.add_argument("action", choices=(
         "check", "start", "shell", "catalog", "creator-api", "creator-history", "creator-schema", "creator-snapshot", "creator-recovery", "creator-recover", "review", "draft-check", "draft-edit", "visual-compare",
         "visual-baseline",
-        "capture", "render", "creator-status", "creator-stage", "creator-rollback",
+        "capture", "render", "render-matrix", "render-matrix-inspect",
+        "creator-status", "creator-stage", "creator-rollback",
         "creator-live-status", "creator-live-apply", "creator-live-restore", "creator-live-recovery",
         "display-refresh",
         "pack-export", "pack-inspect", "pack-import", "asset-import", "notifications", "notification-dismiss",
@@ -130,6 +131,8 @@ def parser() -> argparse.ArgumentParser:
     de.add_argument("--height", type=int, help="Headless de render capture height (480–2160)")
     de.add_argument("--scale", type=float, choices=(1, 1.25, 1.5, 2),
                     help="Headless de render scale factor")
+    de.add_argument("--matrix", type=Path,
+                    help="Existing absolute capture matrix .zip for de render-matrix-inspect")
     commands.add_parser("session-menu", help="Toggle the active rice's application menu")
     commands.add_parser("session-control", help="Toggle the active rice's control panel")
     commands.add_parser("session-keys-restore", help="Restore the previous Super/Right Control shortcuts")
@@ -196,6 +199,8 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("--package only applies to de pack-inspect/import")
             if args.action != "asset-import" and args.asset is not None:
                 raise ValueError("--asset only applies to de asset-import")
+            if args.action != "render-matrix-inspect" and args.matrix is not None:
+                raise ValueError("--matrix only applies to de render-matrix-inspect")
             if args.action not in ("notification-dismiss", "notification-invoke") and args.notification_id is not None:
                 raise ValueError("--notification-id only applies to notification mutations")
             if args.action != "notification-invoke" and args.action_key is not None:
@@ -230,7 +235,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.action != "recipe-init" and args.schema_version != 1:
                 raise ValueError("--schema-version only applies to de recipe-init")
             if (args.action not in ("recipe-init", "recipe-export", "taskotto-export",
-                                    "draft-edit", "capture", "render", "pack-export",
+                                    "draft-edit", "capture", "render", "render-matrix", "pack-export",
                                     "visual-baseline") and args.output):
                 raise ValueError("--output is not supported by this de command")
             if args.action == "creator-api":
@@ -742,6 +747,33 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     print(f"Rendered {report['recipe']['id']} in isolated labwc: {report['output']['path']}")
                     print("No active desktop changes; visual and interaction fidelity are not certified")
+                return 0
+            if args.action in ("render-matrix", "render-matrix-inspect"):
+                if args.nested or args.panel != "waybar" or (args.action == "render-matrix" and
+                        (not args.recipe or args.output is None or args.matrix is not None)) or (
+                        args.action == "render-matrix-inspect" and
+                        (args.recipe or args.output or args.matrix is None)):
+                    raise ValueError("Use render-matrix --recipe ID --output NEW.zip, or "
+                                     "render-matrix-inspect --matrix FILE.zip")
+                from .de.render_matrix import MatrixError, inspect_matrix, render_matrix
+                from .de.render import RenderError
+                try:
+                    report = (render_matrix(args.recipe, args.output)
+                              if args.action == "render-matrix" else inspect_matrix(args.matrix))
+                except (MatrixError, RenderError) as exc:
+                    if not args.json:
+                        raise
+                    print(json.dumps({"creator_contract_version": 1, "ok": False,
+                                      "error": {"code": exc.code, "message": str(exc)}},
+                                     indent=2))
+                    return 2
+                if args.json:
+                    print(json.dumps({"creator_contract_version": 1, "ok": True,
+                                      "matrix": report}, indent=2))
+                else:
+                    print(f"Verified {len(report['cases'])} real isolated Wayland captures: "
+                          f"{report['archive']}")
+                    print("No desktop change; visual and functional fidelity remain unverified")
                 return 0
             if args.action in ("draft-check", "draft-edit"):
                 if (args.nested or args.panel != "waybar" or not args.recipe or not args.edit

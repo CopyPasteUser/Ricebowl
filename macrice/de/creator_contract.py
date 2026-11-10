@@ -91,6 +91,32 @@ def describe_render() -> dict[str, object]:
     }
 
 
+def describe_render_matrix() -> dict[str, object]:
+    """Fixed, reviewable multi-resolution captures from real nested labwc."""
+    return {
+        "contract_version": 1,
+        "command": "de render-matrix",
+        "required_options": ["--recipe", "--output"],
+        "optional_options": ["--json"],
+        "inspect_command": "de render-matrix-inspect --matrix FILE.zip --json",
+        "scenarios": [
+            {"id": "compact", "width": 1024, "height": 768, "scale": 1.0},
+            {"id": "laptop", "width": 1366, "height": 768, "scale": 1.0},
+            {"id": "desktop", "width": 1920, "height": 1080, "scale": 1.0},
+            {"id": "fractional", "width": 1366, "height": 768, "scale": 1.25},
+        ],
+        "output": "new private data-only .zip with four real captures and SHA-256 manifest",
+        "publication": "only after all four renders and receipt verification; no overwrite",
+        "requires_running_wayland_session": False,
+        "requires_unprivileged_user": True,
+        "mutates_active_desktop": False,
+        "functional_or_perceptual_accuracy": "not_measured",
+        "error_exit_code": 2,
+        "error_codes": ["invalid_matrix_request", "render_unavailable", "render_failed",
+                        "invalid_matrix_archive", "matrix_failed"],
+    }
+
+
 def describe_ricepack() -> dict[str, object]:
     """Portable v2/v3/v4 archives with verified private visual assets."""
     return {
@@ -237,7 +263,8 @@ def describe_creator_api() -> dict[str, object]:
                 {"id": "crash-safe-wayland-live-selection-recovery", "supported": True,
                  "runtime": "owner-private journal, process identity guard and CAS recovery on next full Wayland login"},
                 {"id": "isolated-native-multisize-preview", "supported": True,
-                 "runtime": "requires-external-labwc-and-capture-binaries"},
+                 "runtime": "four verified PNG captures in one private offline matrix archive; "
+                            "requires-external-labwc-and-capture-binaries"},
                 {"id": "review-gated-live-rice-switch", "supported": True,
                  "runtime": "supervised-opt-in-wayland-only"},
                 {"id": "interactive-desktop-widgets", "supported": True,
@@ -255,7 +282,8 @@ def describe_creator_api() -> dict[str, object]:
             {"step": "draft-and-review", "commands": ["creator-snapshot", "draft-check", "draft-edit", "review",
                                                    "creator-history", "creator-recovery", "creator-recover"],
              "effect": "owner-private-file-only"},
-            {"step": "visual-qa", "commands": ["render", "visual-compare"],
+            {"step": "visual-qa", "commands": ["render", "render-matrix",
+                                                "render-matrix-inspect", "visual-compare"],
              "effect": "isolated-native-preview"},
             {"step": "reference-mapping-review", "commands": [],
              "ui": "ricebowl creator (GTK; no de CLI command)",
@@ -304,6 +332,10 @@ def describe_creator_api() -> dict[str, object]:
              "contract_version": EDIT_VERSION},
             {"command": "render", "effect": "isolated real native headless screenshot",
              "cli": "de render --recipe ID --output NEW.png --json", "contract_version": 1},
+            {"command": "render-matrix", "effect": "four real native headless captures with immutable archive receipts",
+             "cli": "de render-matrix --recipe ID --output NEW.zip --json", "contract_version": 1},
+            {"command": "render-matrix-inspect", "effect": "read-only integrity check of a capture matrix archive",
+             "cli": "de render-matrix-inspect --matrix FILE.zip --json", "contract_version": 1},
             {"command": "visual-compare", "effect": "read-only screenshot analysis; optional new artifacts",
              "cli": "de visual-compare --reference FILE --actual FILE --json",
              "contract_version": 2},
@@ -366,7 +398,7 @@ def describe_creator_api() -> dict[str, object]:
             "Native tray, complete settings, notification center and physical multi-monitor acceptance remain open",
         ],
     }
-    private_writes = {"draft-edit", "creator-snapshot", "creator-recover", "render", "visual-baseline", "capture",
+    private_writes = {"draft-edit", "creator-snapshot", "creator-recover", "render", "render-matrix", "visual-baseline", "capture",
                       "pack-export", "pack-import", "asset-import"}
     next_login = {"creator-stage", "creator-rollback"}
     active_wayland = {"creator-live-apply", "creator-live-restore", "display-refresh"}

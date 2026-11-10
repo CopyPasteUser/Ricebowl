@@ -1067,6 +1067,17 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
   rectangles, or changing comparison policy clears the history. This does not
   infer UI semantics, generate edits or mutate the live desktop. Real Wayland
   hardware/interaction/fractional-scale acceptance is still a 1.0 gate.
+- [x] Provide a **Creator multi-geometry QA archive** using the existing real
+  isolated labwc/native RicePlate renderer: four exact 1024×768, 1366×768,
+  1920×1080 and fractional 1366×768@1.25 captures in one owner-private
+  no-overwrite ZIP, each bound to the same recipe fingerprint and a verified
+  PNG SHA-256 receipt. Publish the entire archive only after all four real
+  renders succeed; a separate read-only offline inspector rejects missing,
+  altered or unexpected entries, malformed receipts and mismatched dimensions.
+  Versioned agent discovery, CLI JSON contracts and failure-injection tests
+  cover the path. This is reviewable real-capture evidence, **not** automatic
+  visual correction, human reference similarity, keyboard/input acceptance or
+  physical monitor signoff.
 - [x] Implement **Wayland RicePack v1 recipe exchange** (`de pack-export`,
   `de pack-inspect`, `de pack-import`): reproducible owner-private `.ricepack`
   archives, canonical schema-v1–v5 recipe, SHA-256 byte/semantic validation,

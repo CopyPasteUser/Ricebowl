@@ -176,6 +176,8 @@ def describe() -> dict[str, object]:
                       "visual_compare": describe_visual_qa(),
                       "capture": describe_capture(),
                       "render": describe_render(),
+                      "render_matrix": {"command": "de render-matrix", "cases": 4,
+                                        "artifact": "verified private ZIP", "mutates_active_desktop": False},
                       "ricepack": describe_ricepack(),
                       "staging": describe_staging(),
                       "creator_api": {"api_version": describe_creator_api()["api_version"],
