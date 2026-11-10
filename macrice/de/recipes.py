@@ -334,8 +334,16 @@ def _parse_menu(value: Any, *, schema_version: int = 4) -> tuple[str, tuple[Menu
     if schema_version >= 6 and isinstance(value, dict):
         allowed = {"title", "groups"}
         if "presentation" in value:
-            if type(value["presentation"]) is not str or value["presentation"] not in ("tabs", "sidebar"):
-                raise RecipeError("Menu presentation must be tabs or sidebar")
+            if (type(value["presentation"]) is not str
+                    or value["presentation"] not in ("tabs", "sidebar", "columns")
+                    or value["presentation"] == "columns"
+                    and (schema_version < 12 or len(value.get("groups", [])) != 3
+                         or not isinstance(value["groups"][0], dict)
+                         or "content" not in value["groups"][0]
+                         or any(not isinstance(group, dict) or "content" in group
+                                or len(group.get("actions", [])) > 2
+                                for group in value["groups"][1:]))):
+                raise RecipeError("Menu presentation requires a compatible bounded layout")
             allowed.add("presentation")
         if "colors" in value and schema_version >= 12:
             allowed.add("colors")
