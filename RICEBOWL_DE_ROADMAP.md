@@ -285,6 +285,14 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   installed-app, desktop-localization, assistive-technology and physical
   keyboard acceptance remain open; personalized OS-specific menu structures
   are not yet complete.
+- [x] **Localize native XDG installed-app discovery** without another daemon:
+  prefer `LC_ALL` / `LC_MESSAGES` / `LANG` and POSIX desktop-key locale
+  fallback order for translated app names, generic labels and search keywords;
+  retain English/untranslated search terms. Decode bounded desktop-file text
+  escapes, reject ambiguous duplicate keys, require executable `TryExec`
+  targets and preserve user-level hidden-entry masking. Add Rust unit fixtures
+  for German fallback, malformed translations and non-executable launchers.
+  Real desktop-language, accessibility and physical keyboard QA remains open.
 - [x] Introduce **schema-v6 native menu presentation variants**: retain
   horizontal tabs by default, allow validated `menu.presentation: sidebar`
   with a separate left navigation rail and right action/search column. Share
