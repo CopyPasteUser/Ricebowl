@@ -28,7 +28,8 @@ MAX_METADATA_BYTES = 4096
 MAX_MANIFEST_BYTES = 16384
 _ZIP_DATE = (1980, 1, 1, 0, 0, 0)
 _ID = re.compile(r"[a-z][a-z0-9-]{1,31}\Z")
-_LICENSES = frozenset(("unspecified", "CC0-1.0", "CC-BY-4.0", "MIT", "custom"))
+_LICENSES = frozenset(("unspecified", "CC0-1.0", "CC-BY-4.0", "MIT",
+                       "OFL-1.1", "Apache-2.0", "custom"))
 _ORIGINS = frozenset(("unspecified", "original", "ai-assisted", "adapted"))
 _DEFAULT_PROVENANCE = {
     "author": "", "license": "unspecified", "origin": "unspecified", "source_reference": "",

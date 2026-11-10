@@ -139,7 +139,8 @@ def describe_ricepack() -> dict[str, object]:
         "provenance": {
             "metadata_version": "fields-v1",
             "fields": ["author", "license", "origin", "source_reference"],
-            "licenses": ["unspecified", "CC0-1.0", "CC-BY-4.0", "MIT", "custom"],
+            "licenses": ["unspecified", "CC0-1.0", "CC-BY-4.0", "MIT",
+                         "OFL-1.1", "Apache-2.0", "custom"],
             "origins": ["unspecified", "original", "ai-assisted", "adapted"],
             "user_declared_not_verified": True,
             "import_receipt": "owner-private data-only sidecar bound to recipe semantic hash",
@@ -242,6 +243,8 @@ def describe_creator_api() -> dict[str, object]:
                  "since_schema": 10, "runtime": "native; Waybar appearance and per-output layout"},
                 {"id": "private-native-font-and-icon-assets", "supported": True,
                  "since_schema": 11, "runtime": "native-only; owner-private TTF and 48px RGBA icons"},
+                {"id": "installed-truetype-font-picker", "supported": True,
+                 "since_schema": 11, "runtime": "read-only Fontconfig catalog; explicit private licensed import"},
                 {"id": "reference-mapping-review", "supported": True,
                  "runtime": "offline-PNG-panel-hints; optional external JSON proposals; explicit GTK review"},
                 {"id": "manual-region-pixel-qa", "supported": True,
@@ -309,6 +312,8 @@ def describe_creator_api() -> dict[str, object]:
         "commands": [
             {"command": "catalog", "effect": "read-only component discovery",
              "cli": "de catalog --json", "contract_version": 13},
+            {"command": "fonts", "effect": "read-only installed importable TrueType font inventory",
+             "cli": "de fonts --json", "contract_version": 1},
             {"command": "review", "effect": "validate recipe and compare semantic diffs",
              "cli": "de review --recipe ID [--compare ID] --json", "contract_version": 1},
             {"command": "draft-check", "effect": "read-only edit validation and semantic diff",

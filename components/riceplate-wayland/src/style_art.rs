@@ -127,8 +127,9 @@ fn font_glyphs(data: Vec<u8>, scale: u32) -> Result<FontSprites, Box<dyn Error>>
     // Unsupported Unicode falls back to the built-in bitmap tables.
     for code in 32..=255_u32 {
         let Some(character) = char::from_u32(code) else { continue; };
+        let bounds = font.metrics(character, (cell + 2) as f32);
+        if bounds.width > 32 || bounds.height > 32 { continue; }
         let (metrics, pixels) = font.rasterize(character, (cell + 2) as f32);
-        if metrics.width > 32 || metrics.height > 32 { continue; }
         glyphs.insert(character, Glyph {
             width: metrics.width as u32, height: metrics.height as u32, pixels,
         });
@@ -197,8 +198,9 @@ impl FontSprites {
             let origin_x = x.saturating_add((offset as u32).saturating_mul(self.cell));
             if origin_x >= width { break; }
             if !cache.glyphs.contains_key(&letter) && self.font.lookup_glyph_index(letter) != 0 {
-                let (metrics, pixels) = self.font.rasterize(letter, (self.cell + 2) as f32);
-                if metrics.width <= 32 && metrics.height <= 32 {
+                let bounds = self.font.metrics(letter, (self.cell + 2) as f32);
+                if bounds.width <= 32 && bounds.height <= 32 {
+                    let (metrics, pixels) = self.font.rasterize(letter, (self.cell + 2) as f32);
                     cache.insert_dynamic(letter, Glyph {
                         width: metrics.width as u32,
                         height: metrics.height as u32,

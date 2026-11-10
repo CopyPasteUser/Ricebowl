@@ -128,7 +128,7 @@ jobs:
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.88.0
       - name: Install native Wayland and keyboard build dependencies
         run: |
           sudo apt-get update
@@ -137,9 +137,9 @@ jobs:
         run: |
           /usr/bin/python3 -m unittest tests.test_de_session -v
           /usr/bin/python3 -m unittest tests.test_de_acceptance -v
-          cargo test --manifest-path components/riceplate-wayland/Cargo.toml
-          cargo build --release --manifest-path components/riceplate-wayland/Cargo.toml
-          cargo build --release --manifest-path components/riceplate-wayland/Cargo.toml \
+          cargo test --locked --manifest-path components/riceplate-wayland/Cargo.toml
+          cargo build --locked --release --manifest-path components/riceplate-wayland/Cargo.toml
+          cargo build --locked --release --manifest-path components/riceplate-wayland/Cargo.toml \
             --example wayland_pointer_click
           sh -n scripts/smoke_riceplate_native.sh
           sh -n scripts/smoke_riceplate_windows.sh

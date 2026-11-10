@@ -34,6 +34,24 @@ installation and is not yet a finished desktop environment.
   display acceptance, finer icon/window appearance fidelity, and packaging an
   upgraded core/native release for schema v12.
 
+### Native font-system checkpoint (10 November 2026)
+
+- [x] Discover local, importable TrueType faces through a bounded read-only
+  Fontconfig inventory (`de fonts --json`), and choose one in Creator's native
+  installed-font dialog. An explicit name/provenance declaration remains
+  mandatory before copying a font into the existing owner-private SHA-256
+  asset collection. Public distribution font directories are accepted only
+  for unmodified, non-symlink, read-only font files; unrelated root-owned files
+  are never accepted. No global GTK/Qt or system font setting is changed.
+- [x] Replace RicePlate's eager Latin-1 TrueType sprite atlas with a bounded
+  512-codepoint, on-demand cache. The selected private font can draw supported
+  Unicode codepoints without a per-rice resident worker; missing characters
+  use the question-mark fallback. The existing fixed-cell text geometry and
+  RicePack v4 asset verification stay compatible.
+- [ ] Full script shaping, bidirectional text, variable font metrics, large
+  CJK font packages, global toolkit font choices and physical visual/Orca
+  verification are distinct follow-up work, not claimed by the glyph cache.
+
 ### Standalone desktop packaging checkpoint (November 2026)
 
 - [x] Align `de check` with the real labwc launcher prerequisites: distinguish
