@@ -1716,6 +1716,18 @@ ricebowl de creator-live-apply --recipe chrome \
 ricebowl de creator-live-restore --expect-active chrome --json
 ```
 
+Outside the running Wayland desktop, inspect an interrupted switch with
+`ricebowl de creator-live-recovery --json`. A full live switch saves a private
+`0600` rollback journal **before** starting replacement clients. After a
+supervisor crash, the next full Wayland login uses its pinned previous state
+to restore only the matching next-login selection, then clears the journal.
+It never overwrites a different concurrent Creator stage. An owner process
+that is still running is not treated as crashed. Corrupt, unreadable or
+unrecoverable journals cause that login to use the bundled `classic` rice
+without altering stored preferences; the journal stays for diagnosis.
+Nested previews do not create or replay persistent journals, and nothing is
+automatically changed when logging into XFCE.
+
 Replace `REVIEW_SUMMARY_SHA256` with the `summary.semantic_sha256` returned by
 the preceding review; it must be exactly 64 lowercase hexadecimal characters.
 The current session supervisor handles the request over an owner-private Unix
@@ -1733,10 +1745,13 @@ supervisor tries one automatic live restore before falling back to Waybar.
 JSON exits are `0` on success and `2` for a rejected/failed request.
 
 This never touches an XFCE/X11 session, global labwc configuration or arbitrary
-third-party apps. It does not yet transactionally theme RiceField or Taskotto,
-prove full Wayland frame/input readiness, or guarantee recovery from power
-loss. Test with the nested opt-in labwc session first, and retain the normal
-XFCE login as the physical rollback path.
+third-party apps. Compatible Taskotto/RiceField session profiles are disposable
+private files with in-process rollback; a killed session does not persist them
+as global defaults. The journal covers the **next-login selection**, not a
+snapshot of compositor frames or every external app's in-memory state. It does
+not prove full Wayland frame/input readiness or guarantee recovery from a real
+power cut. Test with the nested opt-in labwc session first, and retain the
+normal XFCE login as the physical rollback path.
 
 #### Existing recipe creation, import/export and selection
 

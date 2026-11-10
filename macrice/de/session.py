@@ -140,7 +140,7 @@ def start(
     which: Callable[[str], str | None] = shutil.which,
     execute: Callable[[str, list[str], dict[str, str]], NoReturn] = os.execvpe,
 ) -> NoReturn:
-    """Replace the current session launcher with labwc; no files are changed."""
+    """Launch opt-in labwc; full login first reconciles any crashed live switch."""
     if os.geteuid() == 0:
         raise SessionError("RiceBowl Wayland sessions must run as an unprivileged user.")
     if panel not in ("waybar", "native"):
@@ -176,6 +176,17 @@ def start(
     from .recipes import RecipeError, load, native_token, selected_recipe
     explicit_recipe = recipe is not None
     loaded_recipe = None
+    use_saved_selection = True
+    if not nested:
+        from . import live_recovery
+        recovered = live_recovery.reconcile()
+        if recovered["status"] != "clean":
+            print(f"RiceBowl: Wayland switch recovery: {recovered['status']}", file=sys.stderr)
+        use_saved_selection = recovered["use_saved_selection"]
+    if recipe is None and not use_saved_selection:
+        # Do not honor a possibly half-committed selection on a fresh login.
+        # This does not modify the file; the journal stays for inspection.
+        recipe = "classic"
     if recipe is None:
         try:
             recipe = selected_recipe()
@@ -485,7 +496,7 @@ class _LiveSwitch:
         self.panel = candidate
 
     def handle(self, request: dict) -> dict:
-        from . import recipes, staging
+        from . import live_recovery, recipes, staging
         from .live import LiveError
         import re
 
@@ -559,7 +570,10 @@ class _LiveSwitch:
         menu_attempted = False
         profile_original = None
         selection_attempted = False
+        pending_recovery = None
         try:
+            if not self.nested:
+                pending_recovery = live_recovery.begin(token, digest, selection_before)
             new_wallpaper = self.spawn([wallpaper_binary, "--image", str(wallpaper_path),
                                         "--mode", "fill"], env=self.env, stdin=subprocess.DEVNULL)
             new_panel = self._start_panel(token, recipe)
@@ -579,6 +593,8 @@ class _LiveSwitch:
                                          expected_semantic_sha256=digest)
             if self.stopping():
                 raise LiveError("Session is shutting down", code="session_stopping")
+            if pending_recovery is not None:
+                live_recovery.finish(pending_recovery)
         except (LiveError, OSError, ValueError, subprocess.SubprocessError,
                 riceprofile.ProfileError) as exc:
             if new_panel is not None:
@@ -602,6 +618,11 @@ class _LiveSwitch:
                     recipes._restore_failed_live_selection(token, digest, selection_before)
                 except (recipes.RecipeError, OSError) as restore_error:
                     recovery_errors.append(f"selection: {restore_error}")
+            if not recovery_errors and pending_recovery is not None:
+                try:
+                    live_recovery.finish(pending_recovery)
+                except live_recovery.LiveRecoveryError as restore_error:
+                    recovery_errors.append(f"journal: {restore_error}")
             if recovery_errors:
                 print("RiceBowl: incomplete live recovery: " + "; ".join(recovery_errors),
                       file=sys.stderr)
@@ -609,6 +630,8 @@ class _LiveSwitch:
                                 code="rollback_failed") from exc
             if isinstance(exc, LiveError):
                 raise
+            if isinstance(exc, live_recovery.LiveRecoveryError):
+                raise LiveError(str(exc), code="recovery_required") from exc
             if isinstance(exc, riceprofile.ProfileError):
                 raise LiveError(str(exc), code="profile_unavailable") from exc
             if isinstance(exc, recipes.SelectionConflict):

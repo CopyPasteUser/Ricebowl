@@ -929,8 +929,8 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
     explicitly hash-guarded `de creator-recover` copies only the last verified
     parent into a **new** private version; neither the failed target nor any
     active Wayland/XFCE session is modified. Legacy drafts without receipts
-    cannot claim authenticated ancestry. Live supervisor crash journaling and
-    real hardware recovery acceptance remain separate release gates.
+    cannot claim authenticated ancestry. Live recovery and real hardware
+    acceptance have separate contracts below.
   - [x] **Creator GTK reviewed publication gate** connects the on-demand UI to
     that preflight: scrollable complete before/after values and both semantic
     fingerprints appear before the user authorizes a new private version.
@@ -1128,6 +1128,20 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
   previous-rice restore and one fingerprint-verified Waybar rescue. Tests inject
   I/O, concurrent selection and panel crashes; no claim of power-cut atomicity,
   compositor-frame synchronization or physical suspend/relogin acceptance.
+- [x] Persist a **Wayland live-switch recovery journal** before mutating a
+  full session's panel, wallpaper, menu, optional app profiles or next-login
+  selection. Each private, bounded no-overwrite journal pins the exact prior
+  selection, reviewed target hash and Linux process identity (boot ID/PID/
+  process-start tick). Successful changes and complete in-process rollbacks
+  clear it durably; incomplete rollback retains evidence. On next full Wayland
+  login, a dead owner's journal triggers compare-and-swap restoration of only
+  that switch's next-login selection. Concurrent Creator staging wins; a
+  still-live owner cannot be mistaken for a crash. Unsafe journals fail closed
+  to an ephemeral `classic` login without erasing saved user configuration.
+  `de creator-live-recovery --json` reports journal status outside the active
+  session. Nested previews and XFCE are unaffected. Automated tests include
+  simulated SIGKILL windows, stale fingerprints, symlinks and concurrent
+  sessions; actual power cuts and multi-app hardware recovery remain untested.
 - [x] Connect **GTK Creator 0.9 to the opt-in live Wayland transaction**:
   saved private revisions can be installed explicitly and idempotently with
   a SHA-256 guard on the *actual* imported bytes; an existing differing ID is

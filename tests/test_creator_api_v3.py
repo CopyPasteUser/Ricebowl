@@ -28,6 +28,7 @@ class CreatorApiV3Tests(unittest.TestCase):
         self.assertTrue(flags["recipe-versioned-edit-json-schema"]["supported"])
         self.assertTrue(flags["content-addressed-source-snapshots"]["supported"])
         self.assertTrue(flags["crash-safe-creator-draft-recovery"]["supported"])
+        self.assertTrue(flags["crash-safe-wayland-live-selection-recovery"]["supported"])
         self.assertEqual(api["manual_region_qa"]["max_regions"], 8)
         self.assertEqual(api["manual_region_qa"]["correction_cycle"]["max_measurements"], 12)
         self.assertTrue(flags["interactive-desktop-widgets"]["supported"])
@@ -60,6 +61,7 @@ class CreatorApiV3Tests(unittest.TestCase):
         self.assertEqual(commands["creator-snapshot"]["mutation_scope"], "private-file")
         self.assertEqual(commands["creator-recovery"]["mutation_scope"], "none")
         self.assertEqual(commands["creator-recover"]["mutation_scope"], "private-file")
+        self.assertEqual(commands["creator-live-recovery"]["mutation_scope"], "none")
         self.assertTrue(commands["creator-recover"]["requires_explicit_user_invocation"])
         self.assertFalse(commands["draft-check"]["requires_explicit_user_invocation"])
         self.assertEqual(commands["visual-compare"]["mutation_scope"],

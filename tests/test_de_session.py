@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest import mock
 
 from macrice.de import session
+from macrice.de import live_recovery, recipes, staging
 
 
 class _ExecCalled(Exception):
@@ -99,6 +100,32 @@ class WaylandSessionTests(unittest.TestCase):
             session.start(environment=self.env, which=self.which, execute=_record_exec)
         self.assertIn("--startup", caught.exception.argv)
         self.assertNotIn("--session", caught.exception.argv)
+
+    @mock.patch("macrice.de.session.os.geteuid", return_value=1000)
+    @mock.patch("macrice.de.session._check_runtime_dir")
+    def test_unsafe_interrupted_switch_uses_classic_for_next_login(self, _runtime, _uid):
+        with mock.patch("macrice.de.live_recovery.reconcile", return_value={
+                "status": "unsafe", "use_saved_selection": False}):
+            with self.assertRaises(_ExecCalled) as caught:
+                session.start(environment=self.env, which=self.which, execute=_record_exec)
+        self.assertEqual(caught.exception.env["RICEBOWL_DE_RECIPE"], "classic")
+        self.assertEqual(caught.exception.program, "/usr/bin/labwc")
+
+    @mock.patch("macrice.de.session._check_runtime_dir")
+    def test_full_login_recovers_just_the_interrupted_next_login_selection(self, _runtime):
+        config = Path(self.runtime.name) / "config"
+        config.mkdir(mode=0o700)
+        with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config)}):
+            digest = staging._hash("chrome")
+            live_recovery.begin("chrome", digest, None)
+            recipes.change_selection("chrome", expected_active="classic",
+                                     expected_semantic_sha256=digest)
+            with mock.patch.object(live_recovery, "_owner_running", return_value=False):
+                with self.assertRaises(_ExecCalled) as caught:
+                    session.start(environment=self.env, which=self.which, execute=_record_exec)
+            self.assertEqual(caught.exception.env.get("RICEBOWL_DE_RECIPE"), None)
+            self.assertIsNone(recipes._selection_snapshot())
+            self.assertIsNone(live_recovery.read())
 
     def test_missing_tool_fails_before_starting_compositor(self):
         with self.assertRaisesRegex(session.SessionError, "Missing Wayland preview dependencies: foot"):

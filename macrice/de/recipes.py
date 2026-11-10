@@ -826,6 +826,11 @@ def _read_selection(directory: Path) -> dict[str, Any] | None:
         data = json.loads(raw, object_pairs_hook=_object_without_duplicates)
     except (UnicodeError, ValueError, TypeError, RecursionError) as exc:
         raise RecipeError("Invalid selected recipe state") from exc
+    return _validate_selection_state(data)
+
+
+def _validate_selection_state(data: Any) -> dict[str, Any]:
+    """Validate an on-disk selection or a pinned pre-switch recovery snapshot."""
     if type(data) is not dict or type(data.get("schema_version")) is not int:
         raise RecipeError("Unsupported recipe selection version")
     version = data["schema_version"]

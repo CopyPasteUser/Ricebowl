@@ -75,7 +75,7 @@ def parser() -> argparse.ArgumentParser:
         "check", "start", "shell", "catalog", "creator-api", "creator-history", "creator-schema", "creator-snapshot", "creator-recovery", "creator-recover", "review", "draft-check", "draft-edit", "visual-compare",
         "visual-baseline",
         "capture", "render", "creator-status", "creator-stage", "creator-rollback",
-        "creator-live-status", "creator-live-apply", "creator-live-restore",
+        "creator-live-status", "creator-live-apply", "creator-live-restore", "creator-live-recovery",
         "display-refresh",
         "pack-export", "pack-inspect", "pack-import", "asset-import", "notifications", "notification-dismiss",
         "notification-invoke",
@@ -418,6 +418,20 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"Next Wayland login: {result['next_session']} (was: {result['previous']})")
                     print("Current desktop unchanged; one-step rollback remains available")
                 return 0
+            if args.action == "creator-live-recovery":
+                if args.nested or args.panel != "waybar" or args.recipe:
+                    raise ValueError("de creator-live-recovery only accepts --json")
+                from .de.live_recovery import status
+                result = status()
+                if args.json:
+                    print(json.dumps(result, indent=2))
+                elif result["ok"]:
+                    print("Wayland recovery journal pending" if result["pending"] else
+                          "No pending Wayland live switch")
+                else:
+                    print("Wayland recovery journal is unsafe; next login uses classic",
+                          file=sys.stderr)
+                return 0 if result["ok"] else 2
             if args.action in ("creator-live-status", "creator-live-apply", "creator-live-restore",
                                "display-refresh"):
                 if args.nested or args.panel != "waybar":
