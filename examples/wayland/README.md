@@ -11,6 +11,22 @@ The green launcher and five-color native menu are reusable schema-v12 primitives
 not special-case code for this rice. Launcher hit testing, real task activation,
 app discovery, lock and logout retain their normal shared behavior.
 
+### Luna taskbar polish (native Rust preview)
+
+An explicitly decorated schema-v12 launcher now opts into a reusable taskbar
+surface treatment: a gentle blue vertical highlight/shadow, a brighter
+right-side status/clock shelf, a green beveled Start capsule and distinct
+raised/inset task buttons. Layout geometry, hit-testing, keyboard focus,
+screen-reader actions, live task activation and XFCE remain unchanged.
+Undecorated recipes continue using the original pixel-identical flat bar.
+This is rendering only; it does not theme unrelated GTK/Qt windows or install
+new services. Rust pixel regression tests cover both routes, the status shelf,
+active tasks and narrow geometry.
+
+**Existing 0.1.0 preview `.deb` packages still contain an older native
+binary.** Test through the source build script below. Do not overwrite the
+installed default session or disable automatic XFCE login to try this style.
+
 For the ThinkPad's existing XFCE/X11 + SDDM autologin, this **source-preview
 route does not install/replace a display manager, change the default session or
 modify XFCE settings**. Use the graphical XFCE terminal for compilation:
