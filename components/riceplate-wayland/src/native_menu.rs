@@ -575,7 +575,9 @@ mod tests {
         state.select_group(menu, 2);
         assert_eq!(state.current_action(menu), Some("lock"));
         state.start_search();
-        assert!(state.search_input("term"));
+        for character in "term".chars() {
+            assert!(state.search_input(&character.to_string()));
+        }
         // Search and saving use the real shared actions, not fake column labels.
         assert!(state.actions(menu).contains(&"terminal"));
     }
