@@ -18,6 +18,22 @@ open in the second capture; it is not composited onto an image afterwards.
 
 Sources (10 November 2026): the desktop image comes from [native capture run #42890753472](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42890753472), `xp-luna-columns.png`. The updated menu image comes from [native capture run #42898859348](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42898859348), `xp-luna-columns-menu.png`, which verifies readable `Settings` and `Log out (N/A)` labels in the right shelf. Both permanent WebP files are derived directly from real headless compositor captures, not mockups. Hardware status widgets may read `N/A`; this is expected in a virtual headless session. **Physical ThinkPad input, scaling, power and session acceptance remain open.**
 
+### Opt-in portable font · real compositor comparison
+
+| Bundled bitmap font | Imported private TrueType font |
+| :---: | :---: |
+| [![XP Luna menu using its original built-in glyphs](luna-menu.webp)](luna-menu.webp) | [![XP Luna menu using a separately imported DejaVu Sans Mono TrueType font, with readable two-column actions](luna-font.webp)](luna-font.webp) |
+| Default `xp-luna-columns` | Temporary `xp-luna-font-preview` |
+
+The right capture is a **real native RicePlate rendering** in headless labwc
+from [successful native CI run #42904147986](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42904147986),
+`xp-luna-font-menu.png`, cropped for readability. CI imports a redistributable
+DejaVu Sans Mono test font into an isolated, owner-private directory, references
+its content-addressed ID from a temporary recipe and compares both real
+framebuffers. No font is installed globally, and existing rices retain their
+selected font. Complex shaping, toolkit-wide fonts and physical-DPI acceptance
+are outside this verified feature.
+
 ## Two different desktop compositions
 
 | Orbit Studio | Heritage Modern |
