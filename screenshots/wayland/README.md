@@ -34,6 +34,25 @@ framebuffers. No font is installed globally, and existing rices retain their
 selected font. Complex shaping, toolkit-wide fonts and physical-DPI acceptance
 are outside this verified feature.
 
+### Luna window chrome · real XWayland before/after
+
+| Default labwc server-side window frame | Private Luna palette-driven frame |
+| :---: | :---: |
+| [![Real XWayland terminal in headless labwc with the default gray titlebar](luna-window-default.webp)](luna-window-default.webp) | [![The same real XWayland terminal with a cobalt Luna titlebar, ivory client area and blue panel](luna-window-chrome.webp)](luna-window-chrome.webp) |
+| Existing tabs/sidebar and unthemed recipes | Opt-in two-column Luna recipe |
+
+Both full 1366×768 WebP files originate from the **same real headless
+compositor session** in [successful native CI run #42907311728](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42907311728),
+`xp-luna-window-default.png` and `xp-luna-window-chrome.png`. CI boots labwc,
+native RicePlate, original `swaybg` wallpaper and a genuine XWayland `xterm`,
+then applies `themerc-override` only inside a temporary, owner-private config
+directory. A real labwc reload changes **19,980 pixels inside the window
+region** in this run; the test deliberately excludes the panel clock and
+surrounding wallpaper. The photos are **not mockups**.
+Third-party GTK/Qt client-side decorations do not necessarily follow this
+server-side theme; focus, moving, resizing and mixed-DPI remain unaccepted on
+physical hardware.
+
 ## Two different desktop compositions
 
 | Orbit Studio | Heritage Modern |

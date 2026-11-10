@@ -66,6 +66,7 @@ class WaylandSessionTests(unittest.TestCase):
                          "XDG_RUNTIME_DIR": self.runtime.name})
         override = directory / "themerc-override"
         self.assertEqual(override.stat().st_uid, os.geteuid())
+        self.assertEqual(override.stat().st_mode & 0o777, 0o600)
         text = override.read_text(encoding="utf-8")
         self.assertIn("window.active.title.bg: Gradient Vertical", text)
         self.assertIn("window.active.title.bg.color: #1654b5", text)

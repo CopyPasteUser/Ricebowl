@@ -104,7 +104,7 @@ def _custom_labwc_config(recipe: object | None, runtime: str,
             (directory / "menu.xml").write_text(labwc_menu(recipe), encoding="utf-8")
             chrome = labwc_chrome(recipe)
             if chrome is not None:
-                (directory / "themerc-override").write_text(chrome, encoding="utf-8")
+                _atomic_labwc_text(directory / "themerc-override", chrome)
         if preferences is not None:
             spice_prefs.configure_labwc(directory / "rc.xml", preferences)
         (directory / ".ricebowl-managed").touch(mode=0o600)
