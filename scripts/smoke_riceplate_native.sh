@@ -28,6 +28,7 @@ cp "$source_root/tests/fixtures/riceplate-layout-v8.json" "$runtime/layout-v8.js
 cp "$source_root/tests/fixtures/riceplate-components-v9.json" "$runtime/components-v9.json"
 cp "$source_root/tests/fixtures/riceplate-desktop-actions-v9.json" "$runtime/desktop-actions-v9.json"
 cp "$source_root/tests/fixtures/riceplate-appearance-v10.json" "$runtime/appearance-v10.json"
+cp "$source_root/examples/wayland/xp-luna.json" "$runtime/xp-luna.json"
 cp "$source_root/tests/fixtures/riceplate-desktop-v5-overflow.json" "$runtime/overflow-v5.json"
 chmod 0600 "$runtime/custom.json"
 chmod 0600 "$runtime/nested.json"
@@ -41,6 +42,7 @@ chmod 0600 "$runtime/layout-v8.json"
 chmod 0600 "$runtime/components-v9.json"
 chmod 0600 "$runtime/desktop-actions-v9.json"
 chmod 0600 "$runtime/appearance-v10.json"
+chmod 0600 "$runtime/xp-luna.json"
 chmod 0600 "$runtime/overflow-v5.json"
 ln -s "$runtime/custom.json" "$runtime/symlink.json"
 if "$native" --recipe "$runtime/symlink.json" >"$runtime/rejected.log" 2>&1; then
@@ -102,12 +104,14 @@ dbus-run-session -- sh -eu -c '
         sed -n "1,70p" "$runtime/labwc.log" >&2
         exit 1
     fi
-    for recipe in classic chrome "$runtime/custom.json" "$runtime/nested.json" "$runtime/shell-v4.json" "$runtime/desktop-v5.json" "$runtime/actions-v6.json" "$runtime/controls-v7.json" "$runtime/layout-v8.json" "$runtime/components-v9.json" "$runtime/desktop-actions-v9.json" "$runtime/appearance-v10.json" "$runtime/overflow-v5.json" "$runtime/desktop-v5-menu" "$runtime/sidebar-v6-menu" "$runtime/composed-v6-menu" "$runtime/desktop-v5-calendar"; do
+    for recipe in classic chrome "$runtime/custom.json" "$runtime/nested.json" "$runtime/shell-v4.json" "$runtime/desktop-v5.json" "$runtime/actions-v6.json" "$runtime/controls-v7.json" "$runtime/layout-v8.json" "$runtime/components-v9.json" "$runtime/desktop-actions-v9.json" "$runtime/appearance-v10.json" "$runtime/xp-luna.json" "$runtime/xp-luna-menu" "$runtime/overflow-v5.json" "$runtime/desktop-v5-menu" "$runtime/sidebar-v6-menu" "$runtime/composed-v6-menu" "$runtime/desktop-v5-calendar"; do
         case "$recipe" in
             */desktop-v5-calendar) label=calendar-v5 ;;
             */desktop-v5-menu) label=menu-v5 ;;
             */sidebar-v6-menu) label=menu-sidebar-v6 ;;
             */composed-v6-menu) label=menu-composed-v6 ;;
+            */xp-luna-menu) label=xp-luna-menu ;;
+            */xp-luna.json) label=xp-luna ;;
             */overflow-v5.json) label=overflow-v5 ;;
             */desktop-v5.json) label=desktop-v5 ;;
             */actions-v6.json) label=actions-v6 ;;
@@ -127,6 +131,8 @@ dbus-run-session -- sh -eu -c '
             WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$runtime/sidebar-v6.json" --preview-menu >"$runtime/plate-$label.log" 2>&1 &
         elif [ "$label" = menu-composed-v6 ]; then
             WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$runtime/composed-v6.json" --preview-menu >"$runtime/plate-$label.log" 2>&1 &
+        elif [ "$label" = xp-luna-menu ]; then
+            WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$runtime/xp-luna.json" --preview-menu >"$runtime/plate-$label.log" 2>&1 &
         elif [ "$label" = calendar-v5 ]; then
             WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$runtime/desktop-v5.json" --preview-calendar >"$runtime/plate-$label.log" 2>&1 &
         else
@@ -143,7 +149,7 @@ dbus-run-session -- sh -eu -c '
                 exit 1 ;;
         esac
         echo "Native RicePlate $label layer surface remained alive"
-        if [ "$label" = shell-v4 ] || [ "$label" = desktop-v5 ] || [ "$label" = actions-v6 ] || [ "$label" = controls-v7 ] || [ "$label" = layout-v8 ] || [ "$label" = components-v9 ] || [ "$label" = desktop-actions-v9 ] || [ "$label" = appearance-v10 ] || [ "$label" = menu-v5 ] || [ "$label" = menu-sidebar-v6 ] || [ "$label" = menu-composed-v6 ] || [ "$label" = calendar-v5 ]; then
+        if [ "$label" = shell-v4 ] || [ "$label" = desktop-v5 ] || [ "$label" = actions-v6 ] || [ "$label" = controls-v7 ] || [ "$label" = layout-v8 ] || [ "$label" = components-v9 ] || [ "$label" = desktop-actions-v9 ] || [ "$label" = appearance-v10 ] || [ "$label" = xp-luna ] || [ "$label" = xp-luna-menu ] || [ "$label" = menu-v5 ] || [ "$label" = menu-sidebar-v6 ] || [ "$label" = menu-composed-v6 ] || [ "$label" = calendar-v5 ]; then
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/$label.png"
             cp "$runtime/$label.png" "$source_root/dist/riceplate-native-preview/$label.png"
             echo "Captured real native RicePlate $label framebuffer"

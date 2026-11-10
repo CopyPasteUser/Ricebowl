@@ -6,7 +6,7 @@ use crate::{
     recipe::{LauncherDecoration, PanelStyle, PlacedWidget, Widget},
 };
 
-fn mix_rgb(base: u32, tint: u32, weight: u32) -> u32 {
+pub(super) fn mix_rgb(base: u32, tint: u32, weight: u32) -> u32 {
     let weight = weight.min(255);
     let channel = |shift: u32| {
         let a = (base >> shift) & 0xff;

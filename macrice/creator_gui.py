@@ -33,7 +33,7 @@ FIELDS = (
     ("Shell", (
         ("/panel/position", "Panel edge", "choice", ("top", "bottom")),
         ("/panel/height", "Panel height (px)", "number", (28, 64)),
-        ("/menu/presentation", "Start menu", "choice", ("tabs", "sidebar")),
+        ("/menu/presentation", "Start menu", "choice", ("tabs", "sidebar", "split")),
         ("/responsive/compact_max_width", "Compact below (px)", "number", (480, 1440)),
     )),
     ("Surface colors", (
@@ -732,6 +732,9 @@ def run() -> int:
                     elif kind in ("choice", "choice-int"):
                         widget = Gtk.ComboBoxText()
                         for option in options:
+                            if path == "/menu/presentation" and option == "split" \
+                                    and self.working["schema_version"] < 12:
+                                continue
                             widget.append(str(option), str(option))
                         widget.set_active_id(str(current))
                         widget.connect("changed", lambda w, p=path, k=kind:

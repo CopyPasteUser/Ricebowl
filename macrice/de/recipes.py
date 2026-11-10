@@ -334,8 +334,10 @@ def _parse_menu(value: Any, *, schema_version: int = 4) -> tuple[str, tuple[Menu
     if schema_version >= 6 and isinstance(value, dict):
         allowed = {"title", "groups"}
         if "presentation" in value:
-            if type(value["presentation"]) is not str or value["presentation"] not in ("tabs", "sidebar"):
-                raise RecipeError("Menu presentation must be tabs or sidebar")
+            presentation = value["presentation"]
+            if (type(presentation) is not str or presentation not in ("tabs", "sidebar")
+                    and not (schema_version >= 12 and presentation == "split")):
+                raise RecipeError("Menu presentation must be tabs/sidebar or v12 split")
             allowed.add("presentation")
         if "colors" in value and schema_version >= 12:
             allowed.add("colors")
@@ -348,6 +350,11 @@ def _parse_menu(value: Any, *, schema_version: int = 4) -> tuple[str, tuple[Menu
     groups = data["groups"]
     if not isinstance(groups, list) or not 1 <= len(groups) <= 4:
         raise RecipeError("Menu requires 1-4 groups")
+    if data.get("presentation") == "split" and (len(groups) != 3
+            or not isinstance(groups[2], dict)
+            or not isinstance(groups[2].get("actions"), list)
+            or len(groups[2]["actions"]) > 2 or "content" in groups[2]):
+        raise RecipeError("Split menu needs two content groups and a two-action footer")
     result: list[MenuGroup] = []
     seen: set[str] = set()
     for value in groups:

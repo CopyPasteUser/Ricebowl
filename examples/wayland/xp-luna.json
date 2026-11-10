@@ -38,7 +38,7 @@
   },
   "menu": {
     "title": "RiceBowl Luna",
-    "presentation": "sidebar",
+    "presentation": "split",
     "colors": {
       "background": "#fffdf1",
       "foreground": "#193c67",
@@ -51,8 +51,8 @@
         "title": "Programs",
         "actions": ["applications", "terminal"],
         "content": [
-          {"type": "apps-list", "title": "All Programs", "limit": 3},
-          {"type": "favorites", "title": "Pinned", "limit": 1}
+          {"type": "actions", "title": "Essentials", "limit": 2},
+          {"type": "apps-list", "title": "Installed", "limit": 2}
         ]
       },
       {
@@ -64,10 +64,7 @@
       },
       {
         "title": "Session",
-        "actions": ["lock", "logout"],
-        "content": [
-          {"type": "actions", "title": "Session Tools", "limit": 2}
-        ]
+        "actions": ["lock", "logout"]
       }
     ]
   },

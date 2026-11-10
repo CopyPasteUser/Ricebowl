@@ -27,7 +27,7 @@ class WaylandLunaTests(unittest.TestCase):
         self.assertEqual(parsed.colors[0], "#245ed3")
         self.assertTrue(recipes.wallpaper_path(parsed).is_file())
         self.assertEqual(recipes.wallpaper_path(parsed).name, "luna-hills.jpg")
-        self.assertEqual(parsed.menu_presentation, "sidebar")
+        self.assertEqual(parsed.menu_presentation, "split")
         self.assertTrue({"applications", "terminal", "lock", "logout"}.issubset({
             action for group in parsed.menu[1] for action in group.actions
         }))
@@ -64,6 +64,26 @@ class WaylandLunaTests(unittest.TestCase):
                 data[path[0]][path[1]][path[2]] = value
                 with self.assertRaises(recipes.RecipeError):
                     recipes.parse(json.dumps(data).encode())
+
+    def test_split_menu_requires_v12_and_bounded_session_footer(self):
+        for edit in (
+            lambda data: data.update(schema_version=11),
+            lambda data: data["menu"]["groups"].pop(),
+            lambda data: data["menu"]["groups"][2].update(content=[
+                {"type": "actions", "title": "Extra", "limit": 2}]),
+            lambda data: data["menu"]["groups"][2]["actions"].append("audio-up"),
+        ):
+            invalid = copy.deepcopy(self.source)
+            edit(invalid)
+            with self.assertRaises(recipes.RecipeError):
+                recipes.parse(json.dumps(invalid).encode())
+        def options(version):
+            operations = creator_schema.describe(version)["properties"]["operations"]["items"]["oneOf"]
+            return next(op["properties"]["value"]["enum"] for op in operations
+                        if op["properties"]["path"]["const"] == "/menu/presentation")
+
+        self.assertIn("split", options(12))
+        self.assertNotIn("split", options(11))
 
     def test_creator_can_validate_style_edit_without_installing(self):
         parsed = recipes.parse(LUNA.read_bytes())

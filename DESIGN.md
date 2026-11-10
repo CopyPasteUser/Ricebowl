@@ -485,6 +485,18 @@ are accepted. The native compact composition is a structural primitive,
 not an icon-accurate Windows XP/7 recreation. Future XP/7-specific structures
 require separately audited primitives, not a CSS-only identity swap.
 
+Schema-v12 adds `menu.presentation: split` as a reusable third structure,
+selected by the opt-in Wayland Luna recipe. Its native 320×304 menu keeps a
+cobalt account header, original drawn account glyph, an ivory left programs
+column, a light-blue right system-links column and a session-action footer.
+The first two recipe groups supply up to four real rows each; a mandatory
+third group has at most two validated actions, without content sources.
+Renderer, pointer hits and accessible action order use one bounded geometry.
+Search and saved actions remain available; narrow outputs retain the shared
+paged compact mode. Menu palette ownership stays in the schema-v12 recipe and
+`riceplate-wayland`, never in an X11-specific duplicate. No proprietary Windows
+bitmaps or fake system controls are used.
+
 Schema-v6 nested panel layouts may also contain a **real, focusable action
 button** (`type: action`, `id`, `label`). Only four fixed IDs are supported:
 `applications`, `terminal`, `settings` and `lock`. Labels are bounded safe ASCII

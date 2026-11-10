@@ -101,13 +101,14 @@ pub struct LauncherDecoration {
     pub radius: u32,
 }
 
-/// The same actions/state can be rendered as a horizontal tab strip or as a
-/// persistent left navigation rail. Both have explicit hit-test geometry.
+/// The same actions/state can use tabs, a navigation rail, or a bounded
+/// two-column menu with a separate session-action footer.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum MenuPresentation {
     #[default]
     Tabs,
     Sidebar,
+    Split,
 }
 
 #[derive(Debug, Clone)]
@@ -582,9 +583,15 @@ fn validate_menu(menu: &Menu, version: u32) -> Result<(), Box<dyn Error>> {
         return Err("Invalid bounded menu title/groups".into());
     }
     if let Some(presentation) = menu.presentation.as_deref() {
-        if version < 6 || !matches!(presentation, "tabs" | "sidebar") {
-            return Err("Menu presentation requires schema v6 and tabs/sidebar".into());
+        if (version < 6 || !matches!(presentation, "tabs" | "sidebar"))
+            && !(version >= 12 && presentation == "split") {
+            return Err("Menu presentation requires tabs/sidebar (v6) or split (v12)".into());
         }
+    }
+    if menu.presentation.as_deref() == Some("split")
+        && (menu.groups.len() != 3 || menu.groups[2].actions.len() > 2
+            || menu.groups[2].content.is_some()) {
+        return Err("Split menu needs two content groups and a two-action footer".into());
     }
     let mut seen = HashSet::new();
     for group in &menu.groups {
@@ -936,10 +943,10 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
             native_menu = Some(NativeMenu {
                 title: menu.title,
                 palette,
-                presentation: if menu.presentation.as_deref() == Some("sidebar") {
-                    MenuPresentation::Sidebar
-                } else {
-                    MenuPresentation::Tabs
+                presentation: match menu.presentation.as_deref() {
+                    Some("sidebar") => MenuPresentation::Sidebar,
+                    Some("split") => MenuPresentation::Split,
+                    _ => MenuPresentation::Tabs,
                 },
                 groups: menu
                     .groups

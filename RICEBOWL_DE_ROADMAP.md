@@ -13,9 +13,14 @@ installation and is not yet a finished desktop environment.
   and a native menu palette; both are bounded, data-only, and backwards
   compatible with existing v1–v11 recipes. Waybar provides a launcher CSS
   fallback; its labwc menu does not claim native palette support.
+- [x] Add a **bounded reusable split-menu presentation** in schema v12:
+  programs and system links in simultaneous columns, with a separate
+  two-action session footer. Rust painting/pointer/AT-SPI share one action
+  index; Creator and Python validation agree with the Rust schema. Native CI
+  captures Luna desktop and opened-menu framebuffers separately.
 - XFCE/X11 configuration, SDDM autologin and installed preview packages remain
   unchanged. Separate scripts provide a local build and 120-second tty preview.
-- Still open before any 1.0 claim: compiled-Rust CI, real ThinkPad input/
+- Still open before any 1.0 claim: split-menu native CI, real ThinkPad input/
   focus/power and display acceptance, further Luna icon/window appearance
   fidelity, and packaging an upgraded core/native release for schema v12.
 

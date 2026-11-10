@@ -29,6 +29,8 @@ pub const TAB_TOP: u32 = 46;
 pub const TAB_HEIGHT: u32 = 40;
 pub const SIDEBAR_WIDTH: u32 = 112;
 pub const SIDEBAR_ROW_HEIGHT: u32 = 44;
+pub const SPLIT_DIVIDER: u32 = 190;
+pub const SPLIT_FOOTER_TOP: u32 = 250;
 pub const ACTION_TOP: u32 = 108;
 pub const ACTION_HEIGHT: u32 = 42;
 pub const VISIBLE_ACTIONS: usize = 4;
@@ -163,15 +165,35 @@ impl MenuState {
         if count == 0 {
             return;
         }
-        self.group = (self.group as isize + delta).rem_euclid(count as isize) as usize;
-        self.selected = 0;
+        let next = (self.group as isize + delta).rem_euclid(count as isize) as usize;
+        self.focus_group(menu, next);
+    }
+
+    pub fn focus_group(&mut self, menu: &NativeMenu, index: usize) {
+        self.group = index;
         self.view = View::Groups;
         self.search.clear();
+        self.selected = if menu.presentation == MenuPresentation::Split {
+            self.split_sections(menu).and_then(|sections| sections.get(index)
+                .and_then(|section| section.items.first().map(|tile| tile.index))).unwrap_or(0)
+        } else { 0 };
     }
 
     /// Left/right traverse the two-column grid when a neighbouring tile
     /// exists on the same row; otherwise they retain group switching.
     pub fn horizontal_by(&mut self, menu: &NativeMenu, delta: isize) {
+        if menu.presentation == MenuPresentation::Split && self.view == View::Groups {
+            let Some(sections) = self.split_sections(menu) else { return; };
+            let tiles: Vec<_> = sections.iter().flat_map(|section| &section.items).collect();
+            let Some(current) = tiles.iter().find(|tile| tile.index == self.selected) else { return; };
+            let next = tiles.iter().filter(|tile| if delta > 0 {
+                tile.x > current.x + current.width / 2
+            } else {
+                tile.x + tile.width / 2 < current.x
+            }).min_by_key(|tile| tile.y.abs_diff(current.y));
+            if let Some(tile) = next { self.selected = tile.index; }
+            return;
+        }
         let neighbour = self.composed_sections(menu).and_then(|sections| {
             let tiles: Vec<_> = sections.iter().flat_map(|section| section.items.iter()).collect();
             let current = tiles.iter().find(|tile| tile.index == self.selected && tile.grid)?;
@@ -234,6 +256,7 @@ impl MenuState {
     /// capacity keeps the popup geometry stable when favorites change.
     pub fn composed_sections<'a>(&'a self, menu: &'a NativeMenu) -> Option<Vec<MenuSection<'a>>> {
         if self.view != View::Groups { return None; }
+        if menu.presentation == MenuPresentation::Split { return self.split_sections(menu); }
         let group = menu.groups.get(self.group)?;
         let composition = group.content.as_ref()?;
         let sidebar = menu.presentation == MenuPresentation::Sidebar;
@@ -269,6 +292,45 @@ impl MenuState {
             top += CONTENT_HEADER_HEIGHT + rows as u32 * row_height;
         }
         Some(sections)
+    }
+
+    /// One bounded layout model drives split-menu painting, hit tests and
+    /// AT-SPI action order. The last group is a real session-action footer.
+    fn split_sections<'a>(&'a self, menu: &'a NativeMenu) -> Option<Vec<MenuSection<'a>>> {
+        if menu.groups.len() != 3 { return None; }
+        let mut index = 0;
+        let mut result = Vec::with_capacity(3);
+        for (group_index, group) in menu.groups.iter().enumerate() {
+            let actions: Vec<&str> = if let Some(sources) = &group.content {
+                sources.iter().flat_map(|source| match source.kind {
+                    MenuContentKind::Actions => group.actions.iter().map(String::as_str)
+                        .take(source.limit).collect::<Vec<_>>(),
+                    MenuContentKind::Favorites => self.pins.iter().filter(|pin|
+                        menu.groups.iter().any(|g| g.actions.contains(pin)))
+                        .map(String::as_str).take(source.limit).collect(),
+                    MenuContentKind::AppsList | MenuContentKind::AppsGrid => self.apps.iter()
+                        .map(|app| app.action.as_str()).take(source.limit).collect(),
+                }).collect()
+            } else { group.actions.iter().map(String::as_str).collect() };
+            let (x, width, top, first_y, row_height) = match group_index {
+                0 => (8, SPLIT_DIVIDER - 16, 64, 88, 36),
+                1 => (SPLIT_DIVIDER + 8, WIDTH - SPLIT_DIVIDER - 16, 64, 88, 36),
+                _ => (16, 136, SPLIT_FOOTER_TOP, 270, 26),
+            };
+            let items = actions.into_iter().enumerate().map(|(position, action)| {
+                let tile = MenuTile {
+                    action, index,
+                    x: if group_index == 2 { x + position as u32 * 154 } else { x },
+                    y: if group_index == 2 { first_y } else { first_y + position as u32 * row_height },
+                    width, height: row_height, grid: false,
+                };
+                index += 1;
+                tile
+            }).collect();
+            result.push(MenuSection { title: &group.title, kind: MenuContentKind::Actions,
+                                      top, items });
+        }
+        Some(result)
     }
 
     pub fn first_action_row(&self) -> usize {
@@ -375,6 +437,23 @@ impl MenuState {
             return None;
         }
         match menu.presentation {
+            MenuPresentation::Split => {
+                if x >= f64::from(WIDTH - 32) && y < 48.0 { return Some(Hit::Close); }
+                if self.view == View::Groups {
+                    if (62.0..82.0).contains(&y) {
+                        return Some(Hit::Group(if x < f64::from(SPLIT_DIVIDER) { 0 } else { 1 }));
+                    }
+                    if (f64::from(SPLIT_FOOTER_TOP)..270.0).contains(&y) {
+                        return Some(Hit::Group(2));
+                    }
+                    return self.split_sections(menu)?.iter()
+                        .flat_map(|section| &section.items)
+                        .find(|tile| x >= f64::from(tile.x) && x < f64::from(tile.x + tile.width)
+                            && y >= f64::from(tile.y) && y < f64::from(tile.y + tile.height))
+                        .map(|tile| Hit::Action(tile.index))
+                        .or_else(|| (y >= f64::from(HEIGHT - 8)).then_some(Hit::Close));
+                }
+            }
             MenuPresentation::Tabs if (f64::from(TAB_TOP)..f64::from(TAB_TOP + TAB_HEIGHT)).contains(&y) => {
                 let index = (x as usize * menu.groups.len()) / WIDTH as usize;
                 return (index < menu.groups.len()).then_some(Hit::Group(index));
@@ -766,5 +845,30 @@ mod tests {
         state.select_by(&data, -1);
         assert_eq!(state.selected, 0);
         assert_eq!(state.current_action(&data), None);
+    }
+
+    #[test]
+    fn split_menu_has_two_visible_columns_and_real_session_footer() {
+        let style = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna.json"), Some("xp-luna")).unwrap();
+        let menu = style.menu.unwrap();
+        assert_eq!(menu.presentation, MenuPresentation::Split);
+        let mut state = MenuState::default();
+        state.open();
+        assert_eq!(state.actions(&menu), ["applications", "terminal", "settings",
+                                               "notifications", "lock", "logout"]);
+        assert_eq!(state.hit(&menu, 20.0, 100.0), Some(Hit::Action(0)));
+        assert_eq!(state.hit(&menu, 200.0, 100.0), Some(Hit::Action(2)));
+        assert_eq!(state.hit(&menu, 20.0, 280.0), Some(Hit::Action(4)));
+        assert_eq!(state.hit(&menu, 180.0, 280.0), Some(Hit::Action(5)));
+        assert_eq!(state.hit(&menu, 300.0, 25.0), Some(Hit::Close));
+        state.horizontal_by(&menu, 1);
+        assert_eq!(state.current_action(&menu), Some("settings"));
+        state.focus_group(&menu, 2);
+        assert_eq!(state.current_action(&menu), Some("lock"));
+        state.start_search();
+        for c in ["t", "e", "r", "m"] { assert!(state.search_input(c)); }
+        assert_eq!(state.current_action(&menu), Some("terminal"));
+        assert_eq!(state.hit(&menu, 20.0, 115.0), Some(Hit::Action(0)));
     }
 }

@@ -6,7 +6,8 @@
 existing X11 Luna presentation. It uses RiceBowl's own `luna-hills` wallpaper,
 a cobalt bottom taskbar, **independently green rounded `start` launcher**,
 separately blue active tasks, pale Start-menu body with cobalt heading,
-sidebar Programs/System/Session categories, and responsive desktop shortcuts.
+an original **two-column Start menu** (ivory programs, pale-blue system links,
+blue session-action footer), and responsive desktop shortcuts.
 The green launcher and five-color native menu are reusable schema-v12 primitives,
 not special-case code for this rice. Launcher hit testing, real task activation,
 app discovery, lock and logout retain their normal shared behavior.
@@ -22,6 +23,21 @@ Undecorated recipes continue using the original pixel-identical flat bar.
 This is rendering only; it does not theme unrelated GTK/Qt windows or install
 new services. Rust pixel regression tests cover both routes, the status shelf,
 active tasks and narrow geometry.
+
+### Native two-column Start menu (source preview)
+
+The generic schema-v12 `menu.presentation: "split"` displays the first two
+validated action groups side by side, plus a separate third group with at most
+two real session actions. It shares the existing app catalogue, search,
+saved-action pinning, pointer geometry, keyboard navigation and AT-SPI action
+dispatcher; no recipe can inject commands. Smaller outputs retain the readable
+compact paged menu. Older tab/sidebar recipes remain unchanged. CI captures
+`xp-luna.png` (desktop) and `xp-luna-menu.png` (opened native Start) directly
+from headless labwc with `grim`, as actual Wayland framebuffer evidence.
+
+The screen remains 320×304 logical pixels in this structural sprint.
+Enlarging the menu, refining iconography and validating it with a physical
+ThinkPad are separate visual-fidelity tasks.
 
 **Existing 0.1.0 preview `.deb` packages still contain an older native
 binary.** Test through the source build script below. Do not overwrite the

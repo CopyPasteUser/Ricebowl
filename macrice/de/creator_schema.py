@@ -124,7 +124,8 @@ def _properties(schema_version: int) -> dict[str, dict[str, Any]]:
         menu_fields, required=("title", "actions")), 1, 4)
     properties["/menu/title"] = _label(32)
     if schema_version >= 6:
-        properties["/menu/presentation"] = {"enum": ["tabs", "sidebar"]}
+        properties["/menu/presentation"] = {"enum": ["tabs", "sidebar"] +
+                                           (["split"] if schema_version >= 12 else [])}
     wallpaper: dict[str, Any] = {"enum": sorted(recipes.WALLPAPERS)}
     if schema_version >= 6:
         wallpaper = {"anyOf": [wallpaper, {"type": "string",

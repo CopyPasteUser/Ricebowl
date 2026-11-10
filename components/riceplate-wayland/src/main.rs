@@ -1028,8 +1028,10 @@ impl RicePlate {
                     .unwrap_or((native_menu::WIDTH, native_menu::HEIGHT));
                 let compact = native_menu::compact_layout(active_size);
                 let rows = if compact { native_menu::compact_visible_actions(active_size) }
+                           else if menu.presentation == recipe::MenuPresentation::Split
+                               && self.menu_state.view == native_menu::View::Groups { 10 }
                            else { native_menu::VISIBLE_ACTIONS };
-                let group_role = if menu.presentation == recipe::MenuPresentation::Sidebar && !compact {
+                let group_role = if !compact && menu.presentation != recipe::MenuPresentation::Tabs {
                     AccessibleRole::Button
                 } else {
                     AccessibleRole::Tab
@@ -1046,8 +1048,11 @@ impl RicePlate {
                 }
                 let menu_actions = self.menu_state.actions(menu);
                 let selected_action_exists = self.menu_state.selected < menu_actions.len();
+                let first = if !compact && menu.presentation == recipe::MenuPresentation::Split
+                    && self.menu_state.view == native_menu::View::Groups { 0 }
+                    else { self.menu_state.first_action_row_for(rows) };
                 for (index, action) in menu_actions.into_iter().enumerate()
-                    .skip(self.menu_state.first_action_row_for(rows)).take(rows) {
+                    .skip(first).take(rows) {
                     let enabled = action != "logout" || logout_available();
                     model.add(20_500 + index as u64, 20_000, AccessibleRole::Button,
                               self.menu_state.label(action),
@@ -1197,7 +1202,9 @@ impl RicePlate {
                 }
             }
             Target::MenuGroup(index) => {
-                self.menu_state.open_group(index);
+                if let Some(menu) = self.recipe.menu.as_ref() {
+                    self.menu_state.focus_group(menu, index);
+                }
                 self.redraw_menu(qh);
             }
             Target::MenuAction(action) => self.activate_action(&action, qh),
@@ -3272,7 +3279,122 @@ fn paint_compact_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
                   .collect::<String>(), fg);
 }
 
+/// Primary programs, system links and session actions share the validated
+/// native menu model; the split presentation adds no shell-only commands.
+fn paint_split_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
+                    style: &PanelStyle, state: &MenuState) {
+    use panel_chrome::mix_rgb;
+    let width = native_menu::WIDTH;
+    let height = native_menu::HEIGHT;
+    let bg = menu.palette.map_or(style.background, |item| item.background);
+    let fg = menu.palette.map_or(style.foreground, |item| item.foreground);
+    let header = menu.palette.map_or(style.active, |item| item.header);
+    let header_fg = menu.palette.map_or(style.foreground, |item| item.header_foreground);
+    let selected = menu.palette.map_or(style.active, |item| item.selection);
+    for pixel in canvas.chunks_exact_mut(4) { pixel.copy_from_slice(&bg.to_le_bytes()); }
+    for y in 0..54 {
+        let tint = if y < 25 { 0xffff_ffff } else { 0xff00_164c };
+        let weight = if y < 25 { 49 - y } else { (y - 25) * 2 };
+        fill_rect(canvas, width, height, 0, y, width, 1, mix_rgb(header, tint, weight));
+    }
+    fill_rect(canvas, width, height, 0, 0, width, 2,
+              mix_rgb(header, 0xffff_ffff, 115));
+    // Drawn account tile: independent original artwork, no proprietary icons.
+    fill_rounded_rect(canvas, width, height, 12, 10, 36, 35, 5,
+                      mix_rgb(header, 0xffff_ffff, 128));
+    fill_rounded_rect(canvas, width, height, 14, 12, 32, 31, 4,
+                      mix_rgb(header, 0xff99_d45c, 125));
+    fill_rounded_rect(canvas, width, height, 26, 18, 8, 9, 4, 0xffff_ffff);
+    fill_rounded_rect(canvas, width, height, 21, 28, 18, 10, 5, 0xffff_ffff);
+    draw_rice_text(canvas, width, height, 58, 22, &menu.title, header_fg, style);
+    fill_rounded_rect(canvas, width, height, width - 29, 14, 21, 21, 6,
+                      mix_rgb(header, 0xffd0_3040, 204));
+    draw_text(canvas, width, height, width - 22, 20, "X", 0xffff_ffff);
+
+    fill_rect(canvas, width, height, native_menu::SPLIT_DIVIDER, 54,
+              width - native_menu::SPLIT_DIVIDER,
+              native_menu::SPLIT_FOOTER_TOP - 54, mix_rgb(bg, header, 70));
+    fill_rect(canvas, width, height, native_menu::SPLIT_DIVIDER - 1, 54, 1,
+              native_menu::SPLIT_FOOTER_TOP - 54,
+              mix_rgb(header, 0xffff_ffff, 130));
+    for y in native_menu::SPLIT_FOOTER_TOP..height {
+        fill_rect(canvas, width, height, 0, y, width, 1,
+                  mix_rgb(header, 0xff00_133e, (y - native_menu::SPLIT_FOOTER_TOP) / 2));
+    }
+    fill_rect(canvas, width, height, 0, native_menu::SPLIT_FOOTER_TOP,
+              width, 2, mix_rgb(header, 0xffff_ffff, 115));
+
+    if state.view == native_menu::View::Groups {
+        if let Some(sections) = state.composed_sections(menu) {
+            for (column, section) in sections.iter().enumerate() {
+                let x = if column == 0 { 12 } else if column == 1 {
+                    native_menu::SPLIT_DIVIDER + 10
+                } else { 12 };
+                draw_text(canvas, width, height, x, section.top + 6,
+                          section.title, if column == 2 { header_fg } else { fg });
+                for tile in &section.items {
+                    let active = tile.index == state.selected;
+                    if column == 2 {
+                        fill_rounded_rect(canvas, width, height, tile.x, tile.y,
+                                          tile.width, tile.height, 5,
+                                          if active { mix_rgb(header, 0xff37_ae36, 156) }
+                                          else { mix_rgb(header, 0xffff_ffff, 30) });
+                    } else if active {
+                        fill_rounded_rect(canvas, width, height, tile.x, tile.y,
+                                          tile.width, tile.height - 2, 3, selected);
+                    }
+                    let label = if tile.action == "logout" && !logout_available() {
+                        "Log out (off)"
+                    } else { state.label(tile.action) };
+                    let text_width = tile.width.saturating_sub(if column == 2 { 12 } else { 34 });
+                    let max_chars = (text_width / (8 * style.font_scale)) as usize;
+                    if column != 2 {
+                        fill_rounded_rect(canvas, width, height,
+                                          tile.x + 5, tile.y + 8, 17, 17, 3,
+                                          mix_rgb(header, 0xffff_ffff, if active { 170 } else { 80 }));
+                        let initial = label.chars().next().unwrap_or('?').to_uppercase().collect::<String>();
+                        draw_text(canvas, width, height, tile.x + 9, tile.y + 13,
+                                  &initial, header_fg);
+                    }
+                    draw_rice_text(canvas, width, height,
+                                   tile.x + if column == 2 { 8 } else { 28 },
+                                   tile.y + if column == 2 { 9 } else { 14 },
+                                   &label.chars().take(max_chars).collect::<String>(),
+                                   if column == 2 { header_fg } else { fg }, style);
+                }
+            }
+        }
+    } else {
+        let heading = if state.view == native_menu::View::Search {
+            format!("Find: {}", state.search)
+        } else { "Saved actions".to_owned() };
+        draw_text(canvas, width, height, 14, 72, &heading, fg);
+        let actions = state.actions(menu);
+        if actions.is_empty() {
+            draw_text(canvas, width, height, 14, 132,
+                      if state.view == native_menu::View::Saved { "No saved actions" }
+                      else { "No matching actions" }, fg);
+        }
+        for (row, action) in actions.into_iter().skip(state.first_action_row())
+            .take(native_menu::VISIBLE_ACTIONS).enumerate() {
+            let y = native_menu::ACTION_TOP + row as u32 * native_menu::ACTION_HEIGHT;
+            if state.first_action_row() + row == state.selected {
+                fill_rounded_rect(canvas, width, height, 8, y + 2,
+                                  width - 16, native_menu::ACTION_HEIGHT - 4, 3, selected);
+            }
+            draw_rice_text(canvas, width, height, 18, y + 16,
+                           &state.label(action).chars().take(30).collect::<String>(), fg, style);
+        }
+    }
+    draw_text(canvas, width, height, 176, height - 10,
+              state.notice.unwrap_or("F2 Pin  F3 Saved  Esc"), header_fg);
+}
+
 fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, state: &MenuState) {
+    if menu.presentation == recipe::MenuPresentation::Split {
+        paint_split_menu(canvas, menu, style, state);
+        return;
+    }
     let width = native_menu::WIDTH;
     let height = native_menu::HEIGHT;
     let bg = menu.palette.map_or(style.background, |item| item.background);
@@ -4954,7 +5076,7 @@ impl PointerHandler for RicePlate {
                             self.menu_state.compact_hit(menu, pointer.0, pointer.1, menu_size)
                         } else { self.menu_state.hit(menu, pointer.0, pointer.1) } {
                             Some(MenuHit::Group(index)) => {
-                                self.menu_state.open_group(index);
+                                self.menu_state.focus_group(menu, index);
                                 self.redraw_menu(qh);
                             }
                             Some(MenuHit::Action(index)) => {
@@ -5379,6 +5501,27 @@ mod tests {
         paint_menu(&mut selected, style.menu.as_ref().unwrap(), &style, &state);
         assert_eq!(&selected[first..first + 4], &style.active.to_le_bytes());
         assert_ne!(frame, selected);
+    }
+
+    #[test]
+    fn split_menu_paints_real_two_column_chrome_without_changing_legacy_menu() {
+        let style = recipe::parse(include_str!("../../../examples/wayland/xp-luna.json"),
+                                  Some("xp-luna")).unwrap();
+        let menu = style.menu.as_ref().unwrap();
+        let mut state = native_menu::MenuState::default();
+        state.open();
+        let mut canvas = vec![0; (native_menu::WIDTH * native_menu::HEIGHT * 4) as usize];
+        paint_menu(&mut canvas, menu, &style, &state);
+        let pixel = |x, y| {
+            let start = ((y * native_menu::WIDTH + x) * 4) as usize;
+            u32::from_le_bytes(canvas[start..start + 4].try_into().unwrap())
+        };
+        let palette = menu.palette.unwrap();
+        assert_ne!(pixel(100, 4), pixel(100, 40), "account header needs real gradient");
+        assert_eq!(pixel(185, 150), palette.background, "left program column is ivory");
+        assert_ne!(pixel(210, 150), palette.background, "system column needs distinct tint");
+        assert_ne!(pixel(100, 286), palette.background, "session footer is separate");
+        assert_eq!(pixel(10, 100), palette.selection, "selected action has visible state");
     }
 
     #[test]

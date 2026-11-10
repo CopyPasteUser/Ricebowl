@@ -55,7 +55,8 @@ def _allowed_value(path: str, value: Any, schema_version: int,
     if path == "/menu/title":
         return recipes._safe_label(value, 32)
     if path == "/menu/presentation":
-        return type(value) is str and value in ("tabs", "sidebar")
+        return type(value) is str and (value in ("tabs", "sidebar") or
+                                       schema_version >= 12 and value == "split")
     if path == "/menu/colors" or path.startswith("/menu/colors/"):
         if schema_version < 12:
             return False
