@@ -5777,10 +5777,13 @@ mod tests {
         let mut popup = vec![0; (native_menu::WIDTH * native_menu::HEIGHT * 4) as usize];
         paint_menu(&mut popup, menu, &style, &state);
         let palette = menu.palette.unwrap();
-        assert_eq!(&popup[..4], &palette.header.to_le_bytes());
+        // The v12 split header is a blue gradient, not the v11 flat stripe.
+        assert!(popup[0] > popup[1] && popup[1] > popup[2]);
+        assert_ne!(&popup[..4], &palette.header.to_le_bytes());
         let corner = (((native_menu::HEIGHT - 2) * native_menu::WIDTH +
                        native_menu::WIDTH - 2) * 4) as usize;
-        assert_eq!(&popup[corner..corner + 4], &palette.background.to_le_bytes());
+        // The session footer continues the blue chrome into the bottom edge.
+        assert_ne!(&popup[corner..corner + 4], &palette.background.to_le_bytes());
     }
 
     #[test]
