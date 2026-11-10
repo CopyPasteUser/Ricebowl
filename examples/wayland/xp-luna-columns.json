@@ -1,0 +1,213 @@
+{
+  "schema_version": 12,
+  "id": "xp-luna-columns",
+  "name": "XP Luna Columns (RiceBowl Wayland)",
+  "components": [
+    {
+      "id": "network-indicator",
+      "role": "status",
+      "binding": "network",
+      "label": "Network"
+    },
+    {
+      "id": "volume-indicator",
+      "role": "status",
+      "binding": "audio",
+      "label": "Volume"
+    }
+  ],
+  "panel": {
+    "position": "bottom",
+    "height": 40,
+    "metrics": {
+      "launcher_width": 94,
+      "task_width": 156,
+      "clock_width": 80
+    },
+    "launcher": {
+      "label": "start",
+      "background": "#398c29",
+      "foreground": "#ffffff",
+      "radius": 16
+    },
+    "layout": {
+      "start": [
+        {
+          "type": "widget",
+          "id": "launcher"
+        },
+        {
+          "type": "gap",
+          "width": 4
+        },
+        {
+          "type": "widget",
+          "id": "tasks"
+        }
+      ],
+      "center": [],
+      "end": [
+        {
+          "type": "component",
+          "ref": "network-indicator"
+        },
+        {
+          "type": "component",
+          "ref": "volume-indicator"
+        },
+        {
+          "type": "widget",
+          "id": "tray"
+        },
+        {
+          "type": "widget",
+          "id": "clock"
+        }
+      ]
+    }
+  },
+  "colors": {
+    "background": "#245ed3",
+    "foreground": "#ffffff",
+    "active": "#17469b"
+  },
+  "menu": {
+    "title": "RiceBowl Luna",
+    "presentation": "columns",
+    "colors": {
+      "background": "#fffdf1",
+      "foreground": "#193c67",
+      "header": "#1654b5",
+      "header_foreground": "#ffffff",
+      "selection": "#cbdffa"
+    },
+    "groups": [
+      {
+        "title": "Programs",
+        "actions": [
+          "applications",
+          "terminal"
+        ],
+        "content": [
+          {
+            "type": "actions",
+            "title": "Programs",
+            "limit": 2
+          },
+          {
+            "type": "apps-list",
+            "title": "Installed Apps",
+            "limit": 2
+          }
+        ]
+      },
+      {
+        "title": "System",
+        "actions": [
+          "settings",
+          "notifications"
+        ],
+        "content": [
+          {
+            "type": "actions",
+            "title": "System Tools",
+            "limit": 2
+          }
+        ]
+      },
+      {
+        "title": "Session",
+        "actions": [
+          "lock",
+          "logout"
+        ],
+        "content": [
+          {
+            "type": "actions",
+            "title": "Session Tools",
+            "limit": 2
+          }
+        ]
+      }
+    ]
+  },
+  "desktop": {
+    "wallpaper": "luna-hills",
+    "icons": [
+      {
+        "label": "Programs",
+        "action": "applications",
+        "x": 24,
+        "y": 88
+      },
+      {
+        "label": "Terminal",
+        "action": "terminal",
+        "x": 24,
+        "y": 192
+      },
+      {
+        "label": "Lock",
+        "action": "lock",
+        "x": 24,
+        "y": 296
+      }
+    ]
+  },
+  "tokens": {
+    "label_padding": 6,
+    "task_radius": 2
+  },
+  "appearance": {
+    "font_scale": 1,
+    "font_weight": "bold",
+    "item_spacing": 2,
+    "hover": "#3c7bda",
+    "focus": "#f7de73",
+    "disabled": "#687a92"
+  },
+  "responsive": {
+    "compact_max_width": 1024,
+    "compact_layout": {
+      "start": [
+        {
+          "type": "widget",
+          "id": "launcher"
+        },
+        {
+          "type": "widget",
+          "id": "tasks"
+        }
+      ],
+      "center": [],
+      "end": [
+        {
+          "type": "widget",
+          "id": "battery"
+        },
+        {
+          "type": "widget",
+          "id": "clock"
+        }
+      ]
+    }
+  },
+  "composition": {
+    "widgets": [],
+    "window_region": {
+      "x": 22,
+      "y": 8,
+      "width": 76,
+      "height": 84
+    },
+    "compact_hide_widgets": []
+  },
+  "artwork": {
+    "font": "builtin",
+    "icons": {
+      "applications": "builtin",
+      "terminal": "builtin",
+      "lock": "builtin"
+    }
+  }
+}
