@@ -92,7 +92,9 @@ dbus-run-session -- sh -eu -c '
     WAYLAND_DISPLAY=wayland-0 grim - > "$artifact/xp-luna-window-default.png"
     cp "$runtime/luna-theme.txt" "$config/themerc-override"
     chmod 0600 "$config/themerc-override"
-    WAYLAND_DISPLAY=wayland-0 labwc --reconfigure
+    # Unlike the supervised session process, this outer CI harness did not
+    # inherit the labwc startup environment. Target only our compositor PID.
+    LABWC_PID="$compositor" WAYLAND_DISPLAY=wayland-0 labwc --reconfigure
     sleep 1
     WAYLAND_DISPLAY=wayland-0 grim - > "$artifact/xp-luna-window-chrome.png"
 ' sh "$config" "$runtime" "$native" "$source_root" "$artifact"
