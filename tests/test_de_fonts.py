@@ -65,9 +65,15 @@ class WaylandFontCatalogTests(unittest.TestCase):
         self.assertEqual(pack._provenance(apache), apache)
 
     def test_installed_distribution_font_imports_as_private_digest(self):
-        fixture = Path("/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf")
-        if not fixture.is_file():
-            self.skipTest("No importable distro font installed")
+        paths = (
+            Path("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"),
+            Path("/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf"),
+            Path("/usr/share/fonts/truetype/liberation2/LiberationMono-Bold.ttf"),
+        )
+        fixture = next((path for path in paths
+                        if style_assets.importable_font_source(path)), None)
+        if fixture is None:
+            self.skipTest("No safe non-symlink distro TrueType fixture installed")
         config = self.root / "config"
         config.mkdir(mode=0o700)
         provenance = {"author": "Distribution font author", "license": "custom",
