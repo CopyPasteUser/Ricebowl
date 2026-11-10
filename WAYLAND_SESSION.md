@@ -2059,6 +2059,30 @@ XFCE desktop packages. Review the user's journal and display-manager logs.
 
 ## Physical acceptance checklist (not yet signed off)
 
+Inside the **opt-in native RicePlate login session** (not XFCE and not the
+nested preview), start a terminal and run:
+
+```bash
+ricebowl-wayland-app de acceptance
+ricebowl-wayland-app de acceptance --json
+```
+
+Use `ricebowl de acceptance` if the source/user-local command was installed
+instead. The read-only gate checks the expected RiceBowl session markers, an
+owner-private Wayland socket, the required native/lock binaries and the number
+of enabled outputs through a bounded `wlr-randr --json` query. It reports
+**only the output count and presence of fractional scaling**, never display
+names, monitor serials, Wi-Fi settings or private D-Bus addresses. It changes
+no preferences, files, sessions or monitors; it does not attempt to inject
+input, screen-grab or simulate suspend. A successful exit means only **ready
+for manual checks**, never hardware approved. From XFCE or a nested Wayland
+preview, exit status 1 is expected and the display probe is skipped.
+
+Complete the real-device actions below and record pass/fail notes separately.
+If anything breaks, log out to the greeter and select the **existing XFCE**
+session. Keep XFCE installed and selected as the stable default until these
+checks pass; never run destructive crash/lock/suspend tests on unsaved work.
+
 - [ ] Login manager lists both RiceBowl Wayland and XFCE.
 - [ ] Login, logout, repeated login and crash recovery work.
 - [ ] Waybar taskbar, launchers, focus/Alt-Tab, multi-monitor and hotplug.
