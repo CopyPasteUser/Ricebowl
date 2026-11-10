@@ -437,6 +437,7 @@ mod tests {
         NativeMenu {
             title: "Desktop".into(),
             presentation: MenuPresentation::Tabs,
+            palette: None,
             groups: vec![
                 NativeMenuGroup {
                     title: "Programs".into(),
@@ -528,6 +529,7 @@ mod tests {
         let data = NativeMenu {
             title: "Demo".into(),
             presentation: MenuPresentation::Tabs,
+            palette: None,
             groups: vec![NativeMenuGroup { title: "Tools".into(), actions: vec![
                 "terminal".into(), "audio-up".into(), "audio-down".into(),
                 "wifi-toggle".into(), "notifications".into(),
@@ -557,6 +559,7 @@ mod tests {
         let data = NativeMenu {
             title: "Demo".into(),
             presentation: MenuPresentation::Tabs,
+            palette: None,
             groups: vec![NativeMenuGroup { title: "Tools".into(), actions: vec![
                 "applications".into(), "terminal".into(), "lock".into(),
                 "logout".into(), "wifi-toggle".into(), "audio-up".into(),

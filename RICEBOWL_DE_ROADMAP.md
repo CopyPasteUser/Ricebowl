@@ -5,6 +5,20 @@ physical acceptance outstanding.** RiceBowl 0.9.x is still an XFCE/X11
 rice manager. The separate Wayland login-session package requires explicit
 installation and is not yet a finished desktop environment.
 
+### Wayland XP Luna recipe (10 November 2026, preview sprint)
+
+- Added `examples/wayland/xp-luna.json` with RiceBowl-original `luna-hills`
+  artwork, real native programs/session actions and a compact panel layout.
+- Schema v12 adds *generic* launcher foreground/background/label/radius tokens
+  and a native menu palette; both are bounded, data-only, and backwards
+  compatible with existing v1–v11 recipes. Waybar provides a launcher CSS
+  fallback; its labwc menu does not claim native palette support.
+- XFCE/X11 configuration, SDDM autologin and installed preview packages remain
+  unchanged. Separate scripts provide a local build and 120-second tty preview.
+- Still open before any 1.0 claim: compiled-Rust CI, real ThinkPad input/
+  focus/power and display acceptance, further Luna icon/window appearance
+  fidelity, and packaging an upgraded core/native release for schema v12.
+
 ### Standalone desktop packaging checkpoint (November 2026)
 
 - [x] Align `de check` with the real labwc launcher prerequisites: distinguish

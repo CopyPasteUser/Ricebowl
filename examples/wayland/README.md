@@ -1,4 +1,45 @@
-# Two reproducible Creator rices (Wayland preview)
+# Wayland Creator examples and Luna preview
+
+## XP Luna for native Wayland (schema v12)
+
+[`xp-luna.json`](xp-luna.json) is a **third, opt-in rice** inspired by RiceBowl's
+existing X11 Luna presentation. It uses RiceBowl's own `luna-hills` wallpaper,
+a cobalt bottom taskbar, **independently green rounded `start` launcher**,
+separately blue active tasks, pale Start-menu body with cobalt heading,
+sidebar Programs/System/Session categories, and responsive desktop shortcuts.
+The green launcher and five-color native menu are reusable schema-v12 primitives,
+not special-case code for this rice. Launcher hit testing, real task activation,
+app discovery, lock and logout retain their normal shared behavior.
+
+For the ThinkPad's existing XFCE/X11 + SDDM autologin, this **source-preview
+route does not install/replace a display manager, change the default session or
+modify XFCE settings**. Use the graphical XFCE terminal for compilation:
+
+```sh
+cd ~/RiceBowl-Wayland-Test
+git pull --ff-only
+bash scripts/prepare_wayland_xp_luna.sh
+```
+
+Then switch to a text console (e.g. Ctrl+Alt+F3), sign in and type only:
+
+```sh
+bash ~/RiceBowl-Wayland-Test/scripts/try_wayland_xp_luna.sh
+```
+
+The preview ends after 120 seconds and returns to the TTY. Switch back to XFCE
+with Ctrl+Alt+F1 on this machine. Importing the recipe does not activate it.
+Re-run preparation only if updating the source or Rust binary; existing private
+recipe IDs are never overwritten. Check its semantic changes before replacing
+an imported copy. The current installed `.deb` previews predate schema v12;
+**start this version from the repository script**, not the older installed
+`ricebowl-wayland-app`, until the packages are rebuilt and updated.
+
+Boundaries: this is the first functional native Luna shell composition, not an
+XP replica. Client window titlebars remain under labwc/GTK/Qt control; desktop
+icons use the current RicePlate pictograms, native fonts are not XP's fonts,
+and physical-device input, power, multimonitor and sleep tests are still open.
+No Microsoft logo, proprietary icon collection or Bliss photograph is bundled.
 
 These are **real schema-v5 recipes**, authored only with the public declarative
 RicePlate contract. They are design **demonstrators**, not Windows artwork or

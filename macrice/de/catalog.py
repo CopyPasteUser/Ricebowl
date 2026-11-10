@@ -21,11 +21,11 @@ from .recipes import (ICON_ACTIONS, ICON_HEIGHT, ICON_WIDTH, MAX_DESKTOP_ICONS,
 def describe() -> dict[str, object]:
     """Describe exactly which panel and early shell primitives are implemented."""
     return {
-        "catalog_version": 12,
+        "catalog_version": 13,
         "scope": "wayland-shell-preview",
         "complete_desktop_environment": False,
         "recipe": {
-            "schema_versions": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+            "schema_versions": list(range(1, 13)),
             "maximum_bytes": MAX_RECIPE_BYTES,
             "sections": ["start", "center", "end"],
             "unique_widgets": True,
@@ -146,6 +146,12 @@ def describe() -> dict[str, object]:
                                "state_colors": ["hover", "focus", "disabled"],
                                "font_family": "native-bundled-8x8-bitmap",
                                "portable_external_fonts": False},
+                "launcher_decoration": {"since_schema": 12,
+                                        "fields": ["label", "background", "foreground", "radius"],
+                                        "label_max": 16, "radius_range": [0, 20]},
+                "menu_palette": {"since_schema": 12,
+                                 "fields": ["background", "foreground", "header",
+                                            "header_foreground", "selection"]},
                 "artwork": {"since_schema": 11, "pointer": "/artwork",
                             "font": "builtin-or-private-sha256-truetype-ttf",
                             "desktop_icon_actions": ["applications", "terminal", "lock"],

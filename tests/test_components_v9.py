@@ -25,7 +25,7 @@ class SharedComponentTests(unittest.TestCase):
         self.assertEqual(recipe.composition.widgets[3].text, "Welcome to RiceBowl")
         self.assertIn("/components", creator_contract.EDITABLE_PATHS)
         info = catalog.describe()
-        self.assertEqual(info["catalog_version"], 12)
+        self.assertEqual(info["catalog_version"], 13)
         widgets_catalog = info["recipe"]["shell_extensions"]["desktop"]["widgets"]
         self.assertEqual(widgets_catalog["text"]["max_characters"], 22)
         self.assertEqual(widgets_catalog["pointer_input"],
