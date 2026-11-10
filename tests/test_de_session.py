@@ -57,6 +57,27 @@ class WaylandSessionTests(unittest.TestCase):
     def which(self, command):
         return self.tools.get(command)
 
+    def test_luna_window_chrome_is_private_and_other_rices_unmodified(self):
+        luna = recipes.parse((Path(__file__).resolve().parents[1] /
+                              "examples/wayland/xp-luna-columns.json").read_bytes())
+        directory = session._custom_labwc_config(luna, self.runtime.name)
+        self.addCleanup(session._cleanup_labwc_config,
+                        {"RICEBOWL_DE_SESSION_CONFIG": str(directory),
+                         "XDG_RUNTIME_DIR": self.runtime.name})
+        override = directory / "themerc-override"
+        self.assertEqual(override.stat().st_uid, os.geteuid())
+        self.assertEqual(override.stat().st_mode & 0o777, 0o600)
+        text = override.read_text(encoding="utf-8")
+        self.assertIn("window.active.title.bg: Gradient Vertical", text)
+        self.assertIn("window.active.title.bg.color: #1654b5", text)
+        self.assertIn("window.active.border.color: #17469b", text)
+        self.assertTrue((directory / ".ricebowl-managed").is_file())
+        classic = session._custom_labwc_config(None, self.runtime.name)
+        self.addCleanup(session._cleanup_labwc_config,
+                        {"RICEBOWL_DE_SESSION_CONFIG": str(classic),
+                         "XDG_RUNTIME_DIR": self.runtime.name})
+        self.assertFalse((classic / "themerc-override").exists())
+
     @mock.patch("macrice.de.session.os.geteuid", return_value=1000)
     @mock.patch("macrice.de.session._check_runtime_dir")
     def test_nested_exec_uses_isolated_config_and_preserves_parent_bus(self, _runtime, _uid):

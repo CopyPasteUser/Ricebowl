@@ -45,6 +45,25 @@ autologin, package, or XFCE configuration is changed. Existing installed
 `.deb` versions are **not** compatible with this additional menu variant;
 use the rebuilt local native binary via the scripts below.
 
+### Opt-in compositor-owned Luna window chrome
+
+An explicit **two-column recipe with a validated menu palette** now also
+receives a matching blue/ivory **labwc server-side titlebar**, with a vertical
+cobalt gradient, distinct unfocused frame, legible title text and bounded
+window-button geometry. The existing `xp-luna`, tabs and sidebar recipes keep
+their previous compositor theme. This is a generic use of the shared palette,
+not a new arbitrary theme-file path or a proprietary XP visual asset.
+
+RiceBowl writes the compiled `themerc-override` only into its disposable,
+owner-private labwc `--config-dir`. Supervised **live apply and restore** update
+the private menu and window chrome together; on failures both previous files
+are restored and labwc is asked to reconfigure again. Nothing touches XFCE,
+`~/.config/labwc`, the system's GTK/Qt themes or SDDM. Toolkit-owned
+**client-side decorations** are not overridden; only the window frames that
+labwc itself draws participate. Headless CI additionally captures an actual
+XWayland window before and after the private reconfigure. Physical-device
+focus, dragging and mixed-DPI acceptance are still pending.
+
 ### Luna taskbar polish (native Rust preview)
 
 An explicitly decorated schema-v12 launcher now opts into a reusable taskbar

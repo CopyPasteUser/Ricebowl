@@ -513,6 +513,16 @@ The shared menu state and tile geometry remain the source of truth for pointer,
 keyboard, paint and screen-reader behavior; visible text is never an executable
 command or a replacement for its canonical action identifier.
 
+The same **validated schema-v12 two-column palette** can opt into
+labwc-owned server-side window frames. `macrice/de/window_chrome.py` maps only
+existing colors to a bounded `themerc-override` in the private labwc session;
+no template-controlled paths or compositor commands are accepted. The active
+frame uses the recipe's header/panel blues, the inactive frame uses its softer
+menu colors. No override exists for tabs/sidebar recipes. Live switching
+transactionally changes the private root menu and frame override and restores
+both on failure. GTK/Qt client-side titlebars remain with their applications;
+the preview is neither a global theme nor a claim of XP pixel fidelity.
+
 Schema-v6 nested panel layouts may also contain a **real, focusable action
 button** (`type: action`, `id`, `label`). Only four fixed IDs are supported:
 `applications`, `terminal`, `settings` and `lock`. Labels are bounded safe ASCII

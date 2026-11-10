@@ -94,6 +94,7 @@ def _custom_labwc_config(recipe: object | None, runtime: str,
     """Build private compositor settings without touching installed labwc config."""
     from .recipes import labwc_menu
     from . import preferences as spice_prefs
+    from .window_chrome import labwc_chrome
     directory = Path(tempfile.mkdtemp(prefix=_CONFIG_PREFIX, dir=runtime))
     try:
         source = resources() / "labwc"
@@ -101,6 +102,9 @@ def _custom_labwc_config(recipe: object | None, runtime: str,
             shutil.copyfile(source / name, directory / name)
         if recipe is not None:
             (directory / "menu.xml").write_text(labwc_menu(recipe), encoding="utf-8")
+            chrome = labwc_chrome(recipe)
+            if chrome is not None:
+                _atomic_labwc_text(directory / "themerc-override", chrome)
         if preferences is not None:
             spice_prefs.configure_labwc(directory / "rc.xml", preferences)
         (directory / ".ricebowl-managed").touch(mode=0o600)
@@ -296,9 +300,9 @@ def _stop_process(process: subprocess.Popen[bytes]) -> None:
         pass
 
 
-def _atomic_menu(path: Path, content: str) -> None:
-    """Replace only the supervisor's private labwc menu, never edit in place."""
-    descriptor, temporary = tempfile.mkstemp(prefix=".ricebowl-menu-", dir=path.parent)
+def _atomic_labwc_text(path: Path, content: str) -> None:
+    """Replace one supervisor-owned menu/theme text file without partial writes."""
+    descriptor, temporary = tempfile.mkstemp(prefix=".ricebowl-labwc-", dir=path.parent)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as output:
             os.fchmod(output.fileno(), 0o600)
@@ -425,6 +429,7 @@ class _LiveSwitch:
             except recipes.RecipeError:
                 pass
         self.menu = Path(env["RICEBOWL_DE_SESSION_CONFIG"]) / "menu.xml"
+        self.chrome = self.menu.with_name("themerc-override")
         self.profile = (riceprofile.ProfileSession.from_environment(env)
                         if any(key.env_key in env for key in riceprofile.CLIENTS) else None)
         self.fallback = False
@@ -497,6 +502,7 @@ class _LiveSwitch:
 
     def handle(self, request: dict) -> dict:
         from . import live_recovery, recipes, staging
+        from .window_chrome import labwc_chrome
         from .live import LiveError
         import re
 
@@ -554,6 +560,8 @@ class _LiveSwitch:
             new_menu = (recipes.labwc_menu(recipe) if recipe.menu is not None else
                         (resources() / "labwc/menu.xml").read_text(encoding="utf-8"))
             old_menu = self.menu.read_text(encoding="utf-8")
+            new_chrome = labwc_chrome(recipe)
+            old_chrome = self.chrome.read_text(encoding="utf-8") if self.chrome.exists() else None
             old_digest = self.active_digest
             prepared_profiles = self.profile.preflight(recipe) if self.profile else {}
             selection_before = recipes._selection_snapshot() if not self.nested else None
@@ -568,6 +576,7 @@ class _LiveSwitch:
         new_panel = None
         new_wallpaper = None
         menu_attempted = False
+        chrome_attempted = False
         profile_original = None
         selection_attempted = False
         pending_recovery = None
@@ -583,7 +592,12 @@ class _LiveSwitch:
             if self.stopping():
                 raise LiveError("Session is shutting down", code="session_stopping")
             menu_attempted = True
-            _atomic_menu(self.menu, new_menu)
+            _atomic_labwc_text(self.menu, new_menu)
+            chrome_attempted = True
+            if new_chrome is not None:
+                _atomic_labwc_text(self.chrome, new_chrome)
+            else:
+                self.chrome.unlink(missing_ok=True)
             self._reconfigure()
             if self.profile:
                 profile_original = self.profile.commit(prepared_profiles)
@@ -609,10 +623,22 @@ class _LiveSwitch:
                     recovery_errors.append(f"profile: {restore_error}")
             if menu_attempted:
                 try:
-                    _atomic_menu(self.menu, old_menu)
+                    _atomic_labwc_text(self.menu, old_menu)
+                except OSError as restore_error:
+                    recovery_errors.append(f"menu: {restore_error}")
+            if chrome_attempted:
+                try:
+                    if old_chrome is not None:
+                        _atomic_labwc_text(self.chrome, old_chrome)
+                    else:
+                        self.chrome.unlink(missing_ok=True)
+                except OSError as restore_error:
+                    recovery_errors.append(f"chrome: {restore_error}")
+            if menu_attempted or chrome_attempted:
+                try:
                     self._reconfigure()
                 except (OSError, subprocess.SubprocessError) as restore_error:
-                    recovery_errors.append(f"menu: {restore_error}")
+                    recovery_errors.append(f"labwc: {restore_error}")
             if selection_attempted:
                 try:
                     recipes._restore_failed_live_selection(token, digest, selection_before)

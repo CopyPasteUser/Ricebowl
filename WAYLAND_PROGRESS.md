@@ -42,6 +42,13 @@ font comparison](screenshots/wayland/README.md#opt-in-portable-font--real-compos
 from [green native run #42904147986](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42904147986).
 This is opt-in per recipe, not a global GTK/Qt or system font setting.
 
+Two-column Luna recipes with a validated palette now also select matching
+**labwc-owned window frames** inside RiceBowl's private session config. Native
+live switch/restore rolls the menu and frame settings back together on failure;
+other recipes do not opt in. [Compare the two real XWayland window screenshots](screenshots/wayland/README.md#luna-window-chrome--real-xwayland-beforeafter)
+from [green native run #42907311728](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42907311728).
+Toolkit-owned GTK/Qt client-side titlebars remain outside this frame theme.
+
 | Orbit Studio · original composition | Heritage Modern · classic composition |
 | :---: | :---: |
 | [![Orbit Studio: dark abstract wallpaper, upper RicePlate panel, launcher shortcuts and status widgets](screenshots/wayland/orbit.webp)](screenshots/wayland/orbit.webp) | [![Heritage Modern: teal desktop, bottom panel and native widgets](screenshots/wayland/heritage.webp)](screenshots/wayland/heritage.webp) |
