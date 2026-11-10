@@ -230,6 +230,8 @@ def describe_creator_api() -> dict[str, object]:
                  "runtime": "standalone offline JSON Schema 2020-12; full parser validates cross-property rules"},
                 {"id": "content-addressed-source-snapshots", "supported": True,
                  "runtime": "owner-private 0400 canonical copies, exact byte hash checked on every recipe load"},
+                {"id": "crash-safe-creator-draft-recovery", "supported": True,
+                 "runtime": "durable receipt-before-recipe publication; inspect verified parents and recover to new draft"},
                 {"id": "isolated-native-multisize-preview", "supported": True,
                  "runtime": "requires-external-labwc-and-capture-binaries"},
                 {"id": "review-gated-live-rice-switch", "supported": True,
@@ -247,7 +249,7 @@ def describe_creator_api() -> dict[str, object]:
             {"step": "discover", "commands": ["creator-api", "catalog", "creator-schema"],
              "effect": "none"},
             {"step": "draft-and-review", "commands": ["creator-snapshot", "draft-check", "draft-edit", "review",
-                                                   "creator-history"],
+                                                   "creator-history", "creator-recovery", "creator-recover"],
              "effect": "owner-private-file-only"},
             {"step": "visual-qa", "commands": ["render", "visual-compare"],
              "effect": "isolated-native-preview"},
@@ -287,6 +289,11 @@ def describe_creator_api() -> dict[str, object]:
              "cli": "de creator-schema --recipe ID --json", "contract_version": 1},
             {"command": "creator-snapshot", "effect": "publish or reuse an exact private source copy without selection",
              "cli": "de creator-snapshot --recipe ID --json", "contract_version": 1},
+            {"command": "creator-recovery", "effect": "list incomplete versions or inspect a verified recovery ancestor",
+             "cli": "de creator-recovery [--recipe /absolute/draft.json] --json", "contract_version": 1},
+            {"command": "creator-recover", "effect": "publish a new private copy of the verified parent; no in-place repair",
+             "cli": "de creator-recover --recipe /absolute/draft.json --expect-sha256 PARENT_HASH --json",
+             "contract_version": 1},
             {"command": "draft-edit", "effect": "create private reviewed JSON draft",
              "cli": "de draft-edit --recipe ID --edit FILE --output NEW.json "
                     "--expect-sha256 SOURCE_HASH --expect-draft-sha256 DRAFT_HASH --json",
@@ -353,7 +360,7 @@ def describe_creator_api() -> dict[str, object]:
             "Native tray, complete settings, notification center and physical multi-monitor acceptance remain open",
         ],
     }
-    private_writes = {"draft-edit", "creator-snapshot", "render", "visual-baseline", "capture",
+    private_writes = {"draft-edit", "creator-snapshot", "creator-recover", "render", "visual-baseline", "capture",
                       "pack-export", "pack-import", "asset-import"}
     next_login = {"creator-stage", "creator-rollback"}
     active_wayland = {"creator-live-apply", "creator-live-restore", "display-refresh"}
@@ -367,7 +374,7 @@ def describe_creator_api() -> dict[str, object]:
             "private-file-optional" if name == "visual-compare" else
             "private-file" if name in private_writes else "none")
         command["requires_explicit_user_invocation"] = (
-            name in active_wayland | active_user | next_login | {"capture"})
+            name in active_wayland | active_user | next_login | {"capture", "creator-recover"})
         command["executes_recipe_commands"] = False
     return contract
 
@@ -435,6 +442,13 @@ def describe() -> dict[str, object]:
             "reusable_as": "de draft-check/draft-edit --recipe /absolute/snapshot-<hash>.json",
             "limits": "same 64 KiB recipe and full parser; assets retain their own content IDs",
             "filesystem_immutable": False,
+        },
+        "draft_recovery": {
+            "inspect": "de creator-recovery [--recipe /absolute/draft.json] --json",
+            "recover": "de creator-recover --recipe /absolute/draft.json --expect-sha256 PARENT_HASH --json",
+            "policy": "durable version receipt published before recipe; no overwrite, never auto-activate",
+            "outcome": "new private version from the last verified parent; source left untouched",
+            "limits": "requires authentic prior receipt and readable parent; not live Wayland crash recovery",
         },
         "example_source_recipe": "classic",
         "example": {

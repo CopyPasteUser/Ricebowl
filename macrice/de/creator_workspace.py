@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import stat
 import tempfile
@@ -83,14 +84,34 @@ def open_draft(path: Path) -> DraftInfo:
     return info
 
 
-def _record_version(target: Path, kind: str, *, parent: tuple[str, str] | None = None
-                    ) -> DraftInfo:
-    """Bind a new private recipe to its reviewed parent without overwrites."""
-    info = open_draft(target)
+def _publish_version(target: Path, payload: bytes, kind: str, *,
+                     parent: tuple[str, str] | None = None) -> DraftInfo:
+    """Publish intent first, then recipe; a crash never exposes receiptless new drafts.
+
+    An interrupted publication may leave an orphan .history intent, which is
+    deliberately never treated as a visible draft. No existing file is erased.
+    """
+    if target.parent != _private_directory() or not target.name.startswith("draft-"):
+        raise WorkspaceError("Creator versions require the private drafts directory")
+    parsed = recipes.parse(payload)
+    digest = review._semantic_hash(review._manifest(parsed))
+    if target.exists() or target.is_symlink():
+        raise WorkspaceError("Creator version already exists; nothing was overwritten")
     try:
-        creator_history.write(target, info.semantic_sha256, kind=kind, parent=parent)
+        creator_history.write(target, digest, kind=kind, parent=parent)
     except creator_history.HistoryError as exc:
         raise WorkspaceError(str(exc)) from exc
+    # This is a no-replace link. If publication fails, the intent is retained
+    # for recovery inspection, and the previous version is still usable.
+    recipes._write_private_new(target, payload)
+    dirfd = os.open(target.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        os.fsync(dirfd)
+    finally:
+        os.close(dirfd)
+    info = open_draft(target)
+    if info.semantic_sha256 != digest:
+        raise WorkspaceError("Published version failed its fingerprint verification")
     return info
 
 
@@ -149,8 +170,8 @@ def create_draft(template: str, *, name: str | None = None) -> DraftInfo:
     folder = _private_directory()
     target = _new_file(folder)
     if path is None:
-        recipes.create_from_template(source=template, destination=target,
-                                     recipe_id=recipe_id, name=title, schema_version=11)
+        _parsed, payload = recipes._prepare_template(source=template, recipe_id=recipe_id,
+                                                     name=title, schema_version=11)
     else:
         raw = recipes._read_import_source(path)
         data = json.loads(raw)
@@ -161,8 +182,7 @@ def create_draft(template: str, *, name: str | None = None) -> DraftInfo:
                            "icons": {action: "builtin" for action in ICON_ACTIONS}}
         payload = (json.dumps(data, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
         recipes.parse(payload)
-        recipes._write_private_new(target, payload)
-    return _record_version(target, "create")
+    return _publish_version(target, payload, "create")
 
 
 def _revision_patch(source: Path, changes: dict[str, Any], *, expected_sha256: str
@@ -211,13 +231,23 @@ def save_revision(source: Path, changes: dict[str, Any], *, expected_sha256: str
                   expected_draft_sha256: str | None = None
                   ) -> tuple[DraftInfo, list[dict[str, Any]]]:
     """Create a new private version; reject changes since a reviewed preflight."""
+    if (expected_draft_sha256 is not None and
+            (type(expected_draft_sha256) is not str or
+             re.fullmatch(r"[a-f0-9]{64}", expected_draft_sha256) is None)):
+        raise drafts.DraftError("Expected draft fingerprint must be 64 lowercase hex characters",
+                                code="invalid_draft_fingerprint")
     folder, payload = _revision_patch(source, changes, expected_sha256=expected_sha256)
     with _temporary_edit(folder, payload) as patch_file:
-        destination = _new_file(folder)
-        result = drafts.create_edit(recipe_token=str(source), edit_source=patch_file,
-                                    destination=destination, expected_sha256=expected_sha256,
-                                    expected_draft_sha256=expected_draft_sha256)
-    return _record_version(destination, "save", parent=(source.name, expected_sha256)), result["changes"]
+        result, revised_payload = drafts._prepare_edit(
+            recipe_token=str(source), edit_source=patch_file, expected_sha256=expected_sha256)
+    if (expected_draft_sha256 is not None and
+            result["draft_semantic_sha256"] != expected_draft_sha256):
+        raise drafts.DraftError("Proposed draft changed since preflight; inspect it again",
+                                code="draft_changed")
+    destination = _new_file(folder)
+    saved = _publish_version(destination, revised_payload, "save",
+                             parent=(source.name, expected_sha256))
+    return saved, result["changes"]
 
 
 def fork_version(info: DraftInfo) -> DraftInfo:
@@ -241,8 +271,8 @@ def fork_version(info: DraftInfo) -> DraftInfo:
     payload = (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
     recipes.parse(payload)
     target = _new_file(folder)
-    recipes._write_private_new(target, payload)
-    return _record_version(target, "fork", parent=(info.path.name, info.semantic_sha256))
+    return _publish_version(target, payload, "fork",
+                            parent=(info.path.name, info.semantic_sha256))
 
 
 def upgrade_to_artwork(info: DraftInfo) -> DraftInfo:
@@ -260,8 +290,8 @@ def upgrade_to_artwork(info: DraftInfo) -> DraftInfo:
     payload = (json.dumps(original, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
     recipes.parse(payload)
     target = _new_file(_private_directory())
-    recipes._write_private_new(target, payload)
-    return _record_version(target, "upgrade", parent=(info.path.name, info.semantic_sha256))
+    return _publish_version(target, payload, "upgrade",
+                            parent=(info.path.name, info.semantic_sha256))
 
 
 def export_draft(info: DraftInfo, destination: Path) -> dict[str, Any]:

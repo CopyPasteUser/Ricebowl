@@ -1027,10 +1027,21 @@ def create_from_template(
     or unknown keys. Both native RicePlate and the Waybar adapter validate the
     same schema before using an authored recipe.
     """
-    if source not in BUILTINS:
-        raise RecipeError("Choose a bundled classic or chrome template")
     if not destination.is_absolute() or destination.suffix != ".json":
         raise RecipeError("New recipe output must be an absolute .json file path")
+    result, payload = _prepare_template(source=source, recipe_id=recipe_id, name=name,
+                                        schema_version=schema_version)
+    # The temp file and destination share a directory/filesystem; os.link()
+    # publishes a fully written file only when its final name is still free.
+    _write_private_new(destination, payload)
+    return result
+
+
+def _prepare_template(*, source: str, recipe_id: str, name: str,
+                      schema_version: int = 1) -> tuple[PanelRecipe, bytes]:
+    """Build and validate an offline template before any destination is published."""
+    if source not in BUILTINS:
+        raise RecipeError("Choose a bundled classic or chrome template")
     data = json.loads(BUILTINS[source].read_text(encoding="utf-8"))
     if schema_version in (2, 3, 4, 5, 6, 7, 8, 9, 10, 11):
         data["schema_version"] = schema_version
@@ -1102,12 +1113,7 @@ def create_from_template(
     data["name"] = name
     payload = (json.dumps(data, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
     result = parse(payload)  # Validate *before* any filesystem mutation.
-
-    # The temp file and destination share a directory/filesystem; os.link()
-    # publishes a fully written file only when its final name is still free.
-    # This does not overwrite existing files or follow a destination symlink.
-    _write_private_new(destination, payload)
-    return result
+    return result, payload
 
 
 def waybar_config(recipe: PanelRecipe, *, screen_width: int | None = None) -> tuple[str, str]:

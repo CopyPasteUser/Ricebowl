@@ -72,7 +72,7 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("session-sync", help="Reconcile active rice after XFCE autostart")
     de = commands.add_parser("de", help="Inspect experimental RiceBowl Wayland desktop prerequisites")
     de.add_argument("action", choices=(
-        "check", "start", "shell", "catalog", "creator-api", "creator-history", "creator-schema", "creator-snapshot", "review", "draft-check", "draft-edit", "visual-compare",
+        "check", "start", "shell", "catalog", "creator-api", "creator-history", "creator-schema", "creator-snapshot", "creator-recovery", "creator-recover", "review", "draft-check", "draft-edit", "visual-compare",
         "visual-baseline",
         "capture", "render", "creator-status", "creator-stage", "creator-rollback",
         "creator-live-status", "creator-live-apply", "creator-live-restore",
@@ -203,9 +203,9 @@ def main(argv: list[str] | None = None) -> int:
             if args.action != "audio-default" and any(value is not None for value in
                     (args.device_kind, args.device_name, args.expect_current)):
                 raise ValueError("Audio device mutation options only apply to de audio-default")
-            if args.action not in ("draft-check", "draft-edit", "creator-stage",
+            if args.action not in ("draft-check", "draft-edit", "creator-recover", "creator-stage",
                                    "creator-live-apply") and args.expect_sha256 is not None:
-                raise ValueError("--expect-sha256 only applies to Creator draft/stage/live apply")
+                raise ValueError("--expect-sha256 only applies to Creator draft/recovery/stage/live apply")
             if args.action != "draft-edit" and args.expect_draft_sha256 is not None:
                 raise ValueError("--expect-draft-sha256 only applies to de draft-edit")
             if args.action not in ("creator-stage", "creator-rollback", "creator-live-apply",
@@ -268,6 +268,42 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"Verified Creator history: {len(rows)} version(s), newest first")
                     for row in rows:
                         print(f"{row['recipe_id']} · {row['semantic_sha256'][:12]} · {row['path']}")
+                return 0
+            if args.action in ("creator-recovery", "creator-recover"):
+                if (args.nested or args.panel != "waybar"
+                        or (args.action == "creator-recover" and not args.recipe)
+                        or (args.recipe is not None and not Path(args.recipe).is_absolute())
+                        or (args.action == "creator-recover") != bool(args.expect_sha256)):
+                    raise ValueError("Use creator-recovery [--recipe /absolute/draft.json]; "
+                                     "creator-recover requires --recipe and --expect-sha256 HASH")
+                from .de.creator_recovery import RecoveryError, inspect, recover, scan
+                try:
+                    result = (scan() if args.recipe is None else
+                              inspect(Path(args.recipe)) if args.action == "creator-recovery" else
+                              recover(Path(args.recipe),
+                                      expected_parent_sha256=args.expect_sha256))
+                except RecoveryError as exc:
+                    if not args.json:
+                        raise
+                    print(json.dumps({"ok": False, "applied": False,
+                                      "error": {"code": "recovery_unavailable", "message": str(exc)}}))
+                    return 2
+                if args.json:
+                    print(json.dumps(result, indent=2, ensure_ascii=False))
+                elif args.recipe is None:
+                    print(f"Unresolved Creator versions: {len(result['unresolved'])}")
+                    for row in result["unresolved"]:
+                        print(f"  {row['source_status']} · {row['source']}")
+                    if result["truncated"]:
+                        print("Scan capped at 128 version receipts")
+                elif args.action == "creator-recovery":
+                    print(f"Verified recovery parent: {result['parent']}")
+                    print(f"Parent SHA-256: {result['parent_semantic_sha256']}")
+                    print(f"Source status: {result['source_status']}; desktop unchanged")
+                else:
+                    print(f"New recovered Creator version: {result['path']}")
+                    print(f"Recovered semantic SHA-256: {result['semantic_sha256']}")
+                    print("Existing versions and active desktop remain unchanged")
                 return 0
             if args.action == "creator-schema":
                 if args.nested or args.panel != "waybar" or not args.recipe:

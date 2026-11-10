@@ -919,6 +919,18 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
     available for checked edits. No active session or XFCE settings change.
     This is an owner-private sealed snapshot, **not** a privileged Linux
     `chattr +i` immutable file; the same user can intentionally change it.
+  - [x] **Creator interruption recovery** publishes each draft's durable
+    fingerprint/parent receipt **before** making the corresponding JSON file
+    visible. Crashes between those steps leave a recoverable orphan intent,
+    never an apparently valid new draft without its history. The read-only
+    `de creator-recovery --json` lists bounded incomplete versions; with
+    `--recipe` it verifies the last intact ancestor even across damaged
+    intermediate revisions. A separate,
+    explicitly hash-guarded `de creator-recover` copies only the last verified
+    parent into a **new** private version; neither the failed target nor any
+    active Wayland/XFCE session is modified. Legacy drafts without receipts
+    cannot claim authenticated ancestry. Live supervisor crash journaling and
+    real hardware recovery acceptance remain separate release gates.
   - [x] **Creator GTK reviewed publication gate** connects the on-demand UI to
     that preflight: scrollable complete before/after values and both semantic
     fingerprints appear before the user authorizes a new private version.

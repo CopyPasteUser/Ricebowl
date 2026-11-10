@@ -499,6 +499,28 @@ the snapshot does not duplicate or back up those assets. The owner can still
 change file permissions or delete files, so this is not a privileged immutable
 backup or a replacement for an off-machine backup.
 
+The GTK Creator workspace also keeps a durable `.history` intent beside each
+new private draft. It publishes that intent before the recipe: an interrupted
+save can leave a `.history` without its `.json`, but never exposes that failed
+version as a finished draft. To inspect or recover the last **verified** parent
+of a missing, corrupted or merely unwanted newer version:
+
+```bash
+ricebowl de creator-recovery --json
+# Lists missing/unverified workspace versions (up to 128 intents).
+ricebowl de creator-recovery --recipe /absolute/path/draft-newer.json --json
+# Review parent_semantic_sha256 and the parent path before continuing.
+ricebowl de creator-recover --recipe /absolute/path/draft-newer.json \
+  --expect-sha256 PARENT_HASH_FROM_INSPECTION --json
+```
+
+The second command creates a **new**, reviewable private draft linked to the
+verified parent. It does not fix/delete the damaged file, choose the next-login
+rice, or change the running desktop. If the parent or its receipt is missing or
+has changed, recovery is refused; legacy receiptless drafts have no claimed
+ancestry. This offline Creator recovery does not replace the live Wayland
+supervisor's separate restore mechanism or hardware crash tests.
+
 For example, save this data as `/absolute/path/panel-edits.json` (an
 owner-controlled regular `.json` file, not group/world writable):
 
