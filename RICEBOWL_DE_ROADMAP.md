@@ -18,9 +18,9 @@ installation and is not yet a finished desktop environment.
 - [x] An independent `xp-luna-columns` recipe now offers a native two-column
   Start menu (programs, system, session) without migrating the original
   `xp-luna` ID; compiled Rust/Python CI passed for PR #227.
-- [ ] Capture both the Luna desktop and opened native Start menu from a real
+- [x] Capture both the Luna desktop and opened native Start menu from a real
   headless labwc compositor in the native smoke suite, with PNG/geometry checks
-  and permanent screenshots after CI verifies the captures.
+  and permanent screenshots after CI verifies the captures (run #42890753472).
 - [ ] Still open before any 1.0 claim: physical ThinkPad input/focus/power and
   display acceptance, finer icon/window appearance fidelity, and packaging an
   upgraded core/native release for schema v12.
