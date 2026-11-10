@@ -1353,6 +1353,15 @@ component, and incompatible clients degrade gracefully.
   install or sign artifacts.
 - [ ] Measure cold start, settled PSS/RSS, CPU wakeups, relogin, long-running
   memory and mixed-DPI behavior for X11 and Wayland on actual devices.
+- [x] Add a **read-only native on-device acceptance preflight** (`de acceptance`
+  and `--json`): verify opt-in full RiceBowl labwc session markers and owned
+  Wayland socket, required native/lock tools, and bounded `wlr-randr` output
+  count/fractional-scale readiness. Never report hardware certification from
+  executable availability or simulated CI. Keep a structured all-pending
+  operator checklist for actual app launch, keyboard/focus, Orca, display
+  hotplug, portals, suspend/lock, XFCE recovery and resource measurements;
+  include fail-closed, privacy/redaction and CLI unit tests. Human execution
+  and hardware signoff remain open.
 - [ ] Remove redundant processes only after their responsibilities have been
   replaced, with comparison and rollback evidence.
 - [ ] Port performance-critical resident components to Rust where profiling
@@ -1371,6 +1380,9 @@ recoverable as a desktop environment. RAM targets are measured, not promised.
 
 - `macrice de check [--json]` probes installed tools and the current session
   without starting processes, reading private network data or changing files.
+- `macrice de acceptance [--json]` is an explicit, read-only physical-session
+  readiness check with a bounded display query; every operator acceptance item
+  remains pending until verified by a real user on their own device.
 - The existing `ricebowl` launcher will forward `de` directly to this CLI
   without changing its default Hub action.
 - A successful **tool** preflight does **not** certify a working RiceBowl

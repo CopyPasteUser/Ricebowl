@@ -51,6 +51,10 @@ The project has moved beyond a session wrapper. The core shell and system module
 
 For the complete feature contracts and caveats, see the [engineering status matrix](DESKTOP_ENVIRONMENT_STATUS.md), [Wayland session guide](WAYLAND_SESSION.md) and [canonical development roadmap](RICEBOWL_DE_ROADMAP.md).
 
+**Physical acceptance preparation:** `ricebowl-wayland-app de acceptance --json`
+is a read-only in-session readiness report with a pending device-test checklist.
+It does not certify the shell or replace testing on real hardware.
+
 ## Try it
 
 Keep XFCE/X11 installed and selectable. Installing ordinary RiceBowl does **not** activate the Wayland session. In an existing compatible Linux desktop, with the [documented dependencies](WAYLAND_SESSION.md#prerequisites) installed:

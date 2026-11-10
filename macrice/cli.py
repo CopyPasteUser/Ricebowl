@@ -72,7 +72,7 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("session-sync", help="Reconcile active rice after XFCE autostart")
     de = commands.add_parser("de", help="Inspect experimental RiceBowl Wayland desktop prerequisites")
     de.add_argument("action", choices=(
-        "check", "start", "shell", "catalog", "creator-api", "creator-history", "creator-schema", "creator-snapshot", "creator-recovery", "creator-recover", "review", "draft-check", "draft-edit", "visual-compare",
+        "check", "acceptance", "start", "shell", "catalog", "creator-api", "creator-history", "creator-schema", "creator-snapshot", "creator-recovery", "creator-recover", "review", "draft-check", "draft-edit", "visual-compare",
         "visual-baseline",
         "capture", "render", "render-matrix", "render-matrix-inspect",
         "creator-status", "creator-stage", "creator-rollback",
@@ -238,6 +238,31 @@ def main(argv: list[str] | None = None) -> int:
                                     "draft-edit", "capture", "render", "render-matrix", "pack-export",
                                     "visual-baseline") and args.output):
                 raise ValueError("--output is not supported by this de command")
+            if args.action == "acceptance":
+                if args.nested or args.recipe or args.panel != "waybar":
+                    raise ValueError("de acceptance accepts only --json")
+                from .de.acceptance import inspect as inspect_acceptance
+                report = inspect_acceptance()
+                if args.json:
+                    print(json.dumps(report.as_dict(), indent=2))
+                else:
+                    print("RiceBowl native Wayland physical acceptance (read-only)")
+                    print(f"Current session: {report.session_type}; native RiceBowl: "
+                          f"{'yes' if report.ricebowl_session and report.selected_panel == 'native' else 'no'}")
+                    print(f"Owned Wayland socket: {report.wayland_socket}; "
+                          f"active displays: {report.active_outputs if report.active_outputs is not None else 'unverified'} "
+                          f"({report.output_probe})")
+                    if report.fractional_scale_present is not None:
+                        print("Fractional display scaling: " +
+                              ("detected" if report.fractional_scale_present else "not detected"))
+                    print("Ready for manual tests: " +
+                          ("yes" if report.ready_for_manual_checks else "no"))
+                    print("Next step: " + report.next_step)
+                    for check in report.manual_checks:
+                        print(f"[PENDING] {check.title}: {check.procedure}")
+                    print("Hardware accepted: NO. These actions must be verified on the real device.")
+                    print("See WAYLAND_SESSION.md → Physical acceptance checklist for safe XFCE rollback.")
+                return 0 if report.ready_for_manual_checks else 1
             if args.action == "creator-api":
                 if args.nested or args.recipe or args.panel != "waybar":
                     raise ValueError("de creator-api accepts only --json")

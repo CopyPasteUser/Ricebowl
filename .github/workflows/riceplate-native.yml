@@ -55,7 +55,9 @@ on:
       - 'macrice/de/creator_workspace.py'
       - 'macrice/de/recipes.py'
       - 'macrice/de/session.py'
+      - 'macrice/de/acceptance.py'
       - 'tests/test_de_session.py'
+      - 'tests/test_de_acceptance.py'
       - 'macrice/cli.py'
   pull_request:
     paths:
@@ -111,7 +113,9 @@ on:
       - 'macrice/de/creator_workspace.py'
       - 'macrice/de/recipes.py'
       - 'macrice/de/session.py'
+      - 'macrice/de/acceptance.py'
       - 'tests/test_de_session.py'
+      - 'tests/test_de_acceptance.py'
       - 'macrice/cli.py'
 
 permissions:
@@ -132,6 +136,7 @@ jobs:
       - name: Build and test native RicePlate
         run: |
           /usr/bin/python3 -m unittest tests.test_de_session -v
+          /usr/bin/python3 -m unittest tests.test_de_acceptance -v
           cargo test --manifest-path components/riceplate-wayland/Cargo.toml
           cargo build --release --manifest-path components/riceplate-wayland/Cargo.toml
           cargo build --release --manifest-path components/riceplate-wayland/Cargo.toml \
@@ -217,6 +222,7 @@ jobs:
           dpkg-deb -x "$core" "$isolated"
           dpkg-deb -x "$bundle" "$isolated"
           test -f "$isolated/usr/lib/ricebowl-wayland/macrice/de/session.py"
+          test -f "$isolated/usr/lib/ricebowl-wayland/macrice/de/acceptance.py"
           test -f "$isolated/usr/lib/ricebowl-wayland/macrice/creator_gui.py"
           test -x "$isolated/usr/bin/ricebowl-wayland-app"
           test -x "$isolated/usr/lib/ricebowl-wayland/bin/ricebowl"
