@@ -17,10 +17,10 @@ CARGO_BUILD_JOBS=2 cargo build --release --manifest-path \
     "$project_root/components/riceplate-wayland/Cargo.toml"
 
 echo "Validating XP Luna without changing your selected desktop..."
-python3 -c 'from pathlib import Path; from macrice.de import recipes; recipes.parse(Path("examples/wayland/xp-luna.json").read_bytes())'
-if python3 launcher.py de review --recipe xp-luna --json >/dev/null 2>&1; then
+python3 -c 'from pathlib import Path; from macrice.de import recipes; recipes.parse(Path("examples/wayland/xp-luna-columns.json").read_bytes())'
+if python3 launcher.py de review --recipe xp-luna-columns --json >/dev/null 2>&1; then
     echo "XP Luna already imported. If you changed the recipe, inspect it before replacing your copy."
 else
-    python3 launcher.py de recipe-import --recipe "$project_root/examples/wayland/xp-luna.json"
+    python3 launcher.py de recipe-import --recipe "$project_root/examples/wayland/xp-luna-columns.json"
 fi
 echo "Ready. From a separate text console: bash ~/RiceBowl-Wayland-Test/scripts/try_wayland_xp_luna.sh"
