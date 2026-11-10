@@ -365,6 +365,8 @@ jobs:
               'components-v9': (1366, 768, 1),
               'desktop-actions-v9': (1366, 768, 1),
               'appearance-v10': (1366, 768, 1),
+              'xp-luna-columns': (1366, 768, 1),
+              'xp-luna-columns-menu': (1366, 768, 1),
           }
           captures = {}
           for label in ('shell-v4', 'desktop-v5', 'menu-v5', 'calendar-v5', *expected):
@@ -424,6 +426,8 @@ jobs:
               captures[label] = data
           assert captures['shell-v4'] != captures['desktop-v5'], 'Icons missing from v5 framebuffer'
           assert captures['menu-v5'] != captures['desktop-v5'], 'Native menu did not render in Wayland frame'
+          assert captures['xp-luna-columns-menu'] != captures['xp-luna-columns'], \
+              'XP Luna two-column Start menu was not rendered in real Wayland frame'
           assert captures['calendar-v5'] != captures['desktop-v5'], 'Native calendar did not render in Wayland frame'
           with Image.open(directory / 'calendar-v5.png') as image:
               header = image.convert('RGB').getpixel((700, 50))
