@@ -108,7 +108,7 @@ pub fn task_button(
     fill_rounded_rect(canvas, width, height, x + 2, 4,
                       span - 6, height - 9, style.task_radius, base);
     fill_rect(canvas, width, height, x + 5, 4,
-              span - 12, 1, mix_rgb(base, 0xffff_ffff, 85));
+              span.saturating_sub(12), 1, mix_rgb(base, 0xffff_ffff, 85));
 }
 
 #[cfg(test)]
