@@ -1027,16 +1027,22 @@ impl RicePlate {
                     .map(|layer| layer.size)
                     .unwrap_or((native_menu::WIDTH, native_menu::HEIGHT));
                 let compact = native_menu::compact_layout(active_size);
+                let columns = menu.presentation == recipe::MenuPresentation::Columns
+                    && self.menu_state.view == native_menu::View::Groups && !compact;
                 let rows = if compact { native_menu::compact_visible_actions(active_size) }
-                           else { native_menu::VISIBLE_ACTIONS };
+                           else if columns { 8 } else { native_menu::VISIBLE_ACTIONS };
                 let group_role = if menu.presentation == recipe::MenuPresentation::Sidebar && !compact {
                     AccessibleRole::Button
                 } else {
                     AccessibleRole::Tab
                 };
-                for (index, group) in menu.groups.iter().enumerate() {
-                    model.add(20_100 + index as u64, 20_000, group_role,
-                              group.title.clone(), Some(Target::MenuGroup(index)));
+                // Full two-column presentation contains section headings,
+                // not interactive group tabs. Do not expose invisible controls.
+                if !columns {
+                    for (index, group) in menu.groups.iter().enumerate() {
+                        model.add(20_100 + index as u64, 20_000, group_role,
+                                  group.title.clone(), Some(Target::MenuGroup(index)));
+                    }
                 }
                 if let Some(sections) = self.menu_state.composed_sections(menu).filter(|_| !compact) {
                     for (index, section) in sections.iter().enumerate() {
@@ -1046,8 +1052,10 @@ impl RicePlate {
                 }
                 let menu_actions = self.menu_state.actions(menu);
                 let selected_action_exists = self.menu_state.selected < menu_actions.len();
+                let first = if columns { 0 }
+                            else { self.menu_state.first_action_row_for(rows) };
                 for (index, action) in menu_actions.into_iter().enumerate()
-                    .skip(self.menu_state.first_action_row_for(rows)).take(rows) {
+                    .skip(first).take(rows) {
                     let enabled = action != "logout" || logout_available();
                     model.add(20_500 + index as u64, 20_000, AccessibleRole::Button,
                               self.menu_state.label(action),
