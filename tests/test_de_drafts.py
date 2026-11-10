@@ -20,6 +20,78 @@ def _edit(path, *changes):
 
 
 class DraftEditorTests(unittest.TestCase):
+    def test_read_only_preflight_and_pinned_publish_have_identical_semantics(self):
+        with tempfile.TemporaryDirectory() as folder:
+            patch = Path(folder) / "edit.json"
+            output = Path(folder) / "candidate.json"
+            _edit(patch, ("/name", "Original Creator Rice"),
+                  ("/panel/height", 48))
+            checked = drafts.check_edit(recipe_token="classic", edit_source=patch)
+            self.assertTrue(checked["validated"])
+            self.assertFalse(checked["created"])
+            self.assertFalse(checked["applied"])
+            self.assertFalse(output.exists())
+            published = drafts.create_edit(
+                recipe_token="classic", edit_source=patch, destination=output,
+                expected_sha256=checked["source_semantic_sha256"],
+                expected_draft_sha256=checked["draft_semantic_sha256"])
+            self.assertTrue(published["created"])
+            for key in ("changes", "source_semantic_sha256", "draft_semantic_sha256"):
+                self.assertEqual(published[key], checked[key])
+            self.assertEqual(review.review(str(output))["summary"]["semantic_sha256"],
+                             checked["draft_semantic_sha256"])
+
+    def test_stale_source_or_changed_proposal_never_creates_draft(self):
+        with tempfile.TemporaryDirectory() as folder:
+            patch = Path(folder) / "edit.json"
+            output = Path(folder) / "candidate.json"
+            _edit(patch, ("/panel/height", 48))
+            checked = drafts.check_edit(recipe_token="classic", edit_source=patch)
+            with self.assertRaises(drafts.DraftError) as stale:
+                drafts.create_edit(recipe_token="classic", edit_source=patch,
+                                   destination=output, expected_sha256="0" * 64)
+            self.assertEqual(stale.exception.code, "source_changed")
+            _edit(patch, ("/panel/height", 50))
+            with self.assertRaises(drafts.DraftError) as changed:
+                drafts.create_edit(
+                    recipe_token="classic", edit_source=patch, destination=output,
+                    expected_sha256=checked["source_semantic_sha256"],
+                    expected_draft_sha256=checked["draft_semantic_sha256"])
+            self.assertEqual(changed.exception.code, "draft_changed")
+            for invalid in ("A" * 64, "x", "", "0" * 65):
+                with self.subTest(invalid=invalid):
+                    with self.assertRaises(drafts.DraftError) as error:
+                        drafts.create_edit(recipe_token="classic", edit_source=patch,
+                                           destination=output,
+                                           expected_draft_sha256=invalid)
+                    self.assertEqual(error.exception.code, "invalid_draft_fingerprint")
+            self.assertFalse(output.exists())
+
+    def test_cli_preflight_is_read_only_and_flags_do_not_leak(self):
+        from macrice.cli import main
+        with tempfile.TemporaryDirectory() as folder:
+            patch = Path(folder) / "edit.json"
+            output = Path(folder) / "candidate.json"
+            _edit(patch, ("/panel/height", 46))
+            with mock.patch("builtins.print") as printer:
+                self.assertEqual(main(["de", "draft-check", "--recipe", "classic",
+                                       "--edit", str(patch), "--json"]), 0)
+                checked = json.loads(printer.call_args.args[0])
+            self.assertTrue(checked["validated"])
+            self.assertFalse(output.exists())
+            with mock.patch("builtins.print") as printer:
+                self.assertEqual(main([
+                    "de", "draft-edit", "--recipe", "classic", "--edit", str(patch),
+                    "--output", str(output), "--json",
+                    "--expect-sha256", checked["source_semantic_sha256"],
+                    "--expect-draft-sha256", checked["draft_semantic_sha256"]]), 0)
+                self.assertTrue(json.loads(printer.call_args.args[0])["created"])
+            with mock.patch("sys.stderr"):
+                self.assertEqual(main(["de", "draft-check", "--recipe", "classic",
+                                       "--edit", str(patch), "--output", str(output)]), 1)
+                self.assertEqual(main(["de", "review", "--recipe", "classic",
+                                       "--expect-draft-sha256", "0" * 64]), 1)
+
     def test_agent_can_author_from_catalog_example_without_custom_shell_code(self):
         spec = catalog.describe()["authoring"]["draft_edit"]
         self.assertEqual(spec, creator_contract.describe())

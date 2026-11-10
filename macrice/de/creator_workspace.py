@@ -9,14 +9,16 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import stat
 import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from . import assets, creator_assets, drafts, pack, recipes, review
+from . import assets, creator_assets, creator_history, drafts, pack, recipes, review
 from .creator_contract import EDITABLE_PATHS, EDIT_VERSION, MAX_OPERATIONS
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "wayland"
@@ -72,8 +74,78 @@ def open_draft(path: Path) -> DraftInfo:
     if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.geteuid()
             or metadata.st_mode & 0o077):
         raise WorkspaceError("Creator draft must be a private regular file")
-    return DraftInfo(path, snapshot["recipe"]["name"], snapshot["summary"]["id"],
+    info = DraftInfo(path, snapshot["recipe"]["name"], snapshot["summary"]["id"],
                      snapshot["summary"]["semantic_sha256"], metadata.st_mtime_ns)
+    if path.parent == _private_directory() and path.name.startswith("draft-"):
+        try:
+            creator_history.read(path, info.semantic_sha256)
+        except creator_history.HistoryError as exc:
+            raise WorkspaceError(str(exc)) from exc
+    return info
+
+
+def _publish_version(target: Path, payload: bytes, kind: str, *,
+                     parent: tuple[str, str] | None = None) -> DraftInfo:
+    """Publish intent first, then recipe; a crash never exposes receiptless new drafts.
+
+    An interrupted publication may leave an orphan .history intent, which is
+    deliberately never treated as a visible draft. No existing file is erased.
+    """
+    if target.parent != _private_directory() or not target.name.startswith("draft-"):
+        raise WorkspaceError("Creator versions require the private drafts directory")
+    parsed = recipes.parse(payload)
+    digest = review._semantic_hash(review._manifest(parsed))
+    if target.exists() or target.is_symlink():
+        raise WorkspaceError("Creator version already exists; nothing was overwritten")
+    try:
+        creator_history.write(target, digest, kind=kind, parent=parent)
+    except creator_history.HistoryError as exc:
+        raise WorkspaceError(str(exc)) from exc
+    # This is a no-replace link. If publication fails, the intent is retained
+    # for recovery inspection, and the previous version is still usable.
+    recipes._write_private_new(target, payload)
+    dirfd = os.open(target.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        os.fsync(dirfd)
+    finally:
+        os.close(dirfd)
+    info = open_draft(target)
+    if info.semantic_sha256 != digest:
+        raise WorkspaceError("Published version failed its fingerprint verification")
+    return info
+
+
+def previous_version(info: DraftInfo) -> DraftInfo | None:
+    """Follow one verified parent receipt, including after restarting Creator."""
+    current = open_draft(info.path)
+    if current.semantic_sha256 != info.semantic_sha256:
+        raise WorkspaceError("Creator draft changed since it was opened")
+    if info.path.parent != _private_directory():
+        raise WorkspaceError("Creator history is only available for private workspace drafts")
+    try:
+        receipt = creator_history.read(info.path, current.semantic_sha256)
+    except creator_history.HistoryError as exc:
+        raise WorkspaceError(str(exc)) from exc
+    if receipt is None or receipt["parent"] is None:
+        return None
+    ancestor = open_draft(info.path.parent / receipt["parent"]["filename"])
+    if ancestor.semantic_sha256 != receipt["parent"]["semantic_sha256"]:
+        raise WorkspaceError("An earlier Creator version was modified; history cannot be trusted")
+    return ancestor
+
+
+def version_history(info: DraftInfo) -> list[DraftInfo]:
+    """Newest first; validate each link with a strict 64-version traversal bound."""
+    chain: list[DraftInfo] = []
+    seen: set[Path] = set()
+    current: DraftInfo | None = info
+    while current is not None and len(chain) < creator_history.MAX_HISTORY_DEPTH:
+        if current.path in seen:
+            raise WorkspaceError("Creator version history contains a cycle")
+        seen.add(current.path)
+        chain.append(open_draft(current.path))
+        current = previous_version(current)
+    return chain
 
 
 def list_drafts() -> list[DraftInfo]:
@@ -98,8 +170,8 @@ def create_draft(template: str, *, name: str | None = None) -> DraftInfo:
     folder = _private_directory()
     target = _new_file(folder)
     if path is None:
-        recipes.create_from_template(source=template, destination=target,
-                                     recipe_id=recipe_id, name=title, schema_version=11)
+        _parsed, payload = recipes._prepare_template(source=template, recipe_id=recipe_id,
+                                                     name=title, schema_version=11)
     else:
         raw = recipes._read_import_source(path)
         data = json.loads(raw)
@@ -110,12 +182,12 @@ def create_draft(template: str, *, name: str | None = None) -> DraftInfo:
                            "icons": {action: "builtin" for action in ICON_ACTIONS}}
         payload = (json.dumps(data, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
         recipes.parse(payload)
-        recipes._write_private_new(target, payload)
-    return open_draft(target)
+    return _publish_version(target, payload, "create")
 
 
-def save_revision(source: Path, changes: dict[str, Any], *, expected_sha256: str) -> tuple[DraftInfo, list[dict[str, Any]]]:
-    """Compare-and-swap a set of allowlisted changes into a new private file."""
+def _revision_patch(source: Path, changes: dict[str, Any], *, expected_sha256: str
+                    ) -> tuple[Path, bytes]:
+    """Validate a workspace revision and encode one bounded, data-only patch."""
     folder = _private_directory()
     if source.parent != folder or source.name.startswith("."):
         raise WorkspaceError("Open a draft from the private Creator workspace")
@@ -130,17 +202,52 @@ def save_revision(source: Path, changes: dict[str, Any], *, expected_sha256: str
     payload = (json.dumps(patch, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
     if len(payload) > drafts.MAX_EDIT_BYTES:
         raise WorkspaceError("Edits exceed the safe 16 KiB draft limit")
+    return folder, payload
+
+
+@contextmanager
+def _temporary_edit(folder: Path, payload: bytes):
+    """Keep the owner-only edit input only for the validation/write call."""
     descriptor, patch_name = tempfile.mkstemp(prefix=".creator-edit-", suffix=".json", dir=folder)
     try:
         with os.fdopen(descriptor, "wb") as stream:
             os.fchmod(stream.fileno(), 0o600)
             stream.write(payload)
-        destination = _new_file(folder)
-        result = drafts.create_edit(recipe_token=str(source), edit_source=Path(patch_name),
-                                    destination=destination)
-        return open_draft(destination), result["changes"]
+        yield Path(patch_name)
     finally:
         os.unlink(patch_name)
+
+
+def preview_revision(source: Path, changes: dict[str, Any], *, expected_sha256: str
+                     ) -> dict[str, Any]:
+    """Return the exact full-parser diff, with no saved version or desktop effect."""
+    folder, payload = _revision_patch(source, changes, expected_sha256=expected_sha256)
+    with _temporary_edit(folder, payload) as patch_file:
+        return drafts.check_edit(recipe_token=str(source), edit_source=patch_file,
+                                 expected_sha256=expected_sha256)
+
+
+def save_revision(source: Path, changes: dict[str, Any], *, expected_sha256: str,
+                  expected_draft_sha256: str | None = None
+                  ) -> tuple[DraftInfo, list[dict[str, Any]]]:
+    """Create a new private version; reject changes since a reviewed preflight."""
+    if (expected_draft_sha256 is not None and
+            (type(expected_draft_sha256) is not str or
+             re.fullmatch(r"[a-f0-9]{64}", expected_draft_sha256) is None)):
+        raise drafts.DraftError("Expected draft fingerprint must be 64 lowercase hex characters",
+                                code="invalid_draft_fingerprint")
+    folder, payload = _revision_patch(source, changes, expected_sha256=expected_sha256)
+    with _temporary_edit(folder, payload) as patch_file:
+        result, revised_payload = drafts._prepare_edit(
+            recipe_token=str(source), edit_source=patch_file, expected_sha256=expected_sha256)
+    if (expected_draft_sha256 is not None and
+            result["draft_semantic_sha256"] != expected_draft_sha256):
+        raise drafts.DraftError("Proposed draft changed since preflight; inspect it again",
+                                code="draft_changed")
+    destination = _new_file(folder)
+    saved = _publish_version(destination, revised_payload, "save",
+                             parent=(source.name, expected_sha256))
+    return saved, result["changes"]
 
 
 def fork_version(info: DraftInfo) -> DraftInfo:
@@ -164,8 +271,8 @@ def fork_version(info: DraftInfo) -> DraftInfo:
     payload = (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
     recipes.parse(payload)
     target = _new_file(folder)
-    recipes._write_private_new(target, payload)
-    return open_draft(target)
+    return _publish_version(target, payload, "fork",
+                            parent=(info.path.name, info.semantic_sha256))
 
 
 def upgrade_to_artwork(info: DraftInfo) -> DraftInfo:
@@ -183,8 +290,8 @@ def upgrade_to_artwork(info: DraftInfo) -> DraftInfo:
     payload = (json.dumps(original, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
     recipes.parse(payload)
     target = _new_file(_private_directory())
-    recipes._write_private_new(target, payload)
-    return open_draft(target)
+    return _publish_version(target, payload, "upgrade",
+                            parent=(info.path.name, info.semantic_sha256))
 
 
 def export_draft(info: DraftInfo, destination: Path) -> dict[str, Any]:

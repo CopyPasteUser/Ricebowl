@@ -6,8 +6,9 @@ is independent of Waybar so a future native RicePlate renderer can consume it.
 
 from __future__ import annotations
 
-import json
 import fcntl
+import hashlib
+import json
 import os
 import re
 import stat
@@ -663,6 +664,11 @@ def load(token: str) -> PanelRecipe:
             raw = file.read(MAX_RECIPE_BYTES + 1)
     except OSError as exc:
         raise RecipeError("Custom recipe could not be opened safely") from exc
+    # Creator snapshots use a canonical byte hash in their filename. Verify
+    # every read, including ordinary review, preview and draft-edit calls.
+    snapshot_name = re.fullmatch(r"snapshot-([0-9a-f]{64})\.json", path.name)
+    if snapshot_name is not None and hashlib.sha256(raw).hexdigest() != snapshot_name.group(1):
+        raise RecipeFingerprintMismatch("Creator snapshot content changed since publication")
     result = parse(raw)
     if installed_id and result.recipe_id != token:
         raise RecipeError("Imported recipe ID does not match its filename")
@@ -691,15 +697,18 @@ def _read_import_source(source: Path) -> bytes:
         raise RecipeError("Import source could not be opened safely") from exc
 
 
-def _write_private_new(destination: Path, payload: bytes, *, suffix: str = ".json") -> None:
-    """Publish a complete 0600 file atomically, refusing any existing target."""
+def _write_private_new(destination: Path, payload: bytes, *, suffix: str = ".json",
+                       mode: int = 0o600) -> None:
+    """Atomically publish a private 0600 (or sealed 0400) file; never overwrite."""
     if not destination.is_absolute() or destination.suffix != suffix:
         raise RecipeError(f"Output must be an absolute {suffix} file path")
+    if mode not in (0o400, 0o600):
+        raise RecipeError("Private output mode must be 0400 or 0600")
     descriptor, temporary = tempfile.mkstemp(prefix=".ricebowl-recipe-",
                                               dir=destination.parent)
     try:
         with os.fdopen(descriptor, "wb") as output:
-            os.fchmod(output.fileno(), 0o600)
+            os.fchmod(output.fileno(), mode)
             output.write(payload)
             output.flush()
             os.fsync(output.fileno())
@@ -817,6 +826,11 @@ def _read_selection(directory: Path) -> dict[str, Any] | None:
         data = json.loads(raw, object_pairs_hook=_object_without_duplicates)
     except (UnicodeError, ValueError, TypeError, RecursionError) as exc:
         raise RecipeError("Invalid selected recipe state") from exc
+    return _validate_selection_state(data)
+
+
+def _validate_selection_state(data: Any) -> dict[str, Any]:
+    """Validate an on-disk selection or a pinned pre-switch recovery snapshot."""
     if type(data) is not dict or type(data.get("schema_version")) is not int:
         raise RecipeError("Unsupported recipe selection version")
     version = data["schema_version"]
@@ -1018,10 +1032,21 @@ def create_from_template(
     or unknown keys. Both native RicePlate and the Waybar adapter validate the
     same schema before using an authored recipe.
     """
-    if source not in BUILTINS:
-        raise RecipeError("Choose a bundled classic or chrome template")
     if not destination.is_absolute() or destination.suffix != ".json":
         raise RecipeError("New recipe output must be an absolute .json file path")
+    result, payload = _prepare_template(source=source, recipe_id=recipe_id, name=name,
+                                        schema_version=schema_version)
+    # The temp file and destination share a directory/filesystem; os.link()
+    # publishes a fully written file only when its final name is still free.
+    _write_private_new(destination, payload)
+    return result
+
+
+def _prepare_template(*, source: str, recipe_id: str, name: str,
+                      schema_version: int = 1) -> tuple[PanelRecipe, bytes]:
+    """Build and validate an offline template before any destination is published."""
+    if source not in BUILTINS:
+        raise RecipeError("Choose a bundled classic or chrome template")
     data = json.loads(BUILTINS[source].read_text(encoding="utf-8"))
     if schema_version in (2, 3, 4, 5, 6, 7, 8, 9, 10, 11):
         data["schema_version"] = schema_version
@@ -1093,12 +1118,7 @@ def create_from_template(
     data["name"] = name
     payload = (json.dumps(data, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
     result = parse(payload)  # Validate *before* any filesystem mutation.
-
-    # The temp file and destination share a directory/filesystem; os.link()
-    # publishes a fully written file only when its final name is still free.
-    # This does not overwrite existing files or follow a destination symlink.
-    _write_private_new(destination, payload)
-    return result
+    return result, payload
 
 
 def waybar_config(recipe: PanelRecipe, *, screen_width: int | None = None) -> tuple[str, str]:

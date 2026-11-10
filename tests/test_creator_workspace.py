@@ -1,5 +1,6 @@
 """Creator desktop authoring must remain offline, private and non-destructive."""
 
+import json
 import os
 from dataclasses import replace
 from pathlib import Path
@@ -54,6 +55,64 @@ class CreatorWorkspaceTests(unittest.TestCase):
         self.assertEqual(recipes.load(str(revised.path)).position, "top")
         self.assertEqual(len(workspace.list_drafts()), 2)
         self.assertEqual(list(original.path.parent.glob(".creator-edit-*")), [])
+
+    def test_preflight_review_matches_pinned_private_save(self):
+        original = workspace.create_draft("heritage")
+        original_bytes = original.path.read_bytes()
+        proposed = {"/panel/height": 47, "/name": "Preflight desktop"}
+        preflight = workspace.preview_revision(original.path, proposed,
+                                               expected_sha256=original.semantic_sha256)
+        self.assertTrue(preflight["validated"])
+        self.assertFalse(preflight["created"])
+        self.assertEqual(len(workspace.list_drafts()), 1)
+        self.assertFalse(list(original.path.parent.glob(".creator-edit-*")))
+        self.assertIn("/panel/height", creator_gui._revision_review_text(preflight))
+        self.assertIn(preflight["draft_semantic_sha256"],
+                      creator_gui._revision_review_text(preflight))
+        saved, changes = workspace.save_revision(
+            original.path, proposed, expected_sha256=preflight["source_semantic_sha256"],
+            expected_draft_sha256=preflight["draft_semantic_sha256"])
+        self.assertEqual(changes, preflight["changes"])
+        self.assertEqual(saved.semantic_sha256, preflight["draft_semantic_sha256"])
+        self.assertEqual(original.path.read_bytes(), original_bytes)
+        self.assertEqual(len(workspace.list_drafts()), 2)
+        self.assertFalse(list(original.path.parent.glob(".creator-edit-*")))
+
+    def test_reviewed_proposal_change_or_stale_source_fails_without_output(self):
+        original = workspace.create_draft("orbit")
+        preflight = workspace.preview_revision(
+            original.path, {"/panel/height": 47}, expected_sha256=original.semantic_sha256)
+        with self.assertRaises(drafts.DraftError) as mismatch:
+            workspace.save_revision(
+                original.path, {"/panel/height": 48},
+                expected_sha256=preflight["source_semantic_sha256"],
+                expected_draft_sha256=preflight["draft_semantic_sha256"])
+        self.assertEqual(mismatch.exception.code, "draft_changed")
+        data = json.loads(original.path.read_text())
+        data["panel"]["height"] += 1
+        original.path.write_text(json.dumps(data) + "\n")
+        # The underlying recipe remains owner-private and valid; its fingerprint changed.
+        with self.assertRaisesRegex(workspace.WorkspaceError, "fingerprint"):
+            workspace.open_draft(original.path)
+        with self.assertRaisesRegex(workspace.WorkspaceError, "fingerprint"):
+            workspace.save_revision(
+                original.path, {"/panel/height": 47},
+                expected_sha256=preflight["source_semantic_sha256"],
+                expected_draft_sha256=preflight["draft_semantic_sha256"])
+        self.assertEqual(workspace.list_drafts(), [])  # Invalid receipt hides the changed draft.
+        self.assertTrue(original.path.is_file())
+        self.assertFalse(list(original.path.parent.glob(".creator-edit-*")))
+
+    def test_invalid_preflight_fails_without_creating_private_version(self):
+        original = workspace.create_draft("heritage")
+        for proposed in ({"/panel/height": -1}, {"/panel/position": "left"},
+                         {"/unsafe/exec": "oops"}):
+            with self.subTest(proposed=proposed), self.assertRaises(
+                    (drafts.DraftError, workspace.WorkspaceError)):
+                workspace.preview_revision(original.path, proposed,
+                                           expected_sha256=original.semantic_sha256)
+        self.assertEqual(len(workspace.list_drafts()), 1)
+        self.assertFalse(list(original.path.parent.glob(".creator-edit-*")))
 
     def test_conflict_fails_closed_and_preserves_previous_versions(self):
         original = workspace.create_draft("orbit")

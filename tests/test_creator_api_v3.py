@@ -1,16 +1,16 @@
-"""Creator v2 discovery is safe, structured and matches actual CLI support."""
+"""Creator v3 discovery is safe, structured and matches actual CLI support."""
 
 import unittest
 
 from macrice.de import catalog, creator_contract, recipes
 
 
-class CreatorApiV2Tests(unittest.TestCase):
+class CreatorApiV3Tests(unittest.TestCase):
     def test_feature_negotiation_tracks_catalog_and_recipe_parsers(self):
         api = creator_contract.describe_creator_api()
         cat = catalog.describe()
         features = api["feature_negotiation"]
-        self.assertEqual(api["api_version"], 2)
+        self.assertEqual(api["api_version"], 3)
         self.assertEqual(features["catalog_version"], cat["catalog_version"])
         self.assertEqual(features["recipe_schema_versions"], cat["recipe"]["schema_versions"])
         self.assertEqual(features["recommended_authoring_schema"], 11)
@@ -23,9 +23,15 @@ class CreatorApiV2Tests(unittest.TestCase):
         self.assertTrue(flags["private-native-font-and-icon-assets"]["supported"])
         self.assertTrue(flags["manual-region-pixel-qa"]["supported"])
         self.assertTrue(flags["interactive-region-correction-qa"]["supported"])
+        self.assertTrue(flags["read-only-draft-preflight-and-fingerprint-guards"]["supported"])
+        self.assertTrue(flags["private-creator-version-lineage"]["supported"])
+        self.assertTrue(flags["recipe-versioned-edit-json-schema"]["supported"])
+        self.assertTrue(flags["content-addressed-source-snapshots"]["supported"])
+        self.assertTrue(flags["crash-safe-creator-draft-recovery"]["supported"])
+        self.assertTrue(flags["crash-safe-wayland-live-selection-recovery"]["supported"])
         self.assertEqual(api["manual_region_qa"]["max_regions"], 8)
         self.assertEqual(api["manual_region_qa"]["correction_cycle"]["max_measurements"], 12)
-        self.assertFalse(flags["interactive-desktop-widgets"]["supported"])
+        self.assertTrue(flags["interactive-desktop-widgets"]["supported"])
         self.assertFalse(flags["arbitrary-screenshot-one-click-conversion"]["supported"])
         self.assertFalse(flags["window-decoration-control-across-all-apps"]["supported"])
 
@@ -49,9 +55,19 @@ class CreatorApiV2Tests(unittest.TestCase):
         self.assertEqual(commands["catalog"]["mutation_scope"], "none")
         self.assertEqual(commands["review"]["mutation_scope"], "none")
         self.assertEqual(commands["render"]["mutation_scope"], "private-file")
+        self.assertEqual(commands["draft-check"]["mutation_scope"], "none")
+        self.assertEqual(commands["creator-history"]["mutation_scope"], "none")
+        self.assertEqual(commands["creator-schema"]["mutation_scope"], "none")
+        self.assertEqual(commands["creator-snapshot"]["mutation_scope"], "private-file")
+        self.assertEqual(commands["creator-recovery"]["mutation_scope"], "none")
+        self.assertEqual(commands["creator-recover"]["mutation_scope"], "private-file")
+        self.assertEqual(commands["creator-live-recovery"]["mutation_scope"], "none")
+        self.assertTrue(commands["creator-recover"]["requires_explicit_user_invocation"])
+        self.assertFalse(commands["draft-check"]["requires_explicit_user_invocation"])
         self.assertEqual(commands["visual-compare"]["mutation_scope"],
                          "private-file-optional")
         self.assertFalse(commands["draft-edit"]["requires_explicit_user_invocation"])
+        self.assertEqual(commands["draft-edit"]["mutation_scope"], "private-file")
 
     def test_documented_workflow_uses_only_advertised_commands(self):
         spec = creator_contract.describe_creator_api()

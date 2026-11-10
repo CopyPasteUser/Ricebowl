@@ -897,6 +897,56 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
     mutation scopes for all advertised commands. This is a read-only
     capability contract; it does not introduce a resident editor or automate
     active-session changes.
+  - [x] **Creator API v3: review-before-create** adds read-only `de draft-check`
+    through the same full recipe parser and semantic diff as `draft-edit`.
+    Agents can pin both source and proposed draft SHA-256 on private creation;
+    changed input is rejected without publishing or activating a rice.
+    Filesystem-level immutable source snapshots remain open.
+  - [x] **Creator property-schema discovery** publishes a standalone JSON
+    Schema 2020-12 per actual recipe version
+    (`de creator-schema --recipe ID --json`). It covers every allowlisted edit path, supported schema-version
+    boundaries, typed panel/desktop/menu/layout components, colors, content-
+    addressed assets and bounded values. A deterministic schema fingerprint
+    accompanies the source recipe fingerprint. Cross-property invariants and
+    duplicate references still require the full parser and `de draft-check`;
+    no schema-only result is treated as safe to apply.
+  - [x] **Creator reproducible source snapshots** add `de creator-snapshot`
+    for offline, content-addressed recipe copies with a canonical byte-level
+    SHA-256 filename, 0400 mode, 0700 storage, atomic no-overwrite creation
+    and idempotent reuse. Every `recipes.load()` verifies snapshot bytes before
+    parsing, including review/preflight/draft-edit/preview. Existing tampered
+    or symlinked targets are refused, and full semantic fingerprints remain
+    available for checked edits. No active session or XFCE settings change.
+    This is an owner-private sealed snapshot, **not** a privileged Linux
+    `chattr +i` immutable file; the same user can intentionally change it.
+  - [x] **Creator interruption recovery** publishes each draft's durable
+    fingerprint/parent receipt **before** making the corresponding JSON file
+    visible. Crashes between those steps leave a recoverable orphan intent,
+    never an apparently valid new draft without its history. The read-only
+    `de creator-recovery --json` lists bounded incomplete versions; with
+    `--recipe` it verifies the last intact ancestor even across damaged
+    intermediate revisions. A separate,
+    explicitly hash-guarded `de creator-recover` copies only the last verified
+    parent into a **new** private version; neither the failed target nor any
+    active Wayland/XFCE session is modified. Legacy drafts without receipts
+    cannot claim authenticated ancestry. Live recovery and real hardware
+    acceptance have separate contracts below.
+  - [x] **Creator GTK reviewed publication gate** connects the on-demand UI to
+    that preflight: scrollable complete before/after values and both semantic
+    fingerprints appear before the user authorizes a new private version.
+    Save/render/export cancel without publishing when approval is withheld;
+    the eventual write rechecks both hashes, including changes made after
+    preflight. Existing saved versions and active session remain untouched.
+  - [x] **Creator persistent draft lineage** stores a private, no-overwrite
+    version receipt for every new template, save, fork and schema upgrade.
+    Each receipt binds the parsed recipe fingerprint and the exact predecessor
+    filename/fingerprint, with bounded, no-symlink traversal and corruption
+    detection. GTK Previous version now works after restarting the app; a
+    Version history dialog opens verified ancestors without selecting a live
+    rice; the read-only `de creator-history --json` exposes the same chain to
+    agents. Legacy drafts remain readable but have no authenticated ancestors.
+    A same-user adversary can still edit/delete owner-writable files; this is
+    corruption detection, not filesystem-level immutable snapshots.
 - [x] Ship the first **on-demand GTK3 Rice Creator 0.1 workspace** on top of
   the actual schema-v10 recipe parser and API: four real templates, labeled
   style/structure controls, reordering and bounded addition/removal of existing
@@ -982,7 +1032,7 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
   unchecked, and the current private reference is reverified before use. GTK shows
   evidence/confidence, requires individual checkbox approval and transfers
   only selected validated hints to an **unsaved** working copy; persistence
-  still requires Save version, and no live session changes. JSON exports
+  still requires Review & save…, and no live session changes. JSON exports
   contain no screenshot pixels; external AI requires a separately consented
   user share. Unit and GTK smoke cover the review boundary. Full semantic
   automatic object/menus recognition, reliably faithful screenshot-to-rice
@@ -1017,6 +1067,17 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
   rectangles, or changing comparison policy clears the history. This does not
   infer UI semantics, generate edits or mutate the live desktop. Real Wayland
   hardware/interaction/fractional-scale acceptance is still a 1.0 gate.
+- [x] Provide a **Creator multi-geometry QA archive** using the existing real
+  isolated labwc/native RicePlate renderer: four exact 1024×768, 1366×768,
+  1920×1080 and fractional 1366×768@1.25 captures in one owner-private
+  no-overwrite ZIP, each bound to the same recipe fingerprint and a verified
+  PNG SHA-256 receipt. Publish the entire archive only after all four real
+  renders succeed; a separate read-only offline inspector rejects missing,
+  altered or unexpected entries, malformed receipts and mismatched dimensions.
+  Versioned agent discovery, CLI JSON contracts and failure-injection tests
+  cover the path. This is reviewable real-capture evidence, **not** automatic
+  visual correction, human reference similarity, keyboard/input acceptance or
+  physical monitor signoff.
 - [x] Implement **Wayland RicePack v1 recipe exchange** (`de pack-export`,
   `de pack-inspect`, `de pack-import`): reproducible owner-private `.ricepack`
   archives, canonical schema-v1–v5 recipe, SHA-256 byte/semantic validation,
@@ -1078,6 +1139,20 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
   previous-rice restore and one fingerprint-verified Waybar rescue. Tests inject
   I/O, concurrent selection and panel crashes; no claim of power-cut atomicity,
   compositor-frame synchronization or physical suspend/relogin acceptance.
+- [x] Persist a **Wayland live-switch recovery journal** before mutating a
+  full session's panel, wallpaper, menu, optional app profiles or next-login
+  selection. Each private, bounded no-overwrite journal pins the exact prior
+  selection, reviewed target hash and Linux process identity (boot ID/PID/
+  process-start tick). Successful changes and complete in-process rollbacks
+  clear it durably; incomplete rollback retains evidence. On next full Wayland
+  login, a dead owner's journal triggers compare-and-swap restoration of only
+  that switch's next-login selection. Concurrent Creator staging wins; a
+  still-live owner cannot be mistaken for a crash. Unsafe journals fail closed
+  to an ephemeral `classic` login without erasing saved user configuration.
+  `de creator-live-recovery --json` reports journal status outside the active
+  session. Nested previews and XFCE are unaffected. Automated tests include
+  simulated SIGKILL windows, stale fingerprints, symlinks and concurrent
+  sessions; actual power cuts and multi-app hardware recovery remain untested.
 - [x] Connect **GTK Creator 0.9 to the opt-in live Wayland transaction**:
   saved private revisions can be installed explicitly and idempotently with
   a SHA-256 guard on the *actual* imported bytes; an existing differing ID is
@@ -1165,11 +1240,13 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
   output first; optional local IPC only if justified) for discovering
   components, creating/editing drafts, validating recipes, previewing the
   real shell, capturing screenshots, comparing to references, exporting packs,
-  and explicitly requested apply/restore. API v2 now publishes stable feature
+  and explicitly requested apply/restore. API v3 now publishes stable feature
   negotiation, supported/unsupported capabilities, mutation scopes and the
-  existing on-demand CLI JSON commands. Per-operation structured errors and
-  explicit activation/restore contracts exist; there is **no** GUI Creator,
-  general plugin runtime or arbitrary screenshot-to-rice conversion. Full
+  existing on-demand CLI JSON commands, including read-only checked edit diffs
+  and two optional reviewed fingerprints on private draft creation.
+  Per-operation structured errors and explicit activation/restore contracts
+  exist; the experimental GTK Creator has no general plugin runtime or
+  automatic screenshot-to-rice conversion. Full
   per-property formal JSON Schema and physical interaction signoff are still
   separate follow-up work.
 - [ ] Make agent-driven changes reviewable and reproducible: immutable source
@@ -1177,7 +1254,9 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
   per-asset license/provenance metadata, clear diff/preview before apply,
   explicit user authorization for active desktop changes and transactional
   rollback. No arbitrary generated scripts, remote asset execution or
-  privileged Creator daemon.
+  privileged Creator daemon. Read-only CLI preflight and checked source/proposal
+  fingerprints are implemented; immutable authoring snapshots and complete
+  approval UX remain separate work.
 - [ ] Implement an **isolated visual QA loop** using real nested labwc /
   RicePlate rendering (not synthetic mockup-only previews): capture
   deterministic multi-resolution and scaling screenshots, compare them
@@ -1254,6 +1333,16 @@ component, and incompatible clients degrade gracefully.
   install scripts. It does not replace XFCE or provide the complete desktop
   distribution; real install/upgrade/uninstall QA and reproducible Rust inputs
   still gate 1.0.
+- [x] Harden the standalone Wayland **package provenance**: build Core,
+  Session and Desktop file payloads from the immutable committed Git tree
+  rather than dirty/staged checkout contents; build the native package's
+  control template from the same committed tree. Add a read-only four-package
+  gate for package identities, architecture, dependency floors, Core BUILDINFO,
+  file path ownership and forbidden maintainer scripts. Test staged source
+  changes, untracked imports, provenance tampering, an injected XFCE file and
+  an injected `postinst` in isolated scratch packages. The Rust ELF still
+  requires independent reviewed build-input provenance; the gate does not
+  install or sign artifacts.
 - [ ] Measure cold start, settled PSS/RSS, CPU wakeups, relogin, long-running
   memory and mixed-DPI behavior for X11 and Wayland on actual devices.
 - [ ] Remove redundant processes only after their responsibilities have been

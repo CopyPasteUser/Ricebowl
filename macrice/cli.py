@@ -72,10 +72,11 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("session-sync", help="Reconcile active rice after XFCE autostart")
     de = commands.add_parser("de", help="Inspect experimental RiceBowl Wayland desktop prerequisites")
     de.add_argument("action", choices=(
-        "check", "start", "shell", "catalog", "creator-api", "review", "draft-edit", "visual-compare",
+        "check", "start", "shell", "catalog", "creator-api", "creator-history", "creator-schema", "creator-snapshot", "creator-recovery", "creator-recover", "review", "draft-check", "draft-edit", "visual-compare",
         "visual-baseline",
-        "capture", "render", "creator-status", "creator-stage", "creator-rollback",
-        "creator-live-status", "creator-live-apply", "creator-live-restore",
+        "capture", "render", "render-matrix", "render-matrix-inspect",
+        "creator-status", "creator-stage", "creator-rollback",
+        "creator-live-status", "creator-live-apply", "creator-live-restore", "creator-live-recovery",
         "display-refresh",
         "pack-export", "pack-inspect", "pack-import", "asset-import", "notifications", "notification-dismiss",
         "notification-invoke",
@@ -103,7 +104,7 @@ def parser() -> argparse.ArgumentParser:
                     help="Maximum tolerated changed-pixel fraction for de visual-baseline")
     de.add_argument("--approve-reference", action="store_true",
                     help="Explicitly approve a reviewed reference image for de visual-baseline")
-    de.add_argument("--edit", type=Path, help="Owner-controlled absolute JSON edit operations for de draft-edit")
+    de.add_argument("--edit", type=Path, help="Owner-controlled absolute JSON edit operations for de draft-check/edit")
     de.add_argument("--metadata", type=Path, help="Optional provenance JSON for de pack-export")
     de.add_argument("--package", type=Path, help="Absolute .ricepack file for de pack-inspect/import")
     de.add_argument("--asset", type=Path, help="Absolute owner-controlled .png file for de asset-import")
@@ -114,7 +115,8 @@ def parser() -> argparse.ArgumentParser:
                     help="Playback sink or recording source for de audio-default")
     de.add_argument("--device-name", help="Exact reviewed audio device name for de audio-default")
     de.add_argument("--expect-current", help="Optional previous default for concurrency-safe audio selection")
-    de.add_argument("--expect-sha256", help="Reviewed recipe SHA-256 for Creator stage/live apply")
+    de.add_argument("--expect-sha256", help="Reviewed source SHA-256 for Creator draft or stage/live apply")
+    de.add_argument("--expect-draft-sha256", help="Reviewed proposed draft SHA-256 for de draft-edit")
     de.add_argument("--expect-active", help="Optional selection guard for Creator stage/rollback/live")
     de.add_argument("--panel", choices=("waybar", "native"), default="waybar",
                     help="Session panel (native RicePlate is experimental and falls back to Waybar)")
@@ -129,6 +131,8 @@ def parser() -> argparse.ArgumentParser:
     de.add_argument("--height", type=int, help="Headless de render capture height (480–2160)")
     de.add_argument("--scale", type=float, choices=(1, 1.25, 1.5, 2),
                     help="Headless de render scale factor")
+    de.add_argument("--matrix", type=Path,
+                    help="Existing absolute capture matrix .zip for de render-matrix-inspect")
     commands.add_parser("session-menu", help="Toggle the active rice's application menu")
     commands.add_parser("session-control", help="Toggle the active rice's control panel")
     commands.add_parser("session-keys-restore", help="Restore the previous Super/Right Control shortcuts")
@@ -187,14 +191,16 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "de":
             if args.action != "review" and args.compare is not None:
                 raise ValueError("--compare only applies to de review")
-            if args.action != "draft-edit" and args.edit is not None:
-                raise ValueError("--edit only applies to de draft-edit")
+            if args.action not in ("draft-check", "draft-edit") and args.edit is not None:
+                raise ValueError("--edit only applies to de draft-check/edit")
             if args.action != "pack-export" and args.metadata is not None:
                 raise ValueError("--metadata only applies to de pack-export")
             if args.action not in ("pack-inspect", "pack-import") and args.package is not None:
                 raise ValueError("--package only applies to de pack-inspect/import")
             if args.action != "asset-import" and args.asset is not None:
                 raise ValueError("--asset only applies to de asset-import")
+            if args.action != "render-matrix-inspect" and args.matrix is not None:
+                raise ValueError("--matrix only applies to de render-matrix-inspect")
             if args.action not in ("notification-dismiss", "notification-invoke") and args.notification_id is not None:
                 raise ValueError("--notification-id only applies to notification mutations")
             if args.action != "notification-invoke" and args.action_key is not None:
@@ -202,8 +208,11 @@ def main(argv: list[str] | None = None) -> int:
             if args.action != "audio-default" and any(value is not None for value in
                     (args.device_kind, args.device_name, args.expect_current)):
                 raise ValueError("Audio device mutation options only apply to de audio-default")
-            if args.action not in ("creator-stage", "creator-live-apply") and args.expect_sha256 is not None:
-                raise ValueError("--expect-sha256 only applies to Creator stage/live apply")
+            if args.action not in ("draft-check", "draft-edit", "creator-recover", "creator-stage",
+                                   "creator-live-apply") and args.expect_sha256 is not None:
+                raise ValueError("--expect-sha256 only applies to Creator draft/recovery/stage/live apply")
+            if args.action != "draft-edit" and args.expect_draft_sha256 is not None:
+                raise ValueError("--expect-draft-sha256 only applies to de draft-edit")
             if args.action not in ("creator-stage", "creator-rollback", "creator-live-apply",
                                    "creator-live-restore") and args.expect_active is not None:
                 raise ValueError("--expect-active only applies to Creator selection changes")
@@ -226,7 +235,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.action != "recipe-init" and args.schema_version != 1:
                 raise ValueError("--schema-version only applies to de recipe-init")
             if (args.action not in ("recipe-init", "recipe-export", "taskotto-export",
-                                    "draft-edit", "capture", "render", "pack-export",
+                                    "draft-edit", "capture", "render", "render-matrix", "pack-export",
                                     "visual-baseline") and args.output):
                 raise ValueError("--output is not supported by this de command")
             if args.action == "creator-api":
@@ -240,6 +249,105 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"RiceBowl Creator API v{contract['api_version']} (offline, on demand)")
                     for item in contract["commands"]:
                         print(f"  {item['command']:18} {item['effect']}")
+                return 0
+            if args.action == "creator-history":
+                if (args.nested or args.panel != "waybar" or not args.recipe
+                        or not Path(args.recipe).is_absolute()):
+                    raise ValueError("de creator-history requires --recipe /absolute/private-draft.json")
+                from .de import creator_workspace as workspace, recipes
+                try:
+                    chain = workspace.version_history(workspace.open_draft(Path(args.recipe)))
+                except (workspace.WorkspaceError, recipes.RecipeError, OSError) as exc:
+                    if not args.json:
+                        raise
+                    print(json.dumps({"ok": False, "error": {"code": "unverified_history",
+                                                         "message": str(exc)}}))
+                    return 2
+                rows = [{"path": str(info.path), "recipe_id": info.recipe_id,
+                         "name": info.name, "semantic_sha256": info.semantic_sha256,
+                         "modified_ns": info.modified_ns} for info in chain]
+                if args.json:
+                    print(json.dumps({"ok": True, "history_version": 1, "applied": False,
+                                      "versions": rows, "max_versions": 64}, indent=2))
+                else:
+                    print(f"Verified Creator history: {len(rows)} version(s), newest first")
+                    for row in rows:
+                        print(f"{row['recipe_id']} · {row['semantic_sha256'][:12]} · {row['path']}")
+                return 0
+            if args.action in ("creator-recovery", "creator-recover"):
+                if (args.nested or args.panel != "waybar"
+                        or (args.action == "creator-recover" and not args.recipe)
+                        or (args.recipe is not None and not Path(args.recipe).is_absolute())
+                        or (args.action == "creator-recover") != bool(args.expect_sha256)):
+                    raise ValueError("Use creator-recovery [--recipe /absolute/draft.json]; "
+                                     "creator-recover requires --recipe and --expect-sha256 HASH")
+                from .de.creator_recovery import RecoveryError, inspect, recover, scan
+                try:
+                    result = (scan() if args.recipe is None else
+                              inspect(Path(args.recipe)) if args.action == "creator-recovery" else
+                              recover(Path(args.recipe),
+                                      expected_parent_sha256=args.expect_sha256))
+                except RecoveryError as exc:
+                    if not args.json:
+                        raise
+                    print(json.dumps({"ok": False, "applied": False,
+                                      "error": {"code": "recovery_unavailable", "message": str(exc)}}))
+                    return 2
+                if args.json:
+                    print(json.dumps(result, indent=2, ensure_ascii=False))
+                elif args.recipe is None:
+                    print(f"Unresolved Creator versions: {len(result['unresolved'])}")
+                    for row in result["unresolved"]:
+                        print(f"  {row['source_status']} · {row['source']}")
+                    if result["truncated"]:
+                        print("Scan capped at 128 version receipts")
+                elif args.action == "creator-recovery":
+                    print(f"Verified recovery parent: {result['parent']}")
+                    print(f"Parent SHA-256: {result['parent_semantic_sha256']}")
+                    print(f"Source status: {result['source_status']}; desktop unchanged")
+                else:
+                    print(f"New recovered Creator version: {result['path']}")
+                    print(f"Recovered semantic SHA-256: {result['semantic_sha256']}")
+                    print("Existing versions and active desktop remain unchanged")
+                return 0
+            if args.action == "creator-schema":
+                if args.nested or args.panel != "waybar" or not args.recipe:
+                    raise ValueError("de creator-schema requires --recipe ID")
+                from .de import creator_schema, recipes, review
+                parsed = recipes.load(args.recipe)
+                fingerprint = review._semantic_hash(review._manifest(parsed))
+                schema = creator_schema.describe(parsed.schema_version)
+                result = {"ok": True, "applied": False,
+                          "source_semantic_sha256": fingerprint,
+                          "schema_sha256": creator_schema.fingerprint(schema),
+                          "edit_json_schema": schema}
+                if args.json:
+                    print(json.dumps(result, indent=2, ensure_ascii=False))
+                else:
+                    print(f"Creator edit schema for {parsed.recipe_id} v{parsed.schema_version}")
+                    print(f"Reviewed source fingerprint: {fingerprint}")
+                    print("Use --json for the complete JSON Schema; full-parser preflight remains required")
+                return 0
+            if args.action == "creator-snapshot":
+                if args.nested or args.panel != "waybar" or not args.recipe:
+                    raise ValueError("de creator-snapshot requires --recipe ID")
+                from .de.creator_snapshot import SnapshotError, create
+                try:
+                    result = create(args.recipe)
+                except SnapshotError as exc:
+                    if not args.json:
+                        raise
+                    print(json.dumps({"ok": False, "applied": False,
+                                      "error": {"code": "snapshot_unavailable",
+                                                "message": str(exc)}}))
+                    return 2
+                if args.json:
+                    print(json.dumps(result, indent=2, ensure_ascii=False))
+                else:
+                    print(f"Creator source snapshot: {result['path']}")
+                    print(f"Semantic SHA-256: {result['source_semantic_sha256']}")
+                    print("Existing verified copy reused" if not result["created"]
+                          else "New 0400 private snapshot published; no desktop change")
                 return 0
             if args.action == "settings":
                 if args.json or args.nested or args.recipe or args.panel != "waybar":
@@ -315,6 +423,20 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"Next Wayland login: {result['next_session']} (was: {result['previous']})")
                     print("Current desktop unchanged; one-step rollback remains available")
                 return 0
+            if args.action == "creator-live-recovery":
+                if args.nested or args.panel != "waybar" or args.recipe:
+                    raise ValueError("de creator-live-recovery only accepts --json")
+                from .de.live_recovery import status
+                result = status()
+                if args.json:
+                    print(json.dumps(result, indent=2))
+                elif result["ok"]:
+                    print("Wayland recovery journal pending" if result["pending"] else
+                          "No pending Wayland live switch")
+                else:
+                    print("Wayland recovery journal is unsafe; next login uses classic",
+                          file=sys.stderr)
+                return 0 if result["ok"] else 2
             if args.action in ("creator-live-status", "creator-live-apply", "creator-live-restore",
                                "display-refresh"):
                 if args.nested or args.panel != "waybar":
@@ -626,14 +748,49 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"Rendered {report['recipe']['id']} in isolated labwc: {report['output']['path']}")
                     print("No active desktop changes; visual and interaction fidelity are not certified")
                 return 0
-            if args.action == "draft-edit":
-                if (args.nested or args.panel != "waybar" or not args.recipe
-                        or not args.edit or not args.output):
-                    raise ValueError("de draft-edit requires --recipe, --edit and --output")
-                from .de.drafts import DraftError, create_edit, invalid_edit
+            if args.action in ("render-matrix", "render-matrix-inspect"):
+                if args.nested or args.panel != "waybar" or (args.action == "render-matrix" and
+                        (not args.recipe or args.output is None or args.matrix is not None)) or (
+                        args.action == "render-matrix-inspect" and
+                        (args.recipe or args.output or args.matrix is None)):
+                    raise ValueError("Use render-matrix --recipe ID --output NEW.zip, or "
+                                     "render-matrix-inspect --matrix FILE.zip")
+                from .de.render_matrix import MatrixError, inspect_matrix, render_matrix
+                from .de.render import RenderError
                 try:
-                    result = create_edit(recipe_token=args.recipe, edit_source=args.edit,
-                                         destination=args.output)
+                    report = (render_matrix(args.recipe, args.output)
+                              if args.action == "render-matrix" else inspect_matrix(args.matrix))
+                except (MatrixError, RenderError) as exc:
+                    if not args.json:
+                        raise
+                    print(json.dumps({"creator_contract_version": 1, "ok": False,
+                                      "error": {"code": exc.code, "message": str(exc)}},
+                                     indent=2))
+                    return 2
+                if args.json:
+                    print(json.dumps({"creator_contract_version": 1, "ok": True,
+                                      "matrix": report}, indent=2))
+                else:
+                    print(f"Verified {len(report['cases'])} real isolated Wayland captures: "
+                          f"{report['archive']}")
+                    print("No desktop change; visual and functional fidelity remain unverified")
+                return 0
+            if args.action in ("draft-check", "draft-edit"):
+                if (args.nested or args.panel != "waybar" or not args.recipe or not args.edit
+                        or (args.action == "draft-edit" and not args.output)
+                        or (args.action == "draft-check" and args.output)):
+                    raise ValueError("de draft-check needs --recipe and --edit; "
+                                     "de draft-edit additionally requires --output")
+                from .de.drafts import DraftError, check_edit, create_edit, invalid_edit
+                try:
+                    if args.action == "draft-check":
+                        result = check_edit(recipe_token=args.recipe, edit_source=args.edit,
+                                            expected_sha256=args.expect_sha256)
+                    else:
+                        result = create_edit(recipe_token=args.recipe, edit_source=args.edit,
+                                             destination=args.output,
+                                             expected_sha256=args.expect_sha256,
+                                             expected_draft_sha256=args.expect_draft_sha256)
                 except DraftError as exc:
                     if not args.json:
                         raise
@@ -641,6 +798,10 @@ def main(argv: list[str] | None = None) -> int:
                     return 2
                 if args.json:
                     print(json.dumps(result, indent=2, ensure_ascii=False))
+                elif args.action == "draft-check":
+                    print(f"Valid edit for {result['recipe_id']}: {len(result['changes'])} changes")
+                    print(f"Reviewed source fingerprint: {result['source_semantic_sha256']}")
+                    print("Read-only preflight; no file created and no desktop change")
                 else:
                     print(f"Created private draft for {result['recipe_id']} ({len(result['changes'])} changes)")
                     print(f"Review/preview: ricebowl de review --recipe {shlex.quote(str(args.output))}")

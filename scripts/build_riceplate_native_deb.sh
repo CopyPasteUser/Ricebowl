@@ -72,9 +72,21 @@ if [ -z "$dependencies" ]; then
     exit 1
 fi
 mkdir -p "$package_root/DEBIAN"
+control="$project_root/packaging/wayland/native-control.in"
+if command -v git >/dev/null 2>&1 && \
+   git -C "$project_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    command -v tar >/dev/null 2>&1 || { echo "tar is required" >&2; exit 1; }
+    git -C "$project_root" archive -o "$stage/control.tar" HEAD -- packaging/wayland/native-control.in
+    mkdir -p -- "$stage/source"
+    tar -xf "$stage/control.tar" -C "$stage/source"
+    control="$stage/source/packaging/wayland/native-control.in"
+fi
+if [ ! -f "$control" ] || [ -L "$control" ]; then
+    echo "Native control source is missing or a symlink" >&2; exit 1
+fi
 awk -v depends="$dependencies" \
     '/^Description:/ {print "Depends: " depends} {print}' \
-    "$project_root/packaging/wayland/native-control.in" > "$package_root/DEBIAN/control"
+    "$control" > "$package_root/DEBIAN/control"
 find "$package_root" -exec touch -h -d "@$package_epoch" -- {} +
 dpkg-deb --build --root-owner-group "$package_root" "$output"
 echo "Built $output (not installed)"

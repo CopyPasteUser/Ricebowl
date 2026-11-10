@@ -14,6 +14,7 @@ import os
 import stat
 import tempfile
 import threading
+from datetime import datetime
 from pathlib import Path
 
 from .de import (creator_activation, creator_layout as layout_engine,
@@ -61,6 +62,23 @@ def _get_field(manifest: dict, pointer: str):
     for part in pointer.lstrip("/").split("/"):
         value = value[part]
     return value
+
+
+def _revision_review_text(preflight: dict) -> str:
+    """Complete, readable data-only before/after diff for the confirmation dialog."""
+    lines = [
+        f"Source SHA-256: {preflight['source_semantic_sha256']}",
+        f"Proposed SHA-256: {preflight['draft_semantic_sha256']}",
+        "",
+    ]
+    for change in preflight["changes"]:
+        lines.extend((
+            change["path"],
+            "  Before: " + json.dumps(change["before"], ensure_ascii=False, sort_keys=True),
+            "  After:  " + json.dumps(change["after"], ensure_ascii=False, sort_keys=True),
+            "",
+        ))
+    return "\n".join(lines)
 
 
 def _node_label(node: dict) -> str:
@@ -183,7 +201,8 @@ def run() -> int:
             self._region_drag_end: tuple[float, float] | None = None
             self._region_drag_display: tuple[int, int] | None = None
             self._region_drag_origin: tuple[float, float] = (0, 0)
-            self._history: list[Path] = []
+            self._previous: workspace.DraftInfo | None = None
+            self._history_error: str | None = None
             self._selected_layer: tuple[str, int] | None = None
             self._drag: tuple[tuple[str, int], float, float, int, int] | None = None
             self._drag_preview: tuple[int, int] | None = None
@@ -218,7 +237,7 @@ def run() -> int:
             brand.pack_start(self._text("Build a desktop rice", "creator-title"), False, False, 0)
             toolbar.pack_start(brand, True, True, 0)
             self.undo_btn = self._button("← Previous version", self._undo)
-            self.save_btn = self._button("Save version", self._save, primary=True)
+            self.save_btn = self._button("Review & save…", self._save, primary=True)
             self.render_btn = self._button("Render preview", self._render)
             self.export_btn = self._button("Export RicePack…", self._export)
             for button in (self.undo_btn, self.save_btn, self.render_btn, self.export_btn):
@@ -244,6 +263,8 @@ def run() -> int:
                 button.set_tooltip_text(descriptions[key])
                 sidebar.pack_start(button, False, False, 0)
             sidebar.pack_start(self._text("SAVED VERSIONS", "creator-rail-label"), False, False, 8)
+            self.history_btn = self._button("Version history…", self._show_history)
+            sidebar.pack_start(self.history_btn, False, False, 0)
             scroll = Gtk.ScrolledWindow()
             scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
             sidebar.pack_start(scroll, True, True, 0)
@@ -539,7 +560,8 @@ def run() -> int:
             self.save_btn.set_sensitive(selected and bool(self.pending) and not self._busy)
             self.render_btn.set_sensitive(selected and not self._busy)
             self.export_btn.set_sensitive(selected and not self._busy)
-            self.undo_btn.set_sensitive(bool(self._history) and not self._busy)
+            self.undo_btn.set_sensitive(self._previous is not None and not self._busy)
+            self.history_btn.set_sensitive(selected and not self._busy)
             can_install = selected and not self.pending and not self._busy
             live_session = bool(os.environ.get("WAYLAND_DISPLAY"))
             self.install_btn.set_sensitive(can_install)
@@ -642,8 +664,12 @@ def run() -> int:
             self.working = copy.deepcopy(self.baseline)
             self._panel_compact = False
             self._selected_layer, self._drag, self._drag_preview = None, None, None
-            if reset_history:
-                self._history = []
+            self._previous, self._history_error = None, None
+            try:
+                self._previous = workspace.previous_version(info)
+            except workspace.WorkspaceError as exc:
+                # Broken ancestry must not hide an otherwise valid current draft.
+                self._history_error = str(exc)
             self._pixbuf = None
             self._preview_fit = None
             self._capture_bytes = None
@@ -668,7 +694,9 @@ def run() -> int:
                 self._region_measurements = old_measurements
                 self._region_refresh()
                 self.preview_caption.set_text("Reference annotations retained; render this saved revision to measure again.")
-            self.diff.set_text(f"Recipe: {info.recipe_id} · Schema v{report['recipe']['schema_version']} · SHA {info.semantic_sha256[:12]}")
+            history_note = (f" · History unavailable: {self._history_error}"
+                            if self._history_error else "")
+            self.diff.set_text(f"Recipe: {info.recipe_id} · Schema v{report['recipe']['schema_version']} · SHA {info.semantic_sha256[:12]}{history_note}")
             self.inspector_context.set_text(f"Editing {info.name} · schema v{report['recipe']['schema_version']} · offline draft")
             self._build_inspector()
             self._queue_canvas()
@@ -1166,7 +1194,6 @@ def run() -> int:
             try:
                 previous = self.info
                 updated = workspace.upgrade_to_artwork(previous)
-                self._history.append(previous.path)
                 self._load(updated)
                 self._refresh_drafts()
                 self._status("Created new v11 version. Previous v10 draft remains intact.",
@@ -1901,9 +1928,15 @@ def run() -> int:
                 return True
             assert self.info is not None
             try:
-                revised, changes = workspace.save_revision(self.info.path, self.pending,
-                                                expected_sha256=self.info.semantic_sha256)
-                self._history.append(self.info.path)
+                preflight = workspace.preview_revision(
+                    self.info.path, self.pending, expected_sha256=self.info.semantic_sha256)
+                if not self._confirm_revision(preflight):
+                    self._status("Review cancelled. Unsaved edits were kept; no version created.")
+                    return False
+                revised, changes = workspace.save_revision(
+                    self.info.path, self.pending,
+                    expected_sha256=preflight["source_semantic_sha256"],
+                    expected_draft_sha256=preflight["draft_semantic_sha256"])
                 self._load(revised)
                 self._refresh_drafts()
                 self.diff.set_text("Validated changes: " + ", ".join(x["path"] for x in changes))
@@ -1913,6 +1946,38 @@ def run() -> int:
                     OSError, ValueError) as exc:
                 self._status(f"Save blocked: {exc}. Fix the layout or property and retry.", error=True)
                 return False
+
+        def _confirm_revision(self, preflight: dict) -> bool:
+            """Make creation of a new private file an explicit, reviewed action."""
+            dialog = Gtk.Dialog(title="Review proposed Rice version", transient_for=self,
+                                modal=True)
+            dialog.add_button("Keep editing", Gtk.ResponseType.CANCEL)
+            dialog.add_button("Create private version", Gtk.ResponseType.OK)
+            dialog.set_default_response(Gtk.ResponseType.CANCEL)
+            content = dialog.get_content_area()
+            content.set_border_width(12)
+            content.set_spacing(10)
+            content.pack_start(self._text(
+                f"{len(preflight['changes'])} validated changes. Compare the values below "
+                "before saving. The active desktop and next-login choice are untouched.",
+                wrap=True), False, False, 0)
+            scroll = Gtk.ScrolledWindow()
+            scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+            scroll.set_size_request(600, 320)
+            summary = Gtk.TextView()
+            summary.set_editable(False)
+            summary.set_cursor_visible(False)
+            summary.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+            summary.set_monospace(True)
+            summary.set_left_margin(10)
+            summary.set_right_margin(10)
+            summary.get_buffer().set_text(_revision_review_text(preflight))
+            scroll.add(summary)
+            content.pack_start(scroll, True, True, 0)
+            dialog.show_all()
+            accepted = dialog.run() == Gtk.ResponseType.OK
+            dialog.destroy()
+            return accepted
 
         def _save(self, _button):
             self._commit_pending()
@@ -2047,14 +2112,72 @@ def run() -> int:
             return False
 
         def _undo(self, _button):
-            if self._busy or not self._discard_pending() or not self._history:
+            if self._busy or self.info is None or self._previous is None:
+                return
+            if not self._discard_pending():
                 return
             try:
-                info = workspace.open_draft(self._history.pop())
+                # Recheck the saved receipt instead of trusting a cached path.
+                info = workspace.previous_version(self.info)
+                if (info is None or info.path != self._previous.path
+                        or info.semantic_sha256 != self._previous.semantic_sha256):
+                    raise workspace.WorkspaceError("Creator history changed; reopen the draft")
                 self._load(info)
-                self._status("Previous private version reopened. No active rice changed.", success=True)
+                self._status("Verified previous private version reopened. No active rice changed.",
+                             success=True)
             except (workspace.WorkspaceError, recipes.RecipeError, OSError) as exc:
                 self._status(f"Could not reopen previous version: {exc}", error=True)
+
+        def _show_history(self, _button):
+            if self._busy or self.info is None:
+                return
+            try:
+                chain = workspace.version_history(self.info)
+            except (workspace.WorkspaceError, recipes.RecipeError, OSError) as exc:
+                self._status(f"Could not verify saved history: {exc}", error=True)
+                return
+            dialog = Gtk.Dialog(title="Creator version history", transient_for=self, modal=True)
+            dialog.add_button("Close", Gtk.ResponseType.CANCEL)
+            dialog.add_button("Open selected version", Gtk.ResponseType.OK)
+            dialog.set_default_response(Gtk.ResponseType.CANCEL)
+            content = dialog.get_content_area()
+            content.set_border_width(12)
+            content.set_spacing(8)
+            content.pack_start(self._text(
+                f"{len(chain)} verified saved version(s), newest first. "
+                "Opening an earlier version never applies it to Wayland.", wrap=True),
+                False, False, 0)
+            scroll = Gtk.ScrolledWindow()
+            scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            scroll.set_size_request(520, 300)
+            entries = Gtk.ListBox()
+            entries.set_selection_mode(Gtk.SelectionMode.SINGLE)
+            for index, info in enumerate(chain):
+                timestamp = datetime.fromtimestamp(info.modified_ns / 1_000_000_000).strftime(
+                    "%Y-%m-%d %H:%M")
+                label = (f"{'Current' if index == 0 else f'Previous {index}'} · {timestamp}\n"
+                         f"{info.name} · {info.recipe_id} · SHA {info.semantic_sha256[:16]}")
+                row = Gtk.ListBoxRow()
+                row.add(self._text(label, wrap=True))
+                entries.add(row)
+            entries.select_row(entries.get_row_at_index(0))
+            scroll.add(entries)
+            content.pack_start(scroll, True, True, 0)
+            dialog.show_all()
+            response = dialog.run()
+            selected = entries.get_selected_row()
+            index = selected.get_index() if selected is not None else 0
+            dialog.destroy()
+            if response != Gtk.ResponseType.OK or index == 0 or not self._discard_pending():
+                return
+            try:
+                chosen = workspace.open_draft(chain[index].path)
+                if chosen.semantic_sha256 != chain[index].semantic_sha256:
+                    raise workspace.WorkspaceError("Selected version changed since review")
+                self._load(chosen, reset_history=True)
+                self._status("Verified saved version opened. No active rice changed.", success=True)
+            except (workspace.WorkspaceError, recipes.RecipeError, OSError) as exc:
+                self._status(f"Could not open saved version: {exc}", error=True)
 
         def _render(self, _button):
             if self._busy or not self._commit_pending() or self.info is None:
@@ -2915,11 +3038,43 @@ def run() -> int:
             window = windows[0]
             window._create("heritage")
             assert window.info is not None and window.info.recipe_id.startswith("creator-")
+            interactive_review = window._confirm_revision
+
+            def smoke_review(preflight):
+                # Exercise the actual GTK dialog in disposable CI state, with
+                # a synthetic approval only in this explicit smoke scenario.
+                def accept_dialog():
+                    dialogs = [item for item in Gtk.Window.list_toplevels()
+                               if isinstance(item, Gtk.Dialog)
+                               and item.get_title() == "Review proposed Rice version"]
+                    assert len(dialogs) == 1, "Creator review dialog missing"
+                    dialogs[0].response(Gtk.ResponseType.OK)
+                    return False
+
+                GLib.idle_add(accept_dialog)
+                return interactive_review(preflight)
+
+            window._confirm_revision = smoke_review
             initial = window.info
             window._change("/panel/height", 44)
             assert window.save_btn.get_sensitive()
             assert window._commit_pending()
-            assert window.info.path != initial.path and len(window._history) == 1
+            assert window.info.path != initial.path and window._previous.path == initial.path
+            # Clear all in-memory selection state as though reopening Creator.
+            window._load(workspace.open_draft(window.info.path), reset_history=True)
+            assert window.undo_btn.get_sensitive() and window._previous.path == initial.path
+            assert window.history_btn.get_sensitive()
+
+            def dismiss_history():
+                dialogs = [item for item in Gtk.Window.list_toplevels()
+                           if isinstance(item, Gtk.Dialog)
+                           and item.get_title() == "Creator version history"]
+                assert len(dialogs) == 1, "Creator history dialog missing"
+                dialogs[0].response(Gtk.ResponseType.CANCEL)
+                return False
+
+            GLib.idle_add(dismiss_history)
+            window._show_history(None)
             assert recipes.load(str(window.info.path)).height == 44
             window._move("start", 0, 1)
             assert window.pending

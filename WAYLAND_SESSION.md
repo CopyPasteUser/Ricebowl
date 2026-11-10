@@ -107,7 +107,15 @@ command, the login session, and the native Rust panel. Its aggregate package
 `ricebowl-wayland-desktop` is dependency-only; no maintainer scripts enable
 the desktop, select a login session, migrate user files, or change XFCE.
 
-From a clean Git checkout on an Ubuntu 24.04/Mint 22 **amd64 build machine**:
+From a Git checkout on an Ubuntu 24.04/Mint 22 **amd64 build machine**:
+
+The Core, Session and Desktop builders now package the files from the
+**committed `HEAD` tree**, not from staged/unstaged edits or untracked files.
+The native package similarly reads its Debian control template from `HEAD`;
+its supplied Rust ELF is still an **external build input** and must be built
+from the intended reviewed source revision. Commit intended source changes
+before building. This makes the Core `BUILDINFO` source commit truthful and
+prevents accidental working-tree contents from silently changing the `.deb`.
 
 ```bash
 bash scripts/build_wayland_core_deb.sh
@@ -118,7 +126,15 @@ sh scripts/build_riceplate_native_deb.sh \
     "$PWD/dist/ricebowl-riceplate-native_0.1.0~preview1_amd64.deb"
 sh scripts/build_wayland_desktop_deb.sh
 
-# Inspect the packages before any host installation.
+# Read-only bundle gate: identity, architectures, dependency versions,
+# committed source provenance, disallowed install paths and maintainer scripts.
+bash scripts/verify_wayland_package_set.sh \
+    "$PWD/dist/ricebowl-wayland-core_0.1.0~preview2_all.deb" \
+    "$PWD/dist/ricebowl-wayland-session_0.1.0~preview3_all.deb" \
+    "$PWD/dist/ricebowl-riceplate-native_0.1.0~preview1_amd64.deb" \
+    "$PWD/dist/ricebowl-wayland-desktop_0.1.0~preview2_amd64.deb"
+
+# Inspect the proposed package installation before confirming it.
 dpkg-deb -I dist/ricebowl-wayland-desktop_0.1.0~preview2_amd64.deb
 sudo apt install \
     ./dist/ricebowl-wayland-core_0.1.0~preview2_all.deb \
@@ -128,6 +144,14 @@ sudo apt install \
 
 ricebowl-wayland-app de check --json
 ```
+
+The gate extracts the four packages into a temporary directory and prints
+their SHA-256 checksums. It neither installs them nor changes the active
+session. A matching checksum proves only that a file matches a **separately
+trusted** checksum; the gate is not code signing, a security audit or a
+substitute for Mint/ThinkPad acceptance. Corrupt metadata, package identity,
+missing files, unexpected XFCE/system paths and lifecycle scripts fail the
+gate. Packaging checks cannot establish the behavior of a running desktop.
 
 Log out and **manually** select either RiceBowl Wayland Preview (Waybar) or
 Native Wayland Preview (RicePlate) in your login manager. The existing XFCE
@@ -475,9 +499,51 @@ comparison, complete RicePack validator or guarantee of functional parity.
 #### Offline Creator component edits (experimental)
 
 Agents can now read `ricebowl de catalog --json` and use the
-`authoring.draft_edit` contract to build a **new panel draft** from actual
+`authoring.draft_edit` contract to build a **new Wayland draft** from actual
 supported components. The contract publishes editable JSON Pointer paths,
 limits, an explicit `set` operation and an example against `classic`.
+`ricebowl de creator-schema --recipe ID --json` additionally returns a
+standalone JSON Schema 2020-12 for that recipe's actual schema version,
+including value types, enum/range limits and nested data structures.
+It includes a deterministic schema SHA-256 alongside the reviewed source
+SHA-256. This is suitable for IDEs and agent-side early validation without
+adding dependencies to the runtime; the full parser remains mandatory for
+cross-component and complete recipe checks.
+
+For a repeatable starting point, run
+`ricebowl de creator-snapshot --recipe ID --json`. It publishes a canonical
+recipe copy under `XDG_STATE_HOME/ricebowl/creator/snapshots/` (or the default
+user state directory), with a `snapshot-<content-sha256>.json` filename and
+`0400` permissions. The returned absolute `path` can be used as `--recipe`
+for `draft-check`, `draft-edit`, `review` or an isolated preview. Every recipe
+load checks the exact byte hash against the filename, even if someone changes
+only whitespace. Repeated calls reuse an already verified copy without
+overwriting it. Referenced visual assets retain their separate content IDs;
+the snapshot does not duplicate or back up those assets. The owner can still
+change file permissions or delete files, so this is not a privileged immutable
+backup or a replacement for an off-machine backup.
+
+The GTK Creator workspace also keeps a durable `.history` intent beside each
+new private draft. It publishes that intent before the recipe: an interrupted
+save can leave a `.history` without its `.json`, but never exposes that failed
+version as a finished draft. To inspect or recover the last **verified** parent
+of a missing, corrupted or merely unwanted newer version:
+
+```bash
+ricebowl de creator-recovery --json
+# Lists missing/unverified workspace versions (up to 128 intents).
+ricebowl de creator-recovery --recipe /absolute/path/draft-newer.json --json
+# Review parent_semantic_sha256 and the parent path before continuing.
+ricebowl de creator-recover --recipe /absolute/path/draft-newer.json \
+  --expect-sha256 PARENT_HASH_FROM_INSPECTION --json
+```
+
+The second command creates a **new**, reviewable private draft linked to the
+verified parent. It does not fix/delete the damaged file, choose the next-login
+rice, or change the running desktop. If the parent or its receipt is missing or
+has changed, recovery is refused; legacy receiptless drafts have no claimed
+ancestry. This offline Creator recovery does not replace the live Wayland
+supervisor's separate restore mechanism or hardware crash tests.
 
 For example, save this data as `/absolute/path/panel-edits.json` (an
 owner-controlled regular `.json` file, not group/world writable):
@@ -493,20 +559,29 @@ owner-controlled regular `.json` file, not group/world writable):
 }
 ```
 
-Then validate and create a **new** private runtime-compatible JSON recipe:
+First check the exact semantic diff **without creating a file**. Review its
+`changes`, `source_semantic_sha256` and `draft_semantic_sha256`, then use both
+fingerprints to publish only that reviewed proposal:
 
 ```bash
 ricebowl de recipe-init --base classic --id my-panel --name "My Panel" \
   --output /absolute/path/my-panel-base.json
+ricebowl de creator-schema --recipe /absolute/path/my-panel-base.json --json
+ricebowl de creator-snapshot --recipe /absolute/path/my-panel-base.json --json
+# To pin the source bytes, use the returned snapshot path as --recipe below.
+ricebowl de draft-check --recipe /absolute/path/my-panel-base.json \
+  --edit /absolute/path/panel-edits.json --json
 ricebowl de draft-edit --recipe /absolute/path/my-panel-base.json \
   --edit /absolute/path/panel-edits.json \
+  --expect-sha256 SOURCE_HASH_FROM_CHECK \
+  --expect-draft-sha256 DRAFT_HASH_FROM_CHECK \
   --output /absolute/path/my-panel-draft.json --json
 ricebowl de review --recipe /absolute/path/my-panel-draft.json \
   --compare /absolute/path/my-panel-base.json --json
 ricebowl de start --nested --recipe /absolute/path/my-panel-draft.json
 ```
 
-The editor supports only validated panel property changes: name, panel edge,
+The editor supports only validated, non-executable recipe properties: name, panel edge,
 height, schema-v1/v2 `start`/`center`/`end` widget lists, schema-v3 typed
 `panel.layout` regions, hex colors and schema-v2/v3/v4 widget widths. Schema
 v4 additionally offers explicit menu, wallpaper, design-token and responsive
@@ -516,7 +591,8 @@ a fresh identity or v2/v3/v4 template. A draft made directly from `classic` rema
 identified as `classic` and can be previewed by absolute path, but cannot be
 imported over the reserved built-in ID. At most 16 `set` operations and 16 KiB of
 edit data are accepted; duplicate paths, unknown components, scripts, external
-assets, unsupported actions and no-op edits are rejected. The destination
+assets, unsupported actions and no-op edits are rejected. Stale source or
+changed proposal fingerprints fail before file creation. The destination
 must not exist; the new file is created with mode `0600` without overwriting
 the source. `--json` uses exit `0` for success, `2` for validation/creation
 failure with a structured error code and (only for allowlisted properties)
@@ -1070,6 +1146,26 @@ validated rice with native RicePlate and a bundled wallpaper, captures it,
 and stops the session automatically. A new private PNG is published only on
 success. `--scale` accepts 1, 1.25, 1.5 or 2. This is a rendering aid, **not**
 proof of interactive correctness, visual similarity or real-GPU compatibility.
+For a **single reviewable Creator QA bundle**, render all four standard
+geometries using the same isolated native backend. This writes only a new
+private ZIP after *all* captures and their SHA-256 receipts have passed:
+
+```bash
+ricebowl de render-matrix --recipe classic \
+  --output "$HOME/creator-wayland-matrix.zip" --json
+ricebowl de render-matrix-inspect \
+  --matrix "$HOME/creator-wayland-matrix.zip" --json
+```
+
+The four cases are 1024×768, 1366×768, 1920×1080 at scale 1.0, and
+1366×768 at scale 1.25. The archive contains exactly four real PNGs and one
+data-only manifest with the reviewed recipe fingerprint, capture dimensions,
+byte lengths and hashes. Inspection requires no running desktop or extraction
+and rejects changed/missing files, unexpected ZIP entries, invalid PNGs and
+inconsistent geometry. It cannot certify interactions, GPU compatibility,
+human visual fidelity or physical multi-monitor behavior. Use `de
+visual-compare` with separately approved reference images for pixel QA.
+
 For schema-v5 rices the **optional region inspection** also locates the real
 panel, remaining desktop and individual icon hit areas. It identifies clipped
 icons or icons colliding with the panel; this describes geometry, not whether
@@ -1179,8 +1275,8 @@ ricebowl de creator-api --json
 ricebowl de catalog --json
 ```
 
-Creator API **v2** returns a machine-readable `feature_negotiation` block:
-supported recipe schemas (currently v1–v10), the recommended authoring schema,
+Creator API **v3** returns a machine-readable `feature_negotiation` block:
+supported recipe schemas (currently v1–v11), the recommended authoring schema,
 matching catalog version, and truthful supported/unsupported feature IDs.
 The `authoring_workflow` lists existing read-only discovery, private draft,
 native preview, package and explicitly reviewed activation operations. Every
@@ -1207,7 +1303,7 @@ contract: create from the Heritage Modern, Orbit Studio, Classic or Chrome
 template; edit the panel edge/height, two menu presentations, bundled wallpaper,
 responsive cutoff, font/spacing/state colors and reorder, remove or add supported
 panel nodes in the start/center/end lanes. The same strict parser
-and `draft-edit` allowlist validate every **Save version** operation. Invalid
+and `draft-edit` allowlist validate every **Review & save…** operation. Invalid
 or duplicate interactive controls cannot be installed by a failed draft edit.
 
 **Creator 0.4** provides a dedicated **Component library** form. Add new
@@ -1230,7 +1326,7 @@ width/spacing/labels, reorder siblings or ungroup without losing its children.
 The validator enforces at most three nested levels, six children per group,
 eight lane roots and 24 nodes overall, as well as duplicate bindings and
 required launcher/task invariants. Invalid edits stay out of the draft and
-provide a visible error; nothing is written until **Save version**.
+provide a visible error; nothing is written until **Review & save…** is approved.
 
 The optional graphical **Edit layout** canvas now exposes the actual schema-v10
 desktop composition. Choose a widget or shortcut in the layer list or click
@@ -1266,8 +1362,9 @@ and **user-declared** author, license, origin and optional public source
 reference. These are not legal or license verification. Old CLI-imported PNGs
 are listed with honest unspecified attribution; damaged assets are skipped.
 The inspector previews the verified asset and marks missing references clearly.
-Selecting an image changes only the *unsaved draft*; click **Save version** to
-persist it, or reopen the previous version to undo. The GUI ignores wheel
+Selecting an image changes only the *unsaved draft*; click **Review & save…**
+and confirm the displayed changes to persist it, or reopen the previous version
+to undo. The GUI ignores wheel
 events over the wallpaper selector so scrolling the inspector cannot change
 the selection accidentally. Exports include the PNG and its attribution in
 the existing deterministic **RicePack v3**, with no active-session apply.
@@ -1276,14 +1373,36 @@ reference-image conversion remains unsupported.
 
 Saved drafts are owner-only files in the XDG state directory under
 `ricebowl/creator/drafts/` (default `~/.local/state/ricebowl/creator/drafts/`).
-Every save creates a **new**, non-overwriting version, shows the semantic
-diff and keeps the earlier version accessible through **Previous version** or
+Every **Review & save…** opens a scrollable before/after diff with the complete
+source and proposed SHA-256 fingerprints. **Keep editing** creates no file;
+**Create private version** revalidates both fingerprints before writing.
+Each approved save creates a **new**, non-overwriting version and keeps the
+earlier version accessible through **Previous version** or
 the saved list. External modification is detected through the reviewed SHA-256;
 the editor refuses a stale save. Opening another draft with pending changes
 requires an explicit discard confirmation. **Export RicePack** creates a new
 validated `.ricepack` without overwriting, importing or applying anything.
 
-**Render preview** first saves pending validated edits, then invokes the exact
+New Creator drafts also have a sibling owner-private `.history` receipt
+(mode `0600`). The receipt binds each saved recipe's validated semantic SHA-256
+to its predecessor's filename and SHA-256. **Previous version** survives
+Creator restarts; **Version history…** shows and reopens up to 64 verified
+versions in the same project lineage. Modified recipes, unsafe/symlinked
+receipts and altered or missing ancestors are rejected during traversal;
+the current valid version remains available if an older link is broken.
+Drafts created before these receipts remain readable without a verified
+predecessor. Like other files owned by your account, receipts can still be
+altered or deleted by a process running as you; this feature detects
+unexpected changes but is not a root-owned immutable backup.
+
+For scripted/AI-assisted authoring, the same private ancestry is available
+read-only using `ricebowl de creator-history --recipe /absolute/draft.json --json`.
+It reports validated semantic hashes and filenames without creating
+or activating anything. A damaged chain returns a structured `unverified_history`
+error instead of silently trusting an altered ancestor.
+
+**Render preview** first asks for review and approval of any pending edits,
+then invokes the exact
 existing isolated native `de render` backend in a worker thread at one of four
 resolutions/scales. The real PNG is displayed in the editor after the renderer
 has terminated its labwc/RicePlate children; no background compositor or
@@ -1291,7 +1410,7 @@ cache of private screen pixels remains. Missing `labwc`, `grim`, `wlr-randr`,
 `swaybg` or the native `riceplate-native` binary yields an explicit unavailable
 state instead of an illustrated preview. The preview is a static snapshot, not
 an interactive nested session. The GTK Creator now also exposes a separate
-**Install / switch…** menu. After **Save version**, choose **Install saved
+**Install / switch…** menu. After **Review & save…**, choose **Install saved
 version…** to install that exact reviewed SHA-256 into the owner-private
 Wayland recipe collection; the desktop does not change. From within an opt-in
 RiceBowl Wayland session, **Apply in Wayland…** and **Restore previous rice…**
@@ -1320,7 +1439,7 @@ record; no arbitrary image file path is stored in a recipe. A reference is
 reloaded after opening a saved version with the same draft ID. **Unlink**
 removes just the selection; existing immutable source copies are retained.
 
-1. Choose or create a private draft, edit it, and **Save version**.
+1. Choose or create a private draft, edit it, and approve **Review & save…**.
 2. Choose the output resolution (for example **1366 × 768**). Your reference
    must have **exactly the same pixel dimensions**; Creator never stretches
    or crops it to improve a score.
@@ -1365,7 +1484,7 @@ The review list shows the exact schema field, proposed value and reasoning.
 Only higher-confidence **offline** hints are prechecked; all external proposals
 start unchecked. Review them before clicking
 **Use checked hints in unsaved draft**. This updates the editable property
-inspector, **not** a persisted version. Use **Save version** and then **Render
+inspector, **not** a persisted version. Use **Review & save…** and then **Render
 preview** to verify. The previous version remains recoverable. Switching
 references or drafts, saving or changing a field invalidates stale proposals.
 
@@ -1425,7 +1544,7 @@ For a **correction cycle**:
 1. Mark one or more regions and render the saved draft at the reference's
    exact resolution. Select **Measure regions** to record the baseline.
 2. Change a validated field in the existing inspector, or explicitly approve
-   a 0.7 mapping suggestion; choose **Save version**. Regions and prior
+   a 0.7 mapping suggestion; choose **Review & save…**. Regions and prior
    measurements stay attached to the same private screenshot and draft ID.
 3. **Render preview** for the newly saved recipe, then choose **Measure regions**
    again. The correction cycle lists hashed recipe/capture identities and the
@@ -1641,6 +1760,18 @@ ricebowl de creator-live-apply --recipe chrome \
 ricebowl de creator-live-restore --expect-active chrome --json
 ```
 
+Outside the running Wayland desktop, inspect an interrupted switch with
+`ricebowl de creator-live-recovery --json`. A full live switch saves a private
+`0600` rollback journal **before** starting replacement clients. After a
+supervisor crash, the next full Wayland login uses its pinned previous state
+to restore only the matching next-login selection, then clears the journal.
+It never overwrites a different concurrent Creator stage. An owner process
+that is still running is not treated as crashed. Corrupt, unreadable or
+unrecoverable journals cause that login to use the bundled `classic` rice
+without altering stored preferences; the journal stays for diagnosis.
+Nested previews do not create or replay persistent journals, and nothing is
+automatically changed when logging into XFCE.
+
 Replace `REVIEW_SUMMARY_SHA256` with the `summary.semantic_sha256` returned by
 the preceding review; it must be exactly 64 lowercase hexadecimal characters.
 The current session supervisor handles the request over an owner-private Unix
@@ -1658,10 +1789,13 @@ supervisor tries one automatic live restore before falling back to Waybar.
 JSON exits are `0` on success and `2` for a rejected/failed request.
 
 This never touches an XFCE/X11 session, global labwc configuration or arbitrary
-third-party apps. It does not yet transactionally theme RiceField or Taskotto,
-prove full Wayland frame/input readiness, or guarantee recovery from power
-loss. Test with the nested opt-in labwc session first, and retain the normal
-XFCE login as the physical rollback path.
+third-party apps. Compatible Taskotto/RiceField session profiles are disposable
+private files with in-process rollback; a killed session does not persist them
+as global defaults. The journal covers the **next-login selection**, not a
+snapshot of compositor frames or every external app's in-memory state. It does
+not prove full Wayland frame/input readiness or guarantee recovery from a real
+power cut. Test with the nested opt-in labwc session first, and retain the
+normal XFCE login as the physical rollback path.
 
 #### Existing recipe creation, import/export and selection
 

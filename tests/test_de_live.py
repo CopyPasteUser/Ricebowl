@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 from macrice.cli import main as cli
-from macrice.de import creator_contract, live, recipes, riceprofile, staging
+from macrice.de import creator_contract, live, live_recovery, recipes, riceprofile, staging
 from macrice.de.session import _LiveSwitch, _refresh_changed_outputs, resources
 
 
@@ -96,6 +96,26 @@ class LiveRiceTests(unittest.TestCase):
         restored = self.change("restore", expected="chrome")
         self.assertEqual((restored["active"], restored["previous"]), ("classic", "chrome"))
         self.assertEqual(recipes.current_selection(), ("classic", "chrome"))
+        self.assertIsNone(live_recovery.read())
+
+    def test_process_killed_after_selection_write_is_recovered_at_next_login(self):
+        original = recipes._selection_snapshot()
+        genuine = recipes.change_selection
+
+        def interrupted_after_commit(*args, **kwargs):
+            genuine(*args, **kwargs)
+            raise KeyboardInterrupt("simulated SIGKILL between commit and journal cleanup")
+
+        with mock.patch.object(recipes, "change_selection", side_effect=interrupted_after_commit):
+            with self.assertRaisesRegex(KeyboardInterrupt, "simulated SIGKILL"):
+                self.change("apply", "chrome", staging._hash("chrome"))
+        self.assertEqual(recipes.current_selection()[0], "chrome")
+        self.assertIsNotNone(live_recovery.read())
+        with mock.patch.object(live_recovery, "_owner_running", return_value=False):
+            recovery = live_recovery.reconcile()
+        self.assertEqual(recovery["status"], "restored")
+        self.assertEqual(recipes._selection_snapshot(), original)
+        self.assertIsNone(live_recovery.read())
 
     def test_refresh_outputs_restarts_only_waybar_and_preserves_active_selection(self):
         self.controller.mode = "waybar"
@@ -199,6 +219,7 @@ class LiveRiceTests(unittest.TestCase):
         for client in profile.clients:
             self.assertEqual((self.menu_dir / client.filename).read_bytes(), before[client])
         self.assertFalse(self.initial_panel.terminated)
+        self.assertIsNone(live_recovery.read())
 
     def test_selection_durability_failure_recovers_exact_previous_state(self):
         from types import SimpleNamespace
@@ -296,6 +317,7 @@ class LiveRiceTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "rollback_failed")
         self.assertEqual(recipes.current_selection()[0], "classic")
         self.assertEqual(self.controller.active, "classic")
+        self.assertIsNotNone(live_recovery.read())
 
     def test_profile_rollback_failure_does_not_skip_menu_recovery(self):
         from types import SimpleNamespace
@@ -371,6 +393,7 @@ class LiveRiceTests(unittest.TestCase):
         self.assertEqual(result["active"], "chrome")
         self.assertFalse(result["next_login_persisted"])
         self.assertEqual(recipes.current_selection(), ("classic", None))
+        self.assertIsNone(live_recovery.read())
         self.change("restore", expected="chrome")
         self.assertEqual(recipes.current_selection(), ("classic", None))
 
