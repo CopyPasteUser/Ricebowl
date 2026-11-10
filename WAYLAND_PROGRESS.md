@@ -12,7 +12,7 @@
 
 <p align="center">
   <strong>PREVIEW · OPT-IN · NOT 1.0</strong><br>
-  <a href="#screenshots">Screenshots</a> · <a href="#what-works">Implementation status</a> · <a href="#try-it">Try it</a> · <a href="#whats-left-for-10">Release blockers</a>
+  <a href="WAYLAND.md">Wayland guide</a> · <a href="#screenshots">Screenshots</a> · <a href="#what-works">Implementation status</a> · <a href="#try-it">Try it</a> · <a href="#whats-left-for-10">Release blockers</a>
 </p>
 
 ---
@@ -122,4 +122,4 @@ The source CI artifact contains `capture-manifest.json` and `creator-examples/ma
 
 ---
 
-[**RiceBowl README**](README.md) · [**All Wayland docs**](WAYLAND_SESSION.md) · [**Release status**](DESKTOP_ENVIRONMENT_STATUS.md) · [**Screenshots**](screenshots/wayland/README.md)
+[**RiceBowl README**](README.md) · [**Wayland overview**](WAYLAND.md) · [**Wayland technical guide**](WAYLAND_SESSION.md) · [**Release status**](DESKTOP_ENVIRONMENT_STATUS.md) · [**Screenshots**](screenshots/wayland/README.md)
