@@ -24,6 +24,8 @@ MAX_ICON_BYTES = 128 * 1024
 MAX_FONT_BYTES = 1024 * 1024
 ICON_DIMENSION = 48
 ICON_ACTIONS = ("applications", "terminal", "lock")
+SYSTEM_FONT_DIRS = tuple(map(Path, ("/usr/share/fonts", "/usr/local/share/fonts",
+                                    "/usr/share/texmf/fonts")))
 
 
 class StyleAssetError(ValueError):
@@ -180,6 +182,36 @@ def list_assets(kind: str) -> list[StyleAsset]:
     return found
 
 
+def importable_font_source(path: Path) -> bool:
+    """Allow owner files and public distro font trees, never unrelated private data."""
+    if not path.is_absolute() or path.suffix != ".ttf":
+        return False
+    try:
+        info = path.lstat()
+        if (not stat.S_ISREG(info.st_mode) or info.st_mode & 0o022
+                or not 12 <= info.st_size <= MAX_FONT_BYTES):
+            return False
+        if info.st_uid == os.geteuid():
+            return True
+        # Package files can be mapped to e.g. nobody in an unprivileged
+        # container. Require an unmodifiable public distribution path rather
+        # than assuming numeric uid 0 on every supported filesystem.
+        if not info.st_mode & 0o004:
+            return False
+        real = path.resolve(strict=True)
+        for root in SYSTEM_FONT_DIRS:
+            if real.is_relative_to(root):
+                directory = real.parent
+                while directory != root:
+                    if directory.stat().st_mode & 0o022:
+                        return False
+                    directory = directory.parent
+                return not root.stat().st_mode & 0o022
+        return False
+    except (OSError, ValueError):
+        return False
+
+
 def import_asset(source: Path, *, kind: str, label: str,
                  provenance: dict[str, str]) -> StyleAsset:
     if (type(label) is not str or re.fullmatch(r"[A-Za-z0-9 ._+-]{1,60}", label) is None
@@ -191,7 +223,9 @@ def import_asset(source: Path, *, kind: str, label: str,
         with os.fdopen(fd, "rb") as stream:
             info = os.fstat(stream.fileno())
             maximum = MAX_ICON_BYTES if kind == "icon" else MAX_FONT_BYTES
-            if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+            if (not stat.S_ISREG(info.st_mode)
+                    or (info.st_uid != os.geteuid()
+                        and not (kind == "font" and importable_font_source(source)))
                     or info.st_mode & 0o022 or info.st_size > maximum):
                 raise StyleAssetError("Asset must be an owner-controlled regular file within limits")
             data = stream.read(maximum + 1)

@@ -51,6 +51,9 @@ capture, not proof of a tested laptop installation.
 
 New: [XP Luna-inspired Wayland rice](examples/wayland/README.md#xp-luna-for-native-wayland-schema-v12)
 with a green Start button, cobalt taskbar and supervised two-minute test.
+Creator can also choose a local TrueType face via Fontconfig and package a
+reviewed private copy in RicePack v4; `ricebowl de fonts --json` lists supported
+fonts without installing or applying anything.
 
 ## Project links
 

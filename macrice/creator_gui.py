@@ -21,7 +21,7 @@ from .de import (creator_activation, creator_layout as layout_engine,
                  creator_workspace as workspace)
 from .de import (assets, creator_assets, creator_iteration, creator_mapping, creator_reference, creator_regions,
                  creator_structure, drafts,
-                 recipes, render, review, style_assets)
+                 fonts, recipes, render, review, style_assets)
 
 
 # All paths below are existing allowlisted Creator draft-edit fields. Gtk owns
@@ -821,7 +821,8 @@ def run() -> int:
             self.asset_source.set_max_length(256)
             self.asset_source.set_placeholder_text("Public source reference (optional)")
             self.asset_license = Gtk.ComboBoxText()
-            for key in ("unspecified", "CC0-1.0", "CC-BY-4.0", "MIT", "custom"):
+            for key in ("unspecified", "CC0-1.0", "CC-BY-4.0", "MIT",
+                        "OFL-1.1", "Apache-2.0", "custom"):
                 self.asset_license.append(key, key)
             self.asset_license.set_active_id("unspecified")
             self.asset_origin = Gtk.ComboBoxText()
@@ -1026,7 +1027,8 @@ def run() -> int:
                 return
             body.pack_start(self._text(
                 "Icons are original/licensed 48×48 RGBA PNGs. Fonts are TrueType "
-                "(.ttf, up to 1 MiB). Neither changes installed system themes. "
+                "(.ttf, up to 1 MiB). Choose an installed face or import a file, "
+                "and declare its redistribution license. Neither changes system fonts. "
                 "Save a version before rendering or exporting.",
                 "creator-layer-hint", wrap=True), False, False, 0)
             self.style_choices = {}
@@ -1047,6 +1049,12 @@ def run() -> int:
                 field.pack_start(button, False, False, 0)
                 body.pack_start(self._text(label, "creator-rail-label"), False, False, 0)
                 body.pack_start(field, False, False, 0)
+                if key == "font":
+                    installed = self._button("Choose installed font…", self._choose_installed_font)
+                    installed.set_tooltip_text(
+                        "Browse local TrueType faces; copy the selected face privately after "
+                        "checking its license. Does not change the active desktop.")
+                    body.pack_start(installed, False, False, 0)
             self.style_details = self._text("", "creator-layer-hint", wrap=True)
             self.style_details.set_selectable(True)
             body.pack_start(self.style_details, False, False, 0)
@@ -1065,7 +1073,8 @@ def run() -> int:
             self.style_source = Gtk.Entry()
             self.style_source.set_max_length(256)
             self.style_license = Gtk.ComboBoxText()
-            for value in ("unspecified", "CC0-1.0", "CC-BY-4.0", "MIT", "custom"):
+            for value in ("unspecified", "CC0-1.0", "CC-BY-4.0", "MIT",
+                          "OFL-1.1", "Apache-2.0", "custom"):
                 self.style_license.append(value, value)
             self.style_license.set_active_id("unspecified")
             self.style_origin = Gtk.ComboBoxText()
@@ -1152,16 +1161,8 @@ def run() -> int:
             if self._busy or self.working is None:
                 return
             kind = "font" if field == "font" else "icon"
-            declared = {"author": self.style_author.get_text(),
-                        "license": self.style_license.get_active_id(),
-                        "origin": self.style_origin.get_active_id(),
-                        "source_reference": self.style_source.get_text()}
             try:
-                from .de import pack
-                pack._provenance(declared)
-                label = self.style_label.get_text().strip()
-                if not label:
-                    raise style_assets.StyleAssetError("Name the asset before importing")
+                label, declared = self._style_import_declaration()
             except (ValueError, TypeError) as exc:
                 self._status(f"Check visual asset attribution: {exc}", error=True)
                 return
@@ -1187,6 +1188,72 @@ def run() -> int:
                 self._status(f"Imported private {kind} · save version to use it.", success=True)
             except (style_assets.StyleAssetError, OSError, ValueError) as exc:
                 self._status(f"Visual asset import rejected: {exc}", error=True)
+
+        def _style_import_declaration(self):
+            from .de import pack
+            declared = {"author": self.style_author.get_text(),
+                        "license": self.style_license.get_active_id(),
+                        "origin": self.style_origin.get_active_id(),
+                        "source_reference": self.style_source.get_text()}
+            pack._provenance(declared)
+            label = self.style_label.get_text().strip()
+            if not label:
+                raise style_assets.StyleAssetError("Name the asset before importing")
+            return label, declared
+
+        def _choose_installed_font(self, _button):
+            if self._busy or self.working is None:
+                return
+            chooser = Gtk.FontChooserDialog(title="Choose an installed TrueType font",
+                                            transient_for=self)
+            chooser.set_preview_text("RiceBowl · ÄÖÜ é € 123")
+            result = chooser.run()
+            selected = chooser.get_font_face() if result == Gtk.ResponseType.OK else None
+            family = selected.get_family().get_name() if selected is not None else None
+            style = selected.get_face_name() if selected is not None else None
+            chooser.destroy()
+            if family is None or style is None:
+                return
+            if not self.style_label.get_text().strip():
+                suggestion = "".join(ch for ch in f"{family} {style}"
+                                     if ch.isascii() and (ch.isalnum() or ch in " ._+-"))
+                self.style_label.set_text(suggestion[:60].strip() or "Installed font")
+            try:
+                label, declared = self._style_import_declaration()
+                if declared["license"] == "unspecified":
+                    raise style_assets.StyleAssetError(
+                        "Declare the verified font redistribution license before copying")
+            except (ValueError, TypeError) as exc:
+                self._status(f"Check font name / attribution: {exc}", error=True)
+                return
+            self._busy = True
+            self._actions()
+            self._status("Checking installed font and importing private copy…")
+
+            def work():
+                item, error = None, None
+                try:
+                    face = fonts.choose_font(family, style)
+                    item = style_assets.import_asset(face.path, kind="font", label=label,
+                                                     provenance=declared)
+                except (fonts.FontCatalogError, style_assets.StyleAssetError,
+                        OSError, ValueError) as exc:
+                    error = str(exc)
+                GLib.idle_add(done, item, error)
+
+            def done(item, error):
+                self._busy = False
+                self._actions()
+                if error:
+                    self._status(f"Installed font import rejected: {error}", error=True)
+                else:
+                    self._refresh_style_choices()
+                    self.style_choices["font"].set_active_id(item.identifier)
+                    self._status("Installed font imported privately · save version to use it.",
+                                 success=True)
+                return False
+
+            threading.Thread(target=work, name="ricebowl-font-import", daemon=True).start()
 
         def _upgrade_artwork(self, _button):
             if self._busy or self.info is None or not self._commit_pending():

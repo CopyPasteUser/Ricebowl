@@ -90,6 +90,18 @@ extra resident font allocation. Waybar still uses its standard fonts/icons.
 RicePack v4 carries selected images, fonts and provenance without code,
 scripts or active-session changes.
 
+The opt-in Wayland font picker uses the installed GTK FontChooser's native
+family/style preview and a read-only Fontconfig inventory. Fontconfig is the
+discovery source; the validated private TrueType digest is the runtime token
+owner. Choosing a face does not install fonts or change GTK/Qt application
+defaults. After the user supplies name and redistribution provenance, Creator
+copies the selected file into its content-addressed asset store; Save version
+and a subsequent real-shell render remain separate review actions. Native
+RicePlate prewarms common Latin glyphs and rasterizes extra Unicode codepoints
+on demand into a bounded fixed-cell cache. This intentionally preserves
+current geometry and memory limits; complex-script shaping and full font
+metrics are not yet supported.
+
 The v0.6 **Reference / visual QA** strip belongs to the real capture surface,
 not the schematic composition editor. A selected local PNG is checked and
 copied by digest to an owner-private, per-draft reference library. The selected

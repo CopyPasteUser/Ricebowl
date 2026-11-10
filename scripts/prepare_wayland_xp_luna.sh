@@ -13,7 +13,7 @@ for binary in cargo python3; do
 done
 
 echo "Building the schema-v12 native RicePlate (limited to two compile jobs)..."
-CARGO_BUILD_JOBS=2 cargo build --release --manifest-path \
+CARGO_BUILD_JOBS=2 cargo build --locked --release --manifest-path \
     "$project_root/components/riceplate-wayland/Cargo.toml"
 
 echo "Validating XP Luna without changing your selected desktop..."

@@ -72,7 +72,7 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("session-sync", help="Reconcile active rice after XFCE autostart")
     de = commands.add_parser("de", help="Inspect experimental RiceBowl Wayland desktop prerequisites")
     de.add_argument("action", choices=(
-        "check", "acceptance", "start", "shell", "catalog", "creator-api", "creator-history", "creator-schema", "creator-snapshot", "creator-recovery", "creator-recover", "review", "draft-check", "draft-edit", "visual-compare",
+        "check", "acceptance", "start", "shell", "catalog", "fonts", "creator-api", "creator-history", "creator-schema", "creator-snapshot", "creator-recovery", "creator-recover", "review", "draft-check", "draft-edit", "visual-compare",
         "visual-baseline",
         "capture", "render", "render-matrix", "render-matrix-inspect",
         "creator-status", "creator-stage", "creator-rollback",
@@ -627,6 +627,20 @@ def main(argv: list[str] | None = None) -> int:
                     for component in catalog["components"]:
                         print(f"  {component['id']:8} {component['native']:12} / {component['waybar']}")
                     print("Full desktop composition and screenshot-to-rice conversion: not available")
+                return 0
+            if args.action == "fonts":
+                if args.nested or args.recipe or args.panel != "waybar":
+                    raise ValueError("de fonts is read-only and accepts no session options")
+                from .de.fonts import installed_fonts
+                found = installed_fonts()
+                if args.json:
+                    print(json.dumps({"format_version": 1, "fonts": [
+                        {"family": item.family, "style": item.style, "path": str(item.path)}
+                        for item in found]}, ensure_ascii=False, indent=2))
+                else:
+                    print(f"{len(found)} installed, importable TrueType faces (up to 1 MiB)")
+                    for item in found:
+                        print(f"  {item.family} · {item.style}")
                 return 0
             if args.action == "review":
                 if args.nested or args.panel != "waybar" or not args.recipe:
