@@ -95,7 +95,7 @@ class ShellV4Tests(unittest.TestCase):
         self.assertEqual(len(parsed.menu[1]), 2)
         menu_contract = next(item for item in catalog.describe()["shell_components"]
                              if item["id"] == "native-menu")
-        self.assertEqual(menu_contract["presentation"]["variants"], ["tabs", "sidebar"])
+        self.assertEqual(menu_contract["presentation"]["variants"], ["tabs", "sidebar", "columns"])
 
         sample["menu"].pop("presentation")
         self.assertEqual(recipes.parse(json.dumps(sample).encode()).menu_presentation, "tabs")
