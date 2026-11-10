@@ -2865,12 +2865,22 @@ fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
     for placed in recipe::layout(style, width, groups.len()) {
         match placed.widget {
             Widget::Launcher => {
-                fill_rect(canvas, width, height, placed.x, 0, placed.width, height,
-                          style.active);
+                if let Some(launcher) = style.launcher.as_ref() {
+                    fill_rounded_rect(canvas, width, height, placed.x + 1, 2,
+                                      placed.width.saturating_sub(2), height.saturating_sub(4),
+                                      launcher.radius, launcher.background);
+                } else {
+                    fill_rect(canvas, width, height, placed.x, 0, placed.width, height,
+                              style.active);
+                }
+                let launcher_label = style.launcher.as_ref().map_or("Apps", |item| item.label.as_str());
+                let label_width = launcher_label.len() as u32 * 8 * style.font_scale;
                 draw_rice_text(canvas, width, height,
-                          placed.x + placed.width.saturating_sub(32 * style.font_scale) / 2,
+                          placed.x + placed.width.saturating_sub(label_width) / 2,
                           height.saturating_sub(8 * style.font_scale) / 2,
-                          "Apps", style.foreground, style);
+                          launcher_label,
+                          style.launcher.as_ref().map_or(style.foreground, |item| item.foreground),
+                          style);
                 if selected == Some(KeyboardTarget::Launcher) {
                     paint_focus_border(canvas, width, height, placed.x, placed.width,
                                        if style.focus != 0 { style.focus } else { style.foreground });
@@ -3180,10 +3190,15 @@ fn paint_compact_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
     let (width, height) = size;
     let rows = native_menu::compact_visible_actions(size);
     let first = state.first_action_row_for(rows);
+    let bg = menu.palette.map_or(style.background, |item| item.background);
+    let fg = menu.palette.map_or(style.foreground, |item| item.foreground);
+    let header = menu.palette.map_or(style.active, |item| item.header);
+    let header_fg = menu.palette.map_or(style.foreground, |item| item.header_foreground);
+    let selection = menu.palette.map_or(style.active, |item| item.selection);
     for pixel in canvas.chunks_exact_mut(4) {
-        pixel.copy_from_slice(&style.background.to_le_bytes());
+        pixel.copy_from_slice(&bg.to_le_bytes());
     }
-    fill_rect(canvas, width, height, 0, 0, width, 32, style.active);
+    fill_rect(canvas, width, height, 0, 0, width, 32, header);
     let heading = match state.view {
         native_menu::View::Groups => menu.title.as_str(),
         native_menu::View::Search => "Find applications & actions",
@@ -3192,7 +3207,7 @@ fn paint_compact_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
     let heading_limit = width.saturating_sub(16) / (8 * style.font_scale);
     draw_rice_text(canvas, width, height, 8, 9,
                    &heading.chars().take(heading_limit as usize).collect::<String>(),
-                   style.foreground, style);
+                   header_fg, style);
     let groups = menu.groups.len().max(1) as u32;
     for (index, group) in menu.groups.iter().enumerate() {
         let x = index as u32 * width / groups;
@@ -3201,13 +3216,13 @@ fn paint_compact_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
         if state.view == native_menu::View::Groups && state.group == index {
             fill_rect(canvas, width, height, x, native_menu::COMPACT_TABS_TOP,
                       cell_width, native_menu::COMPACT_TABS_HEIGHT,
-                      if style.hover != 0 { style.hover } else { style.active });
+                      selection);
         }
         let limit = cell_width.saturating_sub(12) / (8 * style.font_scale);
         draw_rice_text(canvas, width, height, x + 6,
                        native_menu::COMPACT_TABS_TOP + 10,
                        &group.title.chars().take(limit as usize).collect::<String>(),
-                       style.foreground, style);
+                       fg, style);
     }
     let actions = state.actions(menu);
     if actions.is_empty() {
@@ -3217,7 +3232,7 @@ fn paint_compact_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
             "No matching actions"
         } else { "No actions" };
         draw_text(canvas, width, height, 9, native_menu::COMPACT_ACTION_TOP + 14,
-                  label, style.foreground);
+                  label, fg);
     }
     for (row, action) in actions.iter().skip(first).take(rows).enumerate() {
         let index = first + row;
@@ -3227,7 +3242,7 @@ fn paint_compact_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
                               width.saturating_sub(10),
                               native_menu::COMPACT_ACTION_HEIGHT - 4,
                               style.task_radius,
-                              if style.hover != 0 { style.hover } else { style.active });
+                              selection);
         }
         let label = if *action == "logout" && !logout_available() {
             "Log out (unavailable)"
@@ -3237,7 +3252,7 @@ fn paint_compact_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
         let limit = width.saturating_sub(24) / (8 * style.font_scale);
         let color = if label.contains("(unavailable)") && style.disabled != 0 {
             style.disabled
-        } else { style.foreground };
+        } else { fg };
         draw_rice_text(canvas, width, height, 12,
                        y + (native_menu::COMPACT_ACTION_HEIGHT - 8 * style.font_scale) / 2,
                        &text.chars().take(limit as usize).collect::<String>(), color, style);
@@ -3245,7 +3260,7 @@ fn paint_compact_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
     // A real footer hit target closes even an empty search or saved view;
     // the counter tells keyboard users when more actions are available.
     let footer_y = height - native_menu::COMPACT_FOOTER_HEIGHT;
-    fill_rect(canvas, width, height, 0, footer_y, width, 1, style.active);
+    fill_rect(canvas, width, height, 0, footer_y, width, 1, header);
     let footnote = if let Some(notice) = state.notice {
         notice.to_owned()
     } else if state.view == native_menu::View::Search {
@@ -3258,16 +3273,21 @@ fn paint_compact_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
     };
     draw_text(canvas, width, height, 8, footer_y + 8,
               &footnote.chars().take(width.saturating_sub(12) as usize / 8)
-                  .collect::<String>(), style.foreground);
+                  .collect::<String>(), fg);
 }
 
 fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, state: &MenuState) {
     let width = native_menu::WIDTH;
     let height = native_menu::HEIGHT;
+    let bg = menu.palette.map_or(style.background, |item| item.background);
+    let fg = menu.palette.map_or(style.foreground, |item| item.foreground);
+    let header = menu.palette.map_or(style.active, |item| item.header);
+    let header_fg = menu.palette.map_or(style.foreground, |item| item.header_foreground);
+    let selection = menu.palette.map_or(style.active, |item| item.selection);
     for pixel in canvas.chunks_exact_mut(4) {
-        pixel.copy_from_slice(&style.background.to_le_bytes());
+        pixel.copy_from_slice(&bg.to_le_bytes());
     }
-    fill_rect(canvas, width, height, 0, 0, width, 38, style.active);
+    fill_rect(canvas, width, height, 0, 0, width, 38, header);
     draw_rice_text(
         canvas,
         width,
@@ -3276,7 +3296,7 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
         if style.font_scale == 1 { 15 } else { 11 },
         &menu.title.chars().take((width.saturating_sub(32) / (8 * style.font_scale)) as usize)
             .collect::<String>(),
-        style.foreground,
+        header_fg,
         style,
     );
     let sidebar = menu.presentation == recipe::MenuPresentation::Sidebar;
@@ -3285,7 +3305,7 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
         // Structural variant: a persistent navigation rail, with actions and
         // search in an independent content column. All colors are rice tokens.
         fill_rect(canvas, width, height, native_menu::SIDEBAR_WIDTH - 2,
-                  39, 2, height - 67, style.active);
+                  39, 2, height - 67, selection);
     }
     for (index, group) in menu.groups.iter().enumerate() {
         let (x, y, section_width, section_height) = if sidebar {
@@ -3298,26 +3318,26 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
         };
         if state.view == native_menu::View::Groups && state.group == index {
             fill_rect(canvas, width, height, x, y, section_width, section_height,
-                      if style.hover != 0 { style.hover } else { style.active });
+                      selection);
         }
         let available = section_width.saturating_sub(16) / (8 * style.font_scale);
         let label: String = group.title.chars().take(available as usize).collect();
         draw_rice_text(canvas, width, height, x + 8,
                   y + section_height.saturating_sub(8 * style.font_scale) / 2,
-                  &label, style.foreground, style);
+                  &label, fg, style);
     }
     let content_x = if sidebar { native_menu::SIDEBAR_WIDTH + 8 } else { 12 };
     if state.view == native_menu::View::Search {
         draw_text(canvas, width, height, content_x, 91,
-                  &format!("Find: {}", state.search), style.foreground);
+                  &format!("Find: {}", state.search), fg);
     } else if state.view == native_menu::View::Saved {
         draw_text(canvas, width, height, content_x, 91,
-                  &format!("Saved actions: {}", state.actions(menu).len()), style.foreground);
+                  &format!("Saved actions: {}", state.actions(menu).len()), fg);
     }
     if let Some(sections) = state.composed_sections(menu) {
         for section in sections {
             draw_text(canvas, width, height, content_x, section.top + 3,
-                      section.title, style.foreground);
+                      section.title, fg);
             if section.items.is_empty() {
                 let empty = match section.kind {
                     recipe::MenuContentKind::Favorites => "No favorites yet",
@@ -3326,13 +3346,13 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                     recipe::MenuContentKind::Actions => "No actions",
                 };
                 draw_text(canvas, width, height, content_x + 5,
-                          section.top + 28, empty, style.foreground);
+                          section.top + 28, empty, fg);
             }
             for tile in section.items {
                 if tile.index == state.selected {
                     fill_rounded_rect(canvas, width, height, tile.x + 2, tile.y + 2,
                                       tile.width.saturating_sub(4), tile.height.saturating_sub(4),
-                                      style.task_radius, style.active);
+                                      style.task_radius, selection);
                 }
                 let label = if tile.action == "logout" && !logout_available() {
                     "Log out (unavailable)"
@@ -3342,17 +3362,17 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                     // A compact letter tile, not a promise of themed app icons.
                     let initial: String = label.chars().next().unwrap_or('?').to_uppercase().collect();
                     draw_text(canvas, width, height, tile.x + 9, tile.y + 9,
-                              &initial, style.foreground);
+                              &initial, fg);
                     let short: String = label.chars().take(9).collect();
                     draw_text(canvas, width, height, tile.x + 9, tile.y + 27,
-                              &short, style.foreground);
+                              &short, fg);
                 } else {
                     let cap = if sidebar { if pinned { 18 } else { 20 } }
                               else if pinned { 32 } else { 34 };
                     let short: String = label.chars().take(cap).collect();
                     draw_text(canvas, width, height, tile.x + 10, tile.y + 12,
                               &format!("{}{}", if pinned { "* " } else { "" }, short),
-                              style.foreground);
+                              fg);
                 }
             }
         }
@@ -3362,7 +3382,7 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
         draw_text(canvas, width, height, content_x, 135,
                   if state.view == native_menu::View::Saved {
                       "No saved actions"
-                  } else { "No matching actions" }, style.foreground);
+                  } else { "No matching actions" }, fg);
     } else {
         for (row, action) in actions.into_iter().skip(state.first_action_row())
             .take(native_menu::VISIBLE_ACTIONS).enumerate() {
@@ -3379,7 +3399,7 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                     width - action_x - 8,
                     native_menu::ACTION_HEIGHT - 4,
                     style.task_radius,
-                    if style.hover != 0 { style.hover } else { style.active },
+                    selection,
                 );
             }
             let label = if action == "logout" && !logout_available() {
@@ -3394,7 +3414,7 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                           native_menu::ACTION_HEIGHT.saturating_sub(8 * style.font_scale) / 2 },
                       &format!("{}{}", if pinned { "* " } else { "" }, short_label),
                       if label.contains("(unavailable)") && style.disabled != 0
-                          { style.disabled } else { style.foreground }, style);
+                          { style.disabled } else { fg }, style);
         }
     }
     }
@@ -3405,7 +3425,7 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
         12,
         height - 16,
         state.notice.unwrap_or("Type to find  F2 Pin  F3 Saved"),
-        style.foreground,
+        fg,
     );
 }
 
@@ -5589,6 +5609,34 @@ mod tests {
                    &style.background.to_le_bytes());
         assert!(first.chunks_exact(4).any(|pixel|
             pixel == style.active.to_le_bytes()));
+    }
+
+    #[test]
+    fn xp_luna_painter_separates_green_start_and_blue_menu_header() {
+        let style = recipe::parse(include_str!("../../../examples/wayland/xp-luna.json"),
+                                  Some("xp-luna")).unwrap();
+        let width = 1366;
+        let height = style.height;
+        let mut panel = vec![0; (width * height * 4) as usize];
+        paint_panel(&mut panel, width, height, &style, &[], "12:00",
+                    &PowerStatus::NotPresent, &SystemStatus::default(),
+                    &tray::State::default(), 0, None, None, None);
+        let launcher = style.launcher.as_ref().unwrap();
+        let green = ((height / 2 * width + 10) * 4) as usize;
+        assert_eq!(&panel[green..green + 4], &launcher.background.to_le_bytes());
+        let blue = ((height / 2 * width + 115) * 4) as usize;
+        assert_eq!(&panel[blue..blue + 4], &style.background.to_le_bytes());
+
+        let menu = style.menu.as_ref().unwrap();
+        let mut state = native_menu::MenuState::default();
+        state.open();
+        let mut popup = vec![0; (native_menu::WIDTH * native_menu::HEIGHT * 4) as usize];
+        paint_menu(&mut popup, menu, &style, &state);
+        let palette = menu.palette.unwrap();
+        assert_eq!(&popup[..4], &palette.header.to_le_bytes());
+        let corner = (((native_menu::HEIGHT - 2) * native_menu::WIDTH +
+                       native_menu::WIDTH - 2) * 4) as usize;
+        assert_eq!(&popup[corner..corner + 4], &palette.background.to_le_bytes());
     }
 
     #[test]

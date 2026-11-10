@@ -30,6 +30,9 @@ def _manifest(recipe: recipes.PanelRecipe) -> dict[str, Any]:
                                     for part in recipe.layout)))
     if recipe.metrics is not None:
         panel["metrics"] = dict(zip(recipes.METRIC_FIELDS, recipe.metrics))
+    if recipe.launcher is not None:
+        from dataclasses import asdict
+        panel["launcher"] = asdict(recipe.launcher)
     result = {
         "schema_version": recipe.schema_version,
         "id": recipe.recipe_id,
@@ -47,6 +50,9 @@ def _manifest(recipe: recipes.PanelRecipe) -> dict[str, Any]:
             for group in recipe.menu[1]]}
         if recipe.schema_version >= 6 and recipe.menu_presentation != "tabs":
             result["menu"]["presentation"] = recipe.menu_presentation
+        if recipe.menu_palette is not None:
+            from dataclasses import asdict
+            result["menu"]["colors"] = asdict(recipe.menu_palette)
         result["desktop"] = {"wallpaper": recipe.wallpaper}
         if recipe.schema_version >= 5:
             assert recipe.desktop_icons is not None
@@ -111,11 +117,15 @@ def _fields(manifest: dict[str, Any]) -> dict[str, Any]:
     for field in recipes.METRIC_FIELDS:
         # An absent v1 metric differs from a v2 metric at its default.
         result[f"/panel/metrics/{field}"] = panel.get("metrics", {}).get(field)
+    for field in ("label", "background", "foreground", "radius"):
+        result[f"/panel/launcher/{field}"] = panel.get("launcher", {}).get(field)
     for color in recipes.COLORS:
         result[f"/colors/{color}"] = manifest["colors"][color]
     result["/menu/title"] = manifest.get("menu", {}).get("title")
     result["/menu/groups"] = manifest.get("menu", {}).get("groups")
     result["/menu/presentation"] = manifest.get("menu", {}).get("presentation", "tabs")
+    for field in ("background", "foreground", "header", "header_foreground", "selection"):
+        result[f"/menu/colors/{field}"] = manifest.get("menu", {}).get("colors", {}).get(field)
     result["/desktop/wallpaper"] = manifest.get("desktop", {}).get("wallpaper")
     result["/desktop/icons"] = manifest.get("desktop", {}).get("icons")
     for name in ("widgets", "window_region", "compact_hide_widgets"):

@@ -56,6 +56,33 @@ def _allowed_value(path: str, value: Any, schema_version: int,
         return recipes._safe_label(value, 32)
     if path == "/menu/presentation":
         return type(value) is str and value in ("tabs", "sidebar")
+    if path == "/menu/colors" or path.startswith("/menu/colors/"):
+        if schema_version < 12:
+            return False
+        if path == "/menu/colors":
+            try:
+                recipes._parse_menu_palette(value)
+                return True
+            except recipes.RecipeError:
+                return False
+        return (type(value) is str and
+                re.fullmatch(r"#[0-9a-fA-F]{6}", value) is not None)
+    if path == "/panel/launcher" or path.startswith("/panel/launcher/"):
+        if schema_version < 12:
+            return False
+        if path == "/panel/launcher":
+            try:
+                recipes._parse_launcher(value)
+                return True
+            except recipes.RecipeError:
+                return False
+        field = path.rsplit("/", 1)[-1]
+        if field == "label":
+            return recipes._safe_label(value, 16)
+        if field == "radius":
+            return type(value) is int and 0 <= value <= 20
+        return (type(value) is str and
+                re.fullmatch(r"#[0-9a-fA-F]{6}", value) is not None)
     if path == "/desktop/wallpaper":
         return (type(value) is str and (value in recipes.WALLPAPERS
                 or schema_version >= 6 and assets.ASSET_ID.fullmatch(value) is not None))
@@ -229,6 +256,9 @@ def _prepare_edit(*, recipe_token: str, edit_source: Path,
                              code="unsupported_property_for_schema", path=path)
         if path == "/components" and modified["schema_version"] < 9:
             raise DraftError("Component bindings require a schema-v9 source recipe",
+                             code="unsupported_property_for_schema", path=path)
+        if path.startswith(("/panel/launcher", "/menu/colors")) and modified["schema_version"] < 12:
+            raise DraftError("Launcher/menu decoration requires schema v12",
                              code="unsupported_property_for_schema", path=path)
         parts = path.lstrip("/").split("/")
         current = modified

@@ -127,7 +127,7 @@ def describe_ricepack() -> dict[str, object]:
         "entries": ["ricepack.json", "recipe.json", "assets/wallpaper.png (v3/v4)",
                     "assets/font.ttf (v4)", "assets/icons/{action}.png (v4)"],
         "maximum_archive_bytes": 6 * 1024 * 1024,
-        "recipe_schema_versions": list(range(1, 12)),
+        "recipe_schema_versions": list(range(1, 13)),
         "asset_support": "content-addressed wallpaper, up to one TrueType font and three 48px RGBA icons",
         "asset_manifest": {"since_version": 2, "version": 2,
                            "fields": ["id", "sha256", "provenance"],
@@ -230,9 +230,9 @@ def describe_creator_api() -> dict[str, object]:
         "discovery": "ricebowl de creator-api --json",
         "feature_negotiation": {
             "mode": "read-only-discovery-before-use",
-            "recipe_schema_versions": list(range(1, 12)),
+            "recipe_schema_versions": list(range(1, 13)),
             "recommended_authoring_schema": 11,
-            "catalog_version": 12,
+            "catalog_version": 13,
             "features": [
                 {"id": "shared-status-action-bindings", "supported": True,
                  "since_schema": 9, "runtime": "native; Waybar actions disabled when unverifiable"},
@@ -308,7 +308,7 @@ def describe_creator_api() -> dict[str, object]:
         "next_login_selection_mutation": "creator-stage/rollback only; requires explicit invocation",
         "commands": [
             {"command": "catalog", "effect": "read-only component discovery",
-             "cli": "de catalog --json", "contract_version": 12},
+             "cli": "de catalog --json", "contract_version": 13},
             {"command": "review", "effect": "validate recipe and compare semantic diffs",
              "cli": "de review --recipe ID [--compare ID] --json", "contract_version": 1},
             {"command": "draft-check", "effect": "read-only edit validation and semantic diff",
@@ -393,7 +393,7 @@ def describe_creator_api() -> dict[str, object]:
         "live": describe_live(),
         "limitations": [
             "Not an automatic screenshot-to-rice converter",
-            "Schema-v1..v11 shell preview; v11 adds private native TTF and 48px RGBA icons; v6+ supports bounded wallpaper PNG",
+            "Schema-v1..v12 shell preview; v12 adds bounded launcher/menu styling; v11 adds private native fonts/icons; v6+ supports bounded wallpaper PNG",
             "Live apply is explicit and supervised; Wayland session remains experimental",
             "Native tray, complete settings, notification center and physical multi-monitor acceptance remain open",
         ],
@@ -427,6 +427,11 @@ EDITABLE_PATHS = frozenset((
     "/components",
     "/artwork/font", "/artwork/icons",
     "/artwork/icons/applications", "/artwork/icons/terminal", "/artwork/icons/lock",
+    "/panel/launcher", "/menu/colors",
+    *(f"/panel/launcher/{name}" for name in
+      ("label", "background", "foreground", "radius")),
+    *(f"/menu/colors/{name}" for name in
+      ("background", "foreground", "header", "header_foreground", "selection")),
     *(f"/appearance/{name}" for name in
       ("font_scale", "font_weight", "item_spacing", "hover", "focus", "disabled")),
     "/tokens/label_padding", "/tokens/task_radius",

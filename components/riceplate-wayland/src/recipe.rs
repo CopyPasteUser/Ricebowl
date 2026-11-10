@@ -81,6 +81,24 @@ pub struct NativeMenu {
     pub title: String,
     pub groups: Vec<NativeMenuGroup>,
     pub presentation: MenuPresentation,
+    pub palette: Option<MenuPalette>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct MenuPalette {
+    pub background: u32,
+    pub foreground: u32,
+    pub header: u32,
+    pub header_foreground: u32,
+    pub selection: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct LauncherDecoration {
+    pub label: String,
+    pub background: u32,
+    pub foreground: u32,
+    pub radius: u32,
 }
 
 /// The same actions/state can be rendered as a horizontal tab strip or as a
@@ -186,6 +204,7 @@ pub struct PanelStyle {
     pub background: u32,
     pub foreground: u32,
     pub active: u32,
+    pub launcher: Option<LauncherDecoration>,
     pub desktop_icons: Vec<DesktopIcon>,
     pub composition: Option<DesktopComposition>,
     pub menu: Option<NativeMenu>,
@@ -311,6 +330,27 @@ struct Menu {
     groups: Vec<MenuGroup>,
     #[serde(default, deserialize_with = "deserialize_present")]
     presentation: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    colors: Option<MenuColors>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MenuColors {
+    background: String,
+    foreground: String,
+    header: String,
+    header_foreground: String,
+    selection: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LauncherInput {
+    label: String,
+    background: String,
+    foreground: String,
+    radius: u32,
 }
 
 #[derive(Deserialize)]
@@ -374,6 +414,8 @@ struct Panel {
     // Distinguish an absent field from an explicitly supplied JSON null.
     #[serde(default, deserialize_with = "deserialize_present")]
     metrics: Option<PanelMetrics>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    launcher: Option<LauncherInput>,
 }
 
 fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
@@ -732,7 +774,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
     }
     let recipe: Recipe = serde_json::from_str(raw)?;
     let id = recipe.id.as_bytes();
-    if ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].contains(&recipe.schema_version)
+    if !(1..=12).contains(&recipe.schema_version)
         || id.len() < 2
         || id.len() > 32
         || !id[0].is_ascii_lowercase()
@@ -749,13 +791,13 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
         return Err("RicePlate recipe metadata or dimensions are invalid".into());
     }
     let components = match (recipe.schema_version, recipe.components) {
-        (9 | 10 | 11, Some(definitions)) => validate_components(definitions)?,
+        (9 | 10 | 11 | 12, Some(definitions)) => validate_components(definitions)?,
         (1..=8, None) => Vec::new(),
         _ => return Err("Component library requires schema v9".into()),
     };
     let widths = match (recipe.schema_version, recipe.panel.metrics) {
         (1, None) => [LAUNCHER_WIDTH, TASK_WIDTH, CLOCK_WIDTH],
-        (2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11, Some(metrics))
+        (2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12, Some(metrics))
             if (64..=256).contains(&metrics.launcher_width)
                 && (96..=256).contains(&metrics.task_width)
                 && (64..=256).contains(&metrics.clock_width) =>
@@ -800,7 +842,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
                 }
             }
         }
-        (3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11, None, Some(layout)) => {
+        (3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12, None, Some(layout)) => {
             let source = [layout.start, layout.center, layout.end];
             let mut counts = [0_usize, 0_usize];
             for (index, nodes) in source.iter().enumerate() {
@@ -832,7 +874,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
     let mut task_radius = 4;
     let (font_scale, font_bold, item_spacing, hover, focus, disabled) =
         match (recipe.schema_version, recipe.appearance) {
-            (10 | 11, Some(value)) if (1..=2).contains(&value.font_scale)
+            (10 | 11 | 12, Some(value)) if (1..=2).contains(&value.font_scale)
                 && ["regular", "bold"].contains(&value.font_weight.as_str())
                 && value.item_spacing <= 16 => (
                     value.font_scale, value.font_weight == "bold", value.item_spacing,
@@ -841,7 +883,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
             _ => return Err("Appearance requires validated schema v10 tokens".into()),
         };
     let artwork = match (recipe.schema_version, recipe.artwork) {
-        (11, Some(value)) => Some(ArtworkSelection {
+        (11 | 12, Some(value)) => Some(ArtworkSelection {
             font: asset_id(&value.font, "font-")?,
             icons: [
                 asset_id(&value.icons.applications, "icon-")?,
@@ -852,10 +894,21 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
         (1..=10, None) => None,
         _ => return Err("Visual artwork requires the complete schema v11 contract".into()),
     };
+    let launcher = match (recipe.schema_version, recipe.panel.launcher) {
+        (12, Some(value)) if safe_label(&value.label, 16) && value.radius <= 20 =>
+            Some(LauncherDecoration {
+                label: value.label,
+                background: color(&value.background)?,
+                foreground: color(&value.foreground)?,
+                radius: value.radius,
+            }),
+        (1..=12, None) => None,
+        _ => return Err("Launcher decoration requires bounded schema v12 tokens".into()),
+    };
     let mut desktop_icons = Vec::new();
     let mut native_menu = None;
     let composition = match (recipe.schema_version, recipe.composition) {
-        (8 | 9 | 10 | 11, Some(input)) => Some(validate_composition(input, &components,
+        (8 | 9 | 10 | 11 | 12, Some(input)) => Some(validate_composition(input, &components,
                                                             recipe.schema_version)?),
         (1..=7, None) => None,
         _ => return Err("Desktop composition requires schema v8 or newer".into()),
@@ -867,10 +920,22 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
         recipe.tokens,
         recipe.responsive,
     ) {
-        (version @ (4 | 5 | 6 | 7 | 8 | 9 | 10 | 11), Some(menu), Some(desktop), Some(tokens), Some(responsive)) => {
+        (version @ (4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12), Some(menu), Some(desktop), Some(tokens), Some(responsive)) => {
             validate_menu(&menu, version)?;
+            let palette = match (version, menu.colors) {
+                (12, Some(value)) => Some(MenuPalette {
+                    background: color(&value.background)?,
+                    foreground: color(&value.foreground)?,
+                    header: color(&value.header)?,
+                    header_foreground: color(&value.header_foreground)?,
+                    selection: color(&value.selection)?,
+                }),
+                (_, None) => None,
+                _ => return Err("Menu colors require schema v12".into()),
+            };
             native_menu = Some(NativeMenu {
                 title: menu.title,
+                palette,
                 presentation: if menu.presentation.as_deref() == Some("sidebar") {
                     MenuPresentation::Sidebar
                 } else {
@@ -898,7 +963,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
             });
             desktop_icons = match (version, desktop.icons) {
                 (4, None) => Vec::new(),
-                (5 | 6 | 7 | 8 | 9 | 10 | 11, Some(icons)) => validate_icons(icons)?,
+                (5 | 6 | 7 | 8 | 9 | 10 | 11 | 12, Some(icons)) => validate_icons(icons)?,
                 _ => return Err("Schema v5 requires icons; v4 forbids them".into()),
             };
             let bundled = [
@@ -982,6 +1047,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
         background: color(&recipe.colors.background)?,
         foreground: color(&recipe.colors.foreground)?,
         active: color(&recipe.colors.active)?,
+        launcher,
         desktop_icons,
         composition,
         menu: native_menu,
@@ -1225,6 +1291,29 @@ mod tests {
     const LAYOUT_V8: &str = include_str!("../../../tests/fixtures/riceplate-layout-v8.json");
     const COMPONENTS_V9: &str = include_str!("../../../tests/fixtures/riceplate-components-v9.json");
     const APPEARANCE_V10: &str = include_str!("../../../tests/fixtures/riceplate-appearance-v10.json");
+    const XP_LUNA_V12: &str = include_str!("../../../examples/wayland/xp-luna.json");
+
+    #[test]
+    fn v12_luna_styles_are_data_driven_and_legacy_versions_fail_closed() {
+        let style = parse(XP_LUNA_V12, Some("xp-luna")).unwrap();
+        assert_eq!(style.launcher.as_ref().unwrap().label, "start");
+        assert_eq!(style.launcher.as_ref().unwrap().background, color("#398c29").unwrap());
+        assert_ne!(style.launcher.as_ref().unwrap().background, style.active);
+        assert_eq!(style.menu.as_ref().unwrap().palette.unwrap().background,
+                   color("#fffdf1").unwrap());
+        assert_eq!(layout(&style, 1366, 3)[0].widget, Widget::Launcher);
+        assert_eq!(layout(&style, 800, 3)[0].widget, Widget::Launcher);
+
+        let mut value: serde_json::Value = serde_json::from_str(XP_LUNA_V12).unwrap();
+        value["schema_version"] = serde_json::json!(11);
+        assert!(parse(&value.to_string(), None).is_err());
+        value["schema_version"] = serde_json::json!(12);
+        value["panel"]["launcher"]["radius"] = serde_json::json!(21);
+        assert!(parse(&value.to_string(), None).is_err());
+        value["panel"]["launcher"]["radius"] = serde_json::json!(16);
+        value["menu"]["colors"]["foreground"] = serde_json::json!("url(sh)");
+        assert!(parse(&value.to_string(), None).is_err());
+    }
 
     #[test]
     fn v11_artwork_is_bounded_and_legacy_v10_does_not_accept_it() {

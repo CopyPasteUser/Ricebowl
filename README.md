@@ -49,6 +49,9 @@ capture, not proof of a tested laptop installation.
 
 **[Wayland overview and safe first steps](WAYLAND.md)** · [Progress and screenshots](WAYLAND_PROGRESS.md)
 
+New: [XP Luna-inspired Wayland rice](examples/wayland/README.md#xp-luna-for-native-wayland-schema-v12)
+with a green Start button, cobalt taskbar and supervised two-minute test.
+
 ## Project links
 
 - [RiceField file manager](https://github.com/CopyPasteUser/Ricefield) and [Taskotto task manager](https://github.com/CopyPasteUser/Taskotto): optional, validated appearance integration.

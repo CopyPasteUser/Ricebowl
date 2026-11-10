@@ -176,6 +176,44 @@ def _parse_appearance(raw: Any) -> Appearance:
 
 
 @dataclass(frozen=True)
+class LauncherDecoration:
+    label: str
+    background: str
+    foreground: str
+    radius: int
+
+
+@dataclass(frozen=True)
+class MenuPalette:
+    background: str
+    foreground: str
+    header: str
+    header_foreground: str
+    selection: str
+
+
+def _parse_launcher(raw: Any) -> LauncherDecoration:
+    data = _strict_keys(raw, {"label", "background", "foreground", "radius"},
+                        "Launcher decoration")
+    if (not _safe_label(data["label"], 16)
+            or type(data["radius"]) is not int or not 0 <= data["radius"] <= 20
+            or any(type(data[key]) is not str or
+                   re.fullmatch(r"#[0-9a-fA-F]{6}", data[key]) is None
+                   for key in ("background", "foreground"))):
+        raise RecipeError("Invalid bounded launcher decoration")
+    return LauncherDecoration(**data)
+
+
+def _parse_menu_palette(raw: Any) -> MenuPalette:
+    fields = set(MenuPalette.__dataclass_fields__)
+    data = _strict_keys(raw, fields, "Menu palette")
+    if any(type(data[key]) is not str or
+           re.fullmatch(r"#[0-9a-fA-F]{6}", data[key]) is None for key in fields):
+        raise RecipeError("Menu palette requires five hexadecimal colors")
+    return MenuPalette(**data)
+
+
+@dataclass(frozen=True)
 class WindowRegion:
     x: int
     y: int
@@ -211,6 +249,8 @@ class PanelRecipe:
     components: tuple[ComponentDefinition, ...] = ()
     appearance: Appearance | None = None
     artwork: Artwork | None = None
+    launcher: LauncherDecoration | None = None
+    menu_palette: MenuPalette | None = None
 
 
 def _parse_components(raw: Any) -> dict[str, ComponentDefinition]:
@@ -292,12 +332,14 @@ def _safe_label(value: Any, limit: int = 24) -> bool:
 
 def _parse_menu(value: Any, *, schema_version: int = 4) -> tuple[str, tuple[MenuGroup, ...]]:
     if schema_version >= 6 and isinstance(value, dict):
+        allowed = {"title", "groups"}
         if "presentation" in value:
             if type(value["presentation"]) is not str or value["presentation"] not in ("tabs", "sidebar"):
                 raise RecipeError("Menu presentation must be tabs or sidebar")
-            _strict_keys(value, {"title", "groups", "presentation"}, "Menu")
-        else:
-            _strict_keys(value, {"title", "groups"}, "Menu")
+            allowed.add("presentation")
+        if "colors" in value and schema_version >= 12:
+            allowed.add("colors")
+        _strict_keys(value, allowed, "Menu")
         data = value
     else:
         data = _strict_keys(value, {"title", "groups"}, "Menu")
@@ -502,7 +544,7 @@ def parse(raw: bytes) -> PanelRecipe:
     if not isinstance(data, dict):
         raise RecipeError("Recipe must be a JSON object")
     version = data.get("schema_version")
-    if type(version) is not int or version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11):
+    if type(version) is not int or version not in range(1, 13):
         raise RecipeError("Unsupported RicePlate recipe schema version")
     expected = {"schema_version", "id", "name", "panel", "colors"}
     if version >= 4:
@@ -529,7 +571,10 @@ def parse(raw: bytes) -> PanelRecipe:
     panel_keys = {"position", "height", "layout" if version >= 3 else "sections"}
     if version >= 2:
         panel_keys.add("metrics")
+    if version >= 12 and "launcher" in data["panel"]:
+        panel_keys.add("launcher")
     panel = _strict_keys(data["panel"], panel_keys, "Panel")
+    launcher = _parse_launcher(panel["launcher"]) if "launcher" in panel else None
     if panel["position"] not in ("top", "bottom"):
         raise RecipeError("Panel position must be top or bottom")
     if type(panel["height"]) is not int or not 28 <= panel["height"] <= 64:
@@ -578,11 +623,14 @@ def parse(raw: bytes) -> PanelRecipe:
     compact = None
     desktop_icons = None
     composition = None
+    menu_palette = None
     if version >= 4:
         if version >= 8:
             composition = _parse_composition(data["composition"], components=components,
                                              schema_version=version)
         menu = _parse_menu(data["menu"], schema_version=version)
+        if "colors" in data["menu"]:
+            menu_palette = _parse_menu_palette(data["menu"]["colors"])
         desktop = _strict_keys(data["desktop"],
                                {"wallpaper", "icons"} if version >= 5 else {"wallpaper"},
                                "Desktop")
@@ -637,7 +685,8 @@ def parse(raw: bytes) -> PanelRecipe:
                        metrics, layout_nodes, version, menu, wallpaper, tokens, compact,
                        desktop_icons,
                        data["menu"].get("presentation", "tabs") if version >= 6 else "tabs",
-                       composition, tuple(components.values()), appearance, artwork)
+                       composition, tuple(components.values()), appearance, artwork,
+                       launcher, menu_palette)
 
 
 def load(token: str) -> PanelRecipe:
@@ -1048,7 +1097,7 @@ def _prepare_template(*, source: str, recipe_id: str, name: str,
     if source not in BUILTINS:
         raise RecipeError("Choose a bundled classic or chrome template")
     data = json.loads(BUILTINS[source].read_text(encoding="utf-8"))
-    if schema_version in (2, 3, 4, 5, 6, 7, 8, 9, 10, 11):
+    if schema_version in range(2, 13):
         data["schema_version"] = schema_version
         data["panel"]["metrics"] = dict(zip(METRIC_FIELDS, METRIC_DEFAULTS))
         if schema_version >= 3:
@@ -1112,6 +1161,14 @@ def _prepare_template(*, source: str, recipe_id: str, name: str,
                 from .style_assets import ICON_ACTIONS
                 data["artwork"] = {"font": "builtin",
                                    "icons": {action: "builtin" for action in ICON_ACTIONS}}
+            if schema_version >= 12:
+                data["panel"]["launcher"] = {"label": "Apps", "background": "#527a75",
+                                             "foreground": "#ffffff", "radius": 4}
+                data["menu"]["colors"] = {
+                    "background": "#28353b", "foreground": "#eaf2ef",
+                    "header": "#527a75", "header_foreground": "#ffffff",
+                    "selection": "#45769b",
+                }
     elif schema_version != 1:
         raise RecipeError("Unsupported RicePlate template schema version")
     data["id"] = recipe_id
@@ -1214,8 +1271,9 @@ def waybar_config(recipe: PanelRecipe, *, screen_width: int | None = None) -> tu
            for side, names in zip(("left", "center", "right"), section_modules)},
         "wlr/taskbar": {"format": "{icon}", "icon-size": 22,
                         "on-click": "minimize-raise", "tooltip-format": "{title}"},
-        "custom/rice-launcher": {"format": "◈", "on-click": "fuzzel",
-                                 "tooltip": True, "tooltip-format": "Applications"},
+        "custom/rice-launcher": {"format": recipe.launcher.label if recipe.launcher else "◈",
+                                 "on-click": "fuzzel", "tooltip": True,
+                                 "tooltip-format": "Applications"},
         "clock": {"format": "{:%a %d %b  %H:%M}"},
         **generated_modules,
     }
@@ -1240,6 +1298,11 @@ def waybar_config(recipe: PanelRecipe, *, screen_width: int | None = None) -> tu
             f"#taskbar button {{ min-width: {task_width - 14}px; }}\n"
             f"#clock {{ min-width: {clock_width - 16}px; }}\n"
         )
+    if recipe.launcher is not None:
+        launch = recipe.launcher
+        css += (f"#custom-rice-launcher {{ background: {launch.background}; "
+                f"color: {launch.foreground}; border-radius: {launch.radius}px; "
+                "font-weight: bold; }}\n")
     if generated_css:
         css += "\n".join(generated_css) + "\n"
     if appearance:
@@ -1248,6 +1311,9 @@ def waybar_config(recipe: PanelRecipe, *, screen_width: int | None = None) -> tu
             f"#taskbar button:focus, #custom-rice-launcher:focus {{ "
             f"outline: 2px solid {appearance.focus}; }}\n"
         )
+    if recipe.launcher is not None:
+        # A shared task hover token must not turn a green Start button blue.
+        css += f"#custom-rice-launcher:hover {{ background: {recipe.launcher.background}; }}\n"
     return json.dumps(config, ensure_ascii=False, indent=2), css
 
 

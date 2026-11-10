@@ -188,13 +188,24 @@ def _properties(schema_version: int) -> dict[str, dict[str, Any]]:
         properties["/artwork/icons"] = _object({key: icon for key in recipes.ICON_ACTIONS})
         for key in recipes.ICON_ACTIONS:
             properties[f"/artwork/icons/{key}"] = icon
+    if schema_version >= 12:
+        launcher = {"label": _label(16), "background": _color(),
+                    "foreground": _color(), "radius": _integer(0, 20)}
+        properties["/panel/launcher"] = _object(launcher)
+        for key, spec in launcher.items():
+            properties[f"/panel/launcher/{key}"] = spec
+        menu_palette = {key: _color() for key in
+                        ("background", "foreground", "header", "header_foreground", "selection")}
+        properties["/menu/colors"] = _object(menu_palette)
+        for key, spec in menu_palette.items():
+            properties[f"/menu/colors/{key}"] = spec
     return properties
 
 
 def describe(schema_version: int) -> dict[str, Any]:
     """Return a standalone, read-only edit JSON Schema for one recipe version."""
-    if type(schema_version) is not int or not 1 <= schema_version <= 11:
-        raise ValueError("Creator edit schema requires recipe schema v1–v11")
+    if type(schema_version) is not int or not 1 <= schema_version <= 12:
+        raise ValueError("Creator edit schema requires recipe schema v1–v12")
     properties = _properties(schema_version)
     alternatives = [_object({"op": {"const": "set"}, "path": {"const": path},
                              "value": constraint})

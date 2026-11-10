@@ -21,7 +21,7 @@ def _edit(path, value):
 
 class CreatorPropertySchemaTests(unittest.TestCase):
     def test_all_advertised_paths_are_represented_in_exact_version_union(self):
-        schemas = [creator_schema.describe(version) for version in range(1, 12)]
+        schemas = [creator_schema.describe(version) for version in range(1, 13)]
         self.assertEqual(set().union(*(_paths(schema) for schema in schemas)),
                          creator_contract.EDITABLE_PATHS)
         for version, schema in enumerate(schemas, start=1):
@@ -41,16 +41,18 @@ class CreatorPropertySchemaTests(unittest.TestCase):
         self.assertIn("/composition/widgets", _paths(schemas[7]))
         self.assertIn("/components", _paths(schemas[8]))
         self.assertIn("/artwork/font", _paths(schemas[10]))
+        self.assertIn("/panel/launcher", _paths(schemas[11]))
+        self.assertIn("/menu/colors", _paths(schemas[11]))
 
     def test_schema_rejects_unsupported_versions(self):
-        for version in (0, 12, True, "11", 1.5):
+        for version in (0, 13, True, "11", 1.5):
             with self.subTest(version=version), self.assertRaises(ValueError):
                 creator_schema.describe(version)
 
     @unittest.skipUnless(importlib.util.find_spec("jsonschema"), "optional JSON Schema validator unavailable")
     def test_standard_jsonschema_rejects_malformed_and_executable_edits(self):
         import jsonschema
-        for version in range(1, 12):
+        for version in range(1, 13):
             jsonschema.Draft202012Validator.check_schema(creator_schema.describe(version))
         schema = creator_schema.describe(11)
         valid = (
