@@ -5633,6 +5633,35 @@ mod tests {
     }
 
     #[test]
+    fn luna_columns_render_separate_visible_panes_with_real_selection() {
+        let style = recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let menu = style.menu.as_ref().unwrap();
+        let mut state = native_menu::MenuState::default();
+        state.open();
+        let width = native_menu::WIDTH;
+        let height = native_menu::HEIGHT;
+        let mut canvas = vec![0; (width * height * 4) as usize];
+        paint_menu(&mut canvas, menu, &style, &state);
+        let pixel = |x: u32, y: u32| {
+            let offset = ((y * width + x) * 4) as usize;
+            u32::from_le_bytes(canvas[offset..offset+4].try_into().unwrap())
+        };
+        let palette = menu.palette.unwrap();
+        assert_eq!(pixel(120, 70), palette.background);
+        assert_eq!(pixel(260, 70), palette.selection);
+        assert_eq!(pixel(native_menu::COLUMNS_SPLIT, 70), palette.header);
+        assert_eq!(pixel(260, height - 10), palette.header);
+        assert_eq!(pixel(12, 110), palette.header); // current left action
+
+        state.select_group(menu, 1);
+        paint_menu(&mut canvas, menu, &style, &state);
+        assert_eq!(pixel(176, 110), palette.header); // current right action
+        assert_eq!(pixel(12, 110), palette.background);
+    }
+
+    #[test]
     fn xp_luna_painter_separates_green_start_and_blue_menu_header() {
         let style = recipe::parse(include_str!("../../../examples/wayland/xp-luna.json"),
                                   Some("xp-luna")).unwrap();
