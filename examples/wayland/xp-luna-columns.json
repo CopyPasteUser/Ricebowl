@@ -106,13 +106,6 @@
         "actions": [
           "settings",
           "notifications"
-        ],
-        "content": [
-          {
-            "type": "actions",
-            "title": "System Tools",
-            "limit": 2
-          }
         ]
       },
       {
@@ -120,13 +113,6 @@
         "actions": [
           "lock",
           "logout"
-        ],
-        "content": [
-          {
-            "type": "actions",
-            "title": "Session Tools",
-            "limit": 2
-          }
         ]
       }
     ]
