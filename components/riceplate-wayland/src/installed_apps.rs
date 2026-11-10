@@ -20,7 +20,30 @@ pub struct App {
 
 impl App {
     pub fn matches(&self, query: &str) -> bool {
-        self.search_text.contains(query)
+        self.match_score(query).is_some()
+    }
+
+    /// Lower is better. Prefer the displayed name over desktop-file keywords,
+    /// while letting users find an app with several words in any order.
+    /// Search runs only against the bounded, already-parsed application index.
+    pub fn match_score(&self, query: &str) -> Option<u8> {
+        let query = query.trim().to_lowercase();
+        if query.is_empty() { return None; }
+        let words: Vec<_> = query.split_whitespace().collect();
+        let name = self.name.to_lowercase();
+        let all_contained = |haystack: &str| words.iter().all(|word| haystack.contains(word));
+        let all_word_prefixes = |haystack: &str| words.iter().all(|word| {
+            haystack.split(|ch: char| !ch.is_alphanumeric())
+                .any(|part| part.starts_with(word))
+        });
+
+        if name == query { Some(0) }
+        else if name.starts_with(&query) { Some(1) }
+        else if all_word_prefixes(&name) { Some(2) }
+        else if all_contained(&name) { Some(3) }
+        else if all_word_prefixes(&self.search_text) { Some(4) }
+        else if all_contained(&self.search_text) { Some(5) }
+        else { None }
     }
 }
 
@@ -322,6 +345,39 @@ mod tests {
         assert!(parse_entry(&format!("{prefix}Name=Shadow"), "", "").is_none());
         assert!(parse_entry(&format!("{prefix}Name[de]=Erste\nName[de]=Zweite"), "", "de").is_none());
         assert!(parse_entry(&format!("{prefix}[Other]\nName=Other\n[Desktop Entry]\nName=Shadow"), "", "").is_none());
+    }
+
+    #[test]
+    fn search_ranks_visible_names_before_generic_keywords() {
+        let app = |name: &str, search: &str| App {
+            action: "desktop:test.desktop".into(), name: name.into(),
+            search_text: search.into(), path: "/usr/share/applications/test.desktop".into(),
+        };
+        let exact = app("File Manager", "file manager browse folders");
+        let prefix = app("File Manager Pro", "file manager pro browse folders");
+        let words = app("Manager File", "manager file browse folders");
+        let contained = app("MyFileManager", "myfilemanager browse folders");
+        let generic = app("Explorer", "explorer browse file manager");
+        let no_match = app("Music", "music audio songs");
+        assert_eq!(exact.match_score(" FILE manager "), Some(0));
+        assert_eq!(prefix.match_score("file manager"), Some(1));
+        assert_eq!(words.match_score("file manager"), Some(2));
+        assert_eq!(contained.match_score("file manager"), Some(3));
+        assert_eq!(generic.match_score("file manager"), Some(4));
+        assert_eq!(no_match.match_score("file manager"), None);
+        assert!(!no_match.matches("file manager"));
+        assert_eq!(exact.match_score("  "), None);
+    }
+
+    #[test]
+    fn search_handles_unicode_and_noncontiguous_words() {
+        let app = App { action: "desktop:office.desktop".into(),
+            name: "Büro Verwaltung".into(),
+            search_text: "büro verwaltung office dokumente".into(),
+            path: "/usr/share/applications/office.desktop".into() };
+        assert_eq!(app.match_score("VERWALT büro"), Some(2));
+        assert_eq!(app.match_score("Office dokumente"), Some(4));
+        assert_eq!(app.match_score("office irrelevant"), None);
     }
 
     #[test]

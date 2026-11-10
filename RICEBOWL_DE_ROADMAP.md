@@ -293,6 +293,14 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   targets and preserve user-level hidden-entry masking. Add Rust unit fixtures
   for German fallback, malformed translations and non-executable launchers.
   Real desktop-language, accessibility and physical keyboard QA remains open.
+- [x] **Rank native installed-app search by relevance**: exact displayed-name
+  hits precede name prefixes, unordered name-word prefixes and generic-name/
+  keyword hits. Accept multiword queries in any order, match Unicode names
+  case-insensitively, and keep stable catalog ordering for ties. Search the
+  existing bounded index without another process or new dependencies; preserve
+  built-in action precedence, keyboard/pointer selection, and private pins.
+  Rust tests cover ranking, mixed-language terms and menu selection. Physical
+  multilingual input and accessibility acceptance still remain open.
 - [x] Introduce **schema-v6 native menu presentation variants**: retain
   horizontal tabs by default, allow validated `menu.presentation: sidebar`
   with a separate left navigation rail and right action/search column. Share

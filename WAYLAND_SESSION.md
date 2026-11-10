@@ -766,6 +766,12 @@ Linux actions, installed-application search and saved pins**. The original
 horizontal group tabs remain the default for every earlier schema. A v6
 recipe may opt into a persistent left navigation rail:
 
+Installed-app search accepts several words in any order and sorts exact
+displayed-name matches before name prefixes and generic/keyword matches.
+Results with equal relevance keep the catalog's alphabetical order. The
+search works on the existing bounded application index and never interprets
+desktop-file `Exec` strings as shell commands.
+
 ```json
 "menu": {
   "title": "Y2K Desktop",
