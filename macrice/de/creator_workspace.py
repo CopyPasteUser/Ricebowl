@@ -12,6 +12,7 @@ import os
 import secrets
 import stat
 import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -114,8 +115,9 @@ def create_draft(template: str, *, name: str | None = None) -> DraftInfo:
     return open_draft(target)
 
 
-def save_revision(source: Path, changes: dict[str, Any], *, expected_sha256: str) -> tuple[DraftInfo, list[dict[str, Any]]]:
-    """Compare-and-swap a set of allowlisted changes into a new private file."""
+def _revision_patch(source: Path, changes: dict[str, Any], *, expected_sha256: str
+                    ) -> tuple[Path, bytes]:
+    """Validate a workspace revision and encode one bounded, data-only patch."""
     folder = _private_directory()
     if source.parent != folder or source.name.startswith("."):
         raise WorkspaceError("Open a draft from the private Creator workspace")
@@ -130,17 +132,42 @@ def save_revision(source: Path, changes: dict[str, Any], *, expected_sha256: str
     payload = (json.dumps(patch, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
     if len(payload) > drafts.MAX_EDIT_BYTES:
         raise WorkspaceError("Edits exceed the safe 16 KiB draft limit")
+    return folder, payload
+
+
+@contextmanager
+def _temporary_edit(folder: Path, payload: bytes):
+    """Keep the owner-only edit input only for the validation/write call."""
     descriptor, patch_name = tempfile.mkstemp(prefix=".creator-edit-", suffix=".json", dir=folder)
     try:
         with os.fdopen(descriptor, "wb") as stream:
             os.fchmod(stream.fileno(), 0o600)
             stream.write(payload)
-        destination = _new_file(folder)
-        result = drafts.create_edit(recipe_token=str(source), edit_source=Path(patch_name),
-                                    destination=destination)
-        return open_draft(destination), result["changes"]
+        yield Path(patch_name)
     finally:
         os.unlink(patch_name)
+
+
+def preview_revision(source: Path, changes: dict[str, Any], *, expected_sha256: str
+                     ) -> dict[str, Any]:
+    """Return the exact full-parser diff, with no saved version or desktop effect."""
+    folder, payload = _revision_patch(source, changes, expected_sha256=expected_sha256)
+    with _temporary_edit(folder, payload) as patch_file:
+        return drafts.check_edit(recipe_token=str(source), edit_source=patch_file,
+                                 expected_sha256=expected_sha256)
+
+
+def save_revision(source: Path, changes: dict[str, Any], *, expected_sha256: str,
+                  expected_draft_sha256: str | None = None
+                  ) -> tuple[DraftInfo, list[dict[str, Any]]]:
+    """Create a new private version; reject changes since a reviewed preflight."""
+    folder, payload = _revision_patch(source, changes, expected_sha256=expected_sha256)
+    with _temporary_edit(folder, payload) as patch_file:
+        destination = _new_file(folder)
+        result = drafts.create_edit(recipe_token=str(source), edit_source=patch_file,
+                                    destination=destination, expected_sha256=expected_sha256,
+                                    expected_draft_sha256=expected_draft_sha256)
+    return open_draft(destination), result["changes"]
 
 
 def fork_version(info: DraftInfo) -> DraftInfo:

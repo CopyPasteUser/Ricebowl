@@ -1214,7 +1214,7 @@ contract: create from the Heritage Modern, Orbit Studio, Classic or Chrome
 template; edit the panel edge/height, two menu presentations, bundled wallpaper,
 responsive cutoff, font/spacing/state colors and reorder, remove or add supported
 panel nodes in the start/center/end lanes. The same strict parser
-and `draft-edit` allowlist validate every **Save version** operation. Invalid
+and `draft-edit` allowlist validate every **Review & save…** operation. Invalid
 or duplicate interactive controls cannot be installed by a failed draft edit.
 
 **Creator 0.4** provides a dedicated **Component library** form. Add new
@@ -1237,7 +1237,7 @@ width/spacing/labels, reorder siblings or ungroup without losing its children.
 The validator enforces at most three nested levels, six children per group,
 eight lane roots and 24 nodes overall, as well as duplicate bindings and
 required launcher/task invariants. Invalid edits stay out of the draft and
-provide a visible error; nothing is written until **Save version**.
+provide a visible error; nothing is written until **Review & save…** is approved.
 
 The optional graphical **Edit layout** canvas now exposes the actual schema-v10
 desktop composition. Choose a widget or shortcut in the layer list or click
@@ -1273,8 +1273,9 @@ and **user-declared** author, license, origin and optional public source
 reference. These are not legal or license verification. Old CLI-imported PNGs
 are listed with honest unspecified attribution; damaged assets are skipped.
 The inspector previews the verified asset and marks missing references clearly.
-Selecting an image changes only the *unsaved draft*; click **Save version** to
-persist it, or reopen the previous version to undo. The GUI ignores wheel
+Selecting an image changes only the *unsaved draft*; click **Review & save…**
+and confirm the displayed changes to persist it, or reopen the previous version
+to undo. The GUI ignores wheel
 events over the wallpaper selector so scrolling the inspector cannot change
 the selection accidentally. Exports include the PNG and its attribution in
 the existing deterministic **RicePack v3**, with no active-session apply.
@@ -1283,14 +1284,18 @@ reference-image conversion remains unsupported.
 
 Saved drafts are owner-only files in the XDG state directory under
 `ricebowl/creator/drafts/` (default `~/.local/state/ricebowl/creator/drafts/`).
-Every save creates a **new**, non-overwriting version, shows the semantic
-diff and keeps the earlier version accessible through **Previous version** or
+Every **Review & save…** opens a scrollable before/after diff with the complete
+source and proposed SHA-256 fingerprints. **Keep editing** creates no file;
+**Create private version** revalidates both fingerprints before writing.
+Each approved save creates a **new**, non-overwriting version and keeps the
+earlier version accessible through **Previous version** or
 the saved list. External modification is detected through the reviewed SHA-256;
 the editor refuses a stale save. Opening another draft with pending changes
 requires an explicit discard confirmation. **Export RicePack** creates a new
 validated `.ricepack` without overwriting, importing or applying anything.
 
-**Render preview** first saves pending validated edits, then invokes the exact
+**Render preview** first asks for review and approval of any pending edits,
+then invokes the exact
 existing isolated native `de render` backend in a worker thread at one of four
 resolutions/scales. The real PNG is displayed in the editor after the renderer
 has terminated its labwc/RicePlate children; no background compositor or
@@ -1298,7 +1303,7 @@ cache of private screen pixels remains. Missing `labwc`, `grim`, `wlr-randr`,
 `swaybg` or the native `riceplate-native` binary yields an explicit unavailable
 state instead of an illustrated preview. The preview is a static snapshot, not
 an interactive nested session. The GTK Creator now also exposes a separate
-**Install / switch…** menu. After **Save version**, choose **Install saved
+**Install / switch…** menu. After **Review & save…**, choose **Install saved
 version…** to install that exact reviewed SHA-256 into the owner-private
 Wayland recipe collection; the desktop does not change. From within an opt-in
 RiceBowl Wayland session, **Apply in Wayland…** and **Restore previous rice…**
@@ -1327,7 +1332,7 @@ record; no arbitrary image file path is stored in a recipe. A reference is
 reloaded after opening a saved version with the same draft ID. **Unlink**
 removes just the selection; existing immutable source copies are retained.
 
-1. Choose or create a private draft, edit it, and **Save version**.
+1. Choose or create a private draft, edit it, and approve **Review & save…**.
 2. Choose the output resolution (for example **1366 × 768**). Your reference
    must have **exactly the same pixel dimensions**; Creator never stretches
    or crops it to improve a score.
@@ -1372,7 +1377,7 @@ The review list shows the exact schema field, proposed value and reasoning.
 Only higher-confidence **offline** hints are prechecked; all external proposals
 start unchecked. Review them before clicking
 **Use checked hints in unsaved draft**. This updates the editable property
-inspector, **not** a persisted version. Use **Save version** and then **Render
+inspector, **not** a persisted version. Use **Review & save…** and then **Render
 preview** to verify. The previous version remains recoverable. Switching
 references or drafts, saving or changing a field invalidates stale proposals.
 
@@ -1432,7 +1437,7 @@ For a **correction cycle**:
 1. Mark one or more regions and render the saved draft at the reference's
    exact resolution. Select **Measure regions** to record the baseline.
 2. Change a validated field in the existing inspector, or explicitly approve
-   a 0.7 mapping suggestion; choose **Save version**. Regions and prior
+   a 0.7 mapping suggestion; choose **Review & save…**. Regions and prior
    measurements stay attached to the same private screenshot and draft ID.
 3. **Render preview** for the newly saved recipe, then choose **Measure regions**
    again. The correction cycle lists hashed recipe/capture identities and the

@@ -63,6 +63,23 @@ def _get_field(manifest: dict, pointer: str):
     return value
 
 
+def _revision_review_text(preflight: dict) -> str:
+    """Complete, readable data-only before/after diff for the confirmation dialog."""
+    lines = [
+        f"Source SHA-256: {preflight['source_semantic_sha256']}",
+        f"Proposed SHA-256: {preflight['draft_semantic_sha256']}",
+        "",
+    ]
+    for change in preflight["changes"]:
+        lines.extend((
+            change["path"],
+            "  Before: " + json.dumps(change["before"], ensure_ascii=False, sort_keys=True),
+            "  After:  " + json.dumps(change["after"], ensure_ascii=False, sort_keys=True),
+            "",
+        ))
+    return "\n".join(lines)
+
+
 def _node_label(node: dict) -> str:
     kind = node.get("type", "unknown")
     if kind == "widget":
@@ -218,7 +235,7 @@ def run() -> int:
             brand.pack_start(self._text("Build a desktop rice", "creator-title"), False, False, 0)
             toolbar.pack_start(brand, True, True, 0)
             self.undo_btn = self._button("← Previous version", self._undo)
-            self.save_btn = self._button("Save version", self._save, primary=True)
+            self.save_btn = self._button("Review & save…", self._save, primary=True)
             self.render_btn = self._button("Render preview", self._render)
             self.export_btn = self._button("Export RicePack…", self._export)
             for button in (self.undo_btn, self.save_btn, self.render_btn, self.export_btn):
@@ -1901,8 +1918,15 @@ def run() -> int:
                 return True
             assert self.info is not None
             try:
-                revised, changes = workspace.save_revision(self.info.path, self.pending,
-                                                expected_sha256=self.info.semantic_sha256)
+                preflight = workspace.preview_revision(
+                    self.info.path, self.pending, expected_sha256=self.info.semantic_sha256)
+                if not self._confirm_revision(preflight):
+                    self._status("Review cancelled. Unsaved edits were kept; no version created.")
+                    return False
+                revised, changes = workspace.save_revision(
+                    self.info.path, self.pending,
+                    expected_sha256=preflight["source_semantic_sha256"],
+                    expected_draft_sha256=preflight["draft_semantic_sha256"])
                 self._history.append(self.info.path)
                 self._load(revised)
                 self._refresh_drafts()
@@ -1913,6 +1937,38 @@ def run() -> int:
                     OSError, ValueError) as exc:
                 self._status(f"Save blocked: {exc}. Fix the layout or property and retry.", error=True)
                 return False
+
+        def _confirm_revision(self, preflight: dict) -> bool:
+            """Make creation of a new private file an explicit, reviewed action."""
+            dialog = Gtk.Dialog(title="Review proposed Rice version", transient_for=self,
+                                modal=True)
+            dialog.add_button("Keep editing", Gtk.ResponseType.CANCEL)
+            dialog.add_button("Create private version", Gtk.ResponseType.OK)
+            dialog.set_default_response(Gtk.ResponseType.CANCEL)
+            content = dialog.get_content_area()
+            content.set_border_width(12)
+            content.set_spacing(10)
+            content.pack_start(self._text(
+                f"{len(preflight['changes'])} validated changes. Compare the values below "
+                "before saving. The active desktop and next-login choice are untouched.",
+                wrap=True), False, False, 0)
+            scroll = Gtk.ScrolledWindow()
+            scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+            scroll.set_size_request(600, 320)
+            summary = Gtk.TextView()
+            summary.set_editable(False)
+            summary.set_cursor_visible(False)
+            summary.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+            summary.set_monospace(True)
+            summary.set_left_margin(10)
+            summary.set_right_margin(10)
+            summary.get_buffer().set_text(_revision_review_text(preflight))
+            scroll.add(summary)
+            content.pack_start(scroll, True, True, 0)
+            dialog.show_all()
+            accepted = dialog.run() == Gtk.ResponseType.OK
+            dialog.destroy()
+            return accepted
 
         def _save(self, _button):
             self._commit_pending()
@@ -2915,6 +2971,23 @@ def run() -> int:
             window = windows[0]
             window._create("heritage")
             assert window.info is not None and window.info.recipe_id.startswith("creator-")
+            interactive_review = window._confirm_revision
+
+            def smoke_review(preflight):
+                # Exercise the actual GTK dialog in disposable CI state, with
+                # a synthetic approval only in this explicit smoke scenario.
+                def accept_dialog():
+                    dialogs = [item for item in Gtk.Window.list_toplevels()
+                               if isinstance(item, Gtk.Dialog)
+                               and item.get_title() == "Review proposed Rice version"]
+                    assert len(dialogs) == 1, "Creator review dialog missing"
+                    dialogs[0].response(Gtk.ResponseType.OK)
+                    return False
+
+                GLib.idle_add(accept_dialog)
+                return interactive_review(preflight)
+
+            window._confirm_revision = smoke_review
             initial = window.info
             window._change("/panel/height", 44)
             assert window.save_btn.get_sensitive()

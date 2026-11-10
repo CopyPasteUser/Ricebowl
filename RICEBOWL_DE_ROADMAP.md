@@ -902,6 +902,12 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
     Agents can pin both source and proposed draft SHA-256 on private creation;
     changed input is rejected without publishing or activating a rice.
     Formal per-property JSON Schema and immutable source snapshots remain open.
+  - [x] **Creator GTK reviewed publication gate** connects the on-demand UI to
+    that preflight: scrollable complete before/after values and both semantic
+    fingerprints appear before the user authorizes a new private version.
+    Save/render/export cancel without publishing when approval is withheld;
+    the eventual write rechecks both hashes, including changes made after
+    preflight. Existing saved versions and active session remain untouched.
 - [x] Ship the first **on-demand GTK3 Rice Creator 0.1 workspace** on top of
   the actual schema-v10 recipe parser and API: four real templates, labeled
   style/structure controls, reordering and bounded addition/removal of existing
@@ -987,7 +993,7 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
   unchecked, and the current private reference is reverified before use. GTK shows
   evidence/confidence, requires individual checkbox approval and transfers
   only selected validated hints to an **unsaved** working copy; persistence
-  still requires Save version, and no live session changes. JSON exports
+  still requires Review & save…, and no live session changes. JSON exports
   contain no screenshot pixels; external AI requires a separately consented
   user share. Unit and GTK smoke cover the review boundary. Full semantic
   automatic object/menus recognition, reliably faithful screenshot-to-rice
