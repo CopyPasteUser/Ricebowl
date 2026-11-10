@@ -2,7 +2,7 @@
 
 **42 real GTK/X11 captures** from a verified pull-request build. Click any preview to open it full-size.
 
-**Looking for Wayland?** These are *XFCE/X11* captures. See the [Wayland implementation and real labwc screenshot archive](../../WAYLAND_PROGRESS.md#real-wayland-screenshots) instead; its CI artifact contains actual RicePlate frames, not simulated XFCE themes.
+**Looking for Wayland?** These are *XFCE/X11* captures. See the separate [Wayland guide](../../WAYLAND.md) and [real labwc screenshot archive](../../WAYLAND_PROGRESS.md#screenshots) instead; its CI artifact contains actual RicePlate frames, not simulated XFCE themes.
 
 <p align="center">
   <a href="aero-start.webp"><img src="aero-start.webp" alt="Windows 7 Aero Start menu" width="48%"></a>

@@ -6,53 +6,54 @@
 
 **Build a desktop, not just a theme.**
 
-A modular Linux desktop project with seven OS-inspired styles, an experimental Wayland environment and tools for building your own rices.
+A modular Linux desktop project with two distinct paths: **ready-to-use
+XFCE/X11 rices** and an **experimental native Wayland desktop**.
 
-[XFCE gallery](screenshots/current/README.md) · **[Wayland progress & screenshots](WAYLAND_PROGRESS.md)** · [Desktop status](DESKTOP_ENVIRONMENT_STATUS.md) · [Roadmap](RICEBOWL_DE_ROADMAP.md)
+**[XFCE/X11 guide](X11.md)** · **[Wayland guide](WAYLAND.md)** · [Roadmap](RICEBOWL_DE_ROADMAP.md) · [Releases](https://github.com/CopyPasteUser/Ricebowl/releases)
 
 </div>
 
-![RiceBowl XP Luna desktop](screenshots/current/winxp-start.webp)
+## Choose your desktop
 
-## What it includes
+| | XFCE / X11 | Wayland / labwc |
+| --- | --- | --- |
+| **Status** | **Current supported default** | **Opt-in preview — not 1.0** |
+| **Foundation** | XFCE, XFWM4 and existing GTK/Python components | Upstream labwc and native Rust RicePlate |
+| **Customize** | Seven OS-inspired desktop families | Validated RicePlate recipes and Rice Creator 0.9 |
+| **Switching** | Plan/apply/restore XFCE rices | Separate session, nested preview and guarded recipe switching |
+| **Read first** | **[X11 installation and usage](X11.md)** | **[Wayland setup and limitations](WAYLAND.md)** |
 
-- **Seven XFCE/X11 styles:** Windows 98, XP Luna, Windows 7, Windows 10, Frutiger Aero, ChromeOS and macOS-inspired desktops.
-- **Opt-in Wayland preview:** labwc with the native Rust RicePlate panel, menus, desktop shortcuts, live status controls and reversible rice switching.
-- **RiceSpice and RicePop:** desktop settings, network/audio controls, notifications and on-screen displays.
-- **Rice Creator 0.9 (experimental):** GTK recipe editor, reusable components, isolated previews and reference-image comparison with region-level feedback.
-- **Rice ecosystem:** optional, validated appearance integration with [RiceField](https://github.com/CopyPasteUser/Ricefield) and [Taskotto](https://github.com/CopyPasteUser/Taskotto).
+These are **different implementations**. Installing the XFCE version never
+automatically replaces your login session with Wayland.
 
-XFCE/X11 remains the default. The Wayland session and Creator are **previews**, not a finished replacement desktop or automatic screenshot-to-desktop converter. Hardware, accessibility and multi-monitor acceptance are still in progress.
+## XFCE / X11 · current default
 
-## Wayland desktop · experimental preview
+[![RiceBowl XP Luna running on XFCE/X11](screenshots/current/winxp-start.webp)](screenshots/current/README.md)
 
-[![Orbit Studio: real native RicePlate desktop in an isolated labwc Wayland session](screenshots/wayland/orbit.webp)](WAYLAND_PROGRESS.md)
+Seven desktop families: **Windows 98, XP, Windows 7, Windows 10, ChromeOS,
+Frutiger Aero and macOS-inspired** styles. Includes the RiceBowl Hub,
+reversible rice switching and optional desktop components.
 
-*Orbit Studio — actual headless labwc/RicePlate capture, not a concept render.*
+**[Install and use XFCE/X11](X11.md)** · [Real X11 screenshots](screenshots/current/README.md)
 
-RiceBowl's next desktop is built around **labwc + native Rust RicePlate**. It already includes a configurable taskbar, launcher, desktop shortcuts, widgets and live rice switching, plus RiceSpice settings, RicePop notifications and **Rice Creator 0.9**.
+## Wayland · experimental preview
 
-The preview is **opt-in, not stable 1.0**: real-device login, multi-monitor/HiDPI, focus, accessibility, hardware controls and performance sign-off remain open. XFCE/X11 stays the supported default.
+[![Orbit Studio running native RicePlate in headless labwc](screenshots/wayland/orbit.webp)](screenshots/wayland/README.md)
 
-**[See four real Wayland screenshots and detailed progress →](WAYLAND_PROGRESS.md)** · [Screenshot gallery](screenshots/wayland/README.md)
+The next-generation desktop combines **labwc + Rust RicePlate**, RiceSpice
+settings, RicePop notifications and the experimental **Rice Creator 0.9**.
+Menus, desktop shortcuts, live controls, recipes and safe recovery paths are
+implemented; **physical login, suspend/resume, devices, mixed-DPI and
+accessibility still need acceptance**. The image is a real *headless CI*
+capture, not proof of a tested laptop installation.
 
-## Try it
+**[Wayland overview and safe first steps](WAYLAND.md)** · [Progress and screenshots](WAYLAND_PROGRESS.md)
 
-For Linux Mint XFCE or a compatible XFCE/X11 session:
+## Project links
 
-```bash
-sudo apt install -y git python3-gi python3-cairo python3-gi-cairo python3-pil gir1.2-gtk-3.0 gir1.2-wnck-3.0
-git clone https://github.com/CopyPasteUser/Ricebowl.git "$HOME/RiceBowl"
-cd "$HOME/RiceBowl"
-bash install.sh --dry-run
-bash install.sh
-"$HOME/.local/bin/ricebowl"
-```
+- [RiceField file manager](https://github.com/CopyPasteUser/Ricefield) and [Taskotto task manager](https://github.com/CopyPasteUser/Taskotto): optional, validated appearance integration.
+- [Wayland engineering status](DESKTOP_ENVIRONMENT_STATUS.md) · [1.0 release gates](RELEASE_1_0_GATES.md) · [Full roadmap](RICEBOWL_DE_ROADMAP.md)
+- [Contributing](CONTRIBUTING.md) · [License](LICENSE)
 
-Choose a style in the Hub; installation alone does not change your desktop. Run `ricebowl creator` for the experimental editor. `ricebowl update` checks for updates, and `macrice rice restore` undoes a rice switch.
-
-## Documentation
-
-[Wayland installation, Creator and safety](WAYLAND_SESSION.md) · [Feature and release status](DESKTOP_ENVIRONMENT_STATUS.md) · [Screenshots](screenshots/current/README.md) · [Example recipes](examples/wayland/README.md) · [Ecosystem roadmap](RICE_ECOSYSTEM_ROADMAP.md) · [Contributing](CONTRIBUTING.md) · [License](LICENSE) · [Releases](https://github.com/CopyPasteUser/Ricebowl/releases)
-
-RiceBowl is independent of Microsoft, Apple and Google. Included artwork is original; a stable release still requires real-device acceptance.
+RiceBowl is independent of Microsoft, Apple and Google. Included artwork is
+original. The Wayland desktop is **not yet a stable 1.0 release**.
