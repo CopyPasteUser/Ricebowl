@@ -79,7 +79,12 @@ dbus-run-session -- sh -eu -c '
         --startup true >"$runtime/labwc.log" 2>&1 &
     compositor=$!
     plate=
+    wallpaper=
     cleanup() {
+        if [ -n "$wallpaper" ]; then
+            kill "$wallpaper" 2>/dev/null || :
+            wait "$wallpaper" 2>/dev/null || :
+        fi
         if [ -n "$plate" ]; then
             kill "$plate" 2>/dev/null || :
             wait "$plate" 2>/dev/null || :
@@ -125,6 +130,20 @@ dbus-run-session -- sh -eu -c '
             /*) label=custom ;;
             *) label=$recipe ;;
         esac
+        if [ "$label" = xp-luna-columns ] || [ "$label" = xp-luna-columns-menu ]; then
+            # Actual Wayland sessions run swaybg separately. Mirror that real
+            # compositor process for Luna only; avoid altering legacy captures.
+            WAYLAND_DISPLAY=wayland-0 swaybg \
+                --image "$source_root/assets/wallpapers/luna-hills.jpg" --mode fill \
+                >"$runtime/swaybg-$label.log" 2>&1 &
+            wallpaper=$!
+            sleep 0.5
+            if ! kill -0 "$wallpaper" 2>/dev/null; then
+                echo "XP Luna wallpaper process exited before capture" >&2
+                sed -n "1,60p" "$runtime/swaybg-$label.log" >&2
+                exit 1
+            fi
+        fi
         if [ "$label" = menu-v5 ]; then
             WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$runtime/desktop-v5.json" --preview-menu >"$runtime/plate-$label.log" 2>&1 &
         elif [ "$label" = menu-sidebar-v6 ]; then
@@ -198,6 +217,11 @@ dbus-run-session -- sh -eu -c '
         kill "$plate"
         wait "$plate" 2>/dev/null || :
         plate=
+        if [ -n "$wallpaper" ]; then
+            kill "$wallpaper"
+            wait "$wallpaper" 2>/dev/null || :
+            wallpaper=
+        fi
     done
     # We own this exact CI compositor PID. On labwc 0.7.1 the --exit client
     # command is not a reliable external teardown mechanism in a headless job.

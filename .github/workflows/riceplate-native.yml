@@ -428,6 +428,12 @@ jobs:
           assert captures['menu-v5'] != captures['desktop-v5'], 'Native menu did not render in Wayland frame'
           assert captures['xp-luna-columns-menu'] != captures['xp-luna-columns'], \
               'XP Luna two-column Start menu was not rendered in real Wayland frame'
+          for label in ('xp-luna-columns', 'xp-luna-columns-menu'):
+              with Image.open(directory / f'{label}.png') as image:
+                  # swaybg is a separate process from native RicePlate. A
+                  # black compositor root is not a faithful Luna screenshot.
+                  wallpaper_pixel = image.convert('RGB').getpixel((700, 350))
+              assert sum(wallpaper_pixel) > 90, (label, 'missing Luna wallpaper', wallpaper_pixel)
           assert captures['calendar-v5'] != captures['desktop-v5'], 'Native calendar did not render in Wayland frame'
           with Image.open(directory / 'calendar-v5.png') as image:
               header = image.convert('RGB').getpixel((700, 50))
