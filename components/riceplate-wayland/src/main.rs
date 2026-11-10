@@ -2088,7 +2088,7 @@ impl RicePlate {
         };
         let icon_pixels = icon_index.and_then(|which| self.recipe.native_art.as_ref()
             .and_then(|art| art.icons[which].as_ref()));
-        paint_icon(canvas, icon, self.recipe.active, self.recipe.foreground,
+        paint_icon(canvas, icon, &self.recipe,
                    self.focused_icon == Some(index), icon_pixels);
         surface.damage_buffer(0, 0, width as i32, height as i32);
         if let Err(error) = buffer.attach_to(surface) {
@@ -2883,7 +2883,7 @@ fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
                               style.active);
                 }
                 let launcher_label = style.launcher.as_ref().map_or("Apps", |item| item.label.as_str());
-                let label_width = launcher_label.len() as u32 * 8 * style.font_scale;
+                let label_width = text_pixel_width(launcher_label, style.font_scale);
                 draw_rice_text(canvas, width, height,
                           placed.x + placed.width.saturating_sub(label_width) / 2,
                           height.saturating_sub(8 * style.font_scale) / 2,
@@ -2967,7 +2967,7 @@ fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
             Widget::Battery => {
                 let label = power.label();
                 draw_rice_text(canvas, width, height,
-                          placed.x + placed.width.saturating_sub(label.len() as u32 * 8 * style.font_scale) / 2,
+                          placed.x + placed.width.saturating_sub(text_pixel_width(&label, style.font_scale)) / 2,
                           height.saturating_sub(8 * style.font_scale) / 2,
                           &label, style.foreground, style);
             }
@@ -2978,7 +2978,7 @@ fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
                     status.audio.label()
                 };
                 draw_rice_text(canvas, width, height,
-                          placed.x + placed.width.saturating_sub(label.len() as u32 * 8 * style.font_scale) / 2,
+                          placed.x + placed.width.saturating_sub(text_pixel_width(&label, style.font_scale)) / 2,
                           height.saturating_sub(8 * style.font_scale) / 2,
                           &label, style.foreground, style);
             }
@@ -3237,8 +3237,8 @@ fn paint_compact_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
         } else if state.view == native_menu::View::Search {
             "No matching actions"
         } else { "No actions" };
-        draw_text(canvas, width, height, 9, native_menu::COMPACT_ACTION_TOP + 14,
-                  label, fg);
+        draw_rice_text(canvas, width, height, 9, native_menu::COMPACT_ACTION_TOP + 14,
+                       label, fg, style);
     }
     for (row, action) in actions.iter().skip(first).take(rows).enumerate() {
         let index = first + row;
@@ -3276,9 +3276,9 @@ fn paint_compact_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
         format!("{}-{} / {}  F2 pin  Esc", first + 1,
                 (first + rows).min(actions.len()), actions.len())
     };
-    draw_text(canvas, width, height, 8, footer_y + 8,
-              &footnote.chars().take(width.saturating_sub(12) as usize / 8)
-                  .collect::<String>(), fg);
+    draw_rice_text(canvas, width, height, 8, footer_y + 8,
+                   &footnote.chars().take((width.saturating_sub(12) /
+                       (8 * style.font_scale)) as usize).collect::<String>(), fg, style);
 }
 
 fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, state: &MenuState) {
@@ -3342,16 +3342,16 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
     }
     let content_x = if sidebar { native_menu::SIDEBAR_WIDTH + 8 } else { 12 };
     if state.view == native_menu::View::Search {
-        draw_text(canvas, width, height, content_x, 91,
-                  &format!("Find: {}", state.search), fg);
+        draw_rice_text(canvas, width, height, content_x, 91,
+                       &format!("Find: {}", state.search), fg, style);
     } else if state.view == native_menu::View::Saved {
-        draw_text(canvas, width, height, content_x, 91,
-                  &format!("Saved actions: {}", state.actions(menu).len()), fg);
+        draw_rice_text(canvas, width, height, content_x, 91,
+                       &format!("Saved actions: {}", state.actions(menu).len()), fg, style);
     }
     if let Some(sections) = state.composed_sections(menu) {
         for section in sections {
-            draw_text(canvas, width, height, section.x + 2, section.top + 3,
-                      section.title, fg);
+            draw_rice_text(canvas, width, height, section.x + 2, section.top + 3,
+                           section.title, fg, style);
             if section.items.is_empty() {
                 let empty = match section.kind {
                     recipe::MenuContentKind::Favorites => "No favorites yet",
@@ -3359,8 +3359,8 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                         "No installed apps",
                     recipe::MenuContentKind::Actions => "No actions",
                 };
-                draw_text(canvas, width, height, content_x + 5,
-                          section.top + 28, empty, fg);
+                draw_rice_text(canvas, width, height, content_x + 5,
+                               section.top + 28, empty, fg, style);
             }
             for tile in section.items {
                 if tile.index == state.selected {
@@ -3376,28 +3376,29 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                 if tile.grid {
                     // A compact letter tile, not a promise of themed app icons.
                     let initial: String = label.chars().next().unwrap_or('?').to_uppercase().collect();
-                    draw_text(canvas, width, height, tile.x + 9, tile.y + 9,
-                              &initial, tile_fg);
+                    draw_rice_text(canvas, width, height, tile.x + 9, tile.y + 9,
+                                   &initial, tile_fg, style);
                     let short: String = label.chars().take(9).collect();
-                    draw_text(canvas, width, height, tile.x + 9, tile.y + 27,
-                              &short, tile_fg);
+                    draw_rice_text(canvas, width, height, tile.x + 9, tile.y + 27,
+                                   &short, tile_fg, style);
                 } else {
-                    let cap = tile.width.saturating_sub(20) as usize / 8;
+                    let cap = (tile.width.saturating_sub(20) /
+                               (8 * style.font_scale)) as usize;
                     let prefix = if pinned { "* " } else { "" };
                     let short: String = label.chars()
                         .take(cap.saturating_sub(prefix.len())).collect();
-                    draw_text(canvas, width, height, tile.x + 10, tile.y + 12,
-                              &format!("{prefix}{short}"), tile_fg);
+                    draw_rice_text(canvas, width, height, tile.x + 10, tile.y + 12,
+                                   &format!("{prefix}{short}"), tile_fg, style);
                 }
             }
         }
     } else {
     let actions = state.actions(menu);
     if actions.is_empty() {
-        draw_text(canvas, width, height, content_x, 135,
-                  if state.view == native_menu::View::Saved {
-                      "No saved actions"
-                  } else { "No matching actions" }, fg);
+        draw_rice_text(canvas, width, height, content_x, 135,
+                       if state.view == native_menu::View::Saved {
+                           "No saved actions"
+                       } else { "No matching actions" }, fg, style);
     } else {
         for (row, action) in actions.into_iter().skip(state.first_action_row())
             .take(native_menu::VISIBLE_ACTIONS).enumerate() {
@@ -3436,7 +3437,7 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
     if columns {
         fill_rect(canvas, width, height, 0, height - 28, width, 28, header);
     }
-    draw_text(
+    draw_rice_text(
         canvas,
         width,
         height,
@@ -3444,6 +3445,7 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
         height - 16,
         state.notice.unwrap_or("Type to find  F2 Pin  F3 Saved"),
         if columns { header_fg } else { fg },
+        style,
     );
 }
 
@@ -3690,10 +3692,12 @@ fn paint_calendar(canvas: &mut [u8], style: &PanelStyle, state: &CalendarState) 
     draw_text(canvas, width, height, 183, 332, "Esc to close", style.foreground);
 }
 
-fn paint_icon(canvas: &mut [u8], icon: &recipe::DesktopIcon, active: u32,
-              foreground: u32, focused: bool, custom: Option<&style_art::IconPixels>) {
+fn paint_icon(canvas: &mut [u8], icon: &recipe::DesktopIcon, style: &PanelStyle,
+              focused: bool, custom: Option<&style_art::IconPixels>) {
     let width = recipe::ICON_WIDTH;
     let height = recipe::ICON_HEIGHT;
+    let active = style.active;
+    let foreground = style.foreground;
     canvas.fill(0); // Leave the surrounding desktop visible.
     if focused {
         // Narrow focus frame: keep the rest of the desktop hit area transparent.
@@ -3718,17 +3722,19 @@ fn paint_icon(canvas: &mut [u8], icon: &recipe::DesktopIcon, active: u32,
     // Contrast backplate prevents white labels from vanishing on bright rices.
     fill_rounded_rect(canvas, width, height, 2, 58, 100, 26, 6, 0xb020_2c36);
     if custom.is_none() {
-        draw_text(canvas, width, height, 52 - (glyph.len() as u32 * 4),
-                  24, glyph, foreground);
+        draw_rice_text(canvas, width, height,
+                       52_u32.saturating_sub(text_pixel_width(glyph, style.font_scale) / 2),
+                       24, glyph, foreground, style);
     }
-    draw_text(
+    draw_rice_text(
         canvas,
         width,
         height,
-        (width - icon.label.len() as u32 * 8) / 2,
+        width.saturating_sub(text_pixel_width(&icon.label, style.font_scale)) / 2,
         66,
         &icon.label,
         foreground,
+        style,
     );
 }
 
@@ -3820,6 +3826,13 @@ fn fill_rounded_rect(
 
 fn draw_text(canvas: &mut [u8], width: u32, height: u32, x: u32, y: u32, text: &str, color: u32) {
     draw_bitmap_text(canvas, width, height, x, y, text, color, 1, false);
+}
+
+fn text_pixel_width(text: &str, scale: u32) -> u32 {
+    // Every native glyph advances one cell, even when its UTF-8 encoding uses
+    // multiple bytes. This is a monospace width, not a Unicode shaping claim.
+    u32::try_from(text.chars().count()).unwrap_or(u32::MAX)
+        .saturating_mul(8 * scale)
 }
 
 fn draw_rice_text(canvas: &mut [u8], width: u32, height: u32, x: u32, y: u32,
@@ -5814,6 +5827,10 @@ mod tests {
 
     #[test]
     fn desktop_icon_paint_preserves_transparent_background() {
+        let style = recipe::parse(
+            include_str!("../../../tests/fixtures/riceplate-desktop-v5.json"),
+            Some("mockup-desktop"),
+        ).unwrap();
         let icon = recipe::DesktopIcon {
             label: "Terminal".into(),
             action: "terminal".into(),
@@ -5821,7 +5838,7 @@ mod tests {
             y: 112,
         };
         let mut pixels = vec![255; (recipe::ICON_WIDTH * recipe::ICON_HEIGHT * 4) as usize];
-        paint_icon(&mut pixels, &icon, 0xff4179aa, 0xfff3f7fa, false, None);
+        paint_icon(&mut pixels, &icon, &style, false, None);
         assert_eq!(&pixels[0..4], &[0, 0, 0, 0]);
         assert!(pixels
             .chunks_exact(4)
@@ -5829,7 +5846,7 @@ mod tests {
         assert!(pixels
             .chunks_exact(4)
             .any(|pixel| pixel == 0xfff3f7fa_u32.to_le_bytes()));
-        paint_icon(&mut pixels, &icon, 0xff4179aa, 0xfff3f7fa, true, None);
+        paint_icon(&mut pixels, &icon, &style, true, None);
         assert_eq!(&pixels[0..4], &0xfff3f7fa_u32.to_le_bytes());
         assert_eq!(
             &pixels[((recipe::ICON_HEIGHT - 1) * recipe::ICON_WIDTH * 4) as usize..][..4],
@@ -5855,6 +5872,13 @@ mod tests {
         assert!(pixels
             .chunks_exact(4)
             .any(|color| color == 0xfff3f7fa_u32.to_le_bytes()));
+    }
+
+    #[test]
+    fn unicode_text_is_measured_in_rendered_cells_not_utf8_bytes() {
+        assert_eq!(text_pixel_width("Äpfel", 1), 5 * 8);
+        assert_eq!(text_pixel_width("Γεια", 2), 4 * 16);
+        assert_eq!(text_pixel_width("", 2), 0);
     }
 
     #[test]

@@ -25,6 +25,10 @@ installation and is not yet a finished desktop environment.
   without changing canonical actions, search, AT-SPI or narrow-screen behavior;
   verified by native regression/multi-resolution CI (run #42898859348) and
   a refreshed real-compositor menu capture.
+- [ ] Unify selected portable TTF painting across the native launcher, menu,
+  shortcuts and widgets; add bounded on-demand Unicode glyph caching, readable
+  missing-glyph fallback, UTF-8-aware cell measurements and a compositor proof
+  comparing built-in versus owner-private fonts, without global font changes.
 - [ ] Still open before any 1.0 claim: physical ThinkPad input/focus/power and
   display acceptance, finer icon/window appearance fidelity, and packaging an
   upgraded core/native release for schema v12.

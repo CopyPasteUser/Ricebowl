@@ -44,6 +44,39 @@ chmod 0600 "$runtime/desktop-actions-v9.json"
 chmod 0600 "$runtime/appearance-v10.json"
 chmod 0600 "$runtime/xp-luna-columns.json"
 chmod 0600 "$runtime/overflow-v5.json"
+# Exercise the real private Creator font import and native font path in CI.
+# The fixture is freely redistributable and never installed into the host's
+# font directories or used by any existing rice/profile.
+test_font=/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf
+if [ ! -f "$test_font" ]; then
+    echo "Native font smoke requires the DejaVu Sans Mono fixture" >&2
+    exit 1
+fi
+mkdir -m 0700 "$runtime/config"
+export XDG_CONFIG_HOME="$runtime/config"
+python3 - "$source_root" "$runtime" "$test_font" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+root, runtime, fixture = map(Path, sys.argv[1:])
+sys.path.insert(0, str(root))
+from macrice.de import style_assets
+
+source = runtime / "font-fixture.ttf"
+source.write_bytes(fixture.read_bytes())
+source.chmod(0o600)
+asset = style_assets.import_asset(source, kind="font", label="DejaVu CI",
+    provenance={"author": "DejaVu contributors", "license": "custom",
+                "origin": "adapted", "source_reference": "DejaVu Fonts license"})
+recipe = json.loads((runtime / "xp-luna-columns.json").read_text())
+recipe["id"] = "xp-luna-font-preview"
+recipe["name"] = "XP Luna Font Preview"
+recipe["artwork"]["font"] = asset.identifier
+target = runtime / "xp-luna-font.json"
+target.write_text(json.dumps(recipe), encoding="utf-8")
+target.chmod(0o600)
+PY
 ln -s "$runtime/custom.json" "$runtime/symlink.json"
 if "$native" --recipe "$runtime/symlink.json" >"$runtime/rejected.log" 2>&1; then
     echo "Native RicePlate accepted a symlinked recipe" >&2
@@ -109,13 +142,14 @@ dbus-run-session -- sh -eu -c '
         sed -n "1,70p" "$runtime/labwc.log" >&2
         exit 1
     fi
-    for recipe in classic chrome "$runtime/custom.json" "$runtime/nested.json" "$runtime/shell-v4.json" "$runtime/desktop-v5.json" "$runtime/actions-v6.json" "$runtime/controls-v7.json" "$runtime/layout-v8.json" "$runtime/components-v9.json" "$runtime/desktop-actions-v9.json" "$runtime/appearance-v10.json" "$runtime/xp-luna-columns.json" "$runtime/xp-luna-columns-menu" "$runtime/overflow-v5.json" "$runtime/desktop-v5-menu" "$runtime/sidebar-v6-menu" "$runtime/composed-v6-menu" "$runtime/desktop-v5-calendar"; do
+    for recipe in classic chrome "$runtime/custom.json" "$runtime/nested.json" "$runtime/shell-v4.json" "$runtime/desktop-v5.json" "$runtime/actions-v6.json" "$runtime/controls-v7.json" "$runtime/layout-v8.json" "$runtime/components-v9.json" "$runtime/desktop-actions-v9.json" "$runtime/appearance-v10.json" "$runtime/xp-luna-columns.json" "$runtime/xp-luna-columns-menu" "$runtime/xp-luna-font-menu" "$runtime/overflow-v5.json" "$runtime/desktop-v5-menu" "$runtime/sidebar-v6-menu" "$runtime/composed-v6-menu" "$runtime/desktop-v5-calendar"; do
         case "$recipe" in
             */desktop-v5-calendar) label=calendar-v5 ;;
             */desktop-v5-menu) label=menu-v5 ;;
             */sidebar-v6-menu) label=menu-sidebar-v6 ;;
             */composed-v6-menu) label=menu-composed-v6 ;;
             */xp-luna-columns-menu) label=xp-luna-columns-menu ;;
+            */xp-luna-font-menu) label=xp-luna-font-menu ;;
             */xp-luna-columns.json) label=xp-luna-columns ;;
             */overflow-v5.json) label=overflow-v5 ;;
             */desktop-v5.json) label=desktop-v5 ;;
@@ -130,7 +164,7 @@ dbus-run-session -- sh -eu -c '
             /*) label=custom ;;
             *) label=$recipe ;;
         esac
-        if [ "$label" = xp-luna-columns ] || [ "$label" = xp-luna-columns-menu ]; then
+        if [ "$label" = xp-luna-columns ] || [ "$label" = xp-luna-columns-menu ] || [ "$label" = xp-luna-font-menu ]; then
             # Actual Wayland sessions run swaybg separately. Mirror that real
             # compositor process for Luna only; avoid altering legacy captures.
             WAYLAND_DISPLAY=wayland-0 swaybg \
@@ -152,6 +186,8 @@ dbus-run-session -- sh -eu -c '
             WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$runtime/composed-v6.json" --preview-menu >"$runtime/plate-$label.log" 2>&1 &
         elif [ "$label" = xp-luna-columns-menu ]; then
             WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$runtime/xp-luna-columns.json" --preview-menu >"$runtime/plate-$label.log" 2>&1 &
+        elif [ "$label" = xp-luna-font-menu ]; then
+            WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$runtime/xp-luna-font.json" --preview-menu >"$runtime/plate-$label.log" 2>&1 &
         elif [ "$label" = calendar-v5 ]; then
             WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$runtime/desktop-v5.json" --preview-calendar >"$runtime/plate-$label.log" 2>&1 &
         else
@@ -168,7 +204,7 @@ dbus-run-session -- sh -eu -c '
                 exit 1 ;;
         esac
         echo "Native RicePlate $label layer surface remained alive"
-        if [ "$label" = shell-v4 ] || [ "$label" = desktop-v5 ] || [ "$label" = actions-v6 ] || [ "$label" = controls-v7 ] || [ "$label" = layout-v8 ] || [ "$label" = components-v9 ] || [ "$label" = desktop-actions-v9 ] || [ "$label" = appearance-v10 ] || [ "$label" = xp-luna-columns ] || [ "$label" = xp-luna-columns-menu ] || [ "$label" = menu-v5 ] || [ "$label" = menu-sidebar-v6 ] || [ "$label" = menu-composed-v6 ] || [ "$label" = calendar-v5 ]; then
+        if [ "$label" = shell-v4 ] || [ "$label" = desktop-v5 ] || [ "$label" = actions-v6 ] || [ "$label" = controls-v7 ] || [ "$label" = layout-v8 ] || [ "$label" = components-v9 ] || [ "$label" = desktop-actions-v9 ] || [ "$label" = appearance-v10 ] || [ "$label" = xp-luna-columns ] || [ "$label" = xp-luna-columns-menu ] || [ "$label" = xp-luna-font-menu ] || [ "$label" = menu-v5 ] || [ "$label" = menu-sidebar-v6 ] || [ "$label" = menu-composed-v6 ] || [ "$label" = calendar-v5 ]; then
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/$label.png"
             cp "$runtime/$label.png" "$source_root/dist/riceplate-native-preview/$label.png"
             echo "Captured real native RicePlate $label framebuffer"
