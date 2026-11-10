@@ -42,6 +42,12 @@ font comparison](screenshots/wayland/README.md#opt-in-portable-font--real-compos
 from [green native run #42904147986](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42904147986).
 This is opt-in per recipe, not a global GTK/Qt or system font setting.
 
+The selected private font now also renders the **native calendar popup and
+volume OSD**; the unselected-font path keeps its legacy bitmap painting.
+[Compare actual native calendar screenshots](screenshots/wayland/README.md#luna-calendar--native-popup-font-comparison)
+from [green CI run #42909714051](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42909714051).
+The volume OSD has Rust paint coverage, but no dedicated compositor capture.
+
 Two-column Luna recipes with a validated palette now also select matching
 **labwc-owned window frames** inside RiceBowl's private session config. Native
 live switch/restore rolls the menu and frame settings back together on failure;
