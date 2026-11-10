@@ -5644,21 +5644,21 @@ mod tests {
         let height = native_menu::HEIGHT;
         let mut canvas = vec![0; (width * height * 4) as usize];
         paint_menu(&mut canvas, menu, &style, &state);
-        let pixel = |x: u32, y: u32| {
+        let pixel = |buffer: &[u8], x: u32, y: u32| {
             let offset = ((y * width + x) * 4) as usize;
-            u32::from_le_bytes(canvas[offset..offset+4].try_into().unwrap())
+            u32::from_le_bytes(buffer[offset..offset+4].try_into().unwrap())
         };
         let palette = menu.palette.unwrap();
-        assert_eq!(pixel(120, 70), palette.background);
-        assert_eq!(pixel(260, 70), palette.selection);
-        assert_eq!(pixel(native_menu::COLUMNS_SPLIT, 70), palette.header);
-        assert_eq!(pixel(260, height - 10), palette.header);
-        assert_eq!(pixel(12, 110), palette.header); // current left action
+        assert_eq!(pixel(&canvas, 120, 70), palette.background);
+        assert_eq!(pixel(&canvas, 260, 70), palette.selection);
+        assert_eq!(pixel(&canvas, native_menu::COLUMNS_SPLIT, 70), palette.header);
+        assert_eq!(pixel(&canvas, 260, height - 10), palette.header);
+        assert_eq!(pixel(&canvas, 12, 110), palette.header); // current left action
 
         state.select_group(menu, 1);
         paint_menu(&mut canvas, menu, &style, &state);
-        assert_eq!(pixel(176, 110), palette.header); // current right action
-        assert_eq!(pixel(12, 110), palette.background);
+        assert_eq!(pixel(&canvas, 176, 110), palette.header); // current right action
+        assert_eq!(pixel(&canvas, 12, 110), palette.background);
     }
 
     #[test]
