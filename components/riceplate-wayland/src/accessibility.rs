@@ -27,6 +27,7 @@ pub enum Target {
     DesktopWidget(usize),
     MenuGroup(usize),
     MenuAction(String),
+    MenuSearch,
     MenuClose,
     MenuSaved,
     CalendarPrevious,
