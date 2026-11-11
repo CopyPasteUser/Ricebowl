@@ -26,18 +26,23 @@ def field(path: str, key: str) -> str:
 
 
 class DebianUpgradeContracts(unittest.TestCase):
-    def test_preview2_core_and_meta_have_consistent_dependency_versions(self):
+    def test_current_core_native_and_meta_have_consistent_dependency_versions(self):
         self.assertEqual(field("core-control", "Version"), "0.1.0~preview2")
-        self.assertEqual(field("desktop-control", "Version"), "0.1.0~preview2")
+        self.assertEqual(field("desktop-control", "Version"), "0.1.0~preview3")
         self.assertIn("ricebowl-wayland-core (= 0.1.0~preview2)",
                       field("desktop-control", "Depends"))
         self.assertEqual(field("control", "Version"), "0.1.0~preview3")
-        self.assertEqual(field("native-control.in", "Version"), "0.1.0~preview1")
+        self.assertEqual(field("native-control.in", "Version"), "0.1.0~preview2")
+        self.assertIn("ricebowl-riceplate-native (>= 0.1.0~preview2)",
+                      field("desktop-control", "Depends"))
 
     @unittest.skipUnless(shutil.which("dpkg"), "Debian version ordering unavailable")
     def test_upgrade_version_is_strictly_newer_than_pinned_baseline(self):
         self.assertEqual(subprocess.run(
             ["dpkg", "--compare-versions", "0.1.0~preview1", "lt", "0.1.0~preview2"],
+            check=False, timeout=5).returncode, 0)
+        self.assertEqual(subprocess.run(
+            ["dpkg", "--compare-versions", "0.1.0~preview2", "lt", "0.1.0~preview3"],
             check=False, timeout=5).returncode, 0)
 
     def test_rollback_smoke_uses_pinned_old_sources_and_real_apt(self):

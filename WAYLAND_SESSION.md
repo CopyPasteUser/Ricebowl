@@ -123,7 +123,7 @@ sh scripts/build_wayland_session_deb.sh
 cargo build --release --manifest-path components/riceplate-wayland/Cargo.toml
 sh scripts/build_riceplate_native_deb.sh \
     "$PWD/components/riceplate-wayland/target/release/riceplate-native" \
-    "$PWD/dist/ricebowl-riceplate-native_0.1.0~preview1_amd64.deb"
+    "$PWD/dist/ricebowl-riceplate-native_0.1.0~preview2_amd64.deb"
 sh scripts/build_wayland_desktop_deb.sh
 
 # Read-only bundle gate: identity, architectures, dependency versions,
@@ -131,16 +131,16 @@ sh scripts/build_wayland_desktop_deb.sh
 bash scripts/verify_wayland_package_set.sh \
     "$PWD/dist/ricebowl-wayland-core_0.1.0~preview2_all.deb" \
     "$PWD/dist/ricebowl-wayland-session_0.1.0~preview3_all.deb" \
-    "$PWD/dist/ricebowl-riceplate-native_0.1.0~preview1_amd64.deb" \
-    "$PWD/dist/ricebowl-wayland-desktop_0.1.0~preview2_amd64.deb"
+    "$PWD/dist/ricebowl-riceplate-native_0.1.0~preview2_amd64.deb" \
+    "$PWD/dist/ricebowl-wayland-desktop_0.1.0~preview3_amd64.deb"
 
 # Inspect the proposed package installation before confirming it.
-dpkg-deb -I dist/ricebowl-wayland-desktop_0.1.0~preview2_amd64.deb
+dpkg-deb -I dist/ricebowl-wayland-desktop_0.1.0~preview3_amd64.deb
 sudo apt install \
     ./dist/ricebowl-wayland-core_0.1.0~preview2_all.deb \
     ./dist/ricebowl-wayland-session_0.1.0~preview3_all.deb \
-    ./dist/ricebowl-riceplate-native_0.1.0~preview1_amd64.deb \
-    ./dist/ricebowl-wayland-desktop_0.1.0~preview2_amd64.deb
+    ./dist/ricebowl-riceplate-native_0.1.0~preview2_amd64.deb \
+    ./dist/ricebowl-wayland-desktop_0.1.0~preview3_amd64.deb
 
 ricebowl-wayland-app de check --json
 ```
@@ -177,10 +177,12 @@ GitHub CI builds all four packages reproducibly and checks clean install,
 same-version reinstall and purge inside disposable Ubuntu 24.04. A second
 CI test checks **real cross-version package lifecycle** against the pinned
 source commit `b3d615a7cc508049050eb06c7952ef5a8d26e598` (PR #214):
-old Core/Meta `0.1.0~preview1` → new Core/Meta `0.1.0~preview2`,
+old Core/Meta `0.1.0~preview1` → new Core `0.1.0~preview2` / Meta `0.1.0~preview3`,
 a rejected corrupt upgrade, an explicit downgrade to saved `preview1`,
-then re-upgrade and purge. The session `preview3` and native RicePlate
-`preview1` packages are intentionally unchanged in that matrix.
+then re-upgrade and purge. Session `preview3` and native RicePlate
+`preview2` are explicitly checked in that matrix; the current native
+package is now versioned above the earlier `preview1` build, so an installed
+native preview can be upgraded rather than silently reusing its old version.
 
 The new Core package includes an immutable
 `/usr/lib/ricebowl-wayland/BUILDINFO` containing its Debian version, exact

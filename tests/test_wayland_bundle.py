@@ -122,7 +122,7 @@ class WaylandBundleTests(unittest.TestCase):
                 self.assertEqual((session / "usr/share/wayland-sessions/ricebowl.desktop").read_bytes(),
                                  expected_desktop)
                 self.assertEqual(run("dpkg-deb", "-f", str(Path(temporary) / "desktop.deb"),
-                                     "Version").stdout.strip(), "0.1.0~preview2")
+                                     "Version").stdout.strip(), "0.1.0~preview3")
                 self.assertNotIn("# uncommitted", run(
                     "dpkg-deb", "-f", str(Path(temporary) / "desktop.deb"),
                     "Description").stdout)
@@ -149,7 +149,7 @@ class WaylandBundleTests(unittest.TestCase):
             (fixture / "DEBIAN").mkdir(parents=True)
             (fixture / "usr/bin").mkdir(parents=True)
             (fixture / "DEBIAN/control").write_text(
-                "Package: ricebowl-riceplate-native\nVersion: 0.1.0~preview1\n"
+                "Package: ricebowl-riceplate-native\nVersion: 0.1.0~preview2\n"
                 "Architecture: amd64\nMaintainer: RiceBowl QA\n"
                 "Description: isolated package-set fixture\n")
             shutil.copy2("/bin/true", fixture / "usr/bin/riceplate-native")
@@ -210,12 +210,13 @@ class WaylandBundleTests(unittest.TestCase):
             self.assertEqual(run("dpkg-deb", "-f", str(first), "Package").stdout.strip(),
                              "ricebowl-wayland-desktop")
             self.assertEqual(run("dpkg-deb", "-f", str(first), "Version").stdout.strip(),
-                             "0.1.0~preview2")
+                             "0.1.0~preview3")
             dependencies = run("dpkg-deb", "-f", str(first), "Depends").stdout
             for name in ("ricebowl-wayland-core", "ricebowl-wayland-session",
                          "ricebowl-riceplate-native"):
                 self.assertIn(name, dependencies)
             self.assertIn("ricebowl-wayland-core (= 0.1.0~preview2)", dependencies)
+            self.assertIn("ricebowl-riceplate-native (>= 0.1.0~preview2)", dependencies)
             archive = run("dpkg-deb", "--contents", str(first)).stdout
             self.assertNotIn("postinst", archive)
             self.assertNotIn("usr/bin/", archive)

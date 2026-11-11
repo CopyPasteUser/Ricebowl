@@ -2,7 +2,7 @@
 # The aggregate Wayland package is dependency-only: apt/dpkg own all removals.
 set -eu
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
-output=${1:-"$root/dist/ricebowl-wayland-desktop_0.1.0~preview2_amd64.deb"}
+output=${1:-"$root/dist/ricebowl-wayland-desktop_0.1.0~preview3_amd64.deb"}
 case "$output" in /*.deb) ;; *) echo "Output must be absolute .deb" >&2; exit 2;; esac
 if [ -e "$output" ] || [ -L "$output" ]; then
     echo "Refusing to overwrite existing package: $output" >&2; exit 1
