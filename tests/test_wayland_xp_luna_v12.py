@@ -50,6 +50,10 @@ class WaylandLunaTests(unittest.TestCase):
             "lock", "logout", "wifi-toggle", "audio-mute"]
         with self.assertRaises(recipes.RecipeError):
             recipes.parse(json.dumps(overflowing).encode("utf-8"))
+        unthemed = json.loads(path.read_text(encoding="utf-8"))
+        del unthemed["menu"]["colors"]
+        with self.assertRaises(recipes.RecipeError):
+            recipes.parse(json.dumps(unthemed).encode("utf-8"))
         self.assertEqual(catalog.describe()["recipe"]["schema_versions"][-1], 12)
         self.assertIn("columns", catalog.describe()["recipe"]["menu"]["presentation"]["variants"]
                       if "menu" in catalog.describe()["recipe"] else
