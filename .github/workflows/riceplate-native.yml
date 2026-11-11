@@ -611,6 +611,27 @@ jobs:
                   f'Native Luna second pointer click did not restore desktop: {suffix}: {restore_delta}'
               print(f'Native virtual-pointer Luna Start toggle {suffix}: '
                     f'{menu_delta} menu pixels, {restore_delta} restore delta')
+          # The real native Find and Saved header buttons must switch visible
+          # menu content and return to the same open-menu state. The checks
+          # operate on raw headless labwc frames, not a model-only unit test.
+          modes = ('open', 'find', 'saved', 'return')
+          frames = {}
+          for mode in modes:
+              with Image.open(directory / f'xp-luna-pointer-{mode}-1024x768.png') as image:
+                  assert image.size == (1024, 768), (mode, image.size)
+                  frames[mode] = image.convert('RGB').crop((0, 424, 320, 728))
+          def changed_pixels(left, right):
+              return sum(a != b for a, b in zip(left.getdata(), right.getdata()))
+          find_delta = changed_pixels(frames['open'], frames['find'])
+          saved_delta = changed_pixels(frames['open'], frames['saved'])
+          mode_delta = changed_pixels(frames['find'], frames['saved'])
+          return_delta = changed_pixels(frames['open'], frames['return'])
+          assert find_delta > 2000, f'Find click had no visible native effect: {find_delta}'
+          assert saved_delta > 2000, f'Saved click had no visible native effect: {saved_delta}'
+          assert mode_delta > 500, f'Find and Saved rendered alike: {mode_delta}'
+          assert return_delta < 1500, f'Header Back did not restore menu: {return_delta}'
+          print(f'Native Luna header clicks: Find={find_delta} Saved={saved_delta} '
+                f'distinct={mode_delta} restored={return_delta} RGB pixels')
           assert captures['calendar-v5'] != captures['desktop-v5'], 'Native calendar did not render in Wayland frame'
           with Image.open(directory / 'calendar-v5.png') as image:
               header = image.convert('RGB').getpixel((700, 50))

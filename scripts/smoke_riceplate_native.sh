@@ -323,6 +323,31 @@ dbus-run-session -- sh -eu -c '
                 WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-open-$geometry.png"
                 cp "$runtime/xp-luna-pointer-open-$geometry.png" \
                    "$source_root/dist/riceplate-native-preview/xp-luna-pointer-open-$geometry.png"
+                if [ "$geometry" = 1024x768 ]; then
+                    # Exercise the actual menu header hit targets via labwc,
+                    # not the Rust hit tester or a --preview-menu shortcut.
+                    # The 320x304 popup sits directly above the 40px panel.
+                    header_y=$((height - 40 - 304 + 16))
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" 220 "$header_y" "$width" "$height"
+                    sleep 0.35
+                    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-find-$geometry.png"
+                    cp "$runtime/xp-luna-pointer-find-$geometry.png" \
+                       "$source_root/dist/riceplate-native-preview/xp-luna-pointer-find-$geometry.png"
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" 220 "$header_y" "$width" "$height"
+                    sleep 0.35
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" 284 "$header_y" "$width" "$height"
+                    sleep 0.35
+                    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-saved-$geometry.png"
+                    cp "$runtime/xp-luna-pointer-saved-$geometry.png" \
+                       "$source_root/dist/riceplate-native-preview/xp-luna-pointer-saved-$geometry.png"
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" 284 "$header_y" "$width" "$height"
+                    sleep 0.35
+                    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-return-$geometry.png"
+                    cp "$runtime/xp-luna-pointer-return-$geometry.png" \
+                       "$source_root/dist/riceplate-native-preview/xp-luna-pointer-return-$geometry.png"
+                    kill -0 "$plate"
+                    echo "Clicked native Luna Find/Back and Saved/Back at $geometry"
+                fi
                 WAYLAND_DISPLAY=wayland-0 "$clicker" 35 "$button_y" "$width" "$height"
                 sleep 0.35
                 WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-closed-$geometry.png"
