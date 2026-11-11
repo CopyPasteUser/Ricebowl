@@ -135,6 +135,8 @@ def parser() -> argparse.ArgumentParser:
     de.add_argument("--shot-mode", choices=("full", "output", "region"),
                     help="RiceShot capture: full desktop, named output or interactive region")
     de.add_argument("--monitor", help="Wayland output name for de shot --shot-mode output")
+    de.add_argument("--clipboard", action="store_true",
+                    help="RiceShot: copy the PNG selection to Wayland clipboard instead of saving")
     de.add_argument("--width", type=int, help="Headless de render capture width (640–4096)")
     de.add_argument("--height", type=int, help="Headless de render capture height (480–2160)")
     de.add_argument("--scale", type=float, choices=(1, 1.25, 1.5, 2),
@@ -247,8 +249,9 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("--base, --id and --name only apply to de recipe-init")
             if args.action != "recipe-init" and args.schema_version != 1:
                 raise ValueError("--schema-version only applies to de recipe-init")
-            if args.action != "shot" and (args.shot_mode is not None or args.monitor is not None):
-                raise ValueError("--shot-mode and --monitor only apply to de shot")
+            if args.action != "shot" and (args.shot_mode is not None or args.monitor is not None
+                                          or args.clipboard):
+                raise ValueError("--shot-mode, --monitor and --clipboard only apply to de shot")
             if (args.action not in ("recipe-init", "recipe-export", "taskotto-export",
                                     "draft-edit", "capture", "shot", "render", "render-matrix", "pack-export",
                                     "visual-baseline") and args.output):
@@ -781,12 +784,20 @@ def main(argv: list[str] | None = None) -> int:
                     raise ValueError("de capture/shot accepts only screenshot options and --json")
                 if args.action == "shot" and ((args.shot_mode == "output") != bool(args.monitor)):
                     raise ValueError("de shot --shot-mode output requires --monitor; other modes forbid it")
-                from .de.capture import CaptureError, capture
+                if args.clipboard and args.output:
+                    raise ValueError("de shot --clipboard cannot also save --output")
+                from .de.capture import CaptureError, capture, copy_to_clipboard
                 shot = args.action == "shot"
                 version_key = "riceshot_version" if shot else "creator_contract_version"
                 try:
-                    report = (capture(args.output, mode=args.shot_mode or "full",
-                                      monitor=args.monitor) if shot else capture(args.output))
+                    if args.clipboard:
+                        report = copy_to_clipboard(mode=args.shot_mode or "full",
+                                                   monitor=args.monitor)
+                    elif shot:
+                        report = capture(args.output, mode=args.shot_mode or "full",
+                                         monitor=args.monitor)
+                    else:
+                        report = capture(args.output)
                 except CaptureError as exc:
                     if not args.json:
                         raise
@@ -798,9 +809,13 @@ def main(argv: list[str] | None = None) -> int:
                     print(json.dumps({version_key: 1, "ok": True,
                                       "capture": report}, indent=2))
                 else:
-                    print(f"Captured Wayland {report['mode']}: {report['path']} "
-                          f"({report['width']}x{report['height']})")
-                    print("The capture may contain private screen data; no desktop change was made")
+                    if args.clipboard:
+                        print(f"Copied Wayland {report['mode']} PNG to clipboard "
+                              f"({report['width']}x{report['height']})")
+                    else:
+                        print(f"Captured Wayland {report['mode']}: {report['path']} "
+                              f"({report['width']}x{report['height']})")
+                    print("The screenshot may contain private screen data")
                 return 0
             if args.action == "render":
                 if args.nested or args.panel != "waybar":

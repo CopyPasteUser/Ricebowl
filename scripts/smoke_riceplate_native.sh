@@ -447,8 +447,13 @@ dbus-run-session -- sh -eu -c '
             WAYLAND_DISPLAY=wayland-0 /usr/bin/python3 "$source_root/launcher.py" \
                 de shot --shot-mode output --monitor "$output" \
                 --output "$runtime/riceshot-output.png" --json > "$runtime/riceshot-output.json"
+            WAYLAND_DISPLAY=wayland-0 /usr/bin/python3 "$source_root/launcher.py" \
+                de shot --clipboard --json > "$runtime/riceshot-clipboard.json"
+            WAYLAND_DISPLAY=wayland-0 timeout 5s wl-paste --no-newline \
+                --type image/png > "$runtime/riceshot-clipboard.png"
             /usr/bin/python3 - "$runtime" <<"PY"
 import json
+import hashlib
 from pathlib import Path
 import struct
 import sys
@@ -463,8 +468,14 @@ for mode in ("full", "output"):
     assert image[:8] == bytes.fromhex("89504e470d0a1a0a")
     assert struct.unpack(">II", image[16:24]) == (capture["width"], capture["height"])
     assert len(image) == capture["bytes"]
+report = json.loads((root / "riceshot-clipboard.json").read_text())
+capture = report["capture"]
+image = (root / "riceshot-clipboard.png").read_bytes()
+assert report["ok"] and capture["clipboard_updated"] is True
+assert capture["destination"] == "clipboard" and "path" not in capture
+assert hashlib.sha256(image).hexdigest() == capture["sha256"]
 PY
-            echo "RiceShot captured real full and named-output headless Wayland PNGs"
+            echo "RiceShot captured real full, named-output and clipboard PNGs in labwc"
         fi
         kill "$plate"
         wait "$plate" 2>/dev/null || :

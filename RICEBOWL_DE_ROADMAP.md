@@ -867,9 +867,12 @@ must not be represented as blockers for the Wayland DE 1.0 core release.
   window capture remain open; direct compositor capture requires a supported
   Wayland screencopy backend and the user's invocation.
 - [ ] Provide a lightweight crop/arrow/text/blur annotation flow, then
-  explicit clipboard copy or save with safe filename/overwrite behavior;
-  integrate RicePlate shortcuts and RiceBowl visual tokens. Do not run a
-  background recorder, screen scraper or screenshot daemon.
+  integrate RicePlate shortcuts and RiceBowl visual tokens. Explicit
+  **clipboard copy** is already available via `de shot --clipboard`, using
+  `wl-copy` and a temporary 0600 PNG that is removed on success or failure;
+  saving uses the existing exclusive-link no-overwrite path. Clipboard
+  ownership is delegated to the ordinary Wayland selection helper; no RiceShot
+  recorder, scraper or resident history daemon is started.
 - [ ] Test cancellation/denial, missing portal backend, multi-monitor,
   fractional scaling, cursor choice where supported, focus recovery,
   annotation output and copy/save errors; verify captures on physical Wayland

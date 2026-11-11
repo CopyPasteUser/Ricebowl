@@ -232,10 +232,72 @@ class WaylandCaptureTests(unittest.TestCase):
                 ["de", "shot", "--shot-mode", "region", "--monitor", "eDP-1", "--output", dest],
                 ["de", "capture", "--shot-mode", "region", "--output", dest],
                 ["de", "catalog", "--monitor", "eDP-1"],
+                ["de", "capture", "--clipboard", "--output", dest],
+                ["de", "shot", "--clipboard", "--output", dest],
             ):
                 with self.subTest(args=args), mock.patch("sys.stderr"):
                     self.assertEqual(cli(args), 1)
             self.assertFalse(Path(dest).exists())
+
+    def test_riceshot_clipboard_copies_without_leaving_a_screenshot(self):
+        captured_locations = []
+
+        def fake_run(command, **kwargs):
+            if command[0] == "/usr/bin/grim":
+                kwargs["stdout"].write(png())
+            else:
+                self.assertEqual(command, ["/usr/bin/wl-copy", "--type", "image/png"])
+                stream = kwargs["stdin"]
+                captured_locations.append(Path(stream.name))
+                self.assertEqual(stream.read(), png())
+                self.assertTrue(Path(stream.name).is_file())
+                self.assertEqual(Path(stream.name).stat().st_mode & 0o777, 0o600)
+            return subprocess.CompletedProcess(command, 0)
+
+        with mock.patch.dict(os.environ, {"WAYLAND_DISPLAY": "wayland-test"}), \
+             mock.patch("macrice.de.capture.shutil.which",
+                        side_effect=lambda name: f"/usr/bin/{name}"), \
+             mock.patch("macrice.de.capture.subprocess.run", side_effect=fake_run) as runner, \
+             mock.patch("builtins.print") as printer:
+            self.assertEqual(cli(["de", "shot", "--clipboard", "--json"]), 0)
+
+        report = json.loads(printer.call_args.args[0])
+        self.assertEqual(report["capture"]["destination"], "clipboard")
+        self.assertTrue(report["capture"]["clipboard_updated"])
+        self.assertNotIn("path", report["capture"])
+        self.assertNotIn("mutates_active_desktop", report["capture"])
+        self.assertEqual(runner.call_count, 2)
+        self.assertFalse(captured_locations[0].exists())
+        self.assertFalse(captured_locations[0].parent.exists())
+
+    def test_riceshot_clipboard_failure_cleans_temporary_pixels(self):
+        seen = []
+
+        def fake_run(command, **kwargs):
+            if command[0] == "/usr/bin/grim":
+                kwargs["stdout"].write(png())
+                return subprocess.CompletedProcess(command, 0)
+            seen.append(Path(kwargs["stdin"].name))
+            raise subprocess.CalledProcessError(1, command)
+
+        with mock.patch.dict(os.environ, {"WAYLAND_DISPLAY": "wayland-test"}), \
+             mock.patch("macrice.de.capture.shutil.which",
+                        side_effect=lambda name: f"/usr/bin/{name}"), \
+             mock.patch("macrice.de.capture.subprocess.run", side_effect=fake_run), \
+             mock.patch("builtins.print") as printer:
+            self.assertEqual(cli(["de", "shot", "--clipboard", "--json"]), 2)
+        report = json.loads(printer.call_args.args[0])
+        self.assertEqual(report["error"]["code"], "clipboard_failed")
+        self.assertFalse(seen[0].parent.exists())
+        self.assertNotIn("riceshot-", json.dumps(report))
+
+        with mock.patch.dict(os.environ, {"WAYLAND_DISPLAY": "wayland-test"}), \
+             mock.patch("macrice.de.capture.shutil.which",
+                        side_effect=lambda name: None if name == "wl-copy" else "/usr/bin/grim"), \
+             mock.patch("macrice.de.capture.subprocess.run") as runner:
+            with self.assertRaisesRegex(capture.CaptureError, "requires wl-copy"):
+                capture.copy_to_clipboard()
+            runner.assert_not_called()
 
 
 if __name__ == "__main__":

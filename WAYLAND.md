@@ -65,14 +65,19 @@ desktop, one named output, or an interactively selected region:
 ricebowl de shot --output "$HOME/Pictures/desktop.png"
 ricebowl de shot --shot-mode output --monitor eDP-1 --output "$HOME/Pictures/laptop.png"
 ricebowl de shot --shot-mode region --output "$HOME/Pictures/selection.png"
+ricebowl de shot --shot-mode region --clipboard
 ```
 
 `grim` is required for capture; interactive region selection additionally needs
-`slurp`. Use a **new absolute filename** each time: existing files and symlinks
-are not overwritten. `--json` returns structured success/failure information.
-Only an explicit command can capture; no background process or global XFCE
-shortcut is installed. Screenshots can reveal private information. Clipboard
-copy, annotations, native shortcut integration, portal fallback and real-device
+`slurp`, and clipboard copy needs `wl-copy`. `--clipboard` and `--output` are
+mutually exclusive: copying uses a temporary private PNG that is removed after
+the clipboard owner accepts it. Use a **new absolute filename** when saving:
+existing files and symlinks are not overwritten. `--json` returns structured
+success/failure information.
+Only an explicit command can capture; no background capture service or global XFCE
+shortcut is installed. Clipboard content is held by the normal Wayland
+selection owner until replaced. Screenshots can reveal private information.
+Annotations, native shortcut integration, portal fallback and real-device
 capture acceptance are still outstanding.
 
 ## What's still required for 1.0

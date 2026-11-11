@@ -31,6 +31,8 @@ class CaptureError(ValueError):
             "invalid_selection": "Choose a valid screenshot mode and output",
             "selection_unavailable": "Region selection requires slurp in a Wayland session",
             "selection_cancelled": "Region selection was cancelled or failed",
+            "clipboard_unavailable": "Wayland clipboard copy requires wl-copy",
+            "clipboard_failed": "Could not copy the screenshot to the Wayland clipboard",
         }[code])
 
 
@@ -128,3 +130,29 @@ def capture(output: Path | None, *, mode: str = "full",
         raise CaptureError("capture_failed") from exc
     finally:
         os.unlink(temporary)
+
+
+def copy_to_clipboard(*, mode: str = "full", monitor: str | None = None) -> dict[str, object]:
+    """Capture once into a private temporary PNG; wl-copy owns the selection.
+
+    The temporary screenshot is removed even if the clipboard owner fails.
+    Neither pixels nor the private temporary pathname appear in the report.
+    """
+    wl_copy = shutil.which("wl-copy")
+    if not os.environ.get("WAYLAND_DISPLAY") or not wl_copy:
+        raise CaptureError("clipboard_unavailable")
+    with tempfile.TemporaryDirectory(prefix="riceshot-") as directory:
+        location = Path(directory) / "screenshot.png"
+        report = capture(location, mode=mode, monitor=monitor)
+        try:
+            with location.open("rb") as pixels:
+                subprocess.run([wl_copy, "--type", "image/png"], stdin=pixels,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               timeout=30, check=True)
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise CaptureError("clipboard_failed") from exc
+    report.pop("path")
+    report.pop("mutates_active_desktop")  # Clipboard selection did change.
+    report["destination"] = "clipboard"
+    report["clipboard_updated"] = True
+    return report
