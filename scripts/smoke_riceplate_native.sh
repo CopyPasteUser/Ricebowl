@@ -347,6 +347,14 @@ dbus-run-session -- sh -eu -c '
                     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-find-paged-$geometry.png"
                     cp "$runtime/xp-luna-pointer-find-paged-$geometry.png" \
                        "$source_root/dist/riceplate-native-preview/xp-luna-pointer-find-paged-$geometry.png"
+                    # Reverse the real wheel axis without closing the menu.
+                    # The same pointer location may change selection on hover,
+                    # but must restore the original visible action *page*.
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" --scroll-up 220 600 "$width" "$height"
+                    sleep 0.35
+                    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-find-restored-$geometry.png"
+                    cp "$runtime/xp-luna-pointer-find-restored-$geometry.png" \
+                       "$source_root/dist/riceplate-native-preview/xp-luna-pointer-find-restored-$geometry.png"
                     WAYLAND_DISPLAY=wayland-0 "$clicker" 220 "$header_y" "$width" "$height"
                     sleep 0.35
                     WAYLAND_DISPLAY=wayland-0 "$clicker" 284 "$header_y" "$width" "$height"

@@ -32,10 +32,14 @@ wayland_client::delegate_noop!(Probe: ZwlrVirtualPointerV1);
 fn main() -> Result<(), Box<dyn Error>> {
     let values = std::env::args().skip(1).collect::<Vec<_>>();
     let move_only = values.first().map(String::as_str) == Some("--move-only");
-    let scroll_down = values.first().map(String::as_str) == Some("--scroll-down");
-    let args = if move_only || scroll_down { &values[1..] } else { &values[..] };
+    let scroll = match values.first().map(String::as_str) {
+        Some("--scroll-down") => 1.0,
+        Some("--scroll-up") => -1.0,
+        _ => 0.0,
+    };
+    let args = if move_only || scroll != 0.0 { &values[1..] } else { &values[..] };
     if args.len() != 4 {
-        return Err("Usage: wayland_pointer_click [--move-only|--scroll-down] X Y OUTPUT_WIDTH OUTPUT_HEIGHT".into());
+        return Err("Usage: wayland_pointer_click [--move-only|--scroll-down|--scroll-up] X Y OUTPUT_WIDTH OUTPUT_HEIGHT".into());
     }
     let coordinates = args.iter().map(|arg| arg.parse::<u32>())
         .collect::<Result<Vec<_>, _>>()?;
@@ -56,11 +60,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     pointer.frame();
     conn.flush()?;
     std::thread::sleep(Duration::from_millis(70));
-    if scroll_down {
+    if scroll != 0.0 {
         // A real compositor axis request, not a direct MenuState method call.
         // Use the universal version-1 axis request (v2 discrete is optional).
         pointer.axis_source(wl_pointer::AxisSource::Wheel);
-        pointer.axis(2, wl_pointer::Axis::VerticalScroll, 64.0);
+        pointer.axis(2, wl_pointer::Axis::VerticalScroll, scroll * 64.0);
         pointer.frame();
     } else if !move_only {
         pointer.button(2, 0x110, wl_pointer::ButtonState::Pressed);
@@ -76,7 +80,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     conn.flush()?;
     println!("Delivered native Wayland {} at {x},{y}",
         if move_only { "pointer motion" }
-        else if scroll_down { "wheel axis" }
+        else if scroll != 0.0 { "wheel axis" }
         else { "pointer click" });
     Ok(())
 }
