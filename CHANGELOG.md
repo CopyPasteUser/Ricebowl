@@ -1,5 +1,18 @@
 # RiceBowl changelog
 
+## Unreleased — resumable multi-asset RicePack imports (11 November 2026)
+
+- Persist one owner-private, validated RicePack journal before publishing any
+  asset; serialize cooperating pack imports with a five-second private lock. Sync
+  asset and attribution directory links before publishing the recipe last.
+- Add explicit `de pack-recover --json` and automatic pending-import recovery
+  at the next import. Interrupted icon/font/wallpaper writes and a crash after
+  recipe publication can resume from the pinned archive without replacing an
+  existing different rice or touching the active session.
+- Include real subprocess `os._exit` and injected disk-error tests; corrupted
+  recovery archives fail closed. This is forward recovery, not deletion of
+  potentially shared content-addressed assets or atomic multi-process storage.
+
 ## Unreleased — full RicePack destination preflight (11 November 2026)
 
 - Check recipe IDs, existing private provenance receipts, wallpaper integrity

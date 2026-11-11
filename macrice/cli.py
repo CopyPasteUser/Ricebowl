@@ -78,7 +78,7 @@ def parser() -> argparse.ArgumentParser:
         "creator-status", "creator-stage", "creator-rollback",
         "creator-live-status", "creator-live-apply", "creator-live-restore", "creator-live-recovery",
         "display-refresh", "display-confirm",
-        "pack-export", "pack-inspect", "pack-import", "asset-import", "notifications", "notification-dismiss",
+        "pack-export", "pack-inspect", "pack-import", "pack-recover", "asset-import", "notifications", "notification-dismiss",
         "notification-invoke", "notification-dnd",
         "settings",
         "audio-devices", "audio-default",
@@ -555,20 +555,26 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     print(f"Stored private wallpaper {asset_id}. Add this ID to a schema-v6 recipe.")
                 return 0
-            if args.action in ("pack-export", "pack-inspect", "pack-import"):
+            if args.action in ("pack-export", "pack-inspect", "pack-import", "pack-recover"):
                 if args.nested or args.panel != "waybar":
                     raise ValueError("RicePack tools do not start a desktop session")
                 if args.action == "pack-export":
                     if not args.recipe or not args.output or args.package:
                         raise ValueError("de pack-export requires --recipe and --output")
+                elif args.action == "pack-recover":
+                    if args.recipe or args.output or args.package or args.metadata:
+                        raise ValueError("de pack-recover takes no archive or recipe options")
                 elif not args.package or args.recipe or args.output:
                     raise ValueError("de pack-inspect/import require --package")
-                from .de.pack import PackError, export_pack, import_pack, inspect_pack, invalid_pack
+                from .de.pack import (PackError, export_pack, import_pack, inspect_pack,
+                                      recover_pack_import, invalid_pack)
                 try:
                     if args.action == "pack-export":
                         result = export_pack(args.recipe, args.output, metadata=args.metadata)
                     elif args.action == "pack-inspect":
                         result = inspect_pack(args.package)
+                    elif args.action == "pack-recover":
+                        result = recover_pack_import()
                     else:
                         result = import_pack(args.package)
                 except PackError as exc:
@@ -582,6 +588,8 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"Exported portable recipe {result['recipe_id']} to {args.output}")
                 elif args.action == "pack-inspect":
                     print(f"Valid RicePack: {result['manifest']['recipe']['id']}")
+                elif args.action == "pack-recover":
+                    print(f"RicePack recovery: {'completed' if result['recovered'] else 'nothing pending'}")
                 else:
                     print(f"Imported private recipe {result['recipe_id']}; next session unchanged")
                 return 0

@@ -128,12 +128,12 @@ def describe_ricepack() -> dict[str, object]:
                     "assets/font.ttf (v4)", "assets/icons/{action}.png (v4)"],
         "maximum_archive_bytes": 6 * 1024 * 1024,
         "recipe_schema_versions": list(range(1, 13)),
-        "asset_support": "content-addressed wallpaper, up to one TrueType font and three 48px RGBA icons",
+        "asset_support": "SHA-256 PNG; one TTF; three 48px icons",
         "asset_manifest": {"since_version": 2, "version": 2,
                            "fields": ["id", "sha256", "provenance"],
                            "declared_provenance": ["author", "license", "origin", "source_reference"],
                            "installed_wallpaper_must_match_digest": True},
-        "third_party_assets": "owner-controlled-PNG-wallpaper-and-verified-private-v4-font-and-icons",
+        "third_party_assets": "owner-private, hash-verified",
         "arbitrary_code_or_scripts": False,
         "deterministic_export": True,
         "provenance": {
@@ -143,7 +143,7 @@ def describe_ricepack() -> dict[str, object]:
                          "OFL-1.1", "Apache-2.0", "custom"],
             "origins": ["unspecified", "original", "ai-assisted", "adapted"],
             "user_declared_not_verified": True,
-            "import_receipt": "owner-private data-only sidecar bound to recipe semantic hash",
+            "import_receipt": "private receipt pinned to recipe hash",
             "roundtrip_preserves_attribution": True,
         },
         "commands": [
@@ -155,8 +155,10 @@ def describe_ricepack() -> dict[str, object]:
              "optional_options": ["--json"], "read_only": True},
             {"command": "de pack-import", "required_options": ["--package"],
              "optional_options": ["--json"], "installs_recipe_and_receipt": True},
+            {"command": "de pack-recover", "required_options": [],
+             "optional_options": ["--json"], "resumes_private_pending_import": True},
         ],
-        "import": "no-overwrite private user recipe collection; never activates",
+        "import": "private no-overwrite, never activates",
         "failure_exit_code": 2,
         "success_exit_code": 0,
         "mutates_active_desktop": False,
@@ -294,7 +296,8 @@ def describe_creator_api() -> dict[str, object]:
             {"step": "manual-region-qa", "commands": [],
              "ui": "ricebowl creator (GTK; no de CLI command)",
              "effect": "owner-private read-only pixel diagnostics, version comparisons and optional JSON export"},
-            {"step": "package", "commands": ["pack-export", "pack-inspect", "pack-import"],
+            {"step": "package", "commands": ["pack-export", "pack-inspect", "pack-import",
+                                            "pack-recover"],
              "effect": "owner-private-file-only"},
             {"step": "explicit-activate-or-recover", "commands": [
                 "creator-stage", "creator-rollback", "creator-live-apply", "creator-live-restore"],
@@ -373,6 +376,8 @@ def describe_creator_api() -> dict[str, object]:
              "cli": "de pack-inspect --package FILE.ricepack --json", "contract_version": 4},
             {"command": "pack-import", "effect": "install private recipe without selecting it",
              "cli": "de pack-import --package FILE.ricepack --json", "contract_version": 4},
+            {"command": "pack-recover", "effect": "resume a pinned interrupted private archive, no desktop switch",
+             "cli": "de pack-recover --json", "contract_version": 1},
             {"command": "asset-import", "effect": "store a reviewed PNG as a private SHA256 asset; no apply",
              "cli": "de asset-import --asset /absolute/image.png --json", "contract_version": 1},
             {"command": "creator-status", "effect": "read next Wayland login choice and fingerprint",
@@ -407,7 +412,7 @@ def describe_creator_api() -> dict[str, object]:
         ],
     }
     private_writes = {"draft-edit", "creator-snapshot", "creator-recover", "render", "render-matrix", "visual-baseline", "capture",
-                      "pack-export", "pack-import", "asset-import"}
+                      "pack-export", "pack-import", "pack-recover", "asset-import"}
     next_login = {"creator-stage", "creator-rollback"}
     active_wayland = {"creator-live-apply", "creator-live-restore", "display-refresh"}
     active_user = {"notification-dismiss", "notification-invoke", "notification-dnd", "audio-default"}
