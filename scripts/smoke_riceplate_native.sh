@@ -333,6 +333,20 @@ dbus-run-session -- sh -eu -c '
                     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-find-$geometry.png"
                     cp "$runtime/xp-luna-pointer-find-$geometry.png" \
                        "$source_root/dist/riceplate-native-preview/xp-luna-pointer-find-$geometry.png"
+                    # A compositor-delivered wheel axis must page long search
+                    # results while the popup remains open and interactive.
+                    # Capture hover separately so highlight-only motion cannot
+                    # masquerade as successful paging in the pixel assertion.
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 220 600 "$width" "$height"
+                    sleep 0.35
+                    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-find-hover-$geometry.png"
+                    cp "$runtime/xp-luna-pointer-find-hover-$geometry.png" \
+                       "$source_root/dist/riceplate-native-preview/xp-luna-pointer-find-hover-$geometry.png"
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" --scroll-down 220 600 "$width" "$height"
+                    sleep 0.35
+                    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-find-paged-$geometry.png"
+                    cp "$runtime/xp-luna-pointer-find-paged-$geometry.png" \
+                       "$source_root/dist/riceplate-native-preview/xp-luna-pointer-find-paged-$geometry.png"
                     WAYLAND_DISPLAY=wayland-0 "$clicker" 220 "$header_y" "$width" "$height"
                     sleep 0.35
                     WAYLAND_DISPLAY=wayland-0 "$clicker" 284 "$header_y" "$width" "$height"
