@@ -2065,7 +2065,60 @@ def run() -> int:
                 self.layout_lanes.remove(child)
             for lane in recipes.SECTIONS:
                 self._build_lane(lane)
+            destination = "wide" if self._panel_compact else "compact"
+            clone = Gtk.Button(label=f"Use this layout for {destination.capitalize()}…")
+            clone.set_tooltip_text(
+                "Replace all three destination lanes in the private draft; confirmation required")
+            clone.connect("clicked", lambda _button: self._clone_panel_mode())
+            self.layout_lanes.pack_start(clone, False, False, 0)
             self.layout_lanes.show_all()
+
+        def _stage_panel_lanes(self, updates):
+            # Only individual lane pointers belong to the public bounded edit
+            # vocabulary. Save version validates all pending lanes atomically.
+            prefix = ("/responsive/compact_layout" if self._panel_compact else
+                      "/panel/layout")
+            for lane, nodes in updates.items():
+                self._change(f"{prefix}/{lane}", nodes)
+
+        def _clone_panel_mode(self):
+            if self.working is None or self._busy:
+                return
+            target_name = "wide" if self._panel_compact else "compact"
+            target = (self.working["panel"]["layout"] if self._panel_compact else
+                      self.working["responsive"]["compact_layout"])
+            try:
+                replacement = creator_structure.clone_layout_mode(
+                    self.working, from_compact=self._panel_compact)
+            except creator_structure.StructureError as exc:
+                self._status(f"Cannot copy layout: {exc}", error=True)
+                return
+            if replacement == target:
+                self._status(f"{target_name.capitalize()} layout already matches")
+                return
+            dialog = Gtk.MessageDialog(
+                transient_for=self, modal=True,
+                message_type=Gtk.MessageType.QUESTION, buttons=Gtk.ButtonsType.NONE,
+                text=f"Replace {target_name} panel layout?")
+            dialog.format_secondary_text(
+                "All three destination lanes will be replaced in this private draft. "
+                "The running desktop stays unchanged. Save version is still required.")
+            dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+            dialog.add_button("Replace in draft", Gtk.ResponseType.OK)
+            try:
+                response = dialog.run()
+            finally:
+                dialog.destroy()
+            if response != Gtk.ResponseType.OK:
+                return
+            prefix = ("/panel/layout" if self._panel_compact else
+                      "/responsive/compact_layout")
+            # Replace only the three allowlisted lane edits. Existing unsaved
+            # edits to those lanes are superseded via _change, while unrelated
+            # pending properties remain untouched.
+            for lane in recipes.SECTIONS:
+                self._change(f"{prefix}/{lane}", replacement[lane])
+            self._refresh_layout()
 
         def _mutate_panel(self, lane, path, action, node=None):
             if self.working is None or self._busy:
@@ -2073,9 +2126,7 @@ def run() -> int:
             try:
                 result = creator_structure.edit_layout(self.working, lane, path, action,
                                                        node=node, compact=self._panel_compact)
-                pointer = (f"/responsive/compact_layout/{lane}" if self._panel_compact else
-                           f"/panel/layout/{lane}")
-                self._change(pointer, result)
+                self._stage_panel_lanes({lane: result})
                 self._refresh_layout()
             except creator_structure.StructureError as exc:
                 self._status(f"Cannot edit {lane} lane: {exc}", error=True)
@@ -2086,12 +2137,8 @@ def run() -> int:
             try:
                 updated = creator_structure.transfer_layout(
                     self.working, lane, path, destination, compact=self._panel_compact)
-                prefix = ("/responsive/compact_layout" if self._panel_compact else
-                          "/panel/layout")
-                # Stage both lanes before refreshing the editor; Save version
-                # persists them together through the existing draft preflight.
-                self._change(f"{prefix}/{lane}", updated[lane])
-                self._change(f"{prefix}/{destination}", updated[destination])
+                # Stage both lanes as one validated operation before re-rendering.
+                self._stage_panel_lanes(updated)
                 self._refresh_layout()
             except creator_structure.StructureError as exc:
                 self._status(f"Cannot move element to {destination}: {exc}", error=True)
