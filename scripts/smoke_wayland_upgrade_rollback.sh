@@ -80,6 +80,27 @@ check_user_state() {
     test "$(stat -c '%a:%u' /home/owner/.config/ricebowl/recipes/saved.json)" = 600:22001
     test ! -e /usr/bin/ricebowl
 }
+run_as_owner() {
+    runuser -u owner -- env HOME=/home/owner XDG_CONFIG_HOME=/home/owner/.config \
+        /usr/bin/ricebowl-wayland-app "$@"
+}
+assert_review() {
+    local file=$1 identifier=$2 schema=$3
+    run_as_owner de review --recipe "$file" --json | /usr/bin/python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+assert data["ok"] is True and data["applied"] is False, data
+assert data["summary"]["id"] == sys.argv[1], data
+assert data["summary"]["schema_version"] == int(sys.argv[2]), data
+' "$identifier" "$schema"
+}
+assert_selected() {
+    local identifier=$1
+    run_as_owner de recipe-current --json | /usr/bin/python3 -c '
+import json, sys
+assert json.load(sys.stdin)["active"] == sys.argv[1]
+' "$identifier"
+}
 apt-get update -qq
 useradd -m -u 22001 owner
 install -d -m 0700 -o owner -g owner /home/owner/.config/ricebowl/recipes
@@ -107,6 +128,17 @@ test ! -e /usr/lib/ricebowl-wayland/BUILDINFO
 /usr/bin/ricebowl-wayland-app de --help >/dev/null
 check_user_state
 
+# A genuine schema-v10 rice from the OLD package must remain valid and
+# selected across upgrades. Never replace the user's recipe with a fixture.
+legacy=/home/owner/.config/ricebowl/recipes/heritage-modern-v10.json
+install -m 0600 -o owner -g owner \
+    /usr/lib/ricebowl-wayland/examples/wayland/heritage-modern-v10.json "$legacy"
+assert_review "$legacy" heritage-modern-v10 10
+run_as_owner de recipe-select --recipe heritage-modern-v10 >/dev/null
+assert_selected heritage-modern-v10
+sha256sum "$legacy" >> /tmp/ricebowl-user-before.sha256
+check_user_state
+
 echo 'PHASE 2/5: reject corrupt new package without altering old install'
 cp "$new_core" /tmp/invalid-core.deb
 truncate -s 41 /tmp/invalid-core.deb
@@ -116,6 +148,8 @@ fi
 check_version ricebowl-wayland-core '0.1.0~preview1'
 check_version ricebowl-wayland-desktop '0.1.0~preview1'
 /usr/bin/ricebowl-wayland-app de --help >/dev/null
+assert_review "$legacy" heritage-modern-v10 10
+assert_selected heritage-modern-v10
 check_user_state
 
 echo 'PHASE 3/5: real apt upgrade to Core preview2 / Meta preview3'
@@ -127,6 +161,19 @@ grep -Fxq 'version=0.1.0~preview2' /usr/lib/ricebowl-wayland/BUILDINFO
 test -f /usr/lib/ricebowl-wayland/macrice/de/session.py
 test -e /usr/share/wayland-sessions/ricebowl-native.desktop
 /usr/bin/ricebowl-wayland-app de --help >/dev/null
+assert_review "$legacy" heritage-modern-v10 10
+assert_selected heritage-modern-v10
+check_user_state
+
+# Test newly-supported v12 Luna alongside the old selected v10 rice. A later
+# downgrade must preserve this private file even though its parser rejects it.
+luna=/home/owner/.config/ricebowl/recipes/xp-luna-columns.json
+install -m 0600 -o owner -g owner \
+    /usr/lib/ricebowl-wayland/examples/wayland/xp-luna-columns.json "$luna"
+assert_review "$luna" xp-luna-columns 12
+run_as_owner de recipe-select --recipe xp-luna-columns >/dev/null
+assert_selected xp-luna-columns
+sha256sum "$luna" > /tmp/ricebowl-v12-before.sha256
 check_user_state
 
 echo 'PHASE 4/5: explicit rollback to saved previous Core/Meta'
@@ -136,6 +183,15 @@ check_version ricebowl-wayland-core '0.1.0~preview1'
 check_version ricebowl-wayland-desktop '0.1.0~preview1'
 test ! -e /usr/lib/ricebowl-wayland/BUILDINFO
 /usr/bin/ricebowl-wayland-app de --help >/dev/null
+if run_as_owner de review --recipe "$luna" --json \
+    >/tmp/ricebowl-downgraded-v12.json 2>&1; then
+    echo 'Old preview incorrectly accepted the schema-v12 Luna recipe' >&2
+    exit 1
+fi
+run_as_owner de recipe-restore >/dev/null
+assert_review "$legacy" heritage-modern-v10 10
+assert_selected heritage-modern-v10
+sha256sum -c --status /tmp/ricebowl-v12-before.sha256
 check_user_state
 
 echo 'PHASE 5/5: repeat upgrade, purge package-owned files, keep user data'
@@ -143,6 +199,11 @@ apt-get install -y --no-install-recommends "$new_core" "$new_meta" >/dev/null
 check_version ricebowl-wayland-core '0.1.0~preview2'
 check_version ricebowl-wayland-desktop '0.1.0~preview3'
 check_version ricebowl-riceplate-native '0.1.0~preview2'
+assert_review "$legacy" heritage-modern-v10 10
+assert_review "$luna" xp-luna-columns 12
+run_as_owner de recipe-select --recipe xp-luna-columns >/dev/null
+assert_selected xp-luna-columns
+sha256sum -c --status /tmp/ricebowl-v12-before.sha256
 apt-get purge -y ricebowl-wayland-desktop ricebowl-wayland-core \
     ricebowl-wayland-session ricebowl-riceplate-native >/dev/null
 test ! -e /usr/bin/ricebowl-wayland-app
@@ -150,6 +211,7 @@ test ! -e /usr/lib/ricebowl-wayland/launcher.py
 test ! -e /usr/lib/ricebowl-wayland/BUILDINFO
 test ! -e /usr/share/wayland-sessions/ricebowl.desktop
 test ! -e /usr/share/wayland-sessions/ricebowl-native.desktop
+sha256sum -c --status /tmp/ricebowl-v12-before.sha256
 check_user_state
-echo 'PASS: previous→new upgrade, failure rejection, downgrade, re-upgrade, purge and user/xfce preservation'
+echo 'PASS: previous v10 rice, new v12 Luna, safe downgrade/restore, re-upgrade, purge and user/XFCE preservation'
 IN_CONTAINER
