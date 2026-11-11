@@ -213,6 +213,14 @@ namespace and must not silently call XFCE-specific paths.
 
 ## Delivery gates
 
+**Software-first sprint policy (11 November 2026):** complete functional
+RicePlate/RiceSpice/RicePop parity, text/layout, two-rice Creator flows and
+reproducible installation/recovery in CI before returning to physical-device
+acceptance. Hardware checks are temporarily **excluded from software-progress
+percentages**, not marked done. The protected public 1.0 release gate still
+requires separate real-device sign-off. Track the two independently in
+`WAYLAND_PROGRESS.md` and `RELEASE_1_0_GATES.md`.
+
 ### 0 — Prep and non-invasive diagnostics
 
 - [x] Choose labwc as the Wayland floating compositor without forking.

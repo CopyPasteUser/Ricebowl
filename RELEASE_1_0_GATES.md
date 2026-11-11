@@ -7,6 +7,11 @@ physical-device compatibility.
 
 ## Automated checks
 
+**Active development priority:** close the software-only checklist first.
+Physical Mint/ThinkPad sign-off is temporarily excluded from development
+progress percentages, but it remains mandatory for an actual public 1.0 tag;
+the sign-off guard and its tests are deliberately unchanged.
+
 - [x] The read-only Wayland `de check` verifies the mandatory launcher
   executables, separates nested, full and native-login prerequisites and
   fails when a required program is missing. Availability is not proof of
@@ -71,7 +76,7 @@ physical-device compatibility.
   restored one step, with safe classic fallback after missing/corrupt state;
   no claim of live multi-component rice switching.
 
-## Real-hardware acceptance (not done)
+## Deferred: real-hardware acceptance (not done; not in software progress %)
 
 - [ ] Login and logout on physical Mint 22 hardware, including crash recovery.
 - [ ] XFCE remains independently selectable and untouched after rollback.

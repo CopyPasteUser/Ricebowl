@@ -148,13 +148,45 @@ selection never changes the XFCE default.
 
 ## What's left for 1.0
 
+### Active track: software-complete candidate
+
+**Current planning estimate: approximately 84% software-complete (11 November
+2026).** This is a qualitative estimate, not a measured CI coverage score or
+permission to publish a stable release. It deliberately **excludes physical
+hardware acceptance**, so it must not be compared directly with the earlier
+78% estimate for the complete Wayland 1.0 release.
+
+Finish these software gates before calling the implementation feature-complete:
+
+1. **RicePlate / RicePop parity:** close the remaining native notification,
+   system-control, accessibility and reliable focus/error-state gaps; preserve
+   the existing single notification owner until a replacement is fully tested.
+2. **Typography and layout:** implement proper shaping, bidirectional text and
+   proportional font metrics; finish responsive native menu and mixed-scale
+   software behavior without breaking existing recipes.
+3. **Creator / RicePack:** exercise two genuinely different complete recipes
+   through offline import, preview, edit, apply and rollback; verify interactive
+   bindings and portable assets in reproducible CI.
+4. **Distribution / recovery:** finish tracked, reproducible Wayland packages,
+   unattended installed-session tests, upgrade/downgrade and rollback checks,
+   including negative tests for corrupt preferences or missing dependencies.
+
+Optional RiceClip/RiceShot enhancements remain separate P1 work, not blockers
+for the core software-complete candidate. The independent device-acceptance
+track stays in [the 1.0 release-gate checklist](RELEASE_1_0_GATES.md).
+
+### Deferred track: physical-device acceptance and final release
+
 1. **Real desktop:** verified login/logout, XWayland, portals, Flatpak integration, physical clipboard interoperability, polkit, lock and suspend/resume. Headless CI additionally checks both text clipboard directions with real Wayland/XWayland clients; MIME-rich and device-specific clipboard use remain unaccepted.
 2. **Input and displays:** real multi-monitor and mixed-DPI behavior, hotplug, pointer drag, native tray/focus and Orca/AT-SPI.
 3. **Device controls:** failures and restarts across Wi-Fi, audio, Bluetooth, display, notifications, media keys and backlight.
 4. **Creator and switching:** visual/functional QA of two genuinely distinct rices; safe install, restore and supported RiceField/Taskotto integration.
 5. **Release evidence:** current-SHA automated CI, verified installers and rollback, cold start/settled CPU and memory measurements, owner hardware sign-off.
 
-There is **no honest percentage-complete number** yet. Tested source paths and screenshots do not substitute for physical acceptance. [Release-gate checklist](RELEASE_1_0_GATES.md) · [Full roadmap](RICEBOWL_DE_ROADMAP.md).
+No final **release-readiness percentage** is claimed. Tested software paths and
+headless screenshots do not substitute for physical acceptance. Hardware is
+deferred from the active sprint estimate, **not silently approved or removed
+from the stable-release requirements**. [Release-gate checklist](RELEASE_1_0_GATES.md) · [Full roadmap](RICEBOWL_DE_ROADMAP.md).
 
 <details>
 <summary><strong>Screenshot provenance & reproducibility</strong></summary>
