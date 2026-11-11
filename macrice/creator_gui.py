@@ -2074,18 +2074,12 @@ def run() -> int:
             self.layout_lanes.show_all()
 
         def _stage_panel_lanes(self, updates):
+            # Only individual lane pointers belong to the public bounded edit
+            # vocabulary. Save version validates all pending lanes atomically.
             prefix = ("/responsive/compact_layout" if self._panel_compact else
                       "/panel/layout")
-            if prefix in self.pending:
-                # A previous full-layout sync is staged as one parent property.
-                # Keep subsequent per-lane edits inside it to avoid conflicting
-                # parent/child operations at Save version.
-                layout = copy.deepcopy(self._active_layout())
-                layout.update(updates)
-                self._change(prefix, layout)
-            else:
-                for lane, nodes in updates.items():
-                    self._change(f"{prefix}/{lane}", nodes)
+            for lane, nodes in updates.items():
+                self._change(f"{prefix}/{lane}", nodes)
 
         def _clone_panel_mode(self):
             if self.working is None or self._busy:
@@ -2117,14 +2111,13 @@ def run() -> int:
                 dialog.destroy()
             if response != Gtk.ResponseType.OK:
                 return
-            pointer = ("/panel/layout" if self._panel_compact else
-                       "/responsive/compact_layout")
-            # Parent-level replacement supersedes earlier edits to its lanes.
-            # Keeping both would violate the Creator's overlap guard.
-            for pending_path in tuple(self.pending):
-                if pending_path.startswith(pointer + "/"):
-                    del self.pending[pending_path]
-            self._change(pointer, replacement)
+            prefix = ("/panel/layout" if self._panel_compact else
+                      "/responsive/compact_layout")
+            # Replace only the three allowlisted lane edits. Existing unsaved
+            # edits to those lanes are superseded via _change, while unrelated
+            # pending properties remain untouched.
+            for lane in recipes.SECTIONS:
+                self._change(f"{prefix}/{lane}", replacement[lane])
             self._refresh_layout()
 
         def _mutate_panel(self, lane, path, action, node=None):
