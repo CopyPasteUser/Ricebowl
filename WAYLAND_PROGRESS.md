@@ -348,3 +348,15 @@ allowlisted actions; there is no dynamic shell command or new resident process.
 The plain labwc/Waybar menu fallback still does not expose the native-only
 places actions. CI and real-device input/file-manager checks are **not yet
 accepted**; this is not an XP Explorer or pixel-perfect recreation.
+
+### XP Luna · pointer-driven taskbar state (11 November 2026, candidate)
+
+The current isolated branch adds mouse-hover and held-press visual states to
+the opt-in Luna taskbar Start and real task buttons, without changing
+pointer hitboxes, task activation, global compositor configuration, installed
+themes, or the ordinary Luna/Classic rendering paths. Output-local pointer
+ownership and hot-unplug cleanup prevent stale taskbar highlights. Rust
+regressions verify the pixel states and other rice invariants; a native
+labwc capture tests idle versus hover using real virtual-pointer motion.
+The CI, full-HD/multi-output screenshots and physical-device input acceptance
+must still pass before treating this milestone as released.

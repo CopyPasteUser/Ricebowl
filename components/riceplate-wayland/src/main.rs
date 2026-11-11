@@ -81,6 +81,31 @@ const MAX_OUTPUT_PANELS: usize = 8;
 const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
 
+/// Purely visual pointer state. Dispatch continues to use recipe::hit and the
+/// original press-to-activate semantics; styling never creates a new action.
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+struct PanelPointerVisual {
+    hovered: Option<Hit>,
+    pressed: Option<Hit>,
+}
+
+impl PanelPointerVisual {
+    fn button(self, target: Hit) -> panel_chrome::ButtonVisual {
+        if self.pressed == Some(target) && self.hovered == Some(target) {
+            panel_chrome::ButtonVisual::Pressed
+        } else if self.hovered == Some(target) {
+            panel_chrome::ButtonVisual::Hovered
+        } else {
+            panel_chrome::ButtonVisual::Normal
+        }
+    }
+}
+
+fn luna_hover_target(hit: Option<Hit>) -> Option<Hit> {
+    hit.filter(|target| matches!(target, Hit::Launcher | Hit::Task(_)))
+}
+
+
 #[derive(Debug, PartialEq, Eq)]
 enum MenuSizeDecision {
     Accept,
@@ -450,6 +475,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         hovered_widget: None,
         focused_panel: None,
         focused_target: None,
+        hovered_panel: None,
+        pressed_panel: None,
         icon_drag: None,
         icon_position_dirty: false,
         icon_outputs,
@@ -461,6 +488,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         trace_window_events: std::env::var("RICEBOWL_DE_TRACE_WINDOWS").as_deref() == Ok("1"),
         tasks: Vec::new(),
         task_offset: 0,
+        // Refreshed when real task state is painted, not on mouse motion.
+        cached_task_group_count: 0,
         pool: None,
         width: 0,
         height: 0,
@@ -850,6 +879,10 @@ struct RicePlate {
     hovered_widget: Option<usize>,
     focused_panel: Option<wl_surface::WlSurface>,
     focused_target: Option<KeyboardTarget>,
+    // The only interactive taskbar cosmetics, scoped to the originating
+    // layer surface so moving between outputs cannot leak hover highlights.
+    hovered_panel: Option<(wl_surface::WlSurface, Hit)>,
+    pressed_panel: Option<(wl_surface::WlSurface, Hit)>,
     icon_drag: Option<IconDrag>,
     icon_position_dirty: bool,
     icon_outputs: icon_positions::OutputPositions,
@@ -861,6 +894,7 @@ struct RicePlate {
     trace_window_events: bool,
     tasks: Vec<Task>,
     task_offset: usize,
+    cached_task_group_count: usize,
     pool: Option<SlotPool>,
     width: u32,
     height: u32,
@@ -872,6 +906,19 @@ struct RicePlate {
 }
 
 impl RicePlate {
+    fn panel_pointer_visual(&self, surface: &wl_surface::WlSurface) -> PanelPointerVisual {
+        if self.recipe.id != "xp-luna-columns" {
+            return PanelPointerVisual::default();
+        }
+        let for_surface = |entry: &Option<(wl_surface::WlSurface, Hit)>| {
+            entry.as_ref().and_then(|(owner, hit)| (owner == surface).then_some(*hit))
+        };
+        PanelPointerVisual {
+            hovered: for_surface(&self.hovered_panel),
+            pressed: for_surface(&self.pressed_panel),
+        }
+    }
+
     fn active_menu_size(&self) -> (u32, u32) {
         self.active_menu.as_ref()
             .and_then(|active| self.menu_layer.iter().chain(self.menu_mirrors.iter())
@@ -1770,14 +1817,28 @@ impl RicePlate {
             self.focused_panel = None;
             self.focused_target = None;
         }
+        // Hot-unplug must never retain a hover/press owner on a destroyed
+        // layer, nor paint that interaction onto a surviving mirror.
+        if self.hovered_panel.as_ref().is_some_and(|(surface, _)|
+            self.panel_geometry(surface).is_none()) {
+            self.hovered_panel = None;
+        }
+        if self.pressed_panel.as_ref().is_some_and(|(surface, _)|
+            self.panel_geometry(surface).is_none()) {
+            self.pressed_panel = None;
+        }
     }
 
     fn redraw_mirror(&mut self, index: usize, qh: &QueueHandle<Self>) {
         let groups = self.grouped_tasks();
+        self.cached_task_group_count = groups.len();
         let selected = if self.focused_panel.as_ref()
             == self.mirrors.get(index).map(|mirror| mirror.surface.wl_surface()) {
             self.focused_target
         } else { None };
+        let visual = self.mirrors.get(index)
+            .map(|mirror| self.panel_pointer_visual(mirror.surface.wl_surface()))
+            .unwrap_or_default();
         let Some(mirror) = self.mirrors.get_mut(index) else { return };
         if !mirror.configured || mirror.width == 0 || mirror.height == 0 { return; }
         let surface = mirror.surface.wl_surface();
@@ -1795,9 +1856,10 @@ impl RicePlate {
                 return;
             }
         };
-        paint_panel(canvas, mirror.width, mirror.height, &self.recipe, &groups,
+        paint_panel_pointer(canvas, mirror.width, mirror.height, &self.recipe, &groups,
                     &self.clock, &self.power, &self.system_status, &self.tray_state,
-                    mirror.task_offset, selected, self.control_pending, self.control_result);
+                    mirror.task_offset, selected, self.control_pending, self.control_result,
+                    visual);
         surface.damage_buffer(0, 0, mirror.width as i32, mirror.height as i32);
         if let Err(error) = buffer.attach_to(surface) {
             eprintln!("RicePlate: cannot attach output panel: {error}");
@@ -2956,10 +3018,12 @@ impl RicePlate {
         let width = self.width;
         let height = self.height;
         let groups = self.grouped_tasks();
+        self.cached_task_group_count = groups.len();
         let selected = if self.focused_panel.as_ref() == Some(self.layer.wl_surface()) {
             self.focused_target
         } else { None };
         let surface = self.layer.wl_surface();
+        let visual = self.panel_pointer_visual(surface);
         let stride = (width * 4) as i32;
         let pool = self
             .pool
@@ -2982,9 +3046,10 @@ impl RicePlate {
                 return;
             }
         };
-        paint_panel(canvas, width, height, &self.recipe, &groups,
+        paint_panel_pointer(canvas, width, height, &self.recipe, &groups,
                     &self.clock, &self.power, &self.system_status, &self.tray_state,
-                    self.task_offset, selected, self.control_pending, self.control_result);
+                    self.task_offset, selected, self.control_pending, self.control_result,
+                    visual);
         surface.damage_buffer(0, 0, width as i32, height as i32);
         if let Err(error) = buffer.attach_to(surface) {
             eprintln!("RicePlate: failed to attach Wayland buffer: {error}");
@@ -2998,19 +3063,36 @@ impl RicePlate {
     }
 }
 
+#[cfg(test)]
 fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
                style: &PanelStyle, groups: &[TaskGroup], clock: &str,
                power: &PowerStatus, status: &SystemStatus, tray_state: &tray::State, offset: usize,
                selected: Option<KeyboardTarget>, pending: Option<ControlAction>,
                result: Option<(ControlAction, bool)>) {
+    paint_panel_pointer(canvas, width, height, style, groups, clock,
+                        power, status, tray_state, offset, selected, pending, result,
+                        PanelPointerVisual::default());
+}
+
+fn paint_panel_pointer(canvas: &mut [u8], width: u32, height: u32,
+               style: &PanelStyle, groups: &[TaskGroup], clock: &str,
+               power: &PowerStatus, status: &SystemStatus, tray_state: &tray::State, offset: usize,
+               selected: Option<KeyboardTarget>, pending: Option<ControlAction>,
+               result: Option<(ControlAction, bool)>, visual: PanelPointerVisual) {
+    // Unrelated recipes and the original xp-luna preview retain byte-identical
+    // historical framebuffers: native pointer effects are strictly opt in.
+    let visual = if style.id == "xp-luna-columns" {
+        visual
+    } else { PanelPointerVisual::default() };
     let layout = recipe::layout(style, width, groups.len());
     panel_chrome::background(canvas, width, height, style, &layout);
     for placed in layout {
         match placed.widget {
             Widget::Launcher => {
                 if let Some(launcher) = style.launcher.as_ref() {
-                    panel_chrome::launcher(canvas, width, height, placed.x, placed.width,
-                                           launcher);
+                    panel_chrome::launcher_visual(canvas, width, height, placed.x,
+                                                  placed.width, launcher,
+                                                  visual.button(Hit::Launcher));
                 } else {
                     fill_rect(canvas, width, height, placed.x, 0, placed.width, height,
                               style.active);
@@ -3025,7 +3107,9 @@ fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
                 };
                 draw_rice_text(canvas, width, height,
                           label_x,
-                          height.saturating_sub(8 * style.font_scale) / 2,
+                          height.saturating_sub(8 * style.font_scale) / 2
+                              + u32::from(visual.button(Hit::Launcher)
+                                  == panel_chrome::ButtonVisual::Pressed),
                           launcher_label,
                           style.launcher.as_ref().map_or(style.foreground, |item| item.foreground),
                           style);
@@ -3077,11 +3161,14 @@ fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
                     } else {
                         view.cell_width
                     };
-                    panel_chrome::task_button(canvas, width, height, x, cell_width,
-                                              group.active, style);
+                    let task_visual = visual.button(Hit::Task(view.start + index));
+                    panel_chrome::task_button_visual(canvas, width, height, x, cell_width,
+                                                     group.active, style, task_visual);
                     let label = task_groups::visible_label(group, cell_width);
                     draw_rice_text(canvas, width, height, x + 10,
-                              height.saturating_sub(8 * style.font_scale) / 2,
+                              height.saturating_sub(8 * style.font_scale) / 2
+                                  + u32::from(task_visual
+                                      == panel_chrome::ButtonVisual::Pressed),
                               &label, style.foreground, style);
                     if selected == Some(KeyboardTarget::Task(view.start + index)) {
                         paint_focus_border(canvas, width, height, x, cell_width,
@@ -5549,6 +5636,47 @@ impl PointerHandler for RicePlate {
             } else if &event.surface == self.layer.wl_surface() {
                 (self.width, self.height, self.task_offset)
             } else { continue; };
+            // Physical pointer feedback is local to this panel surface and
+            // only changes framebuffer paint state, never the click target.
+            // No polling: redraw only when target or pressed state changes.
+            if self.recipe.id == "xp-luna-columns" {
+                let hit = if event.position.1.is_finite()
+                    && event.position.1 >= 0.0
+                    && event.position.1 < f64::from(panel_height) {
+                    luna_hover_target(recipe::hit(event.position.0, panel_width,
+                        self.cached_task_group_count, panel_offset, &self.recipe))
+                } else { None };
+                let previous_hover = self.hovered_panel.clone();
+                let previous_pressed = self.pressed_panel.clone();
+                match event.kind {
+                    PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
+                        self.hovered_panel = hit.map(|target| (event.surface.clone(), target));
+                    }
+                    PointerEventKind::Leave { .. } => {
+                        if self.hovered_panel.as_ref().is_some_and(|(owner, _)|
+                            owner == &event.surface) {
+                            self.hovered_panel = None;
+                        }
+                        if self.pressed_panel.as_ref().is_some_and(|(owner, _)|
+                            owner == &event.surface) {
+                            self.pressed_panel = None;
+                        }
+                    }
+                    PointerEventKind::Press { button: BTN_LEFT, .. } => {
+                        self.hovered_panel = hit.map(|target| (event.surface.clone(), target));
+                        self.pressed_panel = hit.map(|target| (event.surface.clone(), target));
+                    }
+                    PointerEventKind::Release { button: BTN_LEFT, .. } => {
+                        self.pressed_panel = None;
+                        self.hovered_panel = hit.map(|target| (event.surface.clone(), target));
+                    }
+                    _ => {}
+                }
+                if previous_hover != self.hovered_panel
+                    || previous_pressed != self.pressed_panel {
+                    self.request_redraw(qh);
+                }
+            }
             if let PointerEventKind::Press { button, .. } = event.kind {
                 if (button == BTN_LEFT || button == BTN_RIGHT)
                     && event.position.1 >= 0.0
@@ -5975,6 +6103,70 @@ mod tests {
         assert_eq!(bar_pixel(&filled, 18), style.foreground);
         assert_eq!(bar_pixel(&filled, 220), style.active);
         assert_eq!(bar_pixel(&error, 18), style.background);
+    }
+
+    #[test]
+    fn luna_taskbar_pointer_states_are_real_but_legacy_rices_are_unchanged() {
+        let luna = recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let classic_luna = recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna.json"),
+            Some("xp-luna")).unwrap();
+        let groups = [TaskGroup {
+            members: vec![0], representative: 0, label: "File Manager".into(), active: true,
+        }];
+        let render = |style: &PanelStyle, visual: PanelPointerVisual| {
+            let width = 1366;
+            let mut frame = vec![0; (width * style.height * 4) as usize];
+            paint_panel_pointer(&mut frame, width, style.height, style, &groups, "12:00",
+                                &PowerStatus::NotPresent, &SystemStatus::default(),
+                                &tray::State::default(), 0, None, None, None, visual);
+            frame
+        };
+        let idle = render(&luna, PanelPointerVisual::default());
+        let launcher_hover = PanelPointerVisual {
+            hovered: Some(Hit::Launcher), pressed: None,
+        };
+        let launcher_press = PanelPointerVisual {
+            hovered: Some(Hit::Launcher), pressed: Some(Hit::Launcher),
+        };
+        let task_hover = PanelPointerVisual {
+            hovered: Some(Hit::Task(0)), pressed: None,
+        };
+        let task_press = PanelPointerVisual {
+            hovered: Some(Hit::Task(0)), pressed: Some(Hit::Task(0)),
+        };
+        assert_eq!(launcher_hover.button(Hit::Launcher),
+                   panel_chrome::ButtonVisual::Hovered);
+        assert_eq!(launcher_press.button(Hit::Launcher),
+                   panel_chrome::ButtonVisual::Pressed);
+        assert_eq!(launcher_press.button(Hit::Task(0)),
+                   panel_chrome::ButtonVisual::Normal);
+        assert_eq!(PanelPointerVisual { pressed: Some(Hit::Launcher), hovered: None }
+                   .button(Hit::Launcher), panel_chrome::ButtonVisual::Normal);
+        assert_eq!(luna_hover_target(Some(Hit::Task(0))), Some(Hit::Task(0)));
+        assert_eq!(luna_hover_target(Some(Hit::Clock)), None);
+        assert_eq!(luna_hover_target(Some(Hit::Tray(0))), None);
+        let hovered_launcher_frame = render(&luna, launcher_hover);
+        let pressed_launcher_frame = render(&luna, launcher_press);
+        let hovered_task_frame = render(&luna, task_hover);
+        let pressed_task_frame = render(&luna, task_press);
+        assert_ne!(idle, hovered_launcher_frame);
+        assert_ne!(idle, pressed_launcher_frame);
+        assert_ne!(hovered_launcher_frame, pressed_launcher_frame);
+        assert_ne!(idle, hovered_task_frame);
+        assert_ne!(idle, pressed_task_frame);
+        assert_ne!(hovered_task_frame, pressed_task_frame);
+
+        // No hover/press treatment is permitted to alter existing v12 Luna,
+        // undecorated classic, or unrelated Creator recipes.
+        let baseline = render(&classic_luna, PanelPointerVisual::default());
+        assert_eq!(baseline, render(&classic_luna, launcher_press));
+        assert_eq!(baseline, render(&classic_luna, task_press));
+        let classic = recipe::load("classic").unwrap();
+        assert_eq!(render(&classic, PanelPointerVisual::default()),
+                   render(&classic, task_press));
     }
 
     #[test]

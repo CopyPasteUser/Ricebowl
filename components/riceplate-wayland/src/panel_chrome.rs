@@ -6,6 +6,16 @@ use crate::{
     recipe::{LauncherDecoration, PanelStyle, PlacedWidget, Widget},
 };
 
+/// Native Luna taskbar interaction treatment. The owning RicePlate hit test
+/// remains the sole authority: these are paint states, never new commands.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ButtonVisual {
+    #[default]
+    Normal,
+    Hovered,
+    Pressed,
+}
+
 fn mix_rgb(base: u32, tint: u32, weight: u32) -> u32 {
     let weight = weight.min(255);
     let channel = |shift: u32| {
@@ -108,6 +118,32 @@ pub fn launcher(
     }
 }
 
+/// Layer input feedback over the existing native green Start capsule.
+pub fn launcher_visual(
+    canvas: &mut [u8], width: u32, height: u32, x: u32,
+    span: u32, decoration: &LauncherDecoration, visual: ButtonVisual,
+) {
+    launcher(canvas, width, height, x, span, decoration);
+    if span < 32 || height < 16 { return; }
+    match visual {
+        ButtonVisual::Normal => {}
+        ButtonVisual::Hovered => {
+            // XP-like illuminated top/left edge with the existing green body.
+            fill_rect(canvas, width, height, x + 15, 4,
+                      span.saturating_sub(32), 2, 0xffc2_f9a6);
+            fill_rect(canvas, width, height, x + 5, 11, 1,
+                      height.saturating_sub(22), 0xff83_dc62);
+        }
+        ButtonVisual::Pressed => {
+            // Depressed optical edge, visually distinct from hover.
+            fill_rect(canvas, width, height, x + 15, 4,
+                      span.saturating_sub(32), 2, 0xff20_5719);
+            fill_rect(canvas, width, height, x + 6, height - 6,
+                      span.saturating_sub(15), 1, 0xffb6_ec98);
+        }
+    }
+}
+
 pub fn task_button(
     canvas: &mut [u8], width: u32, height: u32,
     x: u32, span: u32, active: bool, style: &PanelStyle,
@@ -134,6 +170,31 @@ pub fn task_button(
                       span - 6, height - 9, style.task_radius, base);
     fill_rect(canvas, width, height, x + 5, 4,
               span.saturating_sub(12), 1, mix_rgb(base, 0xffff_ffff, 85));
+}
+
+/// Luna task entries have distinct hover and depressed faces without
+/// changing the original hit rectangles, window activation or task grouping.
+pub fn task_button_visual(
+    canvas: &mut [u8], width: u32, height: u32,
+    x: u32, span: u32, active: bool, style: &PanelStyle, visual: ButtonVisual,
+) {
+    task_button(canvas, width, height, x, span, active, style);
+    if style.launcher.is_none() || span < 18 || height < 16 { return; }
+    match visual {
+        ButtonVisual::Normal => {}
+        ButtonVisual::Hovered => {
+            fill_rect(canvas, width, height, x + 6, 5,
+                      span.saturating_sub(14), 2, 0xffb8_e5ff);
+            fill_rect(canvas, width, height, x + 4, 10,
+                      1, height.saturating_sub(20), 0xff8d_bfff);
+        }
+        ButtonVisual::Pressed => {
+            fill_rect(canvas, width, height, x + 6, 5,
+                      span.saturating_sub(14), 2, 0xff0c_2e75);
+            fill_rect(canvas, width, height, x + 5, height - 6,
+                      span.saturating_sub(13), 1, 0xff94_bbf2);
+        }
+    }
 }
 
 /// Original 16px tray art for the Luna recipe. The native widget keeps its
@@ -232,6 +293,33 @@ mod tests {
         let inactive = px(&pixels, 400, 110, 20);
         task_button(&mut pixels, 400, 40, 100, 130, true, &style);
         assert_ne!(inactive, px(&pixels, 400, 110, 20));
+    }
+
+    #[test]
+    fn luna_hover_and_pressed_states_have_distinct_pixels_without_changing_geometry() {
+        let style = recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let (width, height) = (420, style.height);
+        let decor = style.launcher.as_ref().unwrap();
+        let render = |visual| {
+            let mut pixels = vec![0; (width * height * 4) as usize];
+            background(&mut pixels, width, height, &style, &[]);
+            launcher_visual(&mut pixels, width, height, 0, 96, decor, visual);
+            task_button_visual(&mut pixels, width, height, 110, 150, false,
+                               &style, visual);
+            pixels
+        };
+        let idle = render(ButtonVisual::Normal);
+        let hover = render(ButtonVisual::Hovered);
+        let press = render(ButtonVisual::Pressed);
+        assert_ne!(idle, hover);
+        assert_ne!(idle, press);
+        assert_ne!(hover, press);
+        for frame in [&idle, &hover, &press] {
+            assert_eq!(px(frame, width, width - 1, 0), px(&idle, width, width - 1, 0));
+            assert_eq!(px(frame, width, 330, height - 2), px(&idle, width, 330, height - 2));
+        }
     }
 
     #[test]
