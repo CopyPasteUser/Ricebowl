@@ -309,7 +309,10 @@ jobs:
       - name: Validate two-output menu pixel analyzer
         run: /usr/bin/python3 -m unittest discover -s tests -p test_de_menu_outputs.py -v
       - name: Boot native Wayland layer surface
-        run: timeout -k 5s 70s sh scripts/smoke_riceplate_native.sh
+        # The smoke suite exercises many real compositor clicks, resizes and
+        # captures. The old 70s cap interrupted otherwise healthy runners
+        # mid-capture (exit 124); keep a finite but realistic upper bound.
+        run: timeout -k 5s 120s sh scripts/smoke_riceplate_native.sh
       - name: Prove live Wayland application taskbar lifecycle
         run: |
           /usr/bin/python3 -m unittest tests.test_de_window_outputs -v
