@@ -32,7 +32,7 @@ class NativeCreatorHandoffRunnerTests(unittest.TestCase):
                 runner.capture_installed(self.output)
         self.assertEqual(list(self.output.iterdir()), [])
 
-    def test_private_drafts_are_installed_and_real_capture_receipts_verified(self):
+    def test_two_offline_creator_ricepacks_import_and_native_capture_receipts_verified(self):
         requested = []
 
         def fake_render(token, output, *, width, height, scale):
@@ -58,6 +58,15 @@ class NativeCreatorHandoffRunnerTests(unittest.TestCase):
         self.assertEqual({(item[1], item[2], item[3]) for item in requested},
                          set(runner.GEOMETRIES))
         self.assertEqual(manifest["source_commit"], "abc123")
+        self.assertEqual(len(manifest["package_imports"]), 2)
+        self.assertEqual({item["pack_version"] for item in manifest["package_imports"]},
+                         {4})
+        self.assertEqual(len({item["semantic_sha256"]
+                              for item in manifest["package_imports"]}), 2)
+        self.assertEqual({item["recipe"] for item in manifest["package_imports"]},
+                         {item["recipe"] for item in manifest["captures"]})
+        self.assertTrue(all(len(item["package_sha256"]) == 64
+                            for item in manifest["package_imports"]))
         self.assertEqual(len(manifest["captures"]), 4)
         self.assertFalse(manifest["capture_is_interactive"])
         self.assertEqual(json.loads((self.output / "manifest.json").read_text()), manifest)
