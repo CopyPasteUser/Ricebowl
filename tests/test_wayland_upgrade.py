@@ -81,6 +81,16 @@ class DebianUpgradeContracts(unittest.TestCase):
         self.assertNotIn("HOME/", builder)
         self.assertNotIn("/etc/xdg", builder)
 
+    def test_installed_native_login_recovers_from_corrupt_user_settings(self):
+        smoke = (ROOT / "scripts/smoke_wayland_packaged_login.sh").read_text()
+        self.assertIn('printf "%s\\n" "{broken-selection"', smoke)
+        self.assertIn('printf "%s\\n" "{broken-preferences"', smoke)
+        self.assertIn("ignoring invalid saved recipe selection:", smoke)
+        self.assertIn("ignoring unsafe RiceSpice preferences:", smoke)
+        self.assertIn('"$runtime/corrupt-fallback.png"', smoke)
+        self.assertIn('sha256sum -c --status "$runtime/corrupt-before.sha256"', smoke)
+        self.assertIn("^RICEBOWL_DE_RECIPE=", smoke)
+
 
 if __name__ == "__main__":
     unittest.main()

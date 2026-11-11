@@ -1527,6 +1527,15 @@ component, and incompatible clients degrade gracefully.
   an injected `postinst` in isolated scratch packages. The Rust ELF still
   requires independent reviewed build-input provenance; the gate does not
   install or sign artifacts.
+- [x] Add a **negative installed-session recovery gate**: after an actual
+  apt-installed native login, forced RicePlate crash, protected idle-guard
+  shutdown and successful relogin, deliberately corrupt the owner's private
+  next-login recipe selection and RiceSpice preferences *inside the disposable
+  container*. Require another real labwc/native/swayidle login, a fresh Wayland
+  screenshot, explicit safe-fallback diagnostics, no invalid recipe in the
+  native process environment and byte-for-byte preservation of the damaged
+  files for owner inspection. No host, XFCE or live user settings are touched;
+  device-level restart and actual power-loss remain unaccepted.
 - [ ] Measure cold start, settled PSS/RSS, CPU wakeups, relogin, long-running
   memory and mixed-DPI behavior for X11 and Wayland on actual devices.
 - [x] Add a **read-only native on-device acceptance preflight** (`de acceptance`

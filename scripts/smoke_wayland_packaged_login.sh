@@ -198,4 +198,59 @@ for name in sys.argv[1:]:
     assert width >= 640 and height >= 480, (name, width, height)
 '\'' "$runtime/rescued.png" "$runtime/relogin.png"
     echo "PASS: new native login works after forced fail-closed shutdown"
+
+    # A damaged user selection or RiceSpice preferences must never prevent
+    # launching the *installed* native session. Neither file may be repaired
+    # implicitly: keep both for owner inspection while using safe defaults.
+    kill "$session" 2>/dev/null || :
+    wait "$session" 2>/dev/null || :
+    session=
+    mkdir -p "$runtime/config/ricebowl/recipes"
+    chmod 0700 "$runtime/config" "$runtime/config/ricebowl" \
+        "$runtime/config/ricebowl/recipes"
+    selection="$runtime/config/ricebowl/recipes/.active-recipe"
+    preferences="$runtime/config/ricebowl/ricespice.json"
+    printf "%s\n" "{broken-selection" >"$selection"
+    printf "%s\n" "{broken-preferences" >"$preferences"
+    chmod 0600 "$selection" "$preferences"
+    sha256sum "$selection" "$preferences" >"$runtime/corrupt-before.sha256"
+
+    /usr/bin/ricebowl-wayland-session --native >"$runtime/corrupt-login.log" 2>&1 &
+    session=$!
+    ready=0
+    attempt=0
+    while [ "$attempt" -lt 80 ]; do
+        kill -0 "$session" 2>/dev/null || break
+        if [ -S "$runtime/wayland-0" ] && \
+           WAYLAND_DISPLAY=wayland-0 timeout 2s wayland-info >/dev/null 2>&1 && \
+           pgrep -u "$(id -u)" -f "^/usr/bin/riceplate-native([[:space:]]|$)" >/dev/null && \
+           pgrep -u "$(id -u)" -x swayidle >/dev/null; then
+            ready=1
+            break
+        fi
+        attempt=$((attempt + 1))
+        sleep 0.25
+    done
+    if [ "$ready" -ne 1 ]; then
+        echo "Installed login failed to recover from damaged private preferences" >&2
+        sed -n "1,100p" "$runtime/corrupt-login.log" >&2
+        exit 1
+    fi
+    grep -Fq "RiceBowl: ignoring invalid saved recipe selection:" \
+        "$runtime/corrupt-login.log"
+    grep -Fq "RiceBowl: ignoring unsafe RiceSpice preferences:" \
+        "$runtime/corrupt-login.log"
+    native_pid=$(pgrep -u "$(id -u)" -f "^/usr/bin/riceplate-native([[:space:]]|$)")
+    case "$native_pid" in
+        ""|*[!0-9]*) echo "Expected exactly one native fallback panel" >&2; exit 1 ;;
+    esac
+    if tr "\\000" "\n" <"/proc/$native_pid/environ" | \
+       grep -q "^RICEBOWL_DE_RECIPE="; then
+        echo "Corrupted selection was unexpectedly passed to native RicePlate" >&2
+        exit 1
+    fi
+    WAYLAND_DISPLAY=wayland-0 timeout 8s grim "$runtime/corrupt-fallback.png"
+    test -s "$runtime/corrupt-fallback.png"
+    sha256sum -c --status "$runtime/corrupt-before.sha256"
+    echo "PASS: corrupt private selection and RiceSpice preferences fall back without data loss"
 ' sh "$runtime"
