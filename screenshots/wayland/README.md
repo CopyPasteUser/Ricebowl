@@ -62,6 +62,25 @@ At Full HD the fixed-size Start menu is noticeably compact. This matrix
 verifies compositing and geometric visibility, **not** font-size/accessibility
 quality or physical mixed-DPI, touch, pointer, focus and monitor hotplug.
 
+### Luna visual review · actual opened-menu difference maps
+
+| 1024×768 · 100% | 1366×768 · 125% |
+| :---: | :---: |
+| [![Red-on-black real framebuffer heatmap of the opened native Luna menu at 1024 by 768](luna-menu-heatmap-1024.webp)](luna-menu-heatmap-1024.webp) | [![Red-on-black real framebuffer heatmap of the opened native Luna menu at 125 percent compositor scale](luna-menu-heatmap-scale125.webp)](luna-menu-heatmap-scale125.webp) |
+| 93,748 pixels changed beyond RGB threshold 24 | 146,330 pixels changed beyond RGB threshold 24 |
+
+These are **real pixel-difference maps** between the corresponding closed
+and open Start-menu PNGs from [native run #42963768429](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42963768429),
+made with RiceBowl's existing offline `compare_wayland_captures.py` tool.
+Red indicates a pixel difference; black indicates no change. The full-width
+panel is not painted red because opening the menu does not repaint it. The
+native CI pipeline now runs that same comparison for **all four geometries**,
+archives the full-resolution heatmaps and a structured, SHA-256-attributed
+`luna-menu-visual-review.json` containing panel, desktop and icon diagnostics.
+The result verifies a compositor-visible state change in the expected area;
+it does **not** certify interactive hit targets, screenshot fidelity to
+Windows XP, accessibility or hardware performance.
+
 ### Opt-in portable font · real compositor comparison
 
 | Bundled bitmap font | Imported private TrueType font |

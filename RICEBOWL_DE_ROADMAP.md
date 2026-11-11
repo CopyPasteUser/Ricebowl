@@ -55,6 +55,13 @@ installation and is not yet a finished desktop environment.
   Capture closed/open menus at each geometry and validate framebuffer size,
   wallpaper, panel and menu delta in native CI (green run #42963768429).
   Preserve 1024, Full HD and 125% real screenshot previews in the gallery.
+- [x] Add a **reviewable Luna menu visual-diff artifact** without another
+  rendering or comparison engine: run the existing offline Creator visual-QA
+  algorithm on all four actual closed/open native compositor PNG pairs;
+  archive 24-threshold pixel heatmaps and one provenance-rich JSON report with
+  per-region results, capture SHA-256s, output sizes and layout diagnostics.
+  Preserve 1024×768 and 125%-scale heatmap previews. This detects a visibly
+  painted menu state, not physical input correctness or pixel-perfect fidelity.
 - [ ] Review Full-HD Start-menu physical sizing and accessibility in a real
   session; CI proves the menu renders but its fixed 320px width looks small on
   a 1920px output. Physical mixed-DPI, monitor hotplug and focus remain open.

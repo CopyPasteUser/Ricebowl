@@ -50,6 +50,12 @@ All eight source screenshots passed the compositor pixel checks in
 Full-HD screenshots show the current fixed-size Start menu is small; real
 physical mixed-DPI and accessibility acceptance remain open.
 
+The same genuine closed/open Luna screenshots now feed the existing offline
+Creator image comparator at each output size. CI archives red-on-black
+**per-pixel heatmaps and structured per-region/SHA-256 review JSON**; the
+[screenshot gallery includes 1024×768 and 125% examples](screenshots/wayland/README.md#luna-visual-review--actual-opened-menu-difference-maps).
+These describe visible image changes, not an input or accessibility pass.
+
 The native shell now accepts an **owner-private TrueType font asset** throughout
 the panel, native Start menu and desktop shortcut labels, with on-demand,
 bounded Unicode glyph caching and a legible fallback. [View the real Luna
