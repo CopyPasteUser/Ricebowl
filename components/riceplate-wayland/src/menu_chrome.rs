@@ -79,6 +79,22 @@ pub fn action_icon(canvas: &mut [u8], x: u32, y: u32, action: &str, selected: bo
             fill_rect(canvas, w, h, x + 2, y + 1, 7, 3, 0xffe4_bc59);
             fill_rect(canvas, w, h, x + 1, y + 5, 11, 6, 0xffff_d268);
         }
+        "documents" => {
+            // Original yellow tabbed folder and pale paper sheet.
+            fill_rect(canvas, w, h, x + 2, y + 1, 8, 10, 0xffe9_f5ff);
+            fill_rect(canvas, w, h, x + 4, y + 3, 4, 1, 0xff60_99ce);
+            fill_rect(canvas, w, h, x, y + 6, 13, 7, 0xffb7_791e);
+            fill_rect(canvas, w, h, x + 1, y + 7, 11, 5, 0xffff_d16d);
+            fill_rect(canvas, w, h, x + 2, y + 8, 9, 1, 0xffff_e2a0);
+        }
+        "computer" => {
+            // Cobalt desktop monitor and original turquoise screen glint.
+            fill_rect(canvas, w, h, x, y + 1, 13, 10, 0xff1e_436c);
+            fill_rect(canvas, w, h, x + 1, y + 2, 11, 7, 0xff75_c2ee);
+            fill_rect(canvas, w, h, x + 2, y + 3, 9, 2, 0xffc7_f6fa);
+            fill_rect(canvas, w, h, x + 5, y + 11, 3, 2, ink);
+            fill_rect(canvas, w, h, x + 2, y + 13, 9, 1, ink);
+        }
         "terminal" => {
             fill_rect(canvas, w, h, x, y, 13, 11, ink);
             fill_rect(canvas, w, h, x + 2, y + 2, 9, 7, 0xff11_3444);
