@@ -163,6 +163,23 @@ native view and test path as the previous frames, now with an explicit visible
 row-range cue. The screenshot proves the rendered counter in headless labwc,
 not hardware scroll-wheel or assistive-technology acceptance.
 
+### Luna Saved actions · real right-click pin and remove
+
+| Right-clicked Find action, then opened Saved | Right-clicked saved action to remove it |
+| :---: | :---: |
+| [![Real Luna native Saved list populated with Applications after a Wayland right mouse button event](luna-saved-pinned-rightclick.webp)](luna-saved-pinned-rightclick.webp) | [![Same Luna Saved list emptied after a second native right click](luna-saved-unpinned-rightclick.webp)](luna-saved-unpinned-rightclick.webp) |
+| `Saved actions: 1`, `* Applications` | `Saved actions: 0`, `No saved actions` |
+
+Both 1024×768 WebPs are optimized directly from unmodified headless labwc
+PNG captures `xp-luna-pointer-saved-{pinned,unpinned}-1024x768.png` in
+[successful native run #42977523704](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42977523704)
+for [PR #263](https://github.com/CopyPasteUser/Ricebowl/pull/263).
+The CI-only virtual pointer emits actual right-button press/release input.
+The smoke test verifies a populated Saved row and restoration of the empty
+view using screenshot pixel assertions; the original full-size PNGs remain
+in the CI artifact. This is real compositor interaction, but it does not
+replace physical mouse or accessibility acceptance.
+
 ### Opt-in portable font · real compositor comparison
 
 | Bundled bitmap font | Imported private TrueType font |
