@@ -25,8 +25,8 @@ These are **actual native RicePlate frames captured inside labwc**, not design m
 
 | Luna desktop · Wayland | Luna Start menu · real native surface |
 | :---: | :---: |
-| [![XP Luna desktop with original green hills wallpaper, green Start button and blue Wayland taskbar](screenshots/wayland/luna-desktop.webp)](screenshots/wayland/luna-desktop.webp) | [![XP Luna native two-column Start menu: programs on the left, system and session commands on the right](screenshots/wayland/luna-menu.webp)](screenshots/wayland/luna-menu.webp) |
-| `xp-luna-columns` running with `swaybg` in headless labwc | Opened native menu, cropped from the same real-compositor capture |
+| [![XP Luna desktop with original folder, CRT terminal and lock shortcuts, green hills, green Start button and blue Wayland taskbar](screenshots/wayland/luna-icons-after.webp)](screenshots/wayland/luna-icons-after.webp) | [![XP Luna native two-column Start menu with original desktop icons, programs on the left, system and session actions on the right](screenshots/wayland/luna-icons-menu.webp)](screenshots/wayland/luna-icons-menu.webp) |
+| `xp-luna-columns` running with `swaybg` and original built-in Luna icons | Open native menu, full 1366×768 compositor capture |
 
 The original `xp-luna` recipe is unchanged; the two-column variant is an opt-in successor. Full-resolution, uncropped source captures are in the [native CI workflow](https://github.com/CopyPasteUser/Ricebowl/actions/workflows/riceplate-native.yml).
 The menu preview now shows the native system shelf with complete, readable
@@ -34,6 +34,13 @@ The menu preview now shows the native system shelf with complete, readable
 longer canonical action names remain available to search and accessibility;
 the [screenshot gallery](screenshots/wayland/README.md) documents both capture
 runs and the remaining physical-device acceptance work.
+
+The opt-in Luna icon family now includes RiceBowl-original folder, CRT
+terminal and lock artwork drawn inside the Rust native renderer. CI compares
+**actual headless compositor pixels** against the prior default symbols;
+[view before/after screenshots](screenshots/wayland/README.md#original-luna-desktop-icons--verified-beforeafter-11-november-2026)
+from [green native run #42960890682](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42960890682).
+No Microsoft/Windows icon assets or global icon-theme overrides are used.
 
 The native shell now accepts an **owner-private TrueType font asset** throughout
 the panel, native Start menu and desktop shortcut labels, with on-demand,
