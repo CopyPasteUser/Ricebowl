@@ -142,6 +142,9 @@ mod tests {
                    at(&pixels, 200, native_menu::HEIGHT - 16));
         action_icon(&mut pixels, 14, 110, "terminal", false);
         assert_ne!(at(&pixels, 14, 110), 0);
+        action_icon(&mut pixels, 14, 132, "documents", false);
+        action_icon(&mut pixels, 14, 155, "computer", false);
+        assert_ne!(at(&pixels, 14, 138), at(&pixels, 14, 156));
         let mut state = native_menu::MenuState::default();
         state.open();
         assert_eq!(state.hit(&menu, 280.0, f64::from(native_menu::HEIGHT - 16)),
