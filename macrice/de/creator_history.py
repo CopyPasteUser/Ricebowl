@@ -40,8 +40,23 @@ def _valid_hash(value: Any) -> bool:
     return type(value) is str and _SHA.fullmatch(value) is not None
 
 
+def _check_attribution(value: Any) -> None:
+    """Validate optional data-only import credit before persisting or trusting it."""
+    from . import pack
+    if (type(value) is not dict or set(value) != {"wallpaper_id", "rice", "wallpaper"}
+            or type(value["wallpaper_id"]) is not str
+            or not re.fullmatch(r"[a-z][a-z0-9-]{1,95}", value["wallpaper_id"])):
+        raise HistoryError("Invalid imported rice attribution")
+    try:
+        pack._provenance(value["rice"])
+        pack._provenance(value["wallpaper"])
+    except (pack.PackError, TypeError, ValueError) as exc:
+        raise HistoryError("Invalid imported rice attribution") from exc
+
+
 def write(draft: Path, digest: str, *, kind: str,
-          parent: tuple[str, str] | None = None) -> None:
+          parent: tuple[str, str] | None = None,
+          attribution: dict[str, Any] | None = None) -> None:
     """Publish a durable version intent before making its recipe visible."""
     receipt = _receipt_path(draft)
     if (kind not in _KINDS or not _valid_hash(digest)
@@ -52,11 +67,19 @@ def write(draft: Path, digest: str, *, kind: str,
                                or not _valid_hash(parent[1])
                                or parent[0] == draft.name):
         raise HistoryError("Invalid Creator version parent")
+    if attribution is not None:
+        if kind != "import":
+            raise HistoryError("Only imported roots may carry attribution")
+        _check_attribution(attribution)
     data = {"history_version": HISTORY_VERSION, "kind": kind,
             "target_semantic_sha256": digest,
             "parent": ({"filename": parent[0], "semantic_sha256": parent[1]}
                        if parent is not None else None)}
+    if attribution is not None:
+        data["attribution"] = attribution
     payload = (json.dumps(data, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    if len(payload) > 2048:
+        raise HistoryError("Imported attribution exceeds the private receipt limit")
     try:
         recipes._write_private_new(receipt, payload, suffix=".history")
         # The receipt must survive a crash before the matching recipe becomes
@@ -90,8 +113,9 @@ def _read_receipt(draft: Path, digest: str | None) -> dict[str, Any] | None:
                           object_pairs_hook=recipes._object_without_duplicates)
     except (ValueError, UnicodeError, TypeError, RecursionError) as exc:
         raise HistoryError("Creator history receipt contains invalid JSON") from exc
+    keys = {"history_version", "kind", "target_semantic_sha256", "parent"}
     if (not isinstance(data, dict)
-            or set(data) != {"history_version", "kind", "target_semantic_sha256", "parent"}
+            or set(data) not in (keys, keys | {"attribution"})
             or type(data["history_version"]) is not int
             or data["history_version"] != HISTORY_VERSION
             or type(data["kind"]) is not str or data["kind"] not in _KINDS
@@ -108,6 +132,10 @@ def _read_receipt(draft: Path, digest: str | None) -> dict[str, Any] | None:
             or parent["filename"] == draft.name
             or not _valid_hash(parent["semantic_sha256"])):
         raise HistoryError("Creator history parent is invalid")
+    if "attribution" in data:
+        if data["kind"] != "import":
+            raise HistoryError("Unexpected Creator attribution on a non-import receipt")
+        _check_attribution(data["attribution"])
     return data
 
 

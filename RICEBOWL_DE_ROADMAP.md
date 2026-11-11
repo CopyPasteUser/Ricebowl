@@ -1218,6 +1218,14 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
   symlink and Luna-columns v12 tests pass; GTK picker smoke remains a CI gate.
   Editing legacy schemas v1–v9 still requires a versioned conversion workflow,
   and real Wayland GUI/Orca acceptance is pending.
+- [x] Preserve **RicePack author/license/origin attribution through Creator
+  import-derived drafts**, even after saved revisions, restarts and forks.
+  The validated import receipt is bound to the immutable root draft history;
+  any corrupt, untrusted or excessively deep ancestry blocks export instead
+  of silently erasing credit. A changed wallpaper uses its own verified
+  attribution, never the previous artist's. No new daemon or schema migration.
+  Derivative authors must still review and update attribution before public
+  redistribution; this does not license third-party artwork automatically.
 - [x] Preflight **all referenced RicePack v4 font/icon identities and
   attribution collisions** before creating or installing files. A conflict in
   the second asset must not strand the first as an unreferenced new asset;

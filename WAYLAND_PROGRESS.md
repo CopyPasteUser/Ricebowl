@@ -248,7 +248,9 @@ Finish these software gates before calling the implementation feature-complete:
    export/import, native preview and staged rollback path. The Creator now
    imports schema-v10–v12 RicePacks and opens verified installed recipes as
    separate editable private drafts, preserving original installations and
-   next-login selection. Remaining: real GTK import/picker CI sign-off,
+   next-login selection. Source attribution now survives private revision,
+   fork and re-export via validated immutable history; changing wallpaper
+   selects the replacement asset's credit. Remaining: real GTK import/picker CI sign-off,
    interactive apply/restore, live bindings and realistic portable fonts/icons
    in reproducible CI, plus older-schema editing/migration.
 4. **Distribution / recovery:** finish tracked, reproducible Wayland packages,
