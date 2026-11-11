@@ -230,6 +230,76 @@ class RiceSpiceWindow:
             self.content.show_all()
 
         self._background(notifications.dnd_status, present)
+        self._notification_appearance()
+
+    def _notification_appearance(self):
+        """Change only the next full Wayland login's RicePop Mako styling."""
+        from . import notification_prefs
+        self._text("RicePop banner appearance · next full Wayland login",
+                   css="ricespice-section")
+        self._text("These choices never modify XFCE notifications or a running Mako "
+                   "instance. Only the RiceBowl-owned host reads them at login.",
+                   css="ricespice-note")
+        try:
+            current = notification_prefs.load()
+        except (OSError, ValueError) as exc:
+            self._text("Saved RicePop appearance unavailable: " + str(exc),
+                       css="ricespice-note")
+            return
+
+        def choice(title, choices, selected):
+            self._text(title)
+            combo = self.Gtk.ComboBoxText()
+            combo.get_accessible().set_name(title)
+            for value, label in choices:
+                combo.append(str(value), label)
+            combo.set_active_id(str(selected))
+            self.content.pack_start(combo, False, False, 0)
+            return combo
+
+        family = choice("Notification font", [(name, name) for name in
+                        dict.fromkeys(("Sans", "Serif", "Monospace",
+                                       current["font_family"]))], current["font_family"])
+        size = choice("Font size", [(n, f"{n} pt") for n in notification_prefs._SIZES],
+                      current["font_size"])
+        timeout = choice("Default banner duration", [
+            (0, "Follow application / no default timeout"),
+            (4000, "4 seconds"), (7000, "7 seconds"), (12000, "12 seconds")],
+            current["default_timeout"])
+        visible = choice("Maximum visible banners", [(n, str(n))
+                          for n in notification_prefs._COUNTS], current["max_visible"])
+
+        def installed():
+            from . import fonts
+            return sorted({face.family for face in fonts.installed_fonts()
+                           if notification_prefs._FAMILY.fullmatch(face.family)})[:128]
+
+        def show_installed(names):
+            current_name = family.get_active_id()
+            family.remove_all()
+            for name in dict.fromkeys(("Sans", "Serif", "Monospace", current_name, *names)):
+                if name:
+                    family.append(name, name)
+            family.set_active_id(current_name)
+            self._state(f"{len(names)} installed TrueType font families available")
+
+        self._button("Find installed TrueType fonts", lambda: self._background(
+            installed, show_installed))
+
+        def apply():
+            values = {"font_family": family.get_active_id(),
+                      "font_size": int(size.get_active_id()),
+                      "default_timeout": int(timeout.get_active_id()),
+                      "max_visible": int(visible.get_active_id())}
+            self._background(lambda: notification_prefs.save(values, expected=current),
+                             lambda _result: self.show_page("notifications"))
+
+        self._button("Save RicePop appearance for next login", apply,
+                     primary=True)
+        self._button("Restore RicePop appearance defaults", lambda: self._background(
+            lambda: notification_prefs.save(notification_prefs.DEFAULTS,
+                                            expected=current),
+            lambda _result: self.show_page("notifications")))
 
     def _network(self, *, rescan: bool = False):
         self._text("Turning Wi-Fi off can disconnect an active network session.", css="ricespice-note")

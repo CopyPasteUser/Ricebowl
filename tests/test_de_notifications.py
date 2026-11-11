@@ -111,6 +111,7 @@ class WaylandRicePopReadTests(unittest.TestCase):
             controls[title] = callback
 
         page._button = button
+        page._notification_appearance = lambda: None
 
         def background(work, done):
             done(work())

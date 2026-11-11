@@ -741,7 +741,13 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   assistive-technology acceptance, alternate notification backends, richer
   text layout and consistent permissions/errors across settings/quick actions.
   The Mako-backed active/past inbox, detail actions and verified dismissal
-  are implemented, but do not yet replace Mako.
+  are implemented, but do not yet replace Mako. **11 Nov RicePop/RiceSpice
+  milestone:** owner-private, versioned next-login Mako banner preferences now
+  offer a safe installed-font selection (family plus bounded size), default
+  timeout and visible-banner count. A disposable, owner-only config is generated
+  solely for the full Wayland session; nested previews and XFCE keep their
+  existing notification setup. DND ownership verification accepts this
+  explicitly bounded private config. Active Mako is never restarted for edits.
 - [ ] Integrate a secure lock screen, idle policy and suspend/resume.
 
 **Done when:** common desktop settings and recovery workflows no longer

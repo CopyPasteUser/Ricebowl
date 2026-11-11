@@ -782,11 +782,35 @@ def shell(
                 )
                 background.append(wallpaper_process)
 
-            # RicePop reuses one Mako notification owner with a fixed private
-            # mode rule. Never modify the user's ~/.config/mako/config.
+            # RicePop reuses the existing Mako notification owner. A saved
+            # appearance preference affects *only* the next full Wayland
+            # login's private config, never ~/.config/mako or a nested preview.
+            env.pop("RICEBOWL_DE_MAKO_CONFIG", None)
             mako = which("mako")
             if mako:
-                background.append(spawn([mako, "--config", str(base / "mako.conf")],
+                mako_config = base / "mako.conf"
+                if env.get("RICEBOWL_DE_NESTED") == "0":
+                    try:
+                        from . import notification_prefs
+                        appearance = notification_prefs.load_optional()
+                        if appearance is not None:
+                            _check_runtime_dir(env)
+                            private = Path(cleanup.enter_context(tempfile.TemporaryDirectory(
+                                prefix="ricebowl-pop-", dir=env["XDG_RUNTIME_DIR"])))
+                            mako_config = private / "mako.conf"
+                            descriptor = os.open(mako_config, os.O_CREAT | os.O_EXCL |
+                                                 os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+                            with os.fdopen(descriptor, "w", encoding="utf-8") as config_file:
+                                config_file.write(notification_prefs.render(appearance))
+                                config_file.flush()
+                                os.fsync(config_file.fileno())
+                            env["RICEBOWL_DE_MAKO_CONFIG"] = str(mako_config)
+                    except (OSError, RuntimeError, ValueError) as exc:
+                        print(f"RiceBowl: ignoring RicePop preferences: {exc}",
+                              file=sys.stderr)
+                        mako_config = base / "mako.conf"
+                        env.pop("RICEBOWL_DE_MAKO_CONFIG", None)
+                background.append(spawn([mako, "--config", str(mako_config)],
                                         env=env, stdin=subprocess.DEVNULL))
 
             # Orca is optional, opt-in and only supervised inside a full RiceBowl
