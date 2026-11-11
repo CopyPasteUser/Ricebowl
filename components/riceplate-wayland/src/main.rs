@@ -80,6 +80,20 @@ const MAX_OUTPUT_PANELS: usize = 8;
 const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
 
+#[derive(Debug, PartialEq, Eq)]
+enum MenuSizeDecision {
+    Accept,
+    AwaitNewConfigure,
+    Invalid,
+}
+
+fn menu_size_decision(expected: (u32, u32), offered: (u32, u32),
+                      awaiting_resize: bool) -> MenuSizeDecision {
+    if offered == expected { MenuSizeDecision::Accept }
+    else if awaiting_resize { MenuSizeDecision::AwaitNewConfigure }
+    else { MenuSizeDecision::Invalid }
+}
+
 fn clock_now() -> String {
     Local::now().format("%H:%M").to_string()
 }
@@ -4432,10 +4446,22 @@ impl LayerShellHandler for RicePlate {
             menu.surface.wl_surface() == layer.wl_surface())
             || self.menu_mirrors.iter().any(|menu|
                 menu.surface.wl_surface() == layer.wl_surface()) {
-            let expected_size = self.menu_layer.iter().chain(self.menu_mirrors.iter())
+            let (expected_size, awaiting_resize) = self.menu_layer.iter().chain(self.menu_mirrors.iter())
                 .find(|menu| menu.surface.wl_surface() == layer.wl_surface())
-                .map(|menu| menu.size).expect("matched a live native menu layer");
-            if config.new_size != expected_size {
+                .map(|menu| (menu.size, !menu.configured))
+                .expect("matched a live native menu layer");
+            let disposition = menu_size_decision(expected_size, config.new_size, awaiting_resize);
+            if disposition == MenuSizeDecision::AwaitNewConfigure {
+                // wl_layer_surface configure is asynchronous. A previous
+                // 320×304 configure can arrive *after* output discovery has
+                // requested 400×380/480×456. Keep this layer alive until
+                // the matching configure arrives; dropping it here makes
+                // the native Start menu disappear on the first wide output.
+                eprintln!("RicePlate: ignoring superseded native menu configure {:?}; waiting for {:?}",
+                          config.new_size, expected_size);
+                return;
+            }
+            if disposition == MenuSizeDecision::Invalid {
                 eprintln!("RicePlate: compositor proposed unsupported native menu geometry");
                 if self.menu_layer.as_ref().is_some_and(|menu|
                     menu.surface.wl_surface() == layer.wl_surface()) {
@@ -5655,6 +5681,20 @@ smithay_client_toolkit::delegate_dispatch2!(RicePlate);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn superseded_wayland_menu_configure_waits_instead_of_destroying_the_layer() {
+        let old = (native_menu::WIDTH, native_menu::HEIGHT);
+        for desired in [(400, 380), (480, 456)] {
+            assert_eq!(menu_size_decision(desired, old, true),
+                       MenuSizeDecision::AwaitNewConfigure);
+            assert_eq!(menu_size_decision(desired, desired, true),
+                       MenuSizeDecision::Accept);
+            assert_eq!(menu_size_decision(desired, old, false),
+                       MenuSizeDecision::Invalid);
+        }
+        assert_eq!(menu_size_decision(old, old, false), MenuSizeDecision::Accept);
+    }
 
     #[test]
     fn small_menu_raster_keeps_full_source_and_pointer_targets() {

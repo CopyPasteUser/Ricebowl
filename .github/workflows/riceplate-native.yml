@@ -457,6 +457,14 @@ jobs:
           assert captures['menu-v5'] != captures['desktop-v5'], 'Native menu did not render in Wayland frame'
           assert captures['xp-luna-columns-menu'] != captures['xp-luna-columns'], \
               'XP Luna two-column Start menu was not rendered in real Wayland frame'
+          with Image.open(directory / 'xp-luna-columns.png') as closed_image, \
+               Image.open(directory / 'xp-luna-columns-menu.png') as opened_image:
+              region = (0, 338, 400, 718)
+              closed = closed_image.convert('RGB').crop(region)
+              opened = opened_image.convert('RGB').crop(region)
+              menu_pixels = sum(a != b for a, b in zip(closed.getdata(), opened.getdata()))
+              assert menu_pixels > 10000, \
+                  f'Native Luna menu missing after output configure: {menu_pixels}'
           with Image.open(directory / 'xp-luna-default-icons.png') as original_image, \
                Image.open(directory / 'xp-luna-columns.png') as luna_image:
               # Compare an actual desktop shortcut surface, never a screenshot
@@ -472,19 +480,20 @@ jobs:
               base = base_image.convert('RGB').crop((0, 338, 400, 718))
               custom = font_image.convert('RGB').crop((0, 338, 400, 718))
               changed = sum(left != right for left, right in zip(base.getdata(), custom.getdata()))
-              # Diagnostic coverage when responsive Luna menu geometry moves:
-              # capture both the old cropped region and the full left-side
-              # popup; differences must originate in the menu, not wallpaper.
-              for region_name, region in (
-                  ('header', (0, 320, 500, 400)),
-                  ('body', (0, 400, 500, 700)),
-                  ('entire-left', (0, 250, 520, 728)),
-              ):
-                  original_region = base_image.convert('RGB').crop(region)
-                  font_region = font_image.convert('RGB').crop(region)
-                  delta = sum(a != b for a, b in zip(original_region.getdata(),
-                                                      font_region.getdata()))
-                  print(f'Luna font pixel QA {region_name}: {delta}', flush=True)
+              if changed <= 500:
+                  # A configure/resize race can remove the popup while the
+                  # desktop font still changes. Diagnose which region is gone
+                  # without weakening the real-menu glyph requirement.
+                  for region_name, region in (
+                      ('header', (0, 320, 500, 400)),
+                      ('body', (0, 400, 500, 700)),
+                      ('entire-left', (0, 250, 520, 728)),
+                  ):
+                      original_region = base_image.convert('RGB').crop(region)
+                      font_region = font_image.convert('RGB').crop(region)
+                      delta = sum(a != b for a, b in zip(original_region.getdata(),
+                                                          font_region.getdata()))
+                      print(f'Luna font pixel QA {region_name}: {delta}', flush=True)
           assert changed > 500, f'Private TrueType did not change native menu glyph pixels: {changed}'
           with Image.open(directory / 'xp-luna-columns-calendar.png') as bitmap_image, \
                Image.open(directory / 'xp-luna-font-calendar.png') as typeface_image:
