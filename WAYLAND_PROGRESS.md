@@ -56,6 +56,15 @@ Creator image comparator at each output size. CI archives red-on-black
 [screenshot gallery includes 1024×768 and 125% examples](screenshots/wayland/README.md#luna-visual-review--actual-opened-menu-difference-maps).
 These describe visible image changes, not an input or accessibility pass.
 
+In addition to visual previews, Luna now has a **real Wayland compositor
+pointer test**: the CI-only virtual pointer clicks the green Start button to
+open and close the native menu at 1024×768, Full HD and 125% scale, with
+actual framebuffer verification after each click. [See the permanent
+opened/closed screenshots](screenshots/wayland/README.md#luna-start-button--real-wayland-pointer-click-11-november-2026)
+from [successful native run #42968039762](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42968039762).
+This is functional input validation in disposable labwc, not a physical
+ThinkPad mouse, keyboard, touch or accessibility signoff.
+
 The native shell now accepts an **owner-private TrueType font asset** throughout
 the panel, native Start menu and desktop shortcut labels, with on-demand,
 bounded Unicode glyph caching and a legible fallback. [View the real Luna
