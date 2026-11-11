@@ -105,6 +105,49 @@ class CreatorStyleAssetsTests(unittest.TestCase):
         self.assertFalse(drafts._allowed_value("/artwork/icons/applications", added.identifier, 10))
         self.assertTrue(drafts._allowed_value("/artwork/icons/applications", added.identifier, 11))
 
+    def test_interrupted_icon_publication_retries_only_with_original_attribution(self):
+        identifier = style_assets._identity(icon_png(), "icon")
+        folder = self.root / "config/ricebowl/visual-assets"
+        record = folder / f"{identifier}.json"
+        image = folder / f"{identifier}.png"
+        original_write = recipes._write_private_new
+
+        def interrupt_image(destination, payload, **options):
+            if destination == image:
+                raise OSError("simulated crash before the asset becomes visible")
+            return original_write(destination, payload, **options)
+
+        with patch.object(recipes, "_write_private_new", side_effect=interrupt_image):
+            with self.assertRaisesRegex(OSError, "simulated crash"):
+                style_assets.import_asset(self.icon, kind="icon", label="Recovered icon",
+                                          provenance=ATTRIBUTION)
+        self.assertTrue(record.is_file(), "attribution must be committed first")
+        self.assertFalse(image.exists(), "incomplete asset must stay undiscoverable")
+        self.assertEqual(style_assets.list_assets("icon"), [])
+
+        with self.assertRaises(style_assets.StyleAssetError):
+            style_assets.import_asset(self.icon, kind="icon", label="Other author",
+                                      provenance=ATTRIBUTION)
+        self.assertFalse(image.exists())
+        recovered = style_assets.import_asset(self.icon, kind="icon", label="Recovered icon",
+                                              provenance=ATTRIBUTION)
+        self.assertEqual(recovered.identifier, identifier)
+        self.assertEqual(style_assets.list_assets("icon"), [recovered])
+        self.assertEqual(style_assets.read(identifier), icon_png())
+
+    def test_unattributed_asset_bytes_cannot_be_adopted_by_new_declaration(self):
+        identifier = style_assets._identity(icon_png(), "icon")
+        folder = self.root / "config/ricebowl/visual-assets"
+        folder.mkdir(parents=True, mode=0o700)
+        image = folder / f"{identifier}.png"
+        image.write_bytes(icon_png())
+        image.chmod(0o600)
+        with self.assertRaises(style_assets.StyleAssetError):
+            style_assets.import_asset(self.icon, kind="icon", label="Claimed art",
+                                      provenance=ATTRIBUTION)
+        self.assertFalse((folder / f"{identifier}.json").exists())
+        self.assertEqual(image.read_bytes(), icon_png())
+
     def test_malformed_attribution_does_not_crash_library(self):
         added = style_assets.import_asset(self.icon, kind="icon", label="Check",
                                           provenance=ATTRIBUTION)
@@ -138,6 +181,40 @@ class CreatorStyleAssetsTests(unittest.TestCase):
         self.assertFalse(imported["applied"])
         self.assertEqual(style_assets.read(icon.identifier), icon_png())
 
+    def test_ricepack_v4_import_recovers_after_asset_publish_is_interrupted(self):
+        icon = style_assets.import_asset(self.icon, kind="icon", label="Pack icon",
+                                         provenance=ATTRIBUTION)
+        draft = creator_workspace.create_draft("heritage")
+        revised, _ = creator_workspace.save_revision(draft.path, {
+            "/artwork/icons/applications": icon.identifier,
+        }, expected_sha256=draft.semantic_sha256)
+        archive = self.root / "safe-icons.ricepack"
+        self.assertEqual(creator_workspace.export_draft(revised, archive)["pack_version"], 4)
+        fresh = self.root / "another-config"
+        fresh.mkdir(mode=0o700)
+        assets_dir = fresh / "ricebowl/visual-assets"
+        image = assets_dir / f"{icon.identifier}.png"
+        original_write = recipes._write_private_new
+
+        def interrupt_image(destination, payload, **options):
+            if destination == image:
+                raise OSError("simulated process exit during RicePack asset install")
+            return original_write(destination, payload, **options)
+
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(fresh)}):
+            with patch.object(recipes, "_write_private_new", side_effect=interrupt_image):
+                with self.assertRaises(pack.PackError):
+                    pack.import_pack(archive)
+            self.assertTrue((assets_dir / f"{icon.identifier}.json").is_file())
+            self.assertFalse(image.exists())
+            self.assertEqual(style_assets.list_assets("icon"), [])
+            self.assertEqual(recipes.current_selection(), ("classic", None))
+            self.assertFalse(list((fresh / "ricebowl/recipes").glob("*.json")))
+            self.assertTrue(pack.import_pack(archive)["imported"])
+            self.assertEqual(style_assets.read(icon.identifier), icon_png())
+            self.assertEqual(style_assets.entry(icon.identifier), icon)
+            self.assertEqual(recipes.current_selection(), ("classic", None))
+
     def test_untampered_font_can_be_packed_if_system_fixture_present(self):
         fixture = Path("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf")
         if not fixture.exists():
@@ -154,6 +231,31 @@ class CreatorStyleAssetsTests(unittest.TestCase):
         with zipfile.ZipFile(target) as archive:
             self.assertEqual(archive.read("assets/font.ttf"), source.read_bytes())
         self.assertEqual(pack.inspect_pack(target)["pack_version"], 4)
+
+    def test_interrupted_font_publication_is_resumable_with_exact_provenance(self):
+        fixture = Path("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf")
+        if not fixture.exists():
+            self.skipTest("No system font fixture")
+        payload = fixture.read_bytes()
+        identifier = style_assets._identity(payload, "font")
+        font_path = self.root / "config/ricebowl/visual-assets" / f"{identifier}.ttf"
+        original_write = recipes._write_private_new
+
+        def interrupt_font(destination, data, **options):
+            if destination == font_path:
+                raise OSError("interrupted private font write")
+            return original_write(destination, data, **options)
+
+        with patch.object(recipes, "_write_private_new", side_effect=interrupt_font):
+            with self.assertRaisesRegex(OSError, "interrupted private font"):
+                style_assets.store_pack_asset(identifier, payload, label="Installed typeface",
+                                              provenance=ATTRIBUTION)
+        self.assertFalse(font_path.exists())
+        saved = style_assets.store_pack_asset(identifier, payload,
+                                             label="Installed typeface", provenance=ATTRIBUTION)
+        self.assertEqual(saved.kind, "font")
+        self.assertEqual(style_assets.read(identifier), payload)
+        self.assertEqual(style_assets.list_assets("font"), [saved])
 
     def test_archive_mismatch_fails_before_import(self):
         icon = style_assets.import_asset(self.icon, kind="icon", label="Custom app",

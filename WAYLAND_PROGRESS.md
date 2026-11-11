@@ -82,6 +82,14 @@ font comparison](screenshots/wayland/README.md#opt-in-portable-font--real-compos
 from [green native run #42904147986](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42904147986).
 This is opt-in per recipe, not a global GTK/Qt or system font setting.
 
+Creator's local fonts and icons and RicePack v4 now publish a verified private
+attribution record **before** the matching asset bytes. If a process exits
+between those writes, the incomplete asset remains invisible and the identical
+import can resume without overwriting data or allowing another attribution to
+claim those bytes. Python regression tests cover both direct icon import and
+offline pack import; actual power-cut ordering and multi-asset transactions
+are separate software recovery work.
+
 The selected private font now also renders the **native calendar popup and
 volume OSD**; the unselected-font path keeps its legacy bitmap painting.
 [Compare actual native calendar screenshots](screenshots/wayland/README.md#luna-calendar--native-popup-font-comparison)
