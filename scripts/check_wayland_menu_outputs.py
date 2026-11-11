@@ -17,6 +17,10 @@ def menu_matches(paths: list[Path]) -> list[int]:
         with Image.open(path) as image:
             if image.format != "PNG" or min(image.size) < 480:
                 raise ValueError("Invalid Wayland menu capture")
+            # Decode the entire framebuffer, not just the sampled header pixel.
+            # A truncated CI capture can retain its first scanlines and otherwise
+            # incorrectly pass this one-pixel visibility assertion.
+            image.load()
             # Schema-v5 test recipe is top-aligned with a 40 px panel.
             # The native menu's 38 px header is #4179aa.
             rgb = image.convert("RGB").getpixel((20, 40 + 10))

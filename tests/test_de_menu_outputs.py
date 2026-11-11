@@ -37,5 +37,21 @@ class MenuOutputCheckTests(unittest.TestCase):
                 active_menu_output(paths)
 
 
+    def test_truncated_capture_cannot_pass_from_early_header_pixel(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory, "truncated.png")
+            image = Image.new("RGB", (1024, 768), (0x20, 0x3C, 0x59))
+            image.putpixel((20, 50), (0x41, 0x79, 0xAA))
+            image.save(path)
+            self.assertEqual(menu_matches([path]), [0])
+
+            # Keep the PNG header and early IDAT data, but remove enough of
+            # the image payload to make a complete framebuffer impossible.
+            original = path.read_bytes()
+            path.write_bytes(original[:max(64, len(original) // 3)])
+            with self.assertRaises((OSError, ValueError)):
+                menu_matches([path])
+
+
 if __name__ == "__main__":
     unittest.main()

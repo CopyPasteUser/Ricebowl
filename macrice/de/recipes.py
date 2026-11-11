@@ -156,7 +156,8 @@ def _parse_artwork(raw: Any, *, schema_version: int = 11) -> Artwork:
     data = _strict_keys(raw, {"font", "icons"}, "Artwork")
     names = _strict_keys(data["icons"], set(ICON_ACTIONS), "Desktop icon art")
     font = data["font"]
-    if type(font) is not str or not (font == "builtin" or FONT_ID.fullmatch(font)):
+    built_in_fonts = {"builtin", "builtin-luna-ui"} if schema_version >= 12 else {"builtin"}
+    if type(font) is not str or not (font in built_in_fonts or FONT_ID.fullmatch(font)):
         raise RecipeError("Font must name a builtin or content-addressed TrueType asset")
     icons = tuple(names[key] for key in ICON_ACTIONS)
     builtins = {"builtin", "builtin-luna"} if schema_version >= 12 else {"builtin"}

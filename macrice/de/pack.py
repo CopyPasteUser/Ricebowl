@@ -96,7 +96,7 @@ def _visual_assets(recipe: recipes.PanelRecipe) -> tuple[list[tuple[str, bytes]]
     candidates.extend(("icon", asset_id, f"assets/icons/{action}.png")
                       for action, asset_id in zip(style_assets.ICON_ACTIONS, recipe.artwork.icons))
     for kind, identifier, path in candidates:
-        if identifier in ("builtin", "builtin-luna"):
+        if identifier in ("builtin", "builtin-luna", "builtin-luna-ui"):
             continue
         try:
             asset = style_assets.entry(identifier)
@@ -446,7 +446,7 @@ def _validate_archive(source: Path | bytes) -> tuple[dict[str, Any], bytes, byte
                     or set(visual) != {"font", "icons"} or type(visual["icons"]) is not dict):
                 raise PackError("Visual asset receipt is missing or malformed")
             expected_records: dict[str, str] = {}
-            if artwork.font != "builtin":
+            if artwork.font not in ("builtin", "builtin-luna-ui"):
                 expected_records["assets/font.ttf"] = artwork.font
             for action, asset_id in zip(style_assets.ICON_ACTIONS, artwork.icons):
                 if asset_id not in ("builtin", "builtin-luna"):
@@ -455,7 +455,8 @@ def _validate_archive(source: Path | bytes) -> tuple[dict[str, Any], bytes, byte
                     or set(visual["icons"]) != {
                         name.split("/")[-1].removesuffix(".png") for name in expected_records
                         if name.startswith("assets/icons/")}
-                    or (visual["font"] is None) != (artwork.font == "builtin")):
+                    or (visual["font"] is None) !=
+                       (artwork.font in ("builtin", "builtin-luna-ui"))):
                 raise PackError("Visual asset archive entries do not match the recipe")
             declared_assets: dict[str, dict[str, Any]] = {}
             for filename, identifier in expected_records.items():

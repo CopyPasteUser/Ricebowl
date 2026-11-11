@@ -900,7 +900,9 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
         };
     let artwork = match (recipe.schema_version, recipe.artwork) {
         (11 | 12, Some(value)) => Some(ArtworkSelection {
-            font: asset_id(&value.font, "font-")?,
+            font: if recipe.schema_version >= 12 && value.font == "builtin-luna-ui" {
+                Some(value.font.clone())
+            } else { asset_id(&value.font, "font-")? },
             icons: [
                 icon_asset_id(&value.icons.applications, recipe.schema_version)?,
                 icon_asset_id(&value.icons.terminal, recipe.schema_version)?,
@@ -1419,6 +1421,8 @@ mod tests {
         assert_eq!(width_for(&columns, Widget::Audio, 0), 28);
         assert_eq!(width_for(&columns, Widget::Battery, 0), 64);
         assert_eq!(width_for(&legacy, Widget::Network, 0), 64);
+        assert_eq!(columns.artwork.as_ref().and_then(|art| art.font.as_deref()),
+                   Some("builtin-luna-ui"));
     }
 
     #[test]

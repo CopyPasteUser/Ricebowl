@@ -26,13 +26,14 @@ adaptive 400×380/480×456 menu surfaces for larger logical outputs. The
 Luna taskbar now also draws compact, original 16px network and speaker symbols
 instead of showing wide `N/A` text cells; offline/muted states remain visibly
 marked while the original accessible widget states and pointer targets remain.
-pre-existing screenshots in this section document the earlier appearance,
-not proof of this newer pass. The complete live multi-resolution compositor
-matrix passed in [native CI run #43026159262](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43026159262);
-the [updated Luna screenshots](screenshots/wayland/README.md#luna-chrome-and-responsive-start-menu--11-november-2026)
-show that actual renderer. Visual parity against the original XP-era
-reference and real desktop/hardware
-and toolkit-owned client decorations remain outside this software step.
+Luna also opts into a bundled OFL-licensed Liberation Sans system font with
+proportional glyph advances; other recipes keep their existing font behavior.
+The [current Luna screenshots](screenshots/wayland/README.md#current-luna-ui--proportional-font-and-compact-tray-11-november-2026)
+come from [green native CI run #43031538310](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43031538310),
+including output reconfiguration and fractional scale. Historical captures
+in the gallery remain available for comparison. Exact XP-era pixel fidelity,
+real desktop/hardware acceptance and toolkit-owned client decorations remain
+outside this software step.
 
 
 These are **actual native RicePlate frames captured inside labwc**, not design mockups or XFCE screenshots. The previews below are optimized WebP copies of real CI PNGs, checked into the repository so they **load directly and do not expire**. All images were captured with a *headless* compositor and simulated device state; they are **not** proof of a functioning physical desktop.
@@ -41,8 +42,8 @@ These are **actual native RicePlate frames captured inside labwc**, not design m
 
 | Luna desktop · Wayland | Luna Start menu · real native surface |
 | :---: | :---: |
-| [![XP Luna desktop with original folder, CRT terminal and lock shortcuts, green hills, green Start button and blue Wayland taskbar](screenshots/wayland/luna-icons-after.webp)](screenshots/wayland/luna-icons-after.webp) | [![XP Luna native two-column Start menu with original desktop icons, programs on the left, system and session actions on the right](screenshots/wayland/luna-icons-menu.webp)](screenshots/wayland/luna-icons-menu.webp) |
-| `xp-luna-columns` running with `swaybg` and original built-in Luna icons | Open native menu, full 1366×768 compositor capture |
+| [![XP Luna desktop with original shortcuts, green hills, compact network and audio tray, and blue Wayland taskbar](screenshots/wayland/luna-ui-font-desktop-20261111.webp)](screenshots/wayland/luna-ui-font-desktop-20261111.webp) | [![XP Luna native two-column Start menu with proportional Liberation Sans, programs on the left, system and session actions on the right](screenshots/wayland/luna-ui-font-menu-20261111.webp)](screenshots/wayland/luna-ui-font-menu-20261111.webp) |
+| `xp-luna-columns` in labwc with original icons and proportional font | Pointer-opened native Start menu, full 1366×768 compositor capture |
 
 The original `xp-luna` recipe is unchanged; the two-column variant is an opt-in successor. Full-resolution, uncropped source captures are in the [native CI workflow](https://github.com/CopyPasteUser/Ricebowl/actions/workflows/riceplate-native.yml).
 The menu preview now shows the native system shelf with complete, readable
@@ -66,7 +67,6 @@ button or Escape. Empty app indexes are reported explicitly. A native
 virtual-pointer open/Back screenshot regression accompanies the Rust state
 tests; real desktop input acceptance is still pending. Other rices and the
 Luna desktop's separate application shortcut keep their existing launcher.
-
 A separate [live output-resolution and scaling matrix](screenshots/wayland/README.md#luna-live-output-matrix--1024768-full-hd-and-125-scale-11-november-2026)
 now captures **the same running Wayland session** at 1024×768, 1366×768,
 1920×1080 and 125% compositor scale, with both closed and open native menus.
