@@ -584,8 +584,8 @@ def run() -> int:
             self.interactive_btn.set_label(
                 "Close interactive Wayland window" if running else "Try interactive Wayland window")
             self.interactive_btn.set_sensitive(
-                (running and not self._interactive_closing) or
-                (selected and not self.pending and not self._busy))
+                not self._interactive_closing and
+                (running or (selected and not self.pending and not self._busy)))
             if running:
                 self.interactive_btn.set_tooltip_text(
                     f"Separate test of {self._interactive_session.draft.recipe_id}; "
