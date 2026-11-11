@@ -93,6 +93,41 @@ class CreatorStructureTests(unittest.TestCase):
                         self.original, source, path, destination, target_index=index)
         self.assertEqual(self.original, before)
 
+    def test_clone_wide_to_compact_preserves_full_tree_and_original(self):
+        original = copy.deepcopy(self.original)
+        clone = structure.clone_layout_mode(self.original)
+        self.assertEqual(clone, original["panel"]["layout"])
+        self.assertEqual(self.original, original)
+        proposal = copy.deepcopy(original)
+        proposal["responsive"]["compact_layout"] = clone
+        recipes.parse(json.dumps(proposal).encode())
+        clone["start"][0]["id"] = "modified-after-copy"
+        self.assertEqual(self.original, original)
+
+    def test_clone_compact_to_wide_preserves_responsive_independence(self):
+        clone = structure.clone_layout_mode(self.original, from_compact=True)
+        self.assertEqual(clone, self.original["responsive"]["compact_layout"])
+        self.assertNotEqual(clone, self.original["panel"]["layout"])
+        proposal = copy.deepcopy(self.original)
+        proposal["panel"]["layout"] = clone
+        recipes.parse(json.dumps(proposal).encode())
+        self.assertEqual(self.original["panel"]["layout"]["end"][0]["type"], "group")
+
+    def test_clone_layout_rejects_unsupported_modes_and_broken_source(self):
+        original = copy.deepcopy(self.original)
+        for invalid in (None, 0, "compact"):
+            with self.subTest(invalid=invalid), self.assertRaises(structure.StructureError):
+                structure.clone_layout_mode(self.original, from_compact=invalid)
+        old = copy.deepcopy(self.original)
+        old["schema_version"] = 9
+        with self.assertRaises(structure.StructureError):
+            structure.clone_layout_mode(old)
+        broken = copy.deepcopy(self.original)
+        broken["panel"]["layout"]["start"][0]["id"] = "unknown-widget"
+        with self.assertRaises(structure.StructureError):
+            structure.clone_layout_mode(broken)
+        self.assertEqual(self.original, original)
+
     def test_compact_layout_edits_do_not_touch_wide(self):
         lane = structure.edit_layout(self.original, "center", (), "add",
                                      node={"type": "label", "text": "Compact"}, compact=True)
@@ -210,6 +245,30 @@ class CreatorStructureDraftIntegrationTests(unittest.TestCase):
         persisted = review.review(str(saved.path))["recipe"]
         self.assertEqual(persisted["panel"]["layout"]["start"], moved["start"])
         self.assertEqual(persisted["panel"]["layout"]["center"], moved["center"])
+
+    def test_responsive_mode_clone_is_one_private_revision(self):
+        info = creator_workspace.create_draft("heritage")
+        original = info.path.read_bytes()
+        manifest = review.review(str(info.path))["recipe"]
+        mirrored = structure.clone_layout_mode(manifest)
+        saved, changes = creator_workspace.save_revision(info.path, {
+            "/responsive/compact_layout": mirrored,
+        }, expected_sha256=info.semantic_sha256)
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(info.path.read_bytes(), original)
+        result = review.review(str(saved.path))["recipe"]
+        self.assertEqual(result["responsive"]["compact_layout"], mirrored)
+        self.assertEqual(result["panel"]["layout"], manifest["panel"]["layout"])
+        # Editing the cloned variant remains an ordinary, validated lane edit.
+        newer_lane = structure.edit_layout(result, "center", (), "add",
+                                           node={"type": "label", "text": "Compact"},
+                                           compact=True)
+        next_info, next_changes = creator_workspace.save_revision(saved.path, {
+            "/responsive/compact_layout/center": newer_lane,
+        }, expected_sha256=saved.semantic_sha256)
+        self.assertEqual(len(next_changes), 1)
+        self.assertEqual(review.review(str(next_info.path))["recipe"]
+                         ["responsive"]["compact_layout"]["center"], newer_lane)
 
     def test_structural_changes_produce_a_portable_private_version(self):
         info = creator_workspace.create_draft("heritage")
