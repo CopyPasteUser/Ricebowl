@@ -379,6 +379,10 @@ jobs:
               'xp-luna-font-calendar': (1366, 768, 1),
               'xp-luna-columns-osd': (1366, 768, 1),
               'xp-luna-font-osd': (1366, 768, 1),
+              'xp-luna-columns-notifications': (1366, 768, 1),
+              'xp-luna-font-notifications': (1366, 768, 1),
+              'xp-luna-columns-notification-detail': (1366, 768, 1),
+              'xp-luna-font-notification-detail': (1366, 768, 1),
               'xp-luna-columns-1024x768': (1024, 768, 1),
               'xp-luna-columns-1366x768': (1366, 768, 1),
               'xp-luna-columns-1920x1080': (1920, 1080, 1),
@@ -494,6 +498,22 @@ jobs:
           # the initial 125-pixel measurement had clipped its left-side text.
           assert osd_changed > 300, \
               f'Private TrueType did not change native volume OSD pixels: {osd_changed}'
+          for suffix in ('notifications', 'notification-detail'):
+              with Image.open(directory / 'xp-luna-columns.png') as closed_image, \
+                   Image.open(directory / f'xp-luna-columns-{suffix}.png') as bitmap_image, \
+                   Image.open(directory / f'xp-luna-font-{suffix}.png') as font_image:
+                  # Compare the real compositor popup, not the changing panel
+                  # clock or the unrelated wallpaper elsewhere on the output.
+                  region = (0, 350, 330, 720)
+                  closed = closed_image.convert('RGB').crop(region)
+                  bitmap = bitmap_image.convert('RGB').crop(region)
+                  imported = font_image.convert('RGB').crop(region)
+                  popup_pixels = sum(a != b for a, b in zip(closed.getdata(), bitmap.getdata()))
+                  font_pixels = sum(a != b for a, b in zip(bitmap.getdata(), imported.getdata()))
+              assert popup_pixels > 2500, \
+                  f'Native RicePop {suffix} not visible in compositor: {popup_pixels}'
+              assert font_pixels > 250, \
+                  f'Private font did not change RicePop {suffix}: {font_pixels}'
           # Use Creator's existing visual-QA engine on genuine paired frames;
           # the output is a reviewable heatmap and per-region diagnosis, not
           # a claim that the screenshots certify focus or accessibility.
