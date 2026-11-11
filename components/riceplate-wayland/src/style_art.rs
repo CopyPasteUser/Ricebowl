@@ -400,7 +400,7 @@ mod tests {
         let Ok(bytes) = fs::read("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf") else {
             return; // The redistributable system fixture is optional on developers' machines.
         };
-        let sprites = font_glyphs(bytes, 1).unwrap();
+        let sprites = font_glyphs(bytes, 1, false).unwrap();
         assert!(!sprites.cache.lock().unwrap().glyphs.contains_key(&'\u{393}'));
         let mut canvas = vec![0; 32 * 16 * 4];
         sprites.draw(&mut canvas, 32, 16, 0, 0, "\u{393}\u{03b5}", 0xffeeddcc, false);
