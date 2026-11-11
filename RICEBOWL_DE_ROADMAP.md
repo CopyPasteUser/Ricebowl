@@ -1464,6 +1464,16 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
   source-commit-pinned manifest. These are isolated software tests: they do
   **not** yet prove real monitor, focus, application-window input, suspend or
   power-loss recovery, and are not physical 1.0 acceptance.
+- [x] **Prove transactional Creator activation and explicit restore under injected
+  failures** through the real owner-private supervisor protocol in CI. After
+  a late next-login write failure, verify byte-exact restoration of the selected
+  recipe and undo history, private labwc menu/chrome, optional RiceField/Taskotto
+  profiles and previous live processes; confirm the next apply/restore succeeds.
+  If labwc fails again while undoing a partial switch, report `rollback_failed`,
+  retain the durable recovery journal and block further switching until a
+  supervised next-login reconciliation. A failed explicit restore must similarly
+  leave the current rice live and recoverable. Mocked child processes do not
+  establish physical-frame or device acceptance.
 - [x] Add **real Wayland taskbar lifecycle acceptance** in the isolated native
   labwc job: launch a real `foot` toplevel with a controlled app ID, assert
   that the existing foreign-toplevel handler receives the completed window,

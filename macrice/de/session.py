@@ -670,7 +670,7 @@ class _LiveSwitch:
             if menu_attempted or chrome_attempted:
                 try:
                     self._reconfigure()
-                except (OSError, subprocess.SubprocessError) as restore_error:
+                except (OSError, subprocess.SubprocessError, LiveError) as restore_error:
                     recovery_errors.append(f"labwc: {restore_error}")
             if selection_attempted:
                 try:
