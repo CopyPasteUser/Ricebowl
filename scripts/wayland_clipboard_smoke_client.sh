@@ -83,7 +83,10 @@ echo 'XWayland clipboard reached native Wayland'
 clip_cli() {
     /usr/bin/python3 -B "$source_root/launcher.py" de clip "$@"
 }
-clip_cli --clip-op watch --json >"$runtime/riceclip-watch.log" 2>&1 &
+# Launch the Python process directly: backgrounding a shell function would
+# record the wrapper subshell PID and leave the actual watcher alive on SIGTERM.
+/usr/bin/python3 -B "$source_root/launcher.py" de clip --clip-op watch --json \
+    >"$runtime/riceclip-watch.log" 2>&1 &
 clip_monitor=$!
 count=0
 while [ "$count" -lt 50 ]; do
