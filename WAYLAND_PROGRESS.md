@@ -80,6 +80,11 @@ framebuffer, exercising the Rust input/event/render path end to end.
 Full-size list menus also show a bounded visible-range counter such as
 `1-4/6` when more actions exist than fit on one page; composed/short lists
 retain their original footer, matching the existing compact-menu counter.
+**Right-clicking an actionable row now pins or unpins it**, including from
+the Saved view. The native pointer path shares F2's validated, owner-private
+persist/rollback behavior; only known recipe actions can become favorites.
+The disposable labwc smoke suite exercises both right-click operations and
+compares the resulting Saved list against its original empty state.
 
 The native shell now accepts an **owner-private TrueType font asset** throughout
 the panel, native Start menu and desktop shortcut labels, with on-demand,

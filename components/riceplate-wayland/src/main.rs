@@ -1102,9 +1102,9 @@ impl RicePlate {
                 }
                 model.add(20_980, 20_000, AccessibleRole::Label,
                           if self.menu_state.view == native_menu::View::Search {
-                              format!("Searching for {}. Type to refine; Backspace removes a letter",
+                              format!("Searching for {}. Type to refine; Backspace removes a letter; right click or F2 saves an action",
                                       self.menu_state.search)
-                          } else { "Type to search; F2 pins; F3 shows saved actions".to_string() },
+                          } else { "Type to search; F2 or right click pins; F3 shows saved actions".to_string() },
                           None);
                 model.add(20_985, 20_000, AccessibleRole::Button,
                           match self.menu_state.search_button_label() {
@@ -3362,6 +3362,24 @@ fn paint_compact_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
                        (8 * style.font_scale)) as usize).collect::<String>(), fg, style);
 }
 
+/// A single persistence boundary for F2 and menu pointer pin/unpin. Never
+/// leave an in-memory favorite that failed owner-private storage validation.
+fn toggle_menu_pin(state: &mut MenuState, recipe_id: &str, menu: &recipe::NativeMenu) {
+    let previous = state.pins.clone();
+    if !state.toggle_pin(menu) {
+        state.notice = Some("No action or saved list full");
+        return;
+    }
+    let pinned = state.pins.len() > previous.len();
+    if let Err(error) = menu_pins::save(recipe_id, menu, &state.pins) {
+        eprintln!("RicePlate: cannot save native menu pins: {error}");
+        state.pins = previous;
+        state.notice = Some("Cannot save pins");
+    } else {
+        state.notice = Some(if pinned { "Action pinned" } else { "Pin removed" });
+    }
+}
+
 fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, state: &MenuState) {
     let width = native_menu::WIDTH;
     let height = native_menu::HEIGHT;
@@ -3526,8 +3544,8 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
     let page = state.page_status(menu, native_menu::VISIBLE_ACTIONS)
         .map(|(first, last, total)| format!("{first}-{last}/{total}"));
     let hint = state.notice.unwrap_or(if page.is_some() {
-        "Type to find  F2 Pin"
-    } else { "Type to find  F2 Pin  F3 Saved" });
+        "Find  Right/F2 Pin"
+    } else { "Find  Right/F2 Pin  F3 Saved" });
     let glyph_width = 8 * style.font_scale;
     let hint_limit = if let Some(counter) = page.as_ref() {
         width.saturating_sub(28 + counter.chars().count() as u32 * glyph_width)
@@ -4879,19 +4897,7 @@ impl KeyboardHandler for RicePlate {
                 None
             }
             Keysym::F2 => {
-                let previous = self.menu_state.pins.clone();
-                if self.menu_state.toggle_pin(menu) {
-                    let now_pinned = self.menu_state.pins.len() > previous.len();
-                    if let Err(error) = menu_pins::save(&self.recipe.id, menu, &self.menu_state.pins) {
-                        eprintln!("RicePlate: cannot save native menu pins: {error}");
-                        self.menu_state.pins = previous;
-                        self.menu_state.notice = Some("Cannot save pins");
-                    } else {
-                        self.menu_state.notice = Some(if now_pinned { "Action pinned" } else { "Pin removed" });
-                    }
-                } else {
-                    self.menu_state.notice = Some("No action or saved list full");
-                }
+                toggle_menu_pin(&mut self.menu_state, &self.recipe.id, menu);
                 None
             }
             Keysym::F3 => {
@@ -5133,6 +5139,24 @@ impl PointerHandler for RicePlate {
                         if let Some(MenuHit::Action(index)) = hit {
                             if self.menu_state.selected != index {
                                 self.menu_state.selected = index;
+                                self.redraw_menu(qh);
+                            }
+                        }
+                    }
+                    continue;
+                }
+                // Right-click pins a real action without executing it, and
+                // right-clicking an entry inside Saved removes the pin. Use
+                // the same validated, rollback-safe storage path as F2.
+                if let PointerEventKind::Press { button: BTN_RIGHT, .. } = event.kind {
+                    if !self.notification_state.open {
+                        if let Some(menu) = self.recipe.menu.as_ref() {
+                            let hit = if compact {
+                                self.menu_state.compact_hit(menu, pointer.0, pointer.1, menu_size)
+                            } else { self.menu_state.hit(menu, pointer.0, pointer.1) };
+                            if let Some(MenuHit::Action(index)) = hit {
+                                self.menu_state.selected = index;
+                                toggle_menu_pin(&mut self.menu_state, &self.recipe.id, menu);
                                 self.redraw_menu(qh);
                             }
                         }

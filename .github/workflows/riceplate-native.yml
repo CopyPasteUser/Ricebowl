@@ -640,6 +640,16 @@ jobs:
           # entire original menu, including the active item highlight.
           reverse_delta = changed_pixels(paged, restored)
           restore_page_delta = changed_pixels(hovered, restored)
+          # Test right-button pin/unpin through the live compositor. Compare
+          # only the action rows, excluding transient footer notices, so a
+          # label or mouse-hover change alone cannot stand in for Saved data.
+          pin_frames = {}
+          for state in ('saved', 'saved-pinned', 'saved-unpinned'):
+              with Image.open(directory / f'xp-luna-pointer-{state}-1024x768.png') as image:
+                  assert image.size == (1024, 768), (state, image.size)
+                  pin_frames[state] = image.convert('RGB').crop((0, 532, 320, 695))
+          pinned_delta = changed_pixels(pin_frames['saved'], pin_frames['saved-pinned'])
+          unpin_delta = changed_pixels(pin_frames['saved'], pin_frames['saved-unpinned'])
           assert find_delta > 2000, f'Find click had no visible native effect: {find_delta}'
           assert saved_delta > 2000, f'Saved click had no visible native effect: {saved_delta}'
           assert mode_delta > 500, f'Find and Saved rendered alike: {mode_delta}'
@@ -647,10 +657,15 @@ jobs:
           assert reverse_delta > 1200, f'Reverse wheel did not change the page: {reverse_delta}'
           assert restore_page_delta < 1500, \
               f'Reverse wheel did not restore the original search page: {restore_page_delta}'
+          assert pinned_delta > 600, \
+              f'Right-click did not add a visible Saved action: {pinned_delta}'
+          assert unpin_delta < 300, \
+              f'Right-click did not restore the empty Saved action list: {unpin_delta}'
           assert return_delta < 1500, f'Header Back did not restore menu: {return_delta}'
           print(f'Native Luna header clicks: Find={find_delta} Saved={saved_delta} '
                 f'distinct={mode_delta} wheel={wheel_delta} reverse={reverse_delta} '
-                f'page restored={restore_page_delta} header restored={return_delta} RGB pixels')
+                f'page restored={restore_page_delta} pin={pinned_delta} '
+                f'unpin={unpin_delta} header restored={return_delta} RGB pixels')
           assert captures['calendar-v5'] != captures['desktop-v5'], 'Native calendar did not render in Wayland frame'
           with Image.open(directory / 'calendar-v5.png') as image:
               header = image.convert('RGB').getpixel((700, 50))
