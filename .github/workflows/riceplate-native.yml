@@ -635,21 +635,18 @@ jobs:
           with Image.open(directory / 'xp-luna-pointer-find-restored-1024x768.png') as image:
               assert image.size == (1024, 768), 'Reverse wheel capture geometry'
               restored = image.convert('RGB').crop((0, 424, 320, 728))
-          # A reverse axis must restore the original action page. Compare the
-          # lower two rows, avoiding the moved hover highlight in the first two.
-          lower_rows = (16, 196, 312, 271)
-          original_rows = hovered.crop(lower_rows)
-          paged_rows = paged.crop(lower_rows)
-          restored_rows = restored.crop(lower_rows)
-          reverse_delta = changed_pixels(paged_rows, restored_rows)
-          restore_page_delta = changed_pixels(original_rows, restored_rows)
+          # The return pointer stays over the scrolled page's selected row;
+          # hover cannot itself jump back. Negative axis must restore the
+          # entire original menu, including the active item highlight.
+          reverse_delta = changed_pixels(paged, restored)
+          restore_page_delta = changed_pixels(hovered, restored)
           assert find_delta > 2000, f'Find click had no visible native effect: {find_delta}'
           assert saved_delta > 2000, f'Saved click had no visible native effect: {saved_delta}'
           assert mode_delta > 500, f'Find and Saved rendered alike: {mode_delta}'
           assert wheel_delta > 1200, f'Wayland wheel did not page search results: {wheel_delta}'
-          assert reverse_delta > 800, f'Reverse wheel did not change the page: {reverse_delta}'
-          assert restore_page_delta < 800, \
-              f'Reverse wheel did not restore the original result rows: {restore_page_delta}'
+          assert reverse_delta > 1200, f'Reverse wheel did not change the page: {reverse_delta}'
+          assert restore_page_delta < 1500, \
+              f'Reverse wheel did not restore the original search page: {restore_page_delta}'
           assert return_delta < 1500, f'Header Back did not restore menu: {return_delta}'
           print(f'Native Luna header clicks: Find={find_delta} Saved={saved_delta} '
                 f'distinct={mode_delta} wheel={wheel_delta} reverse={reverse_delta} '
