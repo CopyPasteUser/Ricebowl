@@ -39,5 +39,22 @@ class CalendarOutputCheckTests(unittest.TestCase):
                 visible_calendar(paths)
 
 
+    def test_reject_truncated_calendar_framebuffer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory, "partial-calendar.png")
+            image = Image.new("RGB", (1024, 768), (0x20, 0x3C, 0x59))
+            image.putpixel((1024 - 336 - 8 + 20,
+                            768 - 36 - 352 + 10), (0x41, 0x79, 0xAA))
+            image.save(path)
+            self.assertEqual(calendar_matches([path]), [0])
+
+            # Preserve the valid PNG header and early scanlines, but discard
+            # most compressed image data. The analyzer must not trust a
+            # visible header pixel from an incomplete compositor capture.
+            data = path.read_bytes()
+            path.write_bytes(data[:max(64, len(data) // 3)])
+            with self.assertRaises((OSError, ValueError)):
+                calendar_matches([path])
+
 if __name__ == "__main__":
     unittest.main()
