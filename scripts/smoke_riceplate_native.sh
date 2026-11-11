@@ -431,6 +431,25 @@ dbus-run-session -- sh -eu -c '
                     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-programs-back-$geometry.png"
                     cp "$runtime/xp-luna-pointer-programs-back-$geometry.png" \
                        "$source_root/dist/riceplate-native-preview/xp-luna-pointer-programs-back-$geometry.png"
+                    # Exercise real labwc pointer motion across the new XP
+                    # places and existing Session rows on 1024x768. The popup
+                    # starts at screen y=424; native hit centers are y=80 and
+                    # y=234. Capture both without launching host applications.
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 190 504 "$width" "$height"
+                    sleep 0.35
+                    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-places-documents-$geometry.png"
+                    cp "$runtime/xp-luna-pointer-places-documents-$geometry.png" \
+                       "$source_root/dist/riceplate-native-preview/xp-luna-pointer-places-documents-$geometry.png"
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 190 658 "$width" "$height"
+                    sleep 0.35
+                    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-session-logout-$geometry.png"
+                    cp "$runtime/xp-luna-pointer-session-logout-$geometry.png" \
+                       "$source_root/dist/riceplate-native-preview/xp-luna-pointer-session-logout-$geometry.png"
+                    if cmp -s "$runtime/xp-luna-pointer-places-documents-$geometry.png" \
+                              "$runtime/xp-luna-pointer-session-logout-$geometry.png"; then
+                        echo "XP Luna Places and Session hover did not alter the native compositor frame" >&2
+                        exit 1
+                    fi
                     # Pin one validated action with a real compositor
                     # right-button press, open Saved, then unpin it there.
                     # This must work without any keyboard-only F2 shortcut.
