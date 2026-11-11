@@ -244,10 +244,10 @@ def _install_verified_asset(identifier: str, kind: str, data: bytes, label: str,
     without a receipt cannot be attributed retroactively to a new author.
     Neither file is replaced, including when another writer races us.
     """
+    declared = _verify_existing_asset(identifier, kind, data, label, provenance)
     folder = _collection(create=True)
     image = folder / (identifier + (".png" if kind == "icon" else ".ttf"))
     record = folder / (identifier + ".json")
-    declared = StyleAsset(identifier, kind, label, provenance)
     if os.path.lexists(record):
         if _record(identifier) != declared:
             raise StyleAssetError("Asset already has different attribution")
@@ -264,6 +264,34 @@ def _install_verified_asset(identifier: str, kind: str, data: bytes, label: str,
     else:
         recipes._write_private_new(image, data, suffix=image.suffix)
     return declared
+
+
+def _verify_existing_asset(identifier: str, kind: str, data: bytes, label: str,
+                           provenance: dict[str, str]) -> StyleAsset:
+    """Read-only collision check; suitable before a multi-asset pack import."""
+    folder = _collection(create=False)
+    image = folder / (identifier + (".png" if kind == "icon" else ".ttf"))
+    record = folder / (identifier + ".json")
+    declared = StyleAsset(identifier, kind, label, provenance)
+    if os.path.lexists(record):
+        if _record(identifier) != declared:
+            raise StyleAssetError("Asset already has different attribution")
+    elif os.path.lexists(image):
+        raise StyleAssetError("Unattributed asset cannot be adopted")
+    if os.path.lexists(image) and read(identifier) != data:
+        raise StyleAssetError("Asset already exists with different bytes")
+    return declared
+
+
+def preflight_pack_asset(identifier: str, data: bytes, *, label: str,
+                         provenance: dict[str, str]) -> StyleAsset:
+    """Reject predictable asset collisions without creating or changing files."""
+    kind = _kind(identifier)
+    if (_identity(data, kind) != identifier or type(label) is not str or
+            re.fullmatch(r"[A-Za-z0-9 ._+-]{1,60}", label) is None):
+        raise StyleAssetError("Invalid pack asset identity or label")
+    declared = pack._provenance(provenance)
+    return _verify_existing_asset(identifier, kind, data, label, declared)
 
 
 def store_pack_asset(identifier: str, data: bytes, *, label: str,

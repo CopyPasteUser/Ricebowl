@@ -19,11 +19,11 @@ ATTRIBUTION = {"author": "RiceBowl Creator", "license": "CC-BY-4.0",
                "origin": "original", "source_reference": "local art"}
 
 
-def icon_png() -> bytes:
+def icon_png(color: bytes = b"\x4a\x8a\xca\xff") -> bytes:
     def chunk(name, data):
         return (struct.pack(">I", len(data)) + name + data
                 + struct.pack(">I", zlib.crc32(name + data)))
-    raster = (b"\x00" + b"\x4a\x8a\xca\xff" * 48) * 48
+    raster = (b"\x00" + color * 48) * 48
     return (b"\x89PNG\r\n\x1a\n"
             + chunk(b"IHDR", struct.pack(">IIBBBBB", 48, 48, 8, 6, 0, 0, 0))
             + chunk(b"IDAT", zlib.compress(raster)) + chunk(b"IEND", b""))
@@ -214,6 +214,63 @@ class CreatorStyleAssetsTests(unittest.TestCase):
             self.assertEqual(style_assets.read(icon.identifier), icon_png())
             self.assertEqual(style_assets.entry(icon.identifier), icon)
             self.assertEqual(recipes.current_selection(), ("classic", None))
+
+    def test_ricepack_conflicting_second_icon_does_not_install_the_first(self):
+        other = self.root / "different-icon.png"
+        other.write_bytes(icon_png(b"\x2a\xc8\x83\xff"))
+        first = style_assets.import_asset(self.icon, kind="icon", label="First original",
+                                          provenance=ATTRIBUTION)
+        second = style_assets.import_asset(other, kind="icon", label="Second original",
+                                           provenance=ATTRIBUTION)
+        draft = creator_workspace.create_draft("heritage")
+        edited, _ = creator_workspace.save_revision(draft.path, {
+            "/artwork/icons/applications": first.identifier,
+            "/artwork/icons/terminal": second.identifier,
+        }, expected_sha256=draft.semantic_sha256)
+        archive = self.root / "multiple-icons.ricepack"
+        self.assertEqual(creator_workspace.export_draft(edited, archive)["pack_version"], 4)
+
+        other_config = self.root / "conflicting-config"
+        other_config.mkdir(mode=0o700)
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(other_config)}):
+            style_assets.store_pack_asset(second.identifier, other.read_bytes(),
+                                          label="Different declaration", provenance=ATTRIBUTION)
+            with self.assertRaises(pack.PackError) as failure:
+                pack.import_pack(archive)
+            self.assertEqual(failure.exception.code, "asset_unavailable")
+            self.assertEqual(style_assets.list_assets("icon"), [
+                style_assets.entry(second.identifier),
+            ])
+            self.assertFalse((other_config / "ricebowl/visual-assets" /
+                              f"{first.identifier}.png").exists())
+            self.assertFalse(list((other_config / "ricebowl/recipes").glob("*.json")))
+            self.assertEqual(recipes.current_selection(), ("classic", None))
+
+    def test_ricepack_rejects_two_attributions_for_one_icon_identity(self):
+        original = style_assets.import_asset(self.icon, kind="icon", label="One icon",
+                                              provenance=ATTRIBUTION)
+        draft = creator_workspace.create_draft("heritage")
+        edited, _ = creator_workspace.save_revision(draft.path, {
+            "/artwork/icons/applications": original.identifier,
+            "/artwork/icons/terminal": original.identifier,
+        }, expected_sha256=draft.semantic_sha256)
+        archive = self.root / "shared-icon.ricepack"
+        creator_workspace.export_draft(edited, archive)
+        with zipfile.ZipFile(archive) as source:
+            contents = {name: source.read(name) for name in source.namelist()}
+        manifest = json.loads(contents["ricepack.json"])
+        manifest["asset_manifest"]["visual"]["icons"]["terminal"]["label"] = "Other owner"
+        contents["ricepack.json"] = json.dumps(manifest).encode()
+        malicious = self.root / "two-attributions.ricepack"
+        with zipfile.ZipFile(malicious, "w") as result:
+            for name, data in contents.items():
+                info = zipfile.ZipInfo(name)
+                info.create_system = 3
+                info.external_attr = (stat.S_IFREG | 0o644) << 16
+                result.writestr(info, data)
+        with self.assertRaises(pack.PackError) as caught:
+            pack.inspect_pack(malicious)
+        self.assertEqual(caught.exception.code, "asset_mismatch")
 
     def test_untampered_font_can_be_packed_if_system_fixture_present(self):
         fixture = Path("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf")

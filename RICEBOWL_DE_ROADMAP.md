@@ -1189,6 +1189,14 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
   between the two writes and repeat a full offline RicePack import. No files
   are replaced and the live desktop stays untouched; sudden power-loss
   durability and cross-asset atomicity are not claimed.
+- [x] Preflight **all referenced RicePack v4 font/icon identities and
+  attribution collisions** before creating or installing files. A conflict in
+  the second asset must not strand the first as an unreferenced new asset;
+  two separate action icons referencing identical content are required to
+  declare exactly the same author/license/label. Malformed archives fail
+  during read-only inspect, and local existing-asset conflicts fail before
+  mutations. Other filesystem failures and interprocess races are still
+  fail-closed rather than a cross-file atomic transaction.
 - [x] Implement **Rice Creator 0.6 private visual reference comparison**:
   owner-controlled, bounded PNG references are SHA-256-copied into a private
   per-draft selection that survives immutable revision changes without

@@ -96,6 +96,14 @@ claim those bytes. Python regression tests cover both direct icon import and
 offline pack import; actual power-cut ordering and multi-asset transactions
 are separate software recovery work.
 
+Before a multi-asset RicePack import, the installer now checks **every**
+font/icon collision without writing files. An existing second-asset conflict
+cannot leave an unrelated first asset installed. An archive declaring
+inconsistent authorship for one shared icon identity is rejected during
+read-only inspection. Concurrent writers and unexpected storage failure can
+still interrupt a multi-asset import; the individual record-first retry guard
+remains necessary.
+
 The selected private font now also renders the **native calendar popup and
 volume OSD**; the unselected-font path keeps its legacy bitmap painting.
 [Compare actual native calendar screenshots](screenshots/wayland/README.md#luna-calendar--native-popup-font-comparison)

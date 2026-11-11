@@ -438,6 +438,7 @@ def _validate_archive(source: Path) -> tuple[dict[str, Any], bytes, bytes | None
                         if name.startswith("assets/icons/")}
                     or (visual["font"] is None) != (artwork.font == "builtin")):
                 raise PackError("Visual asset archive entries do not match the recipe")
+            declared_assets: dict[str, dict[str, Any]] = {}
             for filename, identifier in expected_records.items():
                 record = (visual["font"] if filename == "assets/font.ttf" else
                           visual["icons"][filename.split("/")[-1].removesuffix(".png")])
@@ -448,6 +449,10 @@ def _validate_archive(source: Path) -> tuple[dict[str, Any], bytes, bytes | None
                         or re.fullmatch(r"[A-Za-z0-9 ._+-]{1,60}", record["label"]) is None):
                     raise PackError("Invalid font/icon asset attribution")
                 _provenance(record["provenance"] if type(record["provenance"]) is dict else {})
+                if identifier in declared_assets and declared_assets[identifier] != record:
+                    raise PackError("One visual asset has conflicting provenance declarations",
+                                    code="asset_mismatch")
+                declared_assets[identifier] = record
                 kind = "font" if filename == "assets/font.ttf" else "icon"
                 try:
                     calculated = style_assets._identity(visual_payloads[filename], kind)
@@ -470,6 +475,21 @@ def import_pack(source: Path) -> dict[str, Any]:
     metadata, payload, wallpaper_bytes, visual_payloads = _validate_archive(source)
     if metadata["recipe"]["id"] in recipes.BUILTINS:
         raise PackError("Cannot replace a reserved built-in recipe", code="reserved_id")
+    # Check *all* referenced visual assets before any installation. A later
+    # conflict must not leave an earlier icon/font installed without its rice.
+    if visual_payloads:
+        from . import style_assets
+        visual = metadata["asset_manifest"]["visual"]
+        for filename, data in sorted(visual_payloads.items()):
+            record = (visual["font"] if filename == "assets/font.ttf" else
+                      visual["icons"][filename.split("/")[-1].removesuffix(".png")])
+            try:
+                style_assets.preflight_pack_asset(record["id"], data,
+                                                  label=record["label"],
+                                                  provenance=record["provenance"])
+            except style_assets.StyleAssetError as exc:
+                raise PackError("Private font/icon asset conflicts with this pack",
+                                code="asset_unavailable") from exc
     try:
         folder = recipes._private_recipe_dir(create=True)
         destination = folder / f"{metadata['recipe']['id']}.json"
