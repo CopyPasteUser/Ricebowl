@@ -368,6 +368,28 @@ dbus-run-session -- sh -eu -c '
                 sleep 0.65
                 kill -0 "$plate"
                 button_y=$((height - 20))
+                if [ "$geometry" = 1024x768 ]; then
+                    # Real compositor-delivered motion, with no click:
+                    # two screenshots prove Start has an interactive hover
+                    # face independently of opening the menu. Grim excludes
+                    # the cursor itself; a no-op hover yields equal PNGs.
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 250 "$button_y" "$width" "$height"
+                    sleep 0.35
+                    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-start-idle-$geometry.png"
+                    cp "$runtime/xp-luna-pointer-start-idle-$geometry.png" \
+                       "$source_root/dist/riceplate-native-preview/xp-luna-pointer-start-idle-$geometry.png"
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 35 "$button_y" "$width" "$height"
+                    sleep 0.35
+                    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-start-hover-$geometry.png"
+                    cp "$runtime/xp-luna-pointer-start-hover-$geometry.png" \
+                       "$source_root/dist/riceplate-native-preview/xp-luna-pointer-start-hover-$geometry.png"
+                    if cmp -s "$runtime/xp-luna-pointer-start-idle-$geometry.png" \
+                              "$runtime/xp-luna-pointer-start-hover-$geometry.png"; then
+                        echo "Native Luna Start hover produced no compositor-visible state" >&2
+                        exit 1
+                    fi
+                    echo "Captured native Luna idle/hover pointer frames at $geometry"
+                fi
                 WAYLAND_DISPLAY=wayland-0 "$clicker" 35 "$button_y" "$width" "$height"
                 sleep 0.35
                 WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-open-$geometry.png"
