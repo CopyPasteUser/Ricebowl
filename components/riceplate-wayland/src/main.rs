@@ -488,6 +488,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         trace_window_events: std::env::var("RICEBOWL_DE_TRACE_WINDOWS").as_deref() == Ok("1"),
         tasks: Vec::new(),
         task_offset: 0,
+        // Refreshed when real task state is painted, not on mouse motion.
+        cached_task_group_count: 0,
         pool: None,
         width: 0,
         height: 0,
@@ -892,6 +894,7 @@ struct RicePlate {
     trace_window_events: bool,
     tasks: Vec<Task>,
     task_offset: usize,
+    cached_task_group_count: usize,
     pool: Option<SlotPool>,
     width: u32,
     height: u32,
@@ -1828,6 +1831,7 @@ impl RicePlate {
 
     fn redraw_mirror(&mut self, index: usize, qh: &QueueHandle<Self>) {
         let groups = self.grouped_tasks();
+        self.cached_task_group_count = groups.len();
         let selected = if self.focused_panel.as_ref()
             == self.mirrors.get(index).map(|mirror| mirror.surface.wl_surface()) {
             self.focused_target
@@ -3014,6 +3018,7 @@ impl RicePlate {
         let width = self.width;
         let height = self.height;
         let groups = self.grouped_tasks();
+        self.cached_task_group_count = groups.len();
         let selected = if self.focused_panel.as_ref() == Some(self.layer.wl_surface()) {
             self.focused_target
         } else { None };
@@ -5639,7 +5644,7 @@ impl PointerHandler for RicePlate {
                     && event.position.1 >= 0.0
                     && event.position.1 < f64::from(panel_height) {
                     luna_hover_target(recipe::hit(event.position.0, panel_width,
-                        self.grouped_tasks().len(), panel_offset, &self.recipe))
+                        self.cached_task_group_count, panel_offset, &self.recipe))
                 } else { None };
                 let previous_hover = self.hovered_panel.clone();
                 let previous_pressed = self.pressed_panel.clone();
