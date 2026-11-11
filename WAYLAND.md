@@ -77,8 +77,14 @@ success/failure information.
 Only an explicit command can capture; no background capture service or global XFCE
 shortcut is installed. Clipboard content is held by the normal Wayland
 selection owner until replaced. Screenshots can reveal private information.
-Annotations, native shortcut integration, portal fallback and real-device
+Annotations, configurable shortcuts, portal fallback and real-device
 capture acceptance are still outstanding.
+
+In the optional RiceBowl labwc login/preview session, **Print** copies the
+desktop to the clipboard and **Shift+Print** selects a region first. These
+bindings use the exact same guarded CLI, require the optional tools above and
+are private to that labwc configuration; other desktop sessions remain intact.
+Real keyboard, clipboard and focus behavior on the ThinkPad is not yet accepted.
 
 ## What's still required for 1.0
 

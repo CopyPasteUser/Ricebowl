@@ -873,6 +873,12 @@ must not be represented as blockers for the Wayland DE 1.0 core release.
   saving uses the existing exclusive-link no-overwrite path. Clipboard
   ownership is delegated to the ordinary Wayland selection helper; no RiceShot
   recorder, scraper or resident history daemon is started.
+- [x] Route the opt-in labwc **Print** (full desktop) and **Shift+Print**
+  (interactive region) keybindings through the same guarded RiceShot clipboard
+  command. The packaged session PATH resolves the RiceBowl Wayland app;
+  nested sessions use the existing opt-in user installation. No XFCE/X11 or
+  global system shortcut is modified. XML/argument tests pass; real physical
+  shortcut/focus and unavailable-tool feedback remain open.
 - [ ] Test cancellation/denial, missing portal backend, multi-monitor,
   fractional scaling, cursor choice where supported, focus recovery,
   annotation output and copy/save errors; verify captures on physical Wayland
