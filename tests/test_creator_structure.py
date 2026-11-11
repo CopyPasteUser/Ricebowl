@@ -51,7 +51,8 @@ class CreatorStructureTests(unittest.TestCase):
         self.assertEqual(self.original, before)
         proposal = copy.deepcopy(before)
         proposal["panel"]["layout"].update(result)
-        self.assertEqual(recipes.parse(json.dumps(proposal).encode()).schema_version, 11)
+        self.assertEqual(recipes.parse(json.dumps(proposal).encode()).schema_version,
+                         self.original["schema_version"])
 
     def test_transfer_nested_group_and_compact_are_independent(self):
         proposal = copy.deepcopy(self.original)
