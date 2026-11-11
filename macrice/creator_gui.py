@@ -1990,6 +1990,22 @@ def run() -> int:
                                self._mutate_panel(lane, p, "remove"))
                 tools.pack_start(remove, False, False, 0)
 
+            # Recompose the panel without round-tripping through raw JSON.
+            # This uses the same transaction-safe validator as structural edits.
+            destination = Gtk.ComboBoxText()
+            for target_lane in recipes.SECTIONS:
+                if target_lane != lane:
+                    destination.append(target_lane, target_lane.capitalize())
+            destination.set_active(0)
+            destination.connect("scroll-event", lambda *_: True)
+            destination.set_tooltip_text("Destination lane in this wide/compact layout")
+            tools.pack_start(destination, False, False, 0)
+            move = Gtk.Button(label="Move to lane")
+            move.set_tooltip_text("Move this element, including any children, to the selected lane")
+            move.connect("clicked", lambda _b, p=path, choice=destination:
+                         self._transfer_panel(lane, p, choice.get_active_id()))
+            tools.pack_start(move, False, False, 0)
+
             editable = Gtk.Box(spacing=5)
             frame.pack_start(editable, False, False, 0)
             key = ("gap" if kind == "group" else "width" if kind in ("gap", "divider")
@@ -2063,6 +2079,22 @@ def run() -> int:
                 self._refresh_layout()
             except creator_structure.StructureError as exc:
                 self._status(f"Cannot edit {lane} lane: {exc}", error=True)
+
+        def _transfer_panel(self, lane, path, destination):
+            if self.working is None or self._busy or destination is None:
+                return
+            try:
+                updated = creator_structure.transfer_layout(
+                    self.working, lane, path, destination, compact=self._panel_compact)
+                prefix = ("/responsive/compact_layout" if self._panel_compact else
+                          "/panel/layout")
+                # Stage both lanes before refreshing the editor; Save version
+                # persists them together through the existing draft preflight.
+                self._change(f"{prefix}/{lane}", updated[lane])
+                self._change(f"{prefix}/{destination}", updated[destination])
+                self._refresh_layout()
+            except creator_structure.StructureError as exc:
+                self._status(f"Cannot move element to {destination}: {exc}", error=True)
 
         def _move(self, lane, index, delta):
             self._mutate_panel(lane, (index,), "up" if delta < 0 else "down")
