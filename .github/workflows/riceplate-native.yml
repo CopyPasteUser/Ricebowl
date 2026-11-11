@@ -472,6 +472,19 @@ jobs:
               base = base_image.convert('RGB').crop((0, 338, 400, 718))
               custom = font_image.convert('RGB').crop((0, 338, 400, 718))
               changed = sum(left != right for left, right in zip(base.getdata(), custom.getdata()))
+              # Diagnostic coverage when responsive Luna menu geometry moves:
+              # capture both the old cropped region and the full left-side
+              # popup; differences must originate in the menu, not wallpaper.
+              for region_name, region in (
+                  ('header', (0, 320, 500, 400)),
+                  ('body', (0, 400, 500, 700)),
+                  ('entire-left', (0, 250, 520, 728)),
+              ):
+                  original_region = base_image.convert('RGB').crop(region)
+                  font_region = font_image.convert('RGB').crop(region)
+                  delta = sum(a != b for a, b in zip(original_region.getdata(),
+                                                      font_region.getdata()))
+                  print(f'Luna font pixel QA {region_name}: {delta}', flush=True)
           assert changed > 500, f'Private TrueType did not change native menu glyph pixels: {changed}'
           with Image.open(directory / 'xp-luna-columns-calendar.png') as bitmap_image, \
                Image.open(directory / 'xp-luna-font-calendar.png') as typeface_image:
