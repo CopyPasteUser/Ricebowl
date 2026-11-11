@@ -597,7 +597,7 @@ fn validate_menu(menu: &Menu, version: u32) -> Result<(), Box<dyn Error>> {
                 || menu.groups.len() != 3
                 || menu.groups[0].content.is_none()
                 || menu.groups.iter().skip(1).any(|group|
-                    group.content.is_some() || group.actions.len() > 2)))
+                    group.content.is_some() || group.actions.len() > 4)))
         {
             return Err("Menu presentation is incompatible with this schema or layout".into());
         }
@@ -626,7 +626,7 @@ fn validate_menu(menu: &Menu, version: u32) -> Result<(), Box<dyn Error>> {
         }
         for action in &group.actions {
             if !["applications", "terminal", "lock", "logout",
-                 "wifi-toggle", "audio-mute", "audio-up", "audio-down", "notifications", "settings"]
+                 "documents", "computer", "wifi-toggle", "audio-mute", "audio-up", "audio-down", "notifications", "settings"]
                 .contains(&action.as_str())
                 || !seen.insert(action.as_str())
             {
