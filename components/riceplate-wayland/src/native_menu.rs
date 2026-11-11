@@ -444,6 +444,36 @@ impl MenuState {
         Some((first + 1, (first + rows).min(total), total))
     }
 
+    /// Semantic counterpart to the painted viewport counter. AT-SPI clients
+    /// receive a changed label when the user pages with wheel or keyboard;
+    /// empty Search/Saved views are explicit instead of silent blank menus.
+    pub fn accessible_summary(&self, menu: &NativeMenu, rows: usize) -> String {
+        let intro = match self.view {
+            View::Groups => "Menu".to_owned(),
+            View::Search if self.search.is_empty() => "Find".to_owned(),
+            View::Search => format!("Find: {}", self.search),
+            View::Saved => "Saved actions".to_owned(),
+        };
+        let count = self.actions(menu).len();
+        let detail = if count == 0 {
+            match self.view {
+                View::Search => "No matching actions".to_owned(),
+                View::Saved => "No saved actions".to_owned(),
+                View::Groups => "No available actions".to_owned(),
+            }
+        } else if let Some((first, last, total)) = self.page_status(menu, rows) {
+            format!("Showing actions {first} through {last} of {total}")
+        } else {
+            format!("{count} available {}", if count == 1 { "action" } else { "actions" })
+        };
+        let help = match self.view {
+            View::Search => "Type to refine, Backspace deletes; F2 or right click saves an action",
+            View::Groups => "Type to search; F2 or right click pins actions; F3 opens Saved",
+            View::Saved => "F2 or right click removes saved actions; F3 returns to menu",
+        };
+        format!("{intro}. {detail}. {help}")
+    }
+
     pub fn start_search(&mut self) {
         self.view = View::Search;
         self.search.clear();
@@ -683,6 +713,32 @@ mod tests {
         }]);
         state.open();
         assert_eq!(state.page_status(&composed, 1), None);
+    }
+
+    #[test]
+    fn accessibility_summary_tracks_paging_and_empty_search_or_saved_views() {
+        let mut data = menu();
+        data.groups[0].actions = ["terminal", "applications", "settings", "lock",
+            "audio-up", "audio-down"].into_iter().map(str::to_owned).collect();
+        data.groups.truncate(1);
+        let mut state = MenuState::default();
+        state.start_search();
+        assert!(state.accessible_summary(&data, VISIBLE_ACTIONS)
+            .contains("Showing actions 1 through 4 of 6"));
+        state.page_by(&data, 4);
+        assert!(state.accessible_summary(&data, VISIBLE_ACTIONS)
+            .contains("Showing actions 5 through 6 of 6"));
+        assert!(state.search_input("z"));
+        assert!(state.accessible_summary(&data, VISIBLE_ACTIONS)
+            .contains("No matching actions"));
+        state.show_saved();
+        assert!(state.accessible_summary(&data, VISIBLE_ACTIONS)
+            .contains("No saved actions"));
+        assert!(state.accessible_summary(&data, VISIBLE_ACTIONS)
+            .contains("F3 returns to menu"));
+        state.pins.push("terminal".to_owned());
+        assert!(state.accessible_summary(&data, VISIBLE_ACTIONS)
+            .contains("1 available action"));
     }
 
     #[test]
