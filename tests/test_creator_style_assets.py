@@ -6,6 +6,9 @@ import os
 from pathlib import Path
 import stat
 import struct
+import subprocess
+import sys
+import threading
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -324,6 +327,187 @@ class CreatorStyleAssetsTests(unittest.TestCase):
                 self.assertEqual(style_assets.entry(icon).provenance, ATTRIBUTION)
             self.assertEqual(assets.read(wallpaper_id)[1], png())
             self.assertEqual(recipes.current_selection(), ("classic", None))
+
+    def test_interrupted_second_asset_rolls_forward_without_reopening_archive(self):
+        archive, token, icons, _ = self._two_icon_pack()
+        config = self.root / "recovery-config"
+        config.mkdir(mode=0o700)
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config)}):
+            original = style_assets.store_pack_asset
+            count = 0
+
+            def interrupt_second(*args, **kwargs):
+                nonlocal count
+                count += 1
+                if count == 2:
+                    raise OSError("simulated full filesystem during second icon")
+                return original(*args, **kwargs)
+
+            with patch.object(style_assets, "store_pack_asset", side_effect=interrupt_second):
+                with self.assertRaisesRegex(pack.PackError, "interrupted"):
+                    pack.import_pack(archive)
+            folder = recipes._private_recipe_dir(create=False)
+            pending = folder / pack._IMPORT_PENDING
+            self.assertTrue(pending.is_file())
+            self.assertFalse((folder / f"{token}.json").exists())
+            self.assertEqual(len(style_assets.list_assets("icon")), 1)
+            archive.unlink()  # Recovery uses only the private pinned journal.
+            restored = pack.recover_pack_import()
+            self.assertTrue(restored["recovered"])
+            self.assertFalse(pending.exists())
+            self.assertEqual({item.identifier for item in style_assets.list_assets("icon")},
+                             set(icons))
+            self.assertEqual(recipes.load(token).recipe_id, token)
+            self.assertEqual(recipes.current_selection(), ("classic", None))
+            self.assertFalse(pack.recover_pack_import()["recovered"])
+
+    def test_next_import_recovers_different_pending_pack_before_new_recipe(self):
+        archive, first_id, icons, _ = self._two_icon_pack()
+        other_draft = creator_workspace.create_draft("orbit")
+        other = self.root / "after-recovery.ricepack"
+        creator_workspace.export_draft(other_draft, other)
+        config = self.root / "recover-then-import"
+        config.mkdir(mode=0o700)
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config)}):
+            with patch.object(style_assets, "store_pack_asset",
+                              side_effect=OSError("simulated interrupted first import")):
+                with self.assertRaises(pack.PackError):
+                    pack.import_pack(archive)
+            self.assertTrue((recipes._private_recipe_dir(create=False) /
+                             pack._IMPORT_PENDING).is_file())
+            self.assertTrue(pack.import_pack(other)["imported"])
+            self.assertEqual(recipes.load(first_id).recipe_id, first_id)
+            self.assertEqual(recipes.load(other_draft.recipe_id).recipe_id,
+                             other_draft.recipe_id)
+            self.assertFalse((recipes._private_recipe_dir(create=False) /
+                              pack._IMPORT_PENDING).exists())
+            self.assertEqual({item.identifier for item in style_assets.list_assets("icon")},
+                             set(icons))
+            self.assertEqual(recipes.current_selection(), ("classic", None))
+
+    def test_crash_after_recipe_publication_reuses_identical_existing_bytes(self):
+        archive, token, _, _ = self._two_icon_pack()
+        config = self.root / "committed-config"
+        config.mkdir(mode=0o700)
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config)}):
+            pending = config / "ricebowl/recipes" / pack._IMPORT_PENDING
+            original = pack.os.unlink
+
+            def fail_pending_cleanup(path, *args, **kwargs):
+                if Path(path) == pending:
+                    raise OSError("simulated kill before clearing journal")
+                return original(path, *args, **kwargs)
+
+            with patch.object(pack.os, "unlink", side_effect=fail_pending_cleanup):
+                with self.assertRaisesRegex(pack.PackError, "interrupted"):
+                    pack.import_pack(archive)
+            installed = pending.parent / f"{token}.json"
+            before = installed.stat().st_ino, installed.read_bytes()
+            self.assertTrue(pending.exists())
+            self.assertTrue(pack.recover_pack_import()["recovered"])
+            self.assertEqual((installed.stat().st_ino, installed.read_bytes()), before)
+            self.assertFalse(pending.exists())
+            self.assertEqual(recipes.current_selection(), ("classic", None))
+
+    def test_actual_child_process_exit_recovers_verified_pack(self):
+        archive, token, icons, _ = self._two_icon_pack()
+        config = self.root / "killed-config"
+        config.mkdir(mode=0o700)
+        script = (
+            "import os,sys\n"
+            "from macrice.de import pack,style_assets\n"
+            "from pathlib import Path\n"
+            "original=style_assets.store_pack_asset\n"
+            "def stop_after_first(*args,**kwargs):\n"
+            "  original(*args,**kwargs)\n"
+            "  os._exit(71)\n"
+            "style_assets.store_pack_asset=stop_after_first\n"
+            "pack.import_pack(Path(sys.argv[1]))\n"
+        )
+        environment = {**os.environ, "XDG_CONFIG_HOME": str(config)}
+        result = subprocess.run([sys.executable, "-c", script, str(archive)],
+                                cwd=Path(__file__).resolve().parents[1], env=environment,
+                                capture_output=True, timeout=15, check=False)
+        self.assertEqual(result.returncode, 71, result.stderr.decode(errors="replace"))
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config)}):
+            folder = recipes._private_recipe_dir(create=False)
+            self.assertTrue((folder / pack._IMPORT_PENDING).is_file())
+            self.assertFalse((folder / f"{token}.json").exists())
+            self.assertTrue(pack.recover_pack_import()["recovered"])
+            self.assertEqual(recipes.load(token).recipe_id, token)
+            self.assertEqual({item.identifier for item in style_assets.list_assets("icon")},
+                             set(icons))
+
+    def test_tampered_pending_archive_blocks_recovery_without_unlinking_it(self):
+        config = self.root / "unsafe-recovery"
+        config.mkdir(mode=0o700)
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config)}):
+            folder = recipes._private_recipe_dir(create=True)
+            pending = folder / pack._IMPORT_PENDING
+            outside = self.root / "do-not-delete.txt"
+            outside.write_text("preserve")
+            pending.symlink_to(outside)
+            with self.assertRaises(pack.PackError):
+                pack.recover_pack_import()
+            self.assertTrue(pending.is_symlink())
+            self.assertEqual(outside.read_text(), "preserve")
+            self.assertEqual(recipes.current_selection(), ("classic", None))
+
+    def test_concurrent_pack_import_waits_for_private_transaction_lock(self):
+        archive, token, _, _ = self._two_icon_pack()
+        config = self.root / "serial-config"
+        config.mkdir(mode=0o700)
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config)}):
+            folder = recipes._private_recipe_dir(create=True)
+            started, finished = threading.Event(), threading.Event()
+            results = []
+
+            def run_import():
+                started.set()
+                try:
+                    results.append(pack.import_pack(archive))
+                except Exception as exc:
+                    results.append(exc)
+                finally:
+                    finished.set()
+
+            with pack._import_guard(folder):
+                worker = threading.Thread(target=run_import, daemon=True)
+                worker.start()
+                self.assertTrue(started.wait(2))
+                self.assertFalse(finished.wait(0.15), "Import bypassed the private lock")
+                self.assertFalse((folder / f"{token}.json").exists())
+            worker.join(timeout=5)
+            self.assertFalse(worker.is_alive(), "Waiting importer did not resume")
+            self.assertEqual(len(results), 1)
+            self.assertIsInstance(results[0], dict)
+            self.assertEqual(results[0]["recipe_id"], token)
+            self.assertEqual(recipes.current_selection(), ("classic", None))
+
+    def test_import_lock_timeout_returns_busy_without_staging_archive(self):
+        archive, token, _, _ = self._two_icon_pack()
+        config = self.root / "busy-config"
+        config.mkdir(mode=0o700)
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config)}):
+            folder = recipes._private_recipe_dir(create=True)
+            results = []
+
+            def run_import():
+                try:
+                    pack.import_pack(archive)
+                except Exception as exc:
+                    results.append(exc)
+
+            with pack._import_guard(folder), patch.object(pack, "_IMPORT_LOCK_TIMEOUT", 0.12):
+                worker = threading.Thread(target=run_import, daemon=True)
+                worker.start()
+                worker.join(timeout=2)
+                self.assertFalse(worker.is_alive())
+            self.assertEqual(len(results), 1)
+            self.assertIsInstance(results[0], pack.PackError)
+            self.assertEqual(results[0].code, "import_busy")
+            self.assertFalse((folder / pack._IMPORT_PENDING).exists())
+            self.assertFalse((folder / f"{token}.json").exists())
 
     def test_ricepack_rejects_two_attributions_for_one_icon_identity(self):
         original = style_assets.import_asset(self.icon, kind="icon", label="One icon",

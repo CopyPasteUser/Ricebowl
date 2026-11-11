@@ -358,7 +358,8 @@ class PortableRicePackTests(unittest.TestCase):
         commands = {item["command"] for item in spec["commands"]}
         self.assertTrue({"catalog", "review", "draft-check", "draft-edit",
                          "render", "visual-compare",
-                         "capture", "pack-export", "pack-inspect", "pack-import"} <= commands)
+                         "capture", "pack-export", "pack-inspect", "pack-import",
+                         "pack-recover"} <= commands)
         with mock.patch("builtins.print") as printed:
             self.assertEqual(cli(["de", "creator-api", "--json"]), 0)
         self.assertEqual(json.loads(printed.call_args.args[0]), spec)
@@ -382,6 +383,15 @@ class PortableRicePackTests(unittest.TestCase):
             self.assertFalse(failed["ok"])
             self.assertEqual(failed["error"]["code"], "invalid_input")
             self.assertNotIn(directory, json.dumps(failed))
+            private_root = Path(directory) / "xdg-config"
+            private_root.mkdir(mode=0o700)
+            with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(private_root)}), \
+                 mock.patch("builtins.print") as printed:
+                self.assertEqual(cli(["de", "pack-recover", "--json"]), 0)
+                self.assertFalse(json.loads(printed.call_args.args[0])["pending"])
+                self.assertFalse(private_root.joinpath("ricebowl").exists())
+            with mock.patch("sys.stderr"):
+                self.assertEqual(cli(["de", "pack-recover", "--package", str(target)]), 1)
         for flags in (("--package", "/tmp/anything.ricepack"),
                       ("--metadata", "/tmp/anything.json"),
                       ("--output", "/tmp/anything.ricepack")):

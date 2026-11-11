@@ -60,7 +60,10 @@ Imported license and artist credits survive editing and export; review them
 before publishing a derivative rice. An import checks existing recipe IDs,
 private attribution, wallpapers, fonts and icons before installing assets;
 interrupted identical imports can resume, but multi-file power-loss atomicity
-is not claimed.
+is not claimed. A failed import now retains a private verified recovery archive;
+run `ricebowl de pack-recover --json` to finish installing its assets and recipe
+without changing the active rice or next-login selection. The next pack import
+also checks and resumes a pending transaction first.
 The Creator's **Try interactive Wayland window** action runs a saved version in
 a separate nested labwc session; closing it leaves the active rice and next
 login unchanged. Actual Wayland apply/restore remains a separate confirmed action.

@@ -15,6 +15,9 @@ import re
 import stat
 import tempfile
 import zipfile
+import fcntl
+import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +38,9 @@ _DEFAULT_PROVENANCE = {
     "author": "", "license": "unspecified", "origin": "unspecified", "source_reference": "",
 }
 _RECEIPT_SUFFIX = ".ricepack-provenance"
+_IMPORT_LOCK = ".ricepack-import.lock"
+_IMPORT_PENDING = ".ricepack-import-pending.ricepack"
+_IMPORT_LOCK_TIMEOUT = 5.0
 
 
 def _bundled_wallpaper(recipe: recipes.PanelRecipe) -> tuple[str, str]:
@@ -331,9 +337,12 @@ def export_pack(recipe_token: str, destination: Path,
             "package_sha256": _digest(memory.getvalue()), "manifest": manifest}
 
 
-def _validate_archive(source: Path) -> tuple[dict[str, Any], bytes, bytes | None, dict[str, bytes]]:
+def _validate_archive(source: Path | bytes) -> tuple[dict[str, Any], bytes, bytes | None, dict[str, bytes], bytes]:
     from . import style_assets
-    payload = _read_owned_file(source, suffix=".ricepack", limit=MAX_PACK_BYTES)
+    payload = (source if isinstance(source, bytes) else
+               _read_owned_file(source, suffix=".ricepack", limit=MAX_PACK_BYTES))
+    if len(payload) > MAX_PACK_BYTES:
+        raise PackError("RicePack exceeds safe archive size", code="invalid_input")
     try:
         with zipfile.ZipFile(io.BytesIO(payload)) as archive:
             entries = archive.infolist()
@@ -470,12 +479,12 @@ def _validate_archive(source: Path) -> tuple[dict[str, Any], bytes, bytes | None
                     raise PackError("Invalid font/icon asset data", code="asset_mismatch") from exc
                 if calculated != identifier or _digest(visual_payloads[filename]) != record["sha256"]:
                     raise PackError("Font/icon checksum does not match", code="asset_mismatch")
-    return metadata, recipe_payload, wallpaper_payload, visual_payloads
+    return metadata, recipe_payload, wallpaper_payload, visual_payloads, payload
 
 
 def inspect_pack(source: Path) -> dict[str, Any]:
     """Verify all archive entries, fingerprints and the real recipe schema."""
-    metadata, _, _, _ = _validate_archive(source)
+    metadata, _, _, _, _ = _validate_archive(source)
     return {"pack_version": metadata["format_version"], "ok": True, "valid": True,
             "imported": False, "applied": False, "manifest": metadata}
 
@@ -536,62 +545,167 @@ def _preflight_import(metadata: dict[str, Any], payload: bytes,
     return attribution
 
 
+def _sync_directory(folder: Path) -> None:
+    """Make previously fsynced immutable file links durable before recipe commit."""
+    descriptor = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+@contextmanager
+def _import_guard(folder: Path):
+    """Serialize cooperating pack importers and retain a private stable lock inode."""
+    location = folder / _IMPORT_LOCK
+    descriptor = os.open(location, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC,
+                         0o600)
+    try:
+        info = os.fstat(descriptor)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                or info.st_mode & 0o077 or info.st_nlink != 1):
+            raise PackError("Unsafe private RicePack import lock", code="recovery_blocked")
+        deadline = time.monotonic() + _IMPORT_LOCK_TIMEOUT
+        while True:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise PackError("Another private RicePack import is still running",
+                                    code="import_busy") from None
+                time.sleep(0.05)
+        yield
+    finally:
+        os.close(descriptor)
+
+
+def _result(metadata: dict[str, Any], *, recovered: bool) -> dict[str, Any]:
+    return {"pack_version": metadata["format_version"], "ok": True, "valid": True,
+            "imported": True, "applied": False, "provenance_saved": True,
+            "recovered": recovered, "recipe_id": metadata["recipe"]["id"],
+            "semantic_sha256": metadata["recipe"]["semantic_sha256"]}
+
+
+def _publish_import(metadata: dict[str, Any], payload: bytes,
+                    wallpaper_bytes: bytes | None,
+                    visual_payloads: dict[str, bytes], *, recovering: bool) -> None:
+    """Publish assets first and the visible recipe last, with durable ordering."""
+    folder = recipes._private_recipe_dir(create=True)
+    token = metadata["recipe"]["id"]
+    destination = folder / f"{token}.json"
+    receipt = folder / f"{token}{_RECEIPT_SUFFIX}"
+    attribution = _provenance_receipt(metadata, recipes.parse(payload))
+    if os.path.lexists(destination):
+        # After SIGKILL the recipe may already have been linked, but the
+        # pending archive not removed. Only that exact completed import may
+        # be treated as already installed, never a different recipe.
+        if not recovering or (
+            _read_owned_file(destination, suffix=".json", limit=recipes.MAX_RECIPE_BYTES,
+                             owner_private=True) != payload or
+            _read_owned_file(receipt, suffix=_RECEIPT_SUFFIX,
+                             limit=MAX_METADATA_BYTES, owner_private=True) != attribution
+        ):
+            raise PackError("Installed recipe differs from the pending import",
+                            code="recovery_blocked")
+    else:
+        _preflight_import(metadata, payload, wallpaper_bytes, visual_payloads)
+
+    if wallpaper_bytes is not None:
+        stored_id, _ = assets.store(wallpaper_bytes)
+        if stored_id != metadata["asset_manifest"]["wallpaper"]["id"]:
+            raise PackError("Wallpaper changed while importing", code="asset_mismatch")
+        _sync_directory(assets._collection(create=False))
+    if visual_payloads:
+        from . import style_assets
+        visual = metadata["asset_manifest"]["visual"]
+        for filename, data in sorted(visual_payloads.items()):
+            record = (visual["font"] if filename == "assets/font.ttf" else
+                      visual["icons"][filename.split("/")[-1].removesuffix(".png")])
+            style_assets.store_pack_asset(record["id"], data,
+                                          label=record["label"],
+                                          provenance=record["provenance"])
+        _sync_directory(style_assets._collection(create=False))
+    if os.path.lexists(receipt):
+        if (_read_owned_file(receipt, suffix=_RECEIPT_SUFFIX,
+                             limit=MAX_METADATA_BYTES, owner_private=True) != attribution):
+            raise PackError("Existing provenance does not match this pack",
+                            code="import_unavailable")
+    else:
+        recipes._write_private_new(receipt, attribution, suffix=_RECEIPT_SUFFIX)
+    _sync_directory(folder)
+    if not os.path.lexists(destination):
+        recipes._write_private_new(destination, payload)
+    _sync_directory(folder)
+
+
+def _recover_locked(folder: Path) -> tuple[dict[str, Any], bytes] | None:
+    """Replay the previously validated immutable archive; never delete assets."""
+    pending = folder / _IMPORT_PENDING
+    if not os.path.lexists(pending):
+        return None
+    source = _read_owned_file(pending, suffix=".ricepack", limit=MAX_PACK_BYTES,
+                              owner_private=True)
+    metadata, payload, wallpaper, visual, _ = _validate_archive(source)
+    _publish_import(metadata, payload, wallpaper, visual, recovering=True)
+    os.unlink(pending)
+    _sync_directory(folder)
+    return metadata, source
+
+
+def recover_pack_import() -> dict[str, Any]:
+    """Explicit, owner-local crash recovery; no desktop or selection changes."""
+    try:
+        folder = recipes._private_recipe_dir(create=False)
+        if not folder.exists():
+            return {"ok": True, "pending": False, "recovered": False,
+                    "imported": False, "applied": False}
+        with _import_guard(folder):
+            outcome = _recover_locked(folder)
+        if outcome is None:
+            return {"ok": True, "pending": False, "recovered": False,
+                    "imported": False, "applied": False}
+        return {**_result(outcome[0], recovered=True), "pending": False}
+    except (OSError, recipes.RecipeError, assets.AssetError, ValueError) as exc:
+        if isinstance(exc, PackError):
+            raise
+        raise PackError("Pending RicePack recovery could not complete safely",
+                        code="recovery_blocked") from exc
+
+
 def import_pack(source: Path, *, expected_manifest: dict[str, Any] | None = None
                 ) -> dict[str, Any]:
-    """Install a recipe and a data-only provenance receipt, without applying it."""
-    metadata, payload, wallpaper_bytes, visual_payloads = _validate_archive(source)
+    """Durably stage a validated RicePack, then commit the recipe last.
+
+    A failed import retains one private pinned archive for lock-serialized
+    roll-forward after process exit or I/O errors. Its intermediate assets are
+    inert until the complete recipe is published; shared assets are not deleted.
+    """
+    metadata, payload, wallpaper, visual, archive = _validate_archive(source)
     if expected_manifest is not None and metadata != expected_manifest:
         raise PackError("RicePack changed since review; inspect it again",
                         code="pack_changed")
-    attribution = _preflight_import(metadata, payload, wallpaper_bytes, visual_payloads)
     try:
+        if not os.path.lexists(recipes._private_recipe_dir(create=False) / _IMPORT_PENDING):
+            _preflight_import(metadata, payload, wallpaper, visual)
         folder = recipes._private_recipe_dir(create=True)
-        destination = folder / f"{metadata['recipe']['id']}.json"
-        receipt = folder / f"{metadata['recipe']['id']}{_RECEIPT_SUFFIX}"
-        if os.path.lexists(destination):
-            raise PackError("Cannot replace an installed recipe", code="import_unavailable")
-        if wallpaper_bytes is not None:
-            try:
-                stored_id, _ = assets.store(wallpaper_bytes)
-            except assets.AssetError as exc:
-                raise PackError("Cannot install private wallpaper", code="asset_unavailable") from exc
-            if stored_id != metadata["asset_manifest"]["wallpaper"]["id"]:
-                raise PackError("Wallpaper changed while importing", code="asset_mismatch")
-        if visual_payloads:
-            from . import style_assets
-            visual = metadata["asset_manifest"]["visual"]
-            for filename, data in sorted(visual_payloads.items()):
-                record = (visual["font"] if filename == "assets/font.ttf" else
-                          visual["icons"][filename.split("/")[-1].removesuffix(".png")])
-                try:
-                    style_assets.store_pack_asset(record["id"], data,
-                                                  label=record["label"],
-                                                  provenance=record["provenance"])
-                except style_assets.StyleAssetError as exc:
-                    raise PackError("Cannot install verified font/icon asset",
-                                    code="asset_unavailable") from exc
-        if os.path.lexists(receipt):
-            # A previous interrupted import may have published its receipt
-            # before the recipe. Reuse only byte-identical private metadata.
-            if (_read_owned_file(receipt, suffix=_RECEIPT_SUFFIX,
-                                 limit=MAX_METADATA_BYTES, owner_private=True) != attribution):
-                raise PackError("Existing provenance does not match this pack",
-                                code="import_unavailable")
-        else:
-            recipes._write_private_new(receipt, attribution, suffix=_RECEIPT_SUFFIX)
-        # The runtime sees a recipe only after its attribution is present.
-        # If this write fails, the unreferenced receipt is safe to retry with
-        # the same archive; never silently overwrite another user's data.
-        recipes._write_private_new(destination, payload)
-    except PackError:
-        raise
-    except (OSError, recipes.RecipeError) as exc:
-        raise PackError("Cannot install recipe without overwriting an existing file",
+        with _import_guard(folder):
+            recovered = _recover_locked(folder)
+            if recovered is not None and recovered[1] == archive:
+                return _result(recovered[0], recovered=True)
+            _preflight_import(metadata, payload, wallpaper, visual)
+            pending = folder / _IMPORT_PENDING
+            recipes._write_private_new(pending, archive, suffix=".ricepack")
+            _sync_directory(folder)  # Journal is durable BEFORE the first asset write.
+            _publish_import(metadata, payload, wallpaper, visual, recovering=False)
+            os.unlink(pending)
+            _sync_directory(folder)
+    except (OSError, recipes.RecipeError, assets.AssetError, ValueError) as exc:
+        if isinstance(exc, PackError):
+            raise
+        raise PackError("RicePack import interrupted; use de pack-recover to resume",
                         code="import_unavailable") from exc
-    return {"pack_version": metadata["format_version"], "ok": True, "valid": True,
-            "imported": True, "applied": False, "provenance_saved": True,
-            "recipe_id": metadata["recipe"]["id"],
-            "semantic_sha256": metadata["recipe"]["semantic_sha256"]}
+    return _result(metadata, recovered=False)
 
 
 def invalid_pack(error: PackError) -> dict[str, Any]:

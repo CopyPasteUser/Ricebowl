@@ -1268,6 +1268,18 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
   receipt can resume even if no wallpaper was yet installed. Tests verify
   that predictable later conflicts create no earlier orphan assets; unexpected
   disk failures and concurrent writers are not a cross-file atomic commit.
+- [x] Add **resumable, commit-last multi-asset RicePack imports**: retain one
+  bounded validated archive inside the owner-private recipe collection and
+  fsync its directory before any other asset write. A private five-second
+  advisory lock serializes cooperating pack importers; verified wallpapers, font/icon
+  attribution and their directory links are synced before publishing the
+  recipe. An interrupted install can be resumed through `de pack-recover`
+  or the next pack import, including after a real abrupt child-process exit
+  and after successful recipe publication but before journal cleanup.
+  Existing shared assets are never deleted or overwritten; a corrupt pending
+  archive or changed installed recipe blocks recovery. This guarantees a
+  recoverable private transaction path on supported local filesystems, **not**
+  global atomicity against unrelated asset writers or failed hardware fsync.
 - [x] Implement **Rice Creator 0.6 private visual reference comparison**:
   owner-controlled, bounded PNG references are SHA-256-copied into a private
   per-draft selection that survives immutable revision changes without
