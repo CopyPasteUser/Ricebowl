@@ -1104,6 +1104,9 @@ def run() -> int:
                 choice.remove_all()
                 choice.append("builtin", "RicePlate built-in")
                 known = {"builtin"}
+                if field != "font" and self.working["schema_version"] >= 12:
+                    choice.append("builtin-luna", "Luna originals · built-in")
+                    known.add("builtin-luna")
                 for item in style_assets.list_assets(kind):
                     known.add(item.identifier)
                     choice.append(item.identifier, item.label + " · " + item.identifier[:13])
@@ -1121,7 +1124,7 @@ def run() -> int:
             for key in ("font", *style_assets.ICON_ACTIONS):
                 identifier = (self.working["artwork"]["font"] if key == "font" else
                               self.working["artwork"]["icons"][key])
-                if identifier == "builtin":
+                if identifier in ("builtin", "builtin-luna"):
                     continue
                 try:
                     entry = style_assets.entry(identifier)
@@ -1146,7 +1149,7 @@ def run() -> int:
             if selected is None:
                 return
             try:
-                if selected != "builtin":
+                if selected not in ("builtin", "builtin-luna"):
                     item = style_assets.entry(selected)
                     if item.kind != ("font" if field == "font" else "icon"):
                         raise style_assets.StyleAssetError("Wrong asset type")

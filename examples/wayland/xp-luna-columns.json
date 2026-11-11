@@ -191,9 +191,9 @@
   "artwork": {
     "font": "builtin",
     "icons": {
-      "applications": "builtin",
-      "terminal": "builtin",
-      "lock": "builtin"
+      "applications": "builtin-luna",
+      "terminal": "builtin-luna",
+      "lock": "builtin-luna"
     }
   }
 }

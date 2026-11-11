@@ -274,6 +274,14 @@ fn asset_id(value: &str, prefix: &str) -> Result<Option<String>, Box<dyn Error>>
     Ok(Some(value.to_owned()))
 }
 
+fn icon_asset_id(value: &str, schema_version: u32) -> Result<Option<String>, Box<dyn Error>> {
+    // Original, compiled-in artwork is data-selected, never a recipe path.
+    if value == "builtin-luna" && schema_version >= 12 {
+        return Ok(Some(value.to_owned()));
+    }
+    asset_id(value, "icon-")
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Appearance {
@@ -894,9 +902,9 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
         (11 | 12, Some(value)) => Some(ArtworkSelection {
             font: asset_id(&value.font, "font-")?,
             icons: [
-                asset_id(&value.icons.applications, "icon-")?,
-                asset_id(&value.icons.terminal, "icon-")?,
-                asset_id(&value.icons.lock, "icon-")?,
+                icon_asset_id(&value.icons.applications, recipe.schema_version)?,
+                icon_asset_id(&value.icons.terminal, recipe.schema_version)?,
+                icon_asset_id(&value.icons.lock, recipe.schema_version)?,
             ],
         }),
         (1..=10, None) => None,
@@ -1343,6 +1351,23 @@ mod tests {
         assert!(parse(&data.to_string(), None).is_err());
         data.as_object_mut().unwrap().remove("artwork");
         assert!(parse(&data.to_string(), None).is_ok());
+    }
+
+    #[test]
+    fn luna_builtin_icons_are_opt_in_v12_without_recipe_paths() {
+        let source = include_str!("../../../examples/wayland/xp-luna-columns.json");
+        let mut data: serde_json::Value = serde_json::from_str(source).unwrap();
+        let style = parse(source, Some("xp-luna-columns")).unwrap();
+        assert!(style.artwork.unwrap().icons.iter()
+            .all(|icon| icon.as_deref() == Some("builtin-luna")));
+        data["schema_version"] = serde_json::json!(11);
+        assert!(parse(&data.to_string(), None).is_err());
+        data["schema_version"] = serde_json::json!(12);
+        data["artwork"]["icons"]["lock"] = serde_json::json!("builtin-luna/../../etc");
+        assert!(parse(&data.to_string(), None).is_err());
+        data["artwork"]["icons"]["lock"] = serde_json::json!("builtin-luna");
+        data["artwork"]["font"] = serde_json::json!("builtin-luna");
+        assert!(parse(&data.to_string(), None).is_err());
     }
 
     #[test]

@@ -45,9 +45,13 @@ installation and is not yet a finished desktop environment.
   geometry and 880 different pixels in the full overlay region (native run
   #42914562690; permanent `luna-osd-default.webp` and `luna-osd-font.webp`).
   Real mixer/volume-key hardware behavior is a separate acceptance gate.
+- [x] Add original 48px Luna desktop pictograms for Programs, Terminal and Lock
+  as a schema-v12 `builtin-luna` icon choice; validate and expose it in Creator,
+  export it without extra RicePack assets, and retain older recipes unchanged.
+  Real native compositor screenshot QA is required before release.
 - [ ] Still open before any 1.0 claim: physical ThinkPad input/focus/power and
-  display acceptance, finer icon/window appearance fidelity, and packaging an
-  upgraded core/native release for schema v12.
+  display acceptance, third-party client decoration fidelity and final
+  distribution/upgrade signoff for schema v12.
 
 ### Native font-system checkpoint (10 November 2026)
 

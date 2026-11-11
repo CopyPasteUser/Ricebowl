@@ -90,7 +90,7 @@ def _visual_assets(recipe: recipes.PanelRecipe) -> tuple[list[tuple[str, bytes]]
     candidates.extend(("icon", asset_id, f"assets/icons/{action}.png")
                       for action, asset_id in zip(style_assets.ICON_ACTIONS, recipe.artwork.icons))
     for kind, identifier, path in candidates:
-        if identifier == "builtin":
+        if identifier in ("builtin", "builtin-luna"):
             continue
         try:
             asset = style_assets.entry(identifier)
@@ -430,7 +430,7 @@ def _validate_archive(source: Path) -> tuple[dict[str, Any], bytes, bytes | None
             if artwork.font != "builtin":
                 expected_records["assets/font.ttf"] = artwork.font
             for action, asset_id in zip(style_assets.ICON_ACTIONS, artwork.icons):
-                if asset_id != "builtin":
+                if asset_id not in ("builtin", "builtin-luna"):
                     expected_records[f"assets/icons/{action}.png"] = asset_id
             if (not expected_records or set(visual_payloads) != set(expected_records)
                     or set(visual["icons"]) != {
