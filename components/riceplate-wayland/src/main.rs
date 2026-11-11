@@ -3560,9 +3560,11 @@ fn paint_compact_notifications(canvas: &mut [u8], style: &PanelStyle,
                           if state.show_history { width / 2 } else { 0 },
                           30, width / 2, 34, style.task_radius, style.active);
         draw_text(canvas, width, height, 8, 43,
-                  &format!("Active {}", state.notices.len()), style.foreground);
+                  &if large_font { format!("A {}", state.notices.len()) }
+                   else { format!("Active {}", state.notices.len()) }, style.foreground);
         draw_text(canvas, width, height, width / 2 + 8, 43,
-                  &format!("Past {}", state.history.len()), style.foreground);
+                  &if large_font { format!("P {}", state.history.len()) }
+                   else { format!("Past {}", state.history.len()) }, style.foreground);
         if state.visible_notices().is_empty() {
             draw_text(canvas, width, height, 8, 76,
                       if state.show_history { "No past alerts" } else { "No active alerts" },
@@ -3592,12 +3594,21 @@ fn paint_compact_notifications(canvas: &mut [u8], style: &PanelStyle,
         draw_text(canvas, width, height, 8, 36,
                   &notification_glyphs(&notice.summary, text_width), style.foreground);
         let pages = state.compact_body_page_count(size);
-        let source_width = if pages > 1 { text_width.saturating_sub(8) } else { text_width };
+        let page_label = format!("{}/{}", state.body_page + 1, pages);
+        let source_width = if pages <= 1 { text_width }
+            else if large_font { text_width.saturating_sub(page_label.chars().count() + 1) }
+            else { text_width.saturating_sub(8) };
         draw_text(canvas, width, height, 8, 53,
                   &notification_glyphs(&notice.app_name, source_width), style.foreground);
         if pages > 1 {
-            draw_text(canvas, width, height, width.saturating_sub(68), 53,
-                      &format!("{}/{} < >", state.body_page + 1, pages), style.foreground);
+            if large_font {
+                let digits = page_label.chars().count() as u32;
+                let x = width.saturating_sub(digits.saturating_mul(8 * style.font_scale) + 8);
+                draw_text(canvas, width, height, x, 53, &page_label, style.foreground);
+            } else {
+                draw_text(canvas, width, height, width.saturating_sub(68), 53,
+                          &format!("{}/{} < >", state.body_page + 1, pages), style.foreground);
+            }
         }
         let body = ricepop::body_lines_with_width(&notice.body, text_width);
         for (row, line) in body.iter()
@@ -3669,7 +3680,8 @@ fn paint_notifications(canvas: &mut [u8], style: &PanelStyle, state: &Notificati
         let pages = state.body_page_count();
         if pages > 1 {
             draw_text(canvas, width, height, 195, 87,
-                      &format!("Text {}/{} < >", state.body_page + 1, pages), style.foreground);
+                      &if large_font { format!("{}/{}", state.body_page + 1, pages) }
+                       else { format!("Text {}/{} < >", state.body_page + 1, pages) }, style.foreground);
         }
         for (row, line) in lines.iter().skip(state.body_page * ricepop::BODY_LINES_PER_PAGE)
             .take(ricepop::BODY_LINES_PER_PAGE).enumerate() {
@@ -3680,7 +3692,8 @@ fn paint_notifications(canvas: &mut [u8], style: &PanelStyle, state: &Notificati
             draw_text(canvas, width, height, 14, 180, "No available actions", style.foreground);
         } else {
             draw_text(canvas, width, height, 14, 138,
-                      &format!("Actions ({}) - Enter to use", notice.actions.len()),
+                      &if large_font { format!("Actions ({})", notice.actions.len()) }
+                       else { format!("Actions ({}) - Enter to use", notice.actions.len()) },
                       style.foreground);
             for (position, action) in notice.actions.iter()
                 .skip(state.first_action_row()).take(ricepop::VISIBLE_ROWS).enumerate() {
