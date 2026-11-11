@@ -9,18 +9,21 @@ Wayland login, never during XFCE startup or an isolated nested preview.
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import re
 import stat
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from . import recipes
 
 VERSION = 1
 MAX_BYTES = 4096
 FILE_NAME = ".live-switch.pending"
+RECOVERY_LOCK_NAME = ".live-switch.recovery.lock"
 _ID = re.compile(r"[a-z][a-z0-9-]{1,31}\Z")
 _SHA = re.compile(r"[a-f0-9]{64}\Z")
 _BOOT = re.compile(r"[a-f0-9-]{36}\Z")
@@ -163,6 +166,31 @@ def status() -> dict[str, Any]:
             "automatic_recovery": "at-next-full-wayland-login" if record else "not-needed"}
 
 
+@contextmanager
+def _recovery_lock() -> Iterator[None]:
+    """Serialize dead-owner reconciliation across simultaneous Wayland logins.
+
+    Keep the lock inode in place: unlinking it lets another login lock a new
+    inode while a first reconciliation still owns the old one.
+    """
+    directory = _directory(create=False)
+    try:
+        flags = os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+        descriptor = os.open(directory / RECOVERY_LOCK_NAME, flags, 0o600)
+    except OSError as exc:
+        raise LiveRecoveryError("Cannot safely open the Wayland recovery lock") from exc
+    with os.fdopen(descriptor, "wb") as locked:
+        meta = os.fstat(locked.fileno())
+        if (not stat.S_ISREG(meta.st_mode) or meta.st_uid != os.geteuid()
+                or meta.st_mode & 0o077):
+            raise LiveRecoveryError("Wayland recovery lock is not an owner-private file")
+        try:
+            fcntl.flock(locked.fileno(), fcntl.LOCK_EX)
+        except OSError as exc:
+            raise LiveRecoveryError("Cannot acquire the Wayland recovery lock") from exc
+        yield
+
+
 def reconcile() -> dict[str, Any]:
     """Undo only our exact persisted switch; never override a concurrent stage.
 
@@ -177,22 +205,36 @@ def reconcile() -> dict[str, Any]:
         return {"status": "clean", "use_saved_selection": True}
     if _owner_running(record):
         return {"status": "in_progress", "use_saved_selection": False}
+    # A second full login may have read the same dead owner's journal. Never
+    # attempt two restores/finishes against that one record. Re-read after
+    # taking the persistent private lock, since the first login may have
+    # completed the recovery while we were waiting.
     try:
-        changed = recipes._restore_failed_live_selection(
-            record["target"], record["sha256"], record["before"])
-    except recipes.SelectionConflict:
-        # A separate Creator stage won the race. Keep its choice, but only
-        # after the ordinary pinned-selection verifier approves it.
-        try:
-            recipes.selected_recipe()
-            finish(record)
-        except (recipes.RecipeError, LiveRecoveryError, OSError):
-            return {"status": "unsafe", "use_saved_selection": False}
-        return {"status": "superseded", "use_saved_selection": True}
-    except (recipes.RecipeError, OSError):
-        return {"status": "unsafe", "use_saved_selection": False}
-    try:
-        finish(record)
+        with _recovery_lock():
+            record = read()
+            if record is None:
+                return {"status": "clean", "use_saved_selection": True}
+            if _owner_running(record):
+                return {"status": "in_progress", "use_saved_selection": False}
+            try:
+                changed = recipes._restore_failed_live_selection(
+                    record["target"], record["sha256"], record["before"])
+            except recipes.SelectionConflict:
+                # Another Creator stage won the race. Keep its choice only
+                # after the ordinary pinned-selection verifier approves it.
+                try:
+                    recipes.selected_recipe()
+                    finish(record)
+                except (recipes.RecipeError, LiveRecoveryError, OSError):
+                    return {"status": "unsafe", "use_saved_selection": False}
+                return {"status": "superseded", "use_saved_selection": True}
+            except (recipes.RecipeError, OSError):
+                return {"status": "unsafe", "use_saved_selection": False}
+            try:
+                finish(record)
+            except LiveRecoveryError:
+                return {"status": "unsafe", "use_saved_selection": False}
+            return {"status": "restored" if changed else "unchanged",
+                    "use_saved_selection": True}
     except LiveRecoveryError:
         return {"status": "unsafe", "use_saved_selection": False}
-    return {"status": "restored" if changed else "unchanged", "use_saved_selection": True}

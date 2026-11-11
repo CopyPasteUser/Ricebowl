@@ -3103,6 +3103,17 @@ fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
                           &label, style.foreground, style);
             }
             Widget::Network | Widget::Audio => {
+                if style.id == "xp-luna-columns" {
+                    use system_status::Network;
+                    let unavailable = if placed.widget == Widget::Network {
+                        matches!(status.network, Network::Offline | Network::Unavailable)
+                    } else {
+                        matches!(status.audio, Audio::Muted | Audio::Unavailable)
+                    };
+                    panel_chrome::status_icon(canvas, width, height, placed.x,
+                                              placed.width, placed.widget, unavailable);
+                    continue;
+                }
                 let label = if placed.widget == Widget::Network {
                     status.network.label().to_owned()
                 } else {

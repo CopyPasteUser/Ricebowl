@@ -23,9 +23,15 @@
 original beveled account/header art, a clearer two-column shelf, real action
 glyphs, a visible clickable Close footer, a raised green Start control and
 adaptive 400×380/480×456 menu surfaces for larger logical outputs. The
+Luna taskbar now also draws compact, original 16px network and speaker symbols
+instead of showing wide `N/A` text cells; offline/muted states remain visibly
+marked while the original accessible widget states and pointer targets remain.
 pre-existing screenshots in this section document the earlier appearance,
-not proof of this newer pass. Headless native CI and a fresh compositor
-capture are still necessary for visual acceptance; real desktop/hardware
+not proof of this newer pass. The complete live multi-resolution compositor
+matrix passed in [native CI run #43026159262](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43026159262);
+the [updated Luna screenshots](screenshots/wayland/README.md#luna-chrome-and-responsive-start-menu--11-november-2026)
+show that actual renderer. Visual parity against the original XP-era
+reference and real desktop/hardware
 and toolkit-owned client decorations remain outside this software step.
 
 
