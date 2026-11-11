@@ -315,7 +315,7 @@ def describe() -> dict[str, object]:
             "Schema-v8 desktop widgets are native-only; Waybar has no desktop widget layer",
             "Reserved window regions keep desktop items clear but do not place client windows; labwc owns tiling/placement",
             "Native panel handles responsive compact layout live; Waybar requires width-specific generation",
-            "Desktop composition covers bounded status/text and validated action components; arbitrary widget layouts are not supported",
+            "Composition supports bounded status/text/actions, not arbitrary widgets",
             "Panel-only recipes; no arbitrary OS or screenshot conversion",
             "Panel action buttons bind only four fixed IDs; no custom scripts or dynamic action parameters",
             "Battery indicator is read-only with minute refresh; no UPower events",

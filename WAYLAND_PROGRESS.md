@@ -335,3 +335,16 @@ The source CI artifact contains `capture-manifest.json` and `creator-examples/ma
 ---
 
 [**RiceBowl README**](README.md) · [**Wayland overview**](WAYLAND.md) · [**Wayland technical guide**](WAYLAND_SESSION.md) · [**Release status**](DESKTOP_ENVIRONMENT_STATUS.md) · [**Screenshots**](screenshots/wayland/README.md)
+
+### XP Luna · native places and six-row Start shelf (11 November 2026)
+
+The in-progress `xp-luna-columns` fidelity milestone introduces real
+**My Documents** (XDG user directory, safe Home fallback) and
+**My Computer** (Gio-backed filesystem root) entries. All four pre-existing
+Settings/Notifications/Lock/Log out actions are retained, and the right-hand
+menu section has bounded 28px rows above the existing clickable footer.
+The Python recipe parser, Rust validator and native painter use the same
+allowlisted actions; there is no dynamic shell command or new resident process.
+The plain labwc/Waybar menu fallback still does not expose the native-only
+places actions. CI and real-device input/file-manager checks are **not yet
+accepted**; this is not an XP Explorer or pixel-perfect recreation.

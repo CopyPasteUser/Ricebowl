@@ -17,8 +17,8 @@ app discovery, lock and logout retain their normal shared behavior.
 to the original `xp-luna` recipe. On sufficiently large Wayland outputs its
 Start menu now has two *simultaneously interactive* panes: a cream programs
 area on the left (All Programs, Terminal and installed applications) and a
-pale-blue system/session area on the right (RiceSpice, notifications, lock,
-logout). The selected row uses the cobalt header color with white text.
+pale-blue places/system/session area on the right (My Documents, My Computer,
+RiceSpice settings, notifications, lock, logout). The selected row uses the cobalt header color with white text.
 These are real, allowlisted application/system actions, not decorative labels.
 The narrow system shelf uses fitting on-screen labels (for example `Settings`
 and `Log out (N/A)`), but retains the full canonical action names in native
@@ -27,7 +27,8 @@ as an available command.
 
 The reusable `menu.presentation = "columns"` variant is accepted **only
 with schema v12 and a bounded three-group layout**; right-hand groups cannot
-supply arbitrary content or more than two actions each. The same computed
+supply arbitrary content or more than four actions each. The opt-in Luna places
+shelf uses shorter native rows so every action and the footer remain reachable. The same computed
 tiles drive painting and pointer hits. Left/right keyboard navigation crosses
 columns, search and saved actions continue using the shared engine, and
 small screens fall back to the full-resolution paged menu. AT-SPI exposes
@@ -314,3 +315,21 @@ user's physical Wayland login/device acceptance.
    explicitly stage it; use rollback if the next Wayland login is unsuitable.
 
 Everything after obtaining the original mockup can run without AI or network.
+
+### Luna native places shelf · fidelity milestone
+
+The `xp-luna-columns` Start menu now offers **My Documents** and **My Computer**
+without removing Settings, Notifications, Lock or Log out. Both are fixed,
+validated menu actions that dispatch to the existing Gio file handler (never
+to a shell or a recipe-supplied command). Documents respects the user's XDG
+Documents directory when it exists and falls back to `~/Documents` or Home;
+Computer opens the filesystem root as a reliable Linux fallback rather than
+pretending that a proprietary Windows device browser is available.
+
+The native Rust menu uses six bounded, mouse-accessible right-column rows
+with shared keyboard/AT-SPI action IDs. The plain labwc/Waybar root-menu
+fallback still omits these native-only location actions. The headless CI must
+validate the revised right shelf, including its bottom-row hit boxes, before
+merge. The 1:1 fidelity target still requires a true drives/devices view,
+actual high-resolution rendering, taskbar and desktop shell details, and
+physical-device acceptance; no Windows assets are bundled.

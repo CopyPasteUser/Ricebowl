@@ -56,6 +56,10 @@ pub const COLUMNS_SPLIT: u32 = 164;
 const COLUMNS_LEFT: u32 = 8;
 const COLUMNS_RIGHT: u32 = 172;
 const COLUMNS_TOP: u32 = 92;
+// Luna's right-hand places/session links use a tighter XP-like vertical rhythm;
+// keep every real hit target above the 28px footer even with six actions.
+const COLUMNS_RIGHT_TOP: u32 = 54;
+const COLUMNS_RIGHT_ROW_HEIGHT: u32 = 28;
 pub const SIDEBAR_ROW_HEIGHT: u32 = 44;
 pub const ACTION_TOP: u32 = 108;
 pub const ACTION_HEIGHT: u32 = 42;
@@ -113,6 +117,8 @@ pub fn action_label(action: &str) -> &'static str {
         "applications" => "Applications",
         "terminal" => "Terminal",
         "settings" => "RiceSpice settings",
+        "documents" => "My Documents",
+        "computer" => "My Computer",
         "lock" => "Lock screen",
         "logout" => "Log out of RiceBowl",
         "wifi-toggle" => "Toggle Wi-Fi radio",
@@ -429,21 +435,26 @@ impl MenuState {
             top += CONTENT_HEADER_HEIGHT + rows as u32 * row_height;
         }
 
-        top = COLUMNS_TOP;
+        let right_row_height = if menu.palette.is_some() {
+            COLUMNS_RIGHT_ROW_HEIGHT
+        } else {
+            CONTENT_LIST_HEIGHT
+        };
+        top = if menu.palette.is_some() { COLUMNS_RIGHT_TOP } else { COLUMNS_TOP };
         let right_width = WIDTH - COLUMNS_RIGHT - 8;
         for group in menu.groups.iter().skip(1) {
             let mut items = Vec::with_capacity(group.actions.len());
             for (row, action) in group.actions.iter().enumerate() {
                 items.push(MenuTile {
                     action, index, x: COLUMNS_RIGHT,
-                    y: top + CONTENT_HEADER_HEIGHT + row as u32 * CONTENT_LIST_HEIGHT,
-                    width: right_width, height: CONTENT_LIST_HEIGHT, grid: false,
+                    y: top + CONTENT_HEADER_HEIGHT + row as u32 * right_row_height,
+                    width: right_width, height: right_row_height, grid: false,
                 });
                 index += 1;
             }
             result.push(MenuSection { title: &group.title, x: COLUMNS_RIGHT,
                 kind: MenuContentKind::Actions, top, items });
-            top += CONTENT_HEADER_HEIGHT + group.actions.len() as u32 * CONTENT_LIST_HEIGHT;
+            top += CONTENT_HEADER_HEIGHT + group.actions.len() as u32 * right_row_height;
         }
         Some(result)
     }
@@ -806,6 +817,59 @@ mod tests {
     }
 
     #[test]
+    fn luna_places_and_existing_session_actions_have_distinct_bounded_hits() {
+        let recipe = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let menu = recipe.menu.as_ref().unwrap();
+        let mut state = MenuState::default();
+        state.apps = demo_apps(2);
+        state.open();
+        assert_eq!(menu.groups[1].actions.iter().map(String::as_str)
+                   .collect::<Vec<_>>(),
+                   vec!["documents", "computer", "settings", "notifications"]);
+        assert_eq!(state.visible_label(menu, "documents", true), "My Documents");
+        assert_eq!(state.visible_label(menu, "computer", true), "My Computer");
+        for (y, index, action) in [
+            (80.0, 4, "documents"), (108.0, 5, "computer"),
+            (136.0, 6, "settings"), (164.0, 7, "notifications"),
+            (206.0, 8, "lock"), (234.0, 9, "logout"),
+        ] {
+            assert_eq!(state.hit(menu, 190.0, y), Some(Hit::Action(index)));
+            assert_eq!(state.actions(menu)[index], action);
+        }
+        let sections = state.composed_sections(menu).unwrap();
+        let right = sections.iter().filter(|section| section.x >= COLUMNS_SPLIT);
+        assert!(right.flat_map(|section| &section.items).all(|tile|
+            tile.y >= 38 && tile.y + tile.height <= HEIGHT - 28));
+        assert_eq!(state.hit(menu, 280.0, f64::from(HEIGHT - 16)), Some(Hit::Close));
+        let mut overflow: serde_json::Value = serde_json::from_str(
+            include_str!("../../../examples/wayland/xp-luna-columns.json")).unwrap();
+        overflow["menu"]["groups"][2]["actions"] = serde_json::json!(
+            ["lock", "logout", "wifi-toggle", "audio-mute"]);
+        assert!(crate::recipe::parse(&overflow.to_string(), Some("xp-luna-columns")).is_err());
+        // Palette-free column recipes keep the original y geometry and
+        // two-actions-per-group validation contract.
+        let mut plain = serde_json::Value::from(overflow);
+        plain["menu"]["groups"][2]["actions"] = serde_json::json!(["lock", "logout"]);
+        plain["menu"].as_object_mut().unwrap().remove("colors");
+        assert!(crate::recipe::parse(&plain.to_string(), Some("xp-luna-columns")).is_err());
+        let mut old_layout = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let classic = old_layout.menu.as_mut().unwrap();
+        classic.palette = None;
+        let legacy_sections = state.composed_sections(classic).unwrap();
+        assert_eq!(legacy_sections[2].items[0].y, COLUMNS_TOP + CONTENT_HEADER_HEIGHT);
+        assert_eq!(legacy_sections[2].items[0].height, CONTENT_LIST_HEIGHT);
+        // Fixed left-column All Programs remains the first real action.
+        assert_eq!(state.hit(menu, 20.0, 116.0), Some(Hit::Action(0)));
+        state.selected = 0;
+        state.horizontal_by(menu, 1);
+        assert!(state.selected >= 4 && state.selected <= 9);
+    }
+
+    #[test]
     fn luna_all_programs_uses_real_apps_with_paging_and_pointer_navigation() {
         let recipe = crate::recipe::parse(
             include_str!("../../../examples/wayland/xp-luna-columns.json"),
@@ -1132,17 +1196,19 @@ mod tests {
         state.open();
         // No installed-app fixtures: all real fixed actions remain present.
         assert_eq!(state.actions(menu), vec![
-            "applications", "terminal", "settings", "notifications", "lock", "logout"
+            "applications", "terminal", "documents", "computer",
+            "settings", "notifications", "lock", "logout"
         ]);
         assert_eq!(state.hit(menu, 20.0, 116.0), Some(Hit::Action(0)));
-        assert_eq!(state.hit(menu, 200.0, 116.0), Some(Hit::Action(2)));
-        assert_eq!(state.hit(menu, 200.0, 188.0), Some(Hit::Action(4)));
-        assert_eq!(state.hit(menu, 200.0, 218.0), Some(Hit::Action(5)));
+        assert_eq!(state.hit(menu, 200.0, 80.0), Some(Hit::Action(2)));
+        assert_eq!(state.hit(menu, 200.0, 116.0), Some(Hit::Action(3)));
+        assert_eq!(state.hit(menu, 200.0, 210.0), Some(Hit::Action(6)));
+        assert_eq!(state.hit(menu, 200.0, 238.0), Some(Hit::Action(7)));
         assert_eq!(state.hit(menu, 164.0, 120.0), None);
         assert_eq!(state.hit(menu, 200.0, 290.0), Some(Hit::Close));
 
         state.horizontal_by(menu, 1);
-        assert_eq!(state.current_action(menu), Some("settings"));
+        assert_eq!(state.current_action(menu), Some("computer"));
         state.horizontal_by(menu, -1);
         assert_eq!(state.current_action(menu), Some("applications"));
         state.select_group(menu, 2);
@@ -1186,7 +1252,7 @@ mod tests {
         assert!(compact_layout(size));
         assert_eq!(state.compact_hit(menu, 8.0, 50.0, size), Some(Hit::Group(0)));
         state.select_group(menu, 1);
-        assert_eq!(state.current_action(menu), Some("settings"));
+        assert_eq!(state.current_action(menu), Some("documents"));
         state.select_group(menu, 2);
         assert_eq!(state.current_action(menu), Some("lock"));
         let action_count = state.actions(menu).len();

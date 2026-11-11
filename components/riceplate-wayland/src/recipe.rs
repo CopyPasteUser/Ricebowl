@@ -591,13 +591,19 @@ fn validate_menu(menu: &Menu, version: u32) -> Result<(), Box<dyn Error>> {
     if !safe_label(&menu.title, 32) || !(1..=4).contains(&menu.groups.len()) {
         return Err("Invalid bounded menu title/groups".into());
     }
+    // Palette-free columns retain the historical two-row-per-group contract.
+    // Only opt-in, themed schema-v12 columns may use the denser six-row shelf.
+    let right_group_limit = if menu.colors.is_some() { 4 } else { 2 };
+    let right_total_limit = if menu.colors.is_some() { 6 } else { 4 };
     if let Some(presentation) = menu.presentation.as_deref() {
         if version < 6 || !matches!(presentation, "tabs" | "sidebar" | "columns")
             || (presentation == "columns" && (version < 12
                 || menu.groups.len() != 3
                 || menu.groups[0].content.is_none()
                 || menu.groups.iter().skip(1).any(|group|
-                    group.content.is_some() || group.actions.len() > 2)))
+                    group.content.is_some() || group.actions.len() > right_group_limit)
+                || menu.groups.iter().skip(1)
+                    .map(|group| group.actions.len()).sum::<usize>() > right_total_limit))
         {
             return Err("Menu presentation is incompatible with this schema or layout".into());
         }
@@ -626,7 +632,7 @@ fn validate_menu(menu: &Menu, version: u32) -> Result<(), Box<dyn Error>> {
         }
         for action in &group.actions {
             if !["applications", "terminal", "lock", "logout",
-                 "wifi-toggle", "audio-mute", "audio-up", "audio-down", "notifications", "settings"]
+                 "documents", "computer", "wifi-toggle", "audio-mute", "audio-up", "audio-down", "notifications", "settings"]
                 .contains(&action.as_str())
                 || !seen.insert(action.as_str())
             {

@@ -93,7 +93,7 @@ class CreatorExamplesTests(unittest.TestCase):
         self.assertEqual(recipe.schema_version, 12)
         self.assertEqual(recipe.menu_presentation, "columns")
         self.assertEqual([group.title for group in recipe.menu[1]],
-                         ["Programs", "System", "Session"])
+                         ["Programs", "Places", "Session"])
         legacy = recipes.parse((EXAMPLES / "xp-luna.json").read_bytes())
         self.assertEqual(legacy.menu_presentation, "sidebar")
         for mutate in (
