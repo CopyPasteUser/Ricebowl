@@ -13,6 +13,10 @@ pub const ACTION_TOP: u32 = 155;
 pub const ACTION_HEIGHT: u32 = 32;
 const OPEN_REFRESH_INTERVAL: Duration = Duration::from_secs(3);
 const RETRY_REFRESH_INTERVAL: Duration = Duration::from_secs(12);
+const WHEEL_PAGE_PIXELS: f64 = 48.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ScrollArea { Notices, Body, Actions }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Hit { Row(usize), Action(usize), BodyPage(isize), Tab(bool), Back, Refresh, Dismiss }
@@ -116,9 +120,16 @@ pub struct State {
     // wrapping, pagination, pointer hits and accessibility on one width.
     glyph_scale: u32,
     compact_viewport: Option<(u32, u32)>,
+    wheel_area: Option<ScrollArea>,
+    wheel_remainder: f64,
 }
 
 impl State {
+    fn reset_wheel(&mut self) {
+        self.wheel_area = None;
+        self.wheel_remainder = 0.0;
+    }
+
     pub fn configure_glyph_scale(&mut self, scale: u32) {
         self.glyph_scale = scale.clamp(1, 2);
         self.body_page = self.body_page.min(self.active_body_page_count().saturating_sub(1));
@@ -130,6 +141,7 @@ impl State {
     pub fn set_compact_viewport(&mut self, size: Option<(u32, u32)>) {
         if self.compact_viewport == size { return; }
         self.compact_viewport = size;
+        self.reset_wheel();
         self.body_page = self.body_page.min(self.active_body_page_count().saturating_sub(1));
     }
 
@@ -167,6 +179,7 @@ impl State {
         self.sync_error = false;
         self.next_refresh = None;
         self.compact_viewport = None;
+        self.reset_wheel();
     }
 
     pub fn begin(&mut self) -> u64 {
@@ -176,6 +189,7 @@ impl State {
         self.silent_loading = false;
         self.sync_error = false;
         self.next_refresh = None;
+        self.reset_wheel();
         self.revision = self.revision.wrapping_add(1);
         self.revision
     }
@@ -260,6 +274,7 @@ impl State {
     }
 
     pub fn select_tab(&mut self, history: bool) {
+        self.reset_wheel();
         self.show_history = history;
         self.selected = 0;
         self.close_detail();
@@ -267,8 +282,9 @@ impl State {
 
     pub fn open_detail(&mut self, index: usize) -> bool {
         if self.loading || self.error.is_some() { return false; }
-        let Some(notice) = self.visible_notices().get(index) else { return false; };
-        self.detail_id = Some(notice.id);
+        let Some(id) = self.visible_notices().get(index).map(|notice| notice.id) else { return false; };
+        self.reset_wheel();
+        self.detail_id = Some(id);
         self.selected = index;
         self.selected_action = 0;
         self.body_page = 0;
@@ -276,6 +292,7 @@ impl State {
     }
 
     pub fn close_detail(&mut self) {
+        self.reset_wheel();
         self.detail_id = None;
         self.selected_action = 0;
         self.body_page = 0;
@@ -350,6 +367,76 @@ impl State {
         (!self.show_history && !self.loading && self.error.is_none() && !self.sync_error)
             .then(|| self.notices.get(self.selected))
             .flatten().map(|n| n.id)
+    }
+
+    /// Native Wayland wheel/continuous touchpad paging in the region actually
+    /// beneath the pointer. Tabs, footer controls and empty content do not
+    /// consume movement; changing regions cannot leak partial touchpad deltas.
+    pub fn scroll_at(&mut self, x: f64, y: f64, discrete: i32, pixels: f64,
+                     compact: Option<(u32, u32)>) -> bool {
+        if !self.open || self.loading || self.error.is_some()
+            || !x.is_finite() || !y.is_finite() { return false; }
+        let (width, height) = compact.map_or((320, 304), |size| size);
+        if x < 0.0 || y < 0.0 || x >= f64::from(width) || y >= f64::from(height) {
+            self.reset_wheel();
+            return false;
+        }
+        let area = if self.detail_id.is_some() {
+            let (body_top, body_bottom, actions_top, action_height, rows) =
+                compact.map_or((90, 138, ACTION_TOP, ACTION_HEIGHT, VISIBLE_ROWS), |size| {
+                    (66, compact_action_top(size.1), compact_action_top(size.1),
+                     COMPACT_ACTION_HEIGHT, compact_action_rows(size))
+                });
+            if y >= f64::from(body_top) && y < f64::from(body_bottom)
+                && self.active_body_page_count() > 1 {
+                Some(ScrollArea::Body)
+            } else if y >= f64::from(actions_top)
+                && y < f64::from(actions_top + rows as u32 * action_height)
+                && self.detail_notice().is_some_and(|notice| notice.actions.len() > rows)
+                && !self.show_history && !self.sync_error {
+                Some(ScrollArea::Actions)
+            } else { None }
+        } else {
+            let (top, row_height, rows) = compact.map_or((ROW_TOP, ROW_HEIGHT, VISIBLE_ROWS),
+                |size| (COMPACT_ROW_TOP, COMPACT_ROW_HEIGHT, compact_rows(size)));
+            (y >= f64::from(top) && y < f64::from(top + rows as u32 * row_height)
+                && self.visible_notices().len() > rows).then_some(ScrollArea::Notices)
+        };
+        if self.wheel_area != area {
+            self.reset_wheel();
+            self.wheel_area = area;
+        }
+        let Some(area) = area else { return false; };
+        let pages = if discrete != 0 {
+            self.wheel_remainder = 0.0;
+            discrete.clamp(-3, 3)
+        } else {
+            if !pixels.is_finite() { return false; }
+            self.wheel_remainder = (self.wheel_remainder + pixels)
+                .clamp(-3.0 * WHEEL_PAGE_PIXELS, 3.0 * WHEEL_PAGE_PIXELS);
+            let pages = (self.wheel_remainder / WHEEL_PAGE_PIXELS).trunc() as i32;
+            self.wheel_remainder -= f64::from(pages) * WHEEL_PAGE_PIXELS;
+            pages
+        };
+        if pages == 0 { return false; }
+        match area {
+            ScrollArea::Notices => {
+                let prior = self.selected;
+                self.select(pages as isize * compact.map_or(VISIBLE_ROWS, compact_rows) as isize);
+                self.selected != prior
+            }
+            ScrollArea::Body => {
+                let prior = self.body_page;
+                if let Some(size) = compact { self.change_compact_body_page(pages as isize, size); }
+                else { self.change_body_page(pages as isize); }
+                self.body_page != prior
+            }
+            ScrollArea::Actions => {
+                let prior = self.selected_action;
+                self.select_action(pages as isize * compact.map_or(VISIBLE_ROWS, compact_action_rows) as isize);
+                self.selected_action != prior
+            }
+        }
     }
 
     pub fn hit(&self, x: f64, y: f64) -> Option<Hit> {
@@ -578,6 +665,94 @@ pub fn run(request: &Request) -> Result<Snapshot, &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn scroll_fixture() -> State {
+        let mut state = State::default();
+        let notices = (1..=7).map(|id| Notice {
+            id, summary: format!("Message {id}"),
+            body: "A lengthy notification body that spans several readable pages in the narrow notification center. It stays intact even when the pointer scrolls between pages.".into(),
+            app_name: "RiceBowl".into(),
+            actions: (0..7).map(|index| Action {
+                key: format!("action-{index}"), label: format!("Action {index}"),
+            }).collect(), ..Notice::default()
+        }).collect();
+        state.show_preview(Snapshot { active: notices, history: vec![] });
+        state
+    }
+
+    #[test]
+    fn wheel_scrolls_real_notification_pages_without_changing_header_or_footer() {
+        let mut state = scroll_fixture();
+        assert!(!state.scroll_at(100.0, 55.0, 1, 0.0, None)); // tab
+        assert!(!state.scroll_at(100.0, 275.0, 1, 0.0, None)); // footer
+        assert_eq!(state.selected, 0);
+        assert!(state.scroll_at(100.0, 100.0, 1, 0.0, None));
+        assert_eq!(state.selected, 3);
+        assert_eq!(state.hit(100.0, 100.0), Some(Hit::Row(3)));
+        assert!(state.scroll_at(100.0, 100.0, 1, 0.0, None));
+        assert_eq!(state.selected, 6);
+        assert!(!state.scroll_at(100.0, 100.0, i32::MAX, 0.0, None));
+        assert!(state.scroll_at(100.0, 100.0, -1, 0.0, None));
+        assert_eq!(state.selected, 3);
+        assert!(!state.scroll_at(320.0, 100.0, 1, 0.0, None));
+        assert_eq!(state.selected, 3);
+        state.select_tab(true); // Empty history never scrolls.
+        assert!(!state.scroll_at(100.0, 100.0, 1, 0.0, None));
+        state.close();
+        assert!(!state.scroll_at(100.0, 100.0, 1, 0.0, None));
+    }
+
+    #[test]
+    fn continuous_touchpad_scroll_accumulates_only_within_the_same_region() {
+        let mut state = scroll_fixture();
+        let size = (168, 144);
+        assert_eq!(compact_rows(size), 1);
+        assert!(!state.scroll_at(35.0, 80.0, 0, 25.0, Some(size)));
+        assert_eq!(state.selected, 0);
+        assert!(!state.scroll_at(35.0, 40.0, 0, 23.0, Some(size))); // tab resets remainder
+        assert!(!state.scroll_at(35.0, 80.0, 0, 25.0, Some(size)));
+        assert!(state.scroll_at(35.0, 80.0, 0, 24.0, Some(size)));
+        assert_eq!(state.selected, 1);
+        assert!(!state.scroll_at(35.0, 80.0, 0, f64::NAN, Some(size)));
+        assert_eq!(state.selected, 1);
+        assert!(state.open_detail(1));
+        assert!(state.compact_body_page_count(size) > 1);
+        assert!(!state.scroll_at(35.0, 75.0, 0, 24.0, Some(size)));
+        assert!(state.scroll_at(35.0, 75.0, 0, 24.0, Some(size)));
+        assert_eq!(state.body_page, 1);
+        assert_eq!(state.selected_action, 0);
+        assert!(state.scroll_at(35.0, 98.0, 1, 0.0, Some(size)));
+        assert_eq!(state.selected_action, 1);
+        assert_eq!(state.body_page, 1);
+        assert_eq!(state.compact_hit(15.0, 98.0, size), Some(Hit::Action(1)));
+        assert!(state.scroll_at(35.0, 98.0, -1, 0.0, Some(size)));
+        assert_eq!(state.selected_action, 0);
+        assert!(state.scroll_at(35.0, 75.0, -1, 0.0, Some(size)));
+        assert_eq!(state.body_page, 0);
+        state.close_detail();
+        assert!(!state.scroll_at(35.0, 80.0, 0, 20.0, Some(size)));
+        assert!(state.scroll_at(35.0, 80.0, 0, 29.0, Some(size)));
+        assert_eq!(state.selected, 2);
+    }
+
+    #[test]
+    fn full_notification_detail_wheel_pages_body_and_actions_independently() {
+        let mut state = scroll_fixture();
+        assert!(state.open_detail(0));
+        assert!(state.body_page_count() > 1);
+        assert!(state.scroll_at(150.0, 110.0, 1, 0.0, None));
+        assert_eq!(state.body_page, 1);
+        assert_eq!(state.selected_action, 0);
+        assert!(state.scroll_at(150.0, 170.0, 1, 0.0, None));
+        assert_eq!(state.selected_action, 3);
+        assert_eq!(state.body_page, 1);
+        assert!(!state.scroll_at(150.0, 140.0, 1, 0.0, None)); // gap
+        assert!(!state.scroll_at(150.0, 260.0, 1, 0.0, None)); // footer
+        assert!(state.scroll_at(150.0, 170.0, -1, 0.0, None));
+        assert_eq!(state.selected_action, 0);
+        state.close_detail();
+        assert_eq!(state.body_page, 0);
+    }
 
     #[test]
     fn compact_notification_hit_and_paging_keep_rows_reachable() {

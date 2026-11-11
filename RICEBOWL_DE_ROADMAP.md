@@ -640,6 +640,17 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   extra backends and full Unicode fallback are post-1.0 possibilities;
   physical keyboard/AT-SPI/action acceptance is still required.
 
+- [x] Give **native RicePop genuine Wayland wheel/trackpad paging** in Luna:
+  active/history notification rows, paginated message bodies and long action
+  lists now each scroll in their own bounded hit region (including 168×144
+  compact layouts). Discrete ticks advance visible pages; continuous deltas
+  accumulate and reset on mode/region transitions. Header/footer events cannot
+  scroll or trigger actions. Rust tests cover page boundaries, touchpads and
+  reverse scrolling; headless labwc CI now captures real pointer-axis scroll
+  down/up with a deterministic seven-notice offline preview and asserts the
+  original framebuffer page is restored. Physical device acceptance remains
+  deferred.
+
 - [x] Add **RicePop Do Not Disturb to the native RiceSpice Notifications page**
   and the machine-readable `de notification-dnd --json` API. A fixed
   RiceBowl-specific Mako configuration hides banners in

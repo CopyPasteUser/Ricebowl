@@ -380,6 +380,7 @@ jobs:
               'xp-luna-columns-osd': (1366, 768, 1),
               'xp-luna-font-osd': (1366, 768, 1),
               'xp-luna-columns-notifications': (1366, 768, 1),
+              'xp-luna-columns-notifications-scroll': (1366, 768, 1),
               'xp-luna-font-notifications': (1366, 768, 1),
               'xp-luna-columns-notification-detail': (1366, 768, 1),
               'xp-luna-font-notification-detail': (1366, 768, 1),
@@ -666,6 +667,21 @@ jobs:
                 f'distinct={mode_delta} wheel={wheel_delta} reverse={reverse_delta} '
                 f'page restored={restore_page_delta} pin={pinned_delta} '
                 f'unpin={unpin_delta} header restored={return_delta} RGB pixels')
+          # Separate, real RicePop sample inbox: pointer motion is captured
+          # before the wheel, so hover alone cannot satisfy this assertion.
+          notification_frames = {}
+          for state in ('hover', 'paged', 'restored'):
+              with Image.open(directory / f'xp-luna-columns-notifications-scroll-{state}.png') as image:
+                  assert image.size == (1366, 768), (state, image.size)
+                  notification_frames[state] = image.convert('RGB').crop((0, 424, 320, 728))
+          ricepop_page_delta = changed_pixels(notification_frames['hover'], notification_frames['paged'])
+          ricepop_reverse_delta = changed_pixels(notification_frames['paged'], notification_frames['restored'])
+          ricepop_restore_delta = changed_pixels(notification_frames['hover'], notification_frames['restored'])
+          assert ricepop_page_delta > 750, f'RicePop Wayland wheel did not page notices: {ricepop_page_delta}'
+          assert ricepop_reverse_delta > 750, f'RicePop reverse wheel did not change page: {ricepop_reverse_delta}'
+          assert ricepop_restore_delta < 1500, f'RicePop reverse wheel did not restore page: {ricepop_restore_delta}'
+          print(f'Native RicePop notification wheel={ricepop_page_delta} '
+                f'reverse={ricepop_reverse_delta} restored={ricepop_restore_delta} RGB pixels')
           assert captures['calendar-v5'] != captures['desktop-v5'], 'Native calendar did not render in Wayland frame'
           with Image.open(directory / 'calendar-v5.png') as image:
               header = image.convert('RGB').getpixel((700, 50))

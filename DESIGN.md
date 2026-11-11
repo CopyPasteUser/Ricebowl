@@ -545,6 +545,13 @@ the shortcut hint shortens rather than painting beneath it. Composed menus
 and short lists retain their original footer. Compact layouts already expose
 their visible row range in the existing footer.
 
+The native RicePop notification center follows the same wheel/trackpad
+convention: a notch advances one visible list/action page or one message-text
+page. Continuous deltas are bounded and accumulated per hit region, cleared
+when crossing header/footer or switching tab, detail or compact geometry.
+The current active/history selection remains the keyboard and accessibility
+selection; scrolling never invokes actions or dismisses a notification.
+
 The same **validated schema-v12 two-column palette** can opt into
 labwc-owned server-side window frames. `macrice/de/window_chrome.py` maps only
 existing colors to a bounded `themerc-override` in the private labwc session;
