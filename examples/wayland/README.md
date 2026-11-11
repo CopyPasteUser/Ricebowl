@@ -333,3 +333,23 @@ validate the revised right shelf, including its bottom-row hit boxes, before
 merge. The 1:1 fidelity target still requires a true drives/devices view,
 actual high-resolution rendering, taskbar and desktop shell details, and
 physical-device acceptance; no Windows assets are bundled.
+
+### Luna taskbar pointer fidelity · native Rust
+
+The opt-in `xp-luna-columns` taskbar now paints distinct **idle, hover and
+depressed** surfaces for the green Start capsule and real window task buttons.
+Pointer input is taken from the existing native labwc layer-surface hit tester;
+the new states **do not** add commands or alter the established press-to-activate
+behavior. An optical 1px text inset accompanies a held left click.
+
+Painting is scoped to the panel's actual Wayland surface. A pointer on one
+monitor cannot illuminate another monitor's taskbar; leave/hotplug releases
+stale visual state. Only target transitions trigger redraws, and mouse motion
+uses the group count cached by the actual panel painter rather than allocating
+new task groups on every event. Existing `xp-luna`, Classic and other recipes
+remain pixel-identical. Rust tests cover each state and legacy invariants,
+while the actual headless labwc smoke test records idle/hover screenshots from
+virtual pointer motion **without a click**.
+
+This is a fidelity step, not yet native high-resolution menu typography,
+complete XP Explorer behavior or a physical-device acceptance.
