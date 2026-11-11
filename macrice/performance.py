@@ -12,6 +12,7 @@ import statistics
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Mapping
 
 from .environment import config_home, data_home, private_state_root
 from .shell_session import SHELLS
@@ -105,8 +106,35 @@ def _process_threads(process: Path) -> int | None:
     return None
 
 
+def current_wayland_session_config(environment: Mapping[str, str]) -> str:
+    """Require an opt-in *full* RiceBowl Wayland session, never a nested demo."""
+    marker = environment.get("RICEBOWL_DE_SESSION_CONFIG", "")
+    path = Path(marker)
+    if (environment.get("RICEBOWL_DE_SHELL_CHILD") != "1"
+            or environment.get("RICEBOWL_DE_NESTED") != "0"
+            or environment.get("XDG_SESSION_TYPE") != "wayland"
+            or not marker or not path.is_absolute() or ".." in path.parts):
+        raise ValueError("--wayland-session requires a running full RiceBowl Wayland login")
+    return marker
+
+
+def _belongs_to_wayland_session(process: Path, session_config: str) -> bool:
+    """Bounded exact-match of initial process environment; absence is unknown."""
+    try:
+        with (process / "environ").open("rb") as stream:
+            payload = stream.read(131073)
+    except OSError:
+        return False
+    if len(payload) > 131072:
+        return False
+    fields = set(payload.split(b"\0"))
+    return {b"RICEBOWL_DE_SHELL_CHILD=1", b"RICEBOWL_DE_NESTED=0",
+            b"RICEBOWL_DE_SESSION_CONFIG=" + os.fsencode(session_config)}.issubset(fields)
+
+
 def measure_processes(*, proc_root: Path = Path("/proc"), sample_ms: int = 200,
-                      include_desktop: bool = False) -> list[dict]:
+                      include_desktop: bool = False,
+                      session_config: str | None = None) -> list[dict]:
     """On-demand PSS/CPU report. Never runs as a resident background monitor."""
     processes = []
     uid = os.getuid()
@@ -124,6 +152,8 @@ def measure_processes(*, proc_root: Path = Path("/proc"), sample_ms: int = 200,
                 if xfce:
                     name, role = xfce
             if not name:
+                continue
+            if session_config is not None and not _belongs_to_wayland_session(process, session_config):
                 continue
             pss = None
             try:
@@ -198,8 +228,9 @@ def summarize_samples(samples: list[list[dict]]) -> dict:
     }
 
 
-def desktop_session_report(samples: list[list[dict]]) -> dict:
-    """Read-only XFCE/Wayland footprint; never claim per-session attribution."""
+def desktop_session_report(samples: list[list[dict]], *,
+                           session_config: str | None = None) -> dict:
+    """Read-only desktop footprint, optionally filtered by initial session marker."""
     report = summarize_samples(samples)
     roles = {(item["name"], item["pid"]): item["role"]
              for sample in samples for item in sample if "role" in item}
@@ -219,10 +250,19 @@ def desktop_session_report(samples: list[list[dict]]) -> dict:
 
     report["xfce_pss_kib"] = role_pss(XFCE_ROLES)
     report["wayland_pss_kib"] = role_pss(WAYLAND_ROLES)
-    report["scope_note"] = (
-        "All matching user-owned processes, potentially across nested/other sessions; "
-        "not an isolated single-session memory benchmark."
-    )
+    if session_config is not None:
+        report["scope"] = "current-wayland-session"
+        report["scope_note"] = (
+            "Current full Wayland login marker: only recognized components with an exact "
+            "initial process environment match. Unreadable environments are excluded; "
+            "not a complete or hardware-certified session memory benchmark."
+        )
+    else:
+        report["scope"] = "all-user-owned"
+        report["scope_note"] = (
+            "All matching user-owned processes, potentially across nested/other sessions; "
+            "not an isolated single-session memory benchmark."
+        )
 
     names = {item["name"] for item in report["components"]}
     active_rices = names.intersection(RICEBOWL_NAMES.values())
