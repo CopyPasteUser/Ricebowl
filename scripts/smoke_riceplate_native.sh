@@ -254,6 +254,36 @@ dbus-run-session -- sh -eu -c '
             cp "$runtime/desktop-v5-scale-125.png" \
                "$source_root/dist/riceplate-native-preview/desktop-v5-scale-125.png"
             echo "Captured native desktop-v5 at fractional scale 1.25"
+            # A fractional-scale screenshot must not silently contaminate all
+            # later recipe captures. In particular, the nominal Luna 1x menu,
+            # icons and OSD need their own explicit output geometry.
+            WAYLAND_DISPLAY=wayland-0 wlr-randr --output "$output" --custom-mode 1366x768@60Hz --scale 1
+            sleep 0.5
+        fi
+        if [ "$label" = xp-luna-columns ] || [ "$label" = xp-luna-columns-menu ]; then
+            # Exercise live output reconfiguration without restarting either
+            # native RicePlate or the separate real swaybg wallpaper process.
+            output=$(WAYLAND_DISPLAY=wayland-0 wlr-randr | sed -n "1s/[[:space:]].*//p")
+            if [ -z "$output" ]; then
+                echo "No headless output for Luna live-geometry capture" >&2
+                exit 1
+            fi
+            for mode in 1024x768 1366x768 1920x1080; do
+                WAYLAND_DISPLAY=wayland-0 wlr-randr --output "$output" --custom-mode "${mode}@60Hz" --scale 1
+                sleep 0.65
+                WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/$label-$mode.png"
+                cp "$runtime/$label-$mode.png" \
+                   "$source_root/dist/riceplate-native-preview/$label-$mode.png"
+                echo "Captured live Luna $label at $mode scale 1"
+            done
+            WAYLAND_DISPLAY=wayland-0 wlr-randr --output "$output" --custom-mode 1366x768@60Hz --scale 1.25
+            sleep 0.65
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/$label-scale-125.png"
+            cp "$runtime/$label-scale-125.png" \
+               "$source_root/dist/riceplate-native-preview/$label-scale-125.png"
+            echo "Captured live Luna $label at 1366x768 scale 1.25"
+            WAYLAND_DISPLAY=wayland-0 wlr-randr --output "$output" --custom-mode 1366x768@60Hz --scale 1
+            sleep 0.5
         fi
         if [ "$label" = overflow-v5 ]; then
             # Separate recipe deliberately requests x=4090 on a 1024px output.

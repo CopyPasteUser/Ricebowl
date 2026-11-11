@@ -42,6 +42,14 @@ terminal and lock artwork drawn inside the Rust native renderer. CI compares
 from [green native run #42960890682](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42960890682).
 No Microsoft/Windows icon assets or global icon-theme overrides are used.
 
+A separate [live output-resolution and scaling matrix](screenshots/wayland/README.md#luna-live-output-matrix--1024768-full-hd-and-125-scale-11-november-2026)
+now captures **the same running Wayland session** at 1024×768, 1366×768,
+1920×1080 and 125% compositor scale, with both closed and open native menus.
+All eight source screenshots passed the compositor pixel checks in
+[native run #42963768429](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42963768429).
+Full-HD screenshots show the current fixed-size Start menu is small; real
+physical mixed-DPI and accessibility acceptance remain open.
+
 The native shell now accepts an **owner-private TrueType font asset** throughout
 the panel, native Start menu and desktop shortcut labels, with on-demand,
 bounded Unicode glyph caching and a legible fallback. [View the real Luna

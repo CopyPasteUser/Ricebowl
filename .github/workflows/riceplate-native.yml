@@ -379,6 +379,14 @@ jobs:
               'xp-luna-font-calendar': (1366, 768, 1),
               'xp-luna-columns-osd': (1366, 768, 1),
               'xp-luna-font-osd': (1366, 768, 1),
+              'xp-luna-columns-1024x768': (1024, 768, 1),
+              'xp-luna-columns-1366x768': (1366, 768, 1),
+              'xp-luna-columns-1920x1080': (1920, 1080, 1),
+              'xp-luna-columns-scale-125': (1366, 768, 1.25),
+              'xp-luna-columns-menu-1024x768': (1024, 768, 1),
+              'xp-luna-columns-menu-1366x768': (1366, 768, 1),
+              'xp-luna-columns-menu-1920x1080': (1920, 1080, 1),
+              'xp-luna-columns-menu-scale-125': (1366, 768, 1.25),
           }
           captures = {}
           for label in ('shell-v4', 'desktop-v5', 'menu-v5', 'calendar-v5', *expected):
@@ -486,6 +494,30 @@ jobs:
           # the initial 125-pixel measurement had clipped its left-side text.
           assert osd_changed > 300, \
               f'Private TrueType did not change native volume OSD pixels: {osd_changed}'
+          for suffix, width, height in (
+              ('1024x768', 1024, 768), ('1366x768', 1366, 768),
+              ('1920x1080', 1920, 1080), ('scale-125', 1366, 768),
+          ):
+              # Every screenshot is from the SAME live native process after
+              # wlr-randr reconfigures the compositor, not four isolated
+              # recipe mocks. Keep both the separate wallpaper and taskbar.
+              with Image.open(directory / f'xp-luna-columns-{suffix}.png') as desktop, \
+                   Image.open(directory / f'xp-luna-columns-menu-{suffix}.png') as menu:
+                  canvas = desktop.convert('RGB')
+                  opened = menu.convert('RGB')
+                  wallpaper = canvas.getpixel((width // 2, height // 3))
+                  assert sum(wallpaper) > 90, \
+                      f'Luna wallpaper missing after live {suffix} reconfigure: {wallpaper}'
+                  panel = canvas.getpixel((width // 2, height - 14))
+                  assert panel[2] > panel[1] + 25 and panel[2] > panel[0] + 25, \
+                      f'Luna blue taskbar missing after live {suffix} reconfigure: {panel}'
+                  region = (0, height - 450, min(width, 640), height - 50)
+                  closed_area = canvas.crop(region)
+                  opened_area = opened.crop(region)
+                  menu_changed = sum(a != b for a, b in zip(
+                      closed_area.getdata(), opened_area.getdata()))
+                  assert menu_changed > 10000, \
+                      f'Native Luna Start menu missing after live {suffix} reconfigure: {menu_changed}'
           for label in ('xp-luna-columns', 'xp-luna-columns-menu', 'xp-luna-font-menu'):
               with Image.open(directory / f'{label}.png') as image:
                   # swaybg is a separate process from native RicePlate. A
