@@ -67,6 +67,33 @@ pub fn footer(canvas: &mut [u8], palette: MenuPalette) {
     fill_rect(canvas, w, h, w - 59, h - 21, 44, 1, 0xffa7_d8ff);
 }
 
+/// Native XP-style green All Programs chevron. Its entire row remains the
+/// real menu::Hit::Action; the glyph does not create a second fake target.
+pub fn all_programs_chevron(canvas: &mut [u8], x: u32, y: u32, selected: bool) {
+    let (w, h) = (native_menu::WIDTH, native_menu::HEIGHT);
+    fill_rounded_rect(canvas, w, h, x, y, 17, 17, 7, 0xff1d_702c);
+    fill_rounded_rect(canvas, w, h, x + 1, y + 1, 15, 14, 6,
+                      if selected { 0xff5c_c547 } else { 0xff46_a833 });
+    fill_rect(canvas, w, h, x + 5, y + 2, 7, 1, 0xffad_f49e);
+    // White east-facing arrow: unlike the previous thin triangle, it retains
+    // its silhouette against both the ivory and selected cobalt backgrounds.
+    fill_rect(canvas, w, h, x + 4, y + 7, 8, 3, 0xffff_ffff);
+    for step in 0..5 {
+        fill_rect(canvas, w, h, x + 9 + step, y + 4 + step,
+                  1, 9 - 2 * step, 0xffff_ffff);
+    }
+}
+
+/// XP pale shelf separators, constrained to the real right-hand group edges.
+pub fn system_group_rule(canvas: &mut [u8], y: u32) {
+    let (w, h) = (native_menu::WIDTH, native_menu::HEIGHT);
+    if y <= 39 || y >= h - 28 { return; }
+    fill_rect(canvas, w, h, native_menu::COLUMNS_SPLIT + 8, y,
+              w - native_menu::COLUMNS_SPLIT - 18, 1, 0xffa7_c5e8);
+    fill_rect(canvas, w, h, native_menu::COLUMNS_SPLIT + 8, y + 1,
+              w - native_menu::COLUMNS_SPLIT - 18, 1, 0xfff7_ffff);
+}
+
 /// 12px original RiceBowl command symbols. They use the same safe action IDs
 /// that supply the hit-test grid; unknown installed applications get a dot.
 pub fn action_icon(canvas: &mut [u8], x: u32, y: u32, action: &str, selected: bool) {
@@ -124,6 +151,21 @@ mod tests {
     fn at(pixels: &[u8], x: u32, y: u32) -> u32 {
         u32::from_le_bytes(pixels[((y * native_menu::WIDTH + x) * 4) as usize..]
             [..4].try_into().unwrap())
+    }
+
+    #[test]
+    fn green_all_programs_arrow_and_right_shelf_separator_have_bounded_pixels() {
+        let mut pixels = vec![0; (native_menu::WIDTH * native_menu::HEIGHT * 4) as usize];
+        all_programs_chevron(&mut pixels, 130, 115, false);
+        assert_ne!(at(&pixels, 130, 115), 0);
+        assert_eq!(at(&pixels, 138, 123), 0xffff_ffff);
+        let normal = pixels.clone();
+        all_programs_chevron(&mut pixels, 130, 115, true);
+        assert_ne!(normal, pixels); // Selected row has a brighter green face.
+        system_group_rule(&mut pixels, 218);
+        assert_ne!(at(&pixels, native_menu::COLUMNS_SPLIT + 9, 218), 0);
+        assert_eq!(at(&pixels, 10, 218), 0); // No left pane bleed.
+        assert_eq!(at(&pixels, 10, 275), 0); // Footer remains unmodified.
     }
 
     #[test]
