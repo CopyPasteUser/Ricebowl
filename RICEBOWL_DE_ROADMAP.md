@@ -433,7 +433,14 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   same fixed geometry and native state machine; slash/F3 and the original
   menu action dispatcher remain available. Rust tests cover empty/query,
   return, boundary, closed-popup and compact-size cases. Richer proportional
-  text shaping, wheel scrolling and device-level Orca QA remain open.
+  text shaping and device-level Orca QA remain open.
+- [x] **Foundation Sprint 3: native menu wheel/trackpad paging** — long
+  installed-app search and saved-action results now accept Wayland vertical
+  axis events using one bounded page at a time. Continuous touchpad deltas
+  accumulate before advancing; horizontal/stop and non-finite input do not
+  move a selection, while fully visible composed menus remain stationary.
+  Compact rows, reopen/reset, limits and empty lists have Rust regressions;
+  desktop-device pointer acceptance is still separate.
 - [x] Show a **real, read-only native battery percentage** in RicePlate from
   Linux's fixed `/sys/class/power_supply`, with charging state, explicit
   no-battery/unknown labels, multi-battery handling and bounded once-per-minute

@@ -67,6 +67,7 @@ const APP_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
 const CONTENT_HEADER_HEIGHT: u32 = 14;
 const CONTENT_LIST_HEIGHT: u32 = 30;
 const CONTENT_GRID_HEIGHT: u32 = 46;
+const WHEEL_PAGE_PIXELS: f64 = 48.0;
 
 /// Pixel geometry shared by painting and pointer/keyboard navigation.
 /// The index always refers to the flattened, currently available action list.
@@ -152,6 +153,7 @@ pub struct MenuState {
     pub search: String,
     pub pins: Vec<String>,
     pub apps: Vec<App>,
+    wheel_remainder: f64,
     last_app_refresh: Option<Instant>,
 }
 
@@ -207,10 +209,12 @@ impl MenuState {
         self.notice = None;
         self.view = View::Groups;
         self.search.clear();
+        self.wheel_remainder = 0.0;
     }
 
     pub fn close(&mut self) {
         self.visible = false;
+        self.wheel_remainder = 0.0;
     }
 
     pub fn group_by(&mut self, menu: &NativeMenu, delta: isize) {
@@ -274,6 +278,7 @@ impl MenuState {
         self.selected = 0;
         self.view = View::Groups;
         self.search.clear();
+        self.wheel_remainder = 0.0;
     }
 
     pub fn actions<'a>(&'a self, menu: &'a NativeMenu) -> Vec<&'a str> {
@@ -429,6 +434,7 @@ impl MenuState {
         self.view = View::Search;
         self.search.clear();
         self.selected = 0;
+        self.wheel_remainder = 0.0;
     }
 
     /// A visible mouse/AT equivalent of the existing slash/Backspace/Escape
@@ -439,6 +445,7 @@ impl MenuState {
         } else if !self.search.is_empty() {
             self.search.clear();
             self.selected = 0;
+            self.wheel_remainder = 0.0;
         } else {
             self.back();
         }
@@ -463,6 +470,7 @@ impl MenuState {
         if self.view != View::Search { self.start_search(); }
         self.search.push_str(text);
         self.selected = 0;
+        self.wheel_remainder = 0.0;
         true
     }
 
@@ -470,6 +478,7 @@ impl MenuState {
         if self.view != View::Search { return false; }
         self.search.pop();
         self.selected = 0;
+        self.wheel_remainder = 0.0;
         true
     }
 
@@ -477,6 +486,7 @@ impl MenuState {
         self.view = if self.view == View::Saved { View::Groups } else { View::Saved };
         self.search.clear();
         self.selected = 0;
+        self.wheel_remainder = 0.0;
     }
 
     pub fn back(&mut self) -> bool {
@@ -484,6 +494,7 @@ impl MenuState {
         self.view = View::Groups;
         self.search.clear();
         self.selected = 0;
+        self.wheel_remainder = 0.0;
         true
     }
 
@@ -525,6 +536,36 @@ impl MenuState {
         if count == 0 { self.selected = 0; return; }
         self.selected = self.selected.saturating_add_signed(delta)
             .min(count - 1);
+    }
+
+    /// A wheel notch advances one *visible page*. Continuous touchpad deltas
+    /// accumulate until a page threshold; zero/stop/horizontal-only events do
+    /// nothing. Bounded movement cannot run beyond the last real action.
+    pub fn scroll_pages(&mut self, menu: &NativeMenu, discrete: i32,
+                        pixels: f64, visible_rows: usize) -> bool {
+        let rows = visible_rows.clamp(1, VISIBLE_ACTIONS);
+        // Composed groups have an already fully visible fixed geometry; there
+        // is no viewport to move. Search/saved lists do use a paged viewport.
+        if (self.view == View::Groups && self.composed_sections(menu).is_some())
+            || self.actions(menu).len() <= rows {
+            self.wheel_remainder = 0.0;
+            return false;
+        }
+        let pages = if discrete != 0 {
+            self.wheel_remainder = 0.0;
+            discrete.clamp(-3, 3)
+        } else {
+            if !pixels.is_finite() { return false; }
+            self.wheel_remainder = (self.wheel_remainder + pixels)
+                .clamp(-3.0 * WHEEL_PAGE_PIXELS, 3.0 * WHEEL_PAGE_PIXELS);
+            let pages = (self.wheel_remainder / WHEEL_PAGE_PIXELS).trunc() as i32;
+            self.wheel_remainder -= f64::from(pages) * WHEEL_PAGE_PIXELS;
+            pages
+        };
+        if pages == 0 { return false; }
+        let previous = self.selected;
+        self.page_by(menu, pages as isize * rows as isize);
+        self.selected != previous
     }
 
     pub fn current_action<'a>(&'a self, menu: &'a NativeMenu) -> Option<&'a str> {
@@ -606,6 +647,53 @@ impl MenuState {
 mod tests {
     use super::*;
     use crate::recipe::NativeMenuGroup;
+
+    #[test]
+    fn wheel_pages_long_action_lists_without_overflow_or_touchpad_jitter() {
+        let mut menu = menu();
+        menu.groups[0].actions = ["terminal", "applications", "settings", "lock",
+            "audio-up", "audio-down", "notifications", "logout", "wifi-toggle"]
+            .into_iter().map(String::from).collect();
+        let mut state = MenuState::default();
+        state.open();
+        assert!(!state.scroll_pages(&menu, 0, 23.0, VISIBLE_ACTIONS));
+        assert_eq!(state.selected, 0);
+        assert!(state.scroll_pages(&menu, 0, 26.0, VISIBLE_ACTIONS));
+        assert_eq!(state.selected, 4);
+        assert!(state.scroll_pages(&menu, 1, 0.0, VISIBLE_ACTIONS));
+        assert_eq!(state.selected, 8);
+        assert!(!state.scroll_pages(&menu, 1, 0.0, VISIBLE_ACTIONS));
+        assert!(state.scroll_pages(&menu, -1, 0.0, VISIBLE_ACTIONS));
+        assert_eq!(state.selected, 4);
+        assert!(!state.scroll_pages(&menu, 0, f64::NAN, VISIBLE_ACTIONS));
+        assert!(!state.scroll_pages(&menu, 0, f64::INFINITY, VISIBLE_ACTIONS));
+        assert!(state.scroll_pages(&menu, -1, 0.0, VISIBLE_ACTIONS));
+        assert_eq!(state.selected, 0);
+        assert!(!state.scroll_pages(&menu, -1, 0.0, VISIBLE_ACTIONS));
+        state.close();
+        state.open();
+        assert!(!state.scroll_pages(&menu, 0, 25.0, VISIBLE_ACTIONS));
+        assert_eq!(state.selected, 0);
+    }
+
+    #[test]
+    fn wheel_uses_compact_rows_and_never_scrolls_fully_visible_composition() {
+        let mut menu = menu();
+        menu.groups[0].actions = ["terminal", "applications", "settings", "lock"]
+            .into_iter().map(String::from).collect();
+        let mut state = MenuState::default();
+        state.open();
+        assert!(!state.scroll_pages(&menu, 1, 0.0, VISIBLE_ACTIONS));
+        assert!(state.scroll_pages(&menu, 1, 0.0, 1));
+        assert_eq!(state.selected, 1);
+        assert!(state.scroll_pages(&menu, -1, 0.0, 1));
+        assert_eq!(state.selected, 0);
+        menu.groups[0].content = Some(vec![crate::recipe::NativeMenuContent {
+            kind: MenuContentKind::Actions, title: "Commands".into(), limit: 4,
+        }]);
+        assert!(!state.scroll_pages(&menu, 1, 0.0, 1));
+        assert_eq!(state.selected, 0);
+    }
 
     #[test]
     fn visible_header_controls_work_with_mouse_in_full_and_compact_menus() {
