@@ -75,11 +75,36 @@ pub fn launcher(
                       span - 4, height - 7,
                       decoration.radius.saturating_sub(1),
                       decoration.background);
+    // Bright left shoulder and slightly shaded right flank define the
+    // familiar raised green XP silhouette without any imported bitmap.
+    for row in 4..height.saturating_sub(6) {
+        let tone = if row < height / 2 {
+            mix_rgb(decoration.background, 0xffd6_ffb9,
+                    100_u32.saturating_sub(row * 3))
+        } else {
+            mix_rgb(decoration.background, 0xff0d_4818,
+                    9 + (row - height / 2) * 3)
+        };
+        fill_rect(canvas, width, height, x + 12, row,
+                  span.saturating_sub(25), 1, tone);
+    }
     let inset = decoration.radius.max(5);
     if span > 2 * inset {
         fill_rect(canvas, width, height, x + inset, 4,
                   span - 2 * inset, 1,
                   mix_rgb(decoration.background, 0xffff_ffff, 135));
+    }
+    // Small original four-tile RiceBowl mark: evokes an early-2000s desktop
+    // launcher, but is not a Microsoft Windows trademark/asset copy.
+    if span >= 74 && height >= 28 {
+        for (dx, dy, color) in [
+            (0, 0, 0xffef_8f53), (8, 1, 0xffe6_ce58),
+            (0, 8, 0xff75_bbe6), (8, 9, 0xffb3_d973),
+        ] {
+            fill_rounded_rect(canvas, width, height, x + 11 + dx,
+                              height / 2 - 9 + dy, 7, 7, 1,
+                              mix_rgb(color, 0xffff_ffff, 25));
+        }
     }
 }
 
@@ -154,7 +179,10 @@ mod tests {
         let mut pixels = vec![0_u8; 400 * 40 * 4];
         let decor = style.launcher.as_ref().unwrap();
         launcher(&mut pixels, 400, 40, 0, 94, decor);
-        assert_eq!(px(&pixels, 400, 45, 20), decor.background);
+        let green = px(&pixels, 400, 45, 20);
+        assert!((green >> 8 & 255) > (green >> 16 & 255));
+        assert_ne!(px(&pixels, 400, 45, 9), green);
+        assert_ne!(px(&pixels, 400, 14, 14), green); // Original tile mark
         task_button(&mut pixels, 400, 40, 100, 130, false, &style);
         let inactive = px(&pixels, 400, 110, 20);
         task_button(&mut pixels, 400, 40, 100, 130, true, &style);

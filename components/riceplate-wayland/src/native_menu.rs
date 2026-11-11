@@ -27,6 +27,24 @@ pub fn fitted_size(output_width: u32, output_height: u32, panel_height: u32) -> 
      (HEIGHT as f64 * scale).floor().max(1.0) as u32)
 }
 
+/// Optional Luna-columns presentation size at common desktop resolutions.
+/// The logical menu and all action rectangles remain 320×304; the compositor
+/// surface is scaled together with its inverse pointer coordinate mapping.
+/// On laptops/rotated outputs, keep the original full-size/compact fallbacks.
+pub fn fitted_luna_size(output_width: u32, output_height: u32,
+                        panel_height: u32) -> (u32, u32) {
+    let available_width = output_width.saturating_sub(8);
+    let available_height = output_height.saturating_sub(panel_height.saturating_add(8));
+    let desired = if output_width >= 1600 && available_width >= 480 && available_height >= 456 {
+        (480, 456)
+    } else if output_width >= 1280 && available_width >= 400 && available_height >= 380 {
+        (400, 380)
+    } else {
+        return fitted_size(output_width, output_height, panel_height);
+    };
+    desired
+}
+
 pub fn input_coords(position: (f64, f64), size: (u32, u32)) -> (f64, f64) {
     (position.0 * f64::from(WIDTH) / f64::from(size.0.max(1)),
      position.1 * f64::from(HEIGHT) / f64::from(size.1.max(1)))
@@ -55,7 +73,7 @@ pub const COMPACT_ACTION_HEIGHT: u32 = 34;
 pub const COMPACT_FOOTER_HEIGHT: u32 = 25;
 
 pub fn compact_layout(size: (u32, u32)) -> bool {
-    size != (WIDTH, HEIGHT) && size.0 >= COMPACT_MIN_WIDTH
+    (size.0 < WIDTH || size.1 < HEIGHT) && size.0 >= COMPACT_MIN_WIDTH
         && size.1 >= COMPACT_MIN_HEIGHT
 }
 
@@ -960,6 +978,29 @@ mod tests {
         assert!(compact_layout(tiny));
         assert_eq!(compact_visible_actions(tiny), 2);
         assert!(!compact_layout(fitted_size(100, 100, 36)));
+    }
+
+    #[test]
+    fn luna_presentation_is_legible_on_wide_outputs_and_hit_coordinates_stay_native() {
+        assert_eq!(fitted_luna_size(1024, 768, 40), (WIDTH, HEIGHT));
+        assert_eq!(fitted_luna_size(1366, 768, 40), (400, 380));
+        assert_eq!(fitted_luna_size(1920, 1080, 40), (480, 456));
+        assert_eq!(fitted_luna_size(1920, 400, 40), (WIDTH, HEIGHT));
+        assert_eq!(fitted_luna_size(320, 240, 40), fitted_size(320, 240, 40));
+        for size in [(400, 380), (480, 456)] {
+            assert!(!compact_layout(size));
+            let scale_x = f64::from(size.0) / f64::from(WIDTH);
+            let scale_y = f64::from(size.1) / f64::from(HEIGHT);
+            let position = input_coords((220.0 * scale_x, 116.0 * scale_y), size);
+            assert!((position.0 - 220.0).abs() < 0.001);
+            assert!((position.1 - 116.0).abs() < 0.001);
+            assert!((input_coords((0.0, 0.0), size).0).abs() < 0.001);
+            let mut state = MenuState::default();
+            state.open();
+            let data = menu();
+            let click = input_coords((40.0 * scale_x, 120.0 * scale_y), size);
+            assert_eq!(state.hit(&data, click.0, click.1), Some(Hit::Action(0)));
+        }
     }
 
     #[test]
