@@ -8,7 +8,7 @@ import unittest
 from unittest import mock
 
 from macrice import creator_gui
-from macrice.de import creator_workspace as workspace, pack, recipes, review
+from macrice.de import creator_assets, creator_workspace as workspace, pack, recipes, review
 
 
 class CreatorImportedTests(unittest.TestCase):
@@ -16,11 +16,13 @@ class CreatorImportedTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
-        state, config = self.root / "state", self.root / "config"
+        state, config, data = self.root / "state", self.root / "config", self.root / "data"
         state.mkdir(mode=0o700)
         config.mkdir(mode=0o700)
+        data.mkdir(mode=0o700)
         environment = mock.patch.dict(os.environ, {"XDG_STATE_HOME": str(state),
-                                                   "XDG_CONFIG_HOME": str(config)})
+                                                   "XDG_CONFIG_HOME": str(config),
+                                                   "XDG_DATA_HOME": str(data)})
         environment.start()
         self.addCleanup(environment.stop)
 
@@ -97,6 +99,69 @@ class CreatorImportedTests(unittest.TestCase):
             pack.import_pack(archive, expected_manifest=reviewed["manifest"])
         self.assertEqual(raised.exception.code, "pack_changed")
         self.assertFalse(recipes._private_recipe_dir(create=False).exists())
+
+    def test_imported_attribution_survives_private_edit_and_export(self):
+        original = workspace.create_draft("heritage")
+        declaration = {
+            "author": "Original artist", "license": "CC-BY-4.0",
+            "origin": "original", "source_reference": "offline artwork",
+            "wallpaper_provenance": {
+                "author": "Wallpaper artist", "license": "CC-BY-4.0",
+                "origin": "adapted", "source_reference": "credited photograph",
+            },
+        }
+        metadata = self.root / "attribution.json"
+        metadata.write_text(json.dumps(declaration))
+        archive = self.root / "attributed.ricepack"
+        initial = pack.export_pack(str(original.path), archive, metadata=metadata)["manifest"]
+        imported = pack.import_pack(archive)
+        copy = workspace.create_draft_from_installed(imported["recipe_id"],
+                            expected_sha256=imported["semantic_sha256"])
+        edited, _ = workspace.save_revision(copy.path, {"/panel/height": 48},
+                                            expected_sha256=copy.semantic_sha256)
+        # A derivative must remain portable even if its installed source has
+        # since been uninstalled: credit belongs to its verified root receipt.
+        source = recipes._private_recipe_dir(create=False) / f"{imported['recipe_id']}.json"
+        source.unlink()
+        source.with_suffix(".ricepack-provenance").unlink()
+        outgoing = self.root / "edited-with-credit.ricepack"
+        delivered = workspace.export_draft(workspace.open_draft(edited.path), outgoing)["manifest"]
+        self.assertEqual(delivered["provenance"], initial["provenance"])
+        self.assertEqual(delivered["asset_manifest"]["wallpaper"]["provenance"],
+                         initial["asset_manifest"]["wallpaper"]["provenance"])
+        self.assertNotEqual(delivered["recipe"]["id"], initial["recipe"]["id"])
+        self.assertEqual(recipes.current_selection(), ("classic", None))
+        forked = workspace.fork_version(edited)
+        inherited = workspace.export_draft(forked, self.root / "forked.ricepack")["manifest"]
+        self.assertEqual(inherited["provenance"], initial["provenance"])
+        self.assertEqual(inherited["asset_manifest"]["wallpaper"]["provenance"],
+                         initial["asset_manifest"]["wallpaper"]["provenance"])
+
+        # Replacing the wallpaper must not reattribute the new artist's image
+        # to the original wallpaper author, while rice-level credit remains.
+        image = (Path(__file__).resolve().parents[1] / "assets" / "themes" /
+                 "RiceHub-Ten-Dark" / "xfwm4" / "maximize-active.png")
+        new_credit = {"author": "Replacement artist", "license": "MIT",
+                      "origin": "original", "source_reference": "local PNG"}
+        replacement = creator_assets.import_wallpaper(
+            image, label="Alternate image", provenance=new_credit)
+        revised, _ = workspace.save_revision(forked.path,
+                           {"/desktop/wallpaper": replacement.asset_id},
+                           expected_sha256=forked.semantic_sha256)
+        revised_manifest = workspace.export_draft(revised, self.root / "wallpaper-swapped.ricepack")[
+            "manifest"]
+        self.assertEqual(revised_manifest["provenance"], initial["provenance"])
+        self.assertEqual(revised_manifest["asset_manifest"]["wallpaper"]["provenance"],
+                         new_credit)
+
+        # No unreviewed license may enter a trusted immutable history receipt.
+        root_receipt = copy.path.with_suffix(".history")
+        tampered = json.loads(root_receipt.read_text())
+        tampered["attribution"]["rice"]["license"] = "exec:sh"
+        root_receipt.write_text(json.dumps(tampered))
+        with self.assertRaises(workspace.WorkspaceError):
+            workspace.export_draft(revised, self.root / "untrusted.ricepack")
+        self.assertFalse((self.root / "untrusted.ricepack").exists())
 
 
 if __name__ == "__main__":

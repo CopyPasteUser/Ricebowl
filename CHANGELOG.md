@@ -1,5 +1,15 @@
 # RiceBowl changelog
 
+## Unreleased — Creator import attribution retention (11 November 2026)
+
+- Bind verified RicePack author/license/origin and wallpaper credit to the
+  immutable Creator import-root history receipt; export through saved revisions
+  and forks preserves attribution after a Creator restart. Replacing a wallpaper
+  uses the new image's own provenance instead of miscrediting the source.
+- Preserve old receipt compatibility, reject untrusted metadata and broken
+  ancestry before publishing a new pack. No desktop/session mutation, release
+  licensing assertion or extra resident process.
+
 ## Unreleased — isolated native RicePlate preview package (9 November 2026)
 
 - Build an optional architecture-specific `.deb` from the already CI-tested

@@ -85,7 +85,8 @@ def open_draft(path: Path) -> DraftInfo:
 
 
 def _publish_version(target: Path, payload: bytes, kind: str, *,
-                     parent: tuple[str, str] | None = None) -> DraftInfo:
+                     parent: tuple[str, str] | None = None,
+                     attribution: dict[str, Any] | None = None) -> DraftInfo:
     """Publish intent first, then recipe; a crash never exposes receiptless new drafts.
 
     An interrupted publication may leave an orphan .history intent, which is
@@ -98,7 +99,8 @@ def _publish_version(target: Path, payload: bytes, kind: str, *,
     if target.exists() or target.is_symlink():
         raise WorkspaceError("Creator version already exists; nothing was overwritten")
     try:
-        creator_history.write(target, digest, kind=kind, parent=parent)
+        creator_history.write(target, digest, kind=kind, parent=parent,
+                              attribution=attribution)
     except creator_history.HistoryError as exc:
         raise WorkspaceError(str(exc)) from exc
     # This is a no-replace link. If publication fails, the intent is retained
@@ -215,13 +217,17 @@ def create_draft_from_installed(recipe_id: str, *, expected_sha256: str) -> Draf
         raise WorkspaceError("Creator editing requires recipe schema v10 or newer")
     # Resolve referenced data-only assets now, before publishing a draft that
     # cannot render or be exported again.
-    pack._wallpaper_identity(parsed)
+    wallpaper_id, _ = pack._wallpaper_identity(parsed)
     pack._visual_assets(parsed)
+    source_credit = pack._stored_provenance(parsed)
+    attribution = ({"wallpaper_id": wallpaper_id, "rice": source_credit[0],
+                    "wallpaper": source_credit[1]} if source_credit is not None else None)
     manifest = json.loads(raw)
     manifest["id"] = f"creator-{secrets.token_hex(6)}"
     payload = (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
     recipes.parse(payload)
-    return _publish_version(_new_file(_private_directory()), payload, "import")
+    return _publish_version(_new_file(_private_directory()), payload, "import",
+                            attribution=attribution)
 
 
 def _revision_patch(source: Path, changes: dict[str, Any], *, expected_sha256: str
@@ -337,6 +343,16 @@ def export_draft(info: DraftInfo, destination: Path) -> dict[str, Any]:
     if open_draft(info.path).semantic_sha256 != info.semantic_sha256:
         raise WorkspaceError("Draft changed on disk. Reload before exporting")
     recipe = recipes.load(str(info.path))
-    declared = (creator_assets.entry(recipe.wallpaper).provenance
-                if assets.ASSET_ID.fullmatch(recipe.wallpaper or "") else None)
-    return pack.export_pack(str(info.path), destination, wallpaper_provenance=declared)
+    history = version_history(info)
+    root = history[-1]
+    receipt = creator_history.read(root.path, root.semantic_sha256)
+    if receipt is not None and receipt["parent"] is not None:
+        raise WorkspaceError("Creator history exceeds the safe attribution lookup limit")
+    inherited = receipt.get("attribution") if receipt is not None else None
+    if inherited is not None and pack._wallpaper_identity(recipe)[0] == inherited["wallpaper_id"]:
+        wallpaper_credit = inherited["wallpaper"]
+    else:
+        wallpaper_credit = (creator_assets.entry(recipe.wallpaper).provenance
+                            if assets.ASSET_ID.fullmatch(recipe.wallpaper or "") else None)
+    return pack.export_pack(str(info.path), destination, wallpaper_provenance=wallpaper_credit,
+                            declared_provenance=(inherited["rice"] if inherited is not None else None))
