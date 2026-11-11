@@ -204,7 +204,7 @@ impl MenuState {
                              logout_enabled: bool) -> &'a str {
         if menu.presentation == MenuPresentation::Columns {
             match action {
-                "applications" => return "All Programs",
+                "applications" if menu.palette.is_some() => return "All Programs",
                 "settings" => return "Settings",
                 "logout" if !logout_enabled => return "Log out (N/A)",
                 "logout" => return "Log out",
@@ -749,6 +749,12 @@ mod tests {
         state.apps = demo_apps(9);
         state.open();
         assert_eq!(state.visible_label(menu, "applications", false), "All Programs");
+        let mut plain = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let plain_menu = plain.menu.as_mut().unwrap();
+        plain_menu.palette = None;
+        assert_eq!(state.visible_label(plain_menu, "applications", false), "Applications");
         assert_eq!(state.hit(menu, 20.0, 116.0), Some(Hit::Action(0)));
 
         state.show_programs();

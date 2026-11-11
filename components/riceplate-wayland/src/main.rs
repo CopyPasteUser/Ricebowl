@@ -3472,6 +3472,11 @@ fn paint_compact_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
 /// A single persistence boundary for F2 and menu pointer pin/unpin. Never
 /// leave an in-memory favorite that failed owner-private storage validation.
 fn toggle_menu_pin(state: &mut MenuState, recipe_id: &str, menu: &recipe::NativeMenu) {
+    if state.view == native_menu::View::Programs {
+        // Pins are versioned recipe action IDs, never arbitrary desktop files.
+        state.notice = Some("App pinning unavailable");
+        return;
+    }
     let previous = state.pins.clone();
     if !state.toggle_pin(menu) {
         state.notice = Some("No action or saved list full");
