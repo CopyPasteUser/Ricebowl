@@ -70,7 +70,10 @@ header buttons** at 1024×768, captures their distinct Wayland framebuffer
 states, and clicks Back to restore the original open menu. CI checks visible
 state changes plus restoration and archives the four unmodified PNG frames;
 the [gallery explains the evidence](screenshots/wayland/README.md#native-find-and-saved--actual-pointer-interaction).
-This is a compositor regression, not hardware or screen-reader acceptance.
+This passed in [native run #42973287104](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42973287104);
+the [permanent Find and Saved screenshots](screenshots/wayland/README.md#native-find-and-saved--actual-pointer-interaction)
+are available for review. This is a compositor regression, not hardware or
+screen-reader acceptance.
 
 The native shell now accepts an **owner-private TrueType font asset** throughout
 the panel, native Start menu and desktop shortcut labels, with on-demand,
