@@ -11,6 +11,17 @@
   Existing data is never overwritten; cross-process races, I/O failure and
   power-loss atomicity remain separate recovery limits.
 
+## Unreleased — RiceClip opt-in text-history core (11 November 2026)
+
+- Add an explicitly launched `de clip --clip-op watch` session-memory watcher
+  using the existing wl-clipboard data-control event stream; no autostart,
+  polling daemon, persistent history, screenshots or XFCE changes.
+- Expose bounded UTF-8 history, deduplication, status, list, pause, resume,
+  clear and deliberate copy-back over an owner-private runtime socket. Data
+  remains in process memory until the watcher exits.
+- The RicePlate search/pin UI, images, URI lists, lock clearing, sensitive-app
+  policy and physical clipboard acceptance are still open; not RiceClip 1.0.
+
 ## Unreleased — interactive nested Creator test window (11 November 2026)
 
 - Add a native GTK Creator action to try an immutable saved rice in a separate,

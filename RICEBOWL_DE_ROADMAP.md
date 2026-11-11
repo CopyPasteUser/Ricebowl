@@ -839,15 +839,26 @@ must not be represented as blockers for the Wayland DE 1.0 core release.
 
 **RiceClip — opt-in clipboard history**
 
+- [x] Add the **explicitly launched, foreground-only text watcher and bounded
+  session-memory history** as an initial RiceClip 0.1 core. Use native
+  `wl-paste --type text --watch` (which requires wlroots data-control) and a
+  0600, same-UID local runtime socket; do not own the selection, persist
+  clipboard bytes, install autostart or duplicate the screenshot tool.
+  CLI status/list/copy-back/pause/resume/clear, size/item caps, UTF-8 validation,
+  deduplication and failure reporting have deterministic Python tests. The
+  cloud runner disallows new AF_UNIX sockets; GitHub CI should exercise the
+  real socket round-trip, while physical text clipboard use remains unaccepted.
 - [ ] Verify the actual clipboard/data-control capabilities of the supported
-  labwc session; implement event-driven text, URI and supported-image capture
-  with bounded item sizes/counts, deduplication and clear unavailable states.
-  Do not start a polling loop or a second clipboard owner.
+  labwc session on hardware; extend event-driven collection to URI and supported
+  image formats with separate bounded limits. Do not start a polling loop or
+  a second clipboard owner.
 - [ ] Add a RicePlate-invoked searchable history UI with keyboard navigation,
   copy-back, pins and configurable retention; preserve focus/selection and
   support cross-rice token changes without a duplicate UI implementation.
 - [ ] Keep history **off until explicitly enabled**; default to session-only
   memory, clear on logout/lock or user action, and never log clipboard contents.
+  The foreground prototype already stays off by default and clears on exit or
+  user request; lock detection is not implemented yet.
   Offer pause and app exclusions as best-effort protections, without claiming
   that password/sensitive content can always be detected. Persistent history
   is a separately reviewed opt-in feature, not a minimum requirement.

@@ -86,6 +86,44 @@ bindings use the exact same guarded CLI, require the optional tools above and
 are private to that labwc configuration; other desktop sessions remain intact.
 Real keyboard, clipboard and focus behavior on the ThinkPad is not yet accepted.
 
+## RiceClip (opt-in text-history foundation)
+
+RiceClip 0.1 offers an **explicit, foreground-only** event-driven text clipboard
+watcher for the current Wayland display. It does not start with Luna or any
+other rice; clipboard history is held only in the watcher's process memory.
+Open a terminal inside the optional labwc session:
+
+```bash
+ricebowl de clip --clip-op watch
+```
+
+In another terminal, inspect and manage that same session's bounded history:
+
+```bash
+ricebowl de clip --clip-op status --json
+ricebowl de clip --clip-op list
+ricebowl de clip --clip-op copy --clip-index 0
+ricebowl de clip --clip-op pause
+ricebowl de clip --clip-op resume
+ricebowl de clip --clip-op clear
+```
+
+The watcher requires `wl-paste --watch` **and** compositor support for
+wlroots data-control; copy-back requires `wl-copy`. It saves at most 20 text
+entries of 64 KiB each, deduplicates them, refuses non-UTF-8/oversized data,
+and owns no clipboard selection until explicit copy-back. The private Unix
+socket lives in the current 0700 XDG runtime directory, with owner-only
+permissions; it is removed when the watcher exits. `Ctrl+C` stops collection
+and drops all history. No configuration, history file, X11 settings or XFCE
+shortcuts are changed.
+
+This is **not** a sensitive-data detector or a password-manager-safe clipboard:
+Wayland clipboard metadata cannot reliably identify secrets. Pause before
+copying sensitive values; lock-screen clearing, image/URI capture, native
+search/pin UI and per-application exclusions remain future work. Do not enable
+the watcher on a shared or security-sensitive session without understanding
+that it temporarily retains copied text.
+
 ## What's still required for 1.0
 
 The remaining sign-off is primarily **on real hardware**: login/logout,
