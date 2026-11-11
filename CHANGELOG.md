@@ -18,7 +18,9 @@
   cancellation and expose stable JSON errors. No resident daemon or XFCE changes.
 - Add `--clipboard` for explicit PNG copy through the existing Wayland
   selection owner, never retaining the screenshot in a private temp directory.
-- Annotation, shortcut, portal fallback and physical device tests
+- Bind Print and Shift+Print in the private labwc configuration to full-screen
+  and user-selected-region clipboard shots, without changing XFCE shortcuts.
+- Annotation, configurable shortcuts, portal fallback and physical device tests
   are still open; this is an early suite utility, not RiceShot 1.0.
 
 ## Unreleased — isolated native RicePlate preview package (9 November 2026)

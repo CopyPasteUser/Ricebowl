@@ -726,6 +726,10 @@ class WaylandSessionTests(unittest.TestCase):
                          "brightnessctl --class=backlight set 5%+")
         self.assertEqual(keybindings["XF86MonBrightnessDown"],
                          "brightnessctl --class=backlight set 5%-")
+        self.assertEqual(keybindings["Print"], "ricebowl de shot --clipboard")
+        self.assertEqual(keybindings["S-Print"],
+                         "ricebowl de shot --shot-mode region --clipboard")
+        self.assertEqual(len(keybindings), len(config.findall(".//keyboard/keybind")))
 
     def test_root_menu_has_terminal_and_safe_logout(self):
         menu = ET.parse(session.resources() / "labwc/menu.xml").getroot()
