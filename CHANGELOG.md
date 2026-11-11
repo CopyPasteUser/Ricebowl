@@ -10,6 +10,15 @@
   ancestry before publishing a new pack. No desktop/session mutation, release
   licensing assertion or extra resident process.
 
+## Unreleased — RiceShot on-demand Wayland capture (11 November 2026)
+
+- Add `de shot` for explicit whole-desktop, named-output or `slurp`-selected
+  region capture using the already verified private `grim` PNG pipeline.
+- Reject unsafe output names/geometry, preserve existing files, clean up on
+  cancellation and expose stable JSON errors. No resident daemon or XFCE changes.
+- Annotation, clipboard, shortcut, portal fallback and physical device tests
+  are still open; this is an early suite utility, not RiceShot 1.0.
+
 ## Unreleased — isolated native RicePlate preview package (9 November 2026)
 
 - Build an optional architecture-specific `.deb` from the already CI-tested

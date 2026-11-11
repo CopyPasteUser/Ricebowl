@@ -56,6 +56,25 @@ export RicePacks and explicitly stage/apply/restore supported Wayland changes.
 It does **not** automatically convert an arbitrary screenshot into a complete
 functioning desktop. [Creator and recipe workflows](WAYLAND_SESSION.md#riceplate-layout-recipes-first-data-only-contract).
 
+## RiceShot (early on-demand CLI)
+
+Inside a running Wayland session, RiceShot can save a private PNG of the whole
+desktop, one named output, or an interactively selected region:
+
+```bash
+ricebowl de shot --output "$HOME/Pictures/desktop.png"
+ricebowl de shot --shot-mode output --monitor eDP-1 --output "$HOME/Pictures/laptop.png"
+ricebowl de shot --shot-mode region --output "$HOME/Pictures/selection.png"
+```
+
+`grim` is required for capture; interactive region selection additionally needs
+`slurp`. Use a **new absolute filename** each time: existing files and symlinks
+are not overwritten. `--json` returns structured success/failure information.
+Only an explicit command can capture; no background process or global XFCE
+shortcut is installed. Screenshots can reveal private information. Clipboard
+copy, annotations, native shortcut integration, portal fallback and real-device
+capture acceptance are still outstanding.
+
 ## What's still required for 1.0
 
 The remaining sign-off is primarily **on real hardware**: login/logout,

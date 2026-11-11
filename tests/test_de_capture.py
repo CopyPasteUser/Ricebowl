@@ -141,6 +141,102 @@ class WaylandCaptureTests(unittest.TestCase):
                 with self.subTest(arguments=arguments), mock.patch("sys.stderr"):
                     self.assertEqual(cli(arguments), 1)
 
+    def test_riceshot_explicit_full_and_named_output_reuse_private_capture(self):
+        with tempfile.TemporaryDirectory() as folder:
+            for mode, extra, expected in (
+                ("full", [], ["/usr/bin/grim", "-"]),
+                ("output", ["--monitor", "HDMI-A-1"],
+                 ["/usr/bin/grim", "-o", "HDMI-A-1", "-"]),
+            ):
+                destination = Path(folder) / f"{mode}.png"
+
+                def fake_grim(command, *, stdout, stderr, timeout, check):
+                    self.assertEqual(command, expected)
+                    stdout.write(png())
+                    return subprocess.CompletedProcess(command, 0)
+
+                with self.subTest(mode=mode), \
+                     mock.patch.dict(os.environ, {"WAYLAND_DISPLAY": "wayland-test"}), \
+                     mock.patch("macrice.de.capture.shutil.which", return_value="/usr/bin/grim"), \
+                     mock.patch("macrice.de.capture.subprocess.run", side_effect=fake_grim), \
+                     mock.patch("builtins.print") as printer:
+                    result = cli(["de", "shot", "--shot-mode", mode, *extra,
+                                  "--output", str(destination), "--json"])
+                self.assertEqual(result, 0)
+                report = json.loads(printer.call_args.args[0])
+                self.assertEqual(report["riceshot_version"], 1)
+                self.assertEqual(report["capture"]["mode"], mode)
+                self.assertEqual(destination.read_bytes(), png())
+                self.assertEqual(destination.stat().st_mode & 0o777, 0o600)
+
+    def test_riceshot_region_selection_passes_validated_slurp_geometry(self):
+        with tempfile.TemporaryDirectory() as folder:
+            destination = Path(folder) / "region.png"
+            commands = []
+
+            def fake_run(command, **kwargs):
+                commands.append(command)
+                if command[0] == "/usr/bin/slurp":
+                    return subprocess.CompletedProcess(command, 0, stdout="-400,12 320x180\n")
+                self.assertEqual(command, ["/usr/bin/grim", "-g", "-400,12 320x180", "-"])
+                kwargs["stdout"].write(png())
+                return subprocess.CompletedProcess(command, 0)
+
+            with mock.patch.dict(os.environ, {"WAYLAND_DISPLAY": "wayland-test"}), \
+                 mock.patch("macrice.de.capture.shutil.which",
+                            side_effect=lambda name: f"/usr/bin/{name}"), \
+                 mock.patch("macrice.de.capture.subprocess.run", side_effect=fake_run):
+                result = capture.capture(destination, mode="region")
+            self.assertEqual(result["mode"], "region")
+            self.assertEqual([command[0] for command in commands],
+                             ["/usr/bin/slurp", "/usr/bin/grim"])
+            self.assertEqual(destination.read_bytes(), png())
+
+    def test_riceshot_invalid_or_cancelled_selection_never_creates_capture(self):
+        with tempfile.TemporaryDirectory() as folder:
+            destination = Path(folder) / "never.png"
+            with mock.patch.dict(os.environ, {"WAYLAND_DISPLAY": "wayland-test"}), \
+                 mock.patch("macrice.de.capture.shutil.which",
+                            side_effect=lambda name: "/usr/bin/grim" if name == "grim" else None), \
+                 mock.patch("macrice.de.capture.subprocess.run") as run:
+                with self.assertRaisesRegex(capture.CaptureError, "requires slurp"):
+                    capture.capture(destination, mode="region")
+                run.assert_not_called()
+            for invalid in ("-fake", "with spaces", "x" * 81):
+                with self.subTest(invalid=invalid), \
+                     mock.patch.dict(os.environ, {"WAYLAND_DISPLAY": "wayland-test"}), \
+                     mock.patch("macrice.de.capture.shutil.which",
+                                return_value="/usr/bin/grim"), \
+                     mock.patch("macrice.de.capture.subprocess.run") as run:
+                    with self.assertRaisesRegex(capture.CaptureError, "valid screenshot"):
+                        capture.capture(destination, mode="output", monitor=invalid)
+                    run.assert_not_called()
+            for response in (subprocess.CompletedProcess([], 1, stdout=""),
+                             subprocess.CompletedProcess([], 0, stdout="1,2 9000x2")):
+                with mock.patch.dict(os.environ, {"WAYLAND_DISPLAY": "wayland-test"}), \
+                     mock.patch("macrice.de.capture.shutil.which",
+                                side_effect=lambda name: f"/usr/bin/{name}"), \
+                     mock.patch("macrice.de.capture.subprocess.run", return_value=response) as run:
+                    with self.assertRaises(capture.CaptureError):
+                        capture.capture(destination, mode="region")
+                    self.assertEqual(run.call_count, 1)
+            self.assertFalse(destination.exists())
+            self.assertEqual(list(Path(folder).iterdir()), [])
+
+    def test_riceshot_cli_rejects_cross_command_and_ambiguous_mode_arguments(self):
+        with tempfile.TemporaryDirectory() as folder:
+            dest = str(Path(folder) / "no.png")
+            for args in (
+                ["de", "shot", "--monitor", "eDP-1", "--output", dest],
+                ["de", "shot", "--shot-mode", "output", "--output", dest],
+                ["de", "shot", "--shot-mode", "region", "--monitor", "eDP-1", "--output", dest],
+                ["de", "capture", "--shot-mode", "region", "--output", dest],
+                ["de", "catalog", "--monitor", "eDP-1"],
+            ):
+                with self.subTest(args=args), mock.patch("sys.stderr"):
+                    self.assertEqual(cli(args), 1)
+            self.assertFalse(Path(dest).exists())
+
 
 if __name__ == "__main__":
     unittest.main()

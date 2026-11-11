@@ -74,7 +74,7 @@ def parser() -> argparse.ArgumentParser:
     de.add_argument("action", choices=(
         "check", "acceptance", "start", "shell", "catalog", "fonts", "creator-api", "creator-history", "creator-schema", "creator-snapshot", "creator-recovery", "creator-recover", "review", "draft-check", "draft-edit", "visual-compare",
         "visual-baseline",
-        "capture", "render", "render-matrix", "render-matrix-inspect",
+        "capture", "shot", "render", "render-matrix", "render-matrix-inspect",
         "creator-status", "creator-stage", "creator-rollback",
         "creator-live-status", "creator-live-apply", "creator-live-restore", "creator-live-recovery",
         "display-refresh", "display-confirm",
@@ -132,6 +132,9 @@ def parser() -> argparse.ArgumentParser:
     de.add_argument("--id", help="Lowercase recipe identifier for de recipe-init")
     de.add_argument("--name", help="Human-readable recipe name for de recipe-init")
     de.add_argument("--output", type=Path, help="New absolute .json, .toml, .png or .ricepack output")
+    de.add_argument("--shot-mode", choices=("full", "output", "region"),
+                    help="RiceShot capture: full desktop, named output or interactive region")
+    de.add_argument("--monitor", help="Wayland output name for de shot --shot-mode output")
     de.add_argument("--width", type=int, help="Headless de render capture width (640–4096)")
     de.add_argument("--height", type=int, help="Headless de render capture height (480–2160)")
     de.add_argument("--scale", type=float, choices=(1, 1.25, 1.5, 2),
@@ -244,8 +247,10 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("--base, --id and --name only apply to de recipe-init")
             if args.action != "recipe-init" and args.schema_version != 1:
                 raise ValueError("--schema-version only applies to de recipe-init")
+            if args.action != "shot" and (args.shot_mode is not None or args.monitor is not None):
+                raise ValueError("--shot-mode and --monitor only apply to de shot")
             if (args.action not in ("recipe-init", "recipe-export", "taskotto-export",
-                                    "draft-edit", "capture", "render", "render-matrix", "pack-export",
+                                    "draft-edit", "capture", "shot", "render", "render-matrix", "pack-export",
                                     "visual-baseline") and args.output):
                 raise ValueError("--output is not supported by this de command")
             if args.action == "acceptance":
@@ -771,24 +776,29 @@ def main(argv: list[str] | None = None) -> int:
                             print(f"Created private {artifact}: {report[artifact]}")
                     print("Read-only comparison; no desktop change or fidelity certification")
                 return 0 if passed else 3
-            if args.action == "capture":
+            if args.action in ("capture", "shot"):
                 if args.nested or args.panel != "waybar" or args.recipe:
-                    raise ValueError("de capture accepts only --output and --json")
+                    raise ValueError("de capture/shot accepts only screenshot options and --json")
+                if args.action == "shot" and ((args.shot_mode == "output") != bool(args.monitor)):
+                    raise ValueError("de shot --shot-mode output requires --monitor; other modes forbid it")
                 from .de.capture import CaptureError, capture
+                shot = args.action == "shot"
+                version_key = "riceshot_version" if shot else "creator_contract_version"
                 try:
-                    report = capture(args.output)
+                    report = (capture(args.output, mode=args.shot_mode or "full",
+                                      monitor=args.monitor) if shot else capture(args.output))
                 except CaptureError as exc:
                     if not args.json:
                         raise
-                    print(json.dumps({"creator_contract_version": 1, "ok": False,
+                    print(json.dumps({version_key: 1, "ok": False,
                                       "error": {"code": exc.code, "message": str(exc)}},
                                      indent=2))
                     return 2
                 if args.json:
-                    print(json.dumps({"creator_contract_version": 1, "ok": True,
+                    print(json.dumps({version_key: 1, "ok": True,
                                       "capture": report}, indent=2))
                 else:
-                    print(f"Captured current Wayland display: {report['path']} "
+                    print(f"Captured Wayland {report['mode']}: {report['path']} "
                           f"({report['width']}x{report['height']})")
                     print("The capture may contain private screen data; no desktop change was made")
                 return 0
