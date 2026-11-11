@@ -56,6 +56,10 @@ pub const COLUMNS_SPLIT: u32 = 164;
 const COLUMNS_LEFT: u32 = 8;
 const COLUMNS_RIGHT: u32 = 172;
 const COLUMNS_TOP: u32 = 92;
+// Luna's right-hand places/session links use a tighter XP-like vertical rhythm;
+// keep every real hit target above the 28px footer even with six actions.
+const COLUMNS_RIGHT_TOP: u32 = 54;
+const COLUMNS_RIGHT_ROW_HEIGHT: u32 = 28;
 pub const SIDEBAR_ROW_HEIGHT: u32 = 44;
 pub const ACTION_TOP: u32 = 108;
 pub const ACTION_HEIGHT: u32 = 42;
@@ -113,6 +117,8 @@ pub fn action_label(action: &str) -> &'static str {
         "applications" => "Applications",
         "terminal" => "Terminal",
         "settings" => "RiceSpice settings",
+        "documents" => "My Documents",
+        "computer" => "My Computer",
         "lock" => "Lock screen",
         "logout" => "Log out of RiceBowl",
         "wifi-toggle" => "Toggle Wi-Fi radio",
@@ -429,21 +435,21 @@ impl MenuState {
             top += CONTENT_HEADER_HEIGHT + rows as u32 * row_height;
         }
 
-        top = COLUMNS_TOP;
+        top = COLUMNS_RIGHT_TOP;
         let right_width = WIDTH - COLUMNS_RIGHT - 8;
         for group in menu.groups.iter().skip(1) {
             let mut items = Vec::with_capacity(group.actions.len());
             for (row, action) in group.actions.iter().enumerate() {
                 items.push(MenuTile {
                     action, index, x: COLUMNS_RIGHT,
-                    y: top + CONTENT_HEADER_HEIGHT + row as u32 * CONTENT_LIST_HEIGHT,
-                    width: right_width, height: CONTENT_LIST_HEIGHT, grid: false,
+                    y: top + CONTENT_HEADER_HEIGHT + row as u32 * COLUMNS_RIGHT_ROW_HEIGHT,
+                    width: right_width, height: COLUMNS_RIGHT_ROW_HEIGHT, grid: false,
                 });
                 index += 1;
             }
             result.push(MenuSection { title: &group.title, x: COLUMNS_RIGHT,
                 kind: MenuContentKind::Actions, top, items });
-            top += CONTENT_HEADER_HEIGHT + group.actions.len() as u32 * CONTENT_LIST_HEIGHT;
+            top += CONTENT_HEADER_HEIGHT + group.actions.len() as u32 * COLUMNS_RIGHT_ROW_HEIGHT;
         }
         Some(result)
     }
