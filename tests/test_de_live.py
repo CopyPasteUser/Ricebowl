@@ -447,6 +447,52 @@ class LiveRiceTests(unittest.TestCase):
         self.assertEqual(recipes.current_selection()[0], "chrome")
         self.assertEqual(self.controller.active, "classic")
 
+    def test_concurrent_stage_with_same_active_id_preserves_new_undo_history(self):
+        # A parallel Creator can stage A -> B -> A during live preflight.
+        # Checking only the active ID would silently destroy its new history.
+        original_change = recipes.change_selection
+        before_menu = self.menu.read_bytes()
+        chrome_sha, classic_sha = staging._hash("chrome"), staging._hash("classic")
+
+        def staged_during_switch(*args, **kwargs):
+            original_change("chrome", expected_active="classic",
+                            expected_semantic_sha256=chrome_sha)
+            original_change("classic", expected_active="chrome",
+                            expected_semantic_sha256=classic_sha)
+            return original_change(*args, **kwargs)
+
+        with mock.patch.object(recipes, "change_selection", side_effect=staged_during_switch):
+            with self.assertRaises(live.LiveError) as caught:
+                self.change("apply", "chrome", chrome_sha)
+        self.assertEqual(caught.exception.code, "selection_conflict")
+        self.assertEqual(recipes.current_selection(), ("classic", "chrome"))
+        self.assertEqual(self.controller.active, "classic")
+        self.assertEqual(self.menu.read_bytes(), before_menu)
+        self.assertFalse(self.initial_panel.terminated)
+        self.assertFalse(self.initial_wallpaper.terminated)
+        self.assertTrue(all(process.poll() is not None for _, _, process in self.processes))
+        self.assertIsNone(live_recovery.read())
+
+    def test_restart_supervisor_still_serves_classic_when_selection_is_corrupt(self):
+        selected = recipes._private_recipe_dir(create=True) / ".active-recipe"
+        selected.write_bytes(b"{broken-selection\n")
+        selected.chmod(0o600)
+        original = selected.read_bytes()
+        # The login resolver already selects classic for a corrupt selection.
+        # The supervisor must not crash while starting that safe fallback.
+        controller = _LiveSwitch(
+            env=self.env, mode="native", which=self.tools.get,
+            spawn=lambda command, **kw: FakeProcess(), cleanup=self.cleanup_stack,
+            initial_panel=FakeProcess(), initial_wallpaper=FakeProcess(),
+            background=[])
+        self.assertEqual(controller.status()["active"], "classic")
+        with self.assertRaises(live.LiveError) as caught:
+            controller.handle({"action": "apply", "recipe": "chrome",
+                               "sha256": staging._hash("chrome"), "expected": "classic"})
+        self.assertEqual(caught.exception.code, "invalid_recipe")
+        self.assertEqual(selected.read_bytes(), original)
+        self.assertIsNone(live_recovery.read())
+
     def test_nested_preview_switch_never_persists_login_selection(self):
         self.controller.nested = True
         result = self.change("apply", "chrome", staging._hash("chrome"))

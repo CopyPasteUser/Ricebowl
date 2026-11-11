@@ -1474,6 +1474,15 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
   supervised next-login reconciliation. A failed explicit restore must similarly
   leave the current rice live and recoverable. Mocked child processes do not
   establish physical-frame or device acceptance.
+- [x] **Harden the next-login CAS boundary and damaged-selection fallback**:
+  match the entire previously reviewed private selection snapshot under its
+  existing lock (active, previous, fingerprints), not only the active ID.
+  Parallel Creator `A → B → A` changes must remain intact and cause an explicit
+  review conflict, with transient components rolled back and no stale journal.
+  A malformed selection must not prevent the safe Classic live supervisor
+  from starting, while any new mutation remains blocked until the file is
+  safely repaired. Tests cover controller and Creator-protocol flows; this
+  remains software validation rather than physical multi-login acceptance.
 - [x] Add **real Wayland taskbar lifecycle acceptance** in the isolated native
   labwc job: launch a real `foot` toplevel with a controlled app ID, assert
   that the existing foreign-toplevel handler receives the completed window,
