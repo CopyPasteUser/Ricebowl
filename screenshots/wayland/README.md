@@ -18,6 +18,26 @@ open in the second capture; it is not composited onto an image afterwards.
 
 Sources (10 November 2026): the desktop image comes from [native capture run #42890753472](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42890753472), `xp-luna-columns.png`. The updated menu image comes from [native capture run #42898859348](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42898859348), `xp-luna-columns-menu.png`, which verifies readable `Settings` and `Log out (N/A)` labels in the right shelf. Both permanent WebP files are derived directly from real headless compositor captures, not mockups. Hardware status widgets may read `N/A`; this is expected in a virtual headless session. **Physical ThinkPad input, scaling, power and session acceptance remain open.**
 
+### Original Luna desktop icons · verified before/after (11 November 2026)
+
+| Existing RicePlate shortcuts | Original Luna icon family |
+| :---: | :---: |
+| [![Real XP Luna desktop with the older built-in shortcut pictograms](luna-icons-before.webp)](luna-icons-before.webp) | [![Same real XP Luna compositor desktop with RiceBowl-original folder, CRT terminal and brass lock icons](luna-icons-after.webp)](luna-icons-after.webp) |
+| `artwork.icons: builtin` | `artwork.icons: builtin-luna` |
+
+[![Actual headless Luna desktop with the new pictograms and its open two-column Start menu](luna-icons-menu.webp)](luna-icons-menu.webp)
+
+All three 1366×768 frames are optimized from **real headless labwc PNGs**
+(`xp-luna-default-icons.png`, `xp-luna-columns.png` and
+`xp-luna-columns-menu.png`) archived by [green native run #42960890682](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42960890682)
+for [PR #239](https://github.com/CopyPasteUser/Ricebowl/pull/239).
+The screenshot test changes *only* the desktop icon choice in an otherwise
+identical recipe, then requires more than 600 changed RGB pixels inside an
+actual icon's 48×48 compositor region. The pictograms are drawn directly by
+the native Rust RicePlate code, not supplied by third-party icon packs or
+Windows artwork. The labels and wallpaper are unchanged; headless hardware
+widgets may display `N/A`. Physical hardware acceptance remains pending.
+
 ### Opt-in portable font · real compositor comparison
 
 | Bundled bitmap font | Imported private TrueType font |
