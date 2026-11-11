@@ -1814,6 +1814,16 @@ impl RicePlate {
             self.focused_panel = None;
             self.focused_target = None;
         }
+        // Hot-unplug must never retain a hover/press owner on a destroyed
+        // layer, nor paint that interaction onto a surviving mirror.
+        if self.hovered_panel.as_ref().is_some_and(|(surface, _)|
+            self.panel_geometry(surface).is_none()) {
+            self.hovered_panel = None;
+        }
+        if self.pressed_panel.as_ref().is_some_and(|(surface, _)|
+            self.panel_geometry(surface).is_none()) {
+            self.pressed_panel = None;
+        }
     }
 
     fn redraw_mirror(&mut self, index: usize, qh: &QueueHandle<Self>) {
@@ -5621,6 +5631,47 @@ impl PointerHandler for RicePlate {
             } else if &event.surface == self.layer.wl_surface() {
                 (self.width, self.height, self.task_offset)
             } else { continue; };
+            // Physical pointer feedback is local to this panel surface and
+            // only changes framebuffer paint state, never the click target.
+            // No polling: redraw only when target or pressed state changes.
+            if self.recipe.id == "xp-luna-columns" {
+                let hit = if event.position.1.is_finite()
+                    && event.position.1 >= 0.0
+                    && event.position.1 < f64::from(panel_height) {
+                    luna_hover_target(recipe::hit(event.position.0, panel_width,
+                        self.grouped_tasks().len(), panel_offset, &self.recipe))
+                } else { None };
+                let previous_hover = self.hovered_panel.clone();
+                let previous_pressed = self.pressed_panel.clone();
+                match event.kind {
+                    PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
+                        self.hovered_panel = hit.map(|target| (event.surface.clone(), target));
+                    }
+                    PointerEventKind::Leave { .. } => {
+                        if self.hovered_panel.as_ref().is_some_and(|(owner, _)|
+                            owner == &event.surface) {
+                            self.hovered_panel = None;
+                        }
+                        if self.pressed_panel.as_ref().is_some_and(|(owner, _)|
+                            owner == &event.surface) {
+                            self.pressed_panel = None;
+                        }
+                    }
+                    PointerEventKind::Press { button: BTN_LEFT, .. } => {
+                        self.hovered_panel = hit.map(|target| (event.surface.clone(), target));
+                        self.pressed_panel = hit.map(|target| (event.surface.clone(), target));
+                    }
+                    PointerEventKind::Release { button: BTN_LEFT, .. } => {
+                        self.pressed_panel = None;
+                        self.hovered_panel = hit.map(|target| (event.surface.clone(), target));
+                    }
+                    _ => {}
+                }
+                if previous_hover != self.hovered_panel
+                    || previous_pressed != self.pressed_panel {
+                    self.request_redraw(qh);
+                }
+            }
             if let PointerEventKind::Press { button, .. } = event.kind {
                 if (button == BTN_LEFT || button == BTN_RIGHT)
                     && event.position.1 >= 0.0
