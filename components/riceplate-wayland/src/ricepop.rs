@@ -363,6 +363,20 @@ impl State {
         (self.selected / VISIBLE_ROWS) * VISIBLE_ROWS
     }
 
+    /// Human-readable one-based range of the currently visible notification
+    /// rows. Short/empty lists and detail screens need no redundant counter.
+    pub fn list_page_status(&self, compact: Option<(u32, u32)>)
+                            -> Option<(usize, usize, usize)> {
+        if !self.open || self.loading || self.error.is_some() || self.detail_id.is_some() {
+            return None;
+        }
+        let rows = compact.map_or(VISIBLE_ROWS, compact_rows);
+        let total = self.visible_notices().len();
+        if total <= rows { return None; }
+        let first = self.selected.min(total - 1) / rows * rows;
+        Some((first + 1, (first + rows).min(total), total))
+    }
+
     pub fn selected_id(&self) -> Option<u32> {
         (!self.show_history && !self.loading && self.error.is_none() && !self.sync_error)
             .then(|| self.notices.get(self.selected))
@@ -700,6 +714,27 @@ mod tests {
         assert!(!state.scroll_at(100.0, 100.0, 1, 0.0, None));
         state.close();
         assert!(!state.scroll_at(100.0, 100.0, 1, 0.0, None));
+    }
+
+    #[test]
+    fn notification_page_counter_matches_full_compact_and_history_visible_rows() {
+        let mut state = scroll_fixture();
+        let tiny = (168, 144);
+        assert_eq!(state.list_page_status(None), Some((1, 3, 7)));
+        assert_eq!(state.list_page_status(Some(tiny)), Some((1, 1, 7)));
+        state.select(4);
+        assert_eq!(state.list_page_status(None), Some((4, 6, 7)));
+        assert_eq!(state.list_page_status(Some(tiny)), Some((5, 5, 7)));
+        state.select(2);
+        assert_eq!(state.list_page_status(None), Some((7, 7, 7)));
+        state.select_tab(true);
+        assert_eq!(state.list_page_status(None), None);
+        state.select_tab(false);
+        assert!(state.open_detail(0));
+        assert_eq!(state.list_page_status(None), None);
+        state.close_detail();
+        state.close();
+        assert_eq!(state.list_page_status(None), None);
     }
 
     #[test]
