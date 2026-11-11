@@ -71,6 +71,25 @@ class CreatorStyleAssetsTests(unittest.TestCase):
         with self.assertRaises(style_assets.StyleAssetError):
             style_assets.validate(b"not a font", "font")
 
+    def test_luna_builtin_icons_are_v12_only_and_export_without_private_assets(self):
+        source = Path(__file__).resolve().parents[1] / "examples/wayland/xp-luna-columns.json"
+        manifest = json.loads(source.read_text())
+        recipe = recipes.parse(json.dumps(manifest).encode())
+        self.assertEqual(recipe.artwork.icons, ("builtin-luna",) * 3)
+        self.assertTrue(drafts._allowed_value("/artwork/icons/lock", "builtin-luna", 12))
+        self.assertFalse(drafts._allowed_value("/artwork/icons/lock", "builtin-luna", 11))
+        self.assertFalse(drafts._allowed_value("/artwork/icons/lock", "builtin-luna/../", 12))
+        manifest["artwork"]["font"] = "builtin-luna"
+        with self.assertRaises(recipes.RecipeError):
+            recipes.parse(json.dumps(manifest).encode())
+
+        target = self.root / "luna.ricepack"
+        exported = pack.export_pack(str(source), target)
+        self.assertEqual(exported["pack_version"], 2)
+        with zipfile.ZipFile(target) as archive:
+            self.assertFalse(any(name.startswith("assets/icons/") for name in archive.namelist()))
+        self.assertEqual(pack.inspect_pack(target)["pack_version"], 2)
+
     def test_catalog_is_private_and_idempotent_with_declaration(self):
         added = style_assets.import_asset(self.icon, kind="icon", label="Glowing app",
                                           provenance=ATTRIBUTION)

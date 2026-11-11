@@ -147,7 +147,7 @@ class Artwork:
     icons: tuple[str, str, str]
 
 
-def _parse_artwork(raw: Any) -> Artwork:
+def _parse_artwork(raw: Any, *, schema_version: int = 11) -> Artwork:
     from .style_assets import FONT_ID, ICON_ID, ICON_ACTIONS
     data = _strict_keys(raw, {"font", "icons"}, "Artwork")
     names = _strict_keys(data["icons"], set(ICON_ACTIONS), "Desktop icon art")
@@ -155,7 +155,8 @@ def _parse_artwork(raw: Any) -> Artwork:
     if type(font) is not str or not (font == "builtin" or FONT_ID.fullmatch(font)):
         raise RecipeError("Font must name a builtin or content-addressed TrueType asset")
     icons = tuple(names[key] for key in ICON_ACTIONS)
-    if any(type(value) is not str or not (value == "builtin" or ICON_ID.fullmatch(value))
+    builtins = {"builtin", "builtin-luna"} if schema_version >= 12 else {"builtin"}
+    if any(type(value) is not str or not (value in builtins or ICON_ID.fullmatch(value))
            for value in icons):
         raise RecipeError("Icons must name builtin or content-addressed PNG assets")
     return Artwork(font, icons)
@@ -568,7 +569,7 @@ def parse(raw: bytes) -> PanelRecipe:
     data = _strict_keys(data, expected, "Recipe")
     components = _parse_components(data["components"]) if version >= 9 else {}
     appearance = _parse_appearance(data["appearance"]) if version >= 10 else None
-    artwork = _parse_artwork(data["artwork"]) if version >= 11 else None
+    artwork = _parse_artwork(data["artwork"], schema_version=version) if version >= 11 else None
     recipe_id = data["id"]
     if not isinstance(recipe_id, str) or not re.fullmatch(r"[a-z][a-z0-9-]{1,31}", recipe_id):
         raise RecipeError("Recipe ID must contain 2-32 lowercase ASCII characters")

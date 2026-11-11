@@ -372,6 +372,7 @@ jobs:
               'desktop-actions-v9': (1366, 768, 1),
               'appearance-v10': (1366, 768, 1),
               'xp-luna-columns': (1366, 768, 1),
+              'xp-luna-default-icons': (1366, 768, 1),
               'xp-luna-columns-menu': (1366, 768, 1),
               'xp-luna-font-menu': (1366, 768, 1),
               'xp-luna-columns-calendar': (1366, 768, 1),
@@ -439,6 +440,16 @@ jobs:
           assert captures['menu-v5'] != captures['desktop-v5'], 'Native menu did not render in Wayland frame'
           assert captures['xp-luna-columns-menu'] != captures['xp-luna-columns'], \
               'XP Luna two-column Start menu was not rendered in real Wayland frame'
+          with Image.open(directory / 'xp-luna-default-icons.png') as original_image, \
+               Image.open(directory / 'xp-luna-columns.png') as luna_image:
+              # Compare an actual desktop shortcut surface, never a screenshot
+              # mockup or an unrelated clock/wallpaper region.
+              region = (52, 92, 100, 140)
+              original = original_image.convert('RGB').crop(region)
+              luna = luna_image.convert('RGB').crop(region)
+              icon_changed = sum(a != b for a, b in zip(original.getdata(), luna.getdata()))
+          assert icon_changed > 600, \
+              f'Original Luna pictogram not visible on real compositor: {icon_changed}'
           with Image.open(directory / 'xp-luna-columns-menu.png') as base_image, \
                Image.open(directory / 'xp-luna-font-menu.png') as font_image:
               base = base_image.convert('RGB').crop((0, 338, 400, 718))

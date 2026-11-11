@@ -125,12 +125,15 @@ def _allowed_value(path: str, value: Any, schema_version: int,
             return type(value) is str and (value == "builtin" or FONT_ID.fullmatch(value) is not None)
         if path == "/artwork/icons":
             try:
-                recipes._parse_artwork({"font": "builtin", "icons": value})
+                recipes._parse_artwork({"font": "builtin", "icons": value},
+                                       schema_version=schema_version)
                 return True
             except recipes.RecipeError:
                 return False
         if path.removeprefix("/artwork/icons/") in ICON_ACTIONS:
-            return type(value) is str and (value == "builtin" or ICON_ID.fullmatch(value) is not None)
+            return (type(value) is str and (value == "builtin" or
+                    schema_version >= 12 and value == "builtin-luna" or
+                    ICON_ID.fullmatch(value) is not None))
         return False
     if path.startswith("/appearance/"):
         if schema_version < 10:

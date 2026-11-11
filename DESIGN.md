@@ -79,7 +79,11 @@ TrueType face and three action-specific 48×48 RGBA shortcut icons. Explicit
 file-pickers require named owner-controlled assets and visible attribution.
 SHA-256 identities are immutable; the native renderer checks owner, mode and
 digest before loading the image/font. Older schema-v10 drafts have a separate
-immutable v11 upgrade. Icons fit the existing hit areas; a bounded glyph cache
+immutable v11 upgrade. Schema-v12 recipes may choose original compiled-in
+`builtin-luna` folder, terminal and lock artwork per desktop action. This is
+an explicit, portable recipe choice rather than a global theme override; it
+needs no private files or proprietary assets. User-imported PNGs still override
+their corresponding actions. Icons fit the existing hit areas; a bounded glyph cache
 renders custom text in native styled panel, launcher, menu, desktop-icon and
 widget labels, plus the calendar popup and volume OSD when explicitly opted in.
 The latter two preserve the original 8px bitmap painter for built-in-font

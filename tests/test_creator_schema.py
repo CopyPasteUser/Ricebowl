@@ -105,9 +105,10 @@ class CreatorPropertySchemaTests(unittest.TestCase):
         latest["schema_version"] = 11
         latest["artwork"] = {"font": "builtin", "icons": {
             action: "builtin" for action in recipes.ICON_ACTIONS}}
+        luna = recipes.parse((root / "examples/wayland/xp-luna-columns.json").read_bytes())
         samples = (recipes.load("classic"),
                    recipes.parse(json.dumps(heritage).encode()),
-                   recipes.parse(json.dumps(latest).encode()))
+                   recipes.parse(json.dumps(latest).encode()), luna)
         for sample in samples:
             manifest = review._manifest(sample)
             values = review._fields(manifest)

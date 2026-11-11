@@ -140,22 +140,86 @@ fn font_glyphs(data: Vec<u8>, scale: u32) -> Result<FontSprites, Box<dyn Error>>
 }
 
 pub fn load(selection: &ArtworkSelection, scale: u32) -> Result<LoadedArtwork, Box<dyn Error>> {
-    let needs_files = selection.font.is_some() || selection.icons.iter().any(Option::is_some);
-    if !needs_files {
+    let needs_files = selection.font.is_some() || selection.icons.iter()
+        .any(|icon| icon.as_deref().is_some_and(|id| id != "builtin-luna"));
+    if selection.font.is_none() && selection.icons.iter().all(Option::is_none) {
         return Ok(LoadedArtwork { font: None, icons: [None, None, None] });
     }
-    let folder = private_directory()?;
+    let folder = if needs_files { Some(private_directory()?) } else { None };
     let font = selection.font.as_ref().map(|id| {
-        let data = read_asset(&folder, id, "ttf", FONT_MAX)?;
+        let data = read_asset(folder.as_ref().ok_or("Missing private font directory")?,
+                              id, "ttf", FONT_MAX)?;
         font_glyphs(data, scale)
     }).transpose()?;
     let mut icons: [Option<IconPixels>; 3] = [None, None, None];
     for (index, id) in selection.icons.iter().enumerate() {
         if let Some(id) = id {
-            icons[index] = Some(icon_png(&read_asset(&folder, id, "png", ICON_MAX)?)?);
+            icons[index] = Some(if id == "builtin-luna" {
+                luna_icon(index)
+            } else {
+                icon_png(&read_asset(folder.as_ref().ok_or("Missing private icon directory")?,
+                                          id, "png", ICON_MAX)?)?
+            });
         }
     }
     Ok(LoadedArtwork { font, icons })
+}
+
+/// Original 48px Luna-inspired pictograms. Rasterized once at start-up; no
+/// image decoder, external asset or Microsoft artwork is needed at runtime.
+fn luna_icon(kind: usize) -> IconPixels {
+    fn rect(pixels: &mut [u8], x: usize, y: usize, w: usize, h: usize, color: [u8; 4]) {
+        for row in y..(y + h).min(48) {
+            for col in x..(x + w).min(48) {
+                let at = (row * 48 + col) * 4;
+                pixels[at..at + 4].copy_from_slice(&color);
+            }
+        }
+    }
+    let mut pixels = vec![0; 48 * 48 * 4];
+    let p = &mut pixels;
+    match kind {
+        0 => { // Applications: warm document folder with a blue file tab.
+            rect(p, 7, 39, 35, 3, [15, 40, 70, 100]);
+            rect(p, 12, 8, 24, 27, [25, 62, 125, 255]);
+            rect(p, 15, 11, 18, 20, [232, 245, 255, 255]);
+            rect(p, 17, 16, 14, 2, [62, 123, 190, 255]);
+            rect(p, 17, 21, 10, 2, [103, 155, 204, 255]);
+            rect(p, 6, 16, 20, 6, [164, 91, 23, 255]);
+            rect(p, 8, 14, 17, 6, [245, 188, 70, 255]);
+            rect(p, 5, 20, 38, 21, [174, 102, 26, 255]);
+            rect(p, 7, 22, 34, 15, [244, 183, 57, 255]);
+            rect(p, 9, 23, 30, 3, [255, 224, 128, 255]);
+            rect(p, 9, 36, 30, 2, [208, 136, 35, 255]);
+        }
+        1 => { // Terminal: shaded CRT with an actual prompt glyph.
+            rect(p, 5, 8, 38, 29, [30, 47, 70, 255]);
+            rect(p, 7, 10, 34, 24, [145, 167, 186, 255]);
+            rect(p, 9, 12, 30, 19, [13, 43, 70, 255]);
+            rect(p, 10, 13, 28, 2, [27, 86, 114, 255]);
+            rect(p, 14, 19, 3, 3, [165, 241, 222, 255]);
+            rect(p, 17, 22, 3, 3, [165, 241, 222, 255]);
+            rect(p, 14, 25, 3, 3, [165, 241, 222, 255]);
+            rect(p, 22, 26, 10, 2, [165, 241, 222, 255]);
+            rect(p, 20, 37, 8, 4, [94, 116, 140, 255]);
+            rect(p, 13, 41, 22, 3, [43, 63, 88, 255]);
+        }
+        _ => { // Lock: silver shackle and original brass body/keyhole.
+            rect(p, 14, 12, 5, 17, [64, 79, 94, 255]);
+            rect(p, 17, 7, 15, 5, [88, 106, 126, 255]);
+            rect(p, 29, 12, 5, 17, [64, 79, 94, 255]);
+            rect(p, 16, 13, 2, 12, [203, 220, 230, 255]);
+            rect(p, 19, 9, 11, 2, [203, 220, 230, 255]);
+            rect(p, 31, 13, 2, 12, [203, 220, 230, 255]);
+            rect(p, 9, 24, 30, 19, [119, 75, 23, 255]);
+            rect(p, 11, 25, 26, 16, [223, 166, 51, 255]);
+            rect(p, 12, 26, 24, 3, [255, 214, 115, 255]);
+            rect(p, 12, 39, 24, 2, [169, 106, 24, 255]);
+            rect(p, 22, 30, 5, 5, [69, 51, 31, 255]);
+            rect(p, 23, 34, 3, 5, [69, 51, 31, 255]);
+        }
+    }
+    IconPixels(pixels)
 }
 
 /// Composite a non-premultiplied source RGBA pixel into Wayland ARGB8888.
@@ -236,6 +300,23 @@ impl FontSprites {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn luna_icons_are_distinct_alpha_art_without_private_directory() {
+        let selection = ArtworkSelection { font: None, icons: [
+            Some("builtin-luna".into()), Some("builtin-luna".into()),
+            Some("builtin-luna".into()),
+        ] };
+        let art = load(&selection, 1).unwrap();
+        let icons = art.icons.map(|icon| icon.unwrap().0);
+        assert_ne!(icons[0], icons[1]);
+        assert_ne!(icons[1], icons[2]);
+        for pixels in icons {
+            assert_eq!(pixels.len(), 48 * 48 * 4);
+            assert_eq!(&pixels[..4], &[0, 0, 0, 0]);
+            assert!(pixels.chunks_exact(4).any(|rgba| rgba[3] == 255));
+        }
+    }
 
     #[test]
     fn extra_unicode_glyph_cache_is_bounded_and_evicts_oldest() {

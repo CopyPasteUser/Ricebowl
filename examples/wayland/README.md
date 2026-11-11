@@ -78,6 +78,12 @@ active tasks and narrow geometry.
 
 ### Optional portable text font · Creator visual assets
 
+The `xp-luna-columns` recipe selects original compiled-in 48×48 Luna desktop
+pictograms (`builtin-luna`) for Programs, Terminal and Lock. The schema-v12
+choice is available in Creator, and data-only RicePack exports need no private
+PNG for these icons. Other recipes and explicitly imported icons remain
+unchanged. These are RiceBowl originals, not Microsoft assets.
+
 Creator can already import a locally owned TrueType `.ttf` (maximum 1 MiB)
 with declared attribution into an owner-private, SHA-256-pinned collection.
 Select the face in **Visual asset library → Text font**, save a new immutable
@@ -126,7 +132,7 @@ an imported copy. The current installed `.deb` previews predate schema v12;
 
 Boundaries: this is the first functional native Luna shell composition, not an
 XP replica. Client window titlebars remain under labwc/GTK/Qt control; desktop
-icons use the current RicePlate pictograms, native fonts are not XP's fonts,
+icons are RiceBowl originals rather than proprietary XP icons, native fonts are not XP's fonts,
 and physical-device input, power, multimonitor and sleep tests are still open.
 No Microsoft logo, proprietary icon collection or Bliss photograph is bundled.
 
