@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Exercise real Creator-generated recipes through native headless Wayland.
+"""Exercise portable Creator recipes through native headless Wayland.
 
-Creates two private drafts, edits/forks one, installs both explicitly, then
-renders the *installed IDs* in isolated labwc/RicePlate sessions. It never
-selects a login rice, switches the user's desktop or runs generated scripts.
-The captures prove rendering, not input/focus or real-device compatibility.
+Creates and edits two genuinely different private drafts, exports verified
+offline RicePacks, imports them into a separate private recipe collection,
+renders the *imported IDs* and tests explicit next-login stage/rollback.
+Only disposable XDG directories are touched; the captures prove rendering,
+not input/focus or real-device compatibility.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ from unittest import mock
 
 from PIL import Image
 
-from macrice.de import creator_activation, creator_workspace, recipes, render
+from macrice.de import creator_workspace, pack, recipes, render, staging, style_assets
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,31 +46,79 @@ def capture_installed(destination: Path) -> dict:
     result = {"manifest_version": 1, "source_commit": sha,
               "capture_is_interactive": False,
               "backend": "isolated-headless-labwc-native-riceplate",
-              "captures": []}
+              "captures": [], "package_imports": []}
     with tempfile.TemporaryDirectory(prefix="ricebowl-creator-native-qa-") as directory:
         root = Path(directory)
-        state, config = root / "state", root / "config"
+        state, config, imported_config = (root / "state", root / "author-config",
+                                          root / "import-config")
         state.mkdir(mode=0o700)
         config.mkdir(mode=0o700)
+        imported_config.mkdir(mode=0o700)
         with mock.patch.dict(os.environ, {"XDG_STATE_HOME": str(state),
                                           "XDG_CONFIG_HOME": str(config)}):
+            # Original, generated 48px PNG artwork must survive a *different*
+            # XDG config root; merely reusing the author's asset store cannot
+            # exercise portable RicePack v4 payloads.
+            icons = []
+            for index, color in enumerate(((12, 92, 200, 255), (30, 150, 80, 255))):
+                source = root / f"creator-qa-icon-{index}.png"
+                Image.new("RGBA", (48, 48), color).save(source)
+                item = style_assets.import_asset(
+                    source, kind="icon", label=f"Creator QA icon {index + 1}",
+                    provenance={"author": "RiceBowl test suite", "license": "CC0-1.0",
+                                "origin": "original", "source_reference": ""})
+                icons.append(item.identifier)
             heritage = creator_workspace.create_draft("heritage")
             revised, _ = creator_workspace.save_revision(
-                heritage.path, {"/panel/height": 48},
+                heritage.path, {"/panel/height": 48,
+                                "/artwork/icons/applications": icons[0]},
                 expected_sha256=heritage.semantic_sha256)
             updated_heritage = creator_workspace.fork_version(revised)
             orbit = creator_workspace.create_draft("orbit")
-            drafts = (updated_heritage, orbit)
+            revised_orbit, _ = creator_workspace.save_revision(
+                orbit.path, {"/name": "Orbit Studio offline QA",
+                             "/artwork/icons/applications": icons[1]},
+                expected_sha256=orbit.semantic_sha256)
+            drafts = (updated_heritage, revised_orbit)
             if recipes.current_selection() != ("classic", None):
                 raise ValueError("Creator staging unexpectedly changed login state")
+            archives = []
             for draft in drafts:
-                plan = creator_activation.inspect_install(draft)
-                if not creator_activation.install(plan):
-                    raise ValueError("Fresh Creator draft was already installed")
+                archive = root / f"{draft.recipe_id}.ricepack"
+                exported = creator_workspace.export_draft(draft, archive)
+                inspected = pack.inspect_pack(archive)
+                if (inspected["manifest"] != exported["manifest"]
+                        or inspected["imported"] or inspected["applied"]):
+                    raise ValueError("Offline RicePack inspection changed package semantics")
+                archives.append(archive)
+            os.environ["XDG_CONFIG_HOME"] = str(imported_config)
+            if recipes.current_selection() != ("classic", None):
+                raise ValueError("Fresh importer unexpectedly inherited author configuration")
+            for draft, archive in zip(drafts, archives):
+                imported = pack.import_pack(archive)
+                if (not imported["imported"] or imported["applied"]
+                        or imported["semantic_sha256"] != draft.semantic_sha256
+                        or imported["recipe_id"] != draft.recipe_id):
+                    raise ValueError("Offline RicePack did not install the reviewed Creator rice")
+                result["package_imports"].append({
+                    "recipe": draft.recipe_id,
+                    "pack_version": imported["pack_version"],
+                    "semantic_sha256": draft.semantic_sha256,
+                    "package_sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+                })
                 if recipes.current_selection() != ("classic", None):
-                    raise ValueError("Offline installation changed the login selection")
-                if recipes.load(draft.recipe_id).recipe_id != draft.recipe_id:
-                    raise ValueError("Installed recipe differs from private draft")
+                    raise ValueError("Offline RicePack import changed the login selection")
+                installed_recipe = recipes.load(draft.recipe_id)
+                if installed_recipe.recipe_id != draft.recipe_id:
+                    raise ValueError("Imported recipe differs from private draft")
+                visual_id = installed_recipe.artwork.icons[0]
+                if visual_id not in icons:
+                    raise ValueError("RicePack v4 lost the Creator icon reference")
+                imported_icon = style_assets.entry(visual_id)
+                source_icon = root / f"creator-qa-icon-{icons.index(visual_id)}.png"
+                if (imported_icon.provenance["license"] != "CC0-1.0"
+                        or style_assets.read(visual_id) != source_icon.read_bytes()):
+                    raise ValueError("RicePack v4 lost portable icon bytes or attribution")
                 for width, height, scale in GEOMETRIES:
                     name = (f"{draft.recipe_id}-{width}x{height}-"
                             f"scale-{str(scale).replace('.', '-')}.png")
@@ -102,6 +151,22 @@ def capture_installed(destination: Path) -> dict:
                     })
             if recipes.current_selection() != ("classic", None):
                 raise ValueError("Native preview changed the login selection")
+            # Test the explicit selection path only *after* native captures.
+            # Rollback retains the one-level previous ID by design, so its
+            # isolated QA state must not be confused with an untouched login.
+            for draft in drafts:
+                staged = staging.stage(draft.recipe_id, draft.semantic_sha256,
+                                       expected_active="classic")
+                if (staged["next_session"] != draft.recipe_id
+                        or recipes.selected_recipe() != draft.recipe_id):
+                    raise ValueError("Imported rice could not be staged for the next login")
+                restored = staging.rollback(expected_active=draft.recipe_id)
+                if (restored["next_session"] != "classic"
+                        or recipes.selected_recipe() != "classic"):
+                    raise ValueError("Staged imported rice could not be rolled back")
+    if len(result["package_imports"]) != 2 or len({
+            item["semantic_sha256"] for item in result["package_imports"]}) != 2:
+        raise ValueError("Expected two distinct verified offline Creator imports")
     if len(result["captures"]) != 2 * len(GEOMETRIES):
         raise ValueError("Expected four independent native Creator captures")
     if len({item["capture_sha256"] for item in result["captures"]}) != len(result["captures"]):

@@ -202,11 +202,25 @@ selection never changes the XFCE default.
   **No physical lid, unlock, suspend cycle or mixed-DPI dock QA has been
   completed**, so this is still a preview.
 
+## Offline Creator RicePack native gate (November 2026)
+
+- The existing installed-native labwc/RicePlate capture job now creates and
+  edits **two different v11 Creator recipes**, attaches separate original
+  48px PNG icons, exports each as a v4 RicePack, validates the packages and
+  imports both into a **different, empty private XDG configuration root**
+  before producing their actual Wayland screenshots.
+- The receipts pin both package hashes, imported semantic recipe hashes and
+  screenshot hashes. Tests assert import, inspect and preview did not silently
+  switch the next login; a separate explicit stage/rollback cycle checks each
+  imported recipe. CI never changes the real user's XFCE or login settings.
+- This proves the offline package-to-native-preview path, **not** full GUI
+  editing of imported packs, interactive focus/controls or hardware acceptance.
+
 ## What's left for 1.0
 
 ### Active track: software-complete candidate
 
-**Current planning estimate: approximately 85% software-complete (11 November
+**Current planning estimate: approximately 86% software-complete (11 November
 2026).** This is a qualitative estimate, not a measured CI coverage score or
 permission to publish a stable release. It deliberately **excludes physical
 hardware acceptance**, so it must not be compared directly with the earlier
@@ -220,9 +234,10 @@ Finish these software gates before calling the implementation feature-complete:
 2. **Typography and layout:** implement proper shaping, bidirectional text and
    proportional font metrics; finish responsive native menu and mixed-scale
    software behavior without breaking existing recipes.
-3. **Creator / RicePack:** exercise two genuinely different complete recipes
-   through offline import, preview, edit, apply and rollback; verify interactive
-   bindings and portable assets in reproducible CI.
+3. **Creator / RicePack:** extend the now-CI-covered two-recipe offline
+   export/import, native preview and staged rollback path to GUI editing of
+   imported recipes, interactive apply/restore, live bindings and realistic
+   portable fonts/icons in reproducible CI.
 4. **Distribution / recovery:** finish tracked, reproducible Wayland packages,
    unattended installed-session tests, upgrade/downgrade and rollback checks,
    including negative tests for corrupt preferences or missing dependencies.
