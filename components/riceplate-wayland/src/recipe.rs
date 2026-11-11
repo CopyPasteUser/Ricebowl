@@ -597,7 +597,9 @@ fn validate_menu(menu: &Menu, version: u32) -> Result<(), Box<dyn Error>> {
                 || menu.groups.len() != 3
                 || menu.groups[0].content.is_none()
                 || menu.groups.iter().skip(1).any(|group|
-                    group.content.is_some() || group.actions.len() > 4)))
+                    group.content.is_some() || group.actions.len() > 4)
+                || menu.groups.iter().skip(1)
+                    .map(|group| group.actions.len()).sum::<usize>() > 6))
         {
             return Err("Menu presentation is incompatible with this schema or layout".into());
         }
