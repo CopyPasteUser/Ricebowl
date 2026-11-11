@@ -1662,6 +1662,10 @@ impl RicePlate {
                     .find(|(name, _)| name == output).map(|(_, size)| *size))
                 .unwrap_or(root_menu_size);
             if menu.size != size {
+                if std::env::var_os("RICEBOWL_DE_TRACE_MENU").is_some() {
+                    eprintln!("RicePlate: menu trace resize {:?} -> {:?}, active={}",
+                              menu.size, size, self.menu_state.visible);
+                }
                 menu.size = size;
                 menu.configured = false;
                 menu.pool = None;
@@ -1812,6 +1816,9 @@ impl RicePlate {
             }
             return;
         }
+        if std::env::var_os("RICEBOWL_DE_TRACE_MENU").is_some() {
+            eprintln!("RicePlate: menu trace hide");
+        }
         self.menu_state.close();
         self.notification_state.close();
         self.menu_focused = false;
@@ -1831,6 +1838,12 @@ impl RicePlate {
     fn show_menu_at(&mut self, surface: wl_surface::WlSurface, qh: &QueueHandle<Self>) {
         if !self.menu_layer.iter().chain(self.menu_mirrors.iter()).any(|menu|
             menu.surface.wl_surface() == &surface) { return; }
+        if std::env::var_os("RICEBOWL_DE_TRACE_MENU").is_some() {
+            let geometry = self.menu_layer.iter().chain(self.menu_mirrors.iter())
+                .find(|layer| layer.surface.wl_surface() == &surface)
+                .map(|layer| (layer.size, layer.configured));
+            eprintln!("RicePlate: menu trace show {:?}", geometry);
+        }
         if self.calendar_state.visible { self.set_calendar_visible(false, qh); }
         if self.tray_popup_open() { self.set_tray_popup_visible(false, qh); }
         self.menu_state.refresh_apps();

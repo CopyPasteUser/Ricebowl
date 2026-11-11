@@ -232,6 +232,8 @@ dbus-run-session -- sh -eu -c '
             WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$runtime/xp-luna-font.json" --preview-notification-detail >"$runtime/plate-$label.log" 2>&1 &
         elif [ "$label" = calendar-v5 ]; then
             WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$runtime/desktop-v5.json" --preview-calendar >"$runtime/plate-$label.log" 2>&1 &
+        elif [ "$label" = xp-luna-columns ]; then
+            RICEBOWL_DE_TRACE_MENU=1 WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" >"$runtime/plate-$label.log" 2>&1 &
         else
             WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" >"$runtime/plate-$label.log" 2>&1 &
         fi
@@ -337,6 +339,14 @@ dbus-run-session -- sh -eu -c '
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-columns-menu-scale-125.png"
             cp "$runtime/xp-luna-columns-menu-scale-125.png" \
                "$source_root/dist/riceplate-native-preview/xp-luna-columns-menu-scale-125.png"
+            # Emit only menu-geometry diagnostics for the direct Full-HD ->
+            # fractional-scale transition. No user data or full logs are
+            # archived; this identifies whether the pending layer configure
+            # or the virtual-pointer delivery made an opened frame invisible.
+            echo "Luna 125% live output:"
+            WAYLAND_DISPLAY=wayland-0 wlr-randr | sed -n "1,9p"
+            grep -E "RicePlate: (menu trace|ignoring superseded native menu|compositor proposed unsupported native menu|native menu buffer unavailable|cannot allocate native menu)" \
+                "$runtime/plate-$label.log" | tail -n 22 || true
             WAYLAND_DISPLAY=wayland-0 "$clicker" 35 748 1366 768
             sleep 0.25
             echo "Captured live Luna closed/open pair at 1366x768 scale 1.25"
