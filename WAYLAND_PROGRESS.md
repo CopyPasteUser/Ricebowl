@@ -162,7 +162,7 @@ The project has moved beyond a session wrapper. The core shell and system module
 | **Desktop layout** | Reflowing shortcuts, widgets and shared action/status components; bounded appearance tokens and custom artwork | Full composition flexibility and reliable physical multi-monitor interaction |
 | **RiceSpice** · GTK | NetworkManager/WirePlumber/BlueZ controls; audio streams, VPN import, display trials with rollback, power, time and input/accessibility preferences | Hardware interoperability, monitor restoration and accessibility testing |
 | **RicePop** | Mako-backed notification inbox, explicit actions, volume/backlight OSD | Media keys, notifications, service restarts and screen-reader behavior on devices |
-| **Rice Creator 0.9** | Editable recipes, reusable parts, native isolated renders, reference-image selection and visual error comparisons; validated RicePack v4 exports; explicit reviewed install plus confirmed opt-in Wayland apply/restore | Automatic screenshot-to-rice generation, historical fidelity, physical live-switch QA and final designer UX |
+| **Rice Creator 0.9** | Editable recipes, reusable parts, native isolated renders, an on-demand interactive nested test window, reference-image selection and visual comparisons; RicePack v4 exports; reviewed install plus confirmed opt-in Wayland apply/restore | Automatic screenshot-to-rice generation, historical fidelity, physical input/live-switch QA and final designer UX |
 | **Ecosystem** | Optional data-only RiceProfile integration with RiceField and Taskotto, guarded apply/revert | Frame-atomic changes across unrelated applications are **not** supported |
 
 **Architecture:** labwc manages floating windows and compositing. RicePlate draws the shell and desktop surfaces. RiceSpice handles user-invoked system settings; RicePop presents notifications without replacing Mako as notification owner. Creator produces validated data, **not arbitrary executable desktop scripts**. Ordinary GTK/Qt application decorations remain owned by their toolkit/window manager.
@@ -251,7 +251,7 @@ Finish these software gates before calling the implementation feature-complete:
    next-login selection. Source attribution now survives private revision,
    fork and re-export via validated immutable history; changing wallpaper
    selects the replacement asset's credit. Remaining: real GTK import/picker CI sign-off,
-   interactive apply/restore, live bindings and realistic portable fonts/icons
+   physical interactive apply/restore, live bindings and realistic portable fonts/icons
    in reproducible CI, plus older-schema editing/migration.
 4. **Distribution / recovery:** finish tracked, reproducible Wayland packages,
    unattended installed-session tests, upgrade/downgrade and rollback checks,

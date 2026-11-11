@@ -1,5 +1,16 @@
 # RiceBowl changelog
 
+## Unreleased — interactive nested Creator test window (11 November 2026)
+
+- Add a native GTK Creator action to try an immutable saved rice in a separate,
+  interactive nested labwc/RicePlate window, then close it on demand or with
+  Creator. Startup checks the private draft fingerprint, graphical session,
+  runtime permissions and installed Wayland tools before spawning anything.
+- Keep the active rice and next-login selection untouched. Teardown requests
+  graceful compositor shutdown with bounded emergency escalation; bounded
+  diagnostics explain early failures. Existing explicitly reviewed live apply
+  and restore remain separate; nested system controls may still affect devices.
+
 ## Unreleased — Creator import attribution retention (11 November 2026)
 
 - Bind verified RicePack author/license/origin and wallpaper credit to the

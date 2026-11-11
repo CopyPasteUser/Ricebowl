@@ -39,6 +39,13 @@ geometry selection preserves aspect ratio. The layer list uses navy surfaces
 and high-contrast labels with a visible selected row rather than the system's
 default light list background. A fresh native screenshot must be explicitly
 rendered after changes; stale real pixels are never presented as live updates.
+Beside the static capture, **Try interactive Wayland window** opens the selected
+immutable saved version in its own nested labwc/native RicePlate window. Its
+start/close state stays visible in the Creator preview, and close terminates
+only that nested compositor. The active rice and next-login choice do not
+change; hardware controls inside the test can still affect real Linux devices.
+Full-session Apply/Restore is a separate reviewed action, disabled while a
+nested test is running. No new theme tokens or always-on preview daemon are added.
 The left rail contains four real starting templates, a separate native GTK
 path to import or reopen installed RicePacks as new private editable copies,
 and saved draft versions; the

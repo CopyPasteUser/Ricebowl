@@ -58,6 +58,9 @@ Creator can import or reopen an installed schema-v10–v12 RicePack as a new,
 editable private draft without replacing the original rice or changing the session.
 Imported license and artist credits survive editing and export; review them
 before publishing a derivative rice.
+The Creator's **Try interactive Wayland window** action runs a saved version in
+a separate nested labwc session; closing it leaves the active rice and next
+login unchanged. Actual Wayland apply/restore remains a separate confirmed action.
 RiceSpice's **Notifications** page now controls RicePop's Mako Do Not Disturb
 mode inside a verified full RiceBowl session. To inspect it from a terminal,
 use `ricebowl de notification-dnd --json`; switching on requires
