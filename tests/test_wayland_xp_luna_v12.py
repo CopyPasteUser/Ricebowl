@@ -44,6 +44,12 @@ class WaylandLunaTests(unittest.TestCase):
                          ["Programs", "Places", "Session"])
         self.assertEqual(parsed.menu[1][1].actions,
                          ("documents", "computer", "settings", "notifications"))
+        # Six right-side hits fit; eight must fail rather than paint into footer.
+        overflowing = json.loads(path.read_text(encoding="utf-8"))
+        overflowing["menu"]["groups"][2]["actions"] = [
+            "lock", "logout", "wifi-toggle", "audio-mute"]
+        with self.assertRaises(recipes.RecipeError):
+            recipes.parse(json.dumps(overflowing).encode("utf-8"))
         self.assertEqual(catalog.describe()["recipe"]["schema_versions"][-1], 12)
         self.assertIn("columns", catalog.describe()["recipe"]["menu"]["presentation"]["variants"]
                       if "menu" in catalog.describe()["recipe"] else
