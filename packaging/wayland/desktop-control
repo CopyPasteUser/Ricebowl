@@ -1,10 +1,10 @@
 Package: ricebowl-wayland-desktop
-Version: 0.1.0~preview2
+Version: 0.1.0~preview3
 Section: x11
 Priority: optional
 Architecture: amd64
 Maintainer: CopyPasteUser
-Depends: ricebowl-wayland-core (= 0.1.0~preview2), ricebowl-wayland-session (>= 0.1.0~preview3), ricebowl-riceplate-native (>= 0.1.0~preview1)
+Depends: ricebowl-wayland-core (= 0.1.0~preview2), ricebowl-wayland-session (>= 0.1.0~preview3), ricebowl-riceplate-native (>= 0.1.0~preview2)
 Description: Optional complete RiceBowl labwc Wayland desktop preview
  Installs RiceBowl's standalone application, opt-in session entries and
  native Rust RicePlate through Debian dependencies. It does not change

@@ -177,7 +177,7 @@ jobs:
           set -eu
           sh -n scripts/build_riceplate_native_deb.sh
           binary="$PWD/components/riceplate-wayland/target/release/riceplate-native"
-          output="$PWD/dist/riceplate-native-preview/ricebowl-riceplate-native_0.1.0~preview1_amd64.deb"
+          output="$PWD/dist/riceplate-native-preview/ricebowl-riceplate-native_0.1.0~preview2_amd64.deb"
           sh scripts/build_riceplate_native_deb.sh "$binary" "$output"
           second="$RUNNER_TEMP/riceplate-reproducibility.deb"
           sh scripts/build_riceplate_native_deb.sh "$binary" "$second"
@@ -201,7 +201,7 @@ jobs:
           private_root="$RUNNER_TEMP/ricebowl-wayland-login-pair"
           mkdir -p "$private_root"
           dpkg-deb --extract "$session" "$private_root"
-          dpkg-deb --extract "$artifact/ricebowl-riceplate-native_0.1.0~preview1_amd64.deb" "$private_root"
+          dpkg-deb --extract "$artifact/ricebowl-riceplate-native_0.1.0~preview2_amd64.deb" "$private_root"
           test -x "$private_root/usr/bin/riceplate-native"
           test -x "$private_root/usr/bin/ricebowl-wayland-session"
           grep -Fxq 'Exec=/usr/bin/ricebowl-wayland-session --native' \
@@ -216,7 +216,7 @@ jobs:
           set -eu
           artifact="$PWD/dist/riceplate-native-preview"
           core="$artifact/ricebowl-wayland-core_0.1.0~preview2_all.deb"
-          bundle="$artifact/ricebowl-wayland-desktop_0.1.0~preview2_amd64.deb"
+          bundle="$artifact/ricebowl-wayland-desktop_0.1.0~preview3_amd64.deb"
           bash scripts/build_wayland_core_deb.sh "$core"
           bash scripts/build_wayland_core_deb.sh "$RUNNER_TEMP/ricebowl-core-rebuild.deb"
           cmp "$core" "$RUNNER_TEMP/ricebowl-core-rebuild.deb"
@@ -241,8 +241,8 @@ jobs:
           bash scripts/verify_wayland_package_set.sh \
             "$artifact/ricebowl-wayland-core_0.1.0~preview2_all.deb" \
             "$artifact/ricebowl-wayland-session_0.1.0~preview3_all.deb" \
-            "$artifact/ricebowl-riceplate-native_0.1.0~preview1_amd64.deb" \
-            "$artifact/ricebowl-wayland-desktop_0.1.0~preview2_amd64.deb"
+            "$artifact/ricebowl-riceplate-native_0.1.0~preview2_amd64.deb" \
+            "$artifact/ricebowl-wayland-desktop_0.1.0~preview3_amd64.deb"
       - name: Install, reinstall and purge complete preview in disposable Ubuntu
         timeout-minutes: 18
         run: |
@@ -257,8 +257,8 @@ jobs:
               apt-get install -y --no-install-recommends \
                 /packages/ricebowl-wayland-core_0.1.0~preview2_all.deb \
                 /packages/ricebowl-wayland-session_0.1.0~preview3_all.deb \
-                /packages/ricebowl-riceplate-native_0.1.0~preview1_amd64.deb \
-                /packages/ricebowl-wayland-desktop_0.1.0~preview2_amd64.deb
+                /packages/ricebowl-riceplate-native_0.1.0~preview2_amd64.deb \
+                /packages/ricebowl-wayland-desktop_0.1.0~preview3_amd64.deb
               dpkg-query -W ricebowl-wayland-desktop | grep -q "^ricebowl-wayland-desktop[[:space:]]"
               /usr/bin/ricebowl-wayland-app de --help >/dev/null
               test -x /usr/lib/ricebowl-wayland/bin/ricebowl
@@ -273,8 +273,8 @@ jobs:
               apt-get install -y --no-install-recommends --reinstall \
                 /packages/ricebowl-wayland-core_0.1.0~preview2_all.deb \
                 /packages/ricebowl-wayland-session_0.1.0~preview3_all.deb \
-                /packages/ricebowl-riceplate-native_0.1.0~preview1_amd64.deb \
-                /packages/ricebowl-wayland-desktop_0.1.0~preview2_amd64.deb
+                /packages/ricebowl-riceplate-native_0.1.0~preview2_amd64.deb \
+                /packages/ricebowl-wayland-desktop_0.1.0~preview3_amd64.deb
               test "$(cat /root/.config/ricebowl/upgrade-preservation-marker)" = user-state
               /usr/bin/ricebowl-wayland-app de --help >/dev/null
               apt-get purge -y ricebowl-wayland-desktop ricebowl-wayland-core \
