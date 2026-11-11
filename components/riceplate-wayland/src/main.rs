@@ -1901,6 +1901,11 @@ impl RicePlate {
 
     fn redraw_menu(&mut self, _qh: &QueueHandle<Self>) {
         let Some(active) = self.active_menu.as_ref() else { return; };
+        if self.notification_state.open {
+            let size = self.active_menu_size();
+            self.notification_state.set_compact_viewport(
+                native_menu::compact_layout(size).then_some(size));
+        }
         let layer = self.menu_layer.as_mut().filter(|menu|
             menu.surface.wl_surface() == active)
             .or_else(|| self.menu_mirrors.iter_mut().find(|menu|

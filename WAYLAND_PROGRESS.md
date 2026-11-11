@@ -81,6 +81,15 @@ from [green native run #42914562690](https://github.com/CopyPasteUser/Ricebowl/a
 That screenshot uses a simulated 68% value; real hardware audio events and
 input transparency still need physical acceptance.
 
+The same opt-in font now reaches **native RicePop notification lists and
+details**, including compact popups. Text wraps and paginates at the actual
+8px/16px glyph advance; unselected fonts retain the original bitmap pixels.
+The [four real-compositor notification captures](screenshots/wayland/README.md#luna-ricepop--native-notification-font-captures)
+and their pixel checks passed in [native run #42970768749](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42970768749).
+The detail view also retains its page after a live Mako refresh on compact
+outputs and clamps only when the popup geometry actually changes. These are
+software proofs, not physical focus or readability sign-off.
+
 Two-column Luna recipes with a validated palette now also select matching
 **labwc-owned window frames** inside RiceBowl's private session config. Native
 live switch/restore rolls the menu and frame settings back together on failure;
@@ -165,7 +174,7 @@ selection never changes the XFCE default.
 
 ### Active track: software-complete candidate
 
-**Current planning estimate: approximately 84% software-complete (11 November
+**Current planning estimate: approximately 85% software-complete (11 November
 2026).** This is a qualitative estimate, not a measured CI coverage score or
 permission to publish a stable release. It deliberately **excludes physical
 hardware acceptance**, so it must not be compared directly with the earlier

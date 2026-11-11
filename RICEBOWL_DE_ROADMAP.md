@@ -89,6 +89,12 @@ installation and is not yet a finished desktop environment.
   font can draw supported extra Unicode glyphs without a per-rice resident
   worker; unsupported characters retain a visible fallback. The existing
   fixed-cell text geometry and RicePack v4 verification stay compatible.
+- [x] Reuse the optional owner-private font for native RicePop active/history
+  lists and message details, including compact-layout surfaces. Paginate at
+  the real 8px/16px glyph width and retain original bitmap pixels without a
+  selected private font. Validate both states against actual labwc captures
+  (green native run #42970768749, PR #250). Refresh-time page clamping now
+  follows the active popup viewport, preserving compact-page reading position.
 - [ ] Full script shaping, bidirectional text, variable font metrics, large
   CJK font packages, global toolkit font choices and physical visual/Orca
   verification are distinct follow-up work, not claimed by the glyph cache.

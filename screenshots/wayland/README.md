@@ -154,6 +154,28 @@ capture's 125%-scaled output places the 248×70 logical surface across about
 RGB pixels**, whereas a crop assuming 100% scale missed its left-hand text.
 The proof covers rendering, not hardware mixer events or physical focus.
 
+### Luna RicePop · native notification font captures
+
+Four **real 1366×768 headless labwc framebuffer screenshots** are archived
+in [successful native run #42970768749](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42970768749)
+(the `riceplate-native-preview` artifact):
+
+| Notification surface | Bundled bitmap | Owner-private TrueType |
+| --- | --- | --- |
+| Active list | `xp-luna-columns-notifications.png` | `xp-luna-font-notifications.png` |
+| Message detail | `xp-luna-columns-notification-detail.png` | `xp-luna-font-notification-detail.png` |
+
+These are CI-only, simulated notifications painted by the **actual native
+RicePlate popup**, not images assembled from a static mockup. A deterministic
+preview does not query, dismiss or change the host's Mako notifications.
+The CI checks each popup visibly alters the closed desktop by more than 2,500
+RGB pixels and that the imported font changes more than 250 pixels in both
+the list and the message detail. Without an imported font, legacy bitmap
+painting stays unchanged. The compact-popup and 200% font wrapping/page
+behavior have Rust regression tests; physical screen-reader and focus QA
+remain deferred. These four PNGs are in the expiring run artifact rather than
+checked-in permanent WebP gallery images.
+
 ### Luna window chrome · real XWayland before/after
 
 | Default labwc server-side window frame | Private Luna palette-driven frame |
