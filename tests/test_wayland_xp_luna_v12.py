@@ -41,7 +41,9 @@ class WaylandLunaTests(unittest.TestCase):
         self.assertEqual(review._manifest(parsed),
                          json.loads(path.read_text(encoding="utf-8")))
         self.assertEqual([item.title for item in parsed.menu[1]],
-                         ["Programs", "System", "Session"])
+                         ["Programs", "Places", "Session"])
+        self.assertEqual(parsed.menu[1][1].actions,
+                         ("documents", "computer", "settings", "notifications"))
         self.assertEqual(catalog.describe()["recipe"]["schema_versions"][-1], 12)
         self.assertIn("columns", catalog.describe()["recipe"]["menu"]["presentation"]["variants"]
                       if "menu" in catalog.describe()["recipe"] else
