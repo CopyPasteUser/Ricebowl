@@ -181,6 +181,24 @@ pub fn status_icon(canvas: &mut [u8], width: u32, height: u32,
     }
 }
 
+/// An original XP-like "show hidden icons" chevron. The existing fourth
+/// SNI tray slot remains its only hit target and still opens the real popup.
+pub fn tray_overflow_chevron(canvas: &mut [u8], width: u32, height: u32, x: u32) {
+    if height < 22 { return; }
+    let top = (height - 24) / 2;
+    fill_rounded_rect(canvas, width, height, x + 2, top, 24, 24, 6, 0xff15_598f);
+    fill_rounded_rect(canvas, width, height, x + 3, top + 1, 22, 21, 5, 0xff53_b6ed);
+    fill_rect(canvas, width, height, x + 5, top + 2, 18, 1, 0xffc5_f2ff);
+    // White facing-left double chevron, not a static count masquerading as
+    // an interactive control.
+    for origin in [8_u32, 15] {
+        for step in 0..4 {
+            fill_rect(canvas, width, height, x + origin + step,
+                      top + 8 + step, 1, 7 - step * 2, 0xffff_ffff);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -242,6 +260,20 @@ mod tests {
         task_button(&mut pixels, 12, 8, 0, 4, true, &style);
         launcher(&mut pixels, 12, 8, 0, 4, style.launcher.as_ref().unwrap());
         status_icon(&mut pixels, 12, 8, 0, 4, Widget::Audio, true);
+    }
+
+    #[test]
+    fn luna_tray_overflow_chevron_is_original_and_clipped() {
+        let (width, height) = (112, 40);
+        let mut pixels = vec![0_u8; (width * height * 4) as usize];
+        tray_overflow_chevron(&mut pixels, width, height, width - 28);
+        assert_eq!(px(&pixels, width, 0, 0), 0);
+        assert_ne!(px(&pixels, width, width - 21, height / 2), 0);
+        assert_eq!(px(&pixels, width, 45, height / 2), 0);
+        // Small/rotated logical panels remain safely paintable.
+        let mut tiny = vec![0_u8; 8 * 8 * 4];
+        tray_overflow_chevron(&mut tiny, 8, 8, 0);
+        assert!(tiny.iter().all(|&value| value == 0));
     }
 
     #[test]
