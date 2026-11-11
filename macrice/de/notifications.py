@@ -8,8 +8,11 @@ No second notification owner, arbitrary command, persistence or poller.
 from __future__ import annotations
 
 import json
+import os
+import re
 import shutil
 import subprocess
+from pathlib import Path
 from typing import Any
 
 
@@ -17,6 +20,108 @@ class NotificationBridgeError(ValueError):
     def __init__(self, message: str, code: str = "notifications_unavailable") -> None:
         super().__init__(message)
         self.code = code
+
+
+_DND_MODE = "ricebowl-do-not-disturb"
+_NOTIFICATION_BUS = "org.freedesktop.Notifications"
+
+
+def _owned_mako() -> tuple[str, int]:
+    """Prove Mako's *D-Bus owner*, not just a Wayland environment marker.
+
+    An existing XFCE/nested notification host must never receive a global
+    makoctl mode mutation. Missing busctl or an opaque /proc fails closed.
+    """
+    if (os.environ.get("XDG_SESSION_DESKTOP") != "ricebowl"
+            or os.environ.get("RICEBOWL_DE_NESTED") != "0"
+            or not os.environ.get("WAYLAND_DISPLAY")):
+        raise NotificationBridgeError("Do Not Disturb requires a full RiceBowl Wayland session",
+                                      "dnd_session_unavailable")
+    command = shutil.which("makoctl")
+    busctl = shutil.which("busctl")
+    if not command or not busctl:
+        raise NotificationBridgeError("Mako controls or D-Bus ownership tools are missing")
+    try:
+        owner = subprocess.run([busctl, "--user", "status", _NOTIFICATION_BUS],
+                               capture_output=True, timeout=3, check=False)
+        if owner.returncode or len(owner.stdout) > 16 * 1024:
+            raise ValueError("Unverified D-Bus owner")
+        match = re.search(rb"(?m)^\s*PID=(\d+)\s*$", owner.stdout)
+        if not match or not 1 <= int(match.group(1)) <= 2**31 - 1:
+            raise ValueError("No notification owner PID")
+        pid = int(match.group(1))
+        with open(f"/proc/{pid}/cmdline", "rb") as stream:
+            arguments = stream.read(4097)
+        if len(arguments) > 4096 or not arguments.endswith(b"\0"):
+            raise ValueError("Invalid notification owner command")
+        argv = arguments.rstrip(b"\0").split(b"\0")
+        expected = str(Path(__file__).parent / "resources" / "mako.conf").encode()
+        if (not argv or Path(os.fsdecode(argv[0])).name != "mako"
+                or len(argv) != 3 or argv[1] != b"--config" or argv[2] != expected):
+            raise ValueError("Another application owns notifications")
+    except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+        raise NotificationBridgeError("RiceBowl does not own the active Mako notification host",
+                                      "dnd_host_unverified") from exc
+    return command, pid
+
+
+def _modes(command: str) -> list[str]:
+    try:
+        snapshot = subprocess.run([command, "mode"], capture_output=True,
+                                  timeout=3, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise NotificationBridgeError("Mako modes are unreachable") from exc
+    if snapshot.returncode or len(snapshot.stdout) > 4096:
+        raise NotificationBridgeError("Mako mode inventory is unavailable")
+    try:
+        modes = snapshot.stdout.decode("utf-8").splitlines()
+    except UnicodeError as exc:
+        raise NotificationBridgeError("Invalid Mako mode inventory") from exc
+    if len(modes) > 32 or len(set(modes)) != len(modes) or any(
+            not value or len(value) > 80 or not value.isprintable() for value in modes):
+        raise NotificationBridgeError("Ambiguous Mako mode inventory")
+    return modes
+
+
+def dnd_status() -> dict[str, Any]:
+    """Read the verified owner; no writes and no notification text disclosed."""
+    command, pid = _owned_mako()
+    enabled = _DND_MODE in _modes(command)
+    if _owned_mako() != (command, pid):
+        raise NotificationBridgeError("Notification owner changed", "dnd_host_unverified")
+    return {"ok": True, "backend": "mako", "do_not_disturb": enabled,
+            "read_only": True, "mutates_active_desktop": False}
+
+
+def set_dnd(enabled: bool, *, expected: bool | None = None) -> dict[str, Any]:
+    """Compare-and-set a single Mako mode and verify the resulting owner state."""
+    if type(enabled) is not bool or (expected is not None and type(expected) is not bool):
+        raise NotificationBridgeError("Do Not Disturb expects explicit boolean states",
+                                      "invalid_dnd_state")
+    command, pid = _owned_mako()
+    previous = _DND_MODE in _modes(command)
+    if expected is not None and previous != expected:
+        raise NotificationBridgeError("Do Not Disturb changed; refresh before retrying",
+                                      "stale_dnd_state")
+    if previous != enabled:
+        # Check D-Bus ownership once more just before mutation (e.g. a daemon
+        # may have exited while RiceSpice's asynchronous page was open).
+        if _owned_mako() != (command, pid):
+            raise NotificationBridgeError("Notification owner changed", "dnd_host_unverified")
+        try:
+            result = subprocess.run([command, "mode", "-a" if enabled else "-r", _DND_MODE],
+                                    capture_output=True, timeout=3, check=False)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise NotificationBridgeError("Do Not Disturb change could not be confirmed") from exc
+        if result.returncode:
+            raise NotificationBridgeError("Notification host rejected Do Not Disturb")
+    if _owned_mako() != (command, pid):
+        raise NotificationBridgeError("Notification owner changed", "dnd_host_unverified")
+    if (_DND_MODE in _modes(command)) != enabled:
+        raise NotificationBridgeError("Do Not Disturb verification failed", "dnd_verify_failed")
+    return {"ok": True, "backend": "mako", "do_not_disturb": enabled,
+            "changed": previous != enabled, "read_only": False,
+            "mutates_active_desktop": previous != enabled}
 
 
 def _action_key(key: object) -> bool:
@@ -167,8 +272,8 @@ def invoke(notification_id: int, action_key: str) -> dict[str, Any]:
 
 
 def invalid(error: NotificationBridgeError, *, attempted_dismiss: bool = False,
-            attempted_invoke: bool = False) -> dict[str, Any]:
+            attempted_invoke: bool = False, attempted_dnd: bool = False) -> dict[str, Any]:
     return {"ok": False, "backend": "mako", "active": [], "history": [],
-            "read_only": not (attempted_dismiss or attempted_invoke),
-            "dismissed": False, "invoked": False,
+            "read_only": not (attempted_dismiss or attempted_invoke or attempted_dnd),
+            "dismissed": False, "invoked": False, "do_not_disturb": None,
             "error": {"code": error.code, "message": str(error)}}

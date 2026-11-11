@@ -19,7 +19,7 @@ class RiceSpiceSettingsTests(unittest.TestCase):
         keys = [section[0] for section in settings.SECTIONS]
         self.assertEqual(len(keys), len(set(keys)))
         self.assertEqual(set(keys), {
-            "network", "audio", "bluetooth", "displays", "input",
+            "network", "audio", "notifications", "bluetooth", "displays", "input",
             "accessibility", "timezone", "power", "appearance",
         })
         self.assertEqual(set(backend.EXTERNAL_PAGES), {

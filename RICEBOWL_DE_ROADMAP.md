@@ -578,9 +578,22 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   extra backends and full Unicode fallback are post-1.0 possibilities;
   physical keyboard/AT-SPI/action acceptance is still required.
 
+- [x] Add **RicePop Do Not Disturb to the native RiceSpice Notifications page**
+  and the machine-readable `de notification-dnd --json` API. A fixed
+  RiceBowl-specific Mako configuration hides banners in
+  `ricebowl-do-not-disturb` mode while preserving active/history entries;
+  this is neither a second daemon nor a private notification database.
+  Explicit on/off writes require the previously observed state, verify the
+  live D-Bus owner's PID and exact RiceBowl Mako command, and check the result.
+  Other desktops, nested Wayland previews and an unverifiable notification
+  owner refuse writes. The full session exports its nested/full distinction to
+  D-Bus activation for settings clients. On-hardware Mako version, D-Bus
+  ownership, race and assistive-technology acceptance are still open.
+
 - [x] Introduce the **on-demand RiceSpice settings window**, launched through
   a validated `settings` menu action or `ricebowl de settings`. It presents nine
-  clearly separated settings categories. Real native controls cover reviewed
+  clearly separated settings categories (now ten including Notifications).
+  Real native controls cover reviewed
   audio default sink/source selection, NetworkManager Wi-Fi radio with stale
   state protection, BlueZ adapter power/paired device connections and explicit
   lock or confirmed logind suspend (disabled in nested previews). Reviewed

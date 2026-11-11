@@ -352,6 +352,8 @@ class WaylandSessionTests(unittest.TestCase):
         with mock.patch("macrice.de.session.signal.signal"):
             result = session.shell(environment=env, which=choices.get, spawn=spawn)
         self.assertEqual(result, 0)
+        self.assertIn(["/usr/bin/mako", "--config",
+                       str(session.resources() / "mako.conf")], commands)
         self.assertIn("--config", commands[-1])
         self.assertIn(str(session.resources() / "waybar/config.jsonc"), commands[-1])
         self.assertFalse(any(command[0] == "/usr/bin/swayidle" for command in commands))

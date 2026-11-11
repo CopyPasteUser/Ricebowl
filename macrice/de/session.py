@@ -749,10 +749,12 @@ def shell(
                 )
                 background.append(wallpaper_process)
 
-            # Temporary notification host, not a replacement for RicePop.
+            # RicePop reuses one Mako notification owner with a fixed private
+            # mode rule. Never modify the user's ~/.config/mako/config.
             mako = which("mako")
             if mako:
-                background.append(spawn([mako], env=env, stdin=subprocess.DEVNULL))
+                background.append(spawn([mako, "--config", str(base / "mako.conf")],
+                                        env=env, stdin=subprocess.DEVNULL))
 
             # Orca is optional, opt-in and only supervised inside a full RiceBowl
             # session. Do not start another reader in a nested XFCE preview.
