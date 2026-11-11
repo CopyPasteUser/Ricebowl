@@ -430,6 +430,20 @@ impl MenuState {
         (self.selected / rows) * rows
     }
 
+    /// A non-interactive counter for scrollable action lists. Fully composed
+    /// recipe sections have fixed geometry and must not suggest paging.
+    pub fn page_status(&self, menu: &NativeMenu, rows: usize) -> Option<(usize, usize, usize)> {
+        if self.view == View::Groups && (menu.presentation == MenuPresentation::Columns
+            || menu.groups.get(self.group).is_some_and(|group| group.content.is_some())) {
+            return None;
+        }
+        let rows = rows.clamp(1, VISIBLE_ACTIONS);
+        let total = self.actions(menu).len();
+        if total <= rows { return None; }
+        let first = self.first_action_row_for(rows).min(total - 1);
+        Some((first + 1, (first + rows).min(total), total))
+    }
+
     pub fn start_search(&mut self) {
         self.view = View::Search;
         self.search.clear();
@@ -647,6 +661,29 @@ impl MenuState {
 mod tests {
     use super::*;
     use crate::recipe::NativeMenuGroup;
+
+    #[test]
+    fn page_counter_tracks_visible_action_range_without_false_composition() {
+        let mut data = menu();
+        data.groups[0].actions = vec!["terminal".into(), "applications".into(),
+            "settings".into(), "lock".into(), "audio-up".into(),
+            "audio-down".into(), "notifications".into()];
+        let mut state = MenuState::default();
+        state.open();
+        assert_eq!(state.page_status(&data, VISIBLE_ACTIONS), Some((1, 4, 7)));
+        state.selected = 6;
+        assert_eq!(state.page_status(&data, VISIBLE_ACTIONS), Some((5, 7, 7)));
+        assert_eq!(state.page_status(&data, 2), Some((7, 7, 7)));
+        state.show_saved();
+        assert_eq!(state.page_status(&data, VISIBLE_ACTIONS), None);
+
+        let mut composed = menu();
+        composed.groups[0].content = Some(vec![crate::recipe::NativeMenuContent {
+            kind: MenuContentKind::Actions, title: "Commands".into(), limit: 2,
+        }]);
+        state.open();
+        assert_eq!(state.page_status(&composed, 1), None);
+    }
 
     #[test]
     fn wheel_pages_long_action_lists_without_overflow_or_touchpad_jitter() {

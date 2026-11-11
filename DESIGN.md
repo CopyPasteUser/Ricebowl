@@ -539,6 +539,11 @@ navigation through their bounded native menu viewport. Discrete notches page
 once; continuous movement accumulates before paging. The fully visible
 recipe-composed sections do not scroll, and focus/selection still uses the
 shared keyboard/pointer action state. No per-rice scroll daemon is needed.
+The ordinary full-size menu footer reserves a bounded, right-aligned
+`first-last/total` indicator only when the action list spans multiple pages;
+the shortcut hint shortens rather than painting beneath it. Composed menus
+and short lists retain their original footer. Compact layouts already expose
+their visible row range in the existing footer.
 
 The same **validated schema-v12 two-column palette** can opt into
 labwc-owned server-side window frames. `macrice/de/window_chrome.py` maps only
