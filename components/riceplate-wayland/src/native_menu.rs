@@ -435,21 +435,26 @@ impl MenuState {
             top += CONTENT_HEADER_HEIGHT + rows as u32 * row_height;
         }
 
-        top = COLUMNS_RIGHT_TOP;
+        let right_row_height = if menu.palette.is_some() {
+            COLUMNS_RIGHT_ROW_HEIGHT
+        } else {
+            CONTENT_LIST_HEIGHT
+        };
+        top = if menu.palette.is_some() { COLUMNS_RIGHT_TOP } else { COLUMNS_TOP };
         let right_width = WIDTH - COLUMNS_RIGHT - 8;
         for group in menu.groups.iter().skip(1) {
             let mut items = Vec::with_capacity(group.actions.len());
             for (row, action) in group.actions.iter().enumerate() {
                 items.push(MenuTile {
                     action, index, x: COLUMNS_RIGHT,
-                    y: top + CONTENT_HEADER_HEIGHT + row as u32 * COLUMNS_RIGHT_ROW_HEIGHT,
-                    width: right_width, height: COLUMNS_RIGHT_ROW_HEIGHT, grid: false,
+                    y: top + CONTENT_HEADER_HEIGHT + row as u32 * right_row_height,
+                    width: right_width, height: right_row_height, grid: false,
                 });
                 index += 1;
             }
             result.push(MenuSection { title: &group.title, x: COLUMNS_RIGHT,
                 kind: MenuContentKind::Actions, top, items });
-            top += CONTENT_HEADER_HEIGHT + group.actions.len() as u32 * COLUMNS_RIGHT_ROW_HEIGHT;
+            top += CONTENT_HEADER_HEIGHT + group.actions.len() as u32 * right_row_height;
         }
         Some(result)
     }
