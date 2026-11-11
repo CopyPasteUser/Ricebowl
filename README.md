@@ -57,7 +57,10 @@ fonts without installing or applying anything.
 Creator can import or reopen an installed schema-v10–v12 RicePack as a new,
 editable private draft without replacing the original rice or changing the session.
 Imported license and artist credits survive editing and export; review them
-before publishing a derivative rice.
+before publishing a derivative rice. An import checks existing recipe IDs,
+private attribution, wallpapers, fonts and icons before installing assets;
+interrupted identical imports can resume, but multi-file power-loss atomicity
+is not claimed.
 The Creator's **Try interactive Wayland window** action runs a saved version in
 a separate nested labwc session; closing it leaves the active rice and next
 login unchanged. Actual Wayland apply/restore remains a separate confirmed action.

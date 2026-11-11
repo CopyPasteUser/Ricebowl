@@ -12,7 +12,8 @@ from unittest.mock import patch
 import zlib
 import zipfile
 
-from macrice.de import creator_workspace, drafts, pack, recipes, style_assets
+from macrice.de import assets, creator_workspace, drafts, pack, recipes, style_assets
+from tests.test_de_portable_wallpapers import png
 
 
 ATTRIBUTION = {"author": "RiceBowl Creator", "license": "CC-BY-4.0",
@@ -44,6 +45,26 @@ class CreatorStyleAssetsTests(unittest.TestCase):
         self.addCleanup(env.stop)
         self.icon = self.root / "my-icon.png"
         self.icon.write_bytes(icon_png())
+
+    def _two_icon_pack(self, *, wallpaper: bool = False):
+        alternate = self.root / "other-icon.png"
+        alternate.write_bytes(icon_png(b"\x2a\xc8\x83\xff"))
+        first = style_assets.import_asset(self.icon, kind="icon", label="First original",
+                                          provenance=ATTRIBUTION)
+        second = style_assets.import_asset(alternate, kind="icon", label="Second original",
+                                           provenance=ATTRIBUTION)
+        changes = {"/artwork/icons/applications": first.identifier,
+                   "/artwork/icons/terminal": second.identifier}
+        wallpaper_id = None
+        if wallpaper:
+            wallpaper_id, _ = assets.store(png())
+            changes["/desktop/wallpaper"] = wallpaper_id
+        draft = creator_workspace.create_draft("heritage")
+        edited, _ = creator_workspace.save_revision(
+            draft.path, changes, expected_sha256=draft.semantic_sha256)
+        archive = self.root / ("wallpaper-icons.ricepack" if wallpaper else "preflight-icons.ricepack")
+        self.assertEqual(creator_workspace.export_draft(edited, archive)["pack_version"], 4)
+        return archive, edited.recipe_id, (first.identifier, second.identifier), wallpaper_id
 
     def test_schema_v11_is_explicit_and_v10_remains_compatible(self):
         info = creator_workspace.create_draft("heritage")
@@ -244,6 +265,64 @@ class CreatorStyleAssetsTests(unittest.TestCase):
             self.assertFalse((other_config / "ricebowl/visual-assets" /
                               f"{first.identifier}.png").exists())
             self.assertFalse(list((other_config / "ricebowl/recipes").glob("*.json")))
+            self.assertEqual(recipes.current_selection(), ("classic", None))
+
+    def test_ricepack_receipt_collision_rejects_all_assets_before_publication(self):
+        archive, token, icons, _ = self._two_icon_pack()
+        for mode in ("other-receipt", "symlink"):
+            with self.subTest(mode=mode):
+                config = self.root / f"collision-{mode}"
+                config.mkdir(mode=0o700)
+                with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config)}):
+                    folder = recipes._private_recipe_dir(create=True)
+                    receipt = folder / f"{token}{pack._RECEIPT_SUFFIX}"
+                    outside = self.root / f"untouched-{mode}.txt"
+                    outside.write_text("must not be altered")
+                    if mode == "symlink":
+                        receipt.symlink_to(outside)
+                    else:
+                        recipes._write_private_new(receipt, b"different private receipt\n",
+                                                   suffix=pack._RECEIPT_SUFFIX)
+                    with self.assertRaises(pack.PackError):
+                        pack.import_pack(archive)
+                    self.assertEqual(outside.read_text(), "must not be altered")
+                    self.assertFalse((folder / f"{token}.json").exists())
+                    self.assertFalse((config / "ricebowl/visual-assets").exists())
+                    self.assertEqual(recipes.current_selection(), ("classic", None))
+
+    def test_ricepack_broken_existing_wallpaper_rejects_all_icons(self):
+        archive, token, icons, wallpaper_id = self._two_icon_pack(wallpaper=True)
+        config = self.root / "bad-wallpaper-config"
+        config.mkdir(mode=0o700)
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config)}):
+            folder = assets._collection(create=True)
+            wallpaper_file = folder / f"{wallpaper_id}.png"
+            recipes._write_private_new(wallpaper_file, png() + b"corrupt", suffix=".png")
+            with self.assertRaises(pack.PackError) as failure:
+                pack.import_pack(archive)
+            self.assertEqual(failure.exception.code, "asset_unavailable")
+            self.assertEqual(wallpaper_file.read_bytes(), png() + b"corrupt")
+            self.assertFalse((config / "ricebowl/visual-assets").exists())
+            self.assertFalse((config / "ricebowl/recipes" / f"{token}.json").exists())
+            self.assertEqual(recipes.current_selection(), ("classic", None))
+
+    def test_ricepack_retries_exact_prior_receipt_before_assets_are_installed(self):
+        archive, token, icons, wallpaper_id = self._two_icon_pack(wallpaper=True)
+        config = self.root / "retry-receipt-config"
+        config.mkdir(mode=0o700)
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config)}):
+            folder = recipes._private_recipe_dir(create=True)
+            receipt = folder / f"{token}{pack._RECEIPT_SUFFIX}"
+            with zipfile.ZipFile(archive) as bundle:
+                metadata = json.loads(bundle.read("ricepack.json"))
+                original = recipes.parse(bundle.read("recipe.json"))
+            provenance = pack._provenance_receipt(metadata, original)
+            recipes._write_private_new(receipt, provenance, suffix=pack._RECEIPT_SUFFIX)
+            self.assertTrue(pack.import_pack(archive)["imported"])
+            self.assertEqual(receipt.read_bytes(), provenance)
+            for icon in icons:
+                self.assertEqual(style_assets.entry(icon).provenance, ATTRIBUTION)
+            self.assertEqual(assets.read(wallpaper_id)[1], png())
             self.assertEqual(recipes.current_selection(), ("classic", None))
 
     def test_ricepack_rejects_two_attributions_for_one_icon_identity(self):

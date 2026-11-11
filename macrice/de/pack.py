@@ -114,7 +114,14 @@ def _provenance_receipt(manifest: dict[str, Any], recipe: recipes.PanelRecipe) -
     """Bind imported license/origin attribution to the exact reviewed recipe."""
     wallpaper = (manifest["asset_manifest"]["wallpaper"]["provenance"]
                  if manifest["format_version"] >= 2 else dict(_DEFAULT_PROVENANCE))
-    wallpaper_id, wallpaper_sha = _wallpaper_identity(recipe)
+    # The archive validator already pinned these bytes. Do not depend on a
+    # *completed* private wallpaper install to calculate the receipt: import
+    # preflight must inspect existing collisions before writing any asset.
+    if manifest["format_version"] >= 2:
+        wallpaper_id = manifest["asset_manifest"]["wallpaper"]["id"]
+        wallpaper_sha = manifest["asset_manifest"]["wallpaper"]["sha256"]
+    else:
+        wallpaper_id, wallpaper_sha = _wallpaper_identity(recipe)
     return _json_bytes({"version": 1,
                         "semantic_sha256": manifest["recipe"]["semantic_sha256"],
                         "wallpaper_id": wallpaper_id, "wallpaper_sha256": wallpaper_sha,
@@ -473,17 +480,46 @@ def inspect_pack(source: Path) -> dict[str, Any]:
             "imported": False, "applied": False, "manifest": metadata}
 
 
-def import_pack(source: Path, *, expected_manifest: dict[str, Any] | None = None
-                ) -> dict[str, Any]:
-    """Install a recipe and a data-only provenance receipt, without applying it."""
-    metadata, payload, wallpaper_bytes, visual_payloads = _validate_archive(source)
-    if expected_manifest is not None and metadata != expected_manifest:
-        raise PackError("RicePack changed since review; inspect it again",
-                        code="pack_changed")
+def _preflight_import(metadata: dict[str, Any], payload: bytes,
+                      wallpaper_bytes: bytes | None,
+                      visual_payloads: dict[str, bytes]) -> bytes:
+    """Inspect every known destination before publishing the first pack asset.
+
+    Private immutable files remain the crash-retry boundary. This prevents a
+    predictable later collision (including stale provenance and a bad existing
+    wallpaper) from leaving earlier, otherwise valid font/icon files behind.
+    It is not a cross-process or power-loss atomic transaction.
+    """
     if metadata["recipe"]["id"] in recipes.BUILTINS:
         raise PackError("Cannot replace a reserved built-in recipe", code="reserved_id")
-    # Check *all* referenced visual assets before any installation. A later
-    # conflict must not leave an earlier icon/font installed without its rice.
+    try:
+        folder = recipes._private_recipe_dir(create=False)
+    except recipes.RecipeError as exc:
+        raise PackError("Private recipe collection is unsafe", code="import_unavailable") from exc
+    token = metadata["recipe"]["id"]
+    if os.path.lexists(folder / f"{token}.json"):
+        raise PackError("Cannot replace an installed recipe", code="import_unavailable")
+    attribution = _provenance_receipt(metadata, recipes.parse(payload))
+    receipt = folder / f"{token}{_RECEIPT_SUFFIX}"
+    if os.path.lexists(receipt):
+        try:
+            prior = _read_owned_file(receipt, suffix=_RECEIPT_SUFFIX,
+                                     limit=MAX_METADATA_BYTES, owner_private=True)
+        except PackError as exc:
+            raise PackError("Existing private provenance is unsafe",
+                            code="import_unavailable") from exc
+        if prior != attribution:
+            raise PackError("Existing provenance does not match this pack",
+                            code="import_unavailable")
+    if wallpaper_bytes is not None:
+        identifier = metadata["asset_manifest"]["wallpaper"]["id"]
+        try:
+            existing = assets._collection(create=False) / f"{identifier}.png"
+            if os.path.lexists(existing) and assets.read(identifier)[1] != wallpaper_bytes:
+                raise assets.AssetError("Installed wallpaper content differs")
+        except assets.AssetError as exc:
+            raise PackError("Private wallpaper conflicts with this pack",
+                            code="asset_unavailable") from exc
     if visual_payloads:
         from . import style_assets
         visual = metadata["asset_manifest"]["visual"]
@@ -497,6 +533,17 @@ def import_pack(source: Path, *, expected_manifest: dict[str, Any] | None = None
             except style_assets.StyleAssetError as exc:
                 raise PackError("Private font/icon asset conflicts with this pack",
                                 code="asset_unavailable") from exc
+    return attribution
+
+
+def import_pack(source: Path, *, expected_manifest: dict[str, Any] | None = None
+                ) -> dict[str, Any]:
+    """Install a recipe and a data-only provenance receipt, without applying it."""
+    metadata, payload, wallpaper_bytes, visual_payloads = _validate_archive(source)
+    if expected_manifest is not None and metadata != expected_manifest:
+        raise PackError("RicePack changed since review; inspect it again",
+                        code="pack_changed")
+    attribution = _preflight_import(metadata, payload, wallpaper_bytes, visual_payloads)
     try:
         folder = recipes._private_recipe_dir(create=True)
         destination = folder / f"{metadata['recipe']['id']}.json"
@@ -523,7 +570,6 @@ def import_pack(source: Path, *, expected_manifest: dict[str, Any] | None = None
                 except style_assets.StyleAssetError as exc:
                     raise PackError("Cannot install verified font/icon asset",
                                     code="asset_unavailable") from exc
-        attribution = _provenance_receipt(metadata, recipes.parse(payload))
         if os.path.lexists(receipt):
             # A previous interrupted import may have published its receipt
             # before the recipe. Reuse only byte-identical private metadata.

@@ -1,5 +1,16 @@
 # RiceBowl changelog
 
+## Unreleased — full RicePack destination preflight (11 November 2026)
+
+- Check recipe IDs, existing private provenance receipts, wallpaper integrity
+  and every referenced font/icon *before* writing any imported asset. A
+  mismatched or symlinked previous receipt and a damaged content-addressed
+  wallpaper now block the import without leaving earlier assets behind.
+- Calculate the exact import receipt from the fully validated archive so a
+  matching interrupted receipt remains retryable before the wallpaper exists.
+  Existing data is never overwritten; cross-process races, I/O failure and
+  power-loss atomicity remain separate recovery limits.
+
 ## Unreleased — interactive nested Creator test window (11 November 2026)
 
 - Add a native GTK Creator action to try an immutable saved rice in a separate,
