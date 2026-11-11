@@ -387,7 +387,11 @@ dbus-run-session -- sh -eu -c '
                     # results while the popup remains open and interactive.
                     # Capture hover separately so highlight-only motion cannot
                     # masquerade as successful paging in the pixel assertion.
-                    WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 220 600 "$width" "$height"
+                    # Match the wheel-event coordinates so pointer motion
+                    # cannot change the selected search row between the hover
+                    # baseline and the reverse-wheel restoration. This matters
+                    # now that Luna searches eight rather than six actions.
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 220 685 "$width" "$height"
                     sleep 0.35
                     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-find-hover-$geometry.png"
                     cp "$runtime/xp-luna-pointer-find-hover-$geometry.png" \
