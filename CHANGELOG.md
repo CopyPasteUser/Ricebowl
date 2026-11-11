@@ -21,6 +21,8 @@
   remains in process memory until the watcher exits.
 - The RicePlate search/pin UI, images, URI lists, lock clearing, sensitive-app
   policy and physical clipboard acceptance are still open; not RiceClip 1.0.
+- Add actual headless labwc integration coverage for Unicode clipboard watch,
+  CLI replay, clear and socket teardown alongside the existing XWayland handoff.
 
 ## Unreleased — interactive nested Creator test window (11 November 2026)
 

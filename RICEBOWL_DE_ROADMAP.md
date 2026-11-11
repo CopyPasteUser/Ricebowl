@@ -848,6 +848,11 @@ must not be represented as blockers for the Wayland DE 1.0 core release.
   deduplication and failure reporting have deterministic Python tests. The
   cloud runner disallows new AF_UNIX sockets; GitHub CI should exercise the
   real socket round-trip, while physical text clipboard use remains unaccepted.
+- [x] Exercise the opt-in RiceClip watcher in the existing disposable real
+  labwc/XWayland clipboard smoke: synthetic Unicode text selection,
+  event-driven ingestion, private socket CLI, explicit copy-back, clear and
+  SIGTERM teardown. This tests the compositor data-control path in native CI,
+  not user-device focus, sensitive-app detection or live desktop acceptance.
 - [ ] Verify the actual clipboard/data-control capabilities of the supported
   labwc session on hardware; extend event-driven collection to URI and supported
   image formats with separate bounded limits. Do not start a polling loop or
