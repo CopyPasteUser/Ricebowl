@@ -697,6 +697,12 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   Bluetooth, accessibility, power, timezone and user preferences.
   **Progress (8 Nov):** Native displays now have guarded mode, scale and
   position trials plus owner-private manually restored layout presets.
+  **11 Nov milestone:** RiceSpice can now trial the *entire* saved arrangement
+  as one transaction. The independent 18-second guard validates the complete
+  connected topology, applies only advertised settings, and restores every
+  touched display in reverse order on timeout, partial failure or interruption.
+  One explicit confirmation commits the batch; a compositor-owned panel
+  refresh follows. No saved configuration is applied automatically at login.
   Session-only labwc input, GTK cursor/text/high-contrast settings and an
   opt-in, supervised full-session Orca launcher are wired. Saved NetworkManager
   Ethernet/Wi-Fi/VPN profiles can be activated/deactivated after confirmation;
