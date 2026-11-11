@@ -347,6 +347,15 @@ dbus-run-session -- sh -eu -c '
                     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-find-paged-$geometry.png"
                     cp "$runtime/xp-luna-pointer-find-paged-$geometry.png" \
                        "$source_root/dist/riceplate-native-preview/xp-luna-pointer-find-paged-$geometry.png"
+                    # Reverse the real wheel axis without closing the menu.
+                    # Land on the last selected row of the scrolled page:
+                    # pointer motion alone must NOT restore the first page.
+                    # Only the negative compositor axis event can do that.
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" --scroll-up 220 685 "$width" "$height"
+                    sleep 0.35
+                    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-find-restored-$geometry.png"
+                    cp "$runtime/xp-luna-pointer-find-restored-$geometry.png" \
+                       "$source_root/dist/riceplate-native-preview/xp-luna-pointer-find-restored-$geometry.png"
                     WAYLAND_DISPLAY=wayland-0 "$clicker" 220 "$header_y" "$width" "$height"
                     sleep 0.35
                     WAYLAND_DISPLAY=wayland-0 "$clicker" 284 "$header_y" "$width" "$height"

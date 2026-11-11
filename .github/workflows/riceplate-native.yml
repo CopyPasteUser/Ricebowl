@@ -632,13 +632,25 @@ jobs:
               paged = image.convert('RGB').crop((0, 424, 320, 728))
               hovered = hovered_image.convert('RGB').crop((0, 424, 320, 728))
           wheel_delta = changed_pixels(hovered, paged)
+          with Image.open(directory / 'xp-luna-pointer-find-restored-1024x768.png') as image:
+              assert image.size == (1024, 768), 'Reverse wheel capture geometry'
+              restored = image.convert('RGB').crop((0, 424, 320, 728))
+          # The return pointer stays over the scrolled page's selected row;
+          # hover cannot itself jump back. Negative axis must restore the
+          # entire original menu, including the active item highlight.
+          reverse_delta = changed_pixels(paged, restored)
+          restore_page_delta = changed_pixels(hovered, restored)
           assert find_delta > 2000, f'Find click had no visible native effect: {find_delta}'
           assert saved_delta > 2000, f'Saved click had no visible native effect: {saved_delta}'
           assert mode_delta > 500, f'Find and Saved rendered alike: {mode_delta}'
           assert wheel_delta > 1200, f'Wayland wheel did not page search results: {wheel_delta}'
+          assert reverse_delta > 1200, f'Reverse wheel did not change the page: {reverse_delta}'
+          assert restore_page_delta < 1500, \
+              f'Reverse wheel did not restore the original search page: {restore_page_delta}'
           assert return_delta < 1500, f'Header Back did not restore menu: {return_delta}'
           print(f'Native Luna header clicks: Find={find_delta} Saved={saved_delta} '
-                f'distinct={mode_delta} wheel={wheel_delta} restored={return_delta} RGB pixels')
+                f'distinct={mode_delta} wheel={wheel_delta} reverse={reverse_delta} '
+                f'page restored={restore_page_delta} header restored={return_delta} RGB pixels')
           assert captures['calendar-v5'] != captures['desktop-v5'], 'Native calendar did not render in Wayland frame'
           with Image.open(directory / 'calendar-v5.png') as image:
               header = image.convert('RGB').getpixel((700, 50))
