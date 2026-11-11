@@ -43,6 +43,56 @@ class CreatorStructureTests(unittest.TestCase):
                          ["widget", "gap", "label", "widget"])
         self.assertEqual(self.original, original)
 
+    def test_transfer_between_lanes_is_atomic_and_preserves_order(self):
+        before = copy.deepcopy(self.original)
+        result = structure.transfer_layout(self.original, "start", (2,), "center", target_index=0)
+        self.assertEqual(result["center"], [{"type": "widget", "id": "tasks"}])
+        self.assertEqual(result["start"], before["panel"]["layout"]["start"][:2])
+        self.assertEqual(self.original, before)
+        proposal = copy.deepcopy(before)
+        proposal["panel"]["layout"].update(result)
+        self.assertEqual(recipes.parse(json.dumps(proposal).encode()).schema_version,
+                         self.original["schema_version"])
+
+    def test_transfer_nested_group_and_compact_are_independent(self):
+        proposal = copy.deepcopy(self.original)
+        proposal["panel"]["layout"]["start"] = structure.edit_layout(
+            proposal, "start", (2,), "wrap")
+        moved = structure.transfer_layout(proposal, "start", (2,), "center")
+        self.assertEqual(moved["center"][0]["type"], "group")
+        self.assertEqual(moved["center"][0]["children"],
+                         [{"type": "widget", "id": "tasks"}])
+        self.assertEqual(proposal["panel"]["layout"]["center"], [])
+        proposal["panel"]["layout"].update(moved)
+        compact = structure.transfer_layout(proposal, "center", (0,), "end", compact=True)
+        self.assertEqual(compact["center"], [])
+        self.assertEqual(compact["end"][0]["id"], "clock")
+        self.assertEqual(compact["end"][1]["id"], "tasks")
+        self.assertEqual(proposal["responsive"]["compact_layout"]["center"],
+                         [{"type": "widget", "id": "tasks"}])
+        proposal["responsive"]["compact_layout"].update(compact)
+        recipes.parse(json.dumps(proposal).encode())
+
+    def test_transfer_rejects_stale_and_ambiguous_paths_without_mutation(self):
+        before = copy.deepcopy(self.original)
+        cases = (
+            ("start", (2,), "start", None),
+            ("other", (2,), "center", None),
+            ("start", (2,), "other", None),
+            ("start", (), "center", None),
+            ("start", (False,), "center", None),
+            ("start", (100,), "center", None),
+            ("start", (2,), "center", -1),
+            ("start", (2,), "center", True),
+            ("start", (2,), "center", 100),
+        )
+        for source, path, destination, index in cases:
+            with self.subTest(source=source, path=path, destination=destination, index=index):
+                with self.assertRaises(structure.StructureError):
+                    structure.transfer_layout(
+                        self.original, source, path, destination, target_index=index)
+        self.assertEqual(self.original, before)
+
     def test_compact_layout_edits_do_not_touch_wide(self):
         lane = structure.edit_layout(self.original, "center", (), "add",
                                      node={"type": "label", "text": "Compact"}, compact=True)
@@ -145,6 +195,21 @@ class CreatorStructureDraftIntegrationTests(unittest.TestCase):
         environment = patch.dict(os.environ, {"XDG_STATE_HOME": str(self.state)})
         environment.start()
         self.addCleanup(environment.stop)
+
+    def test_cross_lane_move_saves_both_lanes_in_one_private_revision(self):
+        info = creator_workspace.create_draft("heritage")
+        original = info.path.read_bytes()
+        manifest = review.review(str(info.path))["recipe"]
+        moved = structure.transfer_layout(manifest, "start", (2,), "center")
+        saved, changes = creator_workspace.save_revision(info.path, {
+            "/panel/layout/start": moved["start"],
+            "/panel/layout/center": moved["center"],
+        }, expected_sha256=info.semantic_sha256)
+        self.assertEqual(len(changes), 2)
+        self.assertEqual(info.path.read_bytes(), original)
+        persisted = review.review(str(saved.path))["recipe"]
+        self.assertEqual(persisted["panel"]["layout"]["start"], moved["start"])
+        self.assertEqual(persisted["panel"]["layout"]["center"], moved["center"])
 
     def test_structural_changes_produce_a_portable_private_version(self):
         info = creator_workspace.create_draft("heritage")

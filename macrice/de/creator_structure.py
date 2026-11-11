@@ -171,3 +171,37 @@ def edit_layout(manifest: dict[str, Any], section: str, path: tuple[int, ...],
             raise StructureError("Unsupported panel operation")
     _verify(proposal)
     return roots
+
+
+def transfer_layout(manifest: dict[str, Any], section: str, path: tuple[int, ...],
+                    destination: str, *, compact: bool = False,
+                    target_index: int | None = None) -> dict[str, list[dict[str, Any]]]:
+    """Atomically move a panel node (including an entire group) between lanes.
+
+    Source and destination must belong to the same wide or compact layout.
+    Both changed lanes are returned as detached lists; the caller stages both
+    edits in one Creator revision. Validation happens on the combined recipe,
+    never on an invalid intermediate state with a missing panel widget.
+    """
+    if (section not in recipes.SECTIONS or destination not in recipes.SECTIONS
+            or section == destination or type(path) is not tuple
+            or type(compact) is not bool):
+        raise StructureError("Choose two distinct panel lanes in one layout")
+    if manifest.get("schema_version", 0) < 10:
+        raise StructureError("Visual structure editor needs a schema-v10 draft")
+
+    proposal = copy.deepcopy(manifest)
+    layout = (proposal["responsive"]["compact_layout"] if compact else
+              proposal["panel"]["layout"])
+    source_nodes, destination_nodes = layout[section], layout[destination]
+    parent, index = _parent(source_nodes, path)
+
+    if target_index is None:
+        target_index = len(destination_nodes)
+    if type(target_index) is not int or not 0 <= target_index <= len(destination_nodes):
+        raise StructureError("Destination position is outside its panel lane")
+
+    element = parent.pop(index)
+    destination_nodes.insert(target_index, element)
+    _verify(proposal)
+    return {section: source_nodes, destination: destination_nodes}

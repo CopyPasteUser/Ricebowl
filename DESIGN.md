@@ -78,8 +78,12 @@ the same offline recipe validator; the editor visibly names in-use references
 and does not offer deletion of a component still used by any layout or desktop
 widget. The panel inspector now expresses the *actual bounded tree*: wide and
 compact layouts are separate deliberate modes, child groups remain nested,
-and each row has keyboard-accessible move, group/ungroup, edit and insertion
-actions. Native GTK controls handle focus and popup behavior. The existing
+and each row has keyboard-accessible reorder, cross-lane transfer,
+group/ungroup, edit and insertion actions. Cross-lane transfers move the entire
+selected subtree to another start/center/end lane within the active wide or
+compact layout, validate the combined recipe, and stage both lane changes in
+one private version; a failed transfer leaves the draft untouched. Native GTK
+controls handle focus and popup behavior. The existing
 workspace Save version is the single commit action: typing or organizing a
 draft never mutates a current session or rewrites another saved revision.
 
