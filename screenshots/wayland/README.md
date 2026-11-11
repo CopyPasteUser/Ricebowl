@@ -4,6 +4,21 @@
 
 **Real headless labwc/RicePlate renders — not mockups or screenshots of a signed-off physical desktop.** These optimized WebP previews are permanently stored in this repository, not linked from a temporary CI artifact. Select an image to view it directly.
 
+## Current Luna UI · proportional font and compact tray (11 November 2026)
+
+| Actual native Luna desktop | Actual opened Luna Start menu |
+| :---: | :---: |
+| [![1366 by 768 Wayland XP Luna desktop with original icons, compact network and speaker tray symbols and an antialiased Start label](luna-ui-font-desktop-20261111.webp)](luna-ui-font-desktop-20261111.webp) | [![1366 by 768 live Wayland XP Luna Start menu with proportional Liberation Sans text, two command columns, blue user bar and green Start button](luna-ui-font-menu-20261111.webp)](luna-ui-font-menu-20261111.webp) |
+| 1366×768 · 100% scale · closed Start menu | 1366×768 · 100% scale · real pointer-opened menu |
+
+Taken directly from the [successful native font CI run #43031538310](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43031538310)
+for [PR #288](https://github.com/CopyPasteUser/Ricebowl/pull/288). Both are
+full-resolution WebP conversions of unaltered headless compositor PNGs.
+The same CI run passed 1024×768, 1920×1080, and 125% live geometry changes.
+The fonts are embedded Liberation Sans under OFL-1.1, not copied Microsoft
+Tahoma. A screenshot from labwc is evidence of rendering, not physical-device
+acceptance or exact Windows XP 1:1 visual fidelity.
+
 ## Luna chrome and responsive Start menu · 11 November 2026
 
 | Native desktop at 1366×768 | Native opened Start menu at 1366×768 |
