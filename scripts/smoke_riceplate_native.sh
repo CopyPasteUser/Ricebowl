@@ -438,6 +438,33 @@ dbus-run-session -- sh -eu -c '
             cp "$runtime/creator-v1.png" "$source_root/dist/riceplate-native-preview/creator-v1.png"
             cp "$runtime/creator-v1.json" "$source_root/dist/riceplate-native-preview/creator-v1.json"
             echo "Captured real headless Wayland frame via Creator CLI"
+            # RiceShot reuses the same safe no-overwrite PNG writer; prove
+            # both full-display and real named-output grim paths in labwc.
+            output=$(WAYLAND_DISPLAY=wayland-0 wlr-randr | sed -n "1s/[[:space:]].*//p")
+            test -n "$output"
+            WAYLAND_DISPLAY=wayland-0 /usr/bin/python3 "$source_root/launcher.py" \
+                de shot --output "$runtime/riceshot-full.png" --json > "$runtime/riceshot-full.json"
+            WAYLAND_DISPLAY=wayland-0 /usr/bin/python3 "$source_root/launcher.py" \
+                de shot --shot-mode output --monitor "$output" \
+                --output "$runtime/riceshot-output.png" --json > "$runtime/riceshot-output.json"
+            /usr/bin/python3 - "$runtime" <<"PY"
+import json
+from pathlib import Path
+import struct
+import sys
+
+root = Path(sys.argv[1])
+for mode in ("full", "output"):
+    report = json.loads((root / f"riceshot-{mode}.json").read_text())
+    capture = report["capture"]
+    image = (root / f"riceshot-{mode}.png").read_bytes()
+    assert report["ok"] and report["riceshot_version"] == 1
+    assert capture["mode"] == mode
+    assert image[:8] == bytes.fromhex("89504e470d0a1a0a")
+    assert struct.unpack(">II", image[16:24]) == (capture["width"], capture["height"])
+    assert len(image) == capture["bytes"]
+PY
+            echo "RiceShot captured real full and named-output headless Wayland PNGs"
         fi
         kill "$plate"
         wait "$plate" 2>/dev/null || :

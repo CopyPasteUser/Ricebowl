@@ -857,10 +857,15 @@ must not be represented as blockers for the Wayland DE 1.0 core release.
 
 **RiceShot — on-demand screenshots and annotation**
 
-- [ ] Use the existing verified Wayland screenshot portal/compositor path and
-  explicit user initiation; support available full-screen, output and region
-  capture modes without bypassing portal permissions or silently claiming
-  unsupported window/selection capabilities.
+- [x] Start an **on-demand compositor capture CLI** (`de shot`), reusing the
+  existing private, no-overwrite `grim` PNG capture contract for full-desktop,
+  `--monitor` output and user-selected `slurp` region screenshots. Validated
+  modes/geometry, bounded image dimensions, owner-private file creation,
+  cancellation cleanup and stable JSON errors have Python regression tests.
+  It creates no daemon, global keyboard binding or XFCE change. Portal-based
+  fallback, real multi-output/fractional-scale selection tests and explicit
+  window capture remain open; direct compositor capture requires a supported
+  Wayland screencopy backend and the user's invocation.
 - [ ] Provide a lightweight crop/arrow/text/blur annotation flow, then
   explicit clipboard copy or save with safe filename/overwrite behavior;
   integrate RicePlate shortcuts and RiceBowl visual tokens. Do not run a

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -27,10 +28,44 @@ class CaptureError(ValueError):
             "invalid_capture_request": "Choose a new absolute .png output path",
             "capture_unavailable": "Requires a running Wayland session and grim",
             "capture_failed": "Wayland screenshot failed or was invalid",
+            "invalid_selection": "Choose a valid screenshot mode and output",
+            "selection_unavailable": "Region selection requires slurp in a Wayland session",
+            "selection_cancelled": "Region selection was cancelled or failed",
         }[code])
 
 
-def capture(output: Path | None) -> dict[str, object]:
+def _capture_args(mode: str, monitor: str | None) -> list[str]:
+    if mode == "full" and monitor is None:
+        return []
+    if mode == "output" and monitor and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", monitor):
+        return ["-o", monitor]
+    if mode == "region" and monitor is None:
+        slurp = shutil.which("slurp")
+        if not slurp:
+            raise CaptureError("selection_unavailable")
+        try:
+            chosen = subprocess.run([slurp, "-f", "%x,%y %wx%h"], capture_output=True,
+                                    text=True, timeout=120, check=False)
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise CaptureError("selection_unavailable") from exc
+        if chosen.returncode != 0:
+            raise CaptureError("selection_cancelled")
+        if len(chosen.stdout) > 64:
+            raise CaptureError("invalid_selection")
+        geometry = chosen.stdout.strip()
+        match = re.fullmatch(r"(-?\d+),(-?\d+) (\d+)x(\d+)", geometry)
+        if match:
+            x, y, width, height = map(int, match.groups())
+            if (-32768 <= x <= 32768 and -32768 <= y <= 32768
+                    and 1 <= width <= MAX_DIMENSION and 1 <= height <= MAX_DIMENSION
+                    and width * height <= MAX_PIXELS):
+                return ["-g", geometry]
+        raise CaptureError("invalid_selection")
+    raise CaptureError("invalid_selection")
+
+
+def capture(output: Path | None, *, mode: str = "full",
+            monitor: str | None = None) -> dict[str, object]:
     """Capture on explicit invocation; never overwrite files, including symlinks."""
     if output is None or not output.is_absolute() or output.suffix.lower() != ".png":
         raise CaptureError("invalid_capture_request")
@@ -39,6 +74,9 @@ def capture(output: Path | None) -> dict[str, object]:
     grim = shutil.which("grim")
     if not os.environ.get("WAYLAND_DISPLAY") or not grim:
         raise CaptureError("capture_unavailable")
+    # All selection happens before creating the private output; cancellation
+    # never leaves an empty file behind.
+    args = _capture_args(mode, monitor)
 
     try:
         descriptor, temporary = tempfile.mkstemp(prefix=".ricebowl-capture-", dir=output.parent)
@@ -47,7 +85,7 @@ def capture(output: Path | None) -> dict[str, object]:
     try:
         with os.fdopen(descriptor, "wb") as stream:
             try:
-                subprocess.run([grim, "-"], stdout=stream, stderr=subprocess.DEVNULL,
+                subprocess.run([grim, *args, "-"], stdout=stream, stderr=subprocess.DEVNULL,
                                timeout=30, check=True)
             except (OSError, subprocess.SubprocessError) as exc:
                 raise CaptureError("capture_failed") from exc
@@ -78,6 +116,7 @@ def capture(output: Path | None) -> dict[str, object]:
         return {
             "capture_version": 1,
             "source": "current-wayland-compositor",
+            "mode": mode,
             "path": str(output),
             "width": width,
             "height": height,
