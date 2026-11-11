@@ -17,7 +17,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from .de import (creator_activation, creator_layout as layout_engine,
+from .de import (creator_activation, creator_interactive, creator_layout as layout_engine,
                  creator_workspace as workspace)
 from .de import (assets, creator_assets, creator_iteration, creator_mapping, creator_reference, creator_regions,
                  creator_structure, drafts,
@@ -188,6 +188,8 @@ def run() -> int:
             self._panel_compact = False
             self._building = False
             self._busy = False
+            self._interactive_session: creator_interactive.InteractivePreview | None = None
+            self._interactive_closing = False
             self._render_generation = 0
             self._pixbuf = None
             self._preview_fit: tuple[int, int] | None = None
@@ -328,6 +330,12 @@ def run() -> int:
             self.geometry.set_active_id("1366,768,1")
             self.geometry.connect("changed", self._geometry_changed)
             head.pack_start(self.geometry, False, False, 0)
+            self.interactive_btn = self._button("Try interactive Wayland window", self._interactive)
+            self.interactive_btn.set_tooltip_text(
+                "Try this saved version in a separate nested labwc window. "
+                "The active rice and next login are unchanged; real system controls "
+                "inside the test can still affect devices.")
+            preview.pack_start(self.interactive_btn, False, False, 0)
             self.visual_stack = Gtk.Stack()
             self.visual_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
             self.visual_switch = Gtk.StackSwitcher()
@@ -572,6 +580,20 @@ def run() -> int:
             self.import_pack_btn.set_sensitive(not self._busy)
             self.save_btn.set_sensitive(selected and bool(self.pending) and not self._busy)
             self.render_btn.set_sensitive(selected and not self._busy)
+            running = self._interactive_session is not None
+            self.interactive_btn.set_label(
+                "Close interactive Wayland window" if running else "Try interactive Wayland window")
+            self.interactive_btn.set_sensitive(
+                not self._interactive_closing and
+                (running or (selected and not self.pending and not self._busy)))
+            if running:
+                self.interactive_btn.set_tooltip_text(
+                    f"Separate test of {self._interactive_session.draft.recipe_id}; "
+                    "close it before applying a rice to your main Wayland session.")
+            else:
+                self.interactive_btn.set_tooltip_text(
+                    "Test a saved version in a separate nested Wayland window. "
+                    "System settings inside the test may still affect real devices.")
             self.export_btn.set_sensitive(selected and not self._busy)
             self.undo_btn.set_sensitive(self._previous is not None and not self._busy)
             self.history_btn.set_sensitive(selected and not self._busy)
@@ -579,7 +601,7 @@ def run() -> int:
             live_session = bool(os.environ.get("WAYLAND_DISPLAY"))
             self.install_btn.set_sensitive(can_install)
             self.fork_btn.set_sensitive(can_install)
-            self.apply_btn.set_sensitive(can_install and live_session)
+            self.apply_btn.set_sensitive(can_install and live_session and not running)
             self.restore_btn.set_sensitive(not self._busy and live_session and not self.pending)
             self.wayland_btn.set_sensitive(can_install or
                                            (live_session and not self.pending and not self._busy))
@@ -2272,6 +2294,46 @@ def run() -> int:
                                  success=True)
             return False
 
+        def _interactive(self, _button):
+            if self._interactive_session is not None:
+                if not self._interactive_closing:
+                    self._interactive_closing = True
+                    self._interactive_session.stop()
+                    self._actions()
+                    self._status("Closing the separate Wayland test window…")
+                return
+            if self._busy or self.pending or self.info is None:
+                self._status("Save the current version before starting an interactive test.",
+                             error=True)
+                return
+            try:
+                self._interactive_session = creator_interactive.launch(
+                    self.info, lambda running, result: GLib.idle_add(
+                        self._interactive_done, running, result))
+            except (creator_interactive.InteractivePreviewError, OSError) as exc:
+                self._status(f"Interactive test unavailable: {exc}", error=True)
+                return
+            self._actions()
+            self._status(f"Starting a separate interactive test of "
+                         f"{self._interactive_session.draft.recipe_id}. "
+                         "Current rice and next login remain unchanged.")
+
+        def _interactive_done(self, running, result):
+            if self._interactive_session is not running:
+                return False
+            self._interactive_session = None
+            self._interactive_closing = False
+            if not self.get_visible():
+                return False
+            self._actions()
+            if result.stopped_by_user or result.exit_code == 0:
+                self._status("Interactive Wayland test closed. Current rice and next login "
+                             "were not switched.", success=True)
+            else:
+                extra = f" {result.diagnostic}" if result.diagnostic else " Check Wayland dependencies."
+                self._status(f"Interactive test exited ({result.exit_code}).{extra}", error=True)
+            return False
+
         def _undo(self, _button):
             if self._busy or self.info is None or self._previous is None:
                 return
@@ -3168,7 +3230,11 @@ def run() -> int:
         def _close(self, *_args):
             # Closing the UI cannot kill the native renderer mid-cleanup. Its
             # non-daemon thread finishes the supervised teardown and then exits.
-            return not self._discard_pending()
+            if not self._discard_pending():
+                return True
+            if self._interactive_session is not None:
+                self._interactive_session.stop()
+            return False
 
     provider = Gtk.CssProvider()
     provider.load_from_data(HUB_CSS + extra_css.encode("utf-8"))
@@ -3458,6 +3524,30 @@ def run() -> int:
             assert window.info.recipe_id not in (installed_id, forked_id)
             assert recipes.load(installed_id).recipe_id == installed_id
             assert "Original untouched" in window.status.get_text()
+            # Exercise the real GTK interaction state without launching a
+            # compositor in CI. Nested process behavior has separate tests.
+            from unittest.mock import Mock
+            assert window.interactive_btn.get_sensitive()
+            fake_session = Mock(draft=window.info)
+            with patch.dict(os.environ, {"WAYLAND_DISPLAY": "wayland-gtk-smoke"}):
+                window._actions()
+                assert window.apply_btn.get_sensitive()
+                with patch.object(creator_interactive, "launch", return_value=fake_session) as begin:
+                    window.interactive_btn.clicked()
+                    begin.assert_called_once()
+                    assert "Close" in window.interactive_btn.get_label()
+                    assert window._interactive_session is fake_session
+                    assert not window.apply_btn.get_sensitive()
+                    window.interactive_btn.clicked()
+                    fake_session.stop.assert_called_once_with()
+                    assert not window.interactive_btn.get_sensitive()
+                    window._interactive_done(fake_session,
+                        creator_interactive.PreviewResult(-15, True, ""))
+                    assert window._interactive_session is None
+                    assert window.interactive_btn.get_sensitive()
+                    assert window.apply_btn.get_sensitive()
+                    assert "Current rice" in window.status.get_text()
+            window._actions()
             if not os.environ.get("WAYLAND_DISPLAY"):
                 assert not window.apply_btn.get_sensitive()
                 assert not window.restore_btn.get_sensitive()

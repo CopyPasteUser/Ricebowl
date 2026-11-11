@@ -1406,6 +1406,16 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
   X11 has no live activation, unsaved edits block handoff and uncertain socket
   completion is reported as unconfirmed. Unit tests cover stale files, races,
   ID collisions and live conflicts; device-level operation remains unaccepted.
+- [x] Add an **interactive Creator try-before-apply window** for immutable
+  saved drafts using the existing nested labwc/native RicePlate session path.
+  Its GTK start/close action owns one subprocess, rejects stale drafts,
+  missing binaries and unsafe runtimes before spawn, and tears down gracefully
+  with bounded emergency termination if it hangs. Editing, static rendering,
+  live install/apply/restore and next-login selection stay independent; the
+  live apply button is disabled until a concurrent nested test is closed.
+  Real desktop widgets inside the nested session can still operate real Linux
+  devices. The full GUI-to-compositor input/focus test on physical hardware
+  remains an explicit acceptance gate, not claimed by mocked GTK smoke.
 - [x] Exercise the **complete Creator-to-Wayland software handoff** in CI:
   create two structurally different private drafts, install them without
   changing the login selection, apply and restore through the owner-private
