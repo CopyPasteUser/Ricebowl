@@ -157,7 +157,7 @@ mod tests {
     fn green_all_programs_arrow_and_right_shelf_separator_have_bounded_pixels() {
         let mut pixels = vec![0; (native_menu::WIDTH * native_menu::HEIGHT * 4) as usize];
         all_programs_chevron(&mut pixels, 130, 115, false);
-        assert_ne!(at(&pixels, 130, 115), 0);
+        assert_ne!(at(&pixels, 137, 121), 0); // Rounded corners are transparent
         assert_eq!(at(&pixels, 138, 123), 0xffff_ffff);
         let normal = pixels.clone();
         all_programs_chevron(&mut pixels, 130, 115, true);
