@@ -252,9 +252,10 @@ class CreatorStructureDraftIntegrationTests(unittest.TestCase):
         manifest = review.review(str(info.path))["recipe"]
         mirrored = structure.clone_layout_mode(manifest)
         saved, changes = creator_workspace.save_revision(info.path, {
-            "/responsive/compact_layout": mirrored,
+            f"/responsive/compact_layout/{lane}": mirrored[lane]
+            for lane in recipes.SECTIONS
         }, expected_sha256=info.semantic_sha256)
-        self.assertEqual(len(changes), 1)
+        self.assertEqual(len(changes), 3)
         self.assertEqual(info.path.read_bytes(), original)
         result = review.review(str(saved.path))["recipe"]
         self.assertEqual(result["responsive"]["compact_layout"], mirrored)
