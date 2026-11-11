@@ -3341,7 +3341,9 @@ fn paint_menu_header_controls(canvas: &mut [u8], size: (u32, u32),
                               background: u32, foreground: u32, selection: u32,
                               luna_columns: bool) {
     for (hit, text, active) in [
-        (MenuHit::Search, state.search_button_label(), state.view == native_menu::View::Search),
+        (MenuHit::Search, state.search_button_label(),
+         state.view == native_menu::View::Search ||
+             (state.view == native_menu::View::Programs && !state.search.is_empty())),
         (MenuHit::Saved, state.saved_button_label(), state.view == native_menu::View::Saved),
     ] {
         let Some((x, y, width, height)) = native_menu::header_button_rect(size, hit) else {
@@ -3414,7 +3416,7 @@ fn paint_compact_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
     let actions = state.actions(menu);
     if actions.is_empty() {
         let label = if state.view == native_menu::View::Programs {
-            "No installed apps"
+            if state.search.is_empty() { "No installed apps" } else { "No matching apps" }
         } else if state.view == native_menu::View::Saved {
             "No saved actions"
         } else if state.view == native_menu::View::Search {
@@ -3453,6 +3455,8 @@ fn paint_compact_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
         notice.to_owned()
     } else if state.view == native_menu::View::Search {
         format!("Find: {}", state.search)
+    } else if state.view == native_menu::View::Programs && !state.search.is_empty() {
+        format!("Filter: {}", state.search)
     } else if state.view == native_menu::View::Programs && actions.is_empty() {
         "Esc: back".to_owned()
     } else if actions.is_empty() {
@@ -3571,7 +3575,12 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                        &format!("Find: {}", state.search), fg, style);
     } else if state.view == native_menu::View::Programs {
         draw_rice_text(canvas, width, height, content_x, 91,
-                       &format!("All Programs ({})", state.apps.len()), fg, style);
+                       &if state.search.is_empty() {
+                           format!("All Programs ({})", state.apps.len())
+                       } else {
+                           format!("Matches: {}  {}", state.actions(menu).len(),
+                                   state.search.chars().take(16).collect::<String>())
+                       }, fg, style);
     } else if state.view == native_menu::View::Saved {
         draw_rice_text(canvas, width, height, content_x, 91,
                        &format!("Saved actions: {}", state.actions(menu).len()), fg, style);
@@ -3639,7 +3648,8 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
     if actions.is_empty() {
         draw_rice_text(canvas, width, height, content_x, 135,
                        if state.view == native_menu::View::Programs {
-                           "No installed apps"
+                           if state.search.is_empty() { "No installed apps" }
+                           else { "No matching apps" }
                        } else if state.view == native_menu::View::Saved {
                            "No saved actions"
                        } else { "No matching actions" }, fg, style);
@@ -5134,7 +5144,8 @@ impl KeyboardHandler for RicePlate {
                 else { self.menu_state.horizontal_by(menu, 1); }
                 None
             }
-            Keysym::space if self.menu_state.view == native_menu::View::Search => {
+            Keysym::space if matches!(self.menu_state.view,
+                    native_menu::View::Search | native_menu::View::Programs) => {
                 self.menu_state.search_input(" ");
                 None
             }

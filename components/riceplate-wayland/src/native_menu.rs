@@ -314,7 +314,22 @@ impl MenuState {
                         .flat_map(|group| group.actions.iter().map(String::as_str)).collect()
                 }
             }
-            View::Programs => self.apps.iter().map(|app| app.action.as_str()).collect(),
+            View::Programs => {
+                let query = self.search.trim();
+                if query.is_empty() {
+                    self.apps.iter().map(|app| app.action.as_str()).collect()
+                } else {
+                    // Keep the initial catalogue alphabetic. With a filter,
+                    // prefer exact/prefix app names over generic keywords;
+                    // the original app order breaks equal-score ties.
+                    let mut matches: Vec<_> = self.apps.iter().enumerate()
+                        .filter_map(|(index, app)| app.match_score(query)
+                            .map(|score| (score, index, app.action.as_str())))
+                        .collect();
+                    matches.sort_by_key(|(score, index, _)| (*score, *index));
+                    matches.into_iter().map(|(_, _, action)| action).collect()
+                }
+            }
             View::Search => {
                 let query = self.search.trim().to_lowercase();
                 let mut result: Vec<_> = all().filter(|action| action_label(action)
@@ -471,26 +486,32 @@ impl MenuState {
     pub fn accessible_summary(&self, menu: &NativeMenu, rows: usize) -> String {
         let intro = match self.view {
             View::Groups => "Menu".to_owned(),
+            View::Programs if !self.search.is_empty() =>
+                format!("All Programs: {}", self.search),
             View::Programs => "All Programs".to_owned(),
             View::Search if self.search.is_empty() => "Find".to_owned(),
             View::Search => format!("Find: {}", self.search),
             View::Saved => "Saved actions".to_owned(),
         };
         let count = self.actions(menu).len();
+        let noun = if self.view == View::Programs { "apps" } else { "actions" };
         let detail = if count == 0 {
             match self.view {
+                View::Programs if !self.search.is_empty() => "No matching apps".to_owned(),
                 View::Programs => "No installed apps".to_owned(),
                 View::Search => "No matching actions".to_owned(),
                 View::Saved => "No saved actions".to_owned(),
                 View::Groups => "No available actions".to_owned(),
             }
         } else if let Some((first, last, total)) = self.page_status(menu, rows) {
-            format!("Showing actions {first} through {last} of {total}")
+            format!("Showing {noun} {first} through {last} of {total}")
         } else {
-            format!("{count} available {}", if count == 1 { "action" } else { "actions" })
+            format!("{count} available {}", if count == 1 {
+                if self.view == View::Programs { "app" } else { "action" }
+            } else { noun })
         };
         let help = match self.view {
-            View::Programs => "Enter opens the selected application; Escape returns to the menu; type to search",
+            View::Programs => "Type to filter installed apps; Backspace edits; Enter opens the selected application; Escape returns to the menu",
             View::Search => "Type to refine, Backspace deletes; F2 or right click saves an action",
             View::Groups => "Type to search; F2 or right click pins actions; F3 opens Saved",
             View::Saved => "F2 or right click removes saved actions; F3 returns to menu",
@@ -520,20 +541,27 @@ impl MenuState {
     /// shortcuts: enter search, clear a query, then return to the groups.
     pub fn search_button(&mut self) {
         if self.view == View::Programs {
-            self.back();
+            if self.search.is_empty() { self.back(); }
+            else { self.clear_search(); }
         } else if self.view != View::Search {
             self.start_search();
         } else if !self.search.is_empty() {
-            self.search.clear();
-            self.selected = 0;
-            self.wheel_remainder = 0.0;
+            self.clear_search();
         } else {
             self.back();
         }
     }
 
+    fn clear_search(&mut self) {
+        self.search.clear();
+        self.selected = 0;
+        self.notice = None;
+        self.wheel_remainder = 0.0;
+    }
+
     pub fn search_button_label(&self) -> &'static str {
-        if self.view == View::Programs { "Back" }
+        if self.view == View::Programs && !self.search.is_empty() { "Clear" }
+        else if self.view == View::Programs { "Back" }
         else if self.view != View::Search { "Find" }
         else if self.search.is_empty() { "Back" }
         else { "Clear" }
@@ -549,17 +577,19 @@ impl MenuState {
             || !text.chars().all(|c| c.is_alphanumeric() || c == ' ' || c == '-') {
             return false;
         }
-        if self.view != View::Search { self.start_search(); }
+        if !matches!(self.view, View::Search | View::Programs) { self.start_search(); }
         self.search.push_str(text);
         self.selected = 0;
+        self.notice = None;
         self.wheel_remainder = 0.0;
         true
     }
 
     pub fn backspace(&mut self) -> bool {
-        if self.view != View::Search { return false; }
+        if !matches!(self.view, View::Search | View::Programs) { return false; }
         self.search.pop();
         self.selected = 0;
+        self.notice = None;
         self.wheel_remainder = 0.0;
         true
     }
@@ -767,7 +797,7 @@ mod tests {
         assert_eq!(state.current_action(menu), Some("desktop:demo-4.desktop"));
         assert_eq!(state.hit(menu, 20.0, 116.0), Some(Hit::Action(4)));
         assert!(state.accessible_summary(menu, VISIBLE_ACTIONS)
-            .contains("Showing actions 5 through 8 of 9"));
+            .contains("Showing apps 5 through 8 of 9"));
         // Recipe pin storage cannot persist arbitrary .desktop file paths.
         assert!(!state.toggle_pin(menu));
         assert!(state.pins.is_empty());
@@ -777,13 +807,71 @@ mod tests {
 
         state.show_programs();
         assert!(state.search_input("8"));
+        assert_eq!(state.view, View::Programs);
+        assert_eq!(state.actions(menu), vec!["desktop:demo-8.desktop"]);
+        assert!(state.accessible_summary(menu, VISIBLE_ACTIONS)
+            .contains("All Programs: 8"));
+        assert_eq!(state.search_button_label(), "Clear");
+        state.search_button();
+        assert_eq!(state.view, View::Programs);
+        assert_eq!(state.actions(menu).len(), 9);
+        assert_eq!(state.search_button_label(), "Back");
+
+        // Typing must filter installed applications only. The generic
+        // "terminal" recipe action must never leak into the Programs page.
+        for character in ["t", "e", "r", "m"] {
+            assert!(state.search_input(character));
+        }
+        assert!(state.actions(menu).is_empty());
+        assert!(state.accessible_summary(menu, VISIBLE_ACTIONS)
+            .contains("No matching apps"));
+        assert!(state.backspace());
+        assert_eq!(state.search, "ter");
+        state.search_button();
+        for character in ["d", "e", "m", "o", " ", "8"] {
+            assert!(state.search_input(character));
+        }
+        assert_eq!(state.view, View::Programs);
         assert_eq!(state.actions(menu), vec!["desktop:demo-8.desktop"]);
         assert!(state.back());
+        assert_eq!(state.view, View::Groups);
         state.show_programs();
         state.apps.clear();
         assert!(state.actions(menu).is_empty());
         assert!(state.accessible_summary(menu, VISIBLE_ACTIONS)
             .contains("No installed apps"));
+    }
+
+    #[test]
+    fn luna_programs_ranks_matching_names_above_keywords_without_reordering_the_index() {
+        let data = menu();
+        let mut state = MenuState::default();
+        state.apps = [
+            ("Alpha", "alpha browser tool"),
+            ("Browser", "browser"),
+            ("Browser Plus", "browser plus"),
+            ("Web Browser", "web browser"),
+        ].into_iter().enumerate().map(|(index, (name, search_text))| App {
+            action: format!("desktop:app-{index}.desktop"),
+            name: name.into(), search_text: search_text.into(),
+            path: format!("/usr/share/applications/app-{index}.desktop").into(),
+        }).collect();
+        state.open();
+        state.show_programs();
+        let original: Vec<String> = state.actions(&data).into_iter()
+            .map(str::to_owned).collect();
+        for character in "browser".chars() {
+            assert!(state.search_input(&character.to_string()));
+        }
+        assert_eq!(state.actions(&data), vec![
+            "desktop:app-1.desktop", "desktop:app-2.desktop",
+            "desktop:app-3.desktop", "desktop:app-0.desktop",
+        ]);
+        assert!(state.accessible_summary(&data, VISIBLE_ACTIONS)
+            .contains("4 available apps"));
+        state.search_button();
+        assert_eq!(state.actions(&data).into_iter().map(str::to_owned).collect::<Vec<_>>(), original);
+        assert_eq!(state.view, View::Programs);
     }
 
     #[test]

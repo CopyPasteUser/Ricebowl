@@ -67,6 +67,16 @@ button or Escape. Empty app indexes are reported explicitly. A native
 virtual-pointer open/Back screenshot regression accompanies the Rust state
 tests; real desktop input acceptance is still pending. Other rices and the
 Luna desktop's separate application shortcut keep their existing launcher.
+
+The follow-up Programs filter keeps typed queries inside that XDG-only page:
+Backspace edits, the header Clear button resets the list without closing it,
+and Escape/Back returns to the two-column menu. No-match feedback and the
+accessible result count use the filtered list; ordinary action search and
+other rices retain their previous behavior. Filtered results prioritize exact
+application names and prefixes ahead of generic keyword matches, while the
+unfiltered installed-app list remains alphabetical. Native CI acceptance is
+pending.
+
 A separate [live output-resolution and scaling matrix](screenshots/wayland/README.md#luna-live-output-matrix--1024768-full-hd-and-125-scale-11-november-2026)
 now captures **the same running Wayland session** at 1024×768, 1366×768,
 1920×1080 and 125% compositor scale, with both closed and open native menus.
