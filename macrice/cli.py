@@ -74,7 +74,7 @@ def parser() -> argparse.ArgumentParser:
     de.add_argument("action", choices=(
         "check", "acceptance", "start", "shell", "catalog", "fonts", "creator-api", "creator-history", "creator-schema", "creator-snapshot", "creator-recovery", "creator-recover", "review", "draft-check", "draft-edit", "visual-compare",
         "visual-baseline",
-        "capture", "shot", "render", "render-matrix", "render-matrix-inspect",
+        "capture", "shot", "clip", "render", "render-matrix", "render-matrix-inspect",
         "creator-status", "creator-stage", "creator-rollback",
         "creator-live-status", "creator-live-apply", "creator-live-restore", "creator-live-recovery",
         "display-refresh", "display-confirm",
@@ -137,6 +137,11 @@ def parser() -> argparse.ArgumentParser:
     de.add_argument("--monitor", help="Wayland output name for de shot --shot-mode output")
     de.add_argument("--clipboard", action="store_true",
                     help="RiceShot: copy the PNG selection to Wayland clipboard instead of saving")
+    de.add_argument("--clip-op", choices=("watch", "status", "list", "copy", "clear",
+                                           "pause", "resume", "ingest"),
+                    help="RiceClip: explicitly watch or manage session-only clipboard history")
+    de.add_argument("--clip-index", type=int,
+                    help="RiceClip: history index to restore with --clip-op copy")
     de.add_argument("--width", type=int, help="Headless de render capture width (640–4096)")
     de.add_argument("--height", type=int, help="Headless de render capture height (480–2160)")
     de.add_argument("--scale", type=float, choices=(1, 1.25, 1.5, 2),
@@ -252,6 +257,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.action != "shot" and (args.shot_mode is not None or args.monitor is not None
                                           or args.clipboard):
                 raise ValueError("--shot-mode, --monitor and --clipboard only apply to de shot")
+            if args.action != "clip" and (args.clip_op is not None or args.clip_index is not None):
+                raise ValueError("--clip-op/--clip-index only apply to de clip")
             if (args.action not in ("recipe-init", "recipe-export", "taskotto-export",
                                     "draft-edit", "capture", "shot", "render", "render-matrix", "pack-export",
                                     "visual-baseline") and args.output):
@@ -816,6 +823,47 @@ def main(argv: list[str] | None = None) -> int:
                         print(f"Captured Wayland {report['mode']}: {report['path']} "
                               f"({report['width']}x{report['height']})")
                     print("The screenshot may contain private screen data")
+                return 0
+            if args.action == "clip":
+                if args.nested or args.recipe or args.panel != "waybar" or args.output:
+                    raise ValueError("de clip accepts only RiceClip options and --json")
+                if args.clip_index is not None and args.clip_op != "copy":
+                    raise ValueError("--clip-index only applies to de clip --clip-op copy")
+                if args.clip_op == "copy" and args.clip_index is None:
+                    raise ValueError("de clip --clip-op copy requires --clip-index")
+                from .de import clip
+                try:
+                    if args.clip_op == "watch":
+                        def ready():
+                            if args.json:
+                                print(json.dumps({"riceclip_version": 1, "ok": True,
+                                                  "watching": True, "persistent": False}),
+                                      flush=True)
+                            else:
+                                print("RiceClip watching Wayland selection "
+                                      "(Ctrl+C to clear history and stop)", flush=True)
+
+                        clip.watch(on_ready=ready)
+                        return 0
+                    if args.clip_op == "ingest":
+                        clip.ingest()
+                        return 0
+                    report = clip.request(args.clip_op or "status", index=args.clip_index)
+                except clip.ClipError as exc:
+                    if not args.json:
+                        raise
+                    print(json.dumps({"riceclip_version": 1, "ok": False,
+                                      "error": {"code": exc.code, "message": str(exc)}},
+                                     indent=2))
+                    return 2
+                if args.json:
+                    print(json.dumps({"riceclip_version": 1, **report}, ensure_ascii=False,
+                                     indent=2))
+                elif args.clip_op == "list":
+                    for item in report["items"]:
+                        print(f"{item['index']:2}: {item['preview']!r}")
+                else:
+                    print(f"RiceClip {args.clip_op or 'status'}: {report}")
                 return 0
             if args.action == "render":
                 if args.nested or args.panel != "waybar":
