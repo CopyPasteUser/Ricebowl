@@ -205,3 +205,26 @@ def transfer_layout(manifest: dict[str, Any], section: str, path: tuple[int, ...
     destination_nodes.insert(target_index, element)
     _verify(proposal)
     return {section: source_nodes, destination: destination_nodes}
+
+
+def clone_layout_mode(manifest: dict[str, Any], *,
+                      from_compact: bool = False) -> dict[str, list[dict[str, Any]]]:
+    """Copy all three lanes to the opposite responsive mode as one validated unit.
+
+    Copying an individual lane could create duplicate widget IDs across the
+    destination's remaining lanes. Replacing the whole layout guarantees that
+    such a partial invalid state is never staged, and never mutates the input.
+    Callers must explicitly confirm replacing the target before persisting.
+    """
+    if type(from_compact) is not bool:
+        raise StructureError("Choose a valid source layout mode")
+    if manifest.get("schema_version", 0) < 10:
+        raise StructureError("Visual structure editor needs a schema-v10 draft")
+    proposal = copy.deepcopy(manifest)
+    wide = proposal["panel"]["layout"]
+    compact = proposal["responsive"]["compact_layout"]
+    source, target = (compact, wide) if from_compact else (wide, compact)
+    replacement = {lane: copy.deepcopy(source[lane]) for lane in recipes.SECTIONS}
+    target.update(replacement)
+    _verify(proposal)
+    return replacement
