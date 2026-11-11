@@ -534,6 +534,12 @@ recipe background, text and selection colors style these buttons; one geometry
 contract handles pointer and compact reflow, and AT-SPI exposes the same
 actions. Legacy slash/F3 shortcuts remain active.
 
+Long search and saved-action result lists accept vertical wheel/trackpad
+navigation through their bounded native menu viewport. Discrete notches page
+once; continuous movement accumulates before paging. The fully visible
+recipe-composed sections do not scroll, and focus/selection still uses the
+shared keyboard/pointer action state. No per-rice scroll daemon is needed.
+
 The same **validated schema-v12 two-column palette** can opt into
 labwc-owned server-side window frames. `macrice/de/window_chrome.py` maps only
 existing colors to a bounded `themerc-override` in the private labwc session;

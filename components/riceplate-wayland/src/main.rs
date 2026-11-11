@@ -5083,6 +5083,28 @@ impl PointerHandler for RicePlate {
                 let compact = native_menu::compact_layout(menu_size);
                 let pointer = if compact { event.position }
                               else { native_menu::input_coords(event.position, menu_size) };
+                if let PointerEventKind::Axis { vertical, .. } = event.kind {
+                    if !self.notification_state.open {
+                        let body_top = if compact { native_menu::COMPACT_ACTION_TOP }
+                                       else { native_menu::ACTION_TOP };
+                        let footer = if compact { native_menu::COMPACT_FOOTER_HEIGHT }
+                                     else { 28 };
+                        let bottom = (if compact { menu_size.1 } else { native_menu::HEIGHT })
+                            .saturating_sub(footer);
+                        if pointer.1 >= f64::from(body_top) && pointer.1 < f64::from(bottom) {
+                            if let Some(menu) = self.recipe.menu.as_ref() {
+                                let rows = if compact {
+                                    native_menu::compact_visible_actions(menu_size)
+                                } else { native_menu::VISIBLE_ACTIONS };
+                                if self.menu_state.scroll_pages(menu, vertical.discrete,
+                                                                vertical.absolute, rows) {
+                                    self.redraw_menu(qh);
+                                }
+                            }
+                        }
+                    }
+                    continue;
+                }
                 // Hover and keyboard selection share one state. Update only
                 // on a changed action to avoid repainting on every motion.
                 if matches!(event.kind, PointerEventKind::Motion { .. })
