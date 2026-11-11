@@ -5918,6 +5918,39 @@ mod tests {
     }
 
     #[test]
+    fn luna_overflow_chevron_is_backed_by_real_sni_popup_hit() {
+        let style = recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let view = tray::State { entries: (0..6).map(|index| tray::Entry {
+            bus_name: format!("org.example.Test{index}"),
+            title: format!("Test {index}"),
+            icon: None, is_menu: false, needs_attention: false,
+        }).collect() };
+        assert_eq!(view.visible_count(), tray::VISIBLE_ITEMS - 1);
+        assert_eq!(view.overflow_count(), 3);
+        let width = 1366;
+        let height = style.height;
+        let mut pixels = vec![0; (width * height * 4) as usize];
+        paint_panel(&mut pixels, width, height, &style, &[], "12:00",
+                    &PowerStatus::NotPresent, &SystemStatus::default(), &view,
+                    0, None, None, None);
+        let rect = recipe::layout(&style, width, 0).into_iter()
+            .find(|placed| placed.widget == Widget::Tray).unwrap();
+        let x = rect.x + tray::SLOT_WIDTH * (tray::VISIBLE_ITEMS - 1) as u32;
+        assert_eq!(recipe::hit((x + 14) as f64, width, 0, 0, &style),
+                   Some(Hit::Tray(tray::VISIBLE_ITEMS - 1)));
+        let colored = ((height / 2 * width + x + 14) * 4) as usize;
+        assert_ne!(&pixels[colored..colored + 4],
+                   &style.background.to_le_bytes());
+        let mut empty = vec![0; pixels.len()];
+        paint_panel(&mut empty, width, height, &style, &[], "12:00",
+                    &PowerStatus::NotPresent, &SystemStatus::default(),
+                    &tray::State::default(), 0, None, None, None);
+        assert_ne!(pixels, empty);
+    }
+
+    #[test]
     fn tray_overflow_popup_draws_distinct_pages_and_selection() {
         let style = recipe::load("classic").unwrap();
         let mut state = tray::State::default();
