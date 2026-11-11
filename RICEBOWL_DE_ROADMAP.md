@@ -1018,7 +1018,8 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
     physical app-launch/input QA remains open.
   - [ ] Finish Luna's in-menu app filter: keep typing/Backspace inside the
     bounded XDG-only list, clear the query without leaving the page, and
-    expose truthful no-match/results state to the painter and AT-SPI. Rust
+    expose truthful no-match/results state to the painter and AT-SPI. Rank
+    filtered apps by name relevance without reordering the base list. Rust
     regression is added in the stacked PR; native CI remains the merge gate.
   **Exact XP/7/10 menu reconstructions are deferred to the post-framework
   fidelity gate above**, not blocking this foundational milestone.
