@@ -115,12 +115,27 @@ pub struct State {
     // The native font can advance 16px instead of the legacy 8px. Keep
     // wrapping, pagination, pointer hits and accessibility on one width.
     glyph_scale: u32,
+    compact_viewport: Option<(u32, u32)>,
 }
 
 impl State {
     pub fn configure_glyph_scale(&mut self, scale: u32) {
         self.glyph_scale = scale.clamp(1, 2);
-        self.body_page = self.body_page.min(self.body_page_count().saturating_sub(1));
+        self.body_page = self.body_page.min(self.active_body_page_count().saturating_sub(1));
+    }
+
+    /// Use the actual popup geometry for refresh-time clamping. A 168px popup
+    /// can have many more pages than the full-size center even for the same
+    /// message; a background Mako refresh must not jump back to a full-size page.
+    pub fn set_compact_viewport(&mut self, size: Option<(u32, u32)>) {
+        if self.compact_viewport == size { return; }
+        self.compact_viewport = size;
+        self.body_page = self.body_page.min(self.active_body_page_count().saturating_sub(1));
+    }
+
+    fn active_body_page_count(&self) -> usize {
+        self.compact_viewport.map_or_else(|| self.body_page_count(),
+                                          |size| self.compact_body_page_count(size))
     }
 
     fn glyph_scale(&self) -> u32 { self.glyph_scale.max(1) }
@@ -151,6 +166,7 @@ impl State {
         self.silent_loading = false;
         self.sync_error = false;
         self.next_refresh = None;
+        self.compact_viewport = None;
     }
 
     pub fn begin(&mut self) -> u64 {
@@ -227,7 +243,7 @@ impl State {
                             .map_or(0, |notice| notice.actions.len().saturating_sub(1)))
                     }
                 });
-                self.body_page = self.body_page.min(self.body_page_count().saturating_sub(1));
+                self.body_page = self.body_page.min(self.active_body_page_count().saturating_sub(1));
                 self.error = None;
                 self.sync_error = false;
             }
@@ -786,6 +802,39 @@ mod tests {
         assert!(state.body_page < state.body_page_count());
         state.close();
         assert!(state.notices.is_empty());
+    }
+
+    #[test]
+    fn background_refresh_preserves_compact_page_until_viewport_changes() {
+        let message = "Private compact popup with several pages of text and Unicode Wörter. ".repeat(9);
+        let snapshot = Snapshot { active: vec![Notice {
+            id: 40, app_name: "RicePop".into(), summary: "Long alert".into(),
+            body: message, ..Notice::default()
+        }], history: vec![] };
+        let mut state = State::default();
+        state.configure_glyph_scale(2);
+        let revision = state.begin();
+        assert!(state.update(revision, Ok(snapshot.clone())));
+        assert!(state.open_detail(0));
+        let compact = (168, 144);
+        state.set_compact_viewport(Some(compact));
+        state.change_compact_body_page(1000, compact);
+        let compact_page = state.body_page;
+        assert!(compact_page > state.body_page_count(),
+                "the compact popup must have more pages than the full-size view");
+
+        let refresh = state.begin_background(Instant::now() + OPEN_REFRESH_INTERVAL +
+                                             Duration::from_secs(1)).unwrap();
+        assert!(state.update(refresh, Ok(snapshot)));
+        assert_eq!(state.body_page, compact_page,
+                   "refresh may not clamp against the wrong popup geometry");
+        assert_eq!(state.compact_hit(100.0, 76.0, compact), Some(Hit::BodyPage(1)));
+        state.set_compact_viewport(None);
+        assert_eq!(state.body_page + 1, state.body_page_count(),
+                   "returning to a full-size popup clamps the page once");
+        state.close();
+        assert_eq!(state.body_page, 0);
+        assert_eq!(state.compact_viewport, None);
     }
 
     #[test]
