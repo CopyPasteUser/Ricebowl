@@ -352,7 +352,7 @@ def _parse_menu(value: Any, *, schema_version: int = 4) -> tuple[str, tuple[Menu
                                 or len(group["actions"]) > 4
                                 for group in value["groups"][1:])
                          or sum(len(group["actions"])
-                                for group in value["groups"][1:]) > 6))):
+                                for group in value["groups"][1:]) > 6)):
                 raise RecipeError("Menu presentation requires a compatible bounded layout")
             allowed.add("presentation")
         if "colors" in value and schema_version >= 12:
