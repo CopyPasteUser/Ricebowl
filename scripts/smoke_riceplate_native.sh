@@ -4,8 +4,13 @@ set -eu
 
 source_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 native="$source_root/components/riceplate-wayland/target/release/riceplate-native"
+clicker="$source_root/components/riceplate-wayland/target/release/examples/wayland_pointer_click"
 if [ ! -x "$native" ]; then
     echo "Native RicePlate binary is not built" >&2
+    exit 1
+fi
+if [ ! -x "$clicker" ]; then
+    echo "CI native virtual-pointer example is not built" >&2
     exit 1
 fi
 "$native" --version
@@ -116,6 +121,7 @@ dbus-run-session -- sh -eu -c '
     source_root=$1
     runtime=$2
     native=$3
+    clicker=$4
     labwc --config-dir "$source_root/macrice/de/resources/labwc" \
         --startup true >"$runtime/labwc.log" 2>&1 &
     compositor=$!
@@ -285,6 +291,37 @@ dbus-run-session -- sh -eu -c '
             WAYLAND_DISPLAY=wayland-0 wlr-randr --output "$output" --custom-mode 1366x768@60Hz --scale 1
             sleep 0.5
         fi
+        if [ "$label" = xp-luna-columns ]; then
+            # In contrast to --preview-menu, these are real compositor pointer
+            # clicks on the green Start button of a running native shell.
+            # Preserve genuine open and closed frames as CI evidence.
+            for geometry in 1024x768 1920x1080 scale-125; do
+                case "$geometry" in
+                    1024x768) mode=1024x768; width=1024; height=768; scale=1 ;;
+                    1920x1080) mode=1920x1080; width=1920; height=1080; scale=1 ;;
+                    scale-125) mode=1366x768; width=1366; height=768; scale=1.25 ;;
+                esac
+                WAYLAND_DISPLAY=wayland-0 wlr-randr --output "$output" \
+                    --custom-mode "${mode}@60Hz" --scale "$scale"
+                sleep 0.65
+                kill -0 "$plate"
+                button_y=$((height - 20))
+                WAYLAND_DISPLAY=wayland-0 "$clicker" 35 "$button_y" "$width" "$height"
+                sleep 0.35
+                WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-open-$geometry.png"
+                cp "$runtime/xp-luna-pointer-open-$geometry.png" \
+                   "$source_root/dist/riceplate-native-preview/xp-luna-pointer-open-$geometry.png"
+                WAYLAND_DISPLAY=wayland-0 "$clicker" 35 "$button_y" "$width" "$height"
+                sleep 0.35
+                WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-closed-$geometry.png"
+                cp "$runtime/xp-luna-pointer-closed-$geometry.png" \
+                   "$source_root/dist/riceplate-native-preview/xp-luna-pointer-closed-$geometry.png"
+                kill -0 "$plate"
+                echo "Clicked Luna Start open/closed at $geometry scale $scale"
+            done
+            WAYLAND_DISPLAY=wayland-0 wlr-randr --output "$output" --custom-mode 1366x768@60Hz --scale 1
+            sleep 0.5
+        fi
         if [ "$label" = overflow-v5 ]; then
             # Separate recipe deliberately requests x=4090 on a 1024px output.
             # This capture verifies that compositor-facing native layout reflows it.
@@ -328,4 +365,4 @@ dbus-run-session -- sh -eu -c '
     echo "CI labwc did not respond to SIGTERM" >&2
     sed -n "1,70p" "$runtime/labwc.log" >&2
     exit 1
-' sh "$source_root" "$runtime" "$native"
+' sh "$source_root" "$runtime" "$native" "$clicker"
