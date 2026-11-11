@@ -112,9 +112,31 @@ pub struct State {
     pub silent_loading: bool,
     pub sync_error: bool,
     next_refresh: Option<Instant>,
+    // The native font can advance 16px instead of the legacy 8px. Keep
+    // wrapping, pagination, pointer hits and accessibility on one width.
+    glyph_scale: u32,
 }
 
 impl State {
+    pub fn configure_glyph_scale(&mut self, scale: u32) {
+        self.glyph_scale = scale.clamp(1, 2);
+        self.body_page = self.body_page.min(self.body_page_count().saturating_sub(1));
+    }
+
+    fn glyph_scale(&self) -> u32 { self.glyph_scale.max(1) }
+
+    pub fn body_text_width(&self) -> usize {
+        (BODY_WIDTH / self.glyph_scale() as usize).max(1)
+    }
+
+    pub fn compact_text_width(&self, width: u32) -> usize {
+        (compact_body_width(width) / self.glyph_scale() as usize).max(1)
+    }
+
+    pub fn body_text_lines(&self, body: &str) -> Vec<String> {
+        body_lines_with_width(body, self.body_text_width())
+    }
+
     pub fn close(&mut self) {
         self.open = false;
         self.loading = false;
@@ -140,6 +162,14 @@ impl State {
         self.next_refresh = None;
         self.revision = self.revision.wrapping_add(1);
         self.revision
+    }
+
+    /// Deterministic, non-polling compositor screenshot state. The production
+    /// notification bridge is still the sole source of live notifications.
+    pub fn show_preview(&mut self, snapshot: Snapshot) {
+        let revision = self.begin();
+        self.update(revision, Ok(snapshot));
+        self.next_refresh = None;
     }
 
     /// Re-read Mako only while the user keeps the center open. No permanent
@@ -249,7 +279,7 @@ impl State {
 
     pub fn body_page_count(&self) -> usize {
         self.detail_notice().map_or(1, |notice|
-            body_lines(&notice.body).len().div_ceil(BODY_LINES_PER_PAGE).max(1))
+            self.body_text_lines(&notice.body).len().div_ceil(BODY_LINES_PER_PAGE).max(1))
     }
 
     pub fn change_body_page(&mut self, delta: isize) {
@@ -259,7 +289,7 @@ impl State {
 
     pub fn compact_body_page_count(&self, size: (u32, u32)) -> usize {
         self.detail_notice().map_or(1, |notice|
-            body_lines_with_width(&notice.body, compact_body_width(size.0)).len()
+            body_lines_with_width(&notice.body, self.compact_text_width(size.0)).len()
                 .div_ceil(compact_body_rows(size.1)).max(1))
     }
 
@@ -727,6 +757,35 @@ mod tests {
         assert_eq!(state.body_page, 0);
         state.close();
         assert_eq!(state.body_page_count(), 1);
+    }
+
+    #[test]
+    fn private_font_reflows_full_and_compact_detail_without_losing_pages() {
+        let message = "A long private message with many Unicode Wörter and more lines than fit on a single page. ".repeat(5);
+        let mut state = State::default();
+        state.show_preview(Snapshot { active: vec![Notice {
+            id: 17, body: message.clone(), summary: "Private".into(),
+            ..Notice::default()
+        }], history: vec![] });
+        assert_eq!(state.refresh_timeout(Instant::now()), None);
+        assert!(state.open_detail(0));
+        let default_pages = state.body_page_count();
+        assert_eq!(state.body_text_width(), BODY_WIDTH);
+        state.configure_glyph_scale(2);
+        assert_eq!(state.body_text_width(), BODY_WIDTH / 2);
+        assert_eq!(state.compact_text_width(168), compact_body_width(168) / 2);
+        assert!(state.body_page_count() > default_pages);
+        assert!(state.body_text_lines(&message).iter().all(|line|
+            line.chars().count() <= state.body_text_width()));
+        assert_eq!(state.hit(220.0, 104.0), Some(Hit::BodyPage(1)));
+        state.change_body_page(100);
+        assert_eq!(state.body_page + 1, state.body_page_count());
+        state.change_compact_body_page(100, (168, 144));
+        assert_eq!(state.body_page + 1, state.compact_body_page_count((168, 144)));
+        state.configure_glyph_scale(1);
+        assert!(state.body_page < state.body_page_count());
+        state.close();
+        assert!(state.notices.is_empty());
     }
 
     #[test]

@@ -139,6 +139,12 @@ fn font_glyphs(data: Vec<u8>, scale: u32) -> Result<FontSprites, Box<dyn Error>>
     }), cell })
 }
 
+#[cfg(test)]
+pub fn fixture_font(scale: u32) -> Option<FontSprites> {
+    let data = fs::read("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf").ok()?;
+    font_glyphs(data, scale).ok()
+}
+
 pub fn load(selection: &ArtworkSelection, scale: u32) -> Result<LoadedArtwork, Box<dyn Error>> {
     let needs_files = selection.font.is_some() || selection.icons.iter()
         .any(|icon| icon.as_deref().is_some_and(|id| id != "builtin-luna"));

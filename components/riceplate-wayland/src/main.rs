@@ -101,21 +101,27 @@ fn main() -> Result<(), Box<dyn Error>> {
         return output_watch::run();
     }
     if matches!(arguments.as_slice(), [arg] if arg == "--help") {
-        println!("Usage: riceplate-native [--recipe classic|chrome|/absolute/private.json [--preview-menu|--preview-calendar|--preview-osd]]\n       riceplate-native --watch-outputs (RiceBowl session only)");
+        println!("Usage: riceplate-native [--recipe classic|chrome|/absolute/private.json [--preview-menu|--preview-calendar|--preview-osd|--preview-notifications|--preview-notification-detail]]\n       riceplate-native --watch-outputs (RiceBowl session only)");
         return Ok(());
     }
-    let (recipe_name, preview_menu, preview_calendar, preview_osd) = match arguments.as_slice() {
-        [] => ("classic", false, false, false),
-        [flag, recipe] if flag == "--recipe" => (recipe.as_str(), false, false, false),
+    let (recipe_name, preview_menu, preview_calendar, preview_osd, preview_notifications,
+         preview_notification_detail) = match arguments.as_slice() {
+        [] => ("classic", false, false, false, false, false),
+        [flag, recipe] if flag == "--recipe" =>
+            (recipe.as_str(), false, false, false, false, false),
         [flag, recipe, preview] if flag == "--recipe" && preview == "--preview-menu" =>
-            (recipe.as_str(), true, false, false),
+            (recipe.as_str(), true, false, false, false, false),
         [flag, recipe, preview] if flag == "--recipe" && preview == "--preview-calendar" =>
-            (recipe.as_str(), false, true, false),
+            (recipe.as_str(), false, true, false, false, false),
         [flag, recipe, preview] if flag == "--recipe" && preview == "--preview-osd" =>
-            (recipe.as_str(), false, false, true),
+            (recipe.as_str(), false, false, true, false, false),
+        [flag, recipe, preview] if flag == "--recipe" && preview == "--preview-notifications" =>
+            (recipe.as_str(), false, false, false, true, false),
+        [flag, recipe, preview] if flag == "--recipe" && preview == "--preview-notification-detail" =>
+            (recipe.as_str(), false, false, false, false, true),
         _ => {
             return Err(
-                "Usage: riceplate-native [--recipe classic|chrome|/absolute/private.json [--preview-menu|--preview-calendar|--preview-osd]]".into(),
+                "Usage: riceplate-native [--recipe classic|chrome|/absolute/private.json [--preview-menu|--preview-calendar|--preview-osd|--preview-notifications|--preview-notification-detail]]".into(),
             )
         }
     };
@@ -133,7 +139,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             Vec::new()
         })
     });
-    if preview_menu && recipe.menu.is_none() {
+    if (preview_menu || preview_notifications || preview_notification_detail)
+        && recipe.menu.is_none() {
         return Err("Native menu preview requires schema v4/v5".into());
     }
     let clock_present = recipe.sections.iter().flatten().any(|widget| *widget == Widget::Clock)
@@ -445,7 +452,28 @@ fn main() -> Result<(), Box<dyn Error>> {
         needs_redraw: false,
         accessibility: None,
     };
+    app.notification_state.configure_glyph_scale(
+        if app.recipe.native_art.as_ref().and_then(|art| art.font.as_ref()).is_some() {
+            app.recipe.font_scale
+        } else { 1 });
     if preview_menu && !preview_secondary_menu { app.set_menu_visible(true, &qh); }
+    if preview_notifications || preview_notification_detail {
+        // Real labwc/RicePlate surface with a fixed sample, entirely offline:
+        // screenshots must not depend on or mutate the runner's Mako history.
+        app.set_menu_visible(true, &qh);
+        app.notification_state.show_preview(ricepop::Snapshot {
+            active: vec![ricepop::Notice {
+                id: 1, summary: "A message from RicePop".into(),
+                app_name: "RiceBowl".into(),
+                body: "Portable fonts are now shared by the native notification center, with readable wrapping and paging.".into(),
+                urgency: "normal".into(),
+                actions: vec![ricepop::Action { key: "open".into(), label: "Open message".into() }],
+            }],
+            history: Vec::new(),
+        });
+        if preview_notification_detail { app.notification_state.open_detail(0); }
+        app.redraw_menu(&qh);
+    }
     if preview_calendar && !preview_secondary_calendar {
         app.set_calendar_visible(true, &qh);
     }
@@ -3465,24 +3493,58 @@ fn notification_glyphs(value: &str, limit: usize) -> String {
         .take(limit).collect()
 }
 
+/// The notification center uses the same owner-private font as the rest of
+/// RicePlate. Only the opt-in font path needs a cell-aware width limit; the
+/// default path delegates unchanged to the legacy bitmap painter.
+fn draw_notification_text(canvas: &mut [u8], width: u32, height: u32, x: u32, y: u32,
+                          label: &str, color: u32, style: &PanelStyle) {
+    if style.native_art.as_ref().and_then(|art| art.font.as_ref()).is_none() {
+        draw_text(canvas, width, height, x, y, label, color);
+        return;
+    }
+    let available = width.saturating_sub(x).saturating_sub(8)
+        / (8 * style.font_scale.max(1));
+    if available == 0 { return; }
+    let length = label.chars().count();
+    if length <= available as usize {
+        draw_auxiliary_text(canvas, width, height, x, y, label, color, style);
+    } else {
+        let mut clipped: String = label.chars().take(available.saturating_sub(1) as usize).collect();
+        clipped.push('…');
+        draw_auxiliary_text(canvas, width, height, x, y, &clipped, color, style);
+    }
+}
+
 fn paint_compact_notifications(canvas: &mut [u8], style: &PanelStyle,
                                state: &NotificationState, size: (u32, u32)) {
     let (width, height) = size;
-    let text_width = ricepop::compact_body_width(width);
+    let text_width = state.compact_text_width(width);
+    // All existing coordinates, colors and font pixels remain identical for
+    // bundled rices. Only opted-in private fonts use the bounded glyph path.
+    let draw_text = |canvas: &mut [u8], width: u32, height: u32,
+                     x: u32, y: u32, label: &str, color: u32| {
+        draw_notification_text(canvas, width, height, x, y, label, color, style);
+    };
+    let large_font = style.native_art.as_ref().and_then(|art| art.font.as_ref()).is_some()
+        && style.font_scale > 1;
     for pixel in canvas.chunks_exact_mut(4) {
         pixel.copy_from_slice(&style.background.to_le_bytes());
     }
     fill_rect(canvas, width, height, 0, 0, width, 28, style.active);
-    draw_text(canvas, width, height, 8, 10, "Notifications", style.foreground);
+    draw_text(canvas, width, height, 8, 10,
+              if large_font { "Alerts" } else { "Notifications" }, style.foreground);
     if state.sync_error {
-        let status = if width < 232 { "Off" } else { "Offline" };
-        draw_text(canvas, width, height, width.saturating_sub(status.len() as u32 * 8 + 4), 10, status,
+        let status = if large_font || width < 232 { "Off" } else { "Offline" };
+        let cell = if large_font { 8 * style.font_scale } else { 8 };
+        draw_text(canvas, width, height, width.saturating_sub(status.len() as u32 * cell + 4), 10, status,
                   style.foreground);
     }
     let footer = height - ricepop::COMPACT_FOOTER_HEIGHT;
     fill_rect(canvas, width, height, 0, footer, width, 1, style.foreground);
-    draw_text(canvas, width, height, 8, footer + 9, "Esc Back", style.foreground);
-    draw_text(canvas, width, height, width / 3 + 4, footer + 9, "R Retry",
+    draw_text(canvas, width, height, 8, footer + 9,
+              if large_font { "Esc" } else { "Esc Back" }, style.foreground);
+    draw_text(canvas, width, height, width / 3 + 4, footer + 9,
+              if large_font { "R" } else { "R Retry" },
               style.foreground);
     if state.selected_id().is_some() {
         draw_text(canvas, width, height, width * 2 / 3 + 4, footer + 9,
@@ -3567,13 +3629,20 @@ fn paint_compact_notifications(canvas: &mut [u8], style: &PanelStyle,
 fn paint_notifications(canvas: &mut [u8], style: &PanelStyle, state: &NotificationState) {
     let width = native_menu::WIDTH;
     let height = native_menu::HEIGHT;
+    let draw_text = |canvas: &mut [u8], width: u32, height: u32,
+                     x: u32, y: u32, label: &str, color: u32| {
+        draw_notification_text(canvas, width, height, x, y, label, color, style);
+    };
+    let large_font = style.native_art.as_ref().and_then(|art| art.font.as_ref()).is_some()
+        && style.font_scale > 1;
     for pixel in canvas.chunks_exact_mut(4) {
         pixel.copy_from_slice(&style.background.to_le_bytes());
     }
     fill_rect(canvas, width, height, 0, 0, width, 38, style.active);
     draw_text(canvas, width, height, 14, 15, "Notifications", style.foreground);
     if state.sync_error {
-        draw_text(canvas, width, height, 250, 15, "Offline", style.foreground);
+        draw_text(canvas, width, height, if large_font { 264 } else { 250 }, 15,
+                  if large_font { "Off" } else { "Offline" }, style.foreground);
     }
     if state.detail_id.is_none() {
         let selected_tab_x = if state.show_history { 164 } else { 4 };
@@ -3596,7 +3665,7 @@ fn paint_notifications(canvas: &mut [u8], style: &PanelStyle, state: &Notificati
                   style.foreground);
         draw_text(canvas, width, height, 14, 72,
                   &notification_glyphs(&notice.summary, 36), style.foreground);
-        let lines = ricepop::body_lines(&notice.body);
+        let lines = state.body_text_lines(&notice.body);
         let pages = state.body_page_count();
         if pages > 1 {
             draw_text(canvas, width, height, 195, 87,
@@ -3648,10 +3717,14 @@ fn paint_notifications(canvas: &mut [u8], style: &PanelStyle, state: &Notificati
     }
     fill_rect(canvas, width, height, 0, 261, width, 1, style.foreground);
     draw_text(canvas, width, height, 14, 279,
-              if state.detail_id.is_some() { "Esc List" } else { "Esc Back" }, style.foreground);
-    draw_text(canvas, width, height, 98, 279, "R Refresh", style.foreground);
+              if large_font { "Esc" } else if state.detail_id.is_some() { "Esc List" }
+              else { "Esc Back" }, style.foreground);
+    draw_text(canvas, width, height, 98, 279,
+              if large_font { "R" } else { "R Refresh" }, style.foreground);
     draw_text(canvas, width, height, 193, 279,
-              if state.selected_id().is_some() { "Del Dismiss" } else { "Unavailable" },
+              if large_font { if state.selected_id().is_some() { "Del" } else { "N/A" } }
+              else if state.selected_id().is_some() { "Del Dismiss" }
+              else { "Unavailable" },
               style.foreground);
 }
 
@@ -5855,6 +5928,56 @@ mod tests {
         let mut fresh_loading = vec![0_u8; len];
         paint_compact_notifications(&mut fresh_loading, &style, &fresh, size);
         assert_eq!(reloading_detail, fresh_loading);
+    }
+
+    #[test]
+    fn native_notification_font_is_opt_in_for_list_detail_and_compact_layout() {
+        let Some(face) = style_art::fixture_font(2) else { return };
+        let bitmap_style = recipe::load("classic").unwrap();
+        let mut font_style = recipe::load("classic").unwrap();
+        font_style.font_scale = 2;
+        font_style.native_art = Some(style_art::LoadedArtwork {
+            font: Some(face), icons: [None, None, None],
+        });
+        let mut state = NotificationState::default();
+        state.show_preview(ricepop::Snapshot { active: vec![ricepop::Notice {
+            id: 1, app_name: "Mail".into(), summary: "Font comparison".into(),
+            body: "Portable Unicode Γραμματοσειρά with detailed message wrapping".into(),
+            ..ricepop::Notice::default()
+        }], history: vec![] });
+        let make_canvas = |size: (u32, u32)| vec![0_u8; (size.0 * size.1 * 4) as usize];
+        let full = (native_menu::WIDTH, native_menu::HEIGHT);
+        let mut before = make_canvas(full);
+        let mut after = make_canvas(full);
+        paint_notifications(&mut before, &bitmap_style, &state);
+        state.configure_glyph_scale(2);
+        paint_notifications(&mut after, &font_style, &state);
+        assert_ne!(before, after);
+        assert!(state.open_detail(0));
+        let mut detail_before = make_canvas(full);
+        let mut detail_after = make_canvas(full);
+        paint_notifications(&mut detail_before, &bitmap_style, &state);
+        paint_notifications(&mut detail_after, &font_style, &state);
+        assert_ne!(detail_before, detail_after);
+        let compact = (168, 144);
+        let mut compact_before = make_canvas(compact);
+        let mut compact_after = make_canvas(compact);
+        paint_compact_notifications(&mut compact_before, &bitmap_style, &state, compact);
+        paint_compact_notifications(&mut compact_after, &font_style, &state, compact);
+        assert_ne!(compact_before, compact_after);
+        // A painter must not write outside its actual output-sized surface.
+        assert_eq!(compact_after.len(), (168 * 144 * 4) as usize);
+    }
+
+    #[test]
+    fn native_notification_text_without_private_font_is_byte_identical() {
+        let style = recipe::load("classic").unwrap();
+        let mut bitmap = vec![0_u8; 320 * 20 * 4];
+        let mut notification = bitmap.clone();
+        draw_text(&mut bitmap, 320, 20, 14, 3, "Alerts & status", style.foreground);
+        draw_notification_text(&mut notification, 320, 20, 14, 3,
+                               "Alerts & status", style.foreground, &style);
+        assert_eq!(bitmap, notification);
     }
 
     #[test]
