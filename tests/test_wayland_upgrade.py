@@ -59,6 +59,20 @@ class DebianUpgradeContracts(unittest.TestCase):
         self.assertIn("apt-get purge", script)
         self.assertIn("docker run --rm -i", script)
 
+    def test_old_selected_rice_and_luna_v12_survive_real_apt_transition(self):
+        script = (ROOT / "scripts/smoke_wayland_upgrade_rollback.sh").read_text()
+        self.assertIn("/usr/lib/ricebowl-wayland/examples/wayland/heritage-modern-v10.json", script)
+        self.assertIn("assert_review \"$legacy\" heritage-modern-v10 10", script)
+        self.assertIn("run_as_owner de recipe-select --recipe heritage-modern-v10", script)
+        self.assertIn("assert_selected heritage-modern-v10", script)
+        self.assertIn("/usr/lib/ricebowl-wayland/examples/wayland/xp-luna-columns.json", script)
+        self.assertIn("assert_review \"$luna\" xp-luna-columns 12", script)
+        self.assertIn("run_as_owner de recipe-select --recipe xp-luna-columns", script)
+        self.assertIn("run_as_owner de recipe-restore", script)
+        self.assertIn("if run_as_owner de review --recipe \"$luna\"", script)
+        self.assertIn("sha256sum -c --status /tmp/ricebowl-v12-before.sha256", script)
+        self.assertIn("runuser -u owner", script)
+
     def test_provenance_is_part_of_core_package_not_user_config(self):
         builder = (ROOT / "scripts/build_wayland_core_deb.sh").read_text()
         self.assertIn("git -C \"$project_root\" rev-parse --verify HEAD", builder)

@@ -189,8 +189,16 @@ The new Core package includes an immutable
 Git source commit and reproducible-build epoch; the previous package did not.
 It is deliberately outside `/usr/share/doc`, which Ubuntu's minimal container
 images may exclude during package installation. CI verifies this file appears after upgrade and disappears
-after rollback. Test-user recipes, the test XFCE panel configuration and a
-user-local `ricebowl` command are checksum-checked after **every** operation.
+after rollback. The test-user XFCE panel configuration, private recipe files
+and user-local `ricebowl` command are checksum-checked after **every** operation.
+The same package test now also selects and reviews an actual schema-v10 rice
+copied from the **old** installed package. It verifies this next-login choice
+survives a failed upgrade and the successful upgrade, then selects the
+schema-v12 Luna example from the **new** package. On downgrade the old parser
+must reject the v12 recipe without modifying it, and `recipe-restore` must
+recover the v10 choice. Re-upgrade checks both private recipes and makes Luna
+selectable again; package purge leaves them intact. This is application-level
+recipe migration evidence inside a disposable container, not a Mint signoff.
 
 To reproduce on an isolated Ubuntu 24.04 machine **with Docker** and the
 four built current packages (no host package changes):

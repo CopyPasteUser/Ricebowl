@@ -92,6 +92,11 @@ installation and is not yet a finished desktop environment.
   corrupt package rejection, explicit downgrade, re-upgrade, purge and
   test-user recipe/XFCE-data checksums. Store deterministic source/version
   BUILDINFO in the new core package; preserve backwards-compatible session.
+- [x] Extend the isolated apt transition with an actual selected **schema-v10**
+  imported recipe from the previous package, plus the upgraded **schema-v12**
+  Luna recipe. Recheck both through the packaged CLI, prove the old parser
+  rejects v12 on downgrade, restore v10, reselect v12 on re-upgrade and keep
+  both private recipe files unmodified through the final package purge.
 - [x] Add a disposable **installed-package Wayland boot gate**: after apt
   installs all four preview `.deb`s, invoke the packaged native login wrapper
   as an unprivileged user with headless labwc and private D-Bus/XDG state;
@@ -99,8 +104,8 @@ installation and is not yet a finished desktop environment.
   a real PNG framebuffer. This is not display-manager or physical-device QA.
 - [ ] Test Mint 22 dependency resolution, changed native/session packages,
   longer real-world version chains, actual display-manager login and
-  selected-rice migrations on physical hardware. Software container tests
-  are not a user-device release signoff.
+  selected-rice migrations on physical hardware. The v10/v12 Ubuntu container
+  exercise above is not a user-device release signoff.
 
 
 ## The product
