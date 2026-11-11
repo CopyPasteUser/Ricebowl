@@ -25,6 +25,8 @@ class NotificationBridgeError(ValueError):
 
 _DND_MODE = "ricebowl-do-not-disturb"
 _NOTIFICATION_BUS = "org.freedesktop.Notifications"
+_MAKO_PATH = "/fr/emersion/Mako"
+_MAKO_INTERFACE = "fr.emersion.Mako"
 
 
 def _expected_mako_config(candidate: bytes) -> bytes:
@@ -165,6 +167,11 @@ def _records(raw: bytes, *, include_actions: bool = False) -> tuple[list[dict[st
     except (ValueError, UnicodeError) as exc:
         raise NotificationBridgeError("Notification host returned invalid JSON",
                                       "invalid_notification_response") from exc
+    return _validate_records(records, include_actions=include_actions)
+
+
+def _validate_records(records: object, *, include_actions: bool = False
+                      ) -> tuple[list[dict[str, Any]], bool]:
     if type(records) is not list:
         raise NotificationBridgeError("Notification list must be an array",
                                       "invalid_notification_response")
@@ -200,23 +207,95 @@ def _records(raw: bytes, *, include_actions: bool = False) -> tuple[list[dict[st
     return result, len(records) > 64
 
 
+def _busctl_records(raw: bytes, *, include_actions: bool = False
+                    ) -> tuple[list[dict[str, Any]], bool]:
+    """Decode Mako's stable D-Bus aa{sv} shape across 1.8–1.11.
+
+    Ubuntu 24.04 ships Mako 1.8, whose ``makoctl list`` emits typed busctl
+    JSON *without* a ``-j`` option. Mako 1.10 switched to text and 1.11
+    gained its own JSON format. Read Mako's actual D-Bus API instead of
+    guessing which incompatible makoctl representation is installed.
+    """
+    if len(raw) > 128 * 1024:
+        raise NotificationBridgeError("Notification host response is oversized",
+                                      "invalid_notification_response")
+    try:
+        reply = json.loads(raw)
+    except (ValueError, UnicodeError) as exc:
+        raise NotificationBridgeError("Notification host returned invalid JSON",
+                                      "invalid_notification_response") from exc
+    if (type(reply) is not dict or reply.get("type") != "aa{sv}"
+            or type(reply.get("data")) is not list or len(reply["data"]) != 1
+            or type(reply["data"][0]) is not list):
+        raise NotificationBridgeError("Unexpected Mako D-Bus response",
+                                      "invalid_notification_response")
+
+    fields = {"id": "u", "summary": "s", "body": "s", "app-name": "s",
+              "urgency": "y", "actions": "a{ss}"}
+    result = []
+    for entry in reply["data"][0][:64]:
+        if type(entry) is not dict:
+            raise NotificationBridgeError("Invalid Mako notification entry",
+                                          "invalid_notification_response")
+        normalized = {}
+        for key, expected_type in fields.items():
+            if key not in entry:
+                continue
+            typed = entry[key]
+            if (type(typed) is not dict or typed.get("type") != expected_type
+                    or "data" not in typed):
+                raise NotificationBridgeError("Invalid Mako notification property",
+                                              "invalid_notification_response")
+            value = typed["data"]
+            if key == "urgency":
+                if type(value) is not int or value not in (0, 1, 2):
+                    raise NotificationBridgeError("Invalid Mako notification urgency",
+                                                  "invalid_notification_response")
+                value = ("low", "normal", "critical")[value]
+            elif key == "id":
+                if type(value) is not int:
+                    raise NotificationBridgeError("Invalid Mako notification ID",
+                                                  "invalid_notification_response")
+            elif key == "actions":
+                if type(value) is not dict:
+                    raise NotificationBridgeError("Invalid Mako notification actions",
+                                                  "invalid_notification_response")
+            elif type(value) is not str:
+                raise NotificationBridgeError("Invalid Mako notification text",
+                                              "invalid_notification_response")
+            normalized["app_name" if key == "app-name" else key] = value
+        result.append(normalized)
+    validated, _ = _validate_records(result, include_actions=include_actions)
+    return validated, len(reply["data"][0]) > 64
+
+
+def _read_mako(action: str, *, include_actions: bool = False
+               ) -> tuple[list[dict[str, Any]], bool]:
+    """Read only Mako's private ListNotifications/ListHistory D-Bus API."""
+    if action not in ("ListNotifications", "ListHistory"):
+        raise ValueError("Unsupported Mako read operation")
+    busctl = shutil.which("busctl")
+    if busctl is None:
+        raise NotificationBridgeError("D-Bus notification inventory tools are missing")
+    try:
+        process = subprocess.run(
+            [busctl, "--user", "--json=short", "call", _NOTIFICATION_BUS,
+             _MAKO_PATH, _MAKO_INTERFACE, action],
+            capture_output=True, timeout=3, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise NotificationBridgeError("Wayland notification host is unreachable") from exc
+    if process.returncode:
+        raise NotificationBridgeError("Mako notification inventory is unavailable")
+    return _busctl_records(process.stdout, include_actions=include_actions)
+
+
 def inspect() -> dict[str, Any]:
     """Query the active notification owner only on explicit CLI invocation."""
-    command = shutil.which("makoctl")
-    if command is None:
-        raise NotificationBridgeError("makoctl is not installed")
     snapshots = {}
     truncated = False
-    for source, action in (("active", "list"), ("history", "history")):
-        try:
-            process = subprocess.run([command, action, "-j"], capture_output=True,
-                                     timeout=3, check=False)
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            raise NotificationBridgeError("Wayland notification host is unreachable") from exc
-        if process.returncode:
-            raise NotificationBridgeError("Wayland notification host rejected a read-only query")
-        snapshots[source], limited = _records(process.stdout,
-                                             include_actions=source == "active")
+    for source, action in (("active", "ListNotifications"), ("history", "ListHistory")):
+        snapshots[source], limited = _read_mako(action, include_actions=source == "active")
         truncated |= limited
     return {"ok": True, "backend": "mako", "active": snapshots["active"],
             "history": snapshots["history"], "truncated": truncated,
@@ -224,16 +303,9 @@ def inspect() -> dict[str, Any]:
             "mutates_active_desktop": False, "source_contains_private_messages": True}
 
 
-def _fresh_active(command: str, *, include_actions: bool = False) -> list[dict[str, Any]]:
+def _fresh_active(*, include_actions: bool = False) -> list[dict[str, Any]]:
     """Revalidate the exact bounded current inventory before any mutation."""
-    try:
-        snapshot = subprocess.run([command, "list", "-j"], capture_output=True,
-                                  timeout=3, check=False)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise NotificationBridgeError("Notification host is unreachable") from exc
-    if snapshot.returncode:
-        raise NotificationBridgeError("Notification host rejected the active list")
-    active, truncated = _records(snapshot.stdout, include_actions=include_actions)
+    active, truncated = _read_mako("ListNotifications", include_actions=include_actions)
     if truncated or len({record["id"] for record in active}) != len(active):
         raise NotificationBridgeError("Active notification inventory is ambiguous",
                                       "ambiguous_notification_id")
@@ -248,7 +320,7 @@ def dismiss(notification_id: int) -> dict[str, Any]:
     command = shutil.which("makoctl")
     if command is None:
         raise NotificationBridgeError("makoctl is not installed")
-    active = _fresh_active(command)
+    active = _fresh_active()
     if notification_id not in {record["id"] for record in active}:
         raise NotificationBridgeError("Notification is no longer active",
                                       "notification_not_found")
@@ -280,7 +352,7 @@ def invoke(notification_id: int, action_key: str) -> dict[str, Any]:
     command = shutil.which("makoctl")
     if command is None:
         raise NotificationBridgeError("makoctl is not installed")
-    active = _fresh_active(command, include_actions=True)
+    active = _fresh_active(include_actions=True)
     matching = next((item for item in active if item["id"] == notification_id), None)
     if matching is None:
         raise NotificationBridgeError("Notification is no longer active", "notification_not_found")

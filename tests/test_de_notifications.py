@@ -12,6 +12,17 @@ from macrice.de import notifications, session, settings
 from macrice.de.creator_contract import describe_creator_api
 
 
+def _legacy_busctl(records):
+    """Ubuntu 24.04 Mako 1.8's typed busctl JSON response."""
+    fields = {"id": "u", "summary": "s", "body": "s", "app_name": "s",
+              "urgency": "y", "actions": "a{ss}"}
+    return json.dumps({"type": "aa{sv}", "data": [[{
+        ("app-name" if key == "app_name" else key):
+        {"type": fields[key], "data": value}
+        for key, value in entry.items()
+    } for entry in records]]}).encode()
+
+
 class WaylandRicePopReadTests(unittest.TestCase):
     def test_dnd_only_controls_one_mode_with_explicit_previous_state(self):
         calls = []
@@ -129,27 +140,52 @@ class WaylandRicePopReadTests(unittest.TestCase):
 
     def test_reads_mako_live_and_history_without_replaying_actions(self):
         active = [{"id": 12, "summary": "Download", "body": "Finished",
-                   "app_name": "Files", "urgency": "normal",
+                   "app_name": "Files", "urgency": 1,
                    "actions": {"dangerous": "Delete file"}}]
         finished = [{"id": 13, "summary": "Mail", "body": "Private message",
-                     "app_name": "Mail", "urgency": "low"}]
+                     "app_name": "Mail", "urgency": 0}]
         def fake_run(args, **options):
-            self.assertEqual(args[0], "/usr/bin/makoctl")
-            self.assertEqual(args[-1], "-j")
+            self.assertEqual(args[:4], ["/usr/bin/busctl", "--user", "--json=short", "call"])
+            self.assertEqual(args[4:7], ["org.freedesktop.Notifications",
+                                         "/fr/emersion/Mako", "fr.emersion.Mako"])
             self.assertTrue(options["capture_output"])
             return subprocess.CompletedProcess(args, 0,
-                   json.dumps(active if args[1] == "list" else finished).encode(), b"")
-        with mock.patch("macrice.de.notifications.shutil.which", return_value="/usr/bin/makoctl"), \
+                   _legacy_busctl(active if args[-1] == "ListNotifications" else finished), b"")
+        with mock.patch("macrice.de.notifications.shutil.which", return_value="/usr/bin/busctl"), \
              mock.patch("macrice.de.notifications.subprocess.run", side_effect=fake_run):
             result = notifications.inspect()
         self.assertTrue(result["read_only"])
         self.assertFalse(result["mutates_active_desktop"])
         self.assertFalse(result["actions_replayed"])
         self.assertEqual(result["active"][0]["summary"], "Download")
+        self.assertEqual(result["active"][0]["urgency"], "normal")
         self.assertEqual(result["active"][0]["actions"],
                          [{"key": "dangerous", "label": "Delete file"}])
         self.assertNotIn("actions", result["history"][0])
         self.assertEqual(result["history"][0]["id"], 13)
+
+    def test_legacy_busctl_inventory_refuses_typed_schema_confusion(self):
+        good = [{"id": 3, "summary": "A", "urgency": 2,
+                 "actions": {"reply": "Reply"}}]
+        items, truncated = notifications._busctl_records(_legacy_busctl(good),
+                                                          include_actions=True)
+        self.assertFalse(truncated)
+        self.assertEqual(items[0]["urgency"], "critical")
+        self.assertEqual(items[0]["actions"], [{"key": "reply", "label": "Reply"}])
+        for bad in (
+                {}, {"type": "aa{sv}", "data": []},
+                {"type": "aa{sv}", "data": [{"id": {"type": "u", "data": 3}}]},
+                {"type": "aa{sv}", "data": [[{"id": {"type": "s", "data": "3"}}]]},
+                {"type": "aa{sv}", "data": [[{"id": {"type": "u", "data": True}}]]},
+                {"type": "aa{sv}", "data": [[{"id": {"type": "u", "data": 3},
+                                                "urgency": {"type": "y", "data": 9}}]]},
+                {"type": "aa{sv}", "data": [[{"id": {"type": "u", "data": 3},
+                                                "actions": {"type": "a{ss}", "data": []}}]]},
+        ):
+            with self.subTest(bad=bad), self.assertRaises(notifications.NotificationBridgeError):
+                notifications._busctl_records(json.dumps(bad).encode())
+        with self.assertRaises(notifications.NotificationBridgeError):
+            notifications._busctl_records(b"x" * (128 * 1024 + 1))
 
     def test_missing_backend_invalid_reply_and_overlong_history_fail_closed(self):
         with mock.patch("macrice.de.notifications.shutil.which", return_value=None):
@@ -176,45 +212,39 @@ class WaylandRicePopReadTests(unittest.TestCase):
         calls = []
         def fake_run(args, **options):
             calls.append(args)
-            if args[1] == "list":
-                data = [{"id": 12, "summary": "Finished", "actions": {"delete": "Delete"}}]
-                return subprocess.CompletedProcess(args, 0, json.dumps(data).encode(), b"")
             return subprocess.CompletedProcess(args, 0, b"", b"")
         with mock.patch("macrice.de.notifications.shutil.which", return_value="/usr/bin/makoctl"), \
+             mock.patch.object(notifications, "_read_mako", return_value=([{"id": 12}], False)) as read, \
              mock.patch("macrice.de.notifications.subprocess.run", side_effect=fake_run):
             result = notifications.dismiss(12)
         self.assertTrue(result["dismissed"])
         self.assertTrue(result["mutates_active_desktop"])
         self.assertFalse(result["actions_replayed"])
-        self.assertEqual(calls, [["/usr/bin/makoctl", "list", "-j"],
-                                 ["/usr/bin/makoctl", "dismiss", "-n", "12"]])
+        read.assert_called_once_with("ListNotifications", include_actions=False)
+        self.assertEqual(calls, [["/usr/bin/makoctl", "dismiss", "-n", "12"]])
 
     def test_dismiss_rejects_ids_not_currently_visible_and_all_invalid_values(self):
         for value in (True, False, -1, 0, 2**32, "12", None):
             with self.subTest(value=value):
                 with self.assertRaises(notifications.NotificationBridgeError):
                     notifications.dismiss(value)
-        active = b'[{"id": 12, "summary": "one"}]'
         with mock.patch("macrice.de.notifications.shutil.which", return_value="makoctl"), \
-             mock.patch("macrice.de.notifications.subprocess.run",
-                        return_value=subprocess.CompletedProcess([], 0, active, b"")) as run:
+             mock.patch.object(notifications, "_read_mako", return_value=([{"id": 12}], False)) as read:
             with self.assertRaises(notifications.NotificationBridgeError) as ctx:
                 notifications.dismiss(13)
         self.assertEqual(ctx.exception.code, "notification_not_found")
-        run.assert_called_once()
+        read.assert_called_once()
 
     def test_dismiss_fails_closed_on_truncation_backend_error_and_timeout(self):
-        many = json.dumps([{"id": i} for i in range(1, 70)]).encode()
         with mock.patch("macrice.de.notifications.shutil.which", return_value="makoctl"), \
-             mock.patch("macrice.de.notifications.subprocess.run",
-                        return_value=subprocess.CompletedProcess([], 0, many, b"")) as run:
+             mock.patch.object(notifications, "_read_mako", return_value=([{"id": 5}], True)) as read:
             with self.assertRaises(notifications.NotificationBridgeError) as ctx:
                 notifications.dismiss(5)
         self.assertEqual(ctx.exception.code, "ambiguous_notification_id")
-        run.assert_called_once()
+        read.assert_called_once()
         with mock.patch("macrice.de.notifications.shutil.which", return_value="makoctl"), \
-             mock.patch("macrice.de.notifications.subprocess.run",
-                        side_effect=subprocess.TimeoutExpired("makoctl", 3)):
+             mock.patch.object(notifications, "_read_mako",
+                               side_effect=notifications.NotificationBridgeError("timeout")):
             with self.assertRaises(notifications.NotificationBridgeError):
                 notifications.dismiss(5)
 
@@ -225,21 +255,23 @@ class WaylandRicePopReadTests(unittest.TestCase):
 
         def fake_run(args, **options):
             calls.append(args)
-            payload = json.dumps(active).encode() if args[1] == "list" else b""
-            return subprocess.CompletedProcess(args, 0, payload, b"")
+            return subprocess.CompletedProcess(args, 0, b"", b"")
 
         with mock.patch("macrice.de.notifications.shutil.which", return_value="makoctl"), \
+             mock.patch.object(notifications, "_read_mako", return_value=(
+                 [{"id": 12, "actions": [{"key": "default", "label": "Open"},
+                                          {"key": "reply", "label": "Reply"}]}], False)) as read, \
              mock.patch("macrice.de.notifications.subprocess.run", side_effect=fake_run):
             result = notifications.invoke(12, "reply")
             self.assertTrue(result["invoked"])
             self.assertTrue(result["mutates_active_desktop"])
-            self.assertEqual(calls, [["makoctl", "list", "-j"],
-                                     ["makoctl", "invoke", "-n", "12", "--", "reply"]])
+            self.assertEqual(calls, [["makoctl", "invoke", "-n", "12", "--", "reply"]])
+            read.assert_called_once_with("ListNotifications", include_actions=True)
             calls.clear()
             with self.assertRaises(notifications.NotificationBridgeError) as ctx:
                 notifications.invoke(12, "hidden-action")
             self.assertEqual(ctx.exception.code, "notification_action_not_found")
-            self.assertEqual(len(calls), 1)
+            self.assertEqual(len(calls), 0)
 
     def test_invoke_rejects_malformed_action_data_and_ambiguous_inventory(self):
         for invalid in (None, True, "", "a" * 81, "re\nply", "bad\x00value"):
@@ -253,10 +285,9 @@ class WaylandRicePopReadTests(unittest.TestCase):
                     notifications._records(json.dumps([{"id": 1, "actions": actions}]).encode(),
                                            include_actions=True)
         with mock.patch("macrice.de.notifications.shutil.which", return_value="makoctl"), \
-             mock.patch("macrice.de.notifications.subprocess.run", return_value=
-                        subprocess.CompletedProcess([], 0, json.dumps([
-                            {"id": 7, "actions": {"reply": "Reply"}},
-                            {"id": 7, "actions": {"reply": "Reply"}}]).encode(), b"")):
+             mock.patch.object(notifications, "_read_mako", return_value=([
+                 {"id": 7, "actions": [{"key": "reply", "label": "Reply"}]},
+                 {"id": 7, "actions": [{"key": "reply", "label": "Reply"}]}], False)):
             with self.assertRaises(notifications.NotificationBridgeError) as ctx:
                 notifications.invoke(7, "reply")
             self.assertEqual(ctx.exception.code, "ambiguous_notification_id")

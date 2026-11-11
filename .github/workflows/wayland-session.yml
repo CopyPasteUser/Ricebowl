@@ -10,6 +10,7 @@ on:
       - 'packaging/wayland/**'
       - 'scripts/build_wayland_session_deb.sh'
       - 'scripts/smoke_wayland_session.sh'
+      - 'scripts/smoke_wayland_ricepop.py'
       - 'scripts/check_wayland_panel_outputs.py'
       - 'tests/test_de_*.py'
       - 'tests/test_wayland_creator_e2e.py'
@@ -23,6 +24,7 @@ on:
       - 'packaging/wayland/**'
       - 'scripts/build_wayland_session_deb.sh'
       - 'scripts/smoke_wayland_session.sh'
+      - 'scripts/smoke_wayland_ricepop.py'
       - 'scripts/check_wayland_panel_outputs.py'
       - 'tests/test_de_*.py'
       - 'tests/test_wayland_creator_e2e.py'
@@ -44,7 +46,7 @@ jobs:
             xwayland dbus-user-session dbus-x11 xdg-desktop-portal \
             xdg-desktop-portal-gtk xdg-desktop-portal-wlr \
             wayland-utils
-          sudo apt-get install -y grim wlr-randr python3-pil
+          sudo apt-get install -y grim wlr-randr python3-pil mako-notifier libnotify-bin
       - name: Validate and test isolated session runtime
         run: |
           /usr/bin/python3 -m compileall -q macrice/de macrice/cli.py
@@ -55,6 +57,7 @@ jobs:
           sh -n scripts/build_wayland_session_deb.sh
           sh -n scripts/test_wayland_package_reproducibility.sh
           sh -n scripts/smoke_wayland_session.sh
+          /usr/bin/python3 -m py_compile scripts/smoke_wayland_ricepop.py
       - name: Build non-installed login session package
         run: |
           sh scripts/build_wayland_session_deb.sh
@@ -62,7 +65,7 @@ jobs:
           sh scripts/test_wayland_package_reproducibility.sh
       - name: Boot actual labwc and Waybar headlessly
         run: |
-          timeout -k 5s 45s sh scripts/smoke_wayland_session.sh
+          RICEBOWL_SMOKE_RICEPOP=1 timeout -k 5s 60s sh scripts/smoke_wayland_session.sh
           timeout -k 5s 45s sh scripts/smoke_wayland_session.sh chrome
           timeout -k 5s 45s sh scripts/smoke_wayland_session.sh classic
           RICEBOWL_SMOKE_OUTPUTS=2 timeout -k 5s 60s sh scripts/smoke_wayland_session.sh classic

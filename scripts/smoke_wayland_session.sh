@@ -72,6 +72,9 @@ dbus-run-session -- sh -eu -c '
         sed -n "1,100p" "$runtime/labwc.log" >&2
         exit 1
     fi
+    if [ "${RICEBOWL_SMOKE_RICEPOP:-0}" = 1 ]; then
+        /usr/bin/python3 "$project_root/scripts/smoke_wayland_ricepop.py"
+    fi
     # The nested session must not import or override the parent activation
     # environment. A native panel still needs to start successfully.
     ready=0
