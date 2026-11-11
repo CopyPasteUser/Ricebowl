@@ -472,8 +472,18 @@ fn main() -> Result<(), Box<dyn Error>> {
             };
         app.notification_state.show_preview(ricepop::Snapshot {
             active: if preview_notifications_scroll {
-                (1..=7).map(|id| ricepop::Notice {
-                    id, summary: format!("Luna notification {id}"),
+                // Visually distinct across pages: the framebuffer check must
+                // detect actual changed rows, not just a trailing ID digit.
+                [
+                    ("New message from Alex", "Messages"),
+                    ("Calendar meeting reminder", "Calendar"),
+                    ("Download completed", "RiceField"),
+                    ("System temperature warning", "Taskotto"),
+                    ("Backup completed successfully", "Satella"),
+                    ("Bluetooth headphones paired", "RiceSpice"),
+                    ("Updates ready to install", "RiceBowl"),
+                ].into_iter().enumerate().map(|(index, (summary, app_name))| ricepop::Notice {
+                    id: index as u32 + 1, summary: summary.into(), app_name: app_name.into(),
                     ..sample.clone()
                 }).collect()
             } else { vec![sample] },
