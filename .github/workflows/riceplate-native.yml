@@ -524,6 +524,34 @@ jobs:
                   # black compositor root is not a faithful Luna screenshot.
                   wallpaper_pixel = image.convert('RGB').getpixel((700, 350))
               assert sum(wallpaper_pixel) > 90, (label, 'missing Luna wallpaper', wallpaper_pixel)
+          for suffix, width, height in (
+              ('1024x768', 1024, 768), ('1920x1080', 1920, 1080),
+              ('scale-125', 1366, 768),
+          ):
+              # The virtual-pointer compositor client clicks the REAL Start
+              # button twice. An opt-in --preview-menu capture cannot pass.
+              files = [directory / f'xp-luna-pointer-{state}-{suffix}.png'
+                       for state in ('open', 'closed')]
+              reference = directory / f'xp-luna-columns-{suffix}.png'
+              with Image.open(files[0]) as opened_image, \
+                   Image.open(files[1]) as closed_image, \
+                   Image.open(reference) as initial_image:
+                  assert opened_image.size == closed_image.size == initial_image.size == \
+                      (width, height), f'Clicked Luna output geometry mismatch: {suffix}'
+                  region = (0, height - 450, min(width, 500), height - 50)
+                  opened = opened_image.convert('RGB').crop(region)
+                  closed = closed_image.convert('RGB').crop(region)
+                  initial = initial_image.convert('RGB').crop(region)
+                  menu_delta = sum(left != right for left, right in
+                                   zip(opened.getdata(), closed.getdata()))
+                  restore_delta = sum(left != right for left, right in
+                                      zip(closed.getdata(), initial.getdata()))
+              assert menu_delta > 10000, \
+                  f'Native Luna Start pointer click did not open/close: {suffix}: {menu_delta}'
+              assert restore_delta < 5000, \
+                  f'Native Luna second pointer click did not restore desktop: {suffix}: {restore_delta}'
+              print(f'Native virtual-pointer Luna Start toggle {suffix}: '
+                    f'{menu_delta} menu pixels, {restore_delta} restore delta')
           assert captures['calendar-v5'] != captures['desktop-v5'], 'Native calendar did not render in Wayland frame'
           with Image.open(directory / 'calendar-v5.png') as image:
               header = image.convert('RGB').getpixel((700, 50))
