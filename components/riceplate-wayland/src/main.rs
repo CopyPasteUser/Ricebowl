@@ -84,14 +84,14 @@ const BTN_RIGHT: u32 = 0x111;
 enum MenuSizeDecision {
     Accept,
     AwaitNewConfigure,
-    Invalid,
+    RetryExpectedSize,
 }
 
 fn menu_size_decision(expected: (u32, u32), offered: (u32, u32),
                       awaiting_resize: bool) -> MenuSizeDecision {
     if offered == expected { MenuSizeDecision::Accept }
     else if awaiting_resize { MenuSizeDecision::AwaitNewConfigure }
-    else { MenuSizeDecision::Invalid }
+    else { MenuSizeDecision::RetryExpectedSize }
 }
 
 fn clock_now() -> String {
@@ -4474,18 +4474,20 @@ impl LayerShellHandler for RicePlate {
                           config.new_size, expected_size);
                 return;
             }
-            if disposition == MenuSizeDecision::Invalid {
-                eprintln!("RicePlate: compositor proposed unsupported native menu geometry");
-                if self.menu_layer.as_ref().is_some_and(|menu|
-                    menu.surface.wl_surface() == layer.wl_surface()) {
-                    self.menu_layer = None;
-                } else {
-                    self.menu_mirrors.retain(|menu|
-                        menu.surface.wl_surface() != layer.wl_surface());
-                }
-                if self.active_menu.as_ref() == Some(layer.wl_surface()) {
-                    self.set_menu_visible(false, qh);
-                }
+            if disposition == MenuSizeDecision::RetryExpectedSize {
+                // Output mode/scale changes can deliver an older configure
+                // even *after* a matching configure was accepted. It is not
+                // evidence that the compositor cannot render this surface:
+                // destroying the layer would permanently remove Start until
+                // the next session. Reassert the current desired geometry.
+                eprintln!("RicePlate: retrying native menu geometry {:?} after stale {:?}",
+                          expected_size, config.new_size);
+                let menu_layer = self.menu_layer.iter_mut().chain(self.menu_mirrors.iter_mut())
+                    .find(|menu| menu.surface.wl_surface() == layer.wl_surface())
+                    .expect("matched a live native menu layer");
+                menu_layer.configured = false;
+                menu_layer.surface.set_size(expected_size.0, expected_size.1);
+                menu_layer.surface.commit();
                 return;
             }
             let menu_layer = self.menu_layer.as_mut().filter(|menu|
@@ -5704,8 +5706,13 @@ mod tests {
             assert_eq!(menu_size_decision(desired, desired, true),
                        MenuSizeDecision::Accept);
             assert_eq!(menu_size_decision(desired, old, false),
-                       MenuSizeDecision::Invalid);
+                       MenuSizeDecision::RetryExpectedSize);
         }
+        // When a fractional-scale output switches from 480 to 320 logical
+        // pixels, an old configure must not permanently kill the menu after
+        // the new 320 configure was already accepted.
+        assert_eq!(menu_size_decision(old, (480, 456), false),
+                   MenuSizeDecision::RetryExpectedSize);
         assert_eq!(menu_size_decision(old, old, false), MenuSizeDecision::Accept);
     }
 
