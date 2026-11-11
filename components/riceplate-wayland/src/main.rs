@@ -101,27 +101,29 @@ fn main() -> Result<(), Box<dyn Error>> {
         return output_watch::run();
     }
     if matches!(arguments.as_slice(), [arg] if arg == "--help") {
-        println!("Usage: riceplate-native [--recipe classic|chrome|/absolute/private.json [--preview-menu|--preview-calendar|--preview-osd|--preview-notifications|--preview-notification-detail]]\n       riceplate-native --watch-outputs (RiceBowl session only)");
+        println!("Usage: riceplate-native [--recipe classic|chrome|/absolute/private.json [--preview-menu|--preview-calendar|--preview-osd|--preview-notifications|--preview-notification-detail|--preview-notifications-scroll]]\n       riceplate-native --watch-outputs (RiceBowl session only)");
         return Ok(());
     }
     let (recipe_name, preview_menu, preview_calendar, preview_osd, preview_notifications,
-         preview_notification_detail) = match arguments.as_slice() {
-        [] => ("classic", false, false, false, false, false),
+         preview_notification_detail, preview_notifications_scroll) = match arguments.as_slice() {
+        [] => ("classic", false, false, false, false, false, false),
         [flag, recipe] if flag == "--recipe" =>
-            (recipe.as_str(), false, false, false, false, false),
+            (recipe.as_str(), false, false, false, false, false, false),
         [flag, recipe, preview] if flag == "--recipe" && preview == "--preview-menu" =>
-            (recipe.as_str(), true, false, false, false, false),
+            (recipe.as_str(), true, false, false, false, false, false),
         [flag, recipe, preview] if flag == "--recipe" && preview == "--preview-calendar" =>
-            (recipe.as_str(), false, true, false, false, false),
+            (recipe.as_str(), false, true, false, false, false, false),
         [flag, recipe, preview] if flag == "--recipe" && preview == "--preview-osd" =>
-            (recipe.as_str(), false, false, true, false, false),
+            (recipe.as_str(), false, false, true, false, false, false),
         [flag, recipe, preview] if flag == "--recipe" && preview == "--preview-notifications" =>
-            (recipe.as_str(), false, false, false, true, false),
+            (recipe.as_str(), false, false, false, true, false, false),
         [flag, recipe, preview] if flag == "--recipe" && preview == "--preview-notification-detail" =>
-            (recipe.as_str(), false, false, false, false, true),
+            (recipe.as_str(), false, false, false, false, true, false),
+        [flag, recipe, preview] if flag == "--recipe" && preview == "--preview-notifications-scroll" =>
+            (recipe.as_str(), false, false, false, false, false, true),
         _ => {
             return Err(
-                "Usage: riceplate-native [--recipe classic|chrome|/absolute/private.json [--preview-menu|--preview-calendar|--preview-osd|--preview-notifications|--preview-notification-detail]]".into(),
+                "Usage: riceplate-native [--recipe classic|chrome|/absolute/private.json [--preview-menu|--preview-calendar|--preview-osd|--preview-notifications|--preview-notification-detail|--preview-notifications-scroll]]".into(),
             )
         }
     };
@@ -139,7 +141,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             Vec::new()
         })
     });
-    if (preview_menu || preview_notifications || preview_notification_detail)
+    if (preview_menu || preview_notifications || preview_notification_detail || preview_notifications_scroll)
         && recipe.menu.is_none() {
         return Err("Native menu preview requires schema v4/v5".into());
     }
@@ -457,18 +459,24 @@ fn main() -> Result<(), Box<dyn Error>> {
             app.recipe.font_scale
         } else { 1 });
     if preview_menu && !preview_secondary_menu { app.set_menu_visible(true, &qh); }
-    if preview_notifications || preview_notification_detail {
+    if preview_notifications || preview_notification_detail || preview_notifications_scroll {
         // Real labwc/RicePlate surface with a fixed sample, entirely offline:
         // screenshots must not depend on or mutate the runner's Mako history.
         app.set_menu_visible(true, &qh);
-        app.notification_state.show_preview(ricepop::Snapshot {
-            active: vec![ricepop::Notice {
+        let sample = ricepop::Notice {
                 id: 1, summary: "A message from RicePop".into(),
                 app_name: "RiceBowl".into(),
                 body: "Portable fonts are now shared by the native notification center, with readable wrapping and paging.".into(),
                 urgency: "normal".into(),
                 actions: vec![ricepop::Action { key: "open".into(), label: "Open message".into() }],
-            }],
+            };
+        app.notification_state.show_preview(ricepop::Snapshot {
+            active: if preview_notifications_scroll {
+                (1..=7).map(|id| ricepop::Notice {
+                    id, summary: format!("Luna notification {id}"),
+                    ..sample.clone()
+                }).collect()
+            } else { vec![sample] },
             history: Vec::new(),
         });
         if preview_notification_detail { app.notification_state.open_detail(0); }
@@ -5107,7 +5115,13 @@ impl PointerHandler for RicePlate {
                 let pointer = if compact { event.position }
                               else { native_menu::input_coords(event.position, menu_size) };
                 if let PointerEventKind::Axis { vertical, .. } = event.kind {
-                    if !self.notification_state.open {
+                    if self.notification_state.open {
+                        if self.notification_state.scroll_at(pointer.0, pointer.1,
+                            vertical.discrete, vertical.absolute,
+                            if compact { Some(menu_size) } else { None }) {
+                            self.redraw_menu(qh);
+                        }
+                    } else {
                         let body_top = if compact { native_menu::COMPACT_ACTION_TOP }
                                        else { native_menu::ACTION_TOP };
                         let footer = if compact { native_menu::COMPACT_FOOTER_HEIGHT }

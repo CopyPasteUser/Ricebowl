@@ -156,7 +156,7 @@ dbus-run-session -- sh -eu -c '
         sed -n "1,70p" "$runtime/labwc.log" >&2
         exit 1
     fi
-    for recipe in classic chrome "$runtime/custom.json" "$runtime/nested.json" "$runtime/shell-v4.json" "$runtime/desktop-v5.json" "$runtime/actions-v6.json" "$runtime/controls-v7.json" "$runtime/layout-v8.json" "$runtime/components-v9.json" "$runtime/desktop-actions-v9.json" "$runtime/appearance-v10.json" "$runtime/xp-luna-columns.json" "$runtime/xp-luna-default-icons.json" "$runtime/xp-luna-columns-menu" "$runtime/xp-luna-font-menu" "$runtime/xp-luna-columns-calendar" "$runtime/xp-luna-font-calendar" "$runtime/xp-luna-columns-osd" "$runtime/xp-luna-font-osd" "$runtime/xp-luna-columns-notifications" "$runtime/xp-luna-font-notifications" "$runtime/xp-luna-columns-notification-detail" "$runtime/xp-luna-font-notification-detail" "$runtime/overflow-v5.json" "$runtime/desktop-v5-menu" "$runtime/sidebar-v6-menu" "$runtime/composed-v6-menu" "$runtime/desktop-v5-calendar"; do
+    for recipe in classic chrome "$runtime/custom.json" "$runtime/nested.json" "$runtime/shell-v4.json" "$runtime/desktop-v5.json" "$runtime/actions-v6.json" "$runtime/controls-v7.json" "$runtime/layout-v8.json" "$runtime/components-v9.json" "$runtime/desktop-actions-v9.json" "$runtime/appearance-v10.json" "$runtime/xp-luna-columns.json" "$runtime/xp-luna-default-icons.json" "$runtime/xp-luna-columns-menu" "$runtime/xp-luna-font-menu" "$runtime/xp-luna-columns-calendar" "$runtime/xp-luna-font-calendar" "$runtime/xp-luna-columns-osd" "$runtime/xp-luna-font-osd" "$runtime/xp-luna-columns-notifications" "$runtime/xp-luna-columns-notifications-scroll" "$runtime/xp-luna-font-notifications" "$runtime/xp-luna-columns-notification-detail" "$runtime/xp-luna-font-notification-detail" "$runtime/overflow-v5.json" "$runtime/desktop-v5-menu" "$runtime/sidebar-v6-menu" "$runtime/composed-v6-menu" "$runtime/desktop-v5-calendar"; do
         case "$recipe" in
             */desktop-v5-calendar) label=calendar-v5 ;;
             */desktop-v5-menu) label=menu-v5 ;;
@@ -169,6 +169,7 @@ dbus-run-session -- sh -eu -c '
             */xp-luna-columns-osd) label=xp-luna-columns-osd ;;
             */xp-luna-font-osd) label=xp-luna-font-osd ;;
             */xp-luna-columns-notifications) label=xp-luna-columns-notifications ;;
+            */xp-luna-columns-notifications-scroll) label=xp-luna-columns-notifications-scroll ;;
             */xp-luna-font-notifications) label=xp-luna-font-notifications ;;
             */xp-luna-columns-notification-detail) label=xp-luna-columns-notification-detail ;;
             */xp-luna-font-notification-detail) label=xp-luna-font-notification-detail ;;
@@ -187,7 +188,7 @@ dbus-run-session -- sh -eu -c '
             /*) label=custom ;;
             *) label=$recipe ;;
         esac
-        if [ "$label" = xp-luna-columns ] || [ "$label" = xp-luna-default-icons ] || [ "$label" = xp-luna-columns-menu ] || [ "$label" = xp-luna-font-menu ] || [ "$label" = xp-luna-columns-calendar ] || [ "$label" = xp-luna-font-calendar ] || [ "$label" = xp-luna-columns-osd ] || [ "$label" = xp-luna-font-osd ] || [ "$label" = xp-luna-columns-notifications ] || [ "$label" = xp-luna-font-notifications ] || [ "$label" = xp-luna-columns-notification-detail ] || [ "$label" = xp-luna-font-notification-detail ]; then
+        if [ "$label" = xp-luna-columns ] || [ "$label" = xp-luna-default-icons ] || [ "$label" = xp-luna-columns-menu ] || [ "$label" = xp-luna-font-menu ] || [ "$label" = xp-luna-columns-calendar ] || [ "$label" = xp-luna-font-calendar ] || [ "$label" = xp-luna-columns-osd ] || [ "$label" = xp-luna-font-osd ] || [ "$label" = xp-luna-columns-notifications ] || [ "$label" = xp-luna-columns-notifications-scroll ] || [ "$label" = xp-luna-font-notifications ] || [ "$label" = xp-luna-columns-notification-detail ] || [ "$label" = xp-luna-font-notification-detail ]; then
             # Actual Wayland sessions run swaybg separately. Mirror that real
             # compositor process for Luna only; avoid altering legacy captures.
             WAYLAND_DISPLAY=wayland-0 swaybg \
@@ -221,6 +222,8 @@ dbus-run-session -- sh -eu -c '
             WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$runtime/xp-luna-font.json" --preview-osd >"$runtime/plate-$label.log" 2>&1 &
         elif [ "$label" = xp-luna-columns-notifications ]; then
             WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$runtime/xp-luna-columns.json" --preview-notifications >"$runtime/plate-$label.log" 2>&1 &
+        elif [ "$label" = xp-luna-columns-notifications-scroll ]; then
+            WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$runtime/xp-luna-columns.json" --preview-notifications-scroll >"$runtime/plate-$label.log" 2>&1 &
         elif [ "$label" = xp-luna-font-notifications ]; then
             WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$runtime/xp-luna-font.json" --preview-notifications >"$runtime/plate-$label.log" 2>&1 &
         elif [ "$label" = xp-luna-columns-notification-detail ]; then
@@ -243,10 +246,29 @@ dbus-run-session -- sh -eu -c '
                 exit 1 ;;
         esac
         echo "Native RicePlate $label layer surface remained alive"
-        if [ "$label" = shell-v4 ] || [ "$label" = desktop-v5 ] || [ "$label" = actions-v6 ] || [ "$label" = controls-v7 ] || [ "$label" = layout-v8 ] || [ "$label" = components-v9 ] || [ "$label" = desktop-actions-v9 ] || [ "$label" = appearance-v10 ] || [ "$label" = xp-luna-columns ] || [ "$label" = xp-luna-default-icons ] || [ "$label" = xp-luna-columns-menu ] || [ "$label" = xp-luna-font-menu ] || [ "$label" = xp-luna-columns-calendar ] || [ "$label" = xp-luna-font-calendar ] || [ "$label" = xp-luna-columns-osd ] || [ "$label" = xp-luna-font-osd ] || [ "$label" = xp-luna-columns-notifications ] || [ "$label" = xp-luna-font-notifications ] || [ "$label" = xp-luna-columns-notification-detail ] || [ "$label" = xp-luna-font-notification-detail ] || [ "$label" = menu-v5 ] || [ "$label" = menu-sidebar-v6 ] || [ "$label" = menu-composed-v6 ] || [ "$label" = calendar-v5 ]; then
+        if [ "$label" = shell-v4 ] || [ "$label" = desktop-v5 ] || [ "$label" = actions-v6 ] || [ "$label" = controls-v7 ] || [ "$label" = layout-v8 ] || [ "$label" = components-v9 ] || [ "$label" = desktop-actions-v9 ] || [ "$label" = appearance-v10 ] || [ "$label" = xp-luna-columns ] || [ "$label" = xp-luna-default-icons ] || [ "$label" = xp-luna-columns-menu ] || [ "$label" = xp-luna-font-menu ] || [ "$label" = xp-luna-columns-calendar ] || [ "$label" = xp-luna-font-calendar ] || [ "$label" = xp-luna-columns-osd ] || [ "$label" = xp-luna-font-osd ] || [ "$label" = xp-luna-columns-notifications ] || [ "$label" = xp-luna-columns-notifications-scroll ] || [ "$label" = xp-luna-font-notifications ] || [ "$label" = xp-luna-columns-notification-detail ] || [ "$label" = xp-luna-font-notification-detail ] || [ "$label" = menu-v5 ] || [ "$label" = menu-sidebar-v6 ] || [ "$label" = menu-composed-v6 ] || [ "$label" = calendar-v5 ]; then
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/$label.png"
             cp "$runtime/$label.png" "$source_root/dist/riceplate-native-preview/$label.png"
             echo "Captured real native RicePlate $label framebuffer"
+        fi
+        if [ "$label" = xp-luna-columns-notifications-scroll ]; then
+            # A real Wayland virtual pointer must change the visible RicePop
+            # page, then restore it with the opposite axis. The preview has
+            # seven offline sample notices and never reads the host Mako log.
+            WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 100 600 1366 768
+            sleep 0.25
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/$label-hover.png"
+            cp "$runtime/$label-hover.png" "$source_root/dist/riceplate-native-preview/$label-hover.png"
+            WAYLAND_DISPLAY=wayland-0 "$clicker" --scroll-down 100 600 1366 768
+            sleep 0.25
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/$label-paged.png"
+            cp "$runtime/$label-paged.png" "$source_root/dist/riceplate-native-preview/$label-paged.png"
+            WAYLAND_DISPLAY=wayland-0 "$clicker" --scroll-up 100 600 1366 768
+            sleep 0.25
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/$label-restored.png"
+            cp "$runtime/$label-restored.png" "$source_root/dist/riceplate-native-preview/$label-restored.png"
+            kill -0 "$plate"
+            echo "Native RicePop notification wheel paged and reversed in labwc"
         fi
         if [ "$label" = desktop-v5 ]; then
             # Exercise output reconfiguration while the SAME native shell is
