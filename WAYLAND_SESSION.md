@@ -1261,6 +1261,18 @@ personal screenshot, and do not paste it publicly. If Mako is absent or not
 running, the command returns an explicit unavailable error. It never starts a
 notification daemon, invokes an action or modifies history by reading the list.
 
+**RicePop font and banner preferences:** In RiceSpice → Notifications, choose
+`Sans`, `Serif`, `Monospace` or explicitly load safe installed TrueType family
+names. Font size, default expiration and the maximum number of visible
+banners can be saved for the **next full Wayland login**. The compositor session
+generates a private temporary Mako config with these settings and the
+existing DND mode. It never edits your XFCE or `~/.config/mako/config`, never
+reloads an active notification host, and never changes a nested preview. A
+missing/invalid saved config reverts to the bundled Mako configuration.
+An app-specific timeout can still override the default banner expiration.
+Verify Pango rendering, long text, DPI, font fallback and DND on real hardware;
+this does not change global GTK/Qt fonts or RicePlate glyph shaping.
+
 In RicePlate's opt-in **Notifications** menu, Enter or pointer selection opens
 a detail page; Up/Down select the exact action advertised by the original app,
 and Enter (or a pointer click) explicitly invokes it. The service re-reads the

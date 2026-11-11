@@ -11,6 +11,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,33 @@ class NotificationBridgeError(ValueError):
 
 _DND_MODE = "ricebowl-do-not-disturb"
 _NOTIFICATION_BUS = "org.freedesktop.Notifications"
+
+
+def _expected_mako_config(candidate: bytes) -> bytes:
+    """Prove Mako's actual config even for apps launched outside shell env.
+
+    labwc-launched RiceSpice may not inherit the panel supervisor's dynamic
+    config variable, so the actual /proc argv must also be independently safe.
+    """
+    shipped = os.fsencode(Path(__file__).parent / "resources" / "mako.conf")
+    configured = os.environ.get("RICEBOWL_DE_MAKO_CONFIG")
+    if configured is not None and os.fsencode(configured) != candidate:
+        raise ValueError("RicePop host configuration changed")
+    if candidate == shipped:
+        return shipped
+    path = Path(os.fsdecode(candidate))
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if (not path.is_absolute() or not runtime or not Path(runtime).is_absolute()
+            or path.name != "mako.conf" or not path.parent.name.startswith("ricebowl-pop-")
+            or path.parent.parent != Path(runtime) or path.is_symlink()
+            or path.parent.is_symlink()):
+        raise ValueError("Untrusted RicePop session configuration")
+    folder, file = path.parent.stat(), path.stat()
+    if (folder.st_uid != os.getuid() or stat.S_IMODE(folder.st_mode) != 0o700
+            or file.st_uid != os.getuid() or stat.S_IMODE(file.st_mode) != 0o600
+            or not stat.S_ISREG(file.st_mode) or file.st_size > 2048):
+        raise ValueError("Unsafe RicePop session configuration")
+    return os.fsencode(path)
 
 
 def _owned_mako() -> tuple[str, int]:
@@ -55,7 +83,7 @@ def _owned_mako() -> tuple[str, int]:
         if len(arguments) > 4096 or not arguments.endswith(b"\0"):
             raise ValueError("Invalid notification owner command")
         argv = arguments.rstrip(b"\0").split(b"\0")
-        expected = str(Path(__file__).parent / "resources" / "mako.conf").encode()
+        expected = _expected_mako_config(argv[2] if len(argv) == 3 else b"")
         if (not argv or Path(os.fsdecode(argv[0])).name != "mako"
                 or len(argv) != 3 or argv[1] != b"--config" or argv[2] != expected):
             raise ValueError("Another application owns notifications")

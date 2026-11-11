@@ -10,6 +10,45 @@ from macrice.riceware.media import MediaPlayer
 
 
 class SettingsGuiTests(unittest.TestCase):
+    def test_ricepop_font_duration_and_banner_limit_are_next_login_only(self):
+        try:
+            Gtk, Gdk, GLib = settings._gtk_modules()
+        except (ImportError, ValueError):
+            self.skipTest("GTK introspection typelib is not installed")
+        if not Gtk.init_check([])[0]:
+            self.skipTest("GTK display is unavailable")
+        from macrice.de import fonts, notification_prefs
+        original = dict(notification_prefs.DEFAULTS)
+        face = fonts.FontFace("DejaVu Sans", "Regular", Path("/usr/share/fonts/sample.ttf"))
+        with mock.patch("macrice.de.notifications.dnd_status",
+                        return_value={"do_not_disturb": False}), \
+             mock.patch("macrice.de.notification_prefs.load", return_value=original), \
+             mock.patch("macrice.de.fonts.installed_fonts", return_value=[face]), \
+             mock.patch("macrice.de.notification_prefs.save", return_value=original) as saved:
+            window = settings.RiceSpiceWindow(Gtk, Gdk, GLib)
+            window._background = lambda work, done: done(work())
+            window.show_page("notifications")
+            combos = [child for child in window.content.get_children()
+                      if isinstance(child, Gtk.ComboBoxText)]
+            self.assertEqual(len(combos), 4)
+            scan = next(child for child in window.content.get_children()
+                        if isinstance(child, Gtk.Button)
+                        and child.get_label() == "Find installed TrueType fonts")
+            scan.clicked()
+            combos[0].set_active_id("DejaVu Sans")
+            combos[1].set_active_id("14")
+            combos[2].set_active_id("7000")
+            combos[3].set_active_id("3")
+            apply = next(child for child in window.content.get_children()
+                         if isinstance(child, Gtk.Button)
+                         and child.get_label() == "Save RicePop appearance for next login")
+            apply.clicked()
+            saved.assert_called_once_with({"font_family": "DejaVu Sans",
+                                           "font_size": 14, "default_timeout": 7000,
+                                           "max_visible": 3}, expected=original)
+            GLib.timeout_add(30, lambda: (window.window.destroy(), False)[1])
+            Gtk.main()
+
     def test_login_monitor_confirmation_is_visible_and_explicit(self):
         try:
             Gtk, _Gdk, GLib = settings._gtk_modules()

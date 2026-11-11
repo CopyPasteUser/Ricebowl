@@ -72,6 +72,11 @@ full RiceBowl Wayland sessions. You must approve it in the visible confirmation
 window within 18 seconds, or the prior monitor layout is restored. XFCE and
 nested previews are excluded; monitor hardware still needs real-device QA.
 
+RiceSpice also offers **next-login RicePop banner fonts and behavior**:
+installed TrueType font families, bounded text size, default duration and
+visible notification count. These apply only to RiceBowl's own Mako instance
+in a full Wayland login, without touching your XFCE notification preferences.
+
 - [Full hardware acceptance checklist](WAYLAND_SESSION.md#physical-acceptance-checklist-not-yet-signed-off)
 - [Release gates](RELEASE_1_0_GATES.md) · [Development roadmap](RICEBOWL_DE_ROADMAP.md)
 
