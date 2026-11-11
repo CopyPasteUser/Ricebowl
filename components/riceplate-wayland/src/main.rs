@@ -6106,6 +6106,70 @@ mod tests {
     }
 
     #[test]
+    fn luna_taskbar_pointer_states_are_real_but_legacy_rices_are_unchanged() {
+        let luna = recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let classic_luna = recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna.json"),
+            Some("xp-luna")).unwrap();
+        let groups = [TaskGroup {
+            members: vec![0], representative: 0, label: "File Manager".into(), active: true,
+        }];
+        let render = |style: &PanelStyle, visual: PanelPointerVisual| {
+            let width = 1366;
+            let mut frame = vec![0; (width * style.height * 4) as usize];
+            paint_panel_pointer(&mut frame, width, style.height, style, &groups, "12:00",
+                                &PowerStatus::NotPresent, &SystemStatus::default(),
+                                &tray::State::default(), 0, None, None, None, visual);
+            frame
+        };
+        let idle = render(&luna, PanelPointerVisual::default());
+        let launcher_hover = PanelPointerVisual {
+            hovered: Some(Hit::Launcher), pressed: None,
+        };
+        let launcher_press = PanelPointerVisual {
+            hovered: Some(Hit::Launcher), pressed: Some(Hit::Launcher),
+        };
+        let task_hover = PanelPointerVisual {
+            hovered: Some(Hit::Task(0)), pressed: None,
+        };
+        let task_press = PanelPointerVisual {
+            hovered: Some(Hit::Task(0)), pressed: Some(Hit::Task(0)),
+        };
+        assert_eq!(launcher_hover.button(Hit::Launcher),
+                   panel_chrome::ButtonVisual::Hovered);
+        assert_eq!(launcher_press.button(Hit::Launcher),
+                   panel_chrome::ButtonVisual::Pressed);
+        assert_eq!(launcher_press.button(Hit::Task(0)),
+                   panel_chrome::ButtonVisual::Normal);
+        assert_eq!(PanelPointerVisual { pressed: Some(Hit::Launcher), hovered: None }
+                   .button(Hit::Launcher), panel_chrome::ButtonVisual::Normal);
+        assert_eq!(luna_hover_target(Some(Hit::Task(0))), Some(Hit::Task(0)));
+        assert_eq!(luna_hover_target(Some(Hit::Clock)), None);
+        assert_eq!(luna_hover_target(Some(Hit::Tray(0))), None);
+        let hovered_launcher_frame = render(&luna, launcher_hover);
+        let pressed_launcher_frame = render(&luna, launcher_press);
+        let hovered_task_frame = render(&luna, task_hover);
+        let pressed_task_frame = render(&luna, task_press);
+        assert_ne!(idle, hovered_launcher_frame);
+        assert_ne!(idle, pressed_launcher_frame);
+        assert_ne!(hovered_launcher_frame, pressed_launcher_frame);
+        assert_ne!(idle, hovered_task_frame);
+        assert_ne!(idle, pressed_task_frame);
+        assert_ne!(hovered_task_frame, pressed_task_frame);
+
+        // No hover/press treatment is permitted to alter existing v12 Luna,
+        // undecorated classic, or unrelated Creator recipes.
+        let baseline = render(&classic_luna, PanelPointerVisual::default());
+        assert_eq!(baseline, render(&classic_luna, launcher_press));
+        assert_eq!(baseline, render(&classic_luna, task_press));
+        let classic = recipe::load("classic").unwrap();
+        assert_eq!(render(&classic, PanelPointerVisual::default()),
+                   render(&classic, task_press));
+    }
+
+    #[test]
     fn network_and_audio_status_pixels_follow_real_backend_results() {
         let style = recipe::load("classic").unwrap();
         let width = 1024;
