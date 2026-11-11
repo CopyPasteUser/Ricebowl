@@ -812,6 +812,39 @@ mod tests {
     }
 
     #[test]
+    fn luna_places_and_existing_session_actions_have_distinct_bounded_hits() {
+        let recipe = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let menu = recipe.menu.as_ref().unwrap();
+        let mut state = MenuState::default();
+        state.apps = demo_apps(2);
+        state.open();
+        assert_eq!(menu.groups[1].actions,
+                   ["documents", "computer", "settings", "notifications"]);
+        assert_eq!(state.visible_label(menu, "documents", true), "My Documents");
+        assert_eq!(state.visible_label(menu, "computer", true), "My Computer");
+        for (y, index, action) in [
+            (80.0, 4, "documents"), (108.0, 5, "computer"),
+            (136.0, 6, "settings"), (164.0, 7, "notifications"),
+            (206.0, 8, "lock"), (234.0, 9, "logout"),
+        ] {
+            assert_eq!(state.hit(menu, 190.0, y), Some(Hit::Action(index)));
+            assert_eq!(state.actions(menu)[index], action);
+        }
+        let sections = state.composed_sections(menu).unwrap();
+        let right = sections.iter().filter(|section| section.x >= COLUMNS_SPLIT);
+        assert!(right.flat_map(|section| &section.items).all(|tile|
+            tile.y >= 38 && tile.y + tile.height <= HEIGHT - 28));
+        assert_eq!(state.hit(menu, 280.0, f64::from(HEIGHT - 16)), Some(Hit::Close));
+        // Fixed left-column All Programs remains the first real action.
+        assert_eq!(state.hit(menu, 20.0, 116.0), Some(Hit::Action(0)));
+        state.selected = 0;
+        state.horizontal_by(menu, 1);
+        assert!(state.selected >= 4 && state.selected <= 9);
+    }
+
+    #[test]
     fn luna_all_programs_uses_real_apps_with_paging_and_pointer_navigation() {
         let recipe = crate::recipe::parse(
             include_str!("../../../examples/wayland/xp-luna-columns.json"),
