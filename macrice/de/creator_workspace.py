@@ -185,6 +185,45 @@ def create_draft(template: str, *, name: str | None = None) -> DraftInfo:
     return _publish_version(target, payload, "create")
 
 
+def installed_editable() -> list[dict[str, str | int]]:
+    """List validated installed rices that the current Creator can edit."""
+    found = []
+    for recipe, _ in recipes.imported_recipes():
+        if recipe.schema_version >= 10:
+            found.append({"id": recipe.recipe_id, "name": recipe.name,
+                          "schema_version": recipe.schema_version,
+                          "semantic_sha256": review._semantic_hash(review._manifest(recipe))})
+    return found
+
+
+def create_draft_from_installed(recipe_id: str, *, expected_sha256: str) -> DraftInfo:
+    """Fork an installed recipe into an editable, never-applied private draft.
+
+    The fingerprint pins the choice displayed by the GUI, preventing a changed
+    installed file from being silently copied during a delayed confirmation.
+    """
+    if (not isinstance(recipe_id, str) or not re.fullmatch(r"[a-z][a-z0-9-]{1,31}", recipe_id)
+            or recipe_id in recipes.BUILTINS):
+        raise WorkspaceError("Choose a private installed rice, not a built-in or path")
+    source = recipes._private_recipe_dir(create=False) / f"{recipe_id}.json"
+    raw = recipes._read_import_source(source)
+    parsed = recipes.parse(raw)
+    digest = review._semantic_hash(review._manifest(parsed))
+    if parsed.recipe_id != recipe_id or digest != expected_sha256:
+        raise WorkspaceError("Installed rice changed since selection. Reopen the list")
+    if parsed.schema_version < 10:
+        raise WorkspaceError("Creator editing requires recipe schema v10 or newer")
+    # Resolve referenced data-only assets now, before publishing a draft that
+    # cannot render or be exported again.
+    pack._wallpaper_identity(parsed)
+    pack._visual_assets(parsed)
+    manifest = json.loads(raw)
+    manifest["id"] = f"creator-{secrets.token_hex(6)}"
+    payload = (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    recipes.parse(payload)
+    return _publish_version(_new_file(_private_directory()), payload, "import")
+
+
 def _revision_patch(source: Path, changes: dict[str, Any], *, expected_sha256: str
                     ) -> tuple[Path, bytes]:
     """Validate a workspace revision and encode one bounded, data-only patch."""

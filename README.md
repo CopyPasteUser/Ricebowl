@@ -54,6 +54,8 @@ with a green Start button, cobalt taskbar and supervised two-minute test.
 Creator can also choose a local TrueType face via Fontconfig and package a
 reviewed private copy in RicePack v4; `ricebowl de fonts --json` lists supported
 fonts without installing or applying anything.
+Creator can import or reopen an installed schema-v10–v12 RicePack as a new,
+editable private draft without replacing the original rice or changing the session.
 RiceSpice's **Notifications** page now controls RicePop's Mako Do Not Disturb
 mode inside a verified full RiceBowl session. To inspect it from a terminal,
 use `ricebowl de notification-dnd --json`; switching on requires

@@ -470,9 +470,13 @@ def inspect_pack(source: Path) -> dict[str, Any]:
             "imported": False, "applied": False, "manifest": metadata}
 
 
-def import_pack(source: Path) -> dict[str, Any]:
+def import_pack(source: Path, *, expected_manifest: dict[str, Any] | None = None
+                ) -> dict[str, Any]:
     """Install a recipe and a data-only provenance receipt, without applying it."""
     metadata, payload, wallpaper_bytes, visual_payloads = _validate_archive(source)
+    if expected_manifest is not None and metadata != expected_manifest:
+        raise PackError("RicePack changed since review; inspect it again",
+                        code="pack_changed")
     if metadata["recipe"]["id"] in recipes.BUILTINS:
         raise PackError("Cannot replace a reserved built-in recipe", code="reserved_id")
     # Check *all* referenced visual assets before any installation. A later

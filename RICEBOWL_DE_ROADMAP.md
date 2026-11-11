@@ -1207,6 +1207,17 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
   between the two writes and repeat a full offline RicePack import. No files
   are replaced and the live desktop stays untouched; sudden power-loss
   durability and cross-asset atomicity are not claimed.
+- [x] Add a **GTK Creator import-to-edit handoff** for schema-v10/v11/v12
+  recipes: inspect a local RicePack v4 (or supported older pack), explicitly
+  confirm its non-overwriting private installation, then fork its verified
+  installed recipe under a new Creator ID. Installed recipes can also be
+  reopened as editable copies without importing another archive. The source
+  SHA is pinned across the chooser and creation, referenced assets are checked,
+  and each immutable draft has a durable root history receipt. No active rice,
+  next-login selection or XFCE settings change. Python roundtrip, stale-file,
+  symlink and Luna-columns v12 tests pass; GTK picker smoke remains a CI gate.
+  Editing legacy schemas v1–v9 still requires a versioned conversion workflow,
+  and real Wayland GUI/Orca acceptance is pending.
 - [x] Preflight **all referenced RicePack v4 font/icon identities and
   attribution collisions** before creating or installing files. A conflict in
   the second asset must not strand the first as an unreferenced new asset;

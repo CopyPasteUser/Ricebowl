@@ -245,9 +245,12 @@ Finish these software gates before calling the implementation feature-complete:
    proportional font metrics; finish responsive native menu and mixed-scale
    software behavior without breaking existing recipes.
 3. **Creator / RicePack:** extend the now-CI-covered two-recipe offline
-   export/import, native preview and staged rollback path to GUI editing of
-   imported recipes, interactive apply/restore, live bindings and realistic
-   portable fonts/icons in reproducible CI.
+   export/import, native preview and staged rollback path. The Creator now
+   imports schema-v10–v12 RicePacks and opens verified installed recipes as
+   separate editable private drafts, preserving original installations and
+   next-login selection. Remaining: real GTK import/picker CI sign-off,
+   interactive apply/restore, live bindings and realistic portable fonts/icons
+   in reproducible CI, plus older-schema editing/migration.
 4. **Distribution / recovery:** finish tracked, reproducible Wayland packages,
    unattended installed-session tests, upgrade/downgrade and rollback checks,
    including negative tests for corrupt preferences or missing dependencies.
