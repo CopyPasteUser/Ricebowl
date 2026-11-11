@@ -1,5 +1,18 @@
 # RiceBowl changelog
 
+## Unreleased — serialized Wayland crash recovery across concurrent logins (11 November 2026)
+
+- Serialize dead-owner live-switch reconciliation with a persistent, owner-private
+  advisory lock. A second Wayland login rechecks the pending journal after
+  acquiring the lock, instead of independently restoring and clearing the same
+  transaction and risking a spurious unsafe fallback.
+- Preserve the read-only, no-directory-creation path for clean logins; reject
+  symlinked or nonregular recovery locks without touching the saved choice.
+  Verify an actual SIGKILL after the selection write followed by a successful
+  first recovery and clean second login, plus deterministic parallel restarts.
+- This is a software crash/relogin gate. Power cuts, hardware suspend, display
+  manager double-login behavior and full visual readiness are not yet accepted.
+
 ## Unreleased — safe Wayland selection races and damaged-state startup (11 November 2026)
 
 - Guard Creator live selection commits against the complete reviewed next-login

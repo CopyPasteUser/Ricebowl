@@ -2,9 +2,13 @@
 
 import json
 import os
-from pathlib import Path
+import signal
+import subprocess
+import sys
 import tempfile
+import threading
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from macrice.cli import main as cli
@@ -73,6 +77,109 @@ class LiveRecoveryTests(unittest.TestCase):
         self.assertEqual(recipes._selection_snapshot(), original)
         self.assertFalse(self.pending().exists())
         self.assertEqual(live_recovery.reconcile()["status"], "clean")
+
+    def test_real_sigkill_recovers_once_and_second_login_is_clean(self):
+        staging.stage("chrome", staging._hash("chrome"))
+        before = recipes._selection_snapshot()
+        self.assertIsNotNone(before)
+        child = subprocess.run([sys.executable, "-c", """
+import os
+import signal
+from macrice.de import live_recovery, recipes, staging
+original = recipes._selection_snapshot()
+live_recovery.begin('classic', staging._hash('classic'), original)
+recipes.change_selection('classic', expected_active='chrome',
+                         expected_semantic_sha256=staging._hash('classic'))
+os.kill(os.getpid(), signal.SIGKILL)
+"""], env=os.environ.copy(), check=False, timeout=15)
+        self.assertEqual(child.returncode, -signal.SIGKILL)
+        self.assertNotEqual(recipes._selection_snapshot(), before)
+        self.assertEqual(live_recovery.reconcile(),
+                         {"status": "restored", "use_saved_selection": True})
+        self.assertEqual(recipes._selection_snapshot(), before)
+        self.assertEqual(live_recovery.reconcile(),
+                         {"status": "clean", "use_saved_selection": True})
+        self.assertFalse(self.pending().exists())
+
+    def test_two_parallel_restarts_recover_one_dead_owner_only_once(self):
+        staging.stage("chrome", staging._hash("chrome"))
+        before = recipes._selection_snapshot()
+        self.assertIsNotNone(before)
+        live_recovery.begin("classic", staging._hash("classic"), before)
+        recipes.change_selection("classic", expected_active="chrome",
+                                 expected_semantic_sha256=staging._hash("classic"))
+
+        first_restoring = threading.Event()
+        second_saw_pending = threading.Event()
+        restore_calls: list[str] = []
+        results: dict[str, dict[str, object]] = {}
+        errors: list[BaseException] = []
+        real_read = live_recovery.read
+        real_restore = recipes._restore_failed_live_selection
+
+        def observed_read():
+            result = real_read()
+            if threading.current_thread().name == "recovery-b" and result:
+                second_saw_pending.set()
+            return result
+
+        def observed_restore(*args):
+            name = threading.current_thread().name
+            restore_calls.append(name)
+            if name == "recovery-a":
+                first_restoring.set()
+                if not second_saw_pending.wait(timeout=5):
+                    raise AssertionError("Second login never observed pending recovery")
+            return real_restore(*args)
+
+        def restart():
+            try:
+                results[threading.current_thread().name] = live_recovery.reconcile()
+            except BaseException as exc:
+                errors.append(exc)
+
+        with (mock.patch.object(live_recovery, "_owner_running", return_value=False),
+              mock.patch.object(live_recovery, "read", side_effect=observed_read),
+              mock.patch.object(recipes, "_restore_failed_live_selection",
+                                side_effect=observed_restore)):
+            first = threading.Thread(target=restart, name="recovery-a", daemon=True)
+            second = threading.Thread(target=restart, name="recovery-b", daemon=True)
+            first.start()
+            self.assertTrue(first_restoring.wait(timeout=5))
+            second.start()
+            first.join(timeout=8)
+            second.join(timeout=8)
+        self.assertFalse(first.is_alive())
+        self.assertFalse(second.is_alive())
+        self.assertFalse(errors, errors)
+        self.assertEqual(restore_calls, ["recovery-a"])
+        self.assertEqual(results["recovery-a"]["status"], "restored")
+        self.assertEqual(results["recovery-b"],
+                         {"status": "clean", "use_saved_selection": True})
+        self.assertEqual(recipes._selection_snapshot(), before)
+        self.assertFalse(self.pending().exists())
+
+    def test_unsafe_recovery_lock_keeps_previous_selection_and_journal(self):
+        live_recovery.begin("chrome", staging._hash("chrome"), None)
+        recipes.change_selection("chrome", expected_active="classic",
+                                 expected_semantic_sha256=staging._hash("chrome"))
+        state = recipes._selection_snapshot()
+        lock = self.pending().with_name(live_recovery.RECOVERY_LOCK_NAME)
+        outside = self.root / "untouched"
+        outside.write_text("untouched")
+        lock.symlink_to(outside)
+        with mock.patch.object(live_recovery, "_owner_running", return_value=False):
+            self.assertEqual(live_recovery.reconcile(),
+                             {"status": "unsafe", "use_saved_selection": False})
+        self.assertEqual(outside.read_text(), "untouched")
+        self.assertEqual(recipes._selection_snapshot(), state)
+        self.assertTrue(self.pending().exists())
+        lock.unlink()
+        os.mkfifo(lock, mode=0o600)
+        with mock.patch.object(live_recovery, "_owner_running", return_value=False):
+            self.assertEqual(live_recovery.reconcile(),
+                             {"status": "unsafe", "use_saved_selection": False})
+        self.assertTrue(self.pending().exists())
 
     def test_concurrent_reviewed_stage_wins_instead_of_forced_rollback(self):
         live_recovery.begin("chrome", staging._hash("chrome"), None)

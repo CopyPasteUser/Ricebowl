@@ -1493,6 +1493,15 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
   from starting, while any new mutation remains blocked until the file is
   safely repaired. Tests cover controller and Creator-protocol flows; this
   remains software validation rather than physical multi-login acceptance.
+- [x] **Serialize full Wayland next-login recovery after a supervisor crash**:
+  concurrent logins now take an owner-private, persistent advisory recovery
+  lock and re-read the pending record *after* obtaining it. Only one login can
+  compensate a dead owner's selection and clear its journal; the next sees a
+  clean state instead of a stale-record false `unsafe` result. Reject unsafe
+  lock paths without modifying saved state. Automated tests reproduce the
+  previous double-recovery race, simulate a real SIGKILL after selection
+  publication, then confirm a clean follow-up login. This does not substitute
+  for physical display-manager, power-loss or suspend/relogin acceptance.
 - [x] Add **real Wayland taskbar lifecycle acceptance** in the isolated native
   labwc job: launch a real `foot` toplevel with a controlled app ID, assert
   that the existing foreign-toplevel handler receives the completed window,
