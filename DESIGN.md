@@ -87,8 +87,9 @@ controls handle focus and popup behavior. A separate explicit
 **Use this layout for Wide/Compact** command duplicates all three lanes to
 the opposite responsive mode as one validated unit, rather than allowing
 single-lane copies to introduce duplicate widget IDs. It requires confirmation
-before replacing the target and coalesces pending child edits into the
-parent-level draft operation, so subsequent edits remain saveable. The existing
+before replacing the target; all three changes remain separate allowlisted
+lane edits but are validated together by Save version. Subsequent changes to
+those lanes supersede pending edits without introducing overlapping paths. The existing
 workspace Save version is the single commit action: typing or organizing a
 draft never mutates a current session or rewrites another saved revision.
 
