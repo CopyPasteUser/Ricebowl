@@ -70,6 +70,7 @@ def _check_layout(source: Path) -> None:
         "macrice/de/__init__.py",
         "macrice/de/diagnostics.py",
         "macrice/de/session.py",
+        "macrice/de/display_restore.py",
         "macrice/de/resources/labwc/rc.xml",
         "macrice/de/resources/labwc/menu.xml",
         "macrice/de/recipes.py",

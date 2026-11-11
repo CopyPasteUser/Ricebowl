@@ -15,7 +15,8 @@ from typing import Callable
 from macrice import display_guard
 from macrice.riceware import media
 
-from . import audio_devices, display_presets, network_enrollment, notifications, preferences, recipes
+from . import audio_devices, display_presets, display_restore, network_enrollment
+from . import notifications, preferences, recipes
 from . import settings_backend as backend, wayland_displays
 
 
@@ -800,14 +801,23 @@ class RiceSpiceWindow:
                 self._button("Try settings on " + output.name, try_change, primary=True)
             self._text("Saved monitor layout", css="ricespice-section")
             self._text("Save the current arrangement as a private preset. "
-                       "Restoring it requires a separate guarded trial and confirmation "
-                       "for each active monitor; it is not forced at login.", css="ricespice-note")
+                       "Restoring all monitors requires one guarded trial and confirmation; "
+                       "it is not forced at login.", css="ricespice-note")
             if saved is not None:
                 self._button("Save current layout as preset", lambda: self._background(
                     lambda: display_presets.save(display_presets.from_outputs(
                         wayland_displays.inventory()), expected=saved),
                     lambda _result: self.show_page("displays")))
                 if saved:
+                    try:
+                        display_restore.plan(saved, outputs)
+                    except ValueError as exc:
+                        self._text("Full restore unavailable: " + str(exc),
+                                   css="ricespice-note")
+                    else:
+                        self._button("Try entire saved monitor layout", lambda: self._background(
+                            lambda: display_restore.begin(saved),
+                            lambda change: self._display_confirmation(change)), primary=True)
                     for entry in saved:
                         self._text(f"{entry['name']} · {entry['mode']} · "
                                    f"{entry['scale']:g}× · {entry['x']},{entry['y']}")
