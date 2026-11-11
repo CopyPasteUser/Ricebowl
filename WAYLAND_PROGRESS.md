@@ -74,6 +74,9 @@ This passed in [native run #42973287104](https://github.com/CopyPasteUser/Ricebo
 the [permanent Find and Saved screenshots](screenshots/wayland/README.md#native-find-and-saved--actual-pointer-interaction)
 are available for review. This is a compositor regression, not hardware or
 screen-reader acceptance.
+Within the Find state, the CI virtual-pointer client now also delivers an
+actual Wayland **vertical wheel-axis** event and compares the re-paged menu
+framebuffer, exercising the Rust input/event/render path end to end.
 
 The native shell now accepts an **owner-private TrueType font asset** throughout
 the panel, native Start menu and desktop shortcut labels, with on-demand,

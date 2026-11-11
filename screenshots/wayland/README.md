@@ -129,6 +129,14 @@ for [merged PR #254](https://github.com/CopyPasteUser/Ricebowl/pull/254).
 The CI test checks distinct interactive states and a restored baseline; the
 WebPs are **not rendered mockups** or evidence of physical-device acceptance.
 
+A second compositor test sends an actual `zwlr_virtual_pointer` vertical
+wheel-axis event over the Find result list. The additional
+`xp-luna-pointer-find-paged-1024x768.png` must differ from the separate
+`find-hover` frame at the **same pointer position**: a mere hover selection
+cannot pass as paging. This exercises the native event/render path. It is
+an isolated virtual-device check; touchpad inertia and physical input remain
+for separate hardware acceptance.
+
 ### Opt-in portable font · real compositor comparison
 
 | Bundled bitmap font | Imported private TrueType font |

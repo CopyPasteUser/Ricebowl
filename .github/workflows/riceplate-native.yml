@@ -626,12 +626,19 @@ jobs:
           saved_delta = changed_pixels(frames['open'], frames['saved'])
           mode_delta = changed_pixels(frames['find'], frames['saved'])
           return_delta = changed_pixels(frames['open'], frames['return'])
+          with Image.open(directory / 'xp-luna-pointer-find-paged-1024x768.png') as image, \
+               Image.open(directory / 'xp-luna-pointer-find-hover-1024x768.png') as hovered_image:
+              assert image.size == hovered_image.size == (1024, 768), 'Wheel capture geometry'
+              paged = image.convert('RGB').crop((0, 424, 320, 728))
+              hovered = hovered_image.convert('RGB').crop((0, 424, 320, 728))
+          wheel_delta = changed_pixels(hovered, paged)
           assert find_delta > 2000, f'Find click had no visible native effect: {find_delta}'
           assert saved_delta > 2000, f'Saved click had no visible native effect: {saved_delta}'
           assert mode_delta > 500, f'Find and Saved rendered alike: {mode_delta}'
+          assert wheel_delta > 1200, f'Wayland wheel did not page search results: {wheel_delta}'
           assert return_delta < 1500, f'Header Back did not restore menu: {return_delta}'
           print(f'Native Luna header clicks: Find={find_delta} Saved={saved_delta} '
-                f'distinct={mode_delta} restored={return_delta} RGB pixels')
+                f'distinct={mode_delta} wheel={wheel_delta} restored={return_delta} RGB pixels')
           assert captures['calendar-v5'] != captures['desktop-v5'], 'Native calendar did not render in Wayland frame'
           with Image.open(directory / 'calendar-v5.png') as image:
               header = image.convert('RGB').getpixel((700, 50))
