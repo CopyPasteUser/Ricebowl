@@ -446,7 +446,9 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   accumulate before advancing; horizontal/stop and non-finite input do not
   move a selection, while fully visible composed menus remain stationary.
   Compact rows, reopen/reset, limits and empty lists have Rust regressions;
-  desktop-device pointer acceptance is still separate.
+  CI also captures live labwc Find results after pointer-only hover and after
+  a virtual Wayland wheel-axis event at identical coordinates, rejecting
+  unchanged menu-body pixels. Physical mouse/touchpad acceptance remains open.
 - [x] Show a **real, read-only native battery percentage** in RicePlate from
   Linux's fixed `/sys/class/power_supply`, with charging state, explicit
   no-battery/unknown labels, multi-battery handling and bounded once-per-minute

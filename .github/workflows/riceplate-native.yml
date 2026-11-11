@@ -632,6 +632,18 @@ jobs:
           assert return_delta < 1500, f'Header Back did not restore menu: {return_delta}'
           print(f'Native Luna header clicks: Find={find_delta} Saved={saved_delta} '
                 f'distinct={mode_delta} restored={return_delta} RGB pixels')
+          # The pointer stays at exactly the same coordinates in both frames:
+          # hover alone must not be mistaken for a real wheel-axis page change.
+          with Image.open(directory / 'xp-luna-pointer-hover-1024x768.png') as hover_image, \
+               Image.open(directory / 'xp-luna-pointer-scrolled-1024x768.png') as scroll_image:
+              assert hover_image.size == scroll_image.size == (1024, 768)
+              body = (8, 532, 312, 700)
+              hover_body = hover_image.convert('RGB').crop(body)
+              scroll_body = scroll_image.convert('RGB').crop(body)
+              wheel_delta = changed_pixels(hover_body, scroll_body)
+          assert wheel_delta > 1000, \
+              f'Native Luna wheel event did not page Find results beyond hover: {wheel_delta}'
+          print(f'Native Wayland Luna wheel changed {wheel_delta} menu-body RGB pixels')
           assert captures['calendar-v5'] != captures['desktop-v5'], 'Native calendar did not render in Wayland frame'
           with Image.open(directory / 'calendar-v5.png') as image:
               header = image.convert('RGB').getpixel((700, 50))

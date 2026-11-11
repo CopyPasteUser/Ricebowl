@@ -333,6 +333,19 @@ dbus-run-session -- sh -eu -c '
                     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-find-$geometry.png"
                     cp "$runtime/xp-luna-pointer-find-$geometry.png" \
                        "$source_root/dist/riceplate-native-preview/xp-luna-pointer-find-$geometry.png"
+                    # Compare wheel movement against an identical pointer
+                    # hover: mere selection on motion must never pass as
+                    # working Wayland axis scrolling.
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 60 600 "$width" "$height"
+                    sleep 0.25
+                    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-hover-$geometry.png"
+                    cp "$runtime/xp-luna-pointer-hover-$geometry.png" \
+                       "$source_root/dist/riceplate-native-preview/xp-luna-pointer-hover-$geometry.png"
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" --scroll-down 60 600 "$width" "$height"
+                    sleep 0.35
+                    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-scrolled-$geometry.png"
+                    cp "$runtime/xp-luna-pointer-scrolled-$geometry.png" \
+                       "$source_root/dist/riceplate-native-preview/xp-luna-pointer-scrolled-$geometry.png"
                     WAYLAND_DISPLAY=wayland-0 "$clicker" 220 "$header_y" "$width" "$height"
                     sleep 0.35
                     WAYLAND_DISPLAY=wayland-0 "$clicker" 284 "$header_y" "$width" "$height"
