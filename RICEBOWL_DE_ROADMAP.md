@@ -68,9 +68,19 @@ installation and is not yet a finished desktop environment.
   enforce visible menu change and desktop restoration, and preserve a reviewed
   screenshot pair (native run #42968039762; PR #247). Physical device focus,
   keyboard/touch and session signoff are still separate gates.
+- [x] Implement the **next original Luna visual-fidelity pass** for the
+  opt-in two-column rice: cobalt gradient account bar, original user tile,
+  beveled search/saved buttons, pale-blue system shelf, per-action glyphs,
+  a visible functional Close footer and richer green taskbar launcher.
+  Increase the actual native menu surface to 400×380 at 1280+ logical width
+  and 480×456 at 1600+ width when sufficient height exists; share the
+  inverse pointer transform and preserve 1024/small-output behavior.
+  Treat this as visual implementation, **not** Windows XP pixel-perfect
+  acceptance: the enlarged surface still upscales 320×304 bitmap text.
 - [ ] Review Full-HD Start-menu physical sizing and accessibility in a real
-  session; CI proves the menu renders but its fixed 320px width looks small on
-  a 1920px output. Physical mixed-DPI, monitor hotplug and focus remain open.
+  session after the new scalable-surface implementation. Historical face
+  metrics, genuine full-resolution text/9-slice art, physical mixed-DPI,
+  monitor hotplug and focus remain open.
 - [ ] Still open before any 1.0 claim: physical ThinkPad input/focus/power and
   display acceptance, third-party client decoration fidelity and final
   distribution/upgrade signoff for schema v12.

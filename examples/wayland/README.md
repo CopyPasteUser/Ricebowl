@@ -76,6 +76,30 @@ This is rendering only; it does not theme unrelated GTK/Qt windows or install
 new services. Rust pixel regression tests cover both routes, the status shelf,
 active tasks and narrow geometry.
 
+### Luna visual fidelity pass · native Start menu and taskbar
+
+The existing schema-v12 `xp-luna-columns` rice now uses additional **original
+Rust-painted chrome**, without a licensed Windows image dependency. The
+two-column Start menu has a graduated cobalt account bar, a custom RiceBowl
+account tile, a subtle ivory/azure divider, its own small program/system
+glyphs and a bevelled **Close** control in the existing clickable footer.
+The real Find/Saved header buttons also receive matching raised states; no
+fake or inert power controls were introduced. The green Start capsule gets a
+stronger highlight, darker lower edge and an original four-tile emblem.
+
+The same existing validated menu actions, keyboard navigation, pointer hits,
+search, pinned actions, accessibility labels and private rollback paths stay
+in use. On logical outputs at least 1280px wide, Luna-columns menus present
+at **400×380**; on outputs at least 1600px wide with enough free height,
+**480×456**. Other menus retain 320×304, and 1024px/rotated/small displays
+retain the existing original-size or readable compact behavior. Rendering
+and input use the same inverse scale. This is nearest-neighbor presentation
+of the native 320×304 canvas; typography still needs a fully native
+high-resolution raster pass before claiming pixel-level historical fidelity.
+
+All decorative dimensions remain data-only or renderer-owned; no global
+desktop/theme changes or proprietary Microsoft artwork are installed.
+
 ### Optional portable text font · Creator visual assets
 
 The `xp-luna-columns` recipe selects original compiled-in 48×48 Luna desktop

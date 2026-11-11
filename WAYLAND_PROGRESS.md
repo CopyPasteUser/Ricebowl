@@ -19,6 +19,16 @@
 
 ## Screenshots
 
+**Luna fidelity development:** The opt-in `xp-luna-columns` renderer now has
+original beveled account/header art, a clearer two-column shelf, real action
+glyphs, a visible clickable Close footer, a raised green Start control and
+adaptive 400×380/480×456 menu surfaces for larger logical outputs. The
+pre-existing screenshots in this section document the earlier appearance,
+not proof of this newer pass. Headless native CI and a fresh compositor
+capture are still necessary for visual acceptance; real desktop/hardware
+and toolkit-owned client decorations remain outside this software step.
+
+
 These are **actual native RicePlate frames captured inside labwc**, not design mockups or XFCE screenshots. The previews below are optimized WebP copies of real CI PNGs, checked into the repository so they **load directly and do not expire**. All images were captured with a *headless* compositor and simulated device state; they are **not** proof of a functioning physical desktop.
 
 ### XP Luna · native two-column Start menu

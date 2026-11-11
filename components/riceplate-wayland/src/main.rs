@@ -12,6 +12,7 @@ mod calendar;
 mod desktop_layout;
 mod icon_positions;
 mod installed_apps;
+mod menu_chrome;
 mod menu_pins;
 mod native_menu;
 mod panel_chrome;
@@ -78,6 +79,20 @@ const MAX_HEIGHT: u32 = 256;
 const MAX_OUTPUT_PANELS: usize = 8;
 const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
+
+#[derive(Debug, PartialEq, Eq)]
+enum MenuSizeDecision {
+    Accept,
+    AwaitNewConfigure,
+    RetryExpectedSize,
+}
+
+fn menu_size_decision(expected: (u32, u32), offered: (u32, u32),
+                      awaiting_resize: bool) -> MenuSizeDecision {
+    if offered == expected { MenuSizeDecision::Accept }
+    else if awaiting_resize { MenuSizeDecision::AwaitNewConfigure }
+    else { MenuSizeDecision::RetryExpectedSize }
+}
 
 fn clock_now() -> String {
     Local::now().format("%H:%M").to_string()
@@ -1625,13 +1640,21 @@ impl RicePlate {
             }
         }
         let default_menu_size = (native_menu::WIDTH, native_menu::HEIGHT);
+        let luna_columns = self.recipe.menu.as_ref().is_some_and(|menu|
+            menu.presentation == recipe::MenuPresentation::Columns && menu.palette.is_some());
+        let panel_height = self.recipe.height;
+        let fit = |width, height| if luna_columns {
+            native_menu::fitted_luna_size(width, height, panel_height)
+        } else {
+            native_menu::fitted_size(width, height, panel_height)
+        };
         let root_menu_size = self.primary_output.as_ref()
             .and_then(|output| self.logical_output_size(output))
-            .map(|(width, height)| native_menu::fitted_size(width, height, self.recipe.height))
+            .map(|(width, height)| fit(width, height))
             .unwrap_or(default_menu_size);
         let mirror_menu_sizes: Vec<_> = outputs.iter().filter_map(|output|
             self.logical_output_size(output).map(|(width, height)|
-                (output.clone(), native_menu::fitted_size(width, height, self.recipe.height))))
+                (output.clone(), fit(width, height))))
             .collect();
         for menu in self.menu_layer.iter_mut().chain(self.menu_mirrors.iter_mut()) {
             let size = menu.output.as_ref()
@@ -1639,6 +1662,10 @@ impl RicePlate {
                     .find(|(name, _)| name == output).map(|(_, size)| *size))
                 .unwrap_or(root_menu_size);
             if menu.size != size {
+                if std::env::var_os("RICEBOWL_DE_TRACE_MENU").is_some() {
+                    eprintln!("RicePlate: menu trace resize {:?} -> {:?}, active={}",
+                              menu.size, size, self.menu_state.visible);
+                }
                 menu.size = size;
                 menu.configured = false;
                 menu.pool = None;
@@ -1789,6 +1816,9 @@ impl RicePlate {
             }
             return;
         }
+        if std::env::var_os("RICEBOWL_DE_TRACE_MENU").is_some() {
+            eprintln!("RicePlate: menu trace hide");
+        }
         self.menu_state.close();
         self.notification_state.close();
         self.menu_focused = false;
@@ -1808,6 +1838,12 @@ impl RicePlate {
     fn show_menu_at(&mut self, surface: wl_surface::WlSurface, qh: &QueueHandle<Self>) {
         if !self.menu_layer.iter().chain(self.menu_mirrors.iter()).any(|menu|
             menu.surface.wl_surface() == &surface) { return; }
+        if std::env::var_os("RICEBOWL_DE_TRACE_MENU").is_some() {
+            let geometry = self.menu_layer.iter().chain(self.menu_mirrors.iter())
+                .find(|layer| layer.surface.wl_surface() == &surface)
+                .map(|layer| (layer.size, layer.configured));
+            eprintln!("RicePlate: menu trace show {:?}", geometry);
+        }
         if self.calendar_state.visible { self.set_calendar_visible(false, qh); }
         if self.tray_popup_open() { self.set_tray_popup_visible(false, qh); }
         self.menu_state.refresh_apps();
@@ -2960,8 +2996,14 @@ fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
                 }
                 let launcher_label = style.launcher.as_ref().map_or("Apps", |item| item.label.as_str());
                 let label_width = text_pixel_width(launcher_label, style.font_scale);
+                let label_x = if style.launcher.is_some()
+                    && placed.width >= label_width.saturating_add(35) {
+                    placed.x + 30 + (placed.width - 30 - label_width) / 2
+                } else {
+                    placed.x + placed.width.saturating_sub(label_width) / 2
+                };
                 draw_rice_text(canvas, width, height,
-                          placed.x + placed.width.saturating_sub(label_width) / 2,
+                          label_x,
                           height.saturating_sub(8 * style.font_scale) / 2,
                           launcher_label,
                           style.launcher.as_ref().map_or(style.foreground, |item| item.foreground),
@@ -3272,7 +3314,8 @@ fn fit_menu_pixels(original: &[u8], canvas: &mut [u8], size: (u32, u32)) {
 /// the same real actions across recipes without theme-specific hit regions.
 fn paint_menu_header_controls(canvas: &mut [u8], size: (u32, u32),
                               style: &PanelStyle, state: &MenuState,
-                              background: u32, foreground: u32, selection: u32) {
+                              background: u32, foreground: u32, selection: u32,
+                              luna_columns: bool) {
     for (hit, text, active) in [
         (MenuHit::Search, state.search_button_label(), state.view == native_menu::View::Search),
         (MenuHit::Saved, state.saved_button_label(), state.view == native_menu::View::Saved),
@@ -3280,13 +3323,25 @@ fn paint_menu_header_controls(canvas: &mut [u8], size: (u32, u32),
         let Some((x, y, width, height)) = native_menu::header_button_rect(size, hit) else {
             continue;
         };
-        fill_rounded_rect(canvas, size.0, size.1, x, y, width, height,
-                          style.task_radius.max(2), if active { selection } else { background });
+        if luna_columns {
+            // Both buttons retain the same native hit rectangles; the two
+            // tone treatment is purely visual and carries no fake controls.
+            fill_rounded_rect(canvas, size.0, size.1, x, y, width, height,
+                              5, 0xff0d_357f);
+            fill_rounded_rect(canvas, size.0, size.1, x + 1, y + 1,
+                              width - 2, height - 3, 4,
+                              if active { 0xff4b_80c8 } else { 0xff2b_67bd });
+            fill_rect(canvas, size.0, size.1, x + 6, y + 3,
+                      width - 12, 1, 0xff8c_c2f1);
+        } else {
+            fill_rounded_rect(canvas, size.0, size.1, x, y, width, height,
+                              style.task_radius.max(2), if active { selection } else { background });
+        }
         let characters = width.saturating_sub(12) / (8 * style.font_scale);
         let caption = if characters < 4 { &text[..1] } else { text };
         draw_rice_text(canvas, size.0, size.1, x + 6,
                        y + height.saturating_sub(8 * style.font_scale) / 2,
-                       caption, foreground, style);
+                       caption, if luna_columns { 0xffff_ffff } else { foreground }, style);
     }
 }
 
@@ -3314,7 +3369,7 @@ fn paint_compact_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
     draw_rice_text(canvas, width, height, 8, 9,
                    &heading.chars().take(heading_limit as usize).collect::<String>(),
                    header_fg, style);
-    paint_menu_header_controls(canvas, size, style, state, bg, fg, selection);
+    paint_menu_header_controls(canvas, size, style, state, bg, fg, selection, false);
     let groups = menu.groups.len().max(1) as u32;
     for (index, group) in menu.groups.iter().enumerate() {
         let x = index as u32 * width / groups;
@@ -3411,20 +3466,28 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
     for pixel in canvas.chunks_exact_mut(4) {
         pixel.copy_from_slice(&bg.to_le_bytes());
     }
-    fill_rect(canvas, width, height, 0, 0, width, 38, header);
+    let luna_columns = menu.presentation == recipe::MenuPresentation::Columns
+        && menu.palette.is_some();
+    if luna_columns {
+        menu_chrome::header(canvas, menu.palette.unwrap());
+    } else {
+        fill_rect(canvas, width, height, 0, 0, width, 38, header);
+    }
     draw_rice_text(
         canvas,
         width,
         height,
-        16,
+        if luna_columns { 43 } else { 16 },
         if style.font_scale == 1 { 15 } else { 11 },
-        &menu.title.chars().take((width.saturating_sub(native_menu::HEADER_ACTIONS_WIDTH + 16)
+        &menu.title.chars().take((width.saturating_sub(native_menu::HEADER_ACTIONS_WIDTH
+            + if luna_columns { 43 } else { 16 })
             / (8 * style.font_scale)) as usize)
             .collect::<String>(),
         header_fg,
         style,
     );
-    paint_menu_header_controls(canvas, (width, height), style, state, bg, fg, selection);
+    paint_menu_header_controls(canvas, (width, height), style, state,
+                               bg, fg, selection, luna_columns);
     let sidebar = menu.presentation == recipe::MenuPresentation::Sidebar;
     let columns = menu.presentation == recipe::MenuPresentation::Columns
         && state.view == native_menu::View::Groups;
@@ -3432,10 +3495,14 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
     if columns {
         // Two simultaneous regions: clear, navigable programs on cream and
         // system/session commands on a pale-blue right-hand shelf.
-        fill_rect(canvas, width, height, native_menu::COLUMNS_SPLIT, 38,
-                  width - native_menu::COLUMNS_SPLIT, height - 66, selection);
-        fill_rect(canvas, width, height, native_menu::COLUMNS_SPLIT, 38,
-                  2, height - 66, header);
+        if luna_columns {
+            menu_chrome::shelf(canvas, menu.palette.unwrap());
+        } else {
+            fill_rect(canvas, width, height, native_menu::COLUMNS_SPLIT, 38,
+                      width - native_menu::COLUMNS_SPLIT, height - 66, selection);
+            fill_rect(canvas, width, height, native_menu::COLUMNS_SPLIT, 38,
+                      2, height - 66, header);
+        }
     } else {
         if sidebar {
             fill_rect(canvas, width, height, native_menu::SIDEBAR_WIDTH - 2,
@@ -3494,6 +3561,10 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                 } else { fg };
                 let label = state.visible_label(menu, tile.action, logout_available());
                 let pinned = state.pins.iter().any(|pin| pin.as_str() == tile.action);
+                if luna_columns && columns && !tile.grid {
+                    menu_chrome::action_icon(canvas, tile.x + 6, tile.y + 9,
+                                             tile.action, tile.index == state.selected);
+                }
                 if tile.grid {
                     // A compact letter tile, not a promise of themed app icons.
                     let initial: String = label.chars().next().unwrap_or('?').to_uppercase().collect();
@@ -3503,12 +3574,13 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                     draw_rice_text(canvas, width, height, tile.x + 9, tile.y + 27,
                                    &short, tile_fg, style);
                 } else {
-                    let cap = (tile.width.saturating_sub(20) /
+                    let text_inset = if luna_columns && columns { 25 } else { 10 };
+                    let cap = (tile.width.saturating_sub(text_inset + 10) /
                                (8 * style.font_scale)) as usize;
                     let prefix = if pinned { "* " } else { "" };
                     let short: String = label.chars()
                         .take(cap.saturating_sub(prefix.len())).collect();
-                    draw_rice_text(canvas, width, height, tile.x + 10, tile.y + 12,
+                    draw_rice_text(canvas, width, height, tile.x + text_inset, tile.y + 12,
                                    &format!("{prefix}{short}"), tile_fg, style);
                 }
             }
@@ -3555,7 +3627,9 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
         }
     }
     }
-    if columns {
+    if luna_columns {
+        menu_chrome::footer(canvas, menu.palette.unwrap());
+    } else if columns {
         fill_rect(canvas, width, height, 0, height - 28, width, 28, header);
     }
     // On a long list the visible row range must be discoverable without a
@@ -3567,7 +3641,9 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
         "Find  Right/F2 Pin"
     } else { "Find  Right/F2 Pin  F3 Saved" });
     let glyph_width = 8 * style.font_scale;
-    let hint_limit = if let Some(counter) = page.as_ref() {
+    let hint_limit = if luna_columns {
+        (width.saturating_sub(90) / glyph_width).min(28)
+    } else if let Some(counter) = page.as_ref() {
         width.saturating_sub(28 + counter.chars().count() as u32 * glyph_width)
             / glyph_width
     } else { width / glyph_width };
@@ -3582,8 +3658,13 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
         style,
     );
     if let Some(counter) = page {
-        let right = width.saturating_sub(12 + counter.chars().count() as u32 * glyph_width);
+        let right = width.saturating_sub(
+            (if luna_columns { 83 } else { 12 }) + counter.chars().count() as u32 * glyph_width);
         draw_rice_text(canvas, width, height, right, height - 16, &counter, fg, style);
+    }
+    if luna_columns {
+        draw_rice_text(canvas, width, height, width - 62, height - 16,
+                       "Close", header_fg, style);
     }
 }
 
@@ -4378,21 +4459,35 @@ impl LayerShellHandler for RicePlate {
             menu.surface.wl_surface() == layer.wl_surface())
             || self.menu_mirrors.iter().any(|menu|
                 menu.surface.wl_surface() == layer.wl_surface()) {
-            let expected_size = self.menu_layer.iter().chain(self.menu_mirrors.iter())
+            let (expected_size, awaiting_resize) = self.menu_layer.iter().chain(self.menu_mirrors.iter())
                 .find(|menu| menu.surface.wl_surface() == layer.wl_surface())
-                .map(|menu| menu.size).expect("matched a live native menu layer");
-            if config.new_size != expected_size {
-                eprintln!("RicePlate: compositor proposed unsupported native menu geometry");
-                if self.menu_layer.as_ref().is_some_and(|menu|
-                    menu.surface.wl_surface() == layer.wl_surface()) {
-                    self.menu_layer = None;
-                } else {
-                    self.menu_mirrors.retain(|menu|
-                        menu.surface.wl_surface() != layer.wl_surface());
-                }
-                if self.active_menu.as_ref() == Some(layer.wl_surface()) {
-                    self.set_menu_visible(false, qh);
-                }
+                .map(|menu| (menu.size, !menu.configured))
+                .expect("matched a live native menu layer");
+            let disposition = menu_size_decision(expected_size, config.new_size, awaiting_resize);
+            if disposition == MenuSizeDecision::AwaitNewConfigure {
+                // wl_layer_surface configure is asynchronous. A previous
+                // 320×304 configure can arrive *after* output discovery has
+                // requested 400×380/480×456. Keep this layer alive until
+                // the matching configure arrives; dropping it here makes
+                // the native Start menu disappear on the first wide output.
+                eprintln!("RicePlate: ignoring superseded native menu configure {:?}; waiting for {:?}",
+                          config.new_size, expected_size);
+                return;
+            }
+            if disposition == MenuSizeDecision::RetryExpectedSize {
+                // Output mode/scale changes can deliver an older configure
+                // even *after* a matching configure was accepted. It is not
+                // evidence that the compositor cannot render this surface:
+                // destroying the layer would permanently remove Start until
+                // the next session. Reassert the current desired geometry.
+                eprintln!("RicePlate: retrying native menu geometry {:?} after stale {:?}",
+                          expected_size, config.new_size);
+                let menu_layer = self.menu_layer.iter_mut().chain(self.menu_mirrors.iter_mut())
+                    .find(|menu| menu.surface.wl_surface() == layer.wl_surface())
+                    .expect("matched a live native menu layer");
+                menu_layer.configured = false;
+                menu_layer.surface.set_size(expected_size.0, expected_size.1);
+                menu_layer.surface.commit();
                 return;
             }
             let menu_layer = self.menu_layer.as_mut().filter(|menu|
@@ -5603,6 +5698,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn superseded_wayland_menu_configure_waits_instead_of_destroying_the_layer() {
+        let old = (native_menu::WIDTH, native_menu::HEIGHT);
+        for desired in [(400, 380), (480, 456)] {
+            assert_eq!(menu_size_decision(desired, old, true),
+                       MenuSizeDecision::AwaitNewConfigure);
+            assert_eq!(menu_size_decision(desired, desired, true),
+                       MenuSizeDecision::Accept);
+            assert_eq!(menu_size_decision(desired, old, false),
+                       MenuSizeDecision::RetryExpectedSize);
+        }
+        // When a fractional-scale output switches from 480 to 320 logical
+        // pixels, an old configure must not permanently kill the menu after
+        // the new 320 configure was already accepted.
+        assert_eq!(menu_size_decision(old, (480, 456), false),
+                   MenuSizeDecision::RetryExpectedSize);
+        assert_eq!(menu_size_decision(old, old, false), MenuSizeDecision::Accept);
+    }
+
+    #[test]
     fn small_menu_raster_keeps_full_source_and_pointer_targets() {
         let width = native_menu::WIDTH;
         let height = native_menu::HEIGHT;
@@ -5940,9 +6054,10 @@ mod tests {
         };
         let palette = menu.palette.unwrap();
         assert_eq!(pixel(&canvas, 120, 70), palette.background);
-        assert_eq!(pixel(&canvas, 260, 70), palette.selection);
-        assert_eq!(pixel(&canvas, native_menu::COLUMNS_SPLIT, 70), palette.header);
-        assert_eq!(pixel(&canvas, 260, height - 10), palette.header);
+        assert_ne!(pixel(&canvas, 260, 70), palette.background);
+        assert_ne!(pixel(&canvas, 260, 70), pixel(&canvas, 260, 240));
+        assert_ne!(pixel(&canvas, native_menu::COLUMNS_SPLIT, 70), palette.header);
+        assert_ne!(pixel(&canvas, 260, height - 10), palette.header);
         assert_eq!(pixel(&canvas, 12, 110), palette.header); // current left action
 
         state.select_group(menu, 1);
@@ -5963,7 +6078,9 @@ mod tests {
                     &tray::State::default(), 0, None, None, None);
         let launcher = style.launcher.as_ref().unwrap();
         let green = ((height / 2 * width + 10) * 4) as usize;
-        assert_eq!(&panel[green..green + 4], &launcher.background.to_le_bytes());
+        let start_pixel = u32::from_le_bytes(panel[green..green + 4].try_into().unwrap());
+        assert_ne!(start_pixel, style.background);
+        assert_eq!(launcher.label, "start");
         let blue = ((height / 2 * width + 115) * 4) as usize;
         let upper_blue = ((1 * width + 115) * 4) as usize;
         // Luna uses a graduated blue panel; verify its hue and reflection,

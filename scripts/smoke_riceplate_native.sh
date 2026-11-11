@@ -232,6 +232,8 @@ dbus-run-session -- sh -eu -c '
             WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$runtime/xp-luna-font.json" --preview-notification-detail >"$runtime/plate-$label.log" 2>&1 &
         elif [ "$label" = calendar-v5 ]; then
             WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$runtime/desktop-v5.json" --preview-calendar >"$runtime/plate-$label.log" 2>&1 &
+        elif [ "$label" = xp-luna-columns ]; then
+            RICEBOWL_DE_TRACE_MENU=1 WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" >"$runtime/plate-$label.log" 2>&1 &
         else
             WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" >"$runtime/plate-$label.log" 2>&1 &
         fi
@@ -300,9 +302,12 @@ dbus-run-session -- sh -eu -c '
             WAYLAND_DISPLAY=wayland-0 wlr-randr --output "$output" --custom-mode 1366x768@60Hz --scale 1
             sleep 0.5
         fi
-        if [ "$label" = xp-luna-columns ] || [ "$label" = xp-luna-columns-menu ]; then
-            # Exercise live output reconfiguration without restarting either
-            # native RicePlate or the separate real swaybg wallpaper process.
+        if [ "$label" = xp-luna-columns ]; then
+            # Capture closed AND opened menus from the same running native
+            # shell and swaybg process. Comparing two separately launched
+            # wallpaper sessions can report irrelevant panel/background diffs
+            # instead of the actual menu change. The virtual pointer provides
+            # a genuine compositor-delivered Start click at each geometry.
             output=$(WAYLAND_DISPLAY=wayland-0 wlr-randr | sed -n "1s/[[:space:]].*//p")
             if [ -z "$output" ]; then
                 echo "No headless output for Luna live-geometry capture" >&2
@@ -314,14 +319,37 @@ dbus-run-session -- sh -eu -c '
                 WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/$label-$mode.png"
                 cp "$runtime/$label-$mode.png" \
                    "$source_root/dist/riceplate-native-preview/$label-$mode.png"
-                echo "Captured live Luna $label at $mode scale 1"
+                height=${mode#*x}
+                WAYLAND_DISPLAY=wayland-0 "$clicker" 35 "$((height - 20))" "${mode%x*}" "$height"
+                sleep 0.35
+                WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-columns-menu-$mode.png"
+                cp "$runtime/xp-luna-columns-menu-$mode.png" \
+                   "$source_root/dist/riceplate-native-preview/xp-luna-columns-menu-$mode.png"
+                WAYLAND_DISPLAY=wayland-0 "$clicker" 35 "$((height - 20))" "${mode%x*}" "$height"
+                sleep 0.25
+                echo "Captured live Luna closed/open pair at $mode scale 1"
             done
             WAYLAND_DISPLAY=wayland-0 wlr-randr --output "$output" --custom-mode 1366x768@60Hz --scale 1.25
             sleep 0.65
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/$label-scale-125.png"
             cp "$runtime/$label-scale-125.png" \
                "$source_root/dist/riceplate-native-preview/$label-scale-125.png"
-            echo "Captured live Luna $label at 1366x768 scale 1.25"
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 35 748 1366 768
+            sleep 0.35
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-columns-menu-scale-125.png"
+            cp "$runtime/xp-luna-columns-menu-scale-125.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-columns-menu-scale-125.png"
+            # Emit only menu-geometry diagnostics for the direct Full-HD ->
+            # fractional-scale transition. No user data or full logs are
+            # archived; this identifies whether the pending layer configure
+            # or the virtual-pointer delivery made an opened frame invisible.
+            echo "Luna 125% live output:"
+            WAYLAND_DISPLAY=wayland-0 wlr-randr | sed -n "1,9p"
+            grep -E "RicePlate: (menu trace|ignoring superseded native menu|compositor proposed unsupported native menu|native menu buffer unavailable|cannot allocate native menu)" \
+                "$runtime/plate-$label.log" | tail -n 22 || true
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 35 748 1366 768
+            sleep 0.25
+            echo "Captured live Luna closed/open pair at 1366x768 scale 1.25"
             WAYLAND_DISPLAY=wayland-0 wlr-randr --output "$output" --custom-mode 1366x768@60Hz --scale 1
             sleep 0.5
         fi
