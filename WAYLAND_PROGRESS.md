@@ -77,6 +77,13 @@ application names and prefixes ahead of generic keyword matches, while the
 unfiltered installed-app list remains alphabetical. Native CI acceptance is
 pending.
 
+In the Luna columns preview, the two installed-app shortcuts now move
+applications successfully dispatched via Gio to the front, without changing
+the alphabetical **All Programs** browser or any other rice. This eight-entry
+recent-app order lives only in the running RicePlate process and intentionally
+does not write a user activity log to disk. Native compositor/CI acceptance
+remains open.
+
 A separate [live output-resolution and scaling matrix](screenshots/wayland/README.md#luna-live-output-matrix--1024768-full-hd-and-125-scale-11-november-2026)
 now captures **the same running Wayland session** at 1024×768, 1366×768,
 1920×1080 and 125% compositor scale, with both closed and open native menus.

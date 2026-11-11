@@ -1021,6 +1021,10 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
     expose truthful no-match/results state to the painter and AT-SPI. Rank
     filtered apps by name relevance without reordering the base list. Rust
     regression is added in the stacked PR; native CI remains the merge gate.
+  - [ ] Prioritize actually launched desktop entries in Luna's short
+    in-menu app preview, keeping history bounded to eight, session-local and
+    isolated from other rices. Regression is added; native compositor
+    verification is still required before merging.
   **Exact XP/7/10 menu reconstructions are deferred to the post-framework
   fidelity gate above**, not blocking this foundational milestone.
 - [ ] Make responsive shell layouts live across every backend and surface,

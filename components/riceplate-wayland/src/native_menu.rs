@@ -61,6 +61,7 @@ pub const ACTION_TOP: u32 = 108;
 pub const ACTION_HEIGHT: u32 = 42;
 pub const VISIBLE_ACTIONS: usize = 4;
 pub const MAX_PINS: usize = 8;
+const MAX_RECENT_APPS: usize = 8;
 // A small output gets a real, full-resolution list instead of a downscaled
 // 320x304 bitmap. The smallest outputs still use the existing proportional
 // fit: below this bound even a single readable row cannot be guaranteed.
@@ -172,6 +173,9 @@ pub struct MenuState {
     pub search: String,
     pub pins: Vec<String>,
     pub apps: Vec<App>,
+    /// Session-local usage order. Only previously discovered XDG apps may
+    /// enter this list; private usage history is never persisted by default.
+    recent_apps: Vec<String>,
     wheel_remainder: f64,
     last_app_refresh: Option<Instant>,
 }
@@ -220,6 +224,35 @@ impl MenuState {
 
     pub fn app_path(&self, action: &str) -> Option<&std::path::Path> {
         self.apps.iter().find(|app| app.action == action).map(|app| app.path.as_path())
+    }
+
+    /// Promote a successfully dispatched desktop application in Luna's
+    /// narrow start-menu preview, without changing the alphabetic catalogue.
+    /// Fixed recipe commands and unknown desktop IDs cannot enter history.
+    pub fn record_app_launch(&mut self, action: &str) -> bool {
+        if !self.apps.iter().any(|app| app.action == action) { return false; }
+        self.recent_apps.retain(|previous| previous != action);
+        self.recent_apps.insert(0, action.to_owned());
+        self.recent_apps.truncate(MAX_RECENT_APPS);
+        true
+    }
+
+    fn luna_preview_apps(&self, limit: usize) -> Vec<&str> {
+        if limit == 0 { return Vec::new(); }
+        let mut result = Vec::with_capacity(limit.min(self.apps.len()));
+        for id in &self.recent_apps {
+            if let Some(app) = self.apps.iter().find(|app| app.action == *id) {
+                result.push(app.action.as_str());
+                if result.len() == limit { return result; }
+            }
+        }
+        for app in &self.apps {
+            if !result.contains(&app.action.as_str()) {
+                result.push(app.action.as_str());
+                if result.len() == limit { break; }
+            }
+        }
+        result
     }
 
     pub fn open(&mut self) {
@@ -370,8 +403,11 @@ impl MenuState {
                 MenuContentKind::Favorites => self.pins.iter().filter(|pin|
                     menu.groups.iter().any(|group| group.actions.contains(pin)))
                     .map(String::as_str).take(source.limit).collect(),
-                MenuContentKind::AppsList | MenuContentKind::AppsGrid => self.apps.iter()
-                    .map(|app| app.action.as_str()).take(source.limit).collect(),
+                MenuContentKind::AppsList | MenuContentKind::AppsGrid => {
+                    if menu.palette.is_some() { self.luna_preview_apps(source.limit) }
+                    else { self.apps.iter().map(|app| app.action.as_str())
+                        .take(source.limit).collect() }
+                }
             };
             let grid = source.kind == MenuContentKind::AppsGrid;
             let row_height = if grid { CONTENT_GRID_HEIGHT } else { CONTENT_LIST_HEIGHT };
@@ -872,6 +908,53 @@ mod tests {
         state.search_button();
         assert_eq!(state.actions(&data).into_iter().map(str::to_owned).collect::<Vec<_>>(), original);
         assert_eq!(state.view, View::Programs);
+    }
+
+    #[test]
+    fn luna_preview_prioritizes_launched_apps_without_changing_other_rices() {
+        let recipe = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let menu = recipe.menu.as_ref().unwrap();
+        let mut state = MenuState::default();
+        state.apps = demo_apps(12);
+        state.open();
+        assert_eq!(&state.actions(menu)[2..4],
+                   &["desktop:demo-0.desktop", "desktop:demo-1.desktop"]);
+        assert!(!state.record_app_launch("terminal"));
+        assert!(!state.record_app_launch("desktop:unindexed.desktop"));
+        assert!(state.record_app_launch("desktop:demo-9.desktop"));
+        assert!(state.record_app_launch("desktop:demo-4.desktop"));
+        assert!(state.record_app_launch("desktop:demo-9.desktop"));
+        assert_eq!(&state.actions(menu)[2..4],
+                   &["desktop:demo-9.desktop", "desktop:demo-4.desktop"]);
+        assert_eq!(state.recent_apps.len(), 2);
+        state.open();
+        assert_eq!(&state.actions(menu)[2..4],
+                   &["desktop:demo-9.desktop", "desktop:demo-4.desktop"]);
+
+        // The unfiltered All Programs index and non-Luna columns remain
+        // alphabetic; session recency must never become a recipe-wide theme.
+        state.show_programs();
+        assert_eq!(&state.actions(menu)[..2],
+                   &["desktop:demo-0.desktop", "desktop:demo-1.desktop"]);
+        state.back();
+        let mut other = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let other_menu = other.menu.as_mut().unwrap();
+        other_menu.palette = None;
+        assert_eq!(&state.actions(other_menu)[2..4],
+                   &["desktop:demo-0.desktop", "desktop:demo-1.desktop"]);
+
+        for index in 0..12 {
+            assert!(state.record_app_launch(&format!("desktop:demo-{index}.desktop")));
+        }
+        assert_eq!(state.recent_apps.len(), MAX_RECENT_APPS);
+        assert_eq!(state.recent_apps[0], "desktop:demo-11.desktop");
+        state.apps.clear();
+        assert!(state.luna_preview_apps(2).is_empty());
+        assert!(state.luna_preview_apps(0).is_empty());
     }
 
     #[test]

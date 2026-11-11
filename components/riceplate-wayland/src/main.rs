@@ -1921,9 +1921,12 @@ impl RicePlate {
         if action.starts_with("desktop:") {
             // Let GLib handle field codes, DBusActivatable, terminal preferences
             // and desktop-file quoting. Never interpret Exec as a shell command.
-            if let Some(path) = self.menu_state.app_path(action) {
-                if let Err(error) = Command::new("gio").arg("launch").arg(path).spawn() {
-                    eprintln!("RicePlate: cannot launch desktop application: {error}");
+            if let Some(path) = self.menu_state.app_path(action).map(std::path::Path::to_path_buf) {
+                match Command::new("gio").arg("launch").arg(&path).spawn() {
+                    Ok(_) => { self.menu_state.record_app_launch(action); }
+                    Err(error) => {
+                        eprintln!("RicePlate: cannot launch desktop application: {error}");
+                    }
                 }
             }
             return;
