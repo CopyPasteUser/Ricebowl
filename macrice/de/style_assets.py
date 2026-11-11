@@ -232,18 +232,38 @@ def import_asset(source: Path, *, kind: str, label: str,
     except OSError as exc:
         raise StyleAssetError("Cannot open visual asset safely") from exc
     identifier = _identity(data, kind)
+    return _install_verified_asset(identifier, kind, data, label, declared)
+
+
+def _install_verified_asset(identifier: str, kind: str, data: bytes, label: str,
+                            provenance: dict[str, str]) -> StyleAsset:
+    """Publish attribution before bytes so a process crash can be retried.
+
+    A receipt-only record is not exposed by the asset catalog and can only
+    be completed by the *same* immutable declaration. Pre-existing bytes
+    without a receipt cannot be attributed retroactively to a new author.
+    Neither file is replaced, including when another writer races us.
+    """
     folder = _collection(create=True)
-    image = folder / (identifier + source.suffix)
+    image = folder / (identifier + (".png" if kind == "icon" else ".ttf"))
     record = folder / (identifier + ".json")
-    attributes = {"id": identifier, "label": label, "provenance": declared}
-    payload = (json.dumps(attributes, sort_keys=True, ensure_ascii=False) + "\n").encode()
-    if os.path.lexists(image) or os.path.lexists(record):
-        if read(identifier) != data or _record(identifier) != StyleAsset(identifier, kind, label, declared):
-            raise StyleAssetError("Asset already exists with a different declaration")
+    declared = StyleAsset(identifier, kind, label, provenance)
+    if os.path.lexists(record):
+        if _record(identifier) != declared:
+            raise StyleAssetError("Asset already has different attribution")
     else:
-        recipes._write_private_new(image, data, suffix=source.suffix)
+        if os.path.lexists(image):
+            raise StyleAssetError("Unattributed asset cannot be adopted")
+        payload = (json.dumps({"id": identifier, "label": label,
+                               "provenance": provenance},
+                              sort_keys=True, ensure_ascii=False) + "\n").encode()
         recipes._write_private_new(record, payload)
-    return StyleAsset(identifier, kind, label, declared)
+    if os.path.lexists(image):
+        if read(identifier) != data:
+            raise StyleAssetError("Asset already exists with different bytes")
+    else:
+        recipes._write_private_new(image, data, suffix=image.suffix)
+    return declared
 
 
 def store_pack_asset(identifier: str, data: bytes, *, label: str,
@@ -253,16 +273,5 @@ def store_pack_asset(identifier: str, data: bytes, *, label: str,
     validate(data, kind)
     if _identity(data, kind) != identifier:
         raise StyleAssetError("Pack asset hash does not match")
-    folder = _collection(create=True)
-    file = folder / (identifier + (".png" if kind == "icon" else ".ttf"))
-    record = folder / (identifier + ".json")
     declared = pack._provenance(provenance)
-    attributes = {"id": identifier, "label": label, "provenance": declared}
-    payload = (json.dumps(attributes, sort_keys=True, ensure_ascii=False) + "\n").encode()
-    if os.path.lexists(file) or os.path.lexists(record):
-        if read(identifier) != data or _record(identifier) != StyleAsset(identifier, kind, label, declared):
-            raise StyleAssetError("Installed asset has different bytes or provenance")
-    else:
-        recipes._write_private_new(file, data, suffix=file.suffix)
-        recipes._write_private_new(record, payload)
-    return StyleAsset(identifier, kind, label, declared)
+    return _install_verified_asset(identifier, kind, data, label, declared)

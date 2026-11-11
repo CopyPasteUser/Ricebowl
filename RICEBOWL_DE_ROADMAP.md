@@ -1181,6 +1181,14 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
   Real Wayland display, DPI, font legibility and accessibility require physical
   acceptance; Waybar custom faces, complete icon themes and AI image-to-rice
   conversion remain separate future work.
+- [x] Make **Creator/RicePack v4 font and icon imports restartable after an
+  interrupted write**: commit immutable attribution before publishing a
+  content-addressed image or TrueType file. A missing image can only be
+  completed by exactly the originally declared attribution; unmatched or
+  unattributed files fail closed. Regression tests simulate a process exit
+  between the two writes and repeat a full offline RicePack import. No files
+  are replaced and the live desktop stays untouched; sudden power-loss
+  durability and cross-asset atomicity are not claimed.
 - [x] Implement **Rice Creator 0.6 private visual reference comparison**:
   owner-controlled, bounded PNG references are SHA-256-copied into a private
   per-draft selection that survives immutable revision changes without
