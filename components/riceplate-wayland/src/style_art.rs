@@ -19,6 +19,9 @@ pub struct IconPixels(pub Vec<u8>);
 struct Glyph {
     width: u32,
     height: u32,
+    xmin: i32,
+    ymin: i32,
+    advance: f32,
     pixels: Vec<u8>,
 }
 
@@ -26,6 +29,8 @@ pub struct FontSprites {
     font: fontdue::Font,
     cache: Mutex<GlyphCache>,
     cell: u32,
+    size: f32,
+    proportional: bool,
 }
 
 struct GlyphCache {
@@ -119,43 +124,56 @@ fn icon_png(data: &[u8]) -> Result<IconPixels, Box<dyn Error>> {
     Ok(IconPixels(pixels))
 }
 
-fn font_glyphs(data: Vec<u8>, scale: u32) -> Result<FontSprites, Box<dyn Error>> {
+fn font_glyphs(data: Vec<u8>, scale: u32, proportional: bool)
+               -> Result<FontSprites, Box<dyn Error>> {
     let font = fontdue::Font::from_bytes(data, fontdue::FontSettings::default())?;
     let cell = 8 * scale;
+    let size = if proportional { 11.0 * scale as f32 } else { (cell + 2) as f32 };
     let mut glyphs = HashMap::new();
     // Bounded upfront rasterization: each redraw only reads cached masks.
     // Unsupported Unicode falls back to the built-in bitmap tables.
     for code in 32..=255_u32 {
         let Some(character) = char::from_u32(code) else { continue; };
-        let bounds = font.metrics(character, (cell + 2) as f32);
+        let bounds = font.metrics(character, size);
         if bounds.width > 32 || bounds.height > 32 { continue; }
-        let (metrics, pixels) = font.rasterize(character, (cell + 2) as f32);
+        let (metrics, pixels) = font.rasterize(character, size);
         glyphs.insert(character, Glyph {
-            width: metrics.width as u32, height: metrics.height as u32, pixels,
+            width: metrics.width as u32, height: metrics.height as u32,
+            xmin: metrics.xmin, ymin: metrics.ymin,
+            advance: metrics.advance_width, pixels,
         });
     }
     Ok(FontSprites { font, cache: Mutex::new(GlyphCache {
         glyphs, dynamic: VecDeque::new(),
-    }), cell })
+    }), cell, size, proportional })
 }
 
 #[cfg(test)]
 pub fn fixture_font(scale: u32) -> Option<FontSprites> {
     let data = fs::read("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf").ok()?;
-    font_glyphs(data, scale).ok()
+    font_glyphs(data, scale, false).ok()
 }
 
 pub fn load(selection: &ArtworkSelection, scale: u32) -> Result<LoadedArtwork, Box<dyn Error>> {
-    let needs_files = selection.font.is_some() || selection.icons.iter()
+    let needs_files = selection.font.as_ref().is_some_and(|id| id != "builtin-luna-ui")
+        || selection.icons.iter()
         .any(|icon| icon.as_deref().is_some_and(|id| id != "builtin-luna"));
     if selection.font.is_none() && selection.icons.iter().all(Option::is_none) {
         return Ok(LoadedArtwork { font: None, icons: [None, None, None] });
     }
     let folder = if needs_files { Some(private_directory()?) } else { None };
     let font = selection.font.as_ref().map(|id| {
-        let data = read_asset(folder.as_ref().ok_or("Missing private font directory")?,
-                              id, "ttf", FONT_MAX)?;
-        font_glyphs(data, scale)
+        if id == "builtin-luna-ui" {
+            // Unmodified Liberation Sans, distributed under SIL OFL 1.1.
+            // The font is embedded at compile time; no host font discovery,
+            // shared mutable state or private asset directory is required.
+            font_glyphs(include_bytes!("../../../assets/fonts/LiberationSans-Regular.ttf").to_vec(),
+                        scale, true)
+        } else {
+            let data = read_asset(folder.as_ref().ok_or("Missing private font directory")?,
+                                  id, "ttf", FONT_MAX)?;
+            font_glyphs(data, scale, false)
+        }
     }).transpose()?;
     let mut icons: [Option<IconPixels>; 3] = [None, None, None];
     for (index, id) in selection.icons.iter().enumerate() {
@@ -258,35 +276,58 @@ pub fn paint_icon(canvas: &mut [u8], canvas_width: u32,
 }
 
 impl FontSprites {
+    pub fn measure_text(&self, text: &str) -> u32 {
+        if !self.proportional {
+            return (text.chars().count() as u32).saturating_mul(self.cell);
+        }
+        text.chars().filter(|letter| !letter.is_control())
+            .map(|letter| self.font.metrics(letter, self.size).advance_width.max(0.0))
+            .sum::<f32>().ceil() as u32
+    }
+
     pub fn draw(&self, canvas: &mut [u8], width: u32, height: u32,
                 x: u32, y: u32, text: &str, color: u32, bold: bool) {
         // A single lock for this paint avoids per-character allocations and
         // font rasterization on ordinary repeated compositor redraws.
         let mut cache = self.cache.lock().unwrap_or_else(|poison| poison.into_inner());
+        let mut cursor = x as f32;
         for (offset, letter) in text.chars().enumerate() {
             if letter.is_control() { continue; }
-            let origin_x = x.saturating_add((offset as u32).saturating_mul(self.cell));
+            let origin_x = if self.proportional { cursor.max(0.0) as u32 }
+                else { x.saturating_add((offset as u32).saturating_mul(self.cell)) };
             if origin_x >= width { break; }
             if !cache.glyphs.contains_key(&letter) && self.font.lookup_glyph_index(letter) != 0 {
-                let bounds = self.font.metrics(letter, (self.cell + 2) as f32);
+                let bounds = self.font.metrics(letter, self.size);
                 if bounds.width <= 32 && bounds.height <= 32 {
-                    let (metrics, pixels) = self.font.rasterize(letter, (self.cell + 2) as f32);
+                    let (metrics, pixels) = self.font.rasterize(letter, self.size);
                     cache.insert_dynamic(letter, Glyph {
                         width: metrics.width as u32,
-                        height: metrics.height as u32,
+                        height: metrics.height as u32, xmin: metrics.xmin,
+                        ymin: metrics.ymin, advance: metrics.advance_width,
                         pixels,
                     });
                 }
             }
             let Some(glyph) = cache.glyphs.get(&letter).or_else(|| cache.glyphs.get(&'?'))
                 else { continue; };
-            let left = origin_x.saturating_add(self.cell.saturating_sub(glyph.width) / 2);
-            let top = y.saturating_add(self.cell.saturating_sub(glyph.height) / 2);
-            for row in 0..glyph.height.min(self.cell) {
-                for col in 0..glyph.width.min(self.cell) {
-                    let dx = left.saturating_add(col);
-                    let dy = top.saturating_add(row);
-                    if dx >= width || dy >= height { continue; }
+            let (left, top, draw_width, draw_height) = if self.proportional {
+                (cursor.round() as i32 + glyph.xmin,
+                 y as i32 + self.size.ceil() as i32 - glyph.ymin - glyph.height as i32,
+                 glyph.width, glyph.height)
+            } else {
+                (origin_x.saturating_add(self.cell.saturating_sub(glyph.width) / 2) as i32,
+                 y.saturating_add(self.cell.saturating_sub(glyph.height) / 2) as i32,
+                 glyph.width.min(self.cell), glyph.height.min(self.cell))
+            };
+            for row in 0..draw_height {
+                for col in 0..draw_width {
+                    let dx = left + col as i32;
+                    let dy = top + row as i32;
+                    if dx < 0 || dy < 0 || dx >= width as i32 || dy >= height as i32 {
+                        continue;
+                    }
+                    let dx = dx as u32;
+                    let dy = dy as u32;
                     let opacity = glyph.pixels[(row * glyph.width + col) as usize];
                     let a = ((color >> 24) & 0xff) as u8;
                     blend_pixel(canvas, ((dy * width + dx) * 4) as usize,
@@ -299,6 +340,7 @@ impl FontSprites {
                     }
                 }
             }
+            if self.proportional { cursor += glyph.advance.max(1.0); }
         }
     }
 }
@@ -325,11 +367,27 @@ mod tests {
     }
 
     #[test]
+    fn bundled_luna_typeface_renders_proportional_glyphs_without_private_files() {
+        let selection = ArtworkSelection { font: Some("builtin-luna-ui".into()),
+                                           icons: [None, None, None] };
+        let art = load(&selection, 1).unwrap();
+        let font = art.font.unwrap();
+        assert!(font.proportional);
+        assert!(font.measure_text("WWW") > font.measure_text("iii"));
+        let mut pixels = vec![0_u8; 180 * 32 * 4];
+        font.draw(&mut pixels, 180, 32, 5, 4, "Luna text", 0xff_ff_ff_ff, false);
+        assert!(pixels.chunks_exact(4).any(|pixel| pixel[3] > 0));
+    }
+
+    #[test]
     fn extra_unicode_glyph_cache_is_bounded_and_evicts_oldest() {
         let mut cache = GlyphCache { glyphs: HashMap::new(), dynamic: VecDeque::new() };
         for index in 0..DYNAMIC_GLYPH_LIMIT + 1 {
             let letter = char::from_u32(0x400 + index as u32).unwrap();
-            cache.insert_dynamic(letter, Glyph { width: 1, height: 1, pixels: vec![255] });
+            cache.insert_dynamic(letter, Glyph {
+                width: 1, height: 1, xmin: 0, ymin: 0,
+                advance: 1.0, pixels: vec![255],
+            });
         }
         assert_eq!(cache.dynamic.len(), DYNAMIC_GLYPH_LIMIT);
         assert_eq!(cache.glyphs.len(), DYNAMIC_GLYPH_LIMIT);
@@ -342,7 +400,7 @@ mod tests {
         let Ok(bytes) = fs::read("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf") else {
             return; // The redistributable system fixture is optional on developers' machines.
         };
-        let sprites = font_glyphs(bytes, 1).unwrap();
+        let sprites = font_glyphs(bytes, 1, false).unwrap();
         assert!(!sprites.cache.lock().unwrap().glyphs.contains_key(&'\u{393}'));
         let mut canvas = vec![0; 32 * 16 * 4];
         sprites.draw(&mut canvas, 32, 16, 0, 0, "\u{393}\u{03b5}", 0xffeeddcc, false);

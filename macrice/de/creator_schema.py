@@ -38,11 +38,14 @@ def _color() -> dict[str, Any]:
             "pattern": r"^#[0-9a-fA-F]{6}"}
 
 
-def _content_addressed(prefix: str, *, luna: bool = False) -> dict[str, Any]:
+def _content_addressed(prefix: str, *, luna: bool = False,
+                       luna_font: bool = False) -> dict[str, Any]:
     length = len(prefix) + 1 + 64
     choices: list[dict[str, Any]] = [{"const": "builtin"}]
     if luna:
         choices.append({"const": "builtin-luna"})
+    if luna_font:
+        choices.append({"const": "builtin-luna-ui"})
     choices.append({"type": "string", "minLength": length, "maxLength": length,
                     "pattern": f"^{prefix}-[0-9a-f]{{64}}"})
     return {"anyOf": choices}
@@ -186,7 +189,7 @@ def _properties(schema_version: int) -> dict[str, dict[str, Any]]:
         properties["/appearance/font_weight"] = {"enum": ["regular", "bold"]}
         properties["/appearance/item_spacing"] = _integer(0, 16)
     if schema_version >= 11:
-        font = _content_addressed("font")
+        font = _content_addressed("font", luna_font=schema_version >= 12)
         icon = _content_addressed("icon", luna=schema_version >= 12)
         properties["/artwork/font"] = font
         properties["/artwork/icons"] = _object({key: icon for key in recipes.ICON_ACTIONS})

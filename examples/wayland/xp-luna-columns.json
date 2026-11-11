@@ -146,7 +146,7 @@
   },
   "appearance": {
     "font_scale": 1,
-    "font_weight": "bold",
+    "font_weight": "regular",
     "item_spacing": 2,
     "hover": "#3c7bda",
     "focus": "#f7de73",
@@ -189,7 +189,7 @@
     "compact_hide_widgets": []
   },
   "artwork": {
-    "font": "builtin",
+    "font": "builtin-luna-ui",
     "icons": {
       "applications": "builtin-luna",
       "terminal": "builtin-luna",
