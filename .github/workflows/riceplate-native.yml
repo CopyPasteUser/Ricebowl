@@ -494,6 +494,13 @@ jobs:
           # the initial 125-pixel measurement had clipped its left-side text.
           assert osd_changed > 300, \
               f'Private TrueType did not change native volume OSD pixels: {osd_changed}'
+          # Use Creator's existing visual-QA engine on genuine paired frames;
+          # the output is a reviewable heatmap and per-region diagnosis, not
+          # a claim that the screenshots certify focus or accessibility.
+          luna_recipe = directory / 'xp-luna-visual-recipe.json'
+          luna_recipe.write_bytes(Path('examples/wayland/xp-luna-columns.json').read_bytes())
+          luna_recipe.chmod(0o600)
+          visual_reviews = []
           for suffix, width, height in (
               ('1024x768', 1024, 768), ('1366x768', 1366, 768),
               ('1920x1080', 1920, 1080), ('scale-125', 1366, 768),
@@ -518,6 +525,38 @@ jobs:
                       closed_area.getdata(), opened_area.getdata()))
                   assert menu_changed > 10000, \
                       f'Native Luna Start menu missing after live {suffix} reconfigure: {menu_changed}'
+              before = directory / f'xp-luna-columns-{suffix}.png'
+              after = directory / f'xp-luna-columns-menu-{suffix}.png'
+              heatmap = (directory / f'luna-menu-diff-{suffix}.png').resolve()
+              report = compare(before, after, recipe_token=str(luna_recipe.resolve()),
+                               heatmap=heatmap, threshold=24)
+              regions = {region['id']: region for region in report['regions']}
+              assert not report['layout_issues'], (suffix, report['layout_issues'])
+              assert regions['desktop']['changed_pixels'] > 10000, (suffix, regions)
+              # Only the menu should appear. Clock ticks may change a few
+              # panel glyphs between the two real-time captures.
+              assert regions['panel']['changed_pixel_ratio'] < 0.03, (suffix, regions)
+              visual_reviews.append({
+                  'geometry': suffix,
+                  'reference': before.name,
+                  'actual': after.name,
+                  'reference_sha256': hashlib.sha256(before.read_bytes()).hexdigest(),
+                  'actual_sha256': hashlib.sha256(after.read_bytes()).hexdigest(),
+                  'heatmap': heatmap.name,
+                  'heatmap_sha256': hashlib.sha256(heatmap.read_bytes()).hexdigest(),
+                  'comparison_version': report['comparison_version'],
+                  'pixel_threshold': report['pixel_threshold'],
+                  'changed_pixels': report['changed_pixels'],
+                  'changed_pixel_ratio': report['changed_pixel_ratio'],
+                  'perceptual_or_functional_accuracy': report['perceptual_or_functional_accuracy'],
+                  'regions': report['regions'],
+                  'layout_issues': report['layout_issues'],
+              })
+          (directory / 'luna-menu-visual-review.json').write_text(
+              json.dumps({'report_version': 1, 'source_commit': manifest['source_commit'],
+                          'recipe_sha256': hashlib.sha256(luna_recipe.read_bytes()).hexdigest(),
+                          'comparisons': visual_reviews}, indent=2, sort_keys=True) + '\n')
+          manifest['luna_menu_visual_review'] = 'luna-menu-visual-review.json'
           for label in ('xp-luna-columns', 'xp-luna-columns-menu', 'xp-luna-font-menu'):
               with Image.open(directory / f'{label}.png') as image:
                   # swaybg is a separate process from native RicePlate. A
