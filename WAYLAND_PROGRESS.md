@@ -85,6 +85,11 @@ the Saved view. The native pointer path shares F2's validated, owner-private
 persist/rollback behavior; only known recipe actions can become favorites.
 The disposable labwc smoke suite exercises both right-click operations and
 compares the resulting Saved list against its original empty state.
+The same native menu now publishes a **dynamic semantic viewport summary**
+to its existing AT-SPI menu label: for example, "Showing actions 5 through
+6 of 6" after paging, or an explicit "No saved actions" / "No matching
+actions" message for empty views. This is code- and unit-test-backed
+accessibility metadata; real Orca navigation remains part of device QA.
 
 The native shell now accepts an **owner-private TrueType font asset** throughout
 the panel, native Start menu and desktop shortcut labels, with on-demand,

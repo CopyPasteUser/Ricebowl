@@ -1101,10 +1101,7 @@ impl RicePlate {
                               enabled.then(|| Target::MenuAction(action.to_string())));
                 }
                 model.add(20_980, 20_000, AccessibleRole::Label,
-                          if self.menu_state.view == native_menu::View::Search {
-                              format!("Searching for {}. Type to refine; Backspace removes a letter; right click or F2 saves an action",
-                                      self.menu_state.search)
-                          } else { "Type to search; F2 or right click pins; F3 shows saved actions".to_string() },
+                          self.menu_state.accessible_summary(menu, rows),
                           None);
                 model.add(20_985, 20_000, AccessibleRole::Button,
                           match self.menu_state.search_button_label() {
