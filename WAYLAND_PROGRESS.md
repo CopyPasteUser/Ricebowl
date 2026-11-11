@@ -65,6 +65,13 @@ from [successful native run #42968039762](https://github.com/CopyPasteUser/Riceb
 This is functional input validation in disposable labwc, not a physical
 ThinkPad mouse, keyboard, touch or accessibility signoff.
 
+The same opt-in native smoke scenario now also **clicks the real Find and Saved
+header buttons** at 1024×768, captures their distinct Wayland framebuffer
+states, and clicks Back to restore the original open menu. CI checks visible
+state changes plus restoration and archives the four unmodified PNG frames;
+the [gallery explains the evidence](screenshots/wayland/README.md#native-find-and-saved--actual-pointer-interaction).
+This is a compositor regression, not hardware or screen-reader acceptance.
+
 The native shell now accepts an **owner-private TrueType font asset** throughout
 the panel, native Start menu and desktop shortcut labels, with on-demand,
 bounded Unicode glyph caching and a legible fallback. [View the real Luna

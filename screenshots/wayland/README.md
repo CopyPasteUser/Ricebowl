@@ -102,6 +102,22 @@ desktop within 5,000 pixels, including live reconfiguration at Full HD and
 isolated to the throwaway CI compositor; **real ThinkPad mouse, keyboard,
 touch, focus and accessibility acceptance remain open**.
 
+### Native Find and Saved · actual pointer interaction
+
+The CI-only virtual-pointer client now exercises the *visible header controls*
+of the running Luna menu, after opening it with a real Start click at 1024×768:
+
+1. Click **Find**, capture the native search state, then click **Back**.
+2. Click **Saved**, capture the saved-action state, then click **Back**.
+3. Capture the restored open menu before closing it with Start.
+
+The native workflow archives the unmodified compositor PNGs
+`xp-luna-pointer-{open,find,saved,return}-1024x768.png` and checks that both
+views visibly differ from the ordinary menu and each other while the final
+menu matches the starting view. This covers real labwc input routing, menu
+painting and state transitions; it does not certify a physical mouse, touchpad,
+Orca or the appearance of a populated user-specific Saved list.
+
 ### Opt-in portable font · real compositor comparison
 
 | Bundled bitmap font | Imported private TrueType font |
