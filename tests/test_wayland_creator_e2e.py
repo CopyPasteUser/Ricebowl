@@ -6,15 +6,18 @@ not visual or physical input readiness (those need real hardware acceptance).
 """
 
 import os
+import subprocess
 import tempfile
 import threading
 import unittest
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from macrice.de import creator_activation as activation
 from macrice.de import creator_workspace as workspace, live, recipes, staging
+from macrice.de import live_recovery, riceprofile
 from macrice.de.session import _LiveSwitch, resources
 
 
@@ -64,6 +67,7 @@ class WaylandCreatorEndToEndTests(unittest.TestCase):
         self.old_panel, self.old_wallpaper = Process(), Process()
         self.background = [self.old_wallpaper]
         self.commands = []
+        self.spawned = []
         self.missing_tool = None
 
         def which(name):
@@ -71,7 +75,9 @@ class WaylandCreatorEndToEndTests(unittest.TestCase):
 
         def spawn(command, **_kwargs):
             self.commands.append(command)
-            return Process()
+            process = Process()
+            self.spawned.append(process)
+            return process
 
         self.supervisor = _LiveSwitch(
             env=self.env, mode="native", which=which, spawn=spawn,
@@ -177,6 +183,127 @@ class WaylandCreatorEndToEndTests(unittest.TestCase):
         self.assertEqual(recipes.current_selection(), ("classic", None))
         self.assertFalse(self.old_panel.stopped)
         self.assertFalse(self.old_wallpaper.stopped)
+
+    def test_late_selection_failure_restores_entire_creator_switch_and_allows_retry(self):
+        heritage = workspace.create_draft("heritage")
+        orbit = workspace.create_draft("orbit")
+        for draft in (heritage, orbit):
+            activation.install(activation.inspect_install(draft))
+        (self.menu_dir / ".ricebowl-managed").touch(mode=0o600)
+        profile = riceprofile.ProfileSession.prepare(
+            self.menu_dir, self.env, recipes.load("classic"),
+            which=lambda name: name,
+            run=lambda *args, **kwargs: SimpleNamespace(returncode=0))
+        self.supervisor.profile = profile
+        with self.server():
+            activation.apply_live(activation.inspect_live(heritage))
+            before_selection = recipes._selection_snapshot()
+            before_menu = self.menu.read_bytes()
+            chrome = self.menu_dir / "themerc-override"
+            before_chrome = chrome.read_bytes() if chrome.exists() else None
+            before_clients = {client: (self.menu_dir / client.filename).read_bytes()
+                              for client in profile.clients}
+            retained_panel, retained_wallpaper = self.supervisor.panel, self.supervisor.wallpaper
+            old_change = recipes.change_selection
+
+            def fail_after_commit(*args, **kwargs):
+                old_change(*args, **kwargs)
+                raise OSError("injected failure after committing next-login selection")
+
+            with mock.patch.object(recipes, "change_selection", side_effect=fail_after_commit):
+                with self.assertRaisesRegex(activation.ActivationError, "previous rice retained"):
+                    activation.apply_live(activation.inspect_live(orbit))
+
+            self.assertEqual(recipes._selection_snapshot(), before_selection)
+            self.assertEqual(self.menu.read_bytes(), before_menu)
+            self.assertEqual(chrome.read_bytes() if chrome.exists() else None, before_chrome)
+            self.assertEqual({client: (self.menu_dir / client.filename).read_bytes()
+                              for client in profile.clients}, before_clients)
+            self.assertIs(self.supervisor.panel, retained_panel)
+            self.assertIs(self.supervisor.wallpaper, retained_wallpaper)
+            self.assertFalse(retained_panel.stopped)
+            self.assertFalse(retained_wallpaper.stopped)
+            self.assertTrue(all(proc.stopped for proc in self.spawned[-2:]))
+            self.assertEqual(self.background, [retained_wallpaper])
+            self.assertIsNone(live_recovery.read())
+            self.assertEqual(self.supervisor.active, heritage.recipe_id)
+
+            # Same reviewed draft must still be usable after *complete* rollback.
+            switched = activation.apply_live(activation.inspect_live(orbit))
+            self.assertEqual(switched["active"], orbit.recipe_id)
+            self.assertEqual(switched["previous"], heritage.recipe_id)
+            self.assertEqual(recipes.current_selection()[0], orbit.recipe_id)
+            restored = activation.restore_live(activation.inspect_restore())
+            self.assertEqual(restored["active"], heritage.recipe_id)
+            self.assertIsNone(live_recovery.read())
+
+    def test_failed_rollback_reconfigure_reports_unsafe_and_keeps_journal(self):
+        draft = workspace.create_draft("orbit")
+        activation.install(activation.inspect_install(draft))
+        before_menu = self.menu.read_bytes()
+        self.supervisor._reconfigure.side_effect = [
+            subprocess.CalledProcessError(1, "labwc --reconfigure"),
+            live.LiveError("labwc unavailable during rollback", code="component_unavailable"),
+        ]
+        with self.server():
+            with self.assertRaisesRegex(activation.ActivationError, "recovery incomplete"):
+                activation.apply_live(activation.inspect_live(draft))
+            self.assertEqual(self.supervisor.active, "classic")
+            self.assertEqual(recipes._selection_snapshot(), None)
+            self.assertEqual(self.menu.read_bytes(), before_menu)
+            self.assertFalse(self.old_panel.stopped)
+            self.assertFalse(self.old_wallpaper.stopped)
+            self.assertTrue(all(proc.stopped for proc in self.spawned))
+            self.assertIsNotNone(live_recovery.read())
+            # A new switch must not silently proceed while a rollback is unproven.
+            self.supervisor._reconfigure.side_effect = None
+            with self.assertRaisesRegex(activation.ActivationError, "requires recovery"):
+                activation.apply_live(activation.inspect_live(draft))
+            self.assertEqual(self.supervisor.active, "classic")
+            with mock.patch.object(live_recovery, "_owner_running", return_value=False):
+                self.assertEqual(live_recovery.reconcile()["status"], "unchanged")
+            self.assertIsNone(live_recovery.read())
+            self.assertEqual(activation.apply_live(activation.inspect_live(draft))["active"],
+                             draft.recipe_id)
+
+    def test_failed_explicit_restore_keeps_current_rice_until_retry(self):
+        heritage = workspace.create_draft("heritage")
+        orbit = workspace.create_draft("orbit")
+        for draft in (heritage, orbit):
+            activation.install(activation.inspect_install(draft))
+        with self.server():
+            activation.apply_live(activation.inspect_live(heritage))
+            activation.apply_live(activation.inspect_live(orbit))
+            plan = activation.inspect_restore()
+            self.assertEqual((plan.expected_active, plan.previous),
+                             (orbit.recipe_id, heritage.recipe_id))
+            before_selection = recipes._selection_snapshot()
+            before_menu = self.menu.read_bytes()
+            before_panel, before_wallpaper = self.supervisor.panel, self.supervisor.wallpaper
+            original_spawn = self.supervisor.spawn
+
+            def die_on_new_panel(command, **kwargs):
+                candidate = original_spawn(command, **kwargs)
+                if command[0].endswith("riceplate-native"):
+                    candidate.stopped = True
+                return candidate
+
+            with mock.patch.object(self.supervisor, "spawn", side_effect=die_on_new_panel):
+                with self.assertRaisesRegex(activation.ActivationError, "component exited"):
+                    activation.restore_live(plan)
+            self.assertEqual(self.supervisor.active, orbit.recipe_id)
+            self.assertEqual(recipes._selection_snapshot(), before_selection)
+            self.assertEqual(self.menu.read_bytes(), before_menu)
+            self.assertIs(self.supervisor.panel, before_panel)
+            self.assertIs(self.supervisor.wallpaper, before_wallpaper)
+            self.assertEqual(self.background, [before_wallpaper])
+            self.assertFalse(before_panel.stopped)
+            self.assertFalse(before_wallpaper.stopped)
+            self.assertTrue(all(proc.stopped for proc in self.spawned[-2:]))
+            self.assertIsNone(live_recovery.read())
+            restored = activation.restore_live(plan)
+            self.assertEqual(restored["active"], heritage.recipe_id)
+            self.assertEqual(recipes.current_selection()[0], heritage.recipe_id)
 
     def test_stale_review_is_rejected_before_wayland_mutation(self):
         draft = workspace.create_draft("heritage")

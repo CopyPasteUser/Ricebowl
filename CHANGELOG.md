@@ -1,5 +1,18 @@
 # RiceBowl changelog
 
+## Unreleased — Creator live-switch failure and restore integration (11 November 2026)
+
+- Exercise the full reviewed Creator install/apply/restore handoff with injected
+  failures after next-login selection commit and during explicit restore. Verify
+  exact rollback of the pinned selection, labwc menu/chrome, managed app profiles
+  and child processes, followed by a successful retry.
+- Treat a missing labwc reconfiguration helper **during rollback** as incomplete
+  recovery, retain the durable live-switch journal and reject another switch
+  until the pending state has been reconciled. Verify this through the Creator
+  and the private supervisor protocol, not only isolated unit mocks.
+- These are deterministic software failure tests; physical compositor, power-cut
+  and device acceptance remain open.
+
 ## Unreleased — resumable multi-asset RicePack imports (11 November 2026)
 
 - Persist one owner-private, validated RicePack journal before publishing any
