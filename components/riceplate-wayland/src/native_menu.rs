@@ -848,6 +848,20 @@ mod tests {
         overflow["menu"]["groups"][2]["actions"] = serde_json::json!(
             ["lock", "logout", "wifi-toggle", "audio-mute"]);
         assert!(crate::recipe::parse(&overflow.to_string(), Some("xp-luna-columns")).is_err());
+        // Palette-free column recipes keep the original y geometry and
+        // two-actions-per-group validation contract.
+        let mut plain = serde_json::Value::from(overflow);
+        plain["menu"]["groups"][2]["actions"] = serde_json::json!(["lock", "logout"]);
+        plain["menu"].as_object_mut().unwrap().remove("colors");
+        assert!(crate::recipe::parse(&plain.to_string(), Some("xp-luna-columns")).is_err());
+        let mut old_layout = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let classic = old_layout.menu.as_mut().unwrap();
+        classic.palette = None;
+        let legacy_sections = state.composed_sections(classic).unwrap();
+        assert_eq!(legacy_sections[2].items[0].y, COLUMNS_TOP + CONTENT_HEADER_HEIGHT);
+        assert_eq!(legacy_sections[2].items[0].height, CONTENT_LIST_HEIGHT);
         // Fixed left-column All Programs remains the first real action.
         assert_eq!(state.hit(menu, 20.0, 116.0), Some(Hit::Action(0)));
         state.selected = 0;
