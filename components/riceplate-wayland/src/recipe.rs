@@ -1118,6 +1118,9 @@ fn width_for(style: &PanelStyle, widget: Widget, tasks: usize) -> u32 {
         Widget::Launcher => style.widths[0],
         Widget::Clock => if style.font_scale == 1 { style.widths[2] }
             else { style.widths[2].max(18 * 8 * style.font_scale) },
+        // XP's notification area uses tightly packed 16px status glyphs,
+        // whereas the other recipes intentionally retain readable labels.
+        Widget::Network | Widget::Audio if style.id == "xp-luna-columns" => 28,
         Widget::Battery | Widget::Network | Widget::Audio => 64 * style.font_scale,
         Widget::Tray => crate::tray::WIDTH,
         Widget::Tasks => tasks as u32 * style.widths[1],
@@ -1404,6 +1407,18 @@ mod tests {
         }
         data.as_object_mut().unwrap().remove("appearance");
         assert!(parse(&data.to_string(), None).is_err());
+    }
+
+    #[test]
+    fn native_luna_status_icons_have_compact_xp_tray_width() {
+        let columns = parse(include_str!("../../../examples/wayland/xp-luna-columns.json"),
+                            Some("xp-luna-columns")).unwrap();
+        let legacy = parse(include_str!("../../../examples/wayland/xp-luna.json"),
+                           Some("xp-luna")).unwrap();
+        assert_eq!(width_for(&columns, Widget::Network, 0), 28);
+        assert_eq!(width_for(&columns, Widget::Audio, 0), 28);
+        assert_eq!(width_for(&columns, Widget::Battery, 0), 64);
+        assert_eq!(width_for(&legacy, Widget::Network, 0), 64);
     }
 
     #[test]

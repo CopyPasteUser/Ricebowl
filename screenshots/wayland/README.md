@@ -4,6 +4,20 @@
 
 **Real headless labwc/RicePlate renders — not mockups or screenshots of a signed-off physical desktop.** These optimized WebP previews are permanently stored in this repository, not linked from a temporary CI artifact. Select an image to view it directly.
 
+## Luna chrome and responsive Start menu · 11 November 2026
+
+| Native desktop at 1366×768 | Native opened Start menu at 1366×768 |
+| :---: | :---: |
+| [![Real RicePlate Luna desktop with glossy green Start control, original shortcut icons and blue taskbar](luna-fidelity-desktop-20261111.webp)](luna-fidelity-desktop-20261111.webp) | [![Real RicePlate Wayland Luna menu with beveled blue account strip, command pictograms, blue system shelf and visible Close button](luna-fidelity-menu-20261111.webp)](luna-fidelity-menu-20261111.webp) |
+| Same running Wayland session before opening Start | Native menu after a compositor-delivered pointer click |
+
+These are optimized, full-size copies of `xp-luna-columns-1366x768.png` and
+`xp-luna-columns-menu-1366x768.png` from the [successful native PR #282 CI run](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43026159262).
+The test also passed menu-open pixel checks at 1024×768, 1920×1080 and 125%
+scale **after live output reconfiguration**. These frames predate the later
+compact network/speaker-tray polish. They demonstrate actual Wayland rendering,
+not visual parity with the historical Windows XP shell.
+
 ## XP Luna · native two-column Start menu
 
 | Desktop with original Luna hills | Opened native Start menu |
