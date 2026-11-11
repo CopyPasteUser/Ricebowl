@@ -429,8 +429,15 @@ Manual RiceSpice acceptance before 1.0:
    different advertised mode/scale/position; **do not confirm** and verify the original
    state returns after 18 seconds. Repeat while closing RiceSpice during the
    trial, then test explicit confirmation. Save a layout preset and try to
-   restore it; each output must require a new confirmation. Verify unavailable/
-   disconnected outputs cannot be selected, and try real mixed-DPI/hotplug hardware.
+   restore the *entire arrangement*: a single confirmation must commit all
+   outputs together; letting it expire, disconnecting a monitor or closing
+   RiceSpice must restore every affected output. In RiceSpice, explicitly
+   enable the next-login monitor trial and log into the **full** Wayland
+   session. The dedicated confirmation window must appear; if untouched,
+   the arrangement must revert within 18 seconds. Repeat with confirmation,
+   then change the saved layout and verify the old opt-in was disabled.
+   Nested previews and XFCE must never try a saved layout at login. Verify
+   unavailable/disconnected outputs and real mixed-DPI/hotplug hardware.
 3. Set touchpad speed/tap and keyboard repeat, log out and back into the
    opt-in RiceBowl session, verify the real device behavior, then use the
    **Restore inherited settings** button and re-test. Compare with XFCE.

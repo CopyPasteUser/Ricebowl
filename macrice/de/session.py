@@ -76,6 +76,39 @@ def resources() -> Path:
     return Path(__file__).resolve().parent / "resources"
 
 
+def _start_auto_monitor_trial(env: Mapping[str, str],
+                              spawn: Callable[..., subprocess.Popen[bytes]]
+                              ) -> subprocess.Popen[bytes] | None:
+    """Opt-in *trial*, not silent restoration: a visible GUI must approve it.
+
+    Invalid presets, missing toolkits or a nested preview never change output
+    settings. If the approval window fails after a worker starts, its separate
+    eighteen-second rollback still restores the original arrangement.
+    """
+    if (env.get("RICEBOWL_DE_NESTED") != "0"
+            or env.get("RICEBOWL_DE_SHELL_CHILD") != "1"):
+        return None
+    try:
+        from . import display_presets, display_restore
+        from .settings import _gtk_modules
+        if not display_presets.auto_trial_enabled():
+            return None
+        _gtk_modules()  # Without GTK the user cannot confirm; do not start a trial.
+        saved = display_presets.load()
+        change = display_restore.begin(saved)
+    except (ImportError, OSError, RuntimeError, ValueError) as exc:
+        print(f"RiceBowl: automatic monitor trial skipped: {exc}", file=sys.stderr)
+        return None
+    try:
+        return spawn([sys.executable, str(project_root() / "launcher.py"), "de",
+                      "display-confirm", "--display-token", change.token],
+                     env=dict(env), stdin=subprocess.DEVNULL)
+    except OSError as exc:
+        print(f"RiceBowl: monitor confirmation unavailable; guard will revert: {exc}",
+              file=sys.stderr)
+        return None
+
+
 def _check_runtime_dir(environment: Mapping[str, str]) -> None:
     directory = environment.get("XDG_RUNTIME_DIR")
     if not directory or not os.path.isabs(directory):
@@ -940,6 +973,17 @@ def shell(
 
             signal.signal(signal.SIGTERM, terminate)
             signal.signal(signal.SIGINT, terminate)
+            automatic_trial_attempted = False
+
+            def start_auto_trial_once():
+                nonlocal automatic_trial_attempted
+                if automatic_trial_attempted:
+                    return
+                automatic_trial_attempted = True
+                dialog = _start_auto_monitor_trial(env, spawn)
+                if dialog is not None:
+                    background.append(dialog)
+
             if shutting_down:
                 return 128 + shutdown_signal
             if panel_mode == "native":
@@ -953,6 +997,7 @@ def shell(
                         if shutting_down:
                             _stop_process(panel)
                             return 128 + shutdown_signal
+                        start_auto_trial_once()
                         status = supervised_wait(panel, "native")
                         if (status == 0 or shutting_down or native_live_rescue_attempted
                                 or idle_guard_failed):
@@ -989,6 +1034,7 @@ def shell(
             if shutting_down:
                 _stop_process(panel)
                 return 128 + shutdown_signal
+            start_auto_trial_once()
             return supervised_wait(panel, "waybar")
         finally:
             if panel is not None:

@@ -66,6 +66,12 @@ Inside the opt-in session, the read-only report
 `ricebowl-wayland-app de acceptance --json` with the standalone package)
 helps collect evidence; it is **not** an automatic certification.
 
+RiceSpice's saved monitor arrangement can be tried as a single guarded change.
+An **optional, disabled-by-default next-login trial** is also available for
+full RiceBowl Wayland sessions. You must approve it in the visible confirmation
+window within 18 seconds, or the prior monitor layout is restored. XFCE and
+nested previews are excluded; monitor hardware still needs real-device QA.
+
 - [Full hardware acceptance checklist](WAYLAND_SESSION.md#physical-acceptance-checklist-not-yet-signed-off)
 - [Release gates](RELEASE_1_0_GATES.md) · [Development roadmap](RICEBOWL_DE_ROADMAP.md)
 

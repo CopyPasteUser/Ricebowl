@@ -801,14 +801,25 @@ class RiceSpiceWindow:
                 self._button("Try settings on " + output.name, try_change, primary=True)
             self._text("Saved monitor layout", css="ricespice-section")
             self._text("Save the current arrangement as a private preset. "
-                       "Restoring all monitors requires one guarded trial and confirmation; "
-                       "it is not forced at login.", css="ricespice-note")
+                       "Restoring all monitors requires one guarded trial and confirmation. "
+                       "Automatic next-login trials are optional and off by default.",
+                       css="ricespice-note")
             if saved is not None:
                 self._button("Save current layout as preset", lambda: self._background(
                     lambda: display_presets.save(display_presets.from_outputs(
                         wayland_displays.inventory()), expected=saved),
                     lambda _result: self.show_page("displays")))
                 if saved:
+                    auto_trial = display_presets.auto_trial_enabled()
+                    self._text("Optional next login: try this exact monitor layout "
+                               "automatically, then confirm it within 18 seconds. "
+                               "Otherwise the original arrangement returns.",
+                               css="ricespice-note")
+                    self._button("Disable next-login monitor trial" if auto_trial else
+                                 "Enable next-login monitor trial", lambda: self._background(
+                                     lambda: display_presets.set_auto_trial(
+                                         not auto_trial, expected=auto_trial),
+                                     lambda _result: self.show_page("displays")))
                     try:
                         display_restore.plan(saved, outputs)
                     except ValueError as exc:
@@ -1104,4 +1115,72 @@ def launch() -> None:
     if not ok:
         raise backend.SettingsError("A working graphical display is required for RiceSpice")
     RiceSpiceWindow(Gtk, Gdk, GLib)
+    Gtk.main()
+
+
+def launch_display_confirmation(token: str) -> None:
+    """Short-lived on-login approval window; closing it never commits a trial."""
+    if not wayland_displays._in_session() or os.environ.get("RICEBOWL_DE_NESTED") != "0":
+        raise backend.SettingsError("Display confirmation requires a full RiceBowl login")
+    change = display_guard.DisplayChange(token, wayland_displays.runtime_root())
+    display_guard._state_path(change)  # Validate the exact token before GTK startup.
+    Gtk, _Gdk, GLib = _gtk_modules()
+    if not Gtk.init_check([])[0]:
+        raise backend.SettingsError("Cannot show the monitor confirmation window")
+    window = Gtk.Window(title="RiceBowl · Confirm monitor layout")
+    window.set_default_size(470, 180)
+    window.set_position(Gtk.WindowPosition.CENTER)
+    window.set_keep_above(True)
+    window.connect("destroy", lambda _widget: Gtk.main_quit())
+    content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+    content.set_border_width(24)
+    window.add(content)
+    label = Gtk.Label(label="The saved monitor layout was tried automatically. "
+                      "Keep it within 18 seconds or it will be restored.")
+    label.set_line_wrap(True)
+    label.set_xalign(0)
+    content.pack_start(label, True, True, 0)
+    keep = Gtk.Button(label="Keep this monitor layout")
+    keep.get_accessible().set_name("Confirm and keep the complete monitor layout")
+    keep.set_sensitive(False)
+    content.pack_start(keep, False, False, 0)
+    approval_sent = [False]
+
+    def approve(_button):
+        if approval_sent[0]:
+            return
+        try:
+            display_guard.keep_change(change)
+            approval_sent[0] = True
+            label.set_text("Confirmation sent. Verifying the display layout…")
+            keep.set_sensitive(False)
+        except (OSError, RuntimeError, ValueError) as exc:
+            label.set_text("Cannot confirm: " + str(exc) + ". Rollback remains active.")
+
+    keep.connect("clicked", approve)
+
+    def refresh():
+        try:
+            state, detail = display_guard.read_status(change)
+        except (OSError, RuntimeError, ValueError):
+            label.set_text("Monitor guard unavailable. Await its automatic rollback.")
+            keep.set_sensitive(False)
+            return False
+        if state == "pending":
+            if not approval_sent[0]:
+                label.set_text("Confirm the saved layout within 18 seconds, or it will roll back.")
+            keep.set_sensitive(not approval_sent[0])
+        elif state == "starting":
+            keep.set_sensitive(False)
+        else:
+            keep.set_sensitive(False)
+            label.set_text("Monitor layout: " + state + ". " + detail)
+            GLib.timeout_add(1300, lambda: (window.destroy(), False)[1])
+            return False
+        return True
+
+    window.show_all()
+    window.present()
+    refresh()
+    GLib.timeout_add(220, refresh)
     Gtk.main()

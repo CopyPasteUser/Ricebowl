@@ -1,4 +1,4 @@
-"""Private, manually applied Wayland output layout snapshot (never auto-applied)."""
+"""Private Wayland output snapshot with opt-in, guarded next-login trial."""
 
 from __future__ import annotations
 
@@ -41,18 +41,32 @@ def _validated(entries: object) -> list[dict]:
     return checked
 
 
-def load() -> list[dict]:
+def _read() -> tuple[list[dict], bool]:
     raw = preferences._checked_file(preferences._directory() / _FILE)
     if raw is None:
-        return []
+        return [], False
     try:
         data = json.loads(raw)
     except (ValueError, UnicodeError) as exc:
         raise ValueError("Invalid saved monitor JSON") from exc
-    if (type(data) is not dict or set(data) != {"version", "outputs"}
-            or type(data["version"]) is not int or data["version"] != 1):
+    if type(data) is not dict or type(data.get("version")) is not int:
         raise ValueError("Unsupported saved monitor format")
-    return _validated(data["outputs"])
+    if data["version"] == 1 and set(data) == {"version", "outputs"}:
+        return _validated(data["outputs"]), False
+    if (data["version"] != 2 or set(data) != {"version", "outputs", "auto_trial"}
+            or type(data["auto_trial"]) is not bool):
+        raise ValueError("Unsupported saved monitor format")
+    return _validated(data["outputs"]), data["auto_trial"]
+
+
+def load() -> list[dict]:
+    return _read()[0]
+
+
+def auto_trial_enabled() -> bool:
+    """No login changes unless the explicit v2 opt-in exists and is valid."""
+    entries, enabled = _read()
+    return bool(entries) and enabled
 
 
 def from_outputs(outputs: Iterable[wayland_displays.Output]) -> list[dict]:
@@ -61,34 +75,62 @@ def from_outputs(outputs: Iterable[wayland_displays.Output]) -> list[dict]:
                        for item in outputs])
 
 
-def save(entries: list[dict], *, expected: list[dict]) -> list[dict]:
-    """Atomically replace a single private preset only after checking its version."""
-    candidate = _validated(entries)
-    old = _validated(expected)
+def _directory_lock():
     directory = preferences._directory()
     directory.mkdir(parents=True, mode=0o700, exist_ok=True)
     metadata = directory.lstat()
     if (not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != os.getuid()
             or metadata.st_mode & 0o022):
         raise ValueError("Unsafe RiceBowl configuration directory")
-    lock_fd = os.open(directory / ".ricespice-displays.lock",
-                      os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    return directory, os.open(directory / ".ricespice-displays.lock",
+                              os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+
+
+def _write(directory: Path, entries: list[dict], enabled: bool) -> None:
+    fd, temporary = tempfile.mkstemp(prefix=".ricespice-displays-", dir=directory)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(json.dumps({"version": 2, "outputs": entries, "auto_trial": enabled},
+                                    sort_keys=True).encode("utf-8"))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, directory / _FILE)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+def save(entries: list[dict], *, expected: list[dict]) -> list[dict]:
+    """Replace the preset under a lock; changed layouts disable old auto-trust."""
+    candidate, old = _validated(entries), _validated(expected)
+    directory, lock_fd = _directory_lock()
     with os.fdopen(lock_fd, "rb") as lock:
         metadata = os.fstat(lock.fileno())
         if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
                 or metadata.st_mode & 0o077):
             raise ValueError("Unsafe monitor preset lock")
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-        if load() != old:
+        current, auto = _read()
+        if current != old:
             raise ValueError("Saved monitor layout changed; refresh before replacing")
-        fd, temporary = tempfile.mkstemp(prefix=".ricespice-displays-", dir=directory)
-        try:
-            with os.fdopen(fd, "wb") as handle:
-                handle.write(json.dumps({"version": 1, "outputs": candidate},
-                                        sort_keys=True).encode("utf-8"))
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temporary, directory / _FILE)
-        finally:
-            Path(temporary).unlink(missing_ok=True)
+        _write(directory, candidate, auto if candidate == current else False)
     return candidate
+
+
+def set_auto_trial(enabled: bool, *, expected: bool) -> bool:
+    """Opt in/out only through an explicit, stale-safe RiceSpice action."""
+    if type(enabled) is not bool or type(expected) is not bool:
+        raise ValueError("Invalid automatic monitor trial state")
+    directory, lock_fd = _directory_lock()
+    with os.fdopen(lock_fd, "rb") as lock:
+        metadata = os.fstat(lock.fileno())
+        if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+                or metadata.st_mode & 0o077):
+            raise ValueError("Unsafe monitor preset lock")
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        entries, previous = _read()
+        if not entries:
+            raise ValueError("Save a monitor layout before enabling login restoration")
+        if previous != expected:
+            raise ValueError("Automatic monitor trial setting changed; refresh first")
+        _write(directory, entries, enabled)
+    return enabled

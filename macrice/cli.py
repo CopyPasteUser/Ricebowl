@@ -77,7 +77,7 @@ def parser() -> argparse.ArgumentParser:
         "capture", "render", "render-matrix", "render-matrix-inspect",
         "creator-status", "creator-stage", "creator-rollback",
         "creator-live-status", "creator-live-apply", "creator-live-restore", "creator-live-recovery",
-        "display-refresh",
+        "display-refresh", "display-confirm",
         "pack-export", "pack-inspect", "pack-import", "asset-import", "notifications", "notification-dismiss",
         "notification-invoke", "notification-dnd",
         "settings",
@@ -110,6 +110,7 @@ def parser() -> argparse.ArgumentParser:
     de.add_argument("--asset", type=Path, help="Absolute owner-controlled .png file for de asset-import")
     de.add_argument("--notification-id", type=int,
                     help="One active notification ID for explicit dismissal/invocation")
+    de.add_argument("--display-token", help="Opaque current-session monitor confirmation token")
     de.add_argument("--action-key", help="Exact current Mako action key for notification-invoke")
     de.add_argument("--dnd", choices=("on", "off"),
                     help="Explicit RicePop Do Not Disturb state (omit to inspect)")
@@ -209,6 +210,8 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("--notification-id only applies to notification mutations")
             if args.action != "notification-invoke" and args.action_key is not None:
                 raise ValueError("--action-key only applies to de notification-invoke")
+            if args.action != "display-confirm" and args.display_token is not None:
+                raise ValueError("--display-token only applies to de display-confirm")
             if args.action != "notification-dnd" and (args.dnd is not None or
                                                          args.expect_dnd is not None):
                 raise ValueError("--dnd/--expect-dnd only apply to de notification-dnd")
@@ -386,6 +389,13 @@ def main(argv: list[str] | None = None) -> int:
                     raise ValueError("de settings opens a window and takes no session options")
                 from .de.settings import launch
                 launch()
+                return 0
+            if args.action == "display-confirm":
+                if (args.json or args.nested or args.recipe or args.panel != "waybar"
+                        or args.display_token is None):
+                    raise ValueError("de display-confirm requires only --display-token TOKEN")
+                from .de.settings import launch_display_confirmation
+                launch_display_confirmation(args.display_token)
                 return 0
             if args.action in ("notifications", "notification-dismiss", "notification-invoke",
                                "notification-dnd"):
