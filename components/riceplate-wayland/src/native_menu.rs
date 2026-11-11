@@ -127,6 +127,7 @@ pub fn action_label(action: &str) -> &'static str {
 pub enum View {
     #[default]
     Groups,
+    Programs,
     Search,
     Saved,
 }
@@ -203,6 +204,7 @@ impl MenuState {
                              logout_enabled: bool) -> &'a str {
         if menu.presentation == MenuPresentation::Columns {
             match action {
+                "applications" if menu.palette.is_some() => return "All Programs",
                 "settings" => return "Settings",
                 "logout" if !logout_enabled => return "Log out (N/A)",
                 "logout" => return "Log out",
@@ -312,6 +314,7 @@ impl MenuState {
                         .flat_map(|group| group.actions.iter().map(String::as_str)).collect()
                 }
             }
+            View::Programs => self.apps.iter().map(|app| app.action.as_str()).collect(),
             View::Search => {
                 let query = self.search.trim().to_lowercase();
                 let mut result: Vec<_> = all().filter(|action| action_label(action)
@@ -468,6 +471,7 @@ impl MenuState {
     pub fn accessible_summary(&self, menu: &NativeMenu, rows: usize) -> String {
         let intro = match self.view {
             View::Groups => "Menu".to_owned(),
+            View::Programs => "All Programs".to_owned(),
             View::Search if self.search.is_empty() => "Find".to_owned(),
             View::Search => format!("Find: {}", self.search),
             View::Saved => "Saved actions".to_owned(),
@@ -475,6 +479,7 @@ impl MenuState {
         let count = self.actions(menu).len();
         let detail = if count == 0 {
             match self.view {
+                View::Programs => "No installed apps".to_owned(),
                 View::Search => "No matching actions".to_owned(),
                 View::Saved => "No saved actions".to_owned(),
                 View::Groups => "No available actions".to_owned(),
@@ -485,6 +490,7 @@ impl MenuState {
             format!("{count} available {}", if count == 1 { "action" } else { "actions" })
         };
         let help = match self.view {
+            View::Programs => "Enter opens the selected application; Escape returns to the menu; type to search",
             View::Search => "Type to refine, Backspace deletes; F2 or right click saves an action",
             View::Groups => "Type to search; F2 or right click pins actions; F3 opens Saved",
             View::Saved => "F2 or right click removes saved actions; F3 returns to menu",
@@ -499,10 +505,23 @@ impl MenuState {
         self.wheel_remainder = 0.0;
     }
 
+    /// A genuine in-menu installed-app browser for Luna columns. The index is
+    /// discovered on menu open; selections launch through the existing Gio
+    /// desktop-entry path and never interpret desktop Exec strings here.
+    pub fn show_programs(&mut self) {
+        self.view = View::Programs;
+        self.search.clear();
+        self.selected = 0;
+        self.notice = None;
+        self.wheel_remainder = 0.0;
+    }
+
     /// A visible mouse/AT equivalent of the existing slash/Backspace/Escape
     /// shortcuts: enter search, clear a query, then return to the groups.
     pub fn search_button(&mut self) {
-        if self.view != View::Search {
+        if self.view == View::Programs {
+            self.back();
+        } else if self.view != View::Search {
             self.start_search();
         } else if !self.search.is_empty() {
             self.search.clear();
@@ -514,7 +533,8 @@ impl MenuState {
     }
 
     pub fn search_button_label(&self) -> &'static str {
-        if self.view != View::Search { "Find" }
+        if self.view == View::Programs { "Back" }
+        else if self.view != View::Search { "Find" }
         else if self.search.is_empty() { "Back" }
         else { "Clear" }
     }
@@ -709,6 +729,62 @@ impl MenuState {
 mod tests {
     use super::*;
     use crate::recipe::NativeMenuGroup;
+
+    fn demo_apps(count: usize) -> Vec<App> {
+        (0..count).map(|index| App {
+            action: format!("desktop:demo-{index}.desktop"),
+            name: format!("Demo App {index}"),
+            search_text: format!("demo app {index}"),
+            path: format!("/usr/share/applications/demo-{index}.desktop").into(),
+        }).collect()
+    }
+
+    #[test]
+    fn luna_all_programs_uses_real_apps_with_paging_and_pointer_navigation() {
+        let recipe = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let menu = recipe.menu.as_ref().unwrap();
+        let mut state = MenuState::default();
+        state.apps = demo_apps(9);
+        state.open();
+        assert_eq!(state.visible_label(menu, "applications", false), "All Programs");
+        let mut plain = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let plain_menu = plain.menu.as_mut().unwrap();
+        plain_menu.palette = None;
+        assert_eq!(state.visible_label(plain_menu, "applications", false), "Applications");
+        assert_eq!(state.hit(menu, 20.0, 116.0), Some(Hit::Action(0)));
+
+        state.show_programs();
+        assert_eq!(state.view, View::Programs);
+        assert_eq!(state.search_button_label(), "Back");
+        assert_eq!(state.actions(menu).len(), 9);
+        assert_eq!(state.current_action(menu), Some("desktop:demo-0.desktop"));
+        assert_eq!(state.hit(menu, 20.0, 116.0), Some(Hit::Action(0)));
+        assert!(state.scroll_pages(menu, 1, 0.0, VISIBLE_ACTIONS));
+        assert_eq!(state.current_action(menu), Some("desktop:demo-4.desktop"));
+        assert_eq!(state.hit(menu, 20.0, 116.0), Some(Hit::Action(4)));
+        assert!(state.accessible_summary(menu, VISIBLE_ACTIONS)
+            .contains("Showing actions 5 through 8 of 9"));
+        // Recipe pin storage cannot persist arbitrary .desktop file paths.
+        assert!(!state.toggle_pin(menu));
+        assert!(state.pins.is_empty());
+        state.search_button();
+        assert_eq!(state.view, View::Groups);
+        assert_eq!(state.current_action(menu), Some("applications"));
+
+        state.show_programs();
+        assert!(state.search_input("8"));
+        assert_eq!(state.actions(menu), vec!["desktop:demo-8.desktop"]);
+        assert!(state.back());
+        state.show_programs();
+        state.apps.clear();
+        assert!(state.actions(menu).is_empty());
+        assert!(state.accessible_summary(menu, VISIBLE_ACTIONS)
+            .contains("No installed apps"));
+    }
 
     #[test]
     fn page_counter_tracks_visible_action_range_without_false_composition() {

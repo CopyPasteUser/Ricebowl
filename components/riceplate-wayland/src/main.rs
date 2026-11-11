@@ -1941,6 +1941,19 @@ impl RicePlate {
         }
     }
 
+    fn activate_menu_action(&mut self, action: &str, qh: &QueueHandle<Self>) {
+        // Only the opt-in Luna columns rice replaces the external launcher
+        // with an XP-style All Programs page. Desktop shortcuts and every
+        // other menu presentation retain their existing fuzzel action.
+        if action == "applications" && self.recipe.menu.as_ref().is_some_and(|menu|
+            menu.presentation == recipe::MenuPresentation::Columns && menu.palette.is_some()) {
+            self.menu_state.show_programs();
+            self.redraw_menu(qh);
+        } else {
+            self.activate_action(action, qh);
+        }
+    }
+
     fn request_notifications(&mut self, intent: NotificationIntent, qh: &QueueHandle<Self>) {
         let revision = self.notification_state.begin();
         let request = match intent {
@@ -3372,6 +3385,7 @@ fn paint_compact_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
     fill_rect(canvas, width, height, 0, 0, width, 32, header);
     let heading = match state.view {
         native_menu::View::Groups => menu.title.as_str(),
+        native_menu::View::Programs => "All Programs",
         native_menu::View::Search => "Find applications & actions",
         native_menu::View::Saved => "Saved actions",
     };
@@ -3399,7 +3413,9 @@ fn paint_compact_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
     }
     let actions = state.actions(menu);
     if actions.is_empty() {
-        let label = if state.view == native_menu::View::Saved {
+        let label = if state.view == native_menu::View::Programs {
+            "No installed apps"
+        } else if state.view == native_menu::View::Saved {
             "No saved actions"
         } else if state.view == native_menu::View::Search {
             "No matching actions"
@@ -3437,8 +3453,13 @@ fn paint_compact_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
         notice.to_owned()
     } else if state.view == native_menu::View::Search {
         format!("Find: {}", state.search)
+    } else if state.view == native_menu::View::Programs && actions.is_empty() {
+        "Esc: back".to_owned()
     } else if actions.is_empty() {
         "Esc: close".to_owned()
+    } else if state.view == native_menu::View::Programs {
+        format!("{}-{} / {}  Esc: back", first + 1,
+                (first + rows).min(actions.len()), actions.len())
     } else {
         format!("{}-{} / {}  F2 pin  Esc", first + 1,
                 (first + rows).min(actions.len()), actions.len())
@@ -3451,6 +3472,11 @@ fn paint_compact_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
 /// A single persistence boundary for F2 and menu pointer pin/unpin. Never
 /// leave an in-memory favorite that failed owner-private storage validation.
 fn toggle_menu_pin(state: &mut MenuState, recipe_id: &str, menu: &recipe::NativeMenu) {
+    if state.view == native_menu::View::Programs {
+        // Pins are versioned recipe action IDs, never arbitrary desktop files.
+        state.notice = Some("App pinning unavailable");
+        return;
+    }
     let previous = state.pins.clone();
     if !state.toggle_pin(menu) {
         state.notice = Some("No action or saved list full");
@@ -3543,6 +3569,9 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
     if state.view == native_menu::View::Search {
         draw_rice_text(canvas, width, height, content_x, 91,
                        &format!("Find: {}", state.search), fg, style);
+    } else if state.view == native_menu::View::Programs {
+        draw_rice_text(canvas, width, height, content_x, 91,
+                       &format!("All Programs ({})", state.apps.len()), fg, style);
     } else if state.view == native_menu::View::Saved {
         draw_rice_text(canvas, width, height, content_x, 91,
                        &format!("Saved actions: {}", state.actions(menu).len()), fg, style);
@@ -3575,6 +3604,15 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                 if luna_columns && columns && !tile.grid {
                     menu_chrome::action_icon(canvas, tile.x + 6, tile.y + 9,
                                              tile.action, tile.index == state.selected);
+                    if tile.action == "applications" {
+                        // The All Programs row drills into the native app
+                        // browser; the arrow is not a decorative dead target.
+                        let arrow_x = tile.x + tile.width - 12;
+                        for step in 0..4 {
+                            fill_rect(canvas, width, height, arrow_x + step,
+                                      tile.y + 11 + step, 1, 7 - 2 * step, tile_fg);
+                        }
+                    }
                 }
                 if tile.grid {
                     // A compact letter tile, not a promise of themed app icons.
@@ -3600,7 +3638,9 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
     let actions = state.actions(menu);
     if actions.is_empty() {
         draw_rice_text(canvas, width, height, content_x, 135,
-                       if state.view == native_menu::View::Saved {
+                       if state.view == native_menu::View::Programs {
+                           "No installed apps"
+                       } else if state.view == native_menu::View::Saved {
                            "No saved actions"
                        } else { "No matching actions" }, fg, style);
     } else {
@@ -3648,9 +3688,10 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
     // it never paints under the counter at either supported font scale.
     let page = state.page_status(menu, native_menu::VISIBLE_ACTIONS)
         .map(|(first, last, total)| format!("{first}-{last}/{total}"));
-    let hint = state.notice.unwrap_or(if page.is_some() {
-        "Find  Right/F2 Pin"
-    } else { "Find  Right/F2 Pin  F3 Saved" });
+    let hint = state.notice.unwrap_or(if state.view == native_menu::View::Programs {
+        "Enter: open  Esc: back"
+    } else if page.is_some() { "Find  Right/F2 Pin" }
+    else { "Find  Right/F2 Pin  F3 Saved" });
     let glyph_width = 8 * style.font_scale;
     let hint_limit = if luna_columns {
         (width.saturating_sub(90) / glyph_width).min(28)
@@ -5108,7 +5149,7 @@ impl KeyboardHandler for RicePlate {
             }
         };
         if let Some(action) = action {
-            self.activate_action(&action, qh);
+            self.activate_menu_action(&action, qh);
         } else {
             self.redraw_menu(qh);
         }
@@ -5381,7 +5422,7 @@ impl PointerHandler for RicePlate {
                             Some(MenuHit::Action(index)) => {
                                 self.menu_state.selected = index;
                                 if let Some(action) = self.menu_state.current_action(menu).map(str::to_owned) {
-                                    self.activate_action(&action, qh);
+                                    self.activate_menu_action(&action, qh);
                                 }
                             }
                             Some(MenuHit::Close) => self.set_menu_visible(false, qh),

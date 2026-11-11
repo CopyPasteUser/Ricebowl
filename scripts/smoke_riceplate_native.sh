@@ -418,6 +418,19 @@ dbus-run-session -- sh -eu -c '
                     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-return-$geometry.png"
                     cp "$runtime/xp-luna-pointer-return-$geometry.png" \
                        "$source_root/dist/riceplate-native-preview/xp-luna-pointer-return-$geometry.png"
+                    # The first left-column action must open the native XDG
+                    # All Programs page, then the real header Back hit target
+                    # must restore the two-column Luna menu.
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" 60 552 "$width" "$height"
+                    sleep 0.35
+                    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-programs-$geometry.png"
+                    cp "$runtime/xp-luna-pointer-programs-$geometry.png" \
+                       "$source_root/dist/riceplate-native-preview/xp-luna-pointer-programs-$geometry.png"
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" 220 "$header_y" "$width" "$height"
+                    sleep 0.35
+                    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-programs-back-$geometry.png"
+                    cp "$runtime/xp-luna-pointer-programs-back-$geometry.png" \
+                       "$source_root/dist/riceplate-native-preview/xp-luna-pointer-programs-back-$geometry.png"
                     # Pin one validated action with a real compositor
                     # right-button press, open Saved, then unpin it there.
                     # This must work without any keyboard-only F2 shortcut.
