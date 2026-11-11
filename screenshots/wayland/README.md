@@ -104,6 +104,11 @@ touch, focus and accessibility acceptance remain open**.
 
 ### Native Find and Saved · actual pointer interaction
 
+| Find view · clicked native header | Saved view · clicked native header |
+| :---: | :---: |
+| [![Real XP Luna Wayland compositor capture after clicking Find in the native Start menu, showing searchable actions and a Back header button](luna-pointer-find.webp)](luna-pointer-find.webp) | [![Real XP Luna Wayland compositor capture after clicking Saved in the native Start menu, showing the empty pinned-actions state and a Back header button](luna-pointer-saved.webp)](luna-pointer-saved.webp) |
+| Find results, with a real compositor pointer | Explicit empty Saved state, with Back |
+
 The CI-only virtual-pointer client now exercises the *visible header controls*
 of the running Luna menu, after opening it with a real Start click at 1024×768:
 
@@ -117,6 +122,12 @@ views visibly differ from the ordinary menu and each other while the final
 menu matches the starting view. This covers real labwc input routing, menu
 painting and state transitions; it does not certify a physical mouse, touchpad,
 Orca or the appearance of a populated user-specific Saved list.
+
+The two permanent 1024×768 WebP images above were converted from unmodified
+PNG compositor frames in [successful native run #42973287104](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42973287104)
+for [merged PR #254](https://github.com/CopyPasteUser/Ricebowl/pull/254).
+The CI test checks distinct interactive states and a restored baseline; the
+WebPs are **not rendered mockups** or evidence of physical-device acceptance.
 
 ### Opt-in portable font · real compositor comparison
 
