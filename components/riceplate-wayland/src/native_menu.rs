@@ -858,7 +858,8 @@ mod tests {
         }).collect();
         state.open();
         state.show_programs();
-        let original = state.actions(&data);
+        let original: Vec<String> = state.actions(&data).into_iter()
+            .map(str::to_owned).collect();
         for character in "browser".chars() {
             assert!(state.search_input(&character.to_string()));
         }
@@ -869,7 +870,7 @@ mod tests {
         assert!(state.accessible_summary(&data, VISIBLE_ACTIONS)
             .contains("4 available apps"));
         state.search_button();
-        assert_eq!(state.actions(&data), original);
+        assert_eq!(state.actions(&data).into_iter().map(str::to_owned).collect::<Vec<_>>(), original);
         assert_eq!(state.view, View::Programs);
     }
 
