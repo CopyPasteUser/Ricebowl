@@ -1,6 +1,7 @@
 """Session safety: login, nested mode, sandboxed config and supervised clients."""
 
 import os
+import io
 import json
 import shlex
 import signal
@@ -147,6 +148,35 @@ class WaylandSessionTests(unittest.TestCase):
             self.assertEqual(caught.exception.env.get("RICEBOWL_DE_RECIPE"), None)
             self.assertIsNone(recipes._selection_snapshot())
             self.assertIsNone(live_recovery.read())
+
+    def test_corrupt_selection_and_ricespice_preferences_keep_owner_data_untouched(self):
+        config = Path(self.runtime.name) / "config"
+        private = config / "ricebowl"
+        selections = private / "recipes"
+        selections.mkdir(parents=True, mode=0o700)
+        config.chmod(0o700)
+        private.chmod(0o700)
+        selection = selections / ".active-recipe"
+        preferences = private / "ricespice.json"
+        selection.write_bytes(b"{broken-selection\n")
+        preferences.write_bytes(b"{broken-preferences\n")
+        selection.chmod(0o600)
+        preferences.chmod(0o600)
+        original = (selection.read_bytes(), preferences.read_bytes())
+        warnings = io.StringIO()
+
+        with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config)}), \
+             mock.patch("sys.stderr", warnings), \
+             self.assertRaises(_ExecCalled) as caught:
+            session.start(environment=self.env, which=self.which, execute=_record_exec)
+
+        self.assertEqual(caught.exception.program, "/usr/bin/labwc")
+        self.assertNotIn("RICEBOWL_DE_RECIPE", caught.exception.env)
+        self.assertNotIn("RICEBOWL_DE_SCREEN_READER", caught.exception.env)
+        self.assertNotIn("GTK_THEME", caught.exception.env)
+        self.assertIn("ignoring invalid saved recipe selection", warnings.getvalue())
+        self.assertIn("ignoring unsafe RiceSpice preferences", warnings.getvalue())
+        self.assertEqual((selection.read_bytes(), preferences.read_bytes()), original)
 
     def test_missing_tool_fails_before_starting_compositor(self):
         with self.assertRaisesRegex(session.SessionError, "Missing Wayland preview dependencies: foot"):
