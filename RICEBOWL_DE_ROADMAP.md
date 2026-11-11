@@ -1025,6 +1025,10 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
     in-menu app preview, keeping history bounded to eight, session-local and
     isolated from other rices. Regression is added; native compositor
     verification is still required before merging.
+  - [ ] XP Luna native places shelf: add fixed Gio-backed My Documents and
+    My Computer actions with existing Settings/Notifications/Session entries
+    preserved; compact six-row right column and Rust pointer/keyboard bounds.
+    Implemented on an isolated PR branch; native CI and device QA are pending.
   **Exact XP/7/10 menu reconstructions are deferred to the post-framework
   fidelity gate above**, not blocking this foundational milestone.
 - [ ] Make responsive shell layouts live across every backend and surface,
