@@ -1248,6 +1248,15 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
   during read-only inspect, and local existing-asset conflicts fail before
   mutations. Other filesystem failures and interprocess races are still
   fail-closed rather than a cross-file atomic transaction.
+- [x] Extend **RicePack installation preflight to every known private
+  destination**: recipe ID, existing exact import provenance, referenced
+  private wallpaper bytes and all font/icon identities. Before creating the
+  first asset, reject a stale or symlinked receipt, corrupt same-ID wallpaper
+  or reserved recipe destination. The preflight receipt comes from the
+  archive's validated byte fingerprints, so an interrupted *identical*
+  receipt can resume even if no wallpaper was yet installed. Tests verify
+  that predictable later conflicts create no earlier orphan assets; unexpected
+  disk failures and concurrent writers are not a cross-file atomic commit.
 - [x] Implement **Rice Creator 0.6 private visual reference comparison**:
   owner-controlled, bounded PNG references are SHA-256-copied into a private
   per-draft selection that survives immutable revision changes without
