@@ -372,8 +372,11 @@ impl State {
         }
         let rows = compact.map_or(VISIBLE_ROWS, compact_rows);
         let total = self.visible_notices().len();
-        if total <= rows { return None; }
-        let first = self.selected.min(total - 1) / rows * rows;
+        // A background refresh deliberately leaves selection past the end
+        // when the formerly selected ID vanished. Do not announce a page the
+        // painter cannot display or quietly re-target a different message.
+        if total <= rows || self.selected >= total { return None; }
+        let first = self.selected / rows * rows;
         Some((first + 1, (first + rows).min(total), total))
     }
 
@@ -727,6 +730,8 @@ mod tests {
         assert_eq!(state.list_page_status(Some(tiny)), Some((5, 5, 7)));
         state.select(2);
         assert_eq!(state.list_page_status(None), Some((7, 7, 7)));
+        state.selected = state.visible_notices().len(); // background ID disappeared
+        assert_eq!(state.list_page_status(None), None);
         state.select_tab(true);
         assert_eq!(state.list_page_status(None), None);
         state.select_tab(false);
