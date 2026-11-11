@@ -77,6 +77,9 @@ screen-reader acceptance.
 Within the Find state, the CI virtual-pointer client now also delivers an
 actual Wayland **vertical wheel-axis** event and compares the re-paged menu
 framebuffer, exercising the Rust input/event/render path end to end.
+Full-size list menus also show a bounded visible-range counter such as
+`1-4/6` when more actions exist than fit on one page; composed/short lists
+retain their original footer, matching the existing compact-menu counter.
 
 The native shell now accepts an **owner-private TrueType font asset** throughout
 the panel, native Start menu and desktop shortcut labels, with on-demand,

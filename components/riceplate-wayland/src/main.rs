@@ -3520,16 +3520,33 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
     if columns {
         fill_rect(canvas, width, height, 0, height - 28, width, 28, header);
     }
+    // On a long list the visible row range must be discoverable without a
+    // keyboard shortcut. Keep the counter right-aligned and bound the hint so
+    // it never paints under the counter at either supported font scale.
+    let page = state.page_status(menu, native_menu::VISIBLE_ACTIONS)
+        .map(|(first, last, total)| format!("{first}-{last}/{total}"));
+    let hint = state.notice.unwrap_or(if page.is_some() {
+        "Type to find  F2 Pin"
+    } else { "Type to find  F2 Pin  F3 Saved" });
+    let glyph_width = 8 * style.font_scale;
+    let hint_limit = if let Some(counter) = page.as_ref() {
+        width.saturating_sub(28 + counter.chars().count() as u32 * glyph_width)
+            / glyph_width
+    } else { width / glyph_width };
     draw_rice_text(
         canvas,
         width,
         height,
         12,
         height - 16,
-        state.notice.unwrap_or("Type to find  F2 Pin  F3 Saved"),
+        &hint.chars().take(hint_limit as usize).collect::<String>(),
         if columns { header_fg } else { fg },
         style,
     );
+    if let Some(counter) = page {
+        let right = width.saturating_sub(12 + counter.chars().count() as u32 * glyph_width);
+        draw_rice_text(canvas, width, height, right, height - 16, &counter, fg, style);
+    }
 }
 
 fn notification_glyphs(value: &str, limit: usize) -> String {
