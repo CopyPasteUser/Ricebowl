@@ -136,6 +136,51 @@ pub fn task_button(
               span.saturating_sub(12), 1, mix_rgb(base, 0xffff_ffff, 85));
 }
 
+/// Original 16px tray art for the Luna recipe. The native widget keeps its
+/// existing pointer and accessible status value; only the painted pixels are
+/// changed. Other rices keep their plain, informative status text.
+pub fn status_icon(canvas: &mut [u8], width: u32, height: u32,
+                   x: u32, span: u32, widget: Widget, unavailable: bool) {
+    if span < 18 || height < 18 { return; }
+    let left = x + (span - 18) / 2;
+    let top = (height - 16) / 2;
+    let outline = 0xff19_3157;
+    let shine = 0xffec_f7ff;
+    match widget {
+        Widget::Network => {
+            // Two small connected desktop monitors, with a bright glass edge.
+            fill_rect(canvas, width, height, left + 2, top + 5, 10, 8, outline);
+            fill_rect(canvas, width, height, left + 3, top + 6, 8, 5, 0xff7f_c6fa);
+            fill_rect(canvas, width, height, left + 4, top + 6, 6, 1, shine);
+            fill_rect(canvas, width, height, left + 6, top + 13, 3, 1, shine);
+            fill_rect(canvas, width, height, left + 10, top + 1, 7, 7, outline);
+            fill_rect(canvas, width, height, left + 11, top + 2, 5, 4, 0xff49_9edf);
+            fill_rect(canvas, width, height, left + 12, top + 2, 3, 1, shine);
+            fill_rect(canvas, width, height, left + 12, top + 8, 3, 1, shine);
+        }
+        Widget::Audio => {
+            // Silver speaker with two blue sound-wave strokes.
+            fill_rect(canvas, width, height, left + 2, top + 6, 4, 5, outline);
+            fill_rect(canvas, width, height, left + 3, top + 7, 3, 3, shine);
+            fill_rect(canvas, width, height, left + 6, top + 4, 2, 9, outline);
+            fill_rect(canvas, width, height, left + 8, top + 2, 2, 13, 0xffb8_dced);
+            fill_rect(canvas, width, height, left + 11, top + 5, 1, 7, 0xfff2_ffff);
+            fill_rect(canvas, width, height, left + 13, top + 3, 1, 11, 0xff9b_e9ff);
+        }
+        _ => return,
+    }
+    if unavailable {
+        // XP-style red disconnected/muted badge, visible on dark taskbars.
+        fill_rect(canvas, width, height, left + 12, top + 10, 5, 5, shine);
+        for offset in 0..5 {
+            fill_rect(canvas, width, height, left + 12 + offset, top + 10 + offset,
+                      1, 1, 0xffe6_3428);
+            fill_rect(canvas, width, height, left + 16 - offset, top + 10 + offset,
+                      1, 1, 0xffe6_3428);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -196,5 +241,19 @@ mod tests {
         background(&mut pixels, 12, 8, &style, &[]);
         task_button(&mut pixels, 12, 8, 0, 4, true, &style);
         launcher(&mut pixels, 12, 8, 0, 4, style.launcher.as_ref().unwrap());
+        status_icon(&mut pixels, 12, 8, 0, 4, Widget::Audio, true);
+    }
+
+    #[test]
+    fn luna_tray_icons_are_distinct_and_expose_a_disconnected_badge() {
+        let (width, height) = (90, 40);
+        let mut pixels = vec![0_u8; (width * height * 4) as usize];
+        status_icon(&mut pixels, width, height, 0, 28, Widget::Network, false);
+        status_icon(&mut pixels, width, height, 29, 28, Widget::Audio, false);
+        assert_ne!(px(&pixels, width, 9, 21), 0);
+        assert_ne!(px(&pixels, width, 41, 21), 0);
+        let before = px(&pixels, width, 46, 23);
+        status_icon(&mut pixels, width, height, 29, 28, Widget::Audio, true);
+        assert_ne!(before, px(&pixels, width, 46, 23));
     }
 }
