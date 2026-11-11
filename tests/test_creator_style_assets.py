@@ -100,10 +100,17 @@ class CreatorStyleAssetsTests(unittest.TestCase):
         manifest = json.loads(source.read_text())
         recipe = recipes.parse(json.dumps(manifest).encode())
         self.assertEqual(recipe.artwork.icons, ("builtin-luna",) * 3)
+        self.assertEqual(recipe.artwork.font, "builtin-luna-ui")
+        self.assertTrue(drafts._allowed_value("/artwork/font", "builtin-luna-ui", 12))
+        self.assertFalse(drafts._allowed_value("/artwork/font", "builtin-luna-ui", 11))
         self.assertTrue(drafts._allowed_value("/artwork/icons/lock", "builtin-luna", 12))
         self.assertFalse(drafts._allowed_value("/artwork/icons/lock", "builtin-luna", 11))
         self.assertFalse(drafts._allowed_value("/artwork/icons/lock", "builtin-luna/../", 12))
         manifest["artwork"]["font"] = "builtin-luna"
+        with self.assertRaises(recipes.RecipeError):
+            recipes.parse(json.dumps(manifest).encode())
+        manifest["artwork"]["font"] = "builtin-luna-ui"
+        manifest["schema_version"] = 11
         with self.assertRaises(recipes.RecipeError):
             recipes.parse(json.dumps(manifest).encode())
 
@@ -112,6 +119,7 @@ class CreatorStyleAssetsTests(unittest.TestCase):
         self.assertEqual(exported["pack_version"], 2)
         with zipfile.ZipFile(target) as archive:
             self.assertFalse(any(name.startswith("assets/icons/") for name in archive.namelist()))
+            self.assertNotIn("assets/font.ttf", archive.namelist())
         self.assertEqual(pack.inspect_pack(target)["pack_version"], 2)
 
     def test_catalog_is_private_and_idempotent_with_declaration(self):

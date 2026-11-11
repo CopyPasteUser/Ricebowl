@@ -87,6 +87,10 @@ The real Find/Saved header buttons also receive matching raised states; no
 fake or inert power controls were introduced. The green Start capsule gets a
 stronger highlight, darker lower edge and an original four-tile emblem.
 
+The Luna system tray now draws small connected-network and speaker pictograms
+with disconnected/muted badges instead of wide textual status placeholders;
+these remain the same accessible network/audio actions.
+
 The same existing validated menu actions, keyboard navigation, pointer hits,
 search, pinned actions, accessibility labels and private rollback paths stay
 in use. On logical outputs at least 1280px wide, Luna-columns menus present
@@ -94,8 +98,8 @@ at **400×380**; on outputs at least 1600px wide with enough free height,
 **480×456**. Other menus retain 320×304, and 1024px/rotated/small displays
 retain the existing original-size or readable compact behavior. Rendering
 and input use the same inverse scale. This is nearest-neighbor presentation
-of the native 320×304 canvas; typography still needs a fully native
-high-resolution raster pass before claiming pixel-level historical fidelity.
+of the native 320×304 canvas; typography and controls still need a fully native
+high-resolution pass before claiming pixel-level historical fidelity.
 
 All decorative dimensions remain data-only or renderer-owned; no global
 desktop/theme changes or proprietary Microsoft artwork are installed.
@@ -107,6 +111,14 @@ pictograms (`builtin-luna`) for Programs, Terminal and Lock. The schema-v12
 choice is available in Creator, and data-only RicePack exports need no private
 PNG for these icons. Other recipes and explicitly imported icons remain
 unchanged. These are RiceBowl originals, not Microsoft assets.
+
+The same recipe now opts into `builtin-luna-ui`: an unmodified, embedded
+Liberation Sans TrueType face (SIL Open Font License 1.1; license in
+`assets/fonts/LiberationSans-LICENSE.txt`). Unlike the previous bold 8×8
+bitmap lettering, this is anti-aliased, proportionally advanced text. It
+works without a private font import or host Fontconfig setup and is available
+as a schema-v12 Creator font choice. Earlier recipes still use their original
+fonts unless explicitly changed.
 
 Creator can already import a locally owned TrueType `.ttf` (maximum 1 MiB)
 with declared attribution into an owner-private, SHA-256-pinned collection.
@@ -123,8 +135,8 @@ Absent glyphs still use a readable replacement. Full complex-script shaping,
 automatic font import without user attribution, a Waybar custom-face path and
 third-party GTK/Qt window fonts are **not** yet implemented. Read-only
 Fontconfig discovery and a Creator installed-font chooser are available;
-import still requires explicit user review. The built-in font and legacy
-recipes retain their former behavior.
+import still requires explicit user review. The default built-in bitmap font
+and legacy recipes retain their former behavior.
 
 **Existing 0.1.0 preview `.deb` packages still contain an older native
 binary.** Test through the source build script below. Do not overwrite the

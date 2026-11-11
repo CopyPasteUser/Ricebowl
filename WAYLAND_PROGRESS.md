@@ -26,6 +26,8 @@ adaptive 400×380/480×456 menu surfaces for larger logical outputs. The
 Luna taskbar now also draws compact, original 16px network and speaker symbols
 instead of showing wide `N/A` text cells; offline/muted states remain visibly
 marked while the original accessible widget states and pointer targets remain.
+Luna also opts into a bundled OFL-licensed Liberation Sans system font with
+proportional glyph advances; other recipes keep their existing font behavior.
 pre-existing screenshots in this section document the earlier appearance,
 not proof of this newer pass. The complete live multi-resolution compositor
 matrix passed in [native CI run #43026159262](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43026159262);
