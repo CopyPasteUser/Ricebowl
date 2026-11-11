@@ -12,6 +12,7 @@ mod calendar;
 mod desktop_layout;
 mod icon_positions;
 mod installed_apps;
+mod luna_places;
 mod menu_chrome;
 mod menu_pins;
 mod native_menu;
@@ -1916,6 +1917,10 @@ impl RicePlate {
         }
         if action == "logout" && !logout_available() {
             eprintln!("RicePlate: log out unavailable outside a labwc-managed session");
+            return;
+        }
+        if matches!(action, "documents" | "computer") {
+            luna_places::launch(action);
             return;
         }
         if action.starts_with("desktop:") {
