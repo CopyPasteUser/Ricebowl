@@ -426,6 +426,14 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   and give an empty saved-action menu a real accessible Close focus target.
   Rust regression tests cover search paging, edge selection and empty states.
   Full popup resizing and physical-device/Orca validation remain open.
+- [x] **Foundation Sprint 2: discoverable native menu search/saved controls** —
+  every schema-supported menu presentation now paints real `Find` and `Saved`
+  header buttons, with `Clear`/`Back` semantics once a mode is active.
+  Full-size and compact painting, pointer hits and AT-SPI activation use the
+  same fixed geometry and native state machine; slash/F3 and the original
+  menu action dispatcher remain available. Rust tests cover empty/query,
+  return, boundary, closed-popup and compact-size cases. Richer proportional
+  text shaping, wheel scrolling and device-level Orca QA remain open.
 - [x] Show a **real, read-only native battery percentage** in RicePlate from
   Linux's fixed `/sys/class/power_supply`, with charging state, explicit
   no-battery/unknown labels, multi-battery handling and bounded once-per-minute

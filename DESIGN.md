@@ -526,6 +526,14 @@ The shared menu state and tile geometry remain the source of truth for pointer,
 keyboard, paint and screen-reader behavior; visible text is never an executable
 command or a replacement for its canonical action identifier.
 
+All native menu presentations reserve a narrow pair of header buttons for
+`Find` and `Saved`. They are genuine menu controls, not theme decorations:
+`Find` enters search, becomes `Clear` after text entry and `Back` when empty;
+`Saved` opens the saved-action list and then becomes `Back`. The existing
+recipe background, text and selection colors style these buttons; one geometry
+contract handles pointer and compact reflow, and AT-SPI exposes the same
+actions. Legacy slash/F3 shortcuts remain active.
+
 The same **validated schema-v12 two-column palette** can opt into
 labwc-owned server-side window frames. `macrice/de/window_chrome.py` maps only
 existing colors to a bounded `themerc-override` in the private labwc session;

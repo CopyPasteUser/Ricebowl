@@ -1078,8 +1078,16 @@ impl RicePlate {
                                       self.menu_state.search)
                           } else { "Type to search; F2 pins; F3 shows saved actions".to_string() },
                           None);
+                model.add(20_985, 20_000, AccessibleRole::Button,
+                          match self.menu_state.search_button_label() {
+                              "Find" => "Find applications and actions",
+                              "Clear" => "Clear search query",
+                              _ => "Back to menu groups",
+                          }, Some(Target::MenuSearch));
                 model.add(20_990, 20_000, AccessibleRole::Button,
-                          "Show saved actions", Some(Target::MenuSaved));
+                          if self.menu_state.view == native_menu::View::Saved {
+                              "Back to menu groups"
+                          } else { "Show saved actions" }, Some(Target::MenuSaved));
                 model.add(20_999, 20_000, AccessibleRole::Button,
                           "Close menu", Some(Target::MenuClose));
                 if self.menu_focused {
@@ -1222,6 +1230,10 @@ impl RicePlate {
                 self.redraw_menu(qh);
             }
             Target::MenuAction(action) => self.activate_action(&action, qh),
+            Target::MenuSearch => {
+                self.menu_state.search_button();
+                self.redraw_menu(qh);
+            }
             Target::MenuClose => self.set_menu_visible(false, qh),
             Target::MenuSaved => {
                 self.menu_state.show_saved();
@@ -3202,6 +3214,29 @@ fn fit_menu_pixels(original: &[u8], canvas: &mut [u8], size: (u32, u32)) {
     }
 }
 
+/// The header controls are part of RicePlate's shared menu primitive. Their
+/// rects come from native_menu, so the compact painter, pointer and AT expose
+/// the same real actions across recipes without theme-specific hit regions.
+fn paint_menu_header_controls(canvas: &mut [u8], size: (u32, u32),
+                              style: &PanelStyle, state: &MenuState,
+                              background: u32, foreground: u32, selection: u32) {
+    for (hit, text, active) in [
+        (MenuHit::Search, state.search_button_label(), state.view == native_menu::View::Search),
+        (MenuHit::Saved, state.saved_button_label(), state.view == native_menu::View::Saved),
+    ] {
+        let Some((x, y, width, height)) = native_menu::header_button_rect(size, hit) else {
+            continue;
+        };
+        fill_rounded_rect(canvas, size.0, size.1, x, y, width, height,
+                          style.task_radius.max(2), if active { selection } else { background });
+        let characters = width.saturating_sub(12) / (8 * style.font_scale);
+        let caption = if characters < 4 { &text[..1] } else { text };
+        draw_rice_text(canvas, size.0, size.1, x + 6,
+                       y + height.saturating_sub(8 * style.font_scale) / 2,
+                       caption, foreground, style);
+    }
+}
+
 fn paint_compact_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
                       style: &PanelStyle, state: &MenuState, size: (u32, u32)) {
     let (width, height) = size;
@@ -3221,10 +3256,12 @@ fn paint_compact_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
         native_menu::View::Search => "Find applications & actions",
         native_menu::View::Saved => "Saved actions",
     };
-    let heading_limit = width.saturating_sub(16) / (8 * style.font_scale);
+    let heading_limit = width.saturating_sub(native_menu::HEADER_ACTIONS_WIDTH + 8)
+        / (8 * style.font_scale);
     draw_rice_text(canvas, width, height, 8, 9,
                    &heading.chars().take(heading_limit as usize).collect::<String>(),
                    header_fg, style);
+    paint_menu_header_controls(canvas, size, style, state, bg, fg, selection);
     let groups = menu.groups.len().max(1) as u32;
     for (index, group) in menu.groups.iter().enumerate() {
         let x = index as u32 * width / groups;
@@ -3310,11 +3347,13 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
         height,
         16,
         if style.font_scale == 1 { 15 } else { 11 },
-        &menu.title.chars().take((width.saturating_sub(32) / (8 * style.font_scale)) as usize)
+        &menu.title.chars().take((width.saturating_sub(native_menu::HEADER_ACTIONS_WIDTH + 16)
+            / (8 * style.font_scale)) as usize)
             .collect::<String>(),
         header_fg,
         style,
     );
+    paint_menu_header_controls(canvas, (width, height), style, state, bg, fg, selection);
     let sidebar = menu.presentation == recipe::MenuPresentation::Sidebar;
     let columns = menu.presentation == recipe::MenuPresentation::Columns
         && state.view == native_menu::View::Groups;
@@ -5020,6 +5059,14 @@ impl PointerHandler for RicePlate {
                         match if compact {
                             self.menu_state.compact_hit(menu, pointer.0, pointer.1, menu_size)
                         } else { self.menu_state.hit(menu, pointer.0, pointer.1) } {
+                            Some(MenuHit::Search) => {
+                                self.menu_state.search_button();
+                                self.redraw_menu(qh);
+                            }
+                            Some(MenuHit::Saved) => {
+                                self.menu_state.show_saved();
+                                self.redraw_menu(qh);
+                            }
                             Some(MenuHit::Group(index)) => {
                                 self.menu_state.select_group(menu, index);
                                 self.redraw_menu(qh);

@@ -7,6 +7,12 @@ use crate::{installed_apps::{self, App}, recipe::{MenuContentKind, MenuPresentat
 
 pub const WIDTH: u32 = 320;
 pub const HEIGHT: u32 = 304;
+const HEADER_BUTTON_WIDTH: u32 = 56;
+const HEADER_BUTTON_GAP: u32 = 4;
+const HEADER_BUTTON_MARGIN: u32 = 4;
+/// Space reserved for actual search/saved buttons beside the menu title.
+pub const HEADER_ACTIONS_WIDTH: u32 = HEADER_BUTTON_WIDTH * 2
+    + HEADER_BUTTON_GAP + HEADER_BUTTON_MARGIN;
 
 /// Keep the entire native menu reachable on a small or rotated logical output.
 /// A fixed-ratio fit is used only when the original dimensions cannot fit;
@@ -110,7 +116,30 @@ pub enum View {
 pub enum Hit {
     Group(usize),
     Action(usize),
+    Search,
+    Saved,
     Close,
+}
+
+/// One geometry contract for painting, pointer input and compact reflow.
+pub fn header_button_rect(size: (u32, u32), hit: Hit) -> Option<(u32, u32, u32, u32)> {
+    let x = size.0.checked_sub(HEADER_ACTIONS_WIDTH)?;
+    let x = match hit {
+        Hit::Search => x,
+        Hit::Saved => x + HEADER_BUTTON_WIDTH + HEADER_BUTTON_GAP,
+        _ => return None,
+    };
+    let height = if size == (WIDTH, HEIGHT) { 28 } else { 24 };
+    Some((x, 4, HEADER_BUTTON_WIDTH, height))
+}
+
+fn header_hit(x: f64, y: f64, size: (u32, u32)) -> Option<Hit> {
+    [Hit::Search, Hit::Saved].into_iter().find(|hit| {
+        header_button_rect(size, *hit).is_some_and(|(left, top, width, height)| {
+            x >= f64::from(left) && x < f64::from(left + width)
+                && y >= f64::from(top) && y < f64::from(top + height)
+        })
+    })
 }
 
 #[derive(Debug, Default)]
@@ -402,6 +431,29 @@ impl MenuState {
         self.selected = 0;
     }
 
+    /// A visible mouse/AT equivalent of the existing slash/Backspace/Escape
+    /// shortcuts: enter search, clear a query, then return to the groups.
+    pub fn search_button(&mut self) {
+        if self.view != View::Search {
+            self.start_search();
+        } else if !self.search.is_empty() {
+            self.search.clear();
+            self.selected = 0;
+        } else {
+            self.back();
+        }
+    }
+
+    pub fn search_button_label(&self) -> &'static str {
+        if self.view != View::Search { "Find" }
+        else if self.search.is_empty() { "Back" }
+        else { "Clear" }
+    }
+
+    pub fn saved_button_label(&self) -> &'static str {
+        if self.view == View::Saved { "Back" } else { "Saved" }
+    }
+
     pub fn search_input(&mut self, text: &str) -> bool {
         if text.chars().count() != 1 || self.search.chars().count() >= 32
             || self.search.len() + text.len() > 96
@@ -490,6 +542,9 @@ impl MenuState {
         {
             return None;
         }
+        if let Some(hit) = header_hit(x, y, (WIDTH, HEIGHT)) {
+            return Some(hit);
+        }
         match menu.presentation {
             MenuPresentation::Tabs if (f64::from(TAB_TOP)..f64::from(TAB_TOP + TAB_HEIGHT)).contains(&y) => {
                 let index = (x as usize * menu.groups.len()) / WIDTH as usize;
@@ -528,6 +583,9 @@ impl MenuState {
             || y >= f64::from(size.1) {
             return None;
         }
+        if let Some(hit) = header_hit(x, y, size) {
+            return Some(hit);
+        }
         if (f64::from(COMPACT_TABS_TOP)..f64::from(COMPACT_TABS_TOP + COMPACT_TABS_HEIGHT))
             .contains(&y) && !menu.groups.is_empty() {
             let index = x as usize * menu.groups.len() / size.0 as usize;
@@ -548,6 +606,54 @@ impl MenuState {
 mod tests {
     use super::*;
     use crate::recipe::NativeMenuGroup;
+
+    #[test]
+    fn visible_header_controls_work_with_mouse_in_full_and_compact_menus() {
+        let menu = menu();
+        for size in [(WIDTH, HEIGHT), (240, 184), (168, 144)] {
+            let mut state = MenuState::default();
+            state.open();
+            let hit = |state: &MenuState, x: f64, y: f64| {
+                if compact_layout(size) { state.compact_hit(&menu, x, y, size) }
+                else { state.hit(&menu, x, y) }
+            };
+            let (x, y, width, height) = header_button_rect(size, Hit::Search).unwrap();
+            assert_eq!(hit(&state, f64::from(x + 2), f64::from(y + 2)), Some(Hit::Search));
+            assert_eq!(hit(&state, f64::from(x + width), f64::from(y + 2)), None);
+            assert_eq!(hit(&state, f64::from(x + 2), f64::from(y + height)), None);
+            state.search_button();
+            assert_eq!(state.view, View::Search);
+            assert_eq!(state.search_button_label(), "Back");
+            assert!(state.search_input("t"));
+            assert_eq!(state.search_button_label(), "Clear");
+            state.search_button();
+            assert_eq!(state.view, View::Search);
+            assert_eq!(state.search, "");
+            state.search_button();
+            assert_eq!(state.view, View::Groups);
+            let (x, y, _, _) = header_button_rect(size, Hit::Saved).unwrap();
+            assert_eq!(hit(&state, f64::from(x + 2), f64::from(y + 2)), Some(Hit::Saved));
+            state.show_saved();
+            assert_eq!(state.view, View::Saved);
+            assert_eq!(state.saved_button_label(), "Back");
+            state.show_saved();
+            assert_eq!(state.view, View::Groups);
+        }
+    }
+
+    #[test]
+    fn header_controls_are_not_keyboard_only_or_active_when_menu_is_closed() {
+        let menu = menu();
+        let mut state = MenuState::default();
+        assert_eq!(state.hit(&menu, 202.0, 10.0), None);
+        assert_eq!(state.compact_hit(&menu, 125.0, 10.0, (240, 184)), None);
+        state.open();
+        assert_eq!(state.hit(&menu, f64::NAN, 10.0), None);
+        assert_eq!(state.hit(&menu, -1.0, 10.0), None);
+        assert_eq!(state.hit(&menu, 4.0, 10.0), None);
+        state.close();
+        assert_eq!(state.hit(&menu, 202.0, 10.0), None);
+    }
 
     fn menu() -> NativeMenu {
         NativeMenu {
