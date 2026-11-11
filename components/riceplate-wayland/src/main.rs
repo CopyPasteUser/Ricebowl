@@ -6133,7 +6133,7 @@ mod tests {
 
         state.select_group(menu, 1);
         paint_menu(&mut canvas, menu, &style, &state);
-        assert_eq!(pixel(&canvas, 176, 110), palette.header); // current right action
+        assert_eq!(pixel(&canvas, 176, 80), palette.header); // current right action
         assert_eq!(pixel(&canvas, 12, 110), palette.background);
     }
 
