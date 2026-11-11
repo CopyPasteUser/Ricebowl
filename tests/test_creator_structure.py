@@ -105,13 +105,14 @@ class CreatorStructureTests(unittest.TestCase):
         self.assertEqual(self.original, original)
 
     def test_clone_compact_to_wide_preserves_responsive_independence(self):
+        original_wide = copy.deepcopy(self.original["panel"]["layout"])
         clone = structure.clone_layout_mode(self.original, from_compact=True)
         self.assertEqual(clone, self.original["responsive"]["compact_layout"])
         self.assertNotEqual(clone, self.original["panel"]["layout"])
         proposal = copy.deepcopy(self.original)
         proposal["panel"]["layout"] = clone
         recipes.parse(json.dumps(proposal).encode())
-        self.assertEqual(self.original["panel"]["layout"]["end"][0]["type"], "group")
+        self.assertEqual(self.original["panel"]["layout"], original_wide)
 
     def test_clone_layout_rejects_unsupported_modes_and_broken_source(self):
         original = copy.deepcopy(self.original)
