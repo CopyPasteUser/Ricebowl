@@ -21,7 +21,7 @@ from .de import (creator_activation, creator_layout as layout_engine,
                  creator_workspace as workspace)
 from .de import (assets, creator_assets, creator_iteration, creator_mapping, creator_reference, creator_regions,
                  creator_structure, drafts,
-                 fonts, recipes, render, review, style_assets)
+                 fonts, pack, recipes, render, review, style_assets)
 
 
 # All paths below are existing allowlisted Creator draft-edit fields. Gtk owns
@@ -62,6 +62,11 @@ def _get_field(manifest: dict, pointer: str):
     for part in pointer.lstrip("/").split("/"):
         value = value[part]
     return value
+
+
+def _choice_options(pointer: str, options: tuple, schema_version: int) -> tuple:
+    return (options + ("columns",) if pointer == "/menu/presentation" and schema_version >= 12
+            else options)
 
 
 def _revision_review_text(preflight: dict) -> str:
@@ -262,6 +267,12 @@ def run() -> int:
                 button.get_style_context().add_class("creator-template")
                 button.set_tooltip_text(descriptions[key])
                 sidebar.pack_start(button, False, False, 0)
+            sidebar.pack_start(self._text("CONTINUE AN EXISTING RICE", "creator-rail-label"),
+                               False, False, 8)
+            self.open_installed_btn = self._button("Edit installed rice…", self._open_installed)
+            self.import_pack_btn = self._button("Import RicePack…", self._import_pack)
+            sidebar.pack_start(self.open_installed_btn, False, False, 0)
+            sidebar.pack_start(self.import_pack_btn, False, False, 0)
             sidebar.pack_start(self._text("SAVED VERSIONS", "creator-rail-label"), False, False, 8)
             self.history_btn = self._button("Version history…", self._show_history)
             sidebar.pack_start(self.history_btn, False, False, 0)
@@ -557,6 +568,8 @@ def run() -> int:
 
         def _actions(self):
             selected = self.info is not None
+            self.open_installed_btn.set_sensitive(not self._busy)
+            self.import_pack_btn.set_sensitive(not self._busy)
             self.save_btn.set_sensitive(selected and bool(self.pending) and not self._busy)
             self.render_btn.set_sensitive(selected and not self._busy)
             self.export_btn.set_sensitive(selected and not self._busy)
@@ -639,6 +652,83 @@ def run() -> int:
             except (workspace.WorkspaceError, recipes.RecipeError, OSError) as exc:
                 self._status(f"Could not create draft: {exc}", error=True)
 
+        def _open_installed(self, _button):
+            if self._busy or not self._discard_pending():
+                return
+            try:
+                options = workspace.installed_editable()
+                if not options:
+                    self._status("No editable installed rices. Import a schema-v10+ RicePack first.")
+                    return
+                dialog = Gtk.Dialog(title="Edit installed rice", transient_for=self, modal=True)
+                dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+                dialog.add_button("Create editable copy", Gtk.ResponseType.OK)
+                dialog.set_default_response(Gtk.ResponseType.CANCEL)
+                body = dialog.get_content_area()
+                body.set_border_width(16)
+                body.set_spacing(10)
+                body.pack_start(self._text(
+                    "Select an installed rice. Its original stays installed and unchanged.",
+                    "hub-hint", wrap=True), False, False, 0)
+                choice = Gtk.ComboBoxText()
+                for item in options:
+                    choice.append(item["id"], f"{item['name']} · {item['id']} (v{item['schema_version']})")
+                choice.set_active(0)
+                body.pack_start(choice, False, False, 0)
+                dialog.show_all()
+                selected = choice.get_active_id() if dialog.run() == Gtk.ResponseType.OK else None
+                dialog.destroy()
+                if selected is None:
+                    return
+                expected = next(item["semantic_sha256"] for item in options
+                                if item["id"] == selected)
+                info = workspace.create_draft_from_installed(selected, expected_sha256=expected)
+                self._load(info, reset_history=True)
+                self._refresh_drafts()
+                self._status(f"Editable copy {info.recipe_id} created. Original untouched; not applied.",
+                             success=True)
+            except (workspace.WorkspaceError, recipes.RecipeError, pack.PackError,
+                    OSError, ValueError) as exc:
+                self._status(f"Could not open installed rice: {exc}", error=True)
+
+        def _import_pack(self, _button):
+            if self._busy or not self._discard_pending():
+                return
+            chooser = Gtk.FileChooserDialog(title="Import a RicePack", transient_for=self,
+                                            action=Gtk.FileChooserAction.OPEN)
+            chooser.add_buttons("Cancel", Gtk.ResponseType.CANCEL,
+                                "Inspect RicePack", Gtk.ResponseType.ACCEPT)
+            file_filter = Gtk.FileFilter()
+            file_filter.set_name("RicePack archives (*.ricepack)")
+            file_filter.add_pattern("*.ricepack")
+            chooser.add_filter(file_filter)
+            response = chooser.run()
+            source = Path(chooser.get_filename()) if response == Gtk.ResponseType.ACCEPT else None
+            chooser.destroy()
+            if source is None:
+                return
+            try:
+                inspection = pack.inspect_pack(source)
+                record = inspection["manifest"]["recipe"]
+                if record["schema_version"] < 10:
+                    raise workspace.WorkspaceError("Creator can edit schema-v10+ RicePacks only")
+                if not self._confirm_handoff("Import this RicePack?",
+                        f"{record['id']} · SHA-256 {record['semantic_sha256'][:12]}\n\n"
+                        "Installs the verified data-only pack in your private collection, "
+                        "then opens an editable copy with a new ID. Neither desktop is changed.",
+                        "Import and edit"):
+                    return
+                result = pack.import_pack(source, expected_manifest=inspection["manifest"])
+                info = workspace.create_draft_from_installed(
+                    result["recipe_id"], expected_sha256=result["semantic_sha256"])
+                self._load(info, reset_history=True)
+                self._refresh_drafts()
+                self._status(f"RicePack imported; editing {info.recipe_id}. Not applied.", success=True)
+            except (pack.PackError, workspace.WorkspaceError, recipes.RecipeError,
+                    OSError, ValueError) as exc:
+                self._status(f"Import/edit failed: {exc}. If installed, use Edit installed rice…",
+                             error=True)
+
         def _open(self, path: Path):
             if self._busy or not self._discard_pending():
                 return
@@ -650,8 +740,8 @@ def run() -> int:
 
         def _load(self, info: workspace.DraftInfo, *, reset_history=False):
             report = review.review(str(info.path))
-            if report["recipe"]["schema_version"] not in (10, 11):
-                raise workspace.WorkspaceError("Creator edits validated schema-v10/v11 recipes only")
+            if report["recipe"]["schema_version"] not in (10, 11, 12):
+                raise workspace.WorkspaceError("Creator edits validated schema-v10/v11/v12 recipes only")
             preserve_annotations = bool(not reset_history and self.info and self._reference and
                                         self.info.recipe_id == info.recipe_id)
             reference_sha = self._reference.sha256 if preserve_annotations else None
@@ -731,7 +821,8 @@ def run() -> int:
                         widget.connect("changed", lambda w, p=path: self._change(p, w.get_text()))
                     elif kind in ("choice", "choice-int"):
                         widget = Gtk.ComboBoxText()
-                        for option in options:
+                        for option in _choice_options(path, options,
+                                                      self.baseline["schema_version"]):
                             widget.append(str(option), str(option))
                         widget.set_active_id(str(current))
                         widget.connect("changed", lambda w, p=path, k=kind:
@@ -3351,6 +3442,22 @@ def run() -> int:
             assert window.info.recipe_id != installed_id
             assert recipes.load(installed_id).recipe_id == installed_id
             assert "Not installed or applied" in window.status.get_text()
+            forked_id = window.info.recipe_id
+            # Exercise the actual GTK installed-rice picker, not only its
+            # backend: an immutable new draft must open without switching.
+            def accept_installed():
+                dialogs = [item for item in Gtk.Window.list_toplevels()
+                           if isinstance(item, Gtk.Dialog)
+                           and item.get_title() == "Edit installed rice"]
+                assert len(dialogs) == 1, "Installed-rice picker missing"
+                dialogs[0].response(Gtk.ResponseType.OK)
+                return False
+
+            GLib.idle_add(accept_installed)
+            window.open_installed_btn.clicked()
+            assert window.info.recipe_id not in (installed_id, forked_id)
+            assert recipes.load(installed_id).recipe_id == installed_id
+            assert "Original untouched" in window.status.get_text()
             if not os.environ.get("WAYLAND_DISPLAY"):
                 assert not window.apply_btn.get_sensitive()
                 assert not window.restore_btn.get_sensitive()

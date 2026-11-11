@@ -22,7 +22,8 @@ MAX_HISTORY_DEPTH = 64
 # basenames as parents so that upgrading does not strand their edit history.
 _DRAFT_NAME = re.compile(r"draft-[A-Za-z0-9][A-Za-z0-9._-]{0,95}\.json\Z")
 _SHA = re.compile(r"[0-9a-f]{64}\Z")
-_KINDS = frozenset(("create", "save", "fork", "upgrade", "recover"))
+_KINDS = frozenset(("create", "import", "save", "fork", "upgrade", "recover"))
+_ROOT_KINDS = frozenset(("create", "import"))
 
 
 class HistoryError(ValueError):
@@ -44,7 +45,7 @@ def write(draft: Path, digest: str, *, kind: str,
     """Publish a durable version intent before making its recipe visible."""
     receipt = _receipt_path(draft)
     if (kind not in _KINDS or not _valid_hash(digest)
-            or (parent is None) != (kind == "create")):
+            or (parent is None) != (kind in _ROOT_KINDS)):
         raise HistoryError("Invalid Creator version receipt")
     if parent is not None and (type(parent[0]) is not str
                                or _DRAFT_NAME.fullmatch(parent[0]) is None
@@ -98,7 +99,7 @@ def _read_receipt(draft: Path, digest: str | None) -> dict[str, Any] | None:
             or (digest is not None and data["target_semantic_sha256"] != digest)):
         raise HistoryError("Creator history fingerprint or version does not match this draft")
     parent = data["parent"]
-    if (parent is None) != (data["kind"] == "create"):
+    if (parent is None) != (data["kind"] in _ROOT_KINDS):
         raise HistoryError("Creator history parent is inconsistent")
     if parent is not None and (
             not isinstance(parent, dict) or set(parent) != {"filename", "semantic_sha256"}

@@ -39,7 +39,9 @@ geometry selection preserves aspect ratio. The layer list uses navy surfaces
 and high-contrast labels with a visible selected row rather than the system's
 default light list background. A fresh native screenshot must be explicitly
 rendered after changes; stale real pixels are never presented as live updates.
-The left rail contains four real starting templates and saved draft versions; the
+The left rail contains four real starting templates, a separate native GTK
+path to import or reopen installed RicePacks as new private editable copies,
+and saved draft versions; the
 right scrollable inspector groups actual schema-v11 properties and structurally
 editable panel lanes. Actions form a clear reversible sequence: create → edit
 → save a new private version → render → optionally export. The latest and
