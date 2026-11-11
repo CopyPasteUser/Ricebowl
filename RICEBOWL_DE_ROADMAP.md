@@ -1010,6 +1010,12 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
   action/page navigation and matching hit/AT-SPI targets. Extreme outputs below
   168×144, richer
   icon layouts and device QA remain open.
+  - [x] Give opt-in XP Luna Columns a native **All Programs** page over the
+    already bounded XDG app index, with pointer/keyboard paging, real Gio
+    launches, accessible empty-state/counter and visible Back navigation.
+    The external launcher remains the default for other rices. Rust state
+    tests and a headless-compositor click/restore regression cover this path;
+    physical app-launch/input QA remains open.
   **Exact XP/7/10 menu reconstructions are deferred to the post-framework
   fidelity gate above**, not blocking this foundational milestone.
 - [ ] Make responsive shell layouts live across every backend and surface,

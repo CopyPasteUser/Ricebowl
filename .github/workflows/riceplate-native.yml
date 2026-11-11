@@ -653,6 +653,16 @@ jobs:
           saved_delta = changed_pixels(frames['open'], frames['saved'])
           mode_delta = changed_pixels(frames['find'], frames['saved'])
           return_delta = changed_pixels(frames['open'], frames['return'])
+          # A real click on Luna's left-column All Programs row must open a
+          # distinct installed-app list; the visible Back control restores
+          # the existing native two-column menu without launching fuzzel.
+          with Image.open(directory / 'xp-luna-pointer-programs-1024x768.png') as image, \
+               Image.open(directory / 'xp-luna-pointer-programs-back-1024x768.png') as back_image:
+              assert image.size == back_image.size == (1024, 768)
+              programs = image.convert('RGB').crop((0, 424, 320, 728))
+              programs_back = back_image.convert('RGB').crop((0, 424, 320, 728))
+          programs_delta = changed_pixels(frames['return'], programs)
+          programs_back_delta = changed_pixels(frames['return'], programs_back)
           with Image.open(directory / 'xp-luna-pointer-find-paged-1024x768.png') as image, \
                Image.open(directory / 'xp-luna-pointer-find-hover-1024x768.png') as hovered_image:
               assert image.size == hovered_image.size == (1024, 768), 'Wheel capture geometry'
@@ -689,10 +699,15 @@ jobs:
           assert unpin_delta < 300, \
               f'Right-click did not restore the empty Saved action list: {unpin_delta}'
           assert return_delta < 1500, f'Header Back did not restore menu: {return_delta}'
+          assert programs_delta > 1200, \
+              f'All Programs click did not change native Luna menu: {programs_delta}'
+          assert programs_back_delta < 1500, \
+              f'All Programs Back did not restore Luna columns: {programs_back_delta}'
           print(f'Native Luna header clicks: Find={find_delta} Saved={saved_delta} '
                 f'distinct={mode_delta} wheel={wheel_delta} reverse={reverse_delta} '
                 f'page restored={restore_page_delta} pin={pinned_delta} '
-                f'unpin={unpin_delta} header restored={return_delta} RGB pixels')
+                f'unpin={unpin_delta} header restored={return_delta} '
+                f'programs={programs_delta} programs back={programs_back_delta} RGB pixels')
           # Separate, real RicePop sample inbox: pointer motion is captured
           # before the wheel, so hover alone cannot satisfy this assertion.
           notification_frames = {}
