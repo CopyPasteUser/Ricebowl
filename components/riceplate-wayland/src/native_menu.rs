@@ -1196,17 +1196,19 @@ mod tests {
         state.open();
         // No installed-app fixtures: all real fixed actions remain present.
         assert_eq!(state.actions(menu), vec![
-            "applications", "terminal", "settings", "notifications", "lock", "logout"
+            "applications", "terminal", "documents", "computer",
+            "settings", "notifications", "lock", "logout"
         ]);
         assert_eq!(state.hit(menu, 20.0, 116.0), Some(Hit::Action(0)));
-        assert_eq!(state.hit(menu, 200.0, 116.0), Some(Hit::Action(2)));
-        assert_eq!(state.hit(menu, 200.0, 188.0), Some(Hit::Action(4)));
-        assert_eq!(state.hit(menu, 200.0, 218.0), Some(Hit::Action(5)));
+        assert_eq!(state.hit(menu, 200.0, 80.0), Some(Hit::Action(2)));
+        assert_eq!(state.hit(menu, 200.0, 116.0), Some(Hit::Action(3)));
+        assert_eq!(state.hit(menu, 200.0, 210.0), Some(Hit::Action(6)));
+        assert_eq!(state.hit(menu, 200.0, 238.0), Some(Hit::Action(7)));
         assert_eq!(state.hit(menu, 164.0, 120.0), None);
         assert_eq!(state.hit(menu, 200.0, 290.0), Some(Hit::Close));
 
         state.horizontal_by(menu, 1);
-        assert_eq!(state.current_action(menu), Some("settings"));
+        assert_eq!(state.current_action(menu), Some("computer"));
         state.horizontal_by(menu, -1);
         assert_eq!(state.current_action(menu), Some("applications"));
         state.select_group(menu, 2);
@@ -1250,7 +1252,7 @@ mod tests {
         assert!(compact_layout(size));
         assert_eq!(state.compact_hit(menu, 8.0, 50.0, size), Some(Hit::Group(0)));
         state.select_group(menu, 1);
-        assert_eq!(state.current_action(menu), Some("settings"));
+        assert_eq!(state.current_action(menu), Some("documents"));
         state.select_group(menu, 2);
         assert_eq!(state.current_action(menu), Some("lock"));
         let action_count = state.actions(menu).len();
