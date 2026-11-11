@@ -62,6 +62,12 @@ installation and is not yet a finished desktop environment.
   per-region results, capture SHA-256s, output sizes and layout diagnostics.
   Preserve 1024×768 and 125%-scale heatmap previews. This detects a visibly
   painted menu state, not physical input correctness or pixel-perfect fidelity.
+- [x] Exercise **actual compositor virtual-pointer input** on the native Luna
+  Start button (not `--preview-menu`) after live output changes at 1024×768,
+  Full HD and 125% scale. Archive six real opened/closed framebuffer PNGs,
+  enforce visible menu change and desktop restoration, and preserve a reviewed
+  screenshot pair (native run #42968039762; PR #247). Physical device focus,
+  keyboard/touch and session signoff are still separate gates.
 - [ ] Review Full-HD Start-menu physical sizing and accessibility in a real
   session; CI proves the menu renders but its fixed 320px width looks small on
   a 1920px output. Physical mixed-DPI, monitor hotplug and focus remain open.

@@ -81,6 +81,27 @@ The result verifies a compositor-visible state change in the expected area;
 it does **not** certify interactive hit targets, screenshot fidelity to
 Windows XP, accessibility or hardware performance.
 
+### Luna Start button · real Wayland pointer click (11 November 2026)
+
+| After first native Start click | After second native Start click |
+| :---: | :---: |
+| [![True 1024 by 768 compositor screenshot after a virtual Wayland pointer clicked the green Luna Start button and opened the two-column menu](luna-pointer-open.webp)](luna-pointer-open.webp) | [![The same live Luna Wayland session after a second pointer click closed the Start menu and restored the wallpaper](luna-pointer-closed.webp)](luna-pointer-closed.webp) |
+| Actual menu opened by compositor input | Actual menu dismissed and desktop restored |
+
+Both full 1024×768 WebPs are optimized from **genuine headless labwc
+captures** (`xp-luna-pointer-open-1024x768.png` and
+`xp-luna-pointer-closed-1024x768.png`) produced in
+[successful native run #42968039762](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42968039762)
+for [PR #247](https://github.com/CopyPasteUser/Ricebowl/pull/247).
+Unlike a `--preview-menu` screenshot, these frames follow actual
+`zwlr_virtual_pointer` motion, press and release events delivered through
+the compositor to the native green Start button. CI verifies the opened menu
+changes more than 10,000 pixels and the second click restores the original
+desktop within 5,000 pixels, including live reconfiguration at Full HD and
+125% scale. All six unmodified PNGs remain in the run artifact. Input was
+isolated to the throwaway CI compositor; **real ThinkPad mouse, keyboard,
+touch, focus and accessibility acceptance remain open**.
+
 ### Opt-in portable font · real compositor comparison
 
 | Bundled bitmap font | Imported private TrueType font |
