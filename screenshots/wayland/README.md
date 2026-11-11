@@ -38,6 +38,30 @@ the native Rust RicePlate code, not supplied by third-party icon packs or
 Windows artwork. The labels and wallpaper are unchanged; headless hardware
 widgets may display `N/A`. Physical hardware acceptance remains pending.
 
+### Luna live output matrix · 1024×768, Full HD and 125% scale (11 November 2026)
+
+| 1024×768 at 100% | 1920×1080 at 100% | 1366×768 at 125% |
+| :---: | :---: | :---: |
+| [![Native Luna menu at 1024 by 768, with original shortcut artwork and full two-column menu](luna-live-1024.webp)](luna-live-1024.webp) | [![Native Luna menu at Full HD, showing the same compact taskbar and Start menu](luna-live-fullhd.webp)](luna-live-fullhd.webp) | [![Native Luna menu at 125 percent compositor scale, with larger panel and desktop shortcuts](luna-live-scale125.webp)](luna-live-scale125.webp) |
+| Original 1024×768 capture | Original 1920×1080 capture, preview downsampled to 1200×675 | Original 1366×768 capture |
+
+The **same running native RicePlate process** was exercised while labwc
+switched between 1024×768, 1366×768, 1920×1080 and 1366×768 at 125%.
+The smoke test first restores the output to 100% after unrelated scaling QA;
+it then captures the actual compositor with the menu both closed and open at
+each geometry. CI checks real screenshot dimensions, the `swaybg` wallpaper,
+the taskbar pixels and an opened-menu pixel delta over 10,000. The three
+optimized WebPs above are directly derived from unaltered PNG frames in
+[successful native CI run #42963768429](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42963768429)
+(`xp-luna-columns-menu-1024x768.png`,
+`xp-luna-columns-menu-1920x1080.png` and
+`xp-luna-columns-menu-scale-125.png`). The full-resolution originals and all
+eight captures remain in that run's artifact.
+
+At Full HD the fixed-size Start menu is noticeably compact. This matrix
+verifies compositing and geometric visibility, **not** font-size/accessibility
+quality or physical mixed-DPI, touch, pointer, focus and monitor hotplug.
+
 ### Opt-in portable font · real compositor comparison
 
 | Bundled bitmap font | Imported private TrueType font |

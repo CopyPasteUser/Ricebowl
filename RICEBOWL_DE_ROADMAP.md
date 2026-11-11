@@ -48,7 +48,16 @@ installation and is not yet a finished desktop environment.
 - [x] Add original 48px Luna desktop pictograms for Programs, Terminal and Lock
   as a schema-v12 `builtin-luna` icon choice; validate and expose it in Creator,
   export it without extra RicePack assets, and retain older recipes unchanged.
-  Real native compositor screenshot QA is required before release.
+  Real native compositor icon comparison passed in run #42960890682.
+- [x] Exercise a **single running** Luna/RicePlate process across 1024×768,
+  1366×768, 1920×1080 and 1366×768 at 125% scale, restoring the compositor
+  to 100% after the earlier scale-specific smoke scenario and after the matrix.
+  Capture closed/open menus at each geometry and validate framebuffer size,
+  wallpaper, panel and menu delta in native CI (green run #42963768429).
+  Preserve 1024, Full HD and 125% real screenshot previews in the gallery.
+- [ ] Review Full-HD Start-menu physical sizing and accessibility in a real
+  session; CI proves the menu renders but its fixed 320px width looks small on
+  a 1920px output. Physical mixed-DPI, monitor hotplug and focus remain open.
 - [ ] Still open before any 1.0 claim: physical ThinkPad input/focus/power and
   display acceptance, third-party client decoration fidelity and final
   distribution/upgrade signoff for schema v12.
