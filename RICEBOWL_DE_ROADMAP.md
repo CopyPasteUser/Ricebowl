@@ -757,6 +757,13 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   solely for the full Wayland session; nested previews and XFCE keep their
   existing notification setup. DND ownership verification accepts this
   explicitly bounded private config. Active Mako is never restarted for edits.
+  **11 Nov compatibility fix:** notification inventories now read the stable
+  Mako `ListNotifications`/`ListHistory` D-Bus interface and validate typed
+  `aa{sv}` replies. Ubuntu 24.04 ships Mako 1.8, which has no `makoctl -j`;
+  later Mako 1.10 changed the command's output to human-readable text before
+  1.11 added its own JSON mode. CI now tests delivery, inspection and exact-ID
+  dismissal against a real Mako 1.8 daemon under an isolated headless labwc
+  session. Physical Wayland/Orca and native delivery remain open gates.
 - [ ] Integrate a secure lock screen, idle policy and suspend/resume.
 
 **Done when:** common desktop settings and recovery workflows no longer
