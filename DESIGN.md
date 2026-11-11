@@ -83,7 +83,12 @@ group/ungroup, edit and insertion actions. Cross-lane transfers move the entire
 selected subtree to another start/center/end lane within the active wide or
 compact layout, validate the combined recipe, and stage both lane changes in
 one private version; a failed transfer leaves the draft untouched. Native GTK
-controls handle focus and popup behavior. The existing
+controls handle focus and popup behavior. A separate explicit
+**Use this layout for Wide/Compact** command duplicates all three lanes to
+the opposite responsive mode as one validated unit, rather than allowing
+single-lane copies to introduce duplicate widget IDs. It requires confirmation
+before replacing the target and coalesces pending child edits into the
+parent-level draft operation, so subsequent edits remain saveable. The existing
 workspace Save version is the single commit action: typing or organizing a
 draft never mutates a current session or rewrites another saved revision.
 
