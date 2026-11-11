@@ -72,6 +72,10 @@ class SelectionConflict(RecipeError):
     """Next-login selection changed since the caller last inspected it."""
 
 
+class SelectionStateConflict(SelectionConflict):
+    """A guarded live switch lost a complete-state race before writing."""
+
+
 class RecipeFingerprintMismatch(RecipeError):
     """Recipe changed since Creator's semantic review."""
 
@@ -992,9 +996,14 @@ def selected_recipe() -> str | None:
     return state["active"]
 
 
+_UNGUARDED_SELECTION = object()
+
+
 def change_selection(token: str | None = None, *, restore: bool = False,
                      expected_active: str | None = None,
-                     expected_semantic_sha256: str | None = None) -> tuple[str, str]:
+                     expected_semantic_sha256: str | None = None,
+                     expected_selection_state: dict[str, Any] | None | object =
+                     _UNGUARDED_SELECTION) -> tuple[str, str]:
     """Change only the *next* Wayland session's recipe, with one-level undo.
 
     The active compositor and every XFCE setting remain untouched. The
@@ -1020,6 +1029,11 @@ def change_selection(token: str | None = None, *, restore: bool = False,
             raise RecipeError("Selected recipe lock is not owner-private")
         fcntl.flock(locked.fileno(), fcntl.LOCK_EX)
         state = _read_selection(directory)
+        if (expected_selection_state is not _UNGUARDED_SELECTION
+                and state != expected_selection_state):
+            # Includes undo history and both pinned hashes, not only active ID.
+            # This is known to happen before writing anything in this call.
+            raise SelectionStateConflict("Next-login selection state changed during review")
         active = state["active"] if state else "classic"
         if expected_active is not None and active != expected_active:
             raise SelectionConflict("Next-login rice selection changed; review the current state")

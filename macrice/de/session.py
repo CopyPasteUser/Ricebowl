@@ -449,7 +449,13 @@ class _LiveSwitch:
         self.active = recipes.load(env.get("RICEBOWL_DE_RECIPE", "classic")).recipe_id
         self.active_digest = staging._hash(self.active)
         self.previous: tuple[str, str] | None = None
-        self.expected_selection, previous = recipes.current_selection()
+        try:
+            self.expected_selection, previous = recipes.current_selection()
+        except recipes.RecipeError:
+            # The full-session launcher already chose a safe classic fallback.
+            # A damaged saved selection must not kill the live supervisor too;
+            # future applies still fail closed at the normal selection preflight.
+            self.expected_selection, previous = self.active, None
         if self.expected_selection == self.active and previous:
             try:
                 # On a fresh login, accept only a previously pinned private
@@ -637,7 +643,8 @@ class _LiveSwitch:
             if not self.nested:
                 selection_attempted = True
                 recipes.change_selection(token, expected_active=self.expected_selection,
-                                         expected_semantic_sha256=digest)
+                                         expected_semantic_sha256=digest,
+                                         expected_selection_state=selection_before)
             if self.stopping():
                 raise LiveError("Session is shutting down", code="session_stopping")
             if pending_recovery is not None:
@@ -672,7 +679,7 @@ class _LiveSwitch:
                     self._reconfigure()
                 except (OSError, subprocess.SubprocessError, LiveError) as restore_error:
                     recovery_errors.append(f"labwc: {restore_error}")
-            if selection_attempted:
+            if selection_attempted and not isinstance(exc, recipes.SelectionStateConflict):
                 try:
                     recipes._restore_failed_live_selection(token, digest, selection_before)
                 except (recipes.RecipeError, OSError) as restore_error:

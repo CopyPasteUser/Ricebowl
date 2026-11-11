@@ -1,5 +1,18 @@
 # RiceBowl changelog
 
+## Unreleased — safe Wayland selection races and damaged-state startup (11 November 2026)
+
+- Guard Creator live selection commits against the complete reviewed next-login
+  state under its existing file lock, including previous rice and pinned hashes.
+  A concurrent `A → B → A` stage can no longer silently erase another Creator's
+  undo history even though the active rice ID is unchanged.
+- A state race detected **before writing** leaves the competing selection intact,
+  restores transient shell components and clears the completed rollback intent.
+  The Creator must review the updated selection before trying again.
+- Keep the opt-in live supervisor available on a safe Classic fallback when
+  saved selection JSON is damaged; further mutations still reject the corrupt
+  private state without overwriting it. Add direct and Creator-protocol tests.
+
 ## Unreleased — Creator live-switch failure and restore integration (11 November 2026)
 
 - Exercise the full reviewed Creator install/apply/restore handoff with injected

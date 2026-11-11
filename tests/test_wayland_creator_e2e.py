@@ -322,6 +322,39 @@ class WaylandCreatorEndToEndTests(unittest.TestCase):
         self.assertFalse(self.old_panel.stopped)
         self.assertFalse(self.old_wallpaper.stopped)
 
+    def test_parallel_creator_roundtrip_with_same_active_id_cannot_erase_history(self):
+        draft = workspace.create_draft("heritage")
+        activation.install(activation.inspect_install(draft))
+        before_menu = self.menu.read_bytes()
+        old_change = recipes.change_selection
+        chrome_sha, classic_sha = staging._hash("chrome"), staging._hash("classic")
+
+        def competing_stage(*args, **kwargs):
+            # The other Creator stages Chrome and then Classic, leaving the
+            # active ID unchanged but publishing a different undo history.
+            old_change("chrome", expected_active="classic",
+                       expected_semantic_sha256=chrome_sha)
+            old_change("classic", expected_active="chrome",
+                       expected_semantic_sha256=classic_sha)
+            return old_change(*args, **kwargs)
+
+        with self.server():
+            plan = activation.inspect_live(draft)
+            with mock.patch.object(recipes, "change_selection", side_effect=competing_stage):
+                with self.assertRaisesRegex(activation.ActivationError, "selection changed"):
+                    activation.apply_live(plan)
+            self.assertEqual(recipes.current_selection(), ("classic", "chrome"))
+            self.assertEqual(self.supervisor.active, "classic")
+            self.assertEqual(self.menu.read_bytes(), before_menu)
+            self.assertFalse(self.old_panel.stopped)
+            self.assertFalse(self.old_wallpaper.stopped)
+            self.assertIsNone(live_recovery.read())
+
+            # Review the actual new state and switch only with fresh consent.
+            applied = activation.apply_live(activation.inspect_live(draft))
+            self.assertEqual(applied["active"], draft.recipe_id)
+            self.assertEqual(applied["previous"], "classic")
+
     def test_private_selection_rehydrates_restore_after_supervisor_restart(self):
         draft = workspace.create_draft("heritage")
         activation.install(activation.inspect_install(draft))
