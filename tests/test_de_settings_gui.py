@@ -10,6 +10,46 @@ from macrice.riceware.media import MediaPlayer
 
 
 class SettingsGuiTests(unittest.TestCase):
+    def test_login_monitor_confirmation_is_visible_and_explicit(self):
+        try:
+            Gtk, _Gdk, GLib = settings._gtk_modules()
+        except (ImportError, ValueError):
+            self.skipTest("GTK introspection typelib is not installed")
+        if not Gtk.init_check([])[0]:
+            self.skipTest("GTK display is unavailable")
+
+        def approve_when_visible():
+            window = next(widget for widget in Gtk.Window.list_toplevels()
+                          if widget.get_title() == "RiceBowl · Confirm monitor layout")
+            self.assertTrue(window.get_visible())
+            content = window.get_child()
+            button = next(child for child in content.get_children()
+                          if isinstance(child, Gtk.Button))
+            self.assertTrue(button.get_sensitive())
+            self.assertIn("Keep this monitor layout", button.get_label())
+            button.clicked()
+            button.clicked()  # Duplicate clicks must not commit a second time.
+            self.assertFalse(button.get_sensitive())
+            return False
+
+        # A real GTK event loop is exercised, while the monitor guard itself
+        # stays mocked so this test never touches physical display hardware.
+        with mock.patch.object(settings.wayland_displays, "_in_session", return_value=True), \
+                mock.patch.dict("os.environ", {"RICEBOWL_DE_NESTED": "0"}), \
+                mock.patch.object(settings.wayland_displays, "runtime_root",
+                                  return_value=Path("/private")), \
+                mock.patch.object(settings.display_guard, "_state_path"), \
+                mock.patch.object(settings.display_guard, "read_status",
+                                  side_effect=[("pending", ""), ("kept", "Confirmed")]), \
+                mock.patch.object(settings.display_guard, "keep_change") as keep:
+            GLib.idle_add(approve_when_visible)
+            failsafe = GLib.timeout_add(2000, lambda: (Gtk.main_quit(), False)[1])
+            try:
+                settings.launch_display_confirmation("a" * 32)
+            finally:
+                GLib.source_remove(failsafe)
+            keep.assert_called_once()
+
     def test_all_sections_render_without_hardware_services_or_side_effects(self):
         try:
             Gtk, Gdk, GLib = settings._gtk_modules()

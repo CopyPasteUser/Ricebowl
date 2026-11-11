@@ -711,13 +711,19 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   connected topology, applies only advertised settings, and restores every
   touched display in reverse order on timeout, partial failure or interruption.
   One explicit confirmation commits the batch; a compositor-owned panel
-  refresh follows. No saved configuration is applied automatically at login.
+  refresh follows. **11 Nov login-trial follow-up:** RiceSpice now offers a
+  *disabled-by-default* option to attempt the saved layout on the next full
+  Wayland login (never XFCE or a nested preview). A dedicated GTK confirmation
+  window must be accepted within 18 seconds; a missing dialog, user decline,
+  crash or logout leaves the independent monitor rollback in charge. Changing
+  the saved layout disables the previous opt-in. This is an opt-in trial,
+  **not** unconditional unattended persistent monitor configuration.
   Session-only labwc input, GTK cursor/text/high-contrast settings and an
   opt-in, supervised full-session Orca launcher are wired. Saved NetworkManager
   Ethernet/Wi-Fi/VPN profiles can be activated/deactivated after confirmation;
   active PulseAudio/PipeWire application streams support verified output
   routing, volume and mute. NTP changes have timedated readback. Remaining:
-  **automatic** monitor layout persistence with a login-safe recovery path,
+  durable unattended layout policy (if wanted) plus
   mixed-DPI/device/audio/assistive-technology hardware acceptance and specialized
   client-certificate EAP-TLS or provider-specific VPN editors. **8 Nov extension:**
   PEAP/MSCHAPv2 and TTLS/PAP/MSCHAPv2 profiles can be created natively with
