@@ -45,6 +45,7 @@ ICON_WIDTH = 104
 ICON_HEIGHT = 88
 ICON_ACTIONS = frozenset(("applications", "terminal", "lock"))
 MENU_ACTIONS = frozenset(("applications", "terminal", "lock", "logout",
+                          "documents", "computer",
                           "wifi-toggle", "audio-mute", "audio-up", "audio-down",
                           "notifications", "settings"))
 # A deliberately smaller set than menu quick controls: all four work from a
@@ -347,7 +348,7 @@ def _parse_menu(value: Any, *, schema_version: int = 4) -> tuple[str, tuple[Menu
                          or not isinstance(value["groups"][0], dict)
                          or "content" not in value["groups"][0]
                          or any(not isinstance(group, dict) or "content" in group
-                                or len(group.get("actions", [])) > 2
+                                or len(group.get("actions", [])) > 4
                                 for group in value["groups"][1:]))):
                 raise RecipeError("Menu presentation requires a compatible bounded layout")
             allowed.add("presentation")
