@@ -54,6 +54,11 @@ with a green Start button, cobalt taskbar and supervised two-minute test.
 Creator can also choose a local TrueType face via Fontconfig and package a
 reviewed private copy in RicePack v4; `ricebowl de fonts --json` lists supported
 fonts without installing or applying anything.
+RiceSpice's **Notifications** page now controls RicePop's Mako Do Not Disturb
+mode inside a verified full RiceBowl session. To inspect it from a terminal,
+use `ricebowl de notification-dnd --json`; switching on requires
+`--dnd on --expect-dnd off` (and vice versa). Nested previews and unrelated
+notification services are never changed.
 
 ## Project links
 

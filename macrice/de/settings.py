@@ -15,13 +15,14 @@ from typing import Callable
 from macrice import display_guard
 from macrice.riceware import media
 
-from . import audio_devices, display_presets, network_enrollment, preferences, recipes
+from . import audio_devices, display_presets, network_enrollment, notifications, preferences, recipes
 from . import settings_backend as backend, wayland_displays
 
 
 SECTIONS = (
     ("network", "Network", "NetworkManager connectivity and Wi-Fi radio"),
     ("audio", "Sound", "Audio devices and media playback"),
+    ("notifications", "Notifications", "RicePop alerts and Do Not Disturb"),
     ("bluetooth", "Bluetooth", "Adapter and paired devices"),
     ("displays", "Displays", "Monitors, scaling and arrangement"),
     ("input", "Input", "Pointer and keyboard preferences"),
@@ -193,6 +194,8 @@ class RiceSpiceWindow:
             self._network(rescan=rescan)
         elif name == "audio":
             self._audio()
+        elif name == "notifications":
+            self._notifications()
         elif name == "bluetooth":
             self._bluetooth()
         elif name == "power":
@@ -208,6 +211,24 @@ class RiceSpiceWindow:
         else:
             self._external(name)
         self.content.show_all()
+
+    def _notifications(self):
+        self._text("Do Not Disturb hides incoming notification banners while retaining "
+                   "RicePop's active and past alerts.", css="ricespice-note")
+        self._text("This setting is available only when the full RiceBowl Wayland "
+                   "session owns its Mako notification service.", css="ricespice-note")
+        self._button("Refresh notification state", lambda: self.show_page("notifications"))
+
+        def present(status):
+            enabled = status["do_not_disturb"]
+            self._state("Do Not Disturb: on" if enabled else "Do Not Disturb: off")
+            self._button("Turn off Do Not Disturb" if enabled else "Turn on Do Not Disturb",
+                         lambda: self._background(
+                             lambda: notifications.set_dnd(not enabled, expected=enabled),
+                             lambda _result: self.show_page("notifications")), primary=True)
+            self.content.show_all()
+
+        self._background(notifications.dnd_status, present)
 
     def _network(self, *, rescan: bool = False):
         self._text("Turning Wi-Fi off can disconnect an active network session.", css="ricespice-note")

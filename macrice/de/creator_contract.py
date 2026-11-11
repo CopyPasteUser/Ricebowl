@@ -307,7 +307,7 @@ def describe_creator_api() -> dict[str, object]:
         "success_exit_code": 0,
         "invalid_options_exit_code": 1,
         "operation_error_exit_code": 2,
-        "active_session_mutation": "Creator authoring stays offline; creator-live-apply/restore, notification-dismiss, notification-invoke and audio-default require explicit user invocation",
+        "active_session_mutation": "Creator authoring stays offline; creator-live-apply/restore, notification-dismiss, notification-invoke, notification-dnd and audio-default require explicit user invocation",
         "next_login_selection_mutation": "creator-stage/rollback only; requires explicit invocation",
         "commands": [
             {"command": "catalog", "effect": "read-only component discovery",
@@ -358,6 +358,9 @@ def describe_creator_api() -> dict[str, object]:
             {"command": "notification-invoke", "effect": "explicitly invoke one freshly verified action advertised by an active Mako alert; never replay history or execute recipe commands",
              "cli": "de notification-invoke --notification-id UINT32 --action-key KEY --json",
              "contract_version": 1, "mutates_active_session": True},
+            {"command": "notification-dnd", "effect": "inspect or compare-and-set Do Not Disturb only for the verified full RiceBowl Mako owner",
+             "cli": "de notification-dnd [--dnd on|off --expect-dnd on|off] --json",
+             "contract_version": 1, "mutates_active_session": True},
             {"command": "audio-devices", "effect": "read real playback and recording devices from the existing audio server",
              "cli": "de audio-devices --json", "contract_version": 1},
             {"command": "audio-default", "effect": "explicitly choose one reviewed default playback/recording device",
@@ -407,7 +410,7 @@ def describe_creator_api() -> dict[str, object]:
                       "pack-export", "pack-import", "asset-import"}
     next_login = {"creator-stage", "creator-rollback"}
     active_wayland = {"creator-live-apply", "creator-live-restore", "display-refresh"}
-    active_user = {"notification-dismiss", "notification-invoke", "audio-default"}
+    active_user = {"notification-dismiss", "notification-invoke", "notification-dnd", "audio-default"}
     for command in contract["commands"]:
         name = command["command"]
         command["mutation_scope"] = (

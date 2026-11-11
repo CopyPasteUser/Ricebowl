@@ -79,7 +79,7 @@ def parser() -> argparse.ArgumentParser:
         "creator-live-status", "creator-live-apply", "creator-live-restore", "creator-live-recovery",
         "display-refresh",
         "pack-export", "pack-inspect", "pack-import", "asset-import", "notifications", "notification-dismiss",
-        "notification-invoke",
+        "notification-invoke", "notification-dnd",
         "settings",
         "audio-devices", "audio-default",
         "recipes", "recipe-init", "recipe-import", "recipe-export", "recipe-current",
@@ -111,6 +111,10 @@ def parser() -> argparse.ArgumentParser:
     de.add_argument("--notification-id", type=int,
                     help="One active notification ID for explicit dismissal/invocation")
     de.add_argument("--action-key", help="Exact current Mako action key for notification-invoke")
+    de.add_argument("--dnd", choices=("on", "off"),
+                    help="Explicit RicePop Do Not Disturb state (omit to inspect)")
+    de.add_argument("--expect-dnd", choices=("on", "off"),
+                    help="Required previously observed DND state when changing it")
     de.add_argument("--device-kind", choices=("sink", "source"),
                     help="Playback sink or recording source for de audio-default")
     de.add_argument("--device-name", help="Exact reviewed audio device name for de audio-default")
@@ -205,6 +209,9 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("--notification-id only applies to notification mutations")
             if args.action != "notification-invoke" and args.action_key is not None:
                 raise ValueError("--action-key only applies to de notification-invoke")
+            if args.action != "notification-dnd" and (args.dnd is not None or
+                                                         args.expect_dnd is not None):
+                raise ValueError("--dnd/--expect-dnd only apply to de notification-dnd")
             if args.action != "audio-default" and any(value is not None for value in
                     (args.device_kind, args.device_name, args.expect_current)):
                 raise ValueError("Audio device mutation options only apply to de audio-default")
@@ -380,25 +387,36 @@ def main(argv: list[str] | None = None) -> int:
                 from .de.settings import launch
                 launch()
                 return 0
-            if args.action in ("notifications", "notification-dismiss", "notification-invoke"):
+            if args.action in ("notifications", "notification-dismiss", "notification-invoke",
+                               "notification-dnd"):
                 if args.nested or args.recipe or args.panel != "waybar" or not args.json:
                     raise ValueError("RicePop notification commands require --json and no session options")
-                if args.action != "notifications" and args.notification_id is None:
+                if args.action in ("notification-dismiss", "notification-invoke") and args.notification_id is None:
                     raise ValueError("Notification mutations require --notification-id")
                 if args.action == "notification-invoke" and args.action_key is None:
                     raise ValueError("de notification-invoke requires --action-key")
-                from .de.notifications import NotificationBridgeError, dismiss, inspect, invalid, invoke
+                if args.action == "notification-dnd" and args.dnd and not args.expect_dnd:
+                    raise ValueError("Changing DND requires --expect-dnd on|off")
+                if args.action == "notification-dnd" and args.expect_dnd and not args.dnd:
+                    raise ValueError("--expect-dnd only applies to a DND mutation")
+                from .de.notifications import (NotificationBridgeError, dismiss, dnd_status,
+                                               inspect, invalid, invoke, set_dnd)
                 try:
                     if args.action == "notifications":
                         result = inspect()
                     elif args.action == "notification-dismiss":
                         result = dismiss(args.notification_id)
+                    elif args.action == "notification-dnd":
+                        result = (set_dnd(args.dnd == "on", expected=args.expect_dnd == "on")
+                                  if args.dnd else dnd_status())
                     else:
                         result = invoke(args.notification_id, args.action_key)
                 except NotificationBridgeError as error:
                     print(json.dumps(invalid(error,
                                              attempted_dismiss=args.action == "notification-dismiss",
-                                             attempted_invoke=args.action == "notification-invoke"), indent=2))
+                                             attempted_invoke=args.action == "notification-invoke",
+                                             attempted_dnd=args.action == "notification-dnd" and
+                                             bool(args.dnd)), indent=2))
                     return 2
                 print(json.dumps(result, indent=2, ensure_ascii=False))
                 return 0

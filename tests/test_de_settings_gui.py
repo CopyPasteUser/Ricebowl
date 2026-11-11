@@ -30,6 +30,9 @@ class SettingsGuiTests(unittest.TestCase):
                     "outputs": [{"name": "output.1", "description": "USB speakers", "default": True}],
                     "inputs": [{"name": "input.1", "description": "USB mic", "default": True}],
                 }), \
+                mock.patch("macrice.de.notifications.dnd_status", return_value={
+                    "do_not_disturb": False,
+                }), \
                 mock.patch("macrice.de.settings_backend.power_snapshot", return_value={
                     "current": "balanced", "supported": ("balanced", "power-saver"),
                     "battery": {"percent": 85, "charging": False, "label": "Discharging"},
@@ -41,7 +44,7 @@ class SettingsGuiTests(unittest.TestCase):
             Path(directory).chmod(0o700)
             window = settings.RiceSpiceWindow(Gtk, Gdk, GLib)
             self.assertTrue(window.window.get_visible())
-            self.assertEqual(len(window.nav_buttons), 9)
+            self.assertEqual(len(window.nav_buttons), 10)
             for name, _title, _description in settings.SECTIONS:
                 before = window.generation
                 window.show_page(name)

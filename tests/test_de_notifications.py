@@ -1,16 +1,131 @@
 """The Wayland RicePop bridge only invokes freshly verified active actions."""
 
 import json
+import os
 import subprocess
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 from macrice.cli import main
-from macrice.de import notifications
+from macrice.de import notifications, session, settings
 from macrice.de.creator_contract import describe_creator_api
 
 
 class WaylandRicePopReadTests(unittest.TestCase):
+    def test_dnd_only_controls_one_mode_with_explicit_previous_state(self):
+        calls = []
+        modes = ["default"]
+
+        def run(args, **_kwargs):
+            calls.append(args)
+            if len(args) == 2:
+                return subprocess.CompletedProcess(args, 0,
+                                                   ("\n".join(modes) + "\n").encode(), b"")
+            if args[2] == "-a":
+                modes.append(notifications._DND_MODE)
+            elif args[2] == "-r":
+                modes.remove(notifications._DND_MODE)
+            return subprocess.CompletedProcess(args, 0, b"", b"")
+
+        with mock.patch.object(notifications, "_owned_mako", return_value=("makoctl", 7)), \
+             mock.patch.object(notifications.subprocess, "run", side_effect=run):
+            self.assertFalse(notifications.dnd_status()["do_not_disturb"])
+            self.assertTrue(notifications.set_dnd(True, expected=False)["changed"])
+            self.assertTrue(notifications.dnd_status()["do_not_disturb"])
+            with self.assertRaises(notifications.NotificationBridgeError) as stale:
+                notifications.set_dnd(False, expected=False)
+            self.assertEqual(stale.exception.code, "stale_dnd_state")
+            self.assertTrue(notifications.set_dnd(False, expected=True)["changed"])
+            self.assertFalse(notifications.set_dnd(False, expected=False)["changed"])
+        self.assertEqual([call for call in calls if len(call) == 4],
+                         [["makoctl", "mode", "-a", notifications._DND_MODE],
+                          ["makoctl", "mode", "-r", notifications._DND_MODE]])
+
+    def test_dnd_owner_must_match_ricebowl_config_and_active_bus_pid(self):
+        config = str(session.resources() / "mako.conf")
+        env = {"XDG_SESSION_DESKTOP": "ricebowl", "RICEBOWL_DE_NESTED": "0",
+               "WAYLAND_DISPLAY": "wayland-1"}
+        with mock.patch.dict(os.environ, env, clear=True), \
+             mock.patch.object(notifications.shutil, "which", side_effect=lambda x: x), \
+             mock.patch.object(notifications.subprocess, "run", return_value=
+                               subprocess.CompletedProcess([], 0, b"  PID=1245\n", b"")), \
+             mock.patch("builtins.open", mock.mock_open(
+                 read_data=("/usr/bin/mako\0--config\0" + config + "\0").encode())):
+            self.assertEqual(notifications._owned_mako(), ("makoctl", 1245))
+        for data in (b"/usr/bin/xfce4-notifyd\0", b"/usr/bin/mako\0", b"", b"a" * 5000):
+            with self.subTest(data=data[:30]), \
+                 mock.patch.dict(os.environ, env, clear=True), \
+                 mock.patch.object(notifications.shutil, "which", side_effect=lambda x: x), \
+                 mock.patch.object(notifications.subprocess, "run", return_value=
+                                   subprocess.CompletedProcess([], 0, b"PID=1245\n", b"")), \
+                 mock.patch("builtins.open", mock.mock_open(read_data=data)):
+                with self.assertRaises(notifications.NotificationBridgeError) as error:
+                    notifications._owned_mako()
+                self.assertEqual(error.exception.code, "dnd_host_unverified")
+
+    def test_dnd_never_touches_other_sessions_or_bad_inventory(self):
+        with mock.patch.dict(os.environ, {"XDG_SESSION_DESKTOP": "XFCE",
+                                              "WAYLAND_DISPLAY": "wayland-1"}, clear=True), \
+             mock.patch.object(notifications.subprocess, "run") as run:
+            with self.assertRaises(notifications.NotificationBridgeError) as error:
+                notifications.set_dnd(True)
+            self.assertEqual(error.exception.code, "dnd_session_unavailable")
+            run.assert_not_called()
+        with mock.patch.object(notifications, "_owned_mako", return_value=("makoctl", 7)), \
+             mock.patch.object(notifications.subprocess, "run", return_value=
+                               subprocess.CompletedProcess([], 0, b"default\ndefault\n", b"")):
+            with self.assertRaises(notifications.NotificationBridgeError):
+                notifications.dnd_status()
+        for requested in ("on", 1, None):
+            with self.subTest(requested=requested):
+                with self.assertRaises(notifications.NotificationBridgeError):
+                    notifications.set_dnd(requested)
+
+    def test_dnd_cli_contract_and_ricespice_navigation(self):
+        self.assertIn("notifications", [item[0] for item in settings.SECTIONS])
+        with mock.patch("builtins.print") as printed:
+            self.assertEqual(main(["de", "notification-dnd", "--dnd", "on", "--json"]), 1)
+            self.assertEqual(main(["de", "notifications", "--dnd", "on", "--json"]), 1)
+        with mock.patch.object(notifications, "dnd_status", return_value={
+                "ok": True, "do_not_disturb": False}), mock.patch("builtins.print") as printed:
+            self.assertEqual(main(["de", "notification-dnd", "--json"]), 0)
+            self.assertFalse(json.loads(printed.call_args.args[0])["do_not_disturb"])
+        with mock.patch.object(notifications, "set_dnd", return_value={
+                "ok": True, "do_not_disturb": True}) as setter, \
+             mock.patch("builtins.print"):
+            self.assertEqual(main(["de", "notification-dnd", "--dnd", "on",
+                                   "--expect-dnd", "off", "--json"]), 0)
+            setter.assert_called_once_with(True, expected=False)
+
+    def test_ricespice_dnd_page_only_offers_verified_explicit_toggle(self):
+        controls = {}
+        statuses = []
+        page = SimpleNamespace()
+        page._text = lambda *_a, **_k: None
+        page._state = statuses.append
+        page.content = SimpleNamespace(show_all=lambda: None)
+        page.show_page = lambda name: statuses.append("page:" + name)
+
+        def button(title, callback, **_options):
+            controls[title] = callback
+
+        page._button = button
+
+        def background(work, done):
+            done(work())
+
+        page._background = background
+        with mock.patch.object(notifications, "dnd_status", return_value={
+                "do_not_disturb": False}), \
+             mock.patch.object(notifications, "set_dnd", return_value={
+                 "do_not_disturb": True}) as setter:
+            settings.RiceSpiceWindow._notifications(page)
+            self.assertIn("Do Not Disturb: off", statuses)
+            controls["Turn on Do Not Disturb"]()
+            setter.assert_called_once_with(True, expected=False)
+            self.assertIn("page:notifications", statuses)
+
     def test_reads_mako_live_and_history_without_replaying_actions(self):
         active = [{"id": 12, "summary": "Download", "body": "Finished",
                    "app_name": "Files", "urgency": "normal",

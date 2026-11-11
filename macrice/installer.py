@@ -79,6 +79,7 @@ def _check_layout(source: Path) -> None:
         "macrice/de/resources/labwc/shutdown",
         "macrice/de/resources/waybar/config.jsonc",
         "macrice/de/resources/waybar/style.css",
+        "macrice/de/resources/mako.conf",
         "macrice/riceware/spice.py",
         "macrice/riceware/pop.py",
         "macrice/riceware/plate.py",

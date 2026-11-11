@@ -5,7 +5,8 @@
 if [ "${RICEBOWL_DE_NESTED:-0}" != 1 ]; then
     if command -v dbus-update-activation-environment >/dev/null 2>&1; then
         dbus-update-activation-environment --systemd WAYLAND_DISPLAY DISPLAY \
-            XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_SESSION_DESKTOP >/dev/null 2>&1 || :
+            XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_SESSION_DESKTOP \
+            RICEBOWL_DE_NESTED >/dev/null 2>&1 || :
     fi
     if command -v systemctl >/dev/null 2>&1; then
         systemctl --user --no-block start ricebowl-session.target >/dev/null 2>&1 || :
