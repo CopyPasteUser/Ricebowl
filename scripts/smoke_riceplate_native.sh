@@ -368,8 +368,27 @@ dbus-run-session -- sh -eu -c '
                     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-return-$geometry.png"
                     cp "$runtime/xp-luna-pointer-return-$geometry.png" \
                        "$source_root/dist/riceplate-native-preview/xp-luna-pointer-return-$geometry.png"
+                    # Pin one validated action with a real compositor
+                    # right-button press, open Saved, then unpin it there.
+                    # This must work without any keyboard-only F2 shortcut.
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" 220 "$header_y" "$width" "$height"
+                    sleep 0.2
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click 60 552 "$width" "$height"
+                    sleep 0.2
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" 284 "$header_y" "$width" "$height"
+                    sleep 0.35
+                    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-saved-pinned-$geometry.png"
+                    cp "$runtime/xp-luna-pointer-saved-pinned-$geometry.png" \
+                       "$source_root/dist/riceplate-native-preview/xp-luna-pointer-saved-pinned-$geometry.png"
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click 60 552 "$width" "$height"
+                    sleep 0.35
+                    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-saved-unpinned-$geometry.png"
+                    cp "$runtime/xp-luna-pointer-saved-unpinned-$geometry.png" \
+                       "$source_root/dist/riceplate-native-preview/xp-luna-pointer-saved-unpinned-$geometry.png"
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" 284 "$header_y" "$width" "$height"
+                    sleep 0.2
                     kill -0 "$plate"
-                    echo "Clicked native Luna Find/Back and Saved/Back at $geometry"
+                    echo "Clicked native Luna Find/Back, Saved/Back and right-click pin/unpin at $geometry"
                 fi
                 WAYLAND_DISPLAY=wayland-0 "$clicker" 35 "$button_y" "$width" "$height"
                 sleep 0.35
