@@ -1029,6 +1029,11 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
     My Computer actions with existing Settings/Notifications/Session entries
     preserved; compact six-row right column and Rust pointer/keyboard bounds.
     Implemented on an isolated PR branch; native CI and device QA are pending.
+  - [ ] XP Luna native taskbar pointer fidelity: distinct Start/task
+    hover and pressed paints from real per-output Wayland pointer events,
+    cached task-group hit lookup and legacy visual regression tests.
+    Implemented on an isolated PR branch; headless CI and real-device
+    acceptance are pending. Native high-DPI typography remains open.
   **Exact XP/7/10 menu reconstructions are deferred to the post-framework
   fidelity gate above**, not blocking this foundational milestone.
 - [ ] Make responsive shell layouts live across every backend and surface,
