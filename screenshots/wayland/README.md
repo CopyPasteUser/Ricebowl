@@ -150,6 +150,19 @@ Wayland vertical wheel-axis request and requires more than 1,200 differing
 pixels. Both snapshots come from headless labwc; they establish compositor
 input and visual paging, not physical touchpad acceptance.
 
+### Luna page range · actual post-scroll counter
+
+[![Real 1024 by 768 Luna Wayland menu after a wheel event, with the live 5-6/6 action-range counter visible at the lower right](luna-pointer-find-paged-counter.webp)](luna-pointer-find-paged-counter.webp)
+
+This permanent full-resolution WebP comes from the unmodified
+`xp-luna-pointer-find-paged-1024x768.png` compositor frame in
+[successful native run #42975969150](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42975969150)
+for [merged PR #258](https://github.com/CopyPasteUser/Ricebowl/pull/258).
+The footer reports `5-6/6` after genuine wheel paging; this is the same
+native view and test path as the previous frames, now with an explicit visible
+row-range cue. The screenshot proves the rendered counter in headless labwc,
+not hardware scroll-wheel or assistive-technology acceptance.
+
 ### Opt-in portable font · real compositor comparison
 
 | Bundled bitmap font | Imported private TrueType font |
