@@ -81,6 +81,31 @@ const MAX_OUTPUT_PANELS: usize = 8;
 const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
 
+/// Purely visual pointer state. Dispatch continues to use recipe::hit and the
+/// original press-to-activate semantics; styling never creates a new action.
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+struct PanelPointerVisual {
+    hovered: Option<Hit>,
+    pressed: Option<Hit>,
+}
+
+impl PanelPointerVisual {
+    fn button(self, target: Hit) -> panel_chrome::ButtonVisual {
+        if self.pressed == Some(target) && self.hovered == Some(target) {
+            panel_chrome::ButtonVisual::Pressed
+        } else if self.hovered == Some(target) {
+            panel_chrome::ButtonVisual::Hovered
+        } else {
+            panel_chrome::ButtonVisual::Normal
+        }
+    }
+}
+
+fn luna_hover_target(hit: Option<Hit>) -> Option<Hit> {
+    hit.filter(|target| matches!(target, Hit::Launcher | Hit::Task(_)))
+}
+
+
 #[derive(Debug, PartialEq, Eq)]
 enum MenuSizeDecision {
     Accept,
@@ -450,6 +475,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         hovered_widget: None,
         focused_panel: None,
         focused_target: None,
+        hovered_panel: None,
+        pressed_panel: None,
         icon_drag: None,
         icon_position_dirty: false,
         icon_outputs,
@@ -850,6 +877,10 @@ struct RicePlate {
     hovered_widget: Option<usize>,
     focused_panel: Option<wl_surface::WlSurface>,
     focused_target: Option<KeyboardTarget>,
+    // The only interactive taskbar cosmetics, scoped to the originating
+    // layer surface so moving between outputs cannot leak hover highlights.
+    hovered_panel: Option<(wl_surface::WlSurface, Hit)>,
+    pressed_panel: Option<(wl_surface::WlSurface, Hit)>,
     icon_drag: Option<IconDrag>,
     icon_position_dirty: bool,
     icon_outputs: icon_positions::OutputPositions,
@@ -872,6 +903,19 @@ struct RicePlate {
 }
 
 impl RicePlate {
+    fn panel_pointer_visual(&self, surface: &wl_surface::WlSurface) -> PanelPointerVisual {
+        if self.recipe.id != "xp-luna-columns" {
+            return PanelPointerVisual::default();
+        }
+        let for_surface = |entry: &Option<(wl_surface::WlSurface, Hit)>| {
+            entry.as_ref().and_then(|(owner, hit)| (owner == surface).then_some(*hit))
+        };
+        PanelPointerVisual {
+            hovered: for_surface(&self.hovered_panel),
+            pressed: for_surface(&self.pressed_panel),
+        }
+    }
+
     fn active_menu_size(&self) -> (u32, u32) {
         self.active_menu.as_ref()
             .and_then(|active| self.menu_layer.iter().chain(self.menu_mirrors.iter())
@@ -1778,6 +1822,9 @@ impl RicePlate {
             == self.mirrors.get(index).map(|mirror| mirror.surface.wl_surface()) {
             self.focused_target
         } else { None };
+        let visual = self.mirrors.get(index)
+            .map(|mirror| self.panel_pointer_visual(mirror.surface.wl_surface()))
+            .unwrap_or_default();
         let Some(mirror) = self.mirrors.get_mut(index) else { return };
         if !mirror.configured || mirror.width == 0 || mirror.height == 0 { return; }
         let surface = mirror.surface.wl_surface();
@@ -1795,9 +1842,10 @@ impl RicePlate {
                 return;
             }
         };
-        paint_panel(canvas, mirror.width, mirror.height, &self.recipe, &groups,
+        paint_panel_pointer(canvas, mirror.width, mirror.height, &self.recipe, &groups,
                     &self.clock, &self.power, &self.system_status, &self.tray_state,
-                    mirror.task_offset, selected, self.control_pending, self.control_result);
+                    mirror.task_offset, selected, self.control_pending, self.control_result,
+                    visual);
         surface.damage_buffer(0, 0, mirror.width as i32, mirror.height as i32);
         if let Err(error) = buffer.attach_to(surface) {
             eprintln!("RicePlate: cannot attach output panel: {error}");
@@ -2960,6 +3008,7 @@ impl RicePlate {
             self.focused_target
         } else { None };
         let surface = self.layer.wl_surface();
+        let visual = self.panel_pointer_visual(surface);
         let stride = (width * 4) as i32;
         let pool = self
             .pool
@@ -2982,9 +3031,10 @@ impl RicePlate {
                 return;
             }
         };
-        paint_panel(canvas, width, height, &self.recipe, &groups,
+        paint_panel_pointer(canvas, width, height, &self.recipe, &groups,
                     &self.clock, &self.power, &self.system_status, &self.tray_state,
-                    self.task_offset, selected, self.control_pending, self.control_result);
+                    self.task_offset, selected, self.control_pending, self.control_result,
+                    visual);
         surface.damage_buffer(0, 0, width as i32, height as i32);
         if let Err(error) = buffer.attach_to(surface) {
             eprintln!("RicePlate: failed to attach Wayland buffer: {error}");
@@ -2998,19 +3048,36 @@ impl RicePlate {
     }
 }
 
+#[cfg(test)]
 fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
                style: &PanelStyle, groups: &[TaskGroup], clock: &str,
                power: &PowerStatus, status: &SystemStatus, tray_state: &tray::State, offset: usize,
                selected: Option<KeyboardTarget>, pending: Option<ControlAction>,
                result: Option<(ControlAction, bool)>) {
+    paint_panel_pointer(canvas, width, height, style, groups, clock,
+                        power, status, tray_state, offset, selected, pending, result,
+                        PanelPointerVisual::default());
+}
+
+fn paint_panel_pointer(canvas: &mut [u8], width: u32, height: u32,
+               style: &PanelStyle, groups: &[TaskGroup], clock: &str,
+               power: &PowerStatus, status: &SystemStatus, tray_state: &tray::State, offset: usize,
+               selected: Option<KeyboardTarget>, pending: Option<ControlAction>,
+               result: Option<(ControlAction, bool)>, visual: PanelPointerVisual) {
+    // Unrelated recipes and the original xp-luna preview retain byte-identical
+    // historical framebuffers: native pointer effects are strictly opt in.
+    let visual = if style.id == "xp-luna-columns" {
+        visual
+    } else { PanelPointerVisual::default() };
     let layout = recipe::layout(style, width, groups.len());
     panel_chrome::background(canvas, width, height, style, &layout);
     for placed in layout {
         match placed.widget {
             Widget::Launcher => {
                 if let Some(launcher) = style.launcher.as_ref() {
-                    panel_chrome::launcher(canvas, width, height, placed.x, placed.width,
-                                           launcher);
+                    panel_chrome::launcher_visual(canvas, width, height, placed.x,
+                                                  placed.width, launcher,
+                                                  visual.button(Hit::Launcher));
                 } else {
                     fill_rect(canvas, width, height, placed.x, 0, placed.width, height,
                               style.active);
@@ -3025,7 +3092,9 @@ fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
                 };
                 draw_rice_text(canvas, width, height,
                           label_x,
-                          height.saturating_sub(8 * style.font_scale) / 2,
+                          height.saturating_sub(8 * style.font_scale) / 2
+                              + u32::from(visual.button(Hit::Launcher)
+                                  == panel_chrome::ButtonVisual::Pressed),
                           launcher_label,
                           style.launcher.as_ref().map_or(style.foreground, |item| item.foreground),
                           style);
@@ -3077,11 +3146,14 @@ fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
                     } else {
                         view.cell_width
                     };
-                    panel_chrome::task_button(canvas, width, height, x, cell_width,
-                                              group.active, style);
+                    let task_visual = visual.button(Hit::Task(view.start + index));
+                    panel_chrome::task_button_visual(canvas, width, height, x, cell_width,
+                                                     group.active, style, task_visual);
                     let label = task_groups::visible_label(group, cell_width);
                     draw_rice_text(canvas, width, height, x + 10,
-                              height.saturating_sub(8 * style.font_scale) / 2,
+                              height.saturating_sub(8 * style.font_scale) / 2
+                                  + u32::from(task_visual
+                                      == panel_chrome::ButtonVisual::Pressed),
                               &label, style.foreground, style);
                     if selected == Some(KeyboardTarget::Task(view.start + index)) {
                         paint_focus_border(canvas, width, height, x, cell_width,
