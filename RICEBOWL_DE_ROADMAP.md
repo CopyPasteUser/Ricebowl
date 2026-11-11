@@ -650,6 +650,11 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   down/up with a deterministic seven-notice offline preview and asserts the
   original framebuffer page is restored. Physical device acceptance remains
   deferred.
+- [x] Show a **RicePop visible-range indicator** only when native active/past
+  notifications exceed the viewport. Full and compact Luna headers use a
+  bounded range, with short page notation for 2× portable fonts; AT-SPI
+  announces the same first/last/total rows. Rust tests cover pages, compact
+  output, the empty history tab and detail/close transitions.
 
 - [x] Add **RicePop Do Not Disturb to the native RiceSpice Notifications page**
   and the machine-readable `de notification-dnd --json` API. A fixed

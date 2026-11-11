@@ -551,6 +551,10 @@ page. Continuous deltas are bounded and accumulated per hit region, cleared
 when crossing header/footer or switching tab, detail or compact geometry.
 The current active/history selection remains the keyboard and accessibility
 selection; scrolling never invokes actions or dismisses a notification.
+When a notification list exceeds its visible rows, the native header shows a
+bounded `first-last/total` counter (`page/total-pages` with the large private
+font). The same visible range is exposed as an AT-SPI status; short lists,
+details and error/loading views do not show a redundant page counter.
 
 The same **validated schema-v12 two-column palette** can opt into
 labwc-owned server-side window frames. `macrice/de/window_chrome.py` maps only

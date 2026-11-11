@@ -1008,6 +1008,11 @@ impl RicePlate {
                     model.add(22_151, 22_000, AccessibleRole::Status,
                               "Notification host unavailable; retrying", None);
                 }
+                if let Some((first, last, total)) = self.notification_state.list_page_status(
+                    compact.then_some(popup_size)) {
+                    model.add(22_152, 22_000, AccessibleRole::Status,
+                              format!("Showing notifications {first} to {last} of {total}"), None);
+                }
                 if self.notification_state.loading {
                     model.add(22_150, 22_000, AccessibleRole::Status, "Loading notifications", None);
                 } else if let Some(error) = self.notification_state.error {
@@ -3627,6 +3632,16 @@ fn paint_compact_notifications(canvas: &mut [u8], style: &PanelStyle,
     fill_rect(canvas, width, height, 0, 0, width, 28, style.active);
     draw_text(canvas, width, height, 8, 10,
               if large_font { "Alerts" } else { "Notifications" }, style.foreground);
+    if !state.sync_error {
+        if let Some((first, last, total)) = state.list_page_status(Some(size)) {
+            let rows = ricepop::compact_rows(size);
+            let label = if large_font { format!("{}/{}", (first - 1) / rows + 1, total.div_ceil(rows)) }
+                        else { format!("{first}-{last}/{total}") };
+            let cell = if large_font { 8 * style.font_scale } else { 8 };
+            let x = width.saturating_sub(label.len() as u32 * cell + 8);
+            draw_text(canvas, width, height, x, 10, &label, style.foreground);
+        }
+    }
     if state.sync_error {
         let status = if large_font || width < 232 { "Off" } else { "Offline" };
         let cell = if large_font { 8 * style.font_scale } else { 8 };
@@ -3745,6 +3760,17 @@ fn paint_notifications(canvas: &mut [u8], style: &PanelStyle, state: &Notificati
     }
     fill_rect(canvas, width, height, 0, 0, width, 38, style.active);
     draw_text(canvas, width, height, 14, 15, "Notifications", style.foreground);
+    if !state.sync_error {
+        if let Some((first, last, total)) = state.list_page_status(None) {
+            let label = if large_font {
+                format!("{}/{}", (first - 1) / ricepop::VISIBLE_ROWS + 1,
+                        total.div_ceil(ricepop::VISIBLE_ROWS))
+            } else { format!("{first}-{last}/{total}") };
+            let cell = if large_font { 8 * style.font_scale } else { 8 };
+            let x = width.saturating_sub(label.len() as u32 * cell + 8);
+            draw_text(canvas, width, height, x, 15, &label, style.foreground);
+        }
+    }
     if state.sync_error {
         draw_text(canvas, width, height, if large_font { 264 } else { 250 }, 15,
                   if large_font { "Off" } else { "Offline" }, style.foreground);
@@ -6037,6 +6063,38 @@ mod tests {
         state.close();
         assert!(state.notices.is_empty());
         assert!(state.history.is_empty());
+    }
+
+    #[test]
+    fn native_ricepop_range_header_tracks_page_in_full_and_compact_painters() {
+        let style = recipe::load("classic").unwrap();
+        let mut state = NotificationState::default();
+        state.show_preview(ricepop::Snapshot {
+            active: (1..=7).map(|id| ricepop::Notice {
+                id, summary: format!("Message {id}"), ..ricepop::Notice::default()
+            }).collect(), history: vec![],
+        });
+        let mut first = vec![0; (native_menu::WIDTH * native_menu::HEIGHT * 4) as usize];
+        let mut page = first.clone();
+        paint_notifications(&mut first, &style, &state);
+        state.select(3);
+        paint_notifications(&mut page, &style, &state);
+        let header_bytes = (native_menu::WIDTH * 38 * 4) as usize;
+        assert_ne!(&first[..header_bytes], &page[..header_bytes],
+                   "visible range must change in the actual native header");
+        state.select(-3);
+        let mut restored = first.clone();
+        paint_notifications(&mut restored, &style, &state);
+        assert_eq!(&first[..header_bytes], &restored[..header_bytes]);
+
+        let size = (168, 144);
+        let mut compact_first = vec![0; (size.0 * size.1 * 4) as usize];
+        let mut compact_next = compact_first.clone();
+        paint_compact_notifications(&mut compact_first, &style, &state, size);
+        state.select(1);
+        paint_compact_notifications(&mut compact_next, &style, &state, size);
+        let compact_header_bytes = (size.0 * 28 * 4) as usize;
+        assert_ne!(&compact_first[..compact_header_bytes], &compact_next[..compact_header_bytes]);
     }
 
     #[test]
