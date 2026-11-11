@@ -820,8 +820,9 @@ mod tests {
         let mut state = MenuState::default();
         state.apps = demo_apps(2);
         state.open();
-        assert_eq!(menu.groups[1].actions,
-                   ["documents", "computer", "settings", "notifications"]);
+        assert_eq!(menu.groups[1].actions.iter().map(String::as_str)
+                   .collect::<Vec<_>>(),
+                   vec!["documents", "computer", "settings", "notifications"]);
         assert_eq!(state.visible_label(menu, "documents", true), "My Documents");
         assert_eq!(state.visible_label(menu, "computer", true), "My Computer");
         for (y, index, action) in [
@@ -837,6 +838,11 @@ mod tests {
         assert!(right.flat_map(|section| &section.items).all(|tile|
             tile.y >= 38 && tile.y + tile.height <= HEIGHT - 28));
         assert_eq!(state.hit(menu, 280.0, f64::from(HEIGHT - 16)), Some(Hit::Close));
+        let mut overflow: serde_json::Value = serde_json::from_str(
+            include_str!("../../../examples/wayland/xp-luna-columns.json")).unwrap();
+        overflow["menu"]["groups"][2]["actions"] = serde_json::json!(
+            ["lock", "logout", "wifi-toggle", "audio-mute"]);
+        assert!(crate::recipe::parse(&overflow.to_string(), Some("xp-luna-columns")).is_err());
         // Fixed left-column All Programs remains the first real action.
         assert_eq!(state.hit(menu, 20.0, 116.0), Some(Hit::Action(0)));
         state.selected = 0;
