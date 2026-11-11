@@ -64,7 +64,7 @@ mod tests {
         let command = location_command("computer").expect("fixed computer launcher");
         assert_eq!(command.get_program(), "gio");
         assert_eq!(command.get_args().map(|s| s.to_string_lossy().into_owned())
-            .collect::<Vec<_>>(), ["open", "/"]);
+            .collect::<Vec<_>>(), vec!["open".to_owned(), "/".to_owned()]);
         assert!(location_command("logout").is_none());
         assert!(location_command("desktop:untrusted.desktop").is_none());
     }
