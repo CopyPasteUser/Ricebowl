@@ -137,6 +137,19 @@ cannot pass as paging. This exercises the native event/render path. It is
 an isolated virtual-device check; touchpad inertia and physical input remain
 for separate hardware acceptance.
 
+| Find list before wheel axis | Same pointer location after real vertical axis |
+| :---: | :---: |
+| [![Real native Luna Find list at the first results, with hover over Terminal](luna-pointer-find-hover.webp)](luna-pointer-find-hover.webp) | [![Real native Luna Find list after virtual Wayland wheel scrolling, showing later entries while pointer coordinates remain unchanged](luna-pointer-find-paged.webp)](luna-pointer-find-paged.webp) |
+| First results visible | Later results visible; no pointer movement |
+
+These two permanent, full-size 1024×768 WebPs were converted from unmodified
+compositor screenshots in [successful native run #42974656672](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42974656672)
+for [merged PR #256](https://github.com/CopyPasteUser/Ricebowl/pull/256).
+The native test uses the **same cursor coordinates** before and after a real
+Wayland vertical wheel-axis request and requires more than 1,200 differing
+pixels. Both snapshots come from headless labwc; they establish compositor
+input and visual paging, not physical touchpad acceptance.
+
 ### Opt-in portable font · real compositor comparison
 
 | Bundled bitmap font | Imported private TrueType font |
