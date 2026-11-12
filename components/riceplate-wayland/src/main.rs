@@ -10,6 +10,7 @@ mod accessibility;
 mod brightness;
 mod calendar;
 mod desktop_layout;
+mod desktop_selection;
 mod icon_positions;
 mod installed_apps;
 mod luna_places;
@@ -479,6 +480,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         keyboard: None,
         focused_icon: None,
         keyboard_icon_surface: None,
+        desktop_selection: desktop_selection::Selection::default(),
         focused_widget: None,
         keyboard_widget_surface: None,
         pressed_widget: None,
@@ -883,6 +885,7 @@ struct RicePlate {
     keyboard: Option<wl_keyboard::WlKeyboard>,
     focused_icon: Option<usize>,
     keyboard_icon_surface: Option<wl_surface::WlSurface>,
+    desktop_selection: desktop_selection::Selection,
     focused_widget: Option<usize>,
     keyboard_widget_surface: Option<wl_surface::WlSurface>,
     pressed_widget: Option<usize>,
@@ -916,6 +919,20 @@ struct RicePlate {
 }
 
 impl RicePlate {
+    fn select_luna_icon(&mut self, index: usize) {
+        if self.recipe.id != "xp-luna-columns" { return; }
+        let previous = self.desktop_selection.select(index);
+        if previous != Some(index) {
+            if let Some(old) = previous { self.redraw_icon(old); }
+            self.redraw_icon(index);
+        }
+    }
+
+    fn clear_luna_selection(&mut self) {
+        if self.recipe.id != "xp-luna-columns" { return; }
+        if let Some(old) = self.desktop_selection.clear() { self.redraw_icon(old); }
+    }
+
     fn panel_pointer_visual(&self, surface: &wl_surface::WlSurface) -> PanelPointerVisual {
         if self.recipe.id != "xp-luna-columns" {
             return PanelPointerVisual::default();
@@ -1607,6 +1624,7 @@ impl RicePlate {
         self.icon_layers.retain(|icon| icon.bound_output.as_ref()
             .is_none_or(|output| outputs.contains(output)));
         if before != self.icon_layers.len() {
+            self.desktop_selection.clear();
             // Layer indices can shift after hot-unplug. Never leave an icon
             // keyboard target or drag pointing at a different surface.
             self.focused_icon = None;
@@ -2319,7 +2337,9 @@ impl RicePlate {
         let icon_pixels = icon_index.and_then(|which| self.recipe.native_art.as_ref()
             .and_then(|art| art.icons[which].as_ref()));
         paint_icon(canvas, icon, &self.recipe,
-                   self.focused_icon == Some(index), icon_pixels);
+                   self.focused_icon == Some(index)
+                       || (self.recipe.id == "xp-luna-columns"
+                           && self.desktop_selection.selected() == Some(index)), icon_pixels);
         surface.damage_buffer(0, 0, width as i32, height as i32);
         if let Err(error) = buffer.attach_to(surface) {
             eprintln!("RicePlate: desktop icon attach failed: {error}");
@@ -2575,6 +2595,8 @@ impl RicePlate {
     }
 
     fn reflow_icons(&mut self) {
+        // Output reflow and icon dragging invalidate pending pointer timing.
+        self.desktop_selection.cancel();
         // An advertised output without a shell surface must not swallow
         // shortcuts assigned to it: recover those on the primary instead.
         let connected: Vec<String> = self.icon_layers.iter()
@@ -4323,7 +4345,10 @@ fn paint_icon(canvas: &mut [u8], icon: &recipe::DesktopIcon, style: &PanelStyle,
         fill_rounded_rect(canvas, width, height, 24, 4, 56, 48, 10, active);
     }
     // Contrast backplate prevents white labels from vanishing on bright rices.
-    fill_rounded_rect(canvas, width, height, 2, 58, 100, 26, 6, 0xb020_2c36);
+    fill_rounded_rect(canvas, width, height, 2, 58, 100, 26, 6,
+                      if focused && style.id == "xp-luna-columns" {
+                          0xd025_5ed3
+                      } else { 0xb020_2c36 });
     if custom.is_none() && !native_bin
         && !matches!(icon.action.as_str(), "computer" | "documents" | "network") {
         draw_rice_text(canvas, width, height,
@@ -4960,6 +4985,7 @@ impl SeatHandler for RicePlate {
                 pointer.release();
             }
             self.icon_drag = None;
+            self.desktop_selection.cancel();
             self.save_icon_positions();
         } else if capability == Capability::Keyboard {
             if let Some(keyboard) = self.keyboard.take() {
@@ -5033,6 +5059,7 @@ impl KeyboardHandler for RicePlate {
         if self.focused_icon != next {
             let previous = self.focused_icon;
             self.focused_icon = next;
+            if let Some(index) = next { self.select_luna_icon(index); }
             if let Some(index) = previous { self.redraw_icon(index); }
             if let Some(index) = next { self.redraw_icon(index); }
             self.save_icon_positions();
@@ -5183,6 +5210,7 @@ impl KeyboardHandler for RicePlate {
                     let delta = if event.keysym == Keysym::ISO_Left_Tab { -1 } else { 1 };
                     if let Some(next) = desktop_layout::navigate(&visible, index, delta) {
                         self.focused_icon = Some(next);
+                        self.select_luna_icon(next);
                         self.redraw_icon(index);
                         self.redraw_icon(next);
                     }
@@ -5716,6 +5744,7 @@ impl PointerHandler for RicePlate {
                 }
                 match event.kind {
                     PointerEventKind::Press { button: BTN_LEFT, .. } => {
+                        self.select_luna_icon(index);
                         if let Some(position) = self.icon_layers[index].placed {
                             self.icon_drag = Some(IconDrag {
                                 index, anchor: event.position, started: position, moved: false,
@@ -5742,12 +5771,22 @@ impl PointerHandler for RicePlate {
                     PointerEventKind::Release { button: BTN_LEFT, .. } => {
                         if let Some(drag) = self.icon_drag.take() {
                             if drag.index == index && !drag.moved {
-                                let action = self.recipe.desktop_icons[
-                                    self.icon_layers[index].recipe_index].action.clone();
-                                self.activate_action(&action, qh);
-                            } else if drag.index == index
-                                && !self.finish_cross_output_drag(&drag, event.position) {
-                                self.save_icon_positions();
+                                // XP native-only: a first click selects, a
+                                // second short click opens. Keyboard/AT-SPI
+                                // activation remains immediate.
+                                let open = if self.recipe.id == "xp-luna-columns" {
+                                    self.desktop_selection.release(index, event.position, Instant::now())
+                                } else { true };
+                                if open {
+                                    let action = self.recipe.desktop_icons[
+                                        self.icon_layers[index].recipe_index].action.clone();
+                                    self.activate_action(&action, qh);
+                                }
+                            } else if drag.index == index {
+                                self.desktop_selection.cancel();
+                                if !self.finish_cross_output_drag(&drag, event.position) {
+                                    self.save_icon_positions();
+                                }
                             }
                         }
                     }
@@ -5850,6 +5889,7 @@ impl PointerHandler for RicePlate {
                     && event.position.1 >= 0.0
                     && event.position.1 < f64::from(panel_height)
                 {
+                    if button == BTN_LEFT { self.clear_luna_selection(); }
                     let groups = self.grouped_tasks();
                     match recipe::hit(
                         event.position.0,
@@ -6791,6 +6831,26 @@ mod tests {
         draw_notification_text(&mut notification, 320, 20, 14, 3,
                                "Alerts & status", style.foreground, &style);
         assert_eq!(bitmap, notification);
+    }
+
+    #[test]
+    fn xp_icon_selection_changes_label_pixels_only_for_luna() {
+        let style = recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let icon = &style.desktop_icons[0];
+        let mut plain = vec![0; (recipe::ICON_WIDTH * recipe::ICON_HEIGHT * 4) as usize];
+        let mut highlighted = plain.clone();
+        paint_icon(&mut plain, icon, &style, false, None);
+        paint_icon(&mut highlighted, icon, &style, true, None);
+        let at = ((64 * recipe::ICON_WIDTH + 10) * 4) as usize;
+        assert_eq!(&plain[at..at+4], &0xb020_2c36_u32.to_le_bytes());
+        assert_eq!(&highlighted[at..at+4], &0xd025_5ed3_u32.to_le_bytes());
+        let classic = recipe::parse(
+            include_str!("../../../tests/fixtures/riceplate-desktop-v5.json"),
+            Some("mockup-desktop")).unwrap();
+        paint_icon(&mut highlighted, &classic.desktop_icons[0], &classic, true, None);
+        assert_eq!(&highlighted[at..at+4], &0xb020_2c36_u32.to_le_bytes());
     }
 
     #[test]
