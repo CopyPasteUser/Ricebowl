@@ -423,3 +423,12 @@ acceptance and a fully native high-resolution menu remain open.
 - Full desktop-background context actions and file-properties UI are
   not implemented in this sprint; neither can be truthfully inferred from
   the shortcut popup.
+
+
+### Native XP Luna: shortcut properties and per-display recovery (12 November 2026)
+
+- The native `xp-luna-columns` shortcut context popup now exposes **Open**, **Next display**, **All displays**, **Reset position**, and **Properties**. Reset is only enabled for a named monitor whose private saved coordinates differ from the active recipe defaults. It resets one shortcut on that monitor, preserving other monitor layouts, source recipes, and output ownership. No global reset or deletion is performed.
+- **Properties** is an output-local, read-only page on the same bounded native layer-shell surface. It displays the shortcut name, an allowlisted action kind, and its logical destination (e.g. “Trash via Gio”); it does **not** claim to stat a real filesystem target or offer unsupported file edits. Back is operable by pointer, Return/Space, Escape, or Backspace. Escape from the action menu still closes it.
+- The opt-in native screen-reader bridge now exposes the popup as an AccessKit menu and its details as a dialog, including enabled actions and keyboard focus. A per-popup revision invalidates stale AT-SPI clicks after reopening or switching views; inaccessible/disabled actions cannot be forced through the bridge.
+- Pure Rust tests cover row bounds, disabled navigation, metadata, output placement, per-monitor reset isolation, and stale accessibility targets. Headless labwc smoke additionally opens Properties and Back through an actual virtual pointer, compares compositor screenshots, and confirms that properties never launch the desktop shortcut.
+- **Still outstanding:** physical Mint input/Orca acceptance; true file/folder Properties supplied by a file manager; an empty-desktop background menu; wider native context menus beyond the opt-in Luna profile. CI acceptance for this change must be checked on its PR.
