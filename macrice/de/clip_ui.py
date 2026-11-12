@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from threading import Thread
 
 from . import clip
 
@@ -26,12 +27,25 @@ class ClipSnapshot:
     session_id: str
     paused: bool
     rows: tuple[ClipRow, ...]
+    hidden_count: int = 0
 
 
 def read_snapshot() -> ClipSnapshot:
     """Read a consistent, bounded snapshot without starting the watcher."""
     for _attempt in range(2):
         status = clip.request("status")
+        # Paused history is intentionally hidden: de lock pauses before its
+        # clear IPC request. Never fetch sensitive previews in that interval.
+        if status.get("paused") is True:
+            identity = status.get("session_id")
+            revision = status.get("revision")
+            hidden = status.get("count")
+            if (type(revision) is not int or revision < 0
+                    or type(hidden) is not int or not 0 <= hidden <= clip.MAX_ITEMS
+                    or not isinstance(identity, str) or len(identity) != 32
+                    or any(ch not in "0123456789abcdef" for ch in identity)):
+                raise clip.ClipError("invalid_request")
+            return ClipSnapshot(revision, identity, True, (), hidden_count=hidden)
         listing = clip.request("list")
         revision = listing.get("revision")
         identity = listing.get("session_id")
@@ -79,6 +93,8 @@ def snapshot_message(snapshot: ClipSnapshot, query: str) -> str:
     """Truthful empty/search state without leaking unseen clipboard contents."""
     state = "Paused" if snapshot.paused else "Recording"
     count = len(snapshot.rows)
+    if snapshot.paused:
+        return "Paused · Clipboard previews hidden until recording resumes"
     if count == 0:
         return f"{state} · No clipboard text saved in this session"
     if query.strip() and not visible_rows(snapshot, query):
@@ -101,6 +117,10 @@ class RiceClipWindow:
         self.closed = False
         self.busy = False
         self.snapshot: ClipSnapshot | None = None
+        self.events_epoch = 0
+        self.events_conn = None
+        self.event_listener_active = False
+        self.pending_event_refresh = False
 
         self.window = Gtk.Window(title="RiceClip · Clipboard history")
         self.window.set_default_size(700, 480)
@@ -174,10 +194,19 @@ class RiceClipWindow:
         root.pack_start(self.status, False, False, 0)
         self._buttons()
         self.window.show_all()
+        self._start_events()
         self.refresh()
 
     def _close(self, _window):
         self.closed = True
+        connection = self.events_conn
+        if connection is not None:
+            try:
+                connection.shutdown(2)
+            except OSError:
+                pass
+            connection.close()
+        self.events_conn = None
         self.snapshot = None
         self.store.clear()
         self.executor.shutdown(wait=False, cancel_futures=True)
@@ -194,12 +223,13 @@ class RiceClipWindow:
         )
         self.refresh_button.set_sensitive(not self.busy)
         self.pause_button.set_sensitive(ready)
-        self.clear_button.set_sensitive(ready and bool(self.snapshot.rows))
+        self.clear_button.set_sensitive(ready and bool(self.snapshot.rows or self.snapshot.hidden_count))
 
     def _work(self, operation, completed):
         if self.busy or self.closed:
             return
         self.busy = True
+        epoch = self.events_epoch
         self._buttons()
         future = self.executor.submit(operation)
 
@@ -208,10 +238,18 @@ class RiceClipWindow:
                 if self.closed:
                     return False
                 self.busy = False
+                if epoch != self.events_epoch:
+                    # A lock/clear event invalidated this async operation;
+                    # never reintroduce an old snapshot after the event.
+                    if self.pending_event_refresh:
+                        self.pending_event_refresh = False
+                        self.refresh()
+                    self._buttons()
+                    return False
                 try:
                     value = finished.result()
                 except clip.ClipError as exc:
-                    if exc.code in ("not_running", "unavailable", "invalid_request"):
+                    if exc.code in ("not_running", "unavailable", "invalid_request", "stale_history"):
                         self.snapshot = None
                         self.store.clear()
                     self.status.set_text(str(exc))
@@ -219,13 +257,94 @@ class RiceClipWindow:
                     self.status.set_text("RiceClip request failed; use Refresh to retry")
                 else:
                     completed(value)
+                if self.pending_event_refresh:
+                    self.pending_event_refresh = False
+                    self.refresh()
                 self._buttons()
                 return False
             self.GLib.idle_add(on_main)
 
         future.add_done_callback(callback)
 
+    def _start_events(self):
+        if self.closed or self.event_listener_active:
+            return
+        self.event_listener_active = True
+
+        def listen():
+            connection = None
+            reader = None
+            try:
+                connection, reader, initial = clip.open_event_subscription()
+                self.events_conn = connection
+                self.GLib.idle_add(self._history_event,
+                                   {**initial, "event": "connected"})
+                while not self.closed:
+                    message = clip._read_event_line(reader)
+                    if (message.get("session_id") != initial["session_id"]
+                            or message.get("event") not in ("privacy", "state")):
+                        raise clip.ClipError("invalid_request")
+                    self.GLib.idle_add(self._history_event, message)
+            except (OSError, clip.ClipError):
+                if not self.closed:
+                    self.GLib.idle_add(self._events_disconnected)
+            finally:
+                self.event_listener_active = False
+                self.events_conn = None
+                if connection is not None:
+                    try:
+                        connection.shutdown(2)
+                    except OSError:
+                        pass
+                if reader is not None:
+                    reader.close()
+                if connection is not None:
+                    connection.close()
+
+        Thread(target=listen, name="riceclip-privacy-events",
+               daemon=True).start()
+
+    def _expire_previews(self, status: str, *, reload: bool):
+        # Called only from the GTK main context. Drop old list state before
+        # any pending worker result can put the private previews back.
+        self.events_epoch += 1
+        self.snapshot = None
+        self.store.clear()
+        self.search.set_text("")
+        self.status.set_text(status)
+        self.pending_event_refresh = reload
+        self._buttons()
+        if reload and not self.busy:
+            self.pending_event_refresh = False
+            self.refresh()
+
+    def _history_event(self, message):
+        if self.closed:
+            return False
+        if message.get("event") == "connected":
+            snapshot = self.snapshot
+            if (snapshot is None or
+                    (not message["paused"] and message["count"] > 0
+                     and snapshot.session_id == message["session_id"]
+                     and snapshot.revision == message["revision"])):
+                return False
+        self._expire_previews(
+            "RiceClip history changed · refreshing private session state",
+            reload=True,
+        )
+        return False
+
+    def _events_disconnected(self):
+        if not self.closed:
+            self._expire_previews(
+                "RiceClip watcher unavailable · Refresh after restarting it",
+                reload=False,
+            )
+        return False
+
     def refresh(self, *, preferred_index=None, expected_revision=None):
+        if not self.event_listener_active:
+            self._start_events()
         def show(snapshot):
             self.snapshot = snapshot
             self.pause_button.set_label("Resume recording" if snapshot.paused else "Pause recording")
@@ -306,7 +425,7 @@ class RiceClipWindow:
         self._work(lambda: clip.request(op), lambda _result: self.refresh())
 
     def _clear(self):
-        if self.snapshot is None or not self.snapshot.rows:
+        if self.snapshot is None or not (self.snapshot.rows or self.snapshot.hidden_count):
             return
         dialog = self.Gtk.MessageDialog(
             transient_for=self.window, modal=True,
