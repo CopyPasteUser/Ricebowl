@@ -14,7 +14,7 @@ installation and is not yet a finished desktop environment.
 - [ ] Reject a multiply hard-linked private recent-app history inode for restore,
   save and explicit privacy clear. A single owner-private regular file remains
   supported; the regression preserves both links and unrelated data when
-  refusing an unsafe file. PR #319; completion requires green Tests and Native
+  refusing an unsafe file. Completion requires green Tests and Native
   RicePlate CI on the final head, then merge. This does not imply physical
   session acceptance or that a privacy clear securely erases storage blocks.
 
