@@ -157,6 +157,9 @@ fn save_at(location: &Path, id: &str, apps: &[String]) -> Result<(), Box<dyn Err
         file.write_all(&bytes)?;
         file.sync_all()?;
         fs::rename(&temporary, location)?;
+        // fsync the directory as well: syncing only the temporary file does
+        // not make the rename durable across a sudden power loss.
+        fs::File::open(directory)?.sync_all()?;
         Ok(())
     })();
     if result.is_err() { let _ = fs::remove_file(temporary); }
@@ -201,6 +204,21 @@ mod tests {
         assert_eq!(restore_at(&location, RICE_ID).unwrap(), entries);
         assert_eq!(fs::metadata(&location).unwrap().mode() & 0o077, 0);
         assert_eq!(fs::metadata(location.parent().unwrap()).unwrap().mode() & 0o077, 0);
+        fs::remove_dir_all(location.ancestors().nth(3).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn repeated_saves_replace_history_without_leaking_temporary_files() {
+        let location = location();
+        let first = vec!["desktop:org.example.First.desktop".to_owned()];
+        let second = vec!["desktop:org.example.Second.desktop".to_owned()];
+        save_at(&location, RICE_ID, &first).unwrap();
+        save_at(&location, RICE_ID, &second).unwrap();
+        assert_eq!(restore_at(&location, RICE_ID).unwrap(), second);
+        let names: Vec<_> = fs::read_dir(location.parent().unwrap()).unwrap()
+            .map(|entry| entry.unwrap().file_name()).collect();
+        assert_eq!(names.len(), 1);
+        assert_eq!(names[0].as_os_str(), location.file_name().unwrap());
         fs::remove_dir_all(location.ancestors().nth(3).unwrap()).unwrap();
     }
 
