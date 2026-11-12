@@ -3242,8 +3242,14 @@ fn paint_panel_pointer(canvas: &mut [u8], width: u32, height: u32,
                 }
                 let overflow = tray_state.overflow_count();
                 if overflow > 0 {
-                    draw_text(canvas, width, height, placed.x + tray::WIDTH - 27,
-                        height.saturating_sub(8) / 2, &format!("+{overflow}"), style.foreground);
+                    if style.id == "xp-luna-columns" {
+                        panel_chrome::tray_overflow_chevron(canvas, width, height,
+                                                           placed.x + tray::WIDTH - 28);
+                    } else {
+                        draw_text(canvas, width, height, placed.x + tray::WIDTH - 27,
+                            height.saturating_sub(8) / 2, &format!("+{overflow}"),
+                            style.foreground);
+                    }
                 }
                 if let Some(KeyboardTarget::Tray(slot)) = selected {
                     let slots = tray_state.visible_count() +
@@ -3681,7 +3687,14 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                        &format!("Saved actions: {}", state.actions(menu).len()), fg, style);
     }
     if let Some(sections) = state.composed_sections(menu) {
+        let mut right_group_seen = false;
         for section in sections {
+            if luna_columns && columns && section.x >= native_menu::COLUMNS_SPLIT {
+                if right_group_seen {
+                    menu_chrome::system_group_rule(canvas, section.top.saturating_sub(4));
+                }
+                right_group_seen = true;
+            }
             draw_rice_text(canvas, width, height, section.x + 2, section.top + 3,
                            section.title, fg, style);
             if section.items.is_empty() {
@@ -3709,13 +3722,11 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                     menu_chrome::action_icon(canvas, tile.x + 6, tile.y + 9,
                                              tile.action, tile.index == state.selected);
                     if tile.action == "applications" {
-                        // The All Programs row drills into the native app
-                        // browser; the arrow is not a decorative dead target.
-                        let arrow_x = tile.x + tile.width - 12;
-                        for step in 0..4 {
-                            fill_rect(canvas, width, height, arrow_x + step,
-                                      tile.y + 11 + step, 1, 7 - 2 * step, tile_fg);
-                        }
+                        // Green XP-inspired glyph over the *real* All Programs
+                        // action, not a duplicate or nonfunctional control.
+                        menu_chrome::all_programs_chevron(
+                            canvas, tile.x + tile.width - 21, tile.y + 7,
+                            tile.index == state.selected);
                     }
                 }
                 if tile.grid {
@@ -6032,6 +6043,39 @@ mod tests {
         assert_ne!(&canvas[painted..painted + 4], &style.background.to_le_bytes());
         assert_eq!(recipe::hit((region.x + 4 * tray::SLOT_WIDTH + 1) as f64,
                                width, 0, 0, &style), None);
+    }
+
+    #[test]
+    fn luna_overflow_chevron_is_backed_by_real_sni_popup_hit() {
+        let style = recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let view = tray::State { entries: (0..6).map(|index| tray::Entry {
+            bus_name: format!("org.example.Test{index}"),
+            title: format!("Test {index}"),
+            icon: None, is_menu: false, needs_attention: false,
+        }).collect() };
+        assert_eq!(view.visible_count(), tray::VISIBLE_ITEMS - 1);
+        assert_eq!(view.overflow_count(), 3);
+        let width = 1366;
+        let height = style.height;
+        let mut pixels = vec![0; (width * height * 4) as usize];
+        paint_panel(&mut pixels, width, height, &style, &[], "12:00",
+                    &PowerStatus::NotPresent, &SystemStatus::default(), &view,
+                    0, None, None, None);
+        let rect = recipe::layout(&style, width, 0).into_iter()
+            .find(|placed| placed.widget == Widget::Tray).unwrap();
+        let x = rect.x + tray::SLOT_WIDTH * (tray::VISIBLE_ITEMS - 1) as u32;
+        assert_eq!(recipe::hit((x + 14) as f64, width, 0, 0, &style),
+                   Some(Hit::Tray(tray::VISIBLE_ITEMS - 1)));
+        let colored = ((height / 2 * width + x + 14) * 4) as usize;
+        assert_ne!(&pixels[colored..colored + 4],
+                   &style.background.to_le_bytes());
+        let mut empty = vec![0; pixels.len()];
+        paint_panel(&mut empty, width, height, &style, &[], "12:00",
+                    &PowerStatus::NotPresent, &SystemStatus::default(),
+                    &tray::State::default(), 0, None, None, None);
+        assert_ne!(pixels, empty);
     }
 
     #[test]

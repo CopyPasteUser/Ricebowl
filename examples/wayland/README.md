@@ -105,6 +105,27 @@ high-resolution pass before claiming pixel-level historical fidelity.
 All decorative dimensions remain data-only or renderer-owned; no global
 desktop/theme changes or proprietary Microsoft artwork are installed.
 
+### XP Luna detail fidelity · actual menu and SNI tray actions
+
+The opt-in Luna columns renderer now replaces its generic All Programs
+triangle with an **original, illuminated green arrow** painted over the
+existing, fully interactive `applications` tile. Thin blue/white separators
+distinguish the real Places and Session sections in the pale-blue right-hand
+column. These do not add new menu actions or change pointer/keyboard geometry.
+
+On this same rice, the existing StatusNotifier host's **fourth tray slot**
+shows an XP-style blue hidden-icons chevron when applications overflow the
+three remaining visible slots. Clicking this region still invokes the actual
+RicePlate SNI overflow popup; other rices retain their familiar numeric
+`+N` indicator. No proprietary XP bitmaps, arbitrary SVGs, new polling
+services or taskbar event overrides are introduced.
+
+Rust tests verify the glyph pixels, clipping, section isolation and actual
+`Hit::Tray(VISIBLE_ITEMS - 1)` routing. The real labwc rendering and
+reproducible package tests remain the merge gate; physical-input acceptance
+is separate. Native high-DPI menu glyph rendering and full XP Explorer
+functionality are still open.
+
 ### Optional portable text font · Creator visual assets
 
 The `xp-luna-columns` recipe selects original compiled-in 48×48 Luna desktop
