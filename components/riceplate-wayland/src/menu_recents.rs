@@ -413,4 +413,59 @@ mod tests {
         assert_eq!(fs::read(&victim).unwrap(), b"KEEP");
         fs::remove_dir_all(location.ancestors().nth(3).unwrap()).unwrap();
     }
+    #[test]
+    fn pinned_history_descriptor_cannot_be_redirected_after_parent_swap() {
+        let location = location();
+        let first = vec!["desktop:org.example.First.desktop".to_owned()];
+        let second = vec!["desktop:org.example.Second.desktop".to_owned()];
+        save_at(&location, RICE_ID, &first).unwrap();
+        let pinned = history_directory(&location, false).unwrap().unwrap();
+        let name = history_name(&location).unwrap();
+        let parent = location.parent().unwrap();
+        let moved = parent.with_file_name("moved-history");
+        fs::rename(parent, &moved).unwrap();
+        // A symlink in the original position cannot retarget the already
+        // opened descriptor. This is the critical check/use race regression.
+        symlink(&moved, parent).unwrap();
+        assert!(restore_at(&location, RICE_ID).is_err());
+        assert!(save_at(&location, RICE_ID, &second).is_err());
+        assert!(clear_at(&location).is_err());
+        assert_eq!(restore_from(&pinned, &name, RICE_ID).unwrap(), first);
+        save_to(&pinned, &name, RICE_ID, &second).unwrap();
+        assert_eq!(restore_from(&pinned, &name, RICE_ID).unwrap(), second);
+        clear_from(&pinned, &name).unwrap();
+        assert!(!moved.join(location.file_name().unwrap()).exists());
+        assert!(fs::symlink_metadata(parent).unwrap().file_type().is_symlink());
+        fs::remove_file(parent).unwrap();
+        fs::rename(&moved, parent).unwrap();
+        fs::remove_dir_all(location.ancestors().nth(3).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn symlinked_xdg_config_ancestor_is_rejected() {
+        let location = location();
+        let config_base = location.ancestors().nth(3).unwrap();
+        let moved = config_base.with_file_name("relocated-config-base");
+        fs::rename(config_base, &moved).unwrap();
+        symlink(&moved, config_base).unwrap();
+        assert!(save_at(&location, RICE_ID, &[]).is_err());
+        assert!(restore_at(&location, RICE_ID).is_err());
+        assert!(clear_at(&location).is_err());
+        fs::remove_file(config_base).unwrap();
+        fs::remove_dir_all(moved).unwrap();
+    }
+
+    #[test]
+    fn named_pipe_is_rejected_without_blocking() {
+        let location = location();
+        save_at(&location, RICE_ID, &[]).unwrap();
+        fs::remove_file(&location).unwrap();
+        let path = CString::new(location.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+        assert!(restore_at(&location, RICE_ID).is_err());
+        assert!(save_at(&location, RICE_ID, &[]).is_err());
+        assert!(clear_at(&location).is_err());
+        fs::remove_dir_all(location.ancestors().nth(3).unwrap()).unwrap();
+    }
+
 }
