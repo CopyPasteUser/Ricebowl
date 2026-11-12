@@ -907,8 +907,16 @@ must not be represented as blockers for the Wayland DE 1.0 core release.
   watcher never prevents locking; cleanup failures are reported without content
   disclosure. The real labwc smoke verifies IPC against synthetic text with a
   fake lock acknowledgement, **not a physical locked screen**. Third-party
-  direct locks, external compositor protocols, stale client previews and
-  hardware suspend/unlock acceptance remain open; keep the parent gate open.
+  direct locks, external compositor protocols and hardware suspend/unlock
+  acceptance remain open. **12 Nov GTK privacy candidate:** the already-open
+  RiceClip browser subscribes to a bounded, same-UID, event-only socket
+  stream; pause/clear/resume and watcher teardown revoke visible previews
+  and search text without polling or a second daemon. Paused snapshots
+  are hidden even in the pause-before-clear interval; in-flight GTK
+  refreshes may not resurrect stale rows. Unit and real headless-labwc
+  screenshot-difference tests are required before the candidate is
+  merged; no physical locked-screen or third-party locker QA is claimed.
+  Keep the parent gate open.
   Offer pause and app exclusions as best-effort protections, without claiming
   that password/sensitive content can always be detected. Persistent history
   is a separately reviewed opt-in feature, not a minimum requirement.
