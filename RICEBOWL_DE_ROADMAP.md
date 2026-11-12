@@ -885,8 +885,16 @@ must not be represented as blockers for the Wayland DE 1.0 core release.
   without starting the watcher. The normal XP-Luna sidebar and the distinct
   Heritage demo expose it; the size-constrained Luna-Columns six-row shelf
   remains unchanged. An isolated compositor pointer test must still pass CI.
-  Native in-menu history rendering, pins, retention settings, cross-rice
-  presentation and device QA remain unfinished; the checkbox stays open.
+  **12 Nov follow-up candidate:** the existing on-demand GTK client now
+  supports up to five volatile session pins via the same bounded watcher IPC.
+  Pinned entries form a stable, non-evictable prefix of the 20-item ring; pin
+  and unpin require both the current history revision and watcher identity,
+  and never run an external process. The pins disappear on clear/logout.
+  Tests cover limits, deduplication, eviction, stale/restarted watchers and a
+  real synthetic-content labwc clipboard round trip. This is CI-gated and
+  not physical acceptance. Native in-menu history rendering, configurable
+  retention, cross-rice presentation and device QA remain unfinished;
+  the parent checkbox stays open.
 - [ ] Keep history **off until explicitly enabled**; default to session-only
   memory, clear on logout/lock or user action, and never log clipboard contents.
   The foreground prototype already stays off by default and clears on exit or
