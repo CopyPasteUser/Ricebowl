@@ -225,25 +225,33 @@ class RiceClipWindow:
 
         future.add_done_callback(callback)
 
-    def refresh(self):
+    def refresh(self, *, preferred_index=None, expected_revision=None):
         def show(snapshot):
             self.snapshot = snapshot
             self.pause_button.set_label("Resume recording" if snapshot.paused else "Pause recording")
-            self._render_rows()
+            # A moved row can only be reselected if no clipboard event
+            # intervened after the server reported its new index.
+            target = (preferred_index if snapshot.revision == expected_revision
+                      and type(preferred_index) is int else None)
+            self._render_rows(preferred_index=target)
         self._work(read_snapshot, show)
 
-    def _render_rows(self):
+    def _render_rows(self, *, preferred_index=None):
         self.store.clear()
         if self.snapshot is None:
             self._buttons()
             return
-        for row in visible_rows(self.snapshot, self.search.get_text()):
+        selected_path = None
+        for path_index, row in enumerate(visible_rows(self.snapshot, self.search.get_text())):
             preview = row.preview.replace("\n", " ↵ ").replace("\r", " ").replace("\t", " ⇥ ")
             self.store.append((row.index,
                                ("★ " if row.pinned else "") + preview,
                                str(row.characters)))
+            if row.index == preferred_index:
+                selected_path = path_index
         if len(self.store):
-            self.list.get_selection().select_path(0)
+            self.list.get_selection().select_path(
+                selected_path if selected_path is not None else 0)
         self.status.set_text(snapshot_message(self.snapshot, self.search.get_text()))
         self._buttons()
 
@@ -264,11 +272,15 @@ class RiceClipWindow:
             return
         snapshot = self.snapshot
         op = "unpin" if row.pinned else "pin"
+        def updated(receipt):
+            self.refresh(preferred_index=receipt.get("selected_index"),
+                         expected_revision=receipt.get("revision"))
+
         self._work(
             lambda: clip.request(op, index=row.index,
                                  revision=snapshot.revision,
                                  session_id=snapshot.session_id),
-            lambda _result: self.refresh(),
+            updated,
         )
 
     def _copy(self):
