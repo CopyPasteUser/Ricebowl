@@ -133,7 +133,8 @@ persisted or auto-restored. Configurable retention, physical hardware input,
 and a composited in-panel history view remain open.
 
 In the **full opt-in RiceBowl Wayland session**, the native Lock action,
-labwc **Super+L**, swayidle automatic timeout/before-sleep and logind-initiated
+the Waybar/rice fallback panel and labwc menu, labwc **Super+L**,
+swayidle automatic timeout/before-sleep and logind-initiated
 lock events use the same fixed `ricebowl de lock` helper. It waits for
 `swaylock -f` to report a compositor lock, then requests the existing RiceClip
 watcher to clear its session-only text and pins. A failed or absent watcher
