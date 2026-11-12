@@ -123,20 +123,20 @@
     "wallpaper": "luna-hills",
     "icons": [
       {
-        "label": "Programs",
-        "action": "applications",
+        "label": "My Computer",
+        "action": "computer",
         "x": 24,
         "y": 88
       },
       {
-        "label": "Terminal",
-        "action": "terminal",
+        "label": "My Documents",
+        "action": "documents",
         "x": 24,
         "y": 192
       },
       {
-        "label": "Lock",
-        "action": "lock",
+        "label": "My Network",
+        "action": "network",
         "x": 24,
         "y": 296
       },
@@ -145,6 +145,24 @@
         "action": "trash",
         "x": 24,
         "y": 400
+      },
+      {
+        "label": "Programs",
+        "action": "applications",
+        "x": 136,
+        "y": 88
+      },
+      {
+        "label": "Terminal",
+        "action": "terminal",
+        "x": 136,
+        "y": 192
+      },
+      {
+        "label": "Lock",
+        "action": "lock",
+        "x": 136,
+        "y": 296
       }
     ]
   },

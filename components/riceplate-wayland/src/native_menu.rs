@@ -209,8 +209,8 @@ pub struct MenuState {
     pub search: String,
     pub pins: Vec<String>,
     pub apps: Vec<App>,
-    /// Session-local usage order. Only previously discovered XDG apps may
-    /// enter this list; private usage history is never persisted by default.
+    /// Only discovered XDG apps are displayed; the opt-in XP Luna rice may
+    /// restore a bounded private history, while all other rices remain session-only.
     recent_apps: Vec<String>,
     wheel_remainder: f64,
     last_app_refresh: Option<Instant>,
@@ -221,6 +221,14 @@ impl MenuState {
         Self { pins, ..Self::default() }
     }
 
+    pub fn with_pins_and_recents(pins: Vec<String>, recent_apps: Vec<String>) -> Self {
+        Self { pins, recent_apps, ..Self::default() }
+    }
+
+    pub fn recent_apps(&self) -> &[String] {
+        &self.recent_apps
+    }
+
     /// Refresh the bounded application index when the menu is opened, never on
     /// keypress or during rendering. Changes are picked up on the next opening.
     pub fn refresh_apps(&mut self) {
@@ -228,6 +236,10 @@ impl MenuState {
             return;
         }
         self.apps = installed_apps::discover();
+        // Prune removed/hidden entries on discovery. No unknown desktop ID
+        // from private history becomes a launchable action.
+        self.recent_apps.retain(|id|
+            self.apps.iter().any(|app| app.action == *id));
         self.last_app_refresh = Some(Instant::now());
     }
 
@@ -1698,4 +1710,20 @@ mod tests {
         assert_eq!(state.selected, 0);
         assert_eq!(state.current_action(&data), None);
     }
+    #[test]
+    fn restored_recents_only_surface_installed_apps_and_remain_bounded() {
+        let mut state = MenuState::with_pins_and_recents(
+            Vec::new(),
+            vec!["desktop:removed.desktop".into(), "desktop:demo-1.desktop".into()],
+        );
+        state.apps = vec![App {
+            action: "desktop:demo-1.desktop".into(), name: "Editor".into(),
+            search_text: "editor".into(), path: "/usr/share/applications/demo-1.desktop".into(),
+        }];
+        assert_eq!(state.luna_preview_apps(3), vec!["desktop:demo-1.desktop"]);
+        assert!(state.record_app_launch("desktop:demo-1.desktop"));
+        assert!(!state.record_app_launch("desktop:removed.desktop"));
+        assert_eq!(state.recent_apps()[0], "desktop:demo-1.desktop");
+    }
+
 }

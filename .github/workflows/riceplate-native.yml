@@ -470,9 +470,11 @@ jobs:
                   f'Native Luna menu missing after output configure: {menu_pixels}'
           with Image.open(directory / 'xp-luna-default-icons.png') as original_image, \
                Image.open(directory / 'xp-luna-columns.png') as luna_image:
-              # Compare an actual desktop shortcut surface, never a screenshot
-              # mockup or an unrelated clock/wallpaper region.
-              region = (52, 92, 100, 140)
+              # Compare the actual Programs shortcut (second desktop column).
+              # The first shortcut now opens My Computer and intentionally has
+              # the same native artwork in both variants. Programs alone changes
+              # from default to original Luna artwork; keep the pixel threshold.
+              region = (164, 92, 212, 140)
               original = original_image.convert('RGB').crop(region)
               luna = luna_image.convert('RGB').crop(region)
               icon_changed = sum(a != b for a, b in zip(original.getdata(), luna.getdata()))

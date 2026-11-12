@@ -112,10 +112,10 @@ class ComponentCatalogTests(unittest.TestCase):
 
     def test_catalog_serializes_to_json_without_private_environment_data(self):
         payload = json.dumps(catalog.describe(), sort_keys=True, ensure_ascii=False)
-        # The bounded Creator inventory grows when existing components gain
-        # real variants; preserve a sensible wire-size ceiling without hiding
-        # new documented properties to satisfy the old near-full 16 KiB cap.
-        self.assertLess(len(payload), 24_576)
+        # The versioned Creator inventory now includes XP desktop computer,
+        # documents and network actions. Keep a bounded 25 KiB wire budget
+        # rather than dropping supported actions from the catalog.
+        self.assertLess(len(payload), 25_600)
         self.assertNotIn("/home/", payload)
         self.assertNotIn("https://", payload)
         self.assertNotIn("exec:", payload)

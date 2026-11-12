@@ -43,7 +43,8 @@ DESKTOP_WIDGET_WIDTH = 200
 DESKTOP_WIDGET_HEIGHT = 96
 ICON_WIDTH = 104
 ICON_HEIGHT = 88
-ICON_ACTIONS = frozenset(("applications", "terminal", "lock", "trash"))
+ICON_ACTIONS = frozenset(("applications", "terminal", "lock", "trash",
+                          "documents", "computer", "network"))
 MENU_ACTIONS = frozenset(("applications", "terminal", "lock", "logout",
                           "documents", "computer",
                           "wifi-toggle", "audio-mute", "audio-up", "audio-down",

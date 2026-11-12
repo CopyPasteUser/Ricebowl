@@ -44,14 +44,20 @@ class WaylandLunaTests(unittest.TestCase):
                          ["Programs", "Places", "Session"])
         self.assertEqual(parsed.menu[1][1].actions,
                          ("documents", "computer", "settings", "notifications"))
-        self.assertEqual(parsed.desktop_icons[-1].label, "Recycle Bin")
-        self.assertEqual(parsed.desktop_icons[-1].action, "trash")
+        self.assertEqual(len(parsed.desktop_icons), 7)
+        self.assertEqual([icon.action for icon in parsed.desktop_icons], [
+            "computer", "documents", "network", "trash",
+            "applications", "terminal", "lock",
+        ])
+        self.assertEqual(next(icon.label for icon in parsed.desktop_icons
+                              if icon.action == "trash"), "Recycle Bin")
         schema = creator_schema.describe(12)
         properties = schema["properties"]["operations"]["items"]["oneOf"]
         edit = {operation["properties"]["path"]["const"]: operation
                 for operation in properties if "const" in operation["properties"]["path"]}
-        self.assertIn("trash", edit["/desktop/icons"]["properties"]["value"]["items"]
-                      ["properties"]["action"]["enum"])
+        icon_actions = edit["/desktop/icons"]["properties"]["value"]["items"][
+            "properties"]["action"]["enum"]
+        self.assertTrue({"trash", "computer", "documents", "network"} <= set(icon_actions))
         # The native trash art is drawn in-engine, not an arbitrary fourth
         # imported image that the three-slot Rust artwork loader cannot read.
         artwork_keys = set(edit["/artwork/icons"]["properties"]["value"]["properties"])
