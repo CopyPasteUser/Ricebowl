@@ -148,7 +148,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         return output_watch::run();
     }
     if matches!(arguments.as_slice(), [arg] if arg == "--help") {
-        println!("Usage: riceplate-native [--recipe classic|chrome|/absolute/private.json [--preview-menu|--preview-calendar|--preview-osd|--preview-notifications|--preview-notification-detail|--preview-notifications-scroll]]\n       riceplate-native --watch-outputs (RiceBowl session only)");
+        println!("Usage: riceplate-native [--recipe classic|chrome|/absolute/private.json [--preview-menu|--preview-calendar|--preview-osd|--preview-notifications|--preview-notification-detail|--preview-notifications-scroll]]\n       riceplate-native --watch-outputs (RiceBowl session only)\n       riceplate-native --clear-luna-recents (clear private XP Luna app history)");
         return Ok(());
     }
     let (recipe_name, preview_menu, preview_calendar, preview_osd, preview_notifications,
