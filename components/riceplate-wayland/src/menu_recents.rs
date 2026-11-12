@@ -172,13 +172,23 @@ pub fn clear() -> Result<(), Box<dyn Error>> {
     let Some(location) = path(RICE_ID) else {
         return Err("History clearing is disabled in nested preview mode".into());
     };
-    check_existing_parent(&location)?;
-    match fs::symlink_metadata(&location) {
+    clear_at(&location)
+}
+
+fn clear_at(location: &Path) -> Result<(), Box<dyn Error>> {
+    check_existing_parent(location)?;
+    match fs::symlink_metadata(location) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error.into()),
         Ok(meta) if meta.is_file() && !meta.file_type().is_symlink()
-            && meta.uid() == unsafe { libc::geteuid() } && meta.mode() & 0o077 == 0 =>
-                Ok(fs::remove_file(location)?),
+            && meta.uid() == unsafe { libc::geteuid() } && meta.mode() & 0o077 == 0 => {
+                fs::remove_file(location)?;
+                // A successful unlink alone does not make the privacy-clear
+                // durable across a sudden power loss.
+                fs::File::open(location.parent().ok_or("Missing recent applications directory")?)?
+                    .sync_all()?;
+                Ok(())
+            }
         Ok(_) => Err("Refusing to delete an unmanaged history file".into()),
     }
 }
@@ -219,6 +229,21 @@ mod tests {
             .map(|entry| entry.unwrap().file_name()).collect();
         assert_eq!(names.len(), 1);
         assert_eq!(names[0].as_os_str(), location.file_name().unwrap());
+        fs::remove_dir_all(location.ancestors().nth(3).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn privacy_clear_removes_history_and_preserves_unmanaged_files() {
+        let location = location();
+        let entries = vec!["desktop:org.example.Editor.desktop".to_owned()];
+        save_at(&location, RICE_ID, &entries).unwrap();
+        let keep = location.parent().unwrap().join("keep.txt");
+        fs::write(&keep, b"KEEP").unwrap();
+        clear_at(&location).unwrap();
+        assert!(!location.exists());
+        assert_eq!(fs::read(&keep).unwrap(), b"KEEP");
+        assert!(restore_at(&location, RICE_ID).unwrap().is_empty());
+        clear_at(&location).unwrap();
         fs::remove_dir_all(location.ancestors().nth(3).unwrap()).unwrap();
     }
 
