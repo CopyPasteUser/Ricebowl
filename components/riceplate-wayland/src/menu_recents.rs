@@ -77,7 +77,7 @@ pub fn restore(id: &str) -> Result<Vec<String>, Box<dyn Error>> {
 }
 
 fn restore_at(location: &Path, id: &str) -> Result<Vec<String>, Box<dyn Error>> {
-    if location.parent().is_some_and(|parent| parent.exists()) { check_parents(location)?; }
+    if location.parent().is_some_and(|parent| fs::symlink_metadata(parent).is_ok()) { check_parents(location)?; }
     let file = match OpenOptions::new().read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC).open(location) {
             Ok(file) => file,
@@ -149,7 +149,7 @@ pub fn clear() -> Result<(), Box<dyn Error>> {
     let Some(location) = path(RICE_ID) else {
         return Err("History clearing is disabled in nested preview mode".into());
     };
-    if location.parent().is_some_and(|parent| parent.exists()) { check_parents(&location)?; }
+    if location.parent().is_some_and(|parent| fs::symlink_metadata(parent).is_ok()) { check_parents(&location)?; }
     match fs::symlink_metadata(&location) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error.into()),
@@ -231,6 +231,16 @@ mod tests {
         assert!(save_at(&location, RICE_ID, &[]).is_err());
         fs::remove_file(root).unwrap();
         fs::rename(&replacement, root).unwrap();
+        fs::remove_dir_all(location.ancestors().nth(3).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn dangling_history_directory_symlink_is_not_treated_as_missing() {
+        let location = location();
+        let root = location.parent().unwrap().parent().unwrap();
+        fs::create_dir(root).unwrap();
+        symlink(root.join("missing-target"), location.parent().unwrap()).unwrap();
+        assert!(restore_at(&location, RICE_ID).is_err());
         fs::remove_dir_all(location.ancestors().nth(3).unwrap()).unwrap();
     }
 
