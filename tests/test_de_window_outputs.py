@@ -58,6 +58,29 @@ class WindowOutputsTest(unittest.TestCase):
             with self.assertRaises((OSError, ValueError)):
                 changed_panel_pixels(first, second)
 
+    def test_rejects_missing_corrupt_or_followed_iend(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            first, second = folder / "before.png", folder / "opened.png"
+            Image.new("RGB", (1024, 768), "#202f46").save(first)
+            with Image.open(first) as image:
+                opened = image.copy()
+            ImageDraw.Draw(opened).rectangle((112, 745, 180, 759), fill="#ffffff")
+            opened.save(second)
+            self.assertGreater(changed_panel_pixels(first, second), 30)
+
+            intact = second.read_bytes()
+            self.assertEqual(intact[-8:-4], b"IEND")
+            for kind, payload in (
+                ("missing IEND", intact[:-12]),
+                ("bad IEND CRC", intact[:-1] + bytes([intact[-1] ^ 0xFF])),
+                ("trailing junk", intact + b"junk"),
+            ):
+                with self.subTest(corruption=kind):
+                    second.write_bytes(payload)
+                    with self.assertRaises((OSError, ValueError)):
+                        changed_panel_pixels(first, second)
+
     def test_rejects_non_png_capture_even_when_pixels_match(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)
