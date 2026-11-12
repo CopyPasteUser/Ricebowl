@@ -1060,6 +1060,15 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
     in-menu app preview, keeping history bounded to eight, session-local and
     isolated from other rices. Regression is added; native compositor
     verification is still required before merging.
+  - [ ] Harden the optional XP Luna recent-app file contract against
+    parent-directory replacement races. The Directory-FD candidate walks
+    absolute XDG path components with no-follow directory opens, pins the
+    owned private history directory and uses relative open/rename/unlink
+    operations with durable sync. Rust regressions substitute directories,
+    ancestor symlinks and non-regular FIFO entries; full CI is a merge gate.
+    This protects against path redirection, not arbitrary same-UID processes
+    racing entries inside the private directory. Explicit privacy clear and
+    physical-device acceptance require separate validation.
   - [ ] XP Luna native places shelf: add fixed Gio-backed My Documents and
     My Computer actions with existing Settings/Notifications/Session entries
     preserved; compact six-row right column and Rust pointer/keyboard bounds.
