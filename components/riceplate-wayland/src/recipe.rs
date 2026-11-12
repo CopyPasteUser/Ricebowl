@@ -1541,6 +1541,34 @@ mod tests {
     }
 
     #[test]
+    fn riceclip_history_is_a_bounded_shared_action_with_live_hit_geometry() {
+        const CLIP_ACTIONS: &str =
+            include_str!("../../../tests/fixtures/riceplate-clip-actions-v6.json");
+        let style = parse(CLIP_ACTIONS, Some("riceclip-actions")).unwrap();
+        assert_eq!(style.actions[0].id, "clip-history");
+        assert!(!style.actions[0].control);
+        let button = layout(&style, 1366, 0).into_iter()
+            .find(|placed| placed.widget == Widget::Action(0)).unwrap();
+        assert_eq!(hit((button.x + button.width / 2) as f64, 1366, 0, 0, &style),
+                   Some(Hit::Action(0)));
+        let menu = style.menu.as_ref().unwrap();
+        assert!(menu.groups.iter().flat_map(|group| group.actions.iter())
+            .any(|action| action == "clip-history"));
+
+        let original: serde_json::Value = serde_json::from_str(CLIP_ACTIONS).unwrap();
+        for invalid in ["clip-history;sh", "clip-history --watch", "exec"] {
+            let mut altered = original.clone();
+            altered["panel"]["layout"]["start"][0]["children"][1]["id"] =
+                serde_json::json!(invalid);
+            assert!(parse(&altered.to_string(), None).is_err());
+        }
+        let mut scripted = original;
+        scripted["panel"]["layout"]["start"][0]["children"][1]["command"] =
+            serde_json::json!("sh");
+        assert!(parse(&scripted.to_string(), None).is_err());
+    }
+
+    #[test]
     fn v6_action_buttons_have_shared_render_and_hit_geometry() {
         let style = parse(ACTIONS_V6, Some("mockup-actions")).unwrap();
         assert_eq!(style.actions.len(), 2);
