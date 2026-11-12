@@ -952,16 +952,18 @@ mod tests {
         state.open();
         assert_eq!(menu.groups[1].actions.iter().map(String::as_str)
                    .collect::<Vec<_>>(),
-                   vec!["documents", "computer", "pictures", "music", "settings", "notifications"]);
+                   vec!["documents", "computer", "pictures", "music", "settings", "notifications",
+                        "help", "run"]);
         assert_eq!(state.visible_label(menu, "documents", true), "My Documents");
         assert_eq!(state.visible_label(menu, "computer", true), "My Computer");
         assert_eq!(state.visible_label(menu, "pictures", true), "My Pictures");
         assert_eq!(state.visible_label(menu, "music", true), "My Music");
         for (y, index, action) in [
-            (80.0, 4, "documents"), (102.0, 5, "computer"),
-            (124.0, 6, "pictures"), (146.0, 7, "music"),
-            (168.0, 8, "settings"), (190.0, 9, "notifications"),
-            (226.0, 10, "lock"), (248.0, 11, "logout"),
+            (80.0, 4, "documents"), (98.0, 5, "computer"),
+            (116.0, 6, "pictures"), (134.0, 7, "music"),
+            (152.0, 8, "settings"), (170.0, 9, "notifications"),
+            (188.0, 10, "help"), (206.0, 11, "run"),
+            (232.0, 12, "lock"), (250.0, 13, "logout"),
         ] {
             assert_eq!(state.hit(menu, 190.0, y), Some(Hit::Action(index)));
             assert_eq!(state.actions(menu)[index], action);
