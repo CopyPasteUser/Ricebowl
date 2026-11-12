@@ -3,10 +3,11 @@
 
 use std::{env, path::{Path, PathBuf}, process::Command};
 
-fn xdg_documents_directory() -> Option<PathBuf> {
-    // XDG user directories are per-user settings, not necessarily ~/Documents.
-    // Probe only on click; no polling or resident helper.
-    let result = Command::new("xdg-user-dir").arg("DOCUMENTS").output().ok()?;
+fn xdg_user_directory(kind: &str) -> Option<PathBuf> {
+    // Fixed XDG directory types only. Never pass a recipe-supplied value
+    // to an executable. Probe on click, not in a resident poll.
+    if !matches!(kind, "DOCUMENTS" | "PICTURES" | "MUSIC") { return None; }
+    let result = Command::new("xdg-user-dir").arg(kind).output().ok()?;
     if !result.status.success() { return None; }
     let text = String::from_utf8(result.stdout).ok()?;
     let directory = PathBuf::from(text.trim());
@@ -19,6 +20,17 @@ fn choose_documents(home: &Path, preferred: Option<PathBuf>) -> PathBuf {
     }
     let conventional = home.join("Documents");
     if conventional.is_dir() { conventional } else { home.to_path_buf() }
+}
+
+// Unlike Documents, an absent media folder must not silently open $HOME:
+// a My Pictures/Music shortcut should never navigate to an unrelated place.
+fn choose_media(home: &Path, preferred: Option<PathBuf>, name: &str) -> Option<PathBuf> {
+    if let Some(directory) = preferred.filter(|path|
+        path.is_absolute() && path.is_dir() && path != home) {
+        return Some(directory);
+    }
+    let conventional = home.join(name);
+    conventional.is_dir().then_some(conventional)
 }
 
 fn location_command(action: &str) -> Option<Command> {
@@ -44,7 +56,17 @@ fn location_command(action: &str) -> Option<Command> {
         "documents" => {
             let home = env::var_os("HOME").map(PathBuf::from)?;
             if !home.is_absolute() || !home.is_dir() { return None; }
-            choose_documents(&home, xdg_documents_directory())
+            choose_documents(&home, xdg_user_directory("DOCUMENTS"))
+        }
+        "pictures" | "music" => {
+            let home = env::var_os("HOME").map(PathBuf::from)?;
+            if !home.is_absolute() || !home.is_dir() { return None; }
+            let (kind, name) = if action == "pictures" {
+                ("PICTURES", "Pictures")
+            } else {
+                ("MUSIC", "Music")
+            };
+            choose_media(&home, xdg_user_directory(kind), name)?
         }
         _ => return None,
     };
@@ -98,6 +120,30 @@ mod tests {
             value.to_string_lossy().into_owned()).collect::<Vec<_>>(),
             vec!["open".to_owned(), "network:///".to_owned()]);
         assert!(location_command("network;touch /tmp/pwned").is_none());
+    }
+
+    #[test]
+    fn media_places_do_not_fall_back_to_unrelated_home() {
+        let home = std::env::current_dir().expect("checkout exists");
+        // Disabled xdg-user-dir media locations can resolve to $HOME.
+        // An XP media shortcut must not silently navigate there instead.
+        assert!(choose_media(&home, Some(home.clone()),
+            "__ricebowl_absent_media_directory__").is_none());
+        assert!(choose_media(&home, Some(PathBuf::from("relative")),
+            "__ricebowl_absent_media_directory__").is_none());
+        assert!(choose_media(&home, Some(PathBuf::from(
+            "/definitely-not-a-ricebowl-media-directory")),
+            "__ricebowl_absent_media_directory__").is_none());
+        assert!(xdg_user_directory("EXEC").is_none());
+        for action in ["pictures", "music"] {
+            let result = location_command(action);
+            // A real user may or may not have configured media directories;
+            // when available this is always a fixed, shell-free Gio open.
+            if let Some(command) = result {
+                assert_eq!(command.get_program(), "gio");
+                assert_eq!(command.get_args().count(), 2);
+            }
+        }
     }
 
     #[test]

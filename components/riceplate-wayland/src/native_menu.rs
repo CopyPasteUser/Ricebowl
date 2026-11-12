@@ -65,6 +65,7 @@ const COLUMNS_TOP: u32 = 92;
 // keep every real hit target above the 28px footer even with six actions.
 const COLUMNS_RIGHT_TOP: u32 = 54;
 const COLUMNS_RIGHT_ROW_HEIGHT: u32 = 28;
+pub const COLUMNS_RIGHT_DENSE_ROW_HEIGHT: u32 = 22;
 pub const SIDEBAR_ROW_HEIGHT: u32 = 44;
 pub const ACTION_TOP: u32 = 108;
 pub const ACTION_HEIGHT: u32 = 42;
@@ -125,6 +126,8 @@ pub fn action_label(action: &str) -> &'static str {
         "clip-history" => "RiceClip history",
         "documents" => "My Documents",
         "computer" => "My Computer",
+        "pictures" => "My Pictures",
+        "music" => "My Music",
         "lock" => "Lock screen",
         "logout" => "Log out of RiceBowl",
         "wifi-toggle" => "Toggle Wi-Fi radio",
@@ -479,7 +482,11 @@ impl MenuState {
             top += CONTENT_HEADER_HEIGHT + rows as u32 * row_height;
         }
 
-        let right_row_height = if menu.palette.is_some() {
+        let right_count = menu.groups.iter().skip(1)
+            .map(|group| group.actions.len()).sum::<usize>();
+        let right_row_height = if menu.palette.is_some() && right_count > 6 {
+            COLUMNS_RIGHT_DENSE_ROW_HEIGHT
+        } else if menu.palette.is_some() {
             COLUMNS_RIGHT_ROW_HEIGHT
         } else {
             CONTENT_LIST_HEIGHT
@@ -938,13 +945,16 @@ mod tests {
         state.open();
         assert_eq!(menu.groups[1].actions.iter().map(String::as_str)
                    .collect::<Vec<_>>(),
-                   vec!["documents", "computer", "settings", "notifications"]);
+                   vec!["documents", "computer", "pictures", "music", "settings", "notifications"]);
         assert_eq!(state.visible_label(menu, "documents", true), "My Documents");
         assert_eq!(state.visible_label(menu, "computer", true), "My Computer");
+        assert_eq!(state.visible_label(menu, "pictures", true), "My Pictures");
+        assert_eq!(state.visible_label(menu, "music", true), "My Music");
         for (y, index, action) in [
-            (80.0, 4, "documents"), (108.0, 5, "computer"),
-            (136.0, 6, "settings"), (164.0, 7, "notifications"),
-            (206.0, 8, "lock"), (234.0, 9, "logout"),
+            (80.0, 4, "documents"), (102.0, 5, "computer"),
+            (124.0, 6, "pictures"), (146.0, 7, "music"),
+            (168.0, 8, "settings"), (190.0, 9, "notifications"),
+            (226.0, 10, "lock"), (248.0, 11, "logout"),
         ] {
             assert_eq!(state.hit(menu, 190.0, y), Some(Hit::Action(index)));
             assert_eq!(state.actions(menu)[index], action);
@@ -1308,19 +1318,19 @@ mod tests {
         // No installed-app fixtures: all real fixed actions remain present.
         assert_eq!(state.actions(menu), vec![
             "applications", "terminal", "documents", "computer",
-            "settings", "notifications", "lock", "logout"
+            "pictures", "music", "settings", "notifications", "lock", "logout"
         ]);
         assert_eq!(state.hit(menu, 20.0, 116.0), Some(Hit::Action(0)));
         assert_eq!(state.hit(menu, 200.0, 80.0), Some(Hit::Action(2)));
-        assert_eq!(state.hit(menu, 200.0, 116.0), Some(Hit::Action(3)));
-        assert_eq!(state.hit(menu, 200.0, 210.0), Some(Hit::Action(6)));
-        assert_eq!(state.hit(menu, 200.0, 238.0), Some(Hit::Action(7)));
+        assert_eq!(state.hit(menu, 200.0, 116.0), Some(Hit::Action(4)));
+        assert_eq!(state.hit(menu, 200.0, 226.0), Some(Hit::Action(8)));
+        assert_eq!(state.hit(menu, 200.0, 248.0), Some(Hit::Action(9)));
         assert_eq!(state.hit(menu, 164.0, 120.0), None);
         assert_eq!(state.hit(menu, 200.0, 290.0), None); // inert footer gap
         assert_eq!(state.hit(menu, 275.0, 290.0), Some(Hit::Close));
 
         state.horizontal_by(menu, 1);
-        assert_eq!(state.current_action(menu), Some("computer"));
+        assert_eq!(state.current_action(menu), Some("pictures"));
         state.horizontal_by(menu, -1);
         assert_eq!(state.current_action(menu), Some("applications"));
         state.select_group(menu, 2);
@@ -1334,7 +1344,7 @@ mod tests {
         // The visible shelf labels fit without losing their meaning. The
         // accessible action labels remain complete and shared with search.
         let right_width = WIDTH - COLUMNS_RIGHT - 8;
-        for action in ["settings", "notifications", "lock", "logout"] {
+        for action in ["pictures", "music", "settings", "notifications", "lock", "logout"] {
             let label = state.visible_label(menu, action, false);
             assert!(label.len() * 8 <= (right_width - 20) as usize, "{label}");
         }

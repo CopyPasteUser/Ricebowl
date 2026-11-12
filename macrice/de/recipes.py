@@ -46,7 +46,7 @@ ICON_HEIGHT = 88
 ICON_ACTIONS = frozenset(("applications", "terminal", "lock", "trash",
                           "documents", "computer", "network"))
 MENU_ACTIONS = frozenset(("applications", "terminal", "lock", "logout",
-                          "documents", "computer",
+                          "documents", "computer", "pictures", "music",
                           "wifi-toggle", "audio-mute", "audio-up", "audio-down",
                           "notifications", "settings", "clip-history"))
 # A deliberately smaller set than menu quick controls: all four work from a
@@ -352,10 +352,10 @@ def _parse_menu(value: Any, *, schema_version: int = 4) -> tuple[str, tuple[Menu
                          or "content" not in value["groups"][0]
                          or any(not isinstance(group, dict) or "content" in group
                                 or not isinstance(group.get("actions"), list)
-                                or len(group["actions"]) > (4 if "colors" in value else 2)
+                                or len(group["actions"]) > (6 if "colors" in value else 2)
                                 for group in value["groups"][1:])
                          or sum(len(group["actions"])
-                                for group in value["groups"][1:]) > (6 if "colors" in value else 4))):
+                                for group in value["groups"][1:]) > (8 if "colors" in value else 4))):
                 raise RecipeError("Menu presentation requires a compatible bounded layout")
             allowed.add("presentation")
         if "colors" in value and schema_version >= 12:
@@ -371,14 +371,21 @@ def _parse_menu(value: Any, *, schema_version: int = 4) -> tuple[str, tuple[Menu
         raise RecipeError("Menu requires 1-4 groups")
     result: list[MenuGroup] = []
     seen: set[str] = set()
-    for value in groups:
+    for group_index, value in enumerate(groups):
         if isinstance(value, dict) and "content" in value and schema_version >= 6:
             group = _strict_keys(value, {"title", "actions", "content"}, "Menu group")
         else:
             group = _strict_keys(value, {"title", "actions"}, "Menu group")
         actions = group["actions"]
+        # Rust and Creator share the same opt-in Luna shelf bounds.
+        luna_columns = (schema_version >= 12 and
+                        data.get("presentation") == "columns" and
+                        "colors" in data)
+        group_limit = (6 if luna_columns and group_index == 1
+                       else 2 if luna_columns and group_index == 2
+                       else 4)
         if (not _safe_label(group["title"]) or not isinstance(actions, list)
-                or not 1 <= len(actions) <= 4 or any(type(action) is not str
+                or not 1 <= len(actions) <= group_limit or any(type(action) is not str
                 or action not in MENU_ACTIONS or action in seen for action in actions)
                 or len(actions) != len(set(actions))):
             raise RecipeError("Menu group uses unsupported or duplicate actions")

@@ -380,3 +380,10 @@ acceptance and a fully native high-resolution menu remain open.
 - Privacy reset without connecting to Wayland: `riceplate-native --clear-luna-recents`. The history file is `~/.config/ricebowl/native-menu-recents/xp-luna-columns.json` (or below `XDG_CONFIG_HOME`). The command refuses to follow/remove symlinks or non-owner files.
 - The XP desktop offers My Computer, My Documents, My Network, Recycle Bin and three ordinary shortcuts, with original rasterized device/folder/network icons. These launch fixed `gio open` locations; GVfs handles authentication and network availability. A separate XP Explorer or drive browser is **not** claimed.
 - Rust regression coverage includes validation, ownership/permissions, symlink refusal, stale app filtering, fixed Gio targets and recipe layout. Physical labwc input, live GVfs network discovery, and screenshot approval remain outstanding until CI/device verification.
+
+## Native XP Luna: real media locations (12 November 2026)
+
+- The two-column `xp-luna-columns` Start menu adds **My Pictures** and **My Music** to its existing right-side system shelf, using a bounded 22px density only when eight actions are present. Mouse/keyboard hits, text and original icons share that geometry.
+- Both actions use the user's valid XDG PICTURES/MUSIC locations or an existing conventional directory. Absent folders are reported as unavailable; no silent home-directory fallback, shell command or background service.
+- Previous six-action columns keep their 28px rows; non-Luna layouts and the XFCE/X11 profile are unchanged.
+- Rust unit tests cover the new action schema, 8-row interaction bounds and media lookup. Native compositor screenshot and physical Mint/ThinkPad acceptance are **pending** until CI/hardware validation.
