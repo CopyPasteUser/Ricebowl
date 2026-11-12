@@ -10,6 +10,12 @@ sidebar Programs/System/Session categories, and responsive desktop shortcuts.
 The green launcher and five-color native menu are reusable schema-v12 primitives,
 not special-case code for this rice. Launcher hit testing, real task activation,
 app discovery, lock and logout retain their normal shared behavior.
+The optional original Luna sidebar also exposes a **RiceClip history** entry
+through the shared `clip-history` menu action. It launches the existing GTK3
+browser only on explicit selection, never autostarts the clipboard watcher,
+and does not execute user-supplied recipe commands. The six-row XP-Luna-Columns
+right shelf remains unchanged; the Creator schema offers the same action to
+other rice authors.
 
 ### XP Luna next sprint: real two-column Start menu (native preview)
 
