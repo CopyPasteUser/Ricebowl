@@ -41,11 +41,15 @@ class RiceClipActionContractTests(unittest.TestCase):
         schema = creator_schema.describe(6)
         operations = schema["properties"]["operations"]["items"]["oneOf"]
         paths = {entry["properties"]["path"].get("const"): entry for entry in operations}
-        self.assertIn("clip-history", json.dumps(paths["/panel/layout/start"]))
+        # The operation references the shared JSON Schema definition; the
+        # allowlist belongs in $defs, not the operation's literal properties.
+        self.assertEqual(paths["/panel/layout/start"]["properties"]["value"]["items"]["$ref"],
+                         "#/$defs/layout1")
+        self.assertIn("clip-history", json.dumps(schema["$defs"]))
         self.assertIn("clip-history", recipes.MENU_ACTIONS)
-        self.assertIn("clip-history", catalog.describe()["recipe"]["shell"]["native-menu"]["actions"]
-                      if "shell" in catalog.describe()["recipe"] else
-                      json.dumps(catalog.describe()))
+        native = next(item for item in catalog.describe()["shell_components"]
+                      if item["id"] == "native-menu")
+        self.assertIn("clip-history", native["actions"])
 
     def test_both_different_rices_offer_browser_without_replacing_other_actions(self):
         for name in ("xp-luna.json", "heritage-modern-v10.json"):
