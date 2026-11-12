@@ -247,6 +247,46 @@ fi
 echo 'RiceClip accepted explicit synthetic copy-back'
 wait_for_clipboard wayland "$clip_text"
 echo 'RiceClip synthetic clipboard copy-back reached Wayland reader'
+# Keep the real GTK client open while the lock helper pauses and clears its
+# existing opt-in watcher. This specifically tests that visible old previews
+# are invalidated, instead of only checking that the server forgot the bytes.
+WAYLAND_DISPLAY="$WAYLAND_DISPLAY" grim - >"$runtime/riceclip-privacy-without-gui.png"
+GDK_BACKEND=wayland /usr/bin/python3 -B "$source_root/launcher.py" \
+    de clip --clip-op gui >"$runtime/riceclip-privacy-gui.log" 2>&1 &
+clip_gui=$!
+# Before/after capture must use an actually mapped GTK client. If the
+# process starts slowly, do not mistake initial window appearance for
+# privacy invalidation later.
+count=0
+while [ "$count" -lt 25 ]; do
+    kill -0 "$clip_gui" 2>/dev/null || {
+        echo 'RiceClip privacy GUI exited before lock smoke' >&2
+        sed -n '1,35p' "$runtime/riceclip-privacy-gui.log" >&2
+        exit 1
+    }
+    sleep 0.16
+    WAYLAND_DISPLAY="$WAYLAND_DISPLAY" grim - >"$runtime/riceclip-privacy-before.png"
+    if /usr/bin/python3 - "$runtime/riceclip-privacy-without-gui.png" \
+        "$runtime/riceclip-privacy-before.png" <<'PY'
+import sys
+from PIL import Image, ImageChops
+with Image.open(sys.argv[1]) as before, Image.open(sys.argv[2]) as after:
+    before.load()
+    after.load()
+    if before.size != after.size:
+        raise SystemExit(1)
+    difference = ImageChops.difference(before.convert("RGB"), after.convert("RGB"))
+    raise SystemExit(0 if sum(any(pixel) for pixel in difference.getdata()) >= 15000 else 1)
+PY
+    then
+        break
+    fi
+    count=$((count + 1))
+done
+test "$count" -lt 25 || {
+    echo 'RiceClip privacy GUI never mapped in actual labwc framebuffer' >&2
+    exit 1
+}
 # Exercise the new LOCK->clear hook on the live Wayland watcher, while
 # replacing only the locker executable with a test acknowledgement. This
 # does NOT claim a physical/compositor screen lock; separate lock unit tests
@@ -282,6 +322,66 @@ clip_cli --clip-op status --json >"$runtime/riceclip-status.json"
 grep -Fq '"count": 0' "$runtime/riceclip-status.json"
 grep -Fq '"pinned_count": 0' "$runtime/riceclip-status.json"
 grep -Fq '"paused": true' "$runtime/riceclip-status.json"
+# Wait for the compositor-visible GTK rows and status to respond to the
+# event-only subscriber. Never infer a physical lock from this CI test.
+count=0
+while [ "$count" -lt 25 ]; do
+    kill -0 "$clip_gui" 2>/dev/null || {
+        echo 'RiceClip privacy GUI crashed during clear' >&2
+        exit 1
+    }
+    sleep 0.12
+    WAYLAND_DISPLAY="$WAYLAND_DISPLAY" grim - >"$runtime/riceclip-privacy-after.png"
+    if /usr/bin/python3 - "$runtime/riceclip-privacy-before.png" \
+        "$runtime/riceclip-privacy-after.png" <<'PY'
+import sys
+from PIL import Image, ImageChops
+with Image.open(sys.argv[1]) as before, Image.open(sys.argv[2]) as after:
+    before.load()
+    after.load()
+    if before.size != after.size:
+        raise SystemExit(1)
+    difference = ImageChops.difference(before.convert("RGB"), after.convert("RGB"))
+    raise SystemExit(0 if sum(any(pixel) for pixel in difference.getdata()) >= 2000 else 1)
+PY
+    then
+        break
+    fi
+    count=$((count + 1))
+done
+if [ "$count" -ge 25 ]; then
+    echo 'RiceClip GTK did not redraw after real watcher privacy clear' >&2
+    sed -n '1,45p' "$runtime/riceclip-privacy-gui.log" >&2
+    exit 1
+fi
+artifact="$source_root/dist/riceplate-native-preview"
+cp "$runtime/riceclip-privacy-after.png" "$artifact/riceclip-browser-after-privacy-clear.png"
+/usr/bin/python3 - "$artifact/riceclip-browser-after-privacy-clear.png" \
+    "$artifact/riceclip-browser-after-privacy-clear.json" <<'PY'
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+from PIL import Image
+path, manifest = map(Path, sys.argv[1:])
+with Image.open(path) as image:
+    image.load()
+    width, height = image.size
+manifest.write_text(json.dumps({
+    "capture": "real-headless-labwc-grim",
+    "scenario": "watcher pause and clear without physical screen lock",
+    "source": "synthetic CI clipboard text",
+    "github_actions_checkout_sha": os.environ.get("GITHUB_SHA", "unknown"),
+    "width": width,
+    "height": height,
+    "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+}, indent=2) + "\n")
+PY
+kill "$clip_gui" 2>/dev/null || :
+wait "$clip_gui" 2>/dev/null || :
+clip_gui=
+echo 'RiceClip GTK privacy clear visibly changed the live Wayland framebuffer'
 kill "$clip_monitor"
 wait "$clip_monitor" 2>/dev/null || :
 clip_monitor=

@@ -21,6 +21,8 @@ from pathlib import Path
 MAX_TEXT_BYTES = 64 * 1024
 MAX_ITEMS = 20
 MAX_PINS = 5
+MAX_SUBSCRIBERS = 8
+MAX_EVENT_BYTES = 512
 MAX_REQUEST_BYTES = 512 * 1024
 ERROR_MESSAGES = {
     "unavailable": "RiceClip requires a private XDG runtime directory and Wayland session",
@@ -88,6 +90,10 @@ class History:
             if self.items != previous:
                 self.revision += 1
             return {"ok": True, "recorded": True}
+        if op == "subscribe":
+            return {"ok": True, "session_id": self.session_id,
+                    "revision": self.revision, "paused": self.paused,
+                    "count": len(self.items)}
         if op == "status":
             return {"ok": True, "paused": self.paused, "count": len(self.items),
                     "revision": self.revision, "session_id": self.session_id,
@@ -177,7 +183,7 @@ class History:
         raise ClipError("invalid_request")
 
 
-def _transact(connection: socket.socket, history: History) -> None:
+def _transact(connection: socket.socket, history: History) -> str | None:
     connection.settimeout(2)
     data = bytearray()
     while b"\n" not in data and len(data) <= MAX_REQUEST_BYTES:
@@ -185,6 +191,7 @@ def _transact(connection: socket.socket, history: History) -> None:
         if not part:
             break
         data.extend(part)
+    request = None
     try:
         if len(data) > MAX_REQUEST_BYTES or not data.endswith(b"\n"):
             raise ClipError("invalid_request")
@@ -196,6 +203,89 @@ def _transact(connection: socket.socket, history: History) -> None:
         code = exc.code if isinstance(exc, ClipError) else "invalid_request"
         response = {"ok": False, "error": code}
     connection.sendall(json.dumps(response, ensure_ascii=False).encode("utf-8") + b"\n")
+    return request.get("op") if response.get("ok") and isinstance(request.get("op"), str) else None
+
+
+def _prune_subscribers(subscribers: list[socket.socket]) -> list[socket.socket]:
+    """Remove closed/invalid sockets; do not read or retain client payloads."""
+    live = []
+    for connection in subscribers:
+        try:
+            unexpected = connection.recv(1, socket.MSG_PEEK | socket.MSG_DONTWAIT)
+        except BlockingIOError:
+            live.append(connection)
+            continue
+        except OSError:
+            pass
+        else:
+            # EOF or unsolicited input; subscriptions are receive-only.
+            del unexpected
+        connection.close()
+    return live
+
+
+def _publish_state(subscribers: list[socket.socket], history: History,
+                   *, privacy: bool) -> None:
+    """Best-effort bounded notification; never expose clipboard previews."""
+    message = json.dumps({
+        "event": "privacy" if privacy else "state",
+        "session_id": history.session_id, "revision": history.revision,
+        "paused": history.paused, "count": len(history.items),
+    }, separators=(",", ":")).encode("ascii") + b"\n"
+    assert len(message) <= MAX_EVENT_BYTES
+    live = []
+    for connection in subscribers:
+        try:
+            if connection.send(message) == len(message):
+                live.append(connection)
+                continue
+        except (BlockingIOError, OSError):
+            pass
+        connection.close()
+    subscribers[:] = live
+
+
+def _read_event_line(reader) -> dict[str, object]:
+    """Read one bounded server message; EOF or corruption revokes GUI trust."""
+    data = reader.readline(MAX_EVENT_BYTES + 1)
+    if not data:
+        raise ClipError("not_running")
+    if len(data) > MAX_EVENT_BYTES or not data.endswith(b"\n"):
+        raise ClipError("invalid_request")
+    try:
+        message = json.loads(data)
+    except (UnicodeError, ValueError) as exc:
+        raise ClipError("invalid_request") from exc
+    if (not isinstance(message, dict)
+            or type(message.get("revision")) is not int
+            or message["revision"] < 0
+            or type(message.get("count")) is not int
+            or not 0 <= message["count"] <= MAX_ITEMS
+            or type(message.get("paused")) is not bool
+            or not isinstance(message.get("session_id"), str)
+            or len(message["session_id"]) != 32
+            or any(ch not in "0123456789abcdef" for ch in message["session_id"])):
+        raise ClipError("invalid_request")
+    return message
+
+
+def open_event_subscription():
+    """Open a same-UID read-only event stream; caller owns socket and reader."""
+    path = socket_path()
+    connection = socket.socket(socket.AF_UNIX)
+    try:
+        connection.settimeout(3)
+        connection.connect(str(path))
+        connection.sendall(b'{"op":"subscribe"}\n')
+        reader = connection.makefile("rb")
+        response = _read_event_line(reader)
+        if response.get("ok") is not True:
+            raise ClipError("invalid_request")
+        connection.settimeout(None)  # wake only on watcher events / disconnect
+        return connection, reader, response
+    except Exception:
+        connection.close()
+        raise
 
 
 def request(op: str, *, index: int | None = None, text: str | None = None,
@@ -255,6 +345,7 @@ def watch(*, on_ready=None) -> None:
         raise ClipError("watch_unavailable")
     server = socket.socket(socket.AF_UNIX)
     watcher = None
+    subscribers: list[socket.socket] = []
     original_termination = signal.getsignal(signal.SIGTERM)
     original_interrupt = signal.getsignal(signal.SIGINT)
 
@@ -291,17 +382,31 @@ def watch(*, on_ready=None) -> None:
                 connection, _ = server.accept()
             except socket.timeout:
                 continue
-            with connection:
-                try:
-                    if hasattr(socket, "SO_PEERCRED"):
-                        import struct
-                        _pid, uid, _gid = struct.unpack("3i", connection.getsockopt(
-                            socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
-                        if uid != os.getuid():
-                            continue
-                    _transact(connection, history)
-                except (OSError, TimeoutError):
-                    continue
+            retained = False
+            try:
+                if hasattr(socket, "SO_PEERCRED"):
+                    import struct
+                    _pid, uid, _gid = struct.unpack("3i", connection.getsockopt(
+                        socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+                    if uid != os.getuid():
+                        continue
+                op = _transact(connection, history)
+                if op == "subscribe":
+                    # A subscription never receives clipboard text. Maintain
+                    # only a few nonblocking same-UID sockets; a stuck browser
+                    # must never block the watcher or a lock/clear operation.
+                    subscribers[:] = _prune_subscribers(subscribers)
+                    if len(subscribers) < MAX_SUBSCRIBERS:
+                        connection.setblocking(False)
+                        subscribers.append(connection)
+                        retained = True
+                elif op in ("pause", "clear", "resume"):
+                    _publish_state(subscribers, history, privacy=op != "resume")
+            except (OSError, TimeoutError):
+                pass
+            finally:
+                if not retained:
+                    connection.close()
         raise ClipError("watch_unavailable")
     except KeyboardInterrupt:
         pass
@@ -315,6 +420,8 @@ def watch(*, on_ready=None) -> None:
             except subprocess.TimeoutExpired:
                 watcher.kill()
                 watcher.wait()
+        for subscriber in subscribers:
+            subscriber.close()
         server.close()
         try:
             if path.lstat().st_ino == locals().get("inode"):
