@@ -48,7 +48,7 @@ ICON_ACTIONS = frozenset(("applications", "terminal", "lock", "trash",
 MENU_ACTIONS = frozenset(("applications", "terminal", "lock", "logout",
                           "documents", "computer", "pictures", "music",
                           "wifi-toggle", "audio-mute", "audio-up", "audio-down",
-                          "notifications", "settings", "clip-history"))
+                          "notifications", "settings", "clip-history", "help", "run"))
 # A deliberately smaller set than menu quick controls: all four work from a
 # panel without requiring a menu feedback surface or a custom command parser.
 PANEL_ACTIONS = frozenset(("applications", "terminal", "settings", "lock",
@@ -381,7 +381,7 @@ def _parse_menu(value: Any, *, schema_version: int = 4) -> tuple[str, tuple[Menu
         luna_columns = (schema_version >= 12 and
                         data.get("presentation") == "columns" and
                         "colors" in data)
-        group_limit = (6 if luna_columns and group_index == 1
+        group_limit = (8 if luna_columns and group_index == 1
                        else 2 if luna_columns and group_index == 2
                        else 4)
         if (not _safe_label(group["title"]) or not isinstance(actions, list)

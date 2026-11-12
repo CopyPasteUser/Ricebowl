@@ -43,7 +43,8 @@ class WaylandLunaTests(unittest.TestCase):
         self.assertEqual([item.title for item in parsed.menu[1]],
                          ["Programs", "Places", "Session"])
         self.assertEqual(parsed.menu[1][1].actions,
-                         ("documents", "computer", "pictures", "music", "settings", "notifications"))
+                         ("documents", "computer", "pictures", "music", "settings", "notifications",
+                          "help", "run"))
         self.assertEqual(len(parsed.desktop_icons), 7)
         self.assertEqual([icon.action for icon in parsed.desktop_icons], [
             "computer", "documents", "network", "trash",
@@ -67,11 +68,11 @@ class WaylandLunaTests(unittest.TestCase):
         invalid_icon["desktop"]["icons"][-1]["action"] = "trash; rm -rf"
         with self.assertRaises(recipes.RecipeError):
             recipes.parse(json.dumps(invalid_icon).encode("utf-8"))
-        # Eight right-side hits fit; ten must fail rather than paint into footer.
-        self.assertTrue({"pictures", "music"} <= recipes.MENU_ACTIONS)
+        # Ten right-side hits fit; a third session action must still fail.
+        self.assertTrue({"pictures", "music", "run", "help"} <= recipes.MENU_ACTIONS)
         self.assertFalse({"pictures", "music"} & recipes.ICON_ACTIONS)
         self.assertEqual(edit["/menu/groups"]["properties"]["value"]
-                         ["items"]["properties"]["actions"]["maxItems"], 6)
+                         ["items"]["properties"]["actions"]["maxItems"], 8)
         overflowing = json.loads(path.read_text(encoding="utf-8"))
         overflowing["menu"]["groups"][2]["actions"] = [
             "lock", "logout", "wifi-toggle", "audio-mute"]
