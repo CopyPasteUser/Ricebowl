@@ -25,7 +25,8 @@ fn choose_documents(home: &Path, preferred: Option<PathBuf>) -> PathBuf {
 // Unlike Documents, an absent media folder must not silently open $HOME:
 // a My Pictures/Music shortcut should never navigate to an unrelated place.
 fn choose_media(home: &Path, preferred: Option<PathBuf>, name: &str) -> Option<PathBuf> {
-    if let Some(directory) = preferred.filter(|path| path.is_absolute() && path.is_dir()) {
+    if let Some(directory) = preferred.filter(|path|
+        path.is_absolute() && path.is_dir() && path != home) {
         return Some(directory);
     }
     let conventional = home.join(name);
@@ -124,7 +125,10 @@ mod tests {
     #[test]
     fn media_places_do_not_fall_back_to_unrelated_home() {
         let home = std::env::current_dir().expect("checkout exists");
-        assert_eq!(choose_media(&home, Some(home.clone()), "Pictures"), Some(home.clone()));
+        // Disabled xdg-user-dir media locations can resolve to $HOME.
+        // An XP media shortcut must not silently navigate there instead.
+        assert!(choose_media(&home, Some(home.clone()),
+            "__ricebowl_absent_media_directory__").is_none());
         assert!(choose_media(&home, Some(PathBuf::from("relative")),
             "__ricebowl_absent_media_directory__").is_none());
         assert!(choose_media(&home, Some(PathBuf::from(
