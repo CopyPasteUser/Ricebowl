@@ -276,10 +276,12 @@ assert acknowledged == [("/ci/fake-swaylock", "-f")]
 assert result == {"locked": True, "riceclip_cleared": True, "riceclip_inactive": False}
 assert clip.request("status")["count"] == 0
 assert clip.request("status")["pinned_count"] == 0
+assert clip.request("status")["paused"] is True
 PY
 clip_cli --clip-op status --json >"$runtime/riceclip-status.json"
 grep -Fq '"count": 0' "$runtime/riceclip-status.json"
 grep -Fq '"pinned_count": 0' "$runtime/riceclip-status.json"
+grep -Fq '"paused": true' "$runtime/riceclip-status.json"
 kill "$clip_monitor"
 wait "$clip_monitor" 2>/dev/null || :
 clip_monitor=
