@@ -95,8 +95,9 @@ mod tests {
                    Some((68, 435)));
         assert_eq!(placement((1000, 700), (100.0, 80.0), (1024, 768), 40, false),
                    Some((800, 594)));
+        // When the screen is exactly as wide as the popup, x must clamp to 0.
         assert_eq!(placement((0, 0), (2.0, 2.0), (224, 200), 40, true),
-                   Some((2, 40)));
+                   Some((0, 40)));
         assert_eq!(placement((0, 0), (2.0, 2.0), (200, 200), 40, false), None);
         assert_eq!(placement((0, 0), (f64::NAN, 2.0), (1366, 768), 40, false), None);
         assert_eq!(placement((0, 0), (-1.0, 0.0), (1366, 768), 40, false), None);
