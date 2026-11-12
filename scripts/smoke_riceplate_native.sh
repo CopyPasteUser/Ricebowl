@@ -722,7 +722,7 @@ PY
             cp "$runtime/xp-luna-shortcut-properties.png" \
                "$source_root/dist/riceplate-native-preview/xp-luna-shortcut-properties.png"
             /usr/bin/python3 - "$runtime/xp-luna-shortcut-context.png" \
-                "$runtime/xp-luna-shortcut-properties.png" <<'PY'
+                "$runtime/xp-luna-shortcut-properties.png" <<"PY"
 from PIL import Image, ImageChops
 import sys
 with Image.open(sys.argv[1]) as menu, Image.open(sys.argv[2]) as details:
