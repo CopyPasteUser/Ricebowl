@@ -75,6 +75,15 @@ fn check_parents(location: &Path) -> Result<(), Box<dyn Error>> {
 // Inspect the directory entry itself so dangling symlinks cannot bypass checks.
 fn check_existing_parent(location: &Path) -> Result<(), Box<dyn Error>> {
     let directory = location.parent().ok_or("Missing recent applications directory")?;
+    let root = directory.parent().ok_or("Missing RiceBowl configuration directory")?;
+    match fs::symlink_metadata(root) {
+        Ok(meta) if !meta.is_dir() || meta.file_type().is_symlink()
+            || meta.uid() != unsafe { libc::geteuid() } =>
+                return Err("Unsafe RiceBowl configuration directory".into()),
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    }
     match fs::symlink_metadata(directory) {
         Ok(_) => check_parents(location),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -251,6 +260,15 @@ mod tests {
         let root = location.parent().unwrap().parent().unwrap();
         fs::create_dir(root).unwrap();
         symlink(root.join("missing-target"), location.parent().unwrap()).unwrap();
+        assert!(restore_at(&location, RICE_ID).is_err());
+        fs::remove_dir_all(location.ancestors().nth(3).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn dangling_ricebowl_root_symlink_is_rejected() {
+        let location = location();
+        let root = location.parent().unwrap().parent().unwrap();
+        symlink(root.with_file_name("missing-root"), root).unwrap();
         assert!(restore_at(&location, RICE_ID).is_err());
         fs::remove_dir_all(location.ancestors().nth(3).unwrap()).unwrap();
     }
