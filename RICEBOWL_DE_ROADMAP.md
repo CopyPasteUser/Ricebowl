@@ -1855,3 +1855,12 @@ desktop background right-click and file-properties remain open work.
 - [ ] Complete accessibility/input-method/hardware sign-off on Mint laptop.
 
 [Full X11-versus-Wayland XP feature matrix](WAYLAND_XP_LUNA_PARITY.md).
+
+### XP Luna / RiceField 1.0 integration (12 November 2026)
+
+The native Luna shell now delegates real local drive and XDG user-folder
+navigation to separately installed RiceField via its documented XP theme
+and secondary-window CLI, with ordinary Gio fallback when RiceField is
+absent. Non-Luna profiles, global MIME defaults and network/trash GVfs
+navigation remain untouched. Validate actual file manager launch, window
+focus and SMB behavior on the physical ThinkPad before release.

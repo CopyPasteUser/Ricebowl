@@ -1,27 +1,49 @@
-//! Tiny XP Luna shortcut context menu, shared by pointer and keyboard input.
-//! Only fixed, user-visible allowlisted actions; never execute recipe strings.
+//! Native desktop shortcut context state, shared by pointer and keyboard input.
+//! Actions are strictly allowlisted; recipes never inject commands into menus.
 pub const WIDTH: u32 = 224;
-pub const HEIGHT: u32 = 134;
+pub const HEIGHT: u32 = 190;
 const FIRST_ROW: u32 = 36;
 const ROW_HEIGHT: u32 = 28;
+pub const BACK_ROW: u32 = 150;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Action { Open, NextDisplay, AllDisplays }
+pub enum Action {
+    Open,
+    NextDisplay,
+    AllDisplays,
+    ResetPosition,
+    Properties,
+}
 
 impl Action {
-    pub const ALL: [Self; 3] = [Self::Open, Self::NextDisplay, Self::AllDisplays];
+    pub const ALL: [Self; 5] = [
+        Self::Open, Self::NextDisplay, Self::AllDisplays,
+        Self::ResetPosition, Self::Properties,
+    ];
     pub fn label(self) -> &'static str {
         match self {
             Self::Open => "Open",
             Self::NextDisplay => "Next display",
             Self::AllDisplays => "All displays",
+            Self::ResetPosition => "Reset position",
+            Self::Properties => "Properties",
         }
     }
-    pub fn enabled(self, multi_output: bool) -> bool {
-        self != Self::NextDisplay || multi_output
+    pub fn enabled(self, multi_output: bool, can_reset: bool) -> bool {
+        match self {
+            Self::NextDisplay => multi_output,
+            Self::ResetPosition => can_reset,
+            _ => true,
+        }
     }
     pub fn index(self) -> usize {
-        match self { Self::Open => 0, Self::NextDisplay => 1, Self::AllDisplays => 2 }
+        match self {
+            Self::Open => 0,
+            Self::NextDisplay => 1,
+            Self::AllDisplays => 2,
+            Self::ResetPosition => 3,
+            Self::Properties => 4,
+        }
     }
 }
 
@@ -30,20 +52,45 @@ pub fn row(action: Action) -> u32 { FIRST_ROW + action.index() as u32 * ROW_HEIG
 pub fn hit(x: f64, y: f64) -> Option<Action> {
     if !x.is_finite() || !y.is_finite()
         || x < 5.0 || x >= f64::from(WIDTH - 5)
-        || y < f64::from(FIRST_ROW) || y >= f64::from(FIRST_ROW + 3 * ROW_HEIGHT) {
+        || y < f64::from(FIRST_ROW)
+        || y >= f64::from(FIRST_ROW + Action::ALL.len() as u32 * ROW_HEIGHT)
+    {
         return None;
     }
     Action::ALL.get(((y as u32 - FIRST_ROW) / ROW_HEIGHT) as usize).copied()
 }
 
-pub fn navigate(current: Action, delta: i32, multi_output: bool) -> Action {
+/// The read-only properties page only accepts a fixed, clearly visible Back
+/// affordance; there is no hidden file operation or arbitrary action dispatch.
+pub fn back_hit(x: f64, y: f64) -> bool {
+    x.is_finite() && y.is_finite() && (5.0..f64::from(WIDTH - 5)).contains(&x)
+        && (f64::from(BACK_ROW)..f64::from(BACK_ROW + ROW_HEIGHT)).contains(&y)
+}
+
+pub fn navigate(current: Action, delta: i32, multi_output: bool,
+                can_reset: bool) -> Action {
     let mut index = current.index() as i32;
     for _ in 0..Action::ALL.len() {
         index = (index + delta).rem_euclid(Action::ALL.len() as i32);
         let action = Action::ALL[index as usize];
-        if action.enabled(multi_output) { return action; }
+        if action.enabled(multi_output, can_reset) { return action; }
     }
     current
+}
+
+/// Show only static metadata for an already validated desktop action. This is
+/// NOT a filesystem stat and must not imply the target exists or is mounted.
+pub fn details(action: &str) -> (&'static str, &'static str) {
+    match action {
+        "applications" => ("Application", "App launcher"),
+        "terminal" => ("Application", "Terminal launcher"),
+        "lock" => ("System action", "Lock screen"),
+        "trash" => ("Virtual folder", "Trash via Gio"),
+        "documents" => ("User folder", "Documents via Gio"),
+        "computer" => ("Virtual folder", "Computer via Gio"),
+        "network" => ("Virtual folder", "Network via Gio"),
+        _ => ("Shortcut", "Supported action"),
+    }
 }
 
 /// Position in the chosen wl_output's logical coordinates, never outside its
@@ -74,19 +121,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn real_rows_and_disabled_action_are_bounded() {
+    fn rows_disabled_navigation_and_back_are_bounded() {
         for action in Action::ALL {
             assert_eq!(hit(20.0, f64::from(row(action) + 14)), Some(action));
         }
         for (x, y) in [(-1.0, 46.0), (224.0, 46.0), (7.0, 35.0),
-                        (7.0, 134.0), (f64::NAN, 40.0), (50.0, f64::INFINITY)] {
+                        (7.0, 190.0), (f64::NAN, 40.0), (50.0, f64::INFINITY)] {
             assert_eq!(hit(x, y), None);
         }
-        assert!(!Action::NextDisplay.enabled(false));
-        assert!(Action::NextDisplay.enabled(true));
-        assert_eq!(navigate(Action::Open, 1, false), Action::AllDisplays);
-        assert_eq!(navigate(Action::AllDisplays, -1, false), Action::Open);
-        assert_eq!(navigate(Action::Open, -1, true), Action::AllDisplays);
+        assert!(!Action::NextDisplay.enabled(false, true));
+        assert!(!Action::ResetPosition.enabled(true, false));
+        assert!(Action::Properties.enabled(false, false));
+        assert_eq!(navigate(Action::Open, 1, false, false), Action::AllDisplays);
+        assert_eq!(navigate(Action::AllDisplays, 1, false, false), Action::Properties);
+        assert_eq!(navigate(Action::Properties, -1, false, true), Action::ResetPosition);
+        assert_eq!(navigate(Action::Open, -1, true, true), Action::Properties);
+        assert!(back_hit(20.0, f64::from(BACK_ROW + 12)));
+        for (x, y) in [(2.0, 163.0), (224.0, 163.0), (20.0, 149.0),
+                        (20.0, 178.0), (f64::NAN, 160.0)] {
+            assert!(!back_hit(x, y));
+        }
+    }
+
+    #[test]
+    fn metadata_is_allowlisted_and_never_treated_as_file_attributes() {
+        assert_eq!(details("trash"), ("Virtual folder", "Trash via Gio"));
+        assert_eq!(details("network"), ("Virtual folder", "Network via Gio"));
+        assert_eq!(details("terminal"), ("Application", "Terminal launcher"));
+        assert_eq!(details("dangerous arbitrary shell string"),
+                   ("Shortcut", "Supported action"));
     }
 
     #[test]
@@ -94,11 +157,11 @@ mod tests {
         assert_eq!(placement((24, 400), (44.0, 35.0), (1366, 768), 40, false),
                    Some((68, 435)));
         assert_eq!(placement((1000, 700), (100.0, 80.0), (1024, 768), 40, false),
-                   Some((800, 594)));
-        // When the screen is exactly as wide as the popup, x must clamp to 0.
-        assert_eq!(placement((0, 0), (2.0, 2.0), (224, 200), 40, true),
+                   Some((800, 538)));
+        assert_eq!(placement((0, 0), (2.0, 2.0), (224, 250), 40, true),
                    Some((0, 40)));
-        assert_eq!(placement((0, 0), (2.0, 2.0), (200, 200), 40, false), None);
+        assert_eq!(placement((0, 0), (2.0, 2.0), (200, 250), 40, false), None);
+        assert_eq!(placement((0, 0), (2.0, 2.0), (224, 200), 40, true), None);
         assert_eq!(placement((0, 0), (f64::NAN, 2.0), (1366, 768), 40, false), None);
         assert_eq!(placement((0, 0), (-1.0, 0.0), (1366, 768), 40, false), None);
     }

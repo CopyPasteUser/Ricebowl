@@ -123,6 +123,15 @@ set -eu
 printf '%s\n' "$1" "$2" >"$RICEBOWL_CI_TRASH_LOG"
 GIO
 chmod 0700 "$runtime/mock-bin/gio"
+# Real pointer-to-RiceField dispatch is captured as argv, without ever
+# launching a file manager on the CI runner or touching user files.
+cat >"$runtime/mock-bin/ricefield" <<'RICEFIELD'
+#!/bin/sh
+set -eu
+[ "$#" -eq 4 ] || exit 64
+printf '%s\n' "$1" "$2" "$3" "$4" >"$RICEBOWL_CI_RICEFIELD_LOG"
+RICEFIELD
+chmod 0700 "$runtime/mock-bin/ricefield"
 # The disposable shim records exact native argv and execs the real GTK CLI.
 # No watcher starts and no host clipboard content is read.
 cat >"$runtime/mock-bin/ricebowl" <<"CLIP_CLI"
@@ -282,6 +291,7 @@ dbus-run-session -- sh -eu -c '
         elif [ "$label" = xp-luna-columns ]; then
             RICEBOWL_DE_TRACE_MENU=1 PATH="$runtime/mock-bin:$PATH" \
                 RICEBOWL_CI_TRASH_LOG="$runtime/trash-gio.log" \
+                RICEBOWL_CI_RICEFIELD_LOG="$runtime/ricefield-argv.log" \
                 WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" \
                 >"$runtime/plate-$label.log" 2>&1 &
         else
@@ -709,6 +719,40 @@ PY
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-shortcut-context.png"
             cp "$runtime/xp-luna-shortcut-context.png" \
                "$source_root/dist/riceplate-native-preview/xp-luna-shortcut-context.png"
+            # Real pointer-driven properties transition on the SAME bounded
+            # output-local popup. No shortcut launch, no external settings app.
+            # Properties row is the fifth row (148..175), Back is at 150..177.
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 88 596 1366 768
+            sleep 0.3
+            if [ -e "$runtime/trash-gio.log" ]; then
+                echo "Luna properties unexpectedly launched a shortcut" >&2
+                exit 1
+            fi
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-shortcut-properties.png"
+            cp "$runtime/xp-luna-shortcut-properties.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-shortcut-properties.png"
+            /usr/bin/python3 - "$runtime/xp-luna-shortcut-context.png" \
+                "$runtime/xp-luna-shortcut-properties.png" <<"PY"
+from PIL import Image, ImageChops
+import sys
+with Image.open(sys.argv[1]) as menu, Image.open(sys.argv[2]) as details:
+    menu.load()
+    details.load()
+    if menu.size != (1366, 768) or details.size != menu.size:
+        raise SystemExit("Luna properties screenshot geometry changed")
+    # Popup is output-local; check the actual compositor pixels, not just
+    # that both PNGs exist or have different metadata.
+    region = (68, 435, 292, 625)
+    if ImageChops.difference(menu.crop(region).convert("RGB"),
+                            details.crop(region).convert("RGB")).getbbox() is None:
+        raise SystemExit("Luna properties did not redraw its native popup")
+PY
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 88 596 1366 768
+            sleep 0.15
+            if [ -e "$runtime/trash-gio.log" ]; then
+                echo "Luna properties Back unexpectedly launched a shortcut" >&2
+                exit 1
+            fi
             # Popup anchored at (68,435); Open occupies row 36..63.
             WAYLAND_DISPLAY=wayland-0 "$clicker" 88 485 1366 768
             count=0
@@ -723,6 +767,25 @@ PY
             fi
             kill -0 "$plate"
             echo "Verified Luna right-click context Open through labwc virtual pointer"
+            # The XP Explorer shortcut must prefer RiceField 1.0, with
+            # exactly the documented theme/separate-window argv and the
+            # fixed root path. No spurious Gio call is permitted.
+            rm -f "$runtime/trash-gio.log" "$runtime/ricefield-argv.log"
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 68 125 1366 768
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 68 125 1366 768
+            count=0
+            while [ ! -s "$runtime/ricefield-argv.log" ] && [ "$count" -lt 25 ]; do
+                count=$((count + 1))
+                sleep 0.1
+            done
+            expected=$(printf "%s\\n" --theme xp-luna --separate-window /)
+            actual=$(cat "$runtime/ricefield-argv.log" 2>/dev/null || :)
+            if [ "$actual" != "$expected" ] || [ -e "$runtime/trash-gio.log" ]; then
+                echo "Luna My Computer did not dispatch exact RiceField XP argv" >&2
+                exit 1
+            fi
+            kill -0 "$plate"
+            echo "Verified My Computer real pointer dispatch to RiceField XP theme"
             # XP Start Run and Help are real bounded overlay surfaces.
             # Capture the actual compositor frames, not an illustrated mock.
             WAYLAND_DISPLAY=wayland-0 "$clicker" 35 748 1366 768
