@@ -15,6 +15,7 @@ mod desktop_selection;
 mod icon_positions;
 mod installed_apps;
 mod luna_places;
+mod luna_dialog;
 mod menu_chrome;
 mod menu_pins;
 mod menu_recents;
@@ -487,6 +488,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         desktop_context: None,
         context_generation: 0,
         context_focused: false,
+        luna_dialog: None,
+        luna_dialog_focused: false,
         focused_widget: None,
         keyboard_widget_surface: None,
         pressed_widget: None,
@@ -801,6 +804,13 @@ struct IconDrag {
     original_positions: icon_positions::OutputPositions,
 }
 
+struct LunaDialogLayer {
+    surface: LayerSurface,
+    pool: Option<SlotPool>,
+    configured: bool,
+    state: luna_dialog::State,
+}
+
 struct DesktopContextLayer {
     surface: LayerSurface,
     pool: Option<SlotPool>,
@@ -912,6 +922,8 @@ struct RicePlate {
     // Invalidates pending AT-SPI actions when menus reopen or change views.
     context_generation: u64,
     context_focused: bool,
+    luna_dialog: Option<LunaDialogLayer>,
+    luna_dialog_focused: bool,
     focused_widget: Option<usize>,
     keyboard_widget_surface: Option<wl_surface::WlSurface>,
     pressed_widget: Option<usize>,
@@ -947,8 +959,7 @@ struct RicePlate {
 impl RicePlate {
     fn luna_icon_peers(&self, index: usize) -> Vec<bool> {
         let Some(source) = self.icon_layers.get(index) else { return Vec::new() };
-        // Layer identity, not a recipe shortcut action: repeated shortcuts on
-        // independent monitors must not share one selection.
+        // Restrict selection to visible icons on the same logical output.
         self.icon_layers.iter().map(|icon|
             icon.placed.is_some() && icon.bound_output == source.bound_output
         ).collect()
@@ -977,6 +988,118 @@ impl RicePlate {
     fn clear_luna_selection(&mut self) {
         if self.recipe.id != "xp-luna-columns" { return; }
         for changed in self.desktop_selection.clear_all() { self.redraw_icon(changed); }
+    }
+
+
+
+    fn close_luna_dialog(&mut self) {
+        // Drop the real overlay surface on dismissal; no transparent
+        // fullscreen input grab, background worker or hidden popup survives.
+        self.luna_dialog = None;
+        self.luna_dialog_focused = false;
+    }
+
+    fn open_luna_dialog(&mut self, kind: luna_dialog::Kind,
+                        qh: &QueueHandle<Self>) {
+        // The opt-in themed two-column Start is the only source of these
+        // actions; non-Luna and X11 profiles retain their original behavior.
+        let menu_output = self.active_menu.as_ref().and_then(|surface|
+            self.menu_layer.iter().chain(self.menu_mirrors.iter())
+                .find(|menu| menu.surface.wl_surface() == surface)
+                .and_then(|menu| menu.output.clone()));
+        let output = menu_output.or_else(|| self.primary_output.clone())
+            .or_else(|| self.outputs.outputs().next());
+        let Some(output) = output else {
+            self.menu_state.notice = Some("No monitor available");
+            self.redraw_menu(qh);
+            return;
+        };
+        let Some(size) = self.logical_output_size(&output) else {
+            self.menu_state.notice = Some("Display unavailable");
+            self.redraw_menu(qh);
+            return;
+        };
+        let Some((x, y)) = luna_dialog::position(size, self.recipe.height, self.recipe.top) else {
+            self.menu_state.notice = Some("Screen too small");
+            self.redraw_menu(qh);
+            return;
+        };
+        self.set_menu_visible(false, qh);
+        self.close_desktop_context();
+        self.close_luna_dialog();
+        let surface = self.layer_shell.create_layer_surface(
+            qh, self.compositor.create_surface(qh), Layer::Overlay,
+            Some("riceplate-luna-run-help"), Some(&output),
+        );
+        surface.set_anchor(Anchor::TOP | Anchor::LEFT);
+        surface.set_size(luna_dialog::WIDTH, luna_dialog::HEIGHT);
+        surface.set_margin(y as i32, 0, 0, x as i32);
+        surface.set_exclusive_zone(-1);
+        // This is an explicit modal dialog; only while open may it own
+        // keystrokes. The normal desktop and other rices remain untouched.
+        surface.set_keyboard_interactivity(KeyboardInteractivity::Exclusive);
+        surface.commit();
+        self.luna_dialog = Some(LunaDialogLayer {
+            surface, pool: None, configured: false,
+            state: luna_dialog::State::new(kind),
+        });
+    }
+
+    fn execute_luna_dialog(&mut self) {
+        let Some(dialog) = self.luna_dialog.as_mut() else { return };
+        if dialog.state.kind == luna_dialog::Kind::Help {
+            self.close_luna_dialog();
+            return;
+        }
+        let argv = match dialog.state.argv() {
+            Ok(argv) => argv,
+            Err(notice) => {
+                dialog.state.notice = Some(notice);
+                self.redraw_luna_dialog();
+                return;
+            }
+        };
+        // An explicit local user action, never recipe data. Pass literal argv
+        // directly to execve via std::process::Command: no /bin/sh, pipes,
+        // wildcard expansion, or potentially injected shell fragments.
+        let program = &argv[0];
+        match Command::new(program).args(argv.iter().skip(1)).spawn() {
+            Ok(_) => self.close_luna_dialog(),
+            Err(error) => {
+                eprintln!("RicePlate: Run could not start the requested program: {error}");
+                if let Some(dialog) = self.luna_dialog.as_mut() {
+                    dialog.state.notice = Some("Program missing or denied");
+                }
+                self.redraw_luna_dialog();
+            }
+        }
+    }
+
+    fn redraw_luna_dialog(&mut self) {
+        let Some(dialog) = self.luna_dialog.as_mut() else { return };
+        if !dialog.configured { return; }
+        let Some(pool) = dialog.pool.as_mut() else { return };
+        let (buffer, canvas) = match pool.create_buffer(
+            luna_dialog::WIDTH as i32, luna_dialog::HEIGHT as i32,
+            (luna_dialog::WIDTH * 4) as i32, wl_shm::Format::Argb8888,
+        ) {
+            Ok(value) => value,
+            Err(error) => {
+                eprintln!("RicePlate: Luna dialog buffer unavailable: {error}");
+                self.close_luna_dialog();
+                return;
+            }
+        };
+        paint_luna_dialog(canvas, &self.recipe, &dialog.state);
+        let surface = dialog.surface.wl_surface();
+        surface.damage_buffer(0, 0, luna_dialog::WIDTH as i32,
+                             luna_dialog::HEIGHT as i32);
+        if let Err(error) = buffer.attach_to(surface) {
+            eprintln!("RicePlate: Luna dialog attach failed: {error}");
+            self.close_luna_dialog();
+            return;
+        }
+        dialog.surface.commit();
     }
 
     fn close_desktop_context(&mut self) {
@@ -2230,6 +2353,16 @@ impl RicePlate {
     }
 
     fn activate_action(&mut self, action: &str, qh: &QueueHandle<Self>) {
+        if matches!(action, "run" | "help") {
+            // The schema permits these only in the themed columns profile.
+            if self.recipe.menu.as_ref().is_some_and(|menu|
+                menu.presentation == recipe::MenuPresentation::Columns
+                    && menu.palette.is_some()) {
+                self.open_luna_dialog(if action == "run" { luna_dialog::Kind::Run }
+                                      else { luna_dialog::Kind::Help }, qh);
+            }
+            return;
+        }
         if action == "notifications" {
             self.request_notifications(NotificationIntent::Refresh, qh);
             return;
@@ -4016,7 +4149,7 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
             if luna_columns && columns && section.x >= native_menu::COLUMNS_SPLIT {
                 if right_group_seen {
                     let dense = section.items.first()
-                        .is_some_and(|tile| tile.height == native_menu::COLUMNS_RIGHT_DENSE_ROW_HEIGHT);
+                        .is_some_and(|tile| tile.height <= native_menu::COLUMNS_RIGHT_DENSE_ROW_HEIGHT);
                     menu_chrome::system_group_rule(canvas,
                         section.top.saturating_sub(if dense { 0 } else { 4 }));
                 }
@@ -4046,7 +4179,9 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                 let label = state.visible_label(menu, tile.action, logout_available());
                 let pinned = state.pins.iter().any(|pin| pin.as_str() == tile.action);
                 if luna_columns && columns && !tile.grid {
-                    let icon_y = if tile.height == native_menu::COLUMNS_RIGHT_DENSE_ROW_HEIGHT {
+                    let icon_y = if tile.height == native_menu::COLUMNS_RIGHT_XP_PARITY_ROW_HEIGHT {
+                        tile.y + 2
+                    } else if tile.height == native_menu::COLUMNS_RIGHT_DENSE_ROW_HEIGHT {
                         tile.y + 4
                     } else { tile.y + 9 };
                     menu_chrome::action_icon(canvas, tile.x + 6, icon_y,
@@ -4075,6 +4210,9 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                     let short: String = label.chars()
                         .take(cap.saturating_sub(prefix.len())).collect();
                     let text_y = if luna_columns && columns
+                        && tile.height == native_menu::COLUMNS_RIGHT_XP_PARITY_ROW_HEIGHT {
+                        tile.y + (18_u32.saturating_sub(8 * style.font_scale)) / 2
+                    } else if luna_columns && columns
                         && tile.height == native_menu::COLUMNS_RIGHT_DENSE_ROW_HEIGHT {
                         tile.y + 8
                     } else { tile.y + 12 };
@@ -4534,6 +4672,70 @@ fn paint_calendar(canvas: &mut [u8], style: &PanelStyle, state: &CalendarState) 
 }
 
 
+
+fn paint_luna_dialog(canvas: &mut [u8], style: &PanelStyle, state: &luna_dialog::State) {
+    let (w, h) = (luna_dialog::WIDTH, luna_dialog::HEIGHT);
+    canvas.fill(0);
+    fill_rect(canvas, w, h, 0, 0, w, h, 0xff1a_439c);
+    fill_rect(canvas, w, h, 3, 3, w - 6, h - 6, 0xfff6_f3e9);
+    fill_rect(canvas, w, h, 4, 4, w - 8, 34, 0xff1c_57c3);
+    // Authentic-ish blue caption and a distinct red close glyph, all original.
+    draw_rice_text(canvas, w, h, 15, 14, if state.kind == luna_dialog::Kind::Run {
+        "Run" } else { "Help and Support" }, 0xffff_ffff, style);
+    fill_rounded_rect(canvas, w, h, 414, 9, 24, 23, 3, 0xffd8_4039);
+    draw_rice_text(canvas, w, h, 422, 16, "x", 0xffff_ffff, style);
+
+    match state.kind {
+        luna_dialog::Kind::Run => {
+            fill_rounded_rect(canvas, w, h, 25, 67, 67, 73, 8, 0xff2b_64ae);
+            fill_rect(canvas, w, h, 38, 81, 41, 33, 0xffe2_f5ff);
+            fill_rect(canvas, w, h, 44, 87, 29, 21, 0xff8a_d6ec);
+            fill_rect(canvas, w, h, 50, 116, 17, 7, 0xffab_c6d7);
+            draw_rice_text(canvas, w, h, 118, 68, "Type a program name.", 0xff17_315c, style);
+            draw_rice_text(canvas, w, h, 118, 87, "No shell expansion.", 0xff4d_6284, style);
+            draw_rice_text(canvas, w, h, 118, 104, "Open:", 0xff17_315c, style);
+            fill_rect(canvas, w, h, 118, 111, 306, 32, 0xff75_879f);
+            fill_rect(canvas, w, h, 120, 113, 302, 28, 0xffff_ffff);
+            let cells = (282_u32 / (8 * style.font_scale.max(1))) as usize;
+            let text: String = state.input.chars().rev().take(cells)
+                .collect::<Vec<_>>().into_iter().rev().collect();
+            draw_rice_text(canvas, w, h, 128, 122, &text, 0xff10_2849, style);
+            let notice = state.notice.unwrap_or("Executes a command directly as your user.");
+            draw_rice_text(canvas, w, h, 22, 163,
+                           &notice.chars().take(50).collect::<String>(),
+                           if state.notice.is_some() { 0xffb2_302e } else { 0xff4d_6284 }, style);
+        }
+        luna_dialog::Kind::Help => {
+            for (line, text) in [
+                "Start menu: All Programs lists installed apps.",
+                "Find searches real desktop entries and actions.",
+                "F2 pins an action; F3 opens Saved.",
+                "Double-click a shortcut to open it.",
+                "Right-click a shortcut for display options.",
+                "Run starts typed commands without a shell.",
+            ].iter().enumerate() {
+                draw_rice_text(canvas, w, h, 23, 54 + line as u32 * 22,
+                               text, 0xff17_315c, style);
+            }
+        }
+    }
+    let primary = if state.kind == luna_dialog::Kind::Run { "OK" } else { "Close" };
+    for (x, label, hit) in [(260, primary, luna_dialog::Hit::Accept),
+                           (346, "Cancel", luna_dialog::Hit::Cancel)] {
+        if state.kind == luna_dialog::Kind::Help && hit == luna_dialog::Hit::Cancel {
+            continue;
+        }
+        let shade = if state.pressed == Some(hit) { 0xff1e_4d9a }
+                    else if state.hover == Some(hit) { 0xff4e_8ddd }
+                    else { 0xff37_6bbd };
+        fill_rounded_rect(canvas, w, h, x, 188, 78, 30, 3, shade);
+        fill_rect(canvas, w, h, x + 3, 190, 72, 1, 0xffc3_dffb);
+        draw_rice_text(canvas, w, h, x + if label == "Cancel" { 12 }
+                       else if label == "Close" { 16 } else { 30 },
+                       198, label, 0xffff_ffff, style);
+    }
+}
+
 fn paint_desktop_context(canvas: &mut [u8], style: &PanelStyle,
                          selected: DesktopContextAction,
                          hovered: Option<DesktopContextAction>,
@@ -4927,7 +5129,10 @@ impl LayerShellHandler for RicePlate {
             self.focused_panel = None;
             self.focused_target = None;
         }
-        if self.desktop_context.as_ref().is_some_and(|menu|
+        if self.luna_dialog.as_ref().is_some_and(|dialog|
+            dialog.surface.wl_surface() == layer.wl_surface()) {
+            self.close_luna_dialog();
+        } else if self.desktop_context.as_ref().is_some_and(|menu|
             menu.surface.wl_surface() == layer.wl_surface()) {
             self.close_desktop_context();
         } else if layer.wl_surface() == self.layer.wl_surface() {
@@ -4997,6 +5202,29 @@ impl LayerShellHandler for RicePlate {
         config: LayerSurfaceConfigure,
         _: u32,
     ) {
+        if self.luna_dialog.as_ref().is_some_and(|dialog|
+            dialog.surface.wl_surface() == layer.wl_surface()) {
+            if config.new_size != (luna_dialog::WIDTH, luna_dialog::HEIGHT) {
+                eprintln!("RicePlate: compositor proposed unsupported Luna dialog size");
+                self.close_luna_dialog();
+                return;
+            }
+            let dialog = self.luna_dialog.as_mut().expect("matched Luna dialog");
+            if dialog.pool.is_none() {
+                let bytes = (luna_dialog::WIDTH * luna_dialog::HEIGHT * 4 * 3) as usize;
+                match SlotPool::new(bytes, &self.shm) {
+                    Ok(pool) => dialog.pool = Some(pool),
+                    Err(error) => {
+                        eprintln!("RicePlate: cannot allocate Luna dialog: {error}");
+                        self.close_luna_dialog();
+                        return;
+                    }
+                }
+            }
+            dialog.configured = true;
+            self.redraw_luna_dialog();
+            return;
+        }
         if self.desktop_context.as_ref().is_some_and(|menu|
             menu.surface.wl_surface() == layer.wl_surface()) {
             if config.new_size != (desktop_context::WIDTH, desktop_context::HEIGHT) {
@@ -5369,6 +5597,8 @@ impl KeyboardHandler for RicePlate {
         _: &[u32],
         _: &[Keysym],
     ) {
+        self.luna_dialog_focused = self.luna_dialog.as_ref().is_some_and(|dialog|
+            dialog.surface.wl_surface() == surface);
         self.context_focused = self.desktop_context.as_ref().is_some_and(|menu|
             menu.surface.wl_surface() == surface);
         self.menu_focused = self.menu_state.visible
@@ -5433,10 +5663,13 @@ impl KeyboardHandler for RicePlate {
         surface: &wl_surface::WlSurface,
         _: u32,
     ) {
-        // Compositors do not deliver key releases to unfocused surfaces.
-        // Never carry a stale Ctrl/Shift into the next icon pointer press.
+        // Never retain Ctrl/Shift after compositor keyboard focus leaves.
         self.selection_modifiers = Modifiers::default();
         self.desktop_selection.cancel();
+        if self.luna_dialog.as_ref().is_some_and(|dialog|
+            dialog.surface.wl_surface() == surface) && self.luna_dialog_focused {
+            self.close_luna_dialog();
+        }
         if self.desktop_context.as_ref().is_some_and(|menu|
             menu.surface.wl_surface() == surface) && self.context_focused {
             self.close_desktop_context();
@@ -5478,6 +5711,31 @@ impl KeyboardHandler for RicePlate {
         _: u32,
         event: KeyEvent,
     ) {
+        if self.luna_dialog_focused {
+            let mut execute = false;
+            let mut repaint = false;
+            match event.keysym {
+                Keysym::Escape => {
+                    self.close_luna_dialog();
+                    return;
+                }
+                Keysym::Return | Keysym::KP_Enter => execute = true,
+                Keysym::BackSpace => {
+                    if let Some(dialog) = self.luna_dialog.as_mut() {
+                        repaint = dialog.state.erase();
+                    }
+                }
+                _ => {
+                    if let (Some(dialog), Some(text)) =
+                        (self.luna_dialog.as_mut(), event.utf8.as_deref()) {
+                        repaint = dialog.state.enter(text);
+                    }
+                }
+            }
+            if execute { self.execute_luna_dialog(); }
+            else if repaint { self.redraw_luna_dialog(); }
+            return;
+        }
         if self.context_focused {
             if self.desktop_context.as_ref().is_some_and(|menu| menu.properties) {
                 match event.keysym {
@@ -5860,7 +6118,8 @@ impl KeyboardHandler for RicePlate {
     ) {
         // Never repeat Enter/Space: holding a key must not launch multiple apps.
         if matches!(event.keysym, Keysym::Left | Keysym::Right | Keysym::Up
-            | Keysym::Down | Keysym::Tab | Keysym::ISO_Left_Tab) {
+            | Keysym::Down | Keysym::Tab | Keysym::ISO_Left_Tab)
+            || (self.luna_dialog_focused && event.keysym == Keysym::BackSpace) {
             self.press_key(conn, qh, keyboard, serial, event);
         }
     }
@@ -5906,6 +6165,45 @@ impl PointerHandler for RicePlate {
         events: &[PointerEvent],
     ) {
         for event in events {
+            if self.luna_dialog.as_ref().is_some_and(|dialog|
+                dialog.surface.wl_surface() == &event.surface) {
+                let mut activate = None;
+                let mut repaint = false;
+                if let Some(dialog) = self.luna_dialog.as_mut() {
+                    let hit = luna_dialog::hit(event.position.0, event.position.1,
+                                               dialog.state.kind);
+                    match event.kind {
+                        PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
+                            if dialog.state.hover != hit {
+                                dialog.state.hover = hit;
+                                repaint = true;
+                            }
+                        }
+                        PointerEventKind::Leave { .. } => {
+                            dialog.state.hover = None;
+                            dialog.state.pressed = None;
+                            repaint = true;
+                        }
+                        PointerEventKind::Press { button: BTN_LEFT, .. } => {
+                            dialog.state.pressed = hit;
+                            repaint = true;
+                        }
+                        PointerEventKind::Release { button: BTN_LEFT, .. } => {
+                            if dialog.state.pressed.take().is_some_and(|start| Some(start) == hit) {
+                                activate = hit;
+                            } else { repaint = true; }
+                        }
+                        _ => {}
+                    }
+                }
+                match activate {
+                    Some(luna_dialog::Hit::Accept) => self.execute_luna_dialog(),
+                    Some(luna_dialog::Hit::Cancel) => self.close_luna_dialog(),
+                    Some(luna_dialog::Hit::Input) | None =>
+                        if repaint { self.redraw_luna_dialog(); },
+                }
+                continue;
+            }
             if self.desktop_context.as_ref().is_some_and(|menu|
                 menu.surface.wl_surface() == &event.surface) {
                 let mut activate = None;
@@ -7353,6 +7651,32 @@ mod tests {
         assert_eq!(bitmap, notification);
     }
 
+
+    #[test]
+    fn xp_run_help_and_error_have_distinct_native_framebuffers() {
+        let style = recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let size = (luna_dialog::WIDTH * luna_dialog::HEIGHT * 4) as usize;
+        let mut run = vec![0_u8; size];
+        let mut help = vec![0_u8; size];
+        let mut error = vec![0_u8; size];
+        paint_luna_dialog(&mut run, &style, &luna_dialog::State::new(luna_dialog::Kind::Run));
+        paint_luna_dialog(&mut help, &style, &luna_dialog::State::new(luna_dialog::Kind::Help));
+        let mut invalid = luna_dialog::State::new(luna_dialog::Kind::Run);
+        invalid.notice = Some("Enter a program name");
+        paint_luna_dialog(&mut error, &style, &invalid);
+        assert_ne!(run, help);
+        assert_ne!(run, error);
+        assert_eq!(&run[..4], &0xff1a_439c_u32.to_le_bytes());
+        let at = ((luna_dialog::WIDTH * 17 + 418) * 4) as usize;
+        assert_eq!(&run[at..at+4], &0xffd8_4039_u32.to_le_bytes());
+        let mut text = luna_dialog::State::new(luna_dialog::Kind::Run);
+        for ch in "foot -e true".chars() { assert!(text.enter(&ch.to_string())); }
+        let mut typed = vec![0_u8; size];
+        paint_luna_dialog(&mut typed, &style, &text);
+        assert_ne!(typed, run);
+    }
 
     #[test]
     fn luna_context_paint_marks_real_selected_and_disabled_rows() {
