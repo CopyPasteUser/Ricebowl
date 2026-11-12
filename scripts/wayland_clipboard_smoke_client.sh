@@ -12,7 +12,9 @@ wayland_owner=
 x11_owner=
 x11_window=
 clip_monitor=
+clip_gui=
 cleanup() {
+    if [ -n "$clip_gui" ]; then kill "$clip_gui" 2>/dev/null || :; wait "$clip_gui" 2>/dev/null || :; fi
     if [ -n "$clip_monitor" ]; then kill "$clip_monitor" 2>/dev/null || :; wait "$clip_monitor" 2>/dev/null || :; fi
     if [ -n "$wayland_owner" ]; then kill "$wayland_owner" 2>/dev/null || :; wait "$wayland_owner" 2>/dev/null || :; fi
     if [ -n "$x11_owner" ]; then kill "$x11_owner" 2>/dev/null || :; wait "$x11_owner" 2>/dev/null || :; fi
@@ -120,6 +122,76 @@ test "$count" -lt 50 || {
     sed -n '1,35p' "$runtime/riceclip-watch.log" >&2
     exit 1
 }
+# Verify the optional GTK browser is a *real* Wayland client, not a mockup.
+# The watcher is already explicitly running; the GUI may only read its
+# bounded preview list. This disposable labwc session holds synthetic data.
+WAYLAND_DISPLAY="$WAYLAND_DISPLAY" grim - >"$runtime/riceclip-before.png"
+GDK_BACKEND=wayland /usr/bin/python3 -B "$source_root/launcher.py" \
+    de clip --clip-op gui >"$runtime/riceclip-gui.log" 2>&1 &
+clip_gui=$!
+count=0
+while [ "$count" -lt 25 ]; do
+    kill -0 "$clip_gui" 2>/dev/null || {
+        echo "RiceClip GTK window exited before drawing" >&2
+        sed -n "1,50p" "$runtime/riceclip-gui.log" >&2
+        exit 1
+    }
+    sleep 0.2
+    WAYLAND_DISPLAY="$WAYLAND_DISPLAY" grim - >"$runtime/riceclip-after.png"
+    if /usr/bin/python3 - "$runtime/riceclip-before.png" "$runtime/riceclip-after.png" <<'PY'
+import sys
+from PIL import Image, ImageChops
+with Image.open(sys.argv[1]) as before, Image.open(sys.argv[2]) as after:
+    before.load()
+    after.load()
+    if before.size != after.size or before.size[0] < 640:
+        raise SystemExit(1)
+    changed = ImageChops.difference(before.convert("RGB"),
+                                    after.convert("RGB"))
+    raise SystemExit(0 if sum(any(pixel) for pixel in changed.getdata()) > 15000 else 1)
+PY
+    then
+        break
+    fi
+    count=$((count + 1))
+done
+if [ "$count" -ge 25 ]; then
+    echo "RiceClip GTK window did not change the real Wayland framebuffer" >&2
+    sed -n "1,40p" "$runtime/riceclip-gui.log" >&2
+    exit 1
+fi
+artifact="$source_root/dist/riceplate-native-preview"
+mkdir -p "$artifact"
+cp "$runtime/riceclip-after.png" "$artifact/riceclip-browser-gtk-headless.png"
+/usr/bin/python3 - "$artifact/riceclip-browser-gtk-headless.png" \
+    "$artifact/riceclip-browser-gtk-headless.json" <<'PY'
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+from PIL import Image
+
+path, manifest = map(Path, sys.argv[1:])
+with Image.open(path) as image:
+    image.load()
+    width, height = image.size
+manifest.write_text(json.dumps({
+    "capture": "real-headless-labwc-grim",
+    "renderer": "pixman",
+    "client": "GTK3 RiceClip browser",
+    "content": "synthetic CI clipboard text",
+    "git_head": os.environ.get("GITHUB_SHA", "unknown"),
+    "width": width,
+    "height": height,
+    "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+}, indent=2) + "\n")
+PY
+echo 'RiceClip GTK browser mapped and captured in real headless labwc'
+kill "$clip_gui" 2>/dev/null || :
+wait "$clip_gui" 2>/dev/null || :
+clip_gui=
+
 clip_cli --clip-op copy --clip-index 0 --json >"$runtime/riceclip-copy.json"
 wait_for_clipboard wayland "$clip_text"
 clip_cli --clip-op clear --json >/dev/null
