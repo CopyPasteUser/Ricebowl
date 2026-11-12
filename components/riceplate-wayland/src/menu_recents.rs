@@ -218,7 +218,7 @@ mod tests {
         let names: Vec<_> = fs::read_dir(location.parent().unwrap()).unwrap()
             .map(|entry| entry.unwrap().file_name()).collect();
         assert_eq!(names.len(), 1);
-        assert_eq!(names[0], location.file_name().unwrap());
+        assert_eq!(names[0].as_os_str(), location.file_name().unwrap());
         fs::remove_dir_all(location.ancestors().nth(3).unwrap()).unwrap();
     }
 
