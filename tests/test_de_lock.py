@@ -39,6 +39,30 @@ class RiceClipLockTests(unittest.TestCase):
         self.assertEqual(order, [("lock", ["/usr/bin/swaylock", "-f"]),
                                  ("clear", "pause"), ("clear", "clear")])
 
+    def test_clipboard_events_cannot_repopulate_history_while_locked(self):
+        history = clip.History()
+        history.handle({"op": "ingest", "text": "synthetic-clipboard",
+                        "state": "data"})
+        history.handle({"op": "pin", "index": 0,
+                        "revision": history.revision,
+                        "session_id": history.session_id})
+        result = lock.lock_screen(
+            environment=FULL_SESSION,
+            which=lambda _name: "/usr/bin/swaylock",
+            run=lambda command, **_kwargs: subprocess.CompletedProcess(command, 0),
+            clear=lambda operation: history.handle({"op": operation}),
+        )
+        self.assertTrue(result["riceclip_cleared"])
+        self.assertTrue(history.paused)
+        self.assertEqual(history.items, [])
+        self.assertEqual(history.pins, set())
+        self.assertFalse(history.handle({"op": "ingest", "text": "while-locked",
+                                         "state": "data"})["recorded"])
+        self.assertEqual(history.items, [])
+        history.handle({"op": "resume"})
+        self.assertTrue(history.handle({"op": "ingest", "text": "user-resumed",
+                                        "state": "data"})["recorded"])
+
     def test_failing_locker_never_reports_a_lock_or_clears_history(self):
         def fail(command, **_kwargs):
             raise subprocess.CalledProcessError(1, command)
