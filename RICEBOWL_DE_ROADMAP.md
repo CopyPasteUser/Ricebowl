@@ -1038,6 +1038,12 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
     cached task-group hit lookup and legacy visual regression tests.
     Implemented on an isolated PR branch; headless CI and real-device
     acceptance are pending. Native high-DPI typography remains open.
+  - [ ] XP Luna native Start footer: introduce separate Lock, Log off and
+    Close pointer actions (no shell evaluation), gated to opt-in themed columns;
+    draw original bevelled iconography and a genuinely unavailable logout state.
+    Preserve other rices and the small-output single-Close fallback. Rust hit/
+    pixel tests plus real compositor pointer-hover capture are in PR; CI and
+    physical-device acceptance are required before checking this off.
   **Exact XP/7/10 menu reconstructions are deferred to the post-framework
   fidelity gate above**, not blocking this foundational milestone.
 - [ ] Make responsive shell layouts live across every backend and surface,
