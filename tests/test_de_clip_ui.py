@@ -127,9 +127,94 @@ class ClipBrowserModelTests(unittest.TestCase):
         self.assertIn("No clipboard text", clip_ui.snapshot_message(empty, ""))
         paused = clip_ui.ClipSnapshot(
             4, "a" * 32, True, (clip_ui.ClipRow(0, "hello", 5),))
-        self.assertIn("No previews match", clip_ui.snapshot_message(paused, "not here"))
+        self.assertIn("previews hidden", clip_ui.snapshot_message(paused, "not here"))
         self.assertIn("Paused", clip_ui.snapshot_message(paused, "hello"))
-        self.assertIn("1 item", clip_ui.snapshot_message(paused, "hello"))
+        self.assertNotIn("1 item", clip_ui.snapshot_message(paused, "hello"))
+
+    def test_paused_snapshot_never_fetches_clipboard_previews(self):
+        status = self._status()
+        status["paused"] = True
+        status["count"] = 2  # pause-before-clear lock window
+        with mock.patch.object(clip_ui.clip, "request", return_value=status) as request:
+            snapshot = clip_ui.read_snapshot()
+        self.assertTrue(snapshot.paused)
+        self.assertEqual(snapshot.rows, ())
+        self.assertEqual(snapshot.hidden_count, 2)
+        request.assert_called_once_with("status")
+        self.assertIn("previews hidden", clip_ui.snapshot_message(snapshot, ""))
+
+    def test_privacy_event_drops_snapshot_search_and_visible_gtk_rows(self):
+        # Exercise the actual callbacks without importing GTK on headless CI.
+        window = clip_ui.RiceClipWindow.__new__(clip_ui.RiceClipWindow)
+        window.closed = False
+        window.busy = True
+        window.events_epoch = 0
+        window.pending_event_refresh = False
+        window.snapshot = clip_ui.ClipSnapshot(
+            7, "a" * 32, False, (clip_ui.ClipRow(0, "private-preview", 15),))
+        window.store = mock.Mock()
+        window.search = mock.Mock()
+        window.status = mock.Mock()
+        window._buttons = mock.Mock()
+        window.refresh = mock.Mock()
+        event = {"event": "privacy", "session_id": "a" * 32,
+                 "revision": 8, "paused": True, "count": 1}
+        self.assertFalse(window._history_event(event))
+        self.assertIsNone(window.snapshot)
+        window.store.clear.assert_called_once_with()
+        window.search.set_text.assert_called_once_with("")
+        window.status.set_text.assert_called_once()
+        self.assertEqual(window.events_epoch, 1)
+        self.assertTrue(window.pending_event_refresh)
+        window.refresh.assert_not_called()
+
+    def test_pending_async_snapshot_cannot_repopulate_after_privacy_event(self):
+        from concurrent.futures import Future
+
+        window = clip_ui.RiceClipWindow.__new__(clip_ui.RiceClipWindow)
+        window.closed = False
+        window.busy = False
+        window.events_epoch = 4
+        window.pending_event_refresh = False
+        window.snapshot = None
+        window._buttons = mock.Mock()
+        window.refresh = mock.Mock()
+        future = Future()
+        window.executor = mock.Mock()
+        window.executor.submit.return_value = future
+        window.GLib = mock.Mock()
+        window.GLib.idle_add.side_effect = lambda callback: callback()
+        finished = mock.Mock()
+
+        window._work(lambda: None, finished)
+        self.assertTrue(window.busy)
+        window.events_epoch += 1
+        window.pending_event_refresh = True  # external clear while worker busy
+        future.set_result(clip_ui.ClipSnapshot(
+            12, "a" * 32, False, (clip_ui.ClipRow(0, "secret", 6),)))
+        finished.assert_not_called()
+        self.assertIsNone(window.snapshot)
+        window.refresh.assert_called_once_with()
+        self.assertFalse(window.busy)
+
+    def test_watcher_exit_discards_stale_rows_without_implicit_reconnect(self):
+        window = clip_ui.RiceClipWindow.__new__(clip_ui.RiceClipWindow)
+        window.closed = False
+        window.busy = False
+        window.events_epoch = 3
+        window.pending_event_refresh = False
+        window.snapshot = clip_ui.ClipSnapshot(
+            9, "a" * 32, False, (clip_ui.ClipRow(0, "password-like", 13),))
+        window.store = mock.Mock()
+        window.search = mock.Mock()
+        window.status = mock.Mock()
+        window._buttons = mock.Mock()
+        window.refresh = mock.Mock()
+        self.assertFalse(window._events_disconnected())
+        self.assertIsNone(window.snapshot)
+        self.assertEqual(window.events_epoch, 4)
+        window.refresh.assert_not_called()
+        self.assertFalse(window.pending_event_refresh)
 
     def test_status_list_race_retries_then_fails_closed(self):
         with mock.patch.object(clip_ui.clip, "request",
