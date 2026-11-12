@@ -1823,3 +1823,12 @@ The CI test uses real compositor pointer events and a private Gio spy;
 keyboard and accessibility actions remain one-step. Physical Wayland QA,
 per-shortcut context menus and desktop-wide selection outside the small
 non-input-stealing icon surfaces remain open.
+
+### Native Luna shortcut context actions (12 November 2026)
+
+The selected XP Luna profile gains a bounded, output-local, event-driven
+right-click menu for shortcut Open, Next display and All displays. Pointer
+and keyboard actions use fixed, validated native handlers. No full-screen
+desktop input capture, custom labwc behavior or automatic filesystem writes.
+Physical mouse, multi-output hotplug and focus QA still gate the release;
+desktop background right-click and file-properties remain open work.

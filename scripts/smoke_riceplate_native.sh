@@ -698,6 +698,31 @@ PY
             cp "$runtime/xp-luna-recycle-bin-click.png" \
                "$source_root/dist/riceplate-native-preview/xp-luna-recycle-bin-click.png"
             echo "Verified Luna single-select and double-open through real pointer/Gio events"
+            # Right-click must open a bounded popup, never launch a shortcut.
+            rm -f "$runtime/trash-gio.log"
+            WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click 68 435 1366 768
+            sleep 0.3
+            if [ -e "$runtime/trash-gio.log" ]; then
+                echo "Luna right-click unexpectedly executed a desktop shortcut" >&2
+                exit 1
+            fi
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-shortcut-context.png"
+            cp "$runtime/xp-luna-shortcut-context.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-shortcut-context.png"
+            # Popup anchored at (68,435); Open occupies row 36..63.
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 88 485 1366 768
+            count=0
+            while [ ! -s "$runtime/trash-gio.log" ] && [ "$count" -lt 25 ]; do
+                count=$((count + 1))
+                sleep 0.1
+            done
+            actual=$(cat "$runtime/trash-gio.log" 2>/dev/null || :)
+            if [ "$actual" != "$expected" ]; then
+                echo "Luna right-click context Open failed the actual Wayland/Gio path" >&2
+                exit 1
+            fi
+            kill -0 "$plate"
+            echo "Verified Luna right-click context Open through labwc virtual pointer"
         fi
         if [ "$label" = overflow-v5 ]; then
             # Separate recipe deliberately requests x=4090 on a 1024px output.
