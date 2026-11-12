@@ -400,9 +400,10 @@ class WaylandSessionTests(unittest.TestCase):
             self.assertEqual(session.shell(environment=env, which=self.which,
                                            spawn=spawn), 0)
         idle = next(command for command in commands if command[0] == "/usr/bin/swayidle")
+        lock = shlex.join([session.sys.executable,
+                           str(session.project_root() / "launcher.py"), "de", "lock"])
         self.assertEqual(idle, ["/usr/bin/swayidle", "-w", "timeout", "600",
-                                "/usr/bin/swaylock -f", "before-sleep",
-                                "/usr/bin/swaylock -f"])
+                                lock, "before-sleep", lock, "lock", lock])
 
     def test_idle_lock_watcher_crash_stops_live_session_instead_of_rescuing(self):
         commands = []
@@ -710,7 +711,7 @@ class WaylandSessionTests(unittest.TestCase):
         config = ET.parse(session.resources() / "labwc/rc.xml")
         self.assertEqual(config.getroot().tag, "labwc_config")
         commands = [item.get("command") for item in config.findall(".//action")]
-        self.assertIn("swaylock -f", commands)
+        self.assertIn("ricebowl de lock", commands)
         self.assertIn("foot", commands)
         keybindings = {
             key.get("key"): key.find("action").get("command")
