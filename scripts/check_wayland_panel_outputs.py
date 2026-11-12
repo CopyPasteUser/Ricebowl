@@ -23,6 +23,9 @@ def validate(paths: list[Path]) -> None:
         with Image.open(path) as image:
             if image.format != "PNG" or min(image.size) < 480:
                 raise ValueError("Output screenshot has invalid PNG geometry")
+            # Validate the complete capture before sampling a panel pixel:
+            # truncated PNGs can retain valid early scanlines.
+            image.load()
             rgb = image.convert("RGB").getpixel((image.width // 2, image.height - 5))
         if any(abs(actual - base) > 6 for actual, base in zip(rgb, expected)):
             raise ValueError(f"No classic RiceBowl panel on output screenshot: {path.name} ({rgb})")

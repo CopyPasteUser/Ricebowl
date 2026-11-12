@@ -5,6 +5,10 @@ physical acceptance outstanding.** RiceBowl 0.9.x is still an XFCE/X11
 rice manager. The separate Wayland login-session package requires explicit
 installation and is not yet a finished desktop environment.
 
+### Screenshot evidence integrity (12 November 2026, pending CI)
+
+- [ ] Require complete PNG decoding before the classic panel pixel probe; add synthetic complete/truncated/wrong-color/invalid-geometry unit cases. Local focused tests pass, but the native labwc compositor screenshot matrix and full CI remain mandatory before this is marked complete. The synthetic unit fixtures are **not** real desktop screenshots.
+
 ### Wayland XP Luna recipe (10 November 2026, preview sprint)
 
 - Added `examples/wayland/xp-luna.json` with RiceBowl-original `luna-hills`
