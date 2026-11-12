@@ -160,6 +160,10 @@ if [ "$count" -ge 25 ]; then
     sed -n "1,40p" "$runtime/riceclip-gui.log" >&2
     exit 1
 fi
+# Allow the GTK redraw and sensitivity updates to finish before the
+# archived screenshot, rather than capturing a transient initial frame.
+sleep 0.35
+WAYLAND_DISPLAY="$WAYLAND_DISPLAY" grim - >"$runtime/riceclip-after.png"
 artifact="$source_root/dist/riceplate-native-preview"
 mkdir -p "$artifact"
 cp "$runtime/riceclip-after.png" "$artifact/riceclip-browser-gtk-headless.png"
