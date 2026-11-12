@@ -17,6 +17,7 @@ class ClipRow:
     index: int
     preview: str
     characters: int
+    pinned: bool = False
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,9 @@ def read_snapshot() -> ClipSnapshot:
             continue
         items = listing.get("items")
         if (type(status.get("paused")) is not bool or type(status.get("count")) is not int
+                or type(status.get("pinned_count")) is not int
+                or status["pinned_count"] < 0
+                or status["pinned_count"] > clip.MAX_PINS
                 or not isinstance(items, list) or len(items) > clip.MAX_ITEMS
                 or status["count"] != len(items) or revision < 0):
             raise clip.ClipError("invalid_request")
@@ -53,9 +57,14 @@ def read_snapshot() -> ClipSnapshot:
                     or not isinstance(item.get("preview"), str)
                     or len(item["preview"]) > 80
                     or type(item.get("characters")) is not int
-                    or item["characters"] < len(item["preview"])):
+                    or item["characters"] < len(item["preview"])
+                    or type(item.get("pinned")) is not bool):
                 raise clip.ClipError("invalid_request")
-            rows.append(ClipRow(position, item["preview"], item["characters"]))
+            # Pinned entries form one bounded prefix in the watcher.
+            if item["pinned"] != (position < status["pinned_count"]):
+                raise clip.ClipError("invalid_request")
+            rows.append(ClipRow(position, item["preview"], item["characters"],
+                                item["pinned"]))
         return ClipSnapshot(revision, identity, status["paused"], tuple(rows))
     raise clip.ClipError("stale_history")
 
@@ -75,7 +84,8 @@ def snapshot_message(snapshot: ClipSnapshot, query: str) -> str:
     if query.strip() and not visible_rows(snapshot, query):
         return f"No previews match your search · {count} stored in session memory"
     noun = "item" if count == 1 else "items"
-    return f"{state} · {count} {noun} in volatile session memory"
+    pins = sum(row.pinned for row in snapshot.rows)
+    return f"{state} · {count} {noun} in volatile session memory · {pins} pinned"
 
 
 def restore_row(row: ClipRow, snapshot: ClipSnapshot) -> None:
@@ -143,6 +153,10 @@ class RiceClipWindow:
         self.copy_button.get_accessible().set_name("Restore selected history item to clipboard")
         self.copy_button.connect("clicked", lambda _button: self._copy())
         controls.pack_start(self.copy_button, False, False, 0)
+        self.pin_button = Gtk.Button(label="Pin selected")
+        self.pin_button.get_accessible().set_name("Pin selected clipboard item")
+        self.pin_button.connect("clicked", lambda _button: self._toggle_pin())
+        controls.pack_start(self.pin_button, False, False, 0)
         self.refresh_button = Gtk.Button(label="Refresh")
         self.refresh_button.connect("clicked", lambda _button: self.refresh())
         controls.pack_start(self.refresh_button, False, False, 0)
@@ -170,9 +184,14 @@ class RiceClipWindow:
         self.Gtk.main_quit()
 
     def _buttons(self):
-        selection = self.list.get_selection().get_selected()[1]
+        row = self._selected_row()
         ready = not self.busy and self.snapshot is not None
-        self.copy_button.set_sensitive(ready and selection is not None)
+        self.copy_button.set_sensitive(ready and row is not None)
+        self.pin_button.set_label("Unpin selected" if row and row.pinned else "Pin selected")
+        self.pin_button.set_sensitive(
+            ready and row is not None and
+            (row.pinned or sum(entry.pinned for entry in self.snapshot.rows) < clip.MAX_PINS)
+        )
         self.refresh_button.set_sensitive(not self.busy)
         self.pause_button.set_sensitive(ready)
         self.clear_button.set_sensitive(ready and bool(self.snapshot.rows))
@@ -206,25 +225,63 @@ class RiceClipWindow:
 
         future.add_done_callback(callback)
 
-    def refresh(self):
+    def refresh(self, *, preferred_index=None, expected_revision=None):
         def show(snapshot):
             self.snapshot = snapshot
             self.pause_button.set_label("Resume recording" if snapshot.paused else "Pause recording")
-            self._render_rows()
+            # A moved row can only be reselected if no clipboard event
+            # intervened after the server reported its new index.
+            target = (preferred_index if snapshot.revision == expected_revision
+                      and type(preferred_index) is int else None)
+            self._render_rows(preferred_index=target)
         self._work(read_snapshot, show)
 
-    def _render_rows(self):
+    def _render_rows(self, *, preferred_index=None):
         self.store.clear()
         if self.snapshot is None:
             self._buttons()
             return
-        for row in visible_rows(self.snapshot, self.search.get_text()):
+        selected_path = None
+        for path_index, row in enumerate(visible_rows(self.snapshot, self.search.get_text())):
             preview = row.preview.replace("\n", " ↵ ").replace("\r", " ").replace("\t", " ⇥ ")
-            self.store.append((row.index, preview, str(row.characters)))
+            self.store.append((row.index,
+                               ("★ " if row.pinned else "") + preview,
+                               str(row.characters)))
+            if row.index == preferred_index:
+                selected_path = path_index
         if len(self.store):
-            self.list.get_selection().select_path(0)
+            self.list.get_selection().select_path(
+                selected_path if selected_path is not None else 0)
         self.status.set_text(snapshot_message(self.snapshot, self.search.get_text()))
         self._buttons()
+
+    def _selected_row(self) -> ClipRow | None:
+        if self.snapshot is None:
+            return None
+        model, selected = self.list.get_selection().get_selected()
+        if selected is None:
+            return None
+        index = model.get_value(selected, 0)
+        return next((row for row in self.snapshot.rows if row.index == index), None)
+
+    def _toggle_pin(self):
+        if self.busy or self.snapshot is None:
+            return
+        row = self._selected_row()
+        if row is None:
+            return
+        snapshot = self.snapshot
+        op = "unpin" if row.pinned else "pin"
+        def updated(receipt):
+            self.refresh(preferred_index=receipt.get("selected_index"),
+                         expected_revision=receipt.get("revision"))
+
+        self._work(
+            lambda: clip.request(op, index=row.index,
+                                 revision=snapshot.revision,
+                                 session_id=snapshot.session_id),
+            updated,
+        )
 
     def _copy(self):
         if self.busy or self.snapshot is None:

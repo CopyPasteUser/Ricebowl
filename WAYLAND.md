@@ -124,7 +124,12 @@ menus and panel action components may now expose `clip-history`: a fixed
 The opt-in original XP-Luna sidebar and Heritage example show it, including
 their labwc and Waybar fallbacks; the six-slot Luna-Columns right shelf is
 deliberately unaffected. This opens the shared on-demand GTK window, **not**
-a separate native RicePlate inbox. Pins, retention controls, hardware input
+a separate native RicePlate inbox. Up to **five session-only pins** can
+now be marked/unmarked in the same GTK browser; pinned entries stay at the
+front even as the ordinary 20-entry history rolls over. Pin mutations require
+the same current watcher identity and revision as guarded copy-back; a stale
+selection is refused. Pins are cleared with history and on watcher exit, never
+persisted or auto-restored. Configurable retention, physical hardware input,
 and a composited in-panel history view remain open.
 
 The watcher requires `wl-paste --watch` **and** compositor support for

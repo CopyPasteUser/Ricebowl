@@ -101,14 +101,14 @@ class ClipBrowserModelTests(unittest.TestCase):
     def _status(revision=5, count=2):
         return {"ok": True, "revision": revision, "session_id": "a" * 32,
                 "paused": False,
-                "count": count, "persistent": False}
+                "count": count, "persistent": False, "pinned_count": 0, "max_pins": 5}
 
     @staticmethod
     def _listing(revision=5):
         return {"ok": True, "revision": revision, "session_id": "a" * 32,
                 "items": [
-            {"index": 0, "preview": "Hello world", "characters": 11},
-            {"index": 1, "preview": "Grüße ☀", "characters": 7},
+            {"index": 0, "preview": "Hello world", "characters": 11, "pinned": False},
+            {"index": 1, "preview": "Grüße ☀", "characters": 7, "pinned": False},
         ]}
 
     def test_snapshot_is_bounded_and_searches_only_safe_previews(self):
@@ -156,11 +156,11 @@ class ClipBrowserModelTests(unittest.TestCase):
     def test_snapshot_rejects_malformed_or_oversized_untrusted_results(self):
         invalid = [
             {"ok": True, "revision": 5, "session_id": "a" * 32, "items": [
-                {"index": True, "preview": "abc", "characters": 3}]},
+                {"index": True, "preview": "abc", "characters": 3, "pinned": False}]},
             {"ok": True, "revision": 5, "session_id": "a" * 32, "items": [
-                {"index": 0, "preview": "x" * 81, "characters": 81}]},
+                {"index": 0, "preview": "x" * 81, "characters": 81, "pinned": False}]},
             {"ok": True, "revision": 5, "session_id": "a" * 32, "items": [
-                {"index": 0, "preview": "abc", "characters": -1}]},
+                {"index": 0, "preview": "abc", "characters": -1, "pinned": False}]},
             {"ok": True, "revision": 5, "session_id": "a" * 32, "items": []},
         ]
         for listing in invalid:
@@ -169,6 +169,39 @@ class ClipBrowserModelTests(unittest.TestCase):
                                        side_effect=[self._status(count=1), listing]):
                     with self.assertRaises(clip.ClipError):
                         clip_ui.read_snapshot()
+
+    def test_pinned_snapshot_and_local_preview_search(self):
+        status = self._status()
+        status["pinned_count"] = 1
+        listing = self._listing()
+        listing["items"][0]["pinned"] = True
+        with mock.patch.object(clip_ui.clip, "request",
+                               side_effect=[status, listing]):
+            snapshot = clip_ui.read_snapshot()
+        self.assertTrue(snapshot.rows[0].pinned)
+        self.assertFalse(snapshot.rows[1].pinned)
+        self.assertEqual([row.index for row in
+                          clip_ui.visible_rows(snapshot, "grüße")], [1])
+        self.assertIn("1 pinned", clip_ui.snapshot_message(snapshot, ""))
+
+    def test_reject_inconsistent_pinned_metadata(self):
+        for malformed in ("true", 1, None, [], {}):
+            status = self._status()
+            status["pinned_count"] = 1
+            listing = self._listing()
+            listing["items"][0]["pinned"] = malformed
+            with self.subTest(malformed=malformed):
+                with mock.patch.object(clip_ui.clip, "request",
+                                       side_effect=[status, listing]):
+                    with self.assertRaises(clip.ClipError):
+                        clip_ui.read_snapshot()
+        status = self._status()
+        status["pinned_count"] = 1
+        listing = self._listing()  # zero pinned entries
+        with mock.patch.object(clip_ui.clip, "request",
+                               side_effect=[status, listing]):
+            with self.assertRaises(clip.ClipError):
+                clip_ui.read_snapshot()
 
     def test_restore_always_supplies_snapshot_revision(self):
         snapshot = clip_ui.ClipSnapshot(27, "a" * 32, False,
