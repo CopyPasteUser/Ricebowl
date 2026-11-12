@@ -59,6 +59,38 @@ impl OutputPositions {
         Ok(())
     }
 
+    /// Only a per-output override different from the immutable recipe
+    /// position is resettable. Unknown and malformed displays are not
+    /// silently initialized by a Reset click.
+    pub fn can_reset_position(&self, name: &str, icons: &[DesktopIcon],
+                              index: usize) -> bool {
+        safe_output_name(name) && self.for_output(name, icons.len())
+            .and_then(|positions| positions.get(index))
+            .zip(icons.get(index))
+            .is_some_and(|(position, icon)|
+                position.x != icon.x || position.y != icon.y)
+    }
+
+    /// Restore just one shortcut on one named monitor. Never change the
+    /// source recipe, other monitors, desktop ownership, or unrelated icons.
+    /// Returns false without writing when already at default.
+    pub fn reset_position(&mut self, name: &str, icons: &[DesktopIcon],
+                          index: usize) -> Result<bool, Box<dyn Error>> {
+        if !safe_output_name(name) || index >= icons.len() {
+            return Err("Invalid display or icon index".into());
+        }
+        let Some(positions) = self.positions.get_mut(name) else {
+            return Ok(false);
+        };
+        if positions.len() != icons.len() {
+            return Err("Icon layout is incompatible with this rice".into());
+        }
+        let expected = Coordinates { x: icons[index].x, y: icons[index].y };
+        if positions[index] == expected { return Ok(false); }
+        positions[index] = expected;
+        Ok(true)
+    }
+
     pub fn owner(&self, index: usize) -> Option<&str> {
         self.owners.get(index).and_then(Option::as_deref)
     }
@@ -385,6 +417,34 @@ mod tests {
         let incompatible = state.clone();
         assert!(state.transfer(icons, 0, "DP-2", Coordinates { x: 10, y: 20 }).is_err());
         assert_eq!(state, incompatible);
+    }
+
+    #[test]
+    fn reset_one_monitor_position_preserves_other_layouts_and_ownership() {
+        let source = include_str!("../../../tests/fixtures/riceplate-desktop-v5.json");
+        let recipe = crate::recipe::parse(source, Some("mockup-desktop")).unwrap();
+        let icons = &recipe.desktop_icons;
+        let mut state = OutputPositions::default();
+        let changed = Coordinates { x: 386, y: 216 };
+        state.set("DP-1", icons, 0, changed).unwrap();
+        state.set("HDMI-A-1", icons, 0, Coordinates { x: 524, y: 320 }).unwrap();
+        state.assign(icons, 0, Some("DP-1")).unwrap();
+        let untouched = state.for_output("HDMI-A-1", icons.len()).unwrap()[0];
+        assert!(state.can_reset_position("DP-1", icons, 0));
+        assert!(!state.can_reset_position("DP-1", icons, icons.len()));
+        assert!(!state.can_reset_position("NONEXISTENT", icons, 0));
+        assert!(state.reset_position("DP-1", icons, 0).unwrap());
+        assert!(!state.can_reset_position("DP-1", icons, 0));
+        assert!(!state.reset_position("DP-1", icons, 0).unwrap());
+        assert!(!state.reset_position("DP-2", icons, 0).unwrap());
+        assert_eq!(state.for_output("DP-1", icons.len()).unwrap()[0],
+                   Coordinates { x: icons[0].x, y: icons[0].y });
+        assert_eq!(state.for_output("HDMI-A-1", icons.len()).unwrap()[0], untouched);
+        assert_eq!(state.owner(0), Some("DP-1"));
+        let before = state.clone();
+        assert!(state.reset_position("../../oops", icons, 0).is_err());
+        assert!(state.reset_position("DP-1", icons, icons.len()).is_err());
+        assert_eq!(state, before);
     }
 
     #[test]
