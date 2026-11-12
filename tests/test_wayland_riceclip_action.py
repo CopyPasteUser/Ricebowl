@@ -59,6 +59,14 @@ class RiceClipActionContractTests(unittest.TestCase):
                 actions = {action for group in parsed.menu[1] for action in group.actions}
                 self.assertIn("clip-history", actions)
                 self.assertTrue({"applications", "terminal", "lock", "logout"} <= actions)
+                if name == "xp-luna.json":
+                    system = next(group for group in parsed.menu[1]
+                                  if group.title == "System")
+                    self.assertEqual(system.actions,
+                                     ("settings", "notifications", "clip-history"))
+                    # Native composition must have a visible slot for the
+                    # third action, not merely accept the hidden binding.
+                    self.assertEqual(system.content[0].limit, 3)
 
     def test_invalid_commands_and_non_allowlisted_ids_fail_closed(self):
         original = json.loads(FIXTURE.read_text())
