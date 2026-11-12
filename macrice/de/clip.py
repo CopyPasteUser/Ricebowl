@@ -137,10 +137,11 @@ class History:
                 self.items.insert(boundary, item)
             else:
                 return {"ok": True, "pinned": already_pinned,
-                        "revision": self.revision}
+                        "revision": self.revision, "selected_index": index}
             self.revision += 1
             return {"ok": True, "pinned": op == "pin",
-                    "revision": self.revision}
+                    "revision": self.revision,
+                    "selected_index": self.items.index(item)}
         if op == "copy":
             # A restart resets numeric revisions; its random watcher ID must
             # also match, or a once-valid index could refer to different text.
