@@ -57,7 +57,7 @@
       },
       {
         "title": "System",
-        "actions": ["settings", "notifications"],
+        "actions": ["settings", "notifications", "clip-history"],
         "content": [
           {"type": "actions", "title": "System Tools", "limit": 2}
         ]
