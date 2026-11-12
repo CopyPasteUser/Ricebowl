@@ -853,6 +853,22 @@ mod tests {
     }
 
     #[test]
+    fn luna_sidebar_riceclip_action_is_visible_and_clickable_not_just_declared() {
+        let style = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna.json"), Some("xp-luna")).unwrap();
+        let menu = style.menu.as_ref().unwrap();
+        let state = MenuState { visible: true, group: 1, ..MenuState::default() };
+        let sections = state.composed_sections(menu).unwrap();
+        assert_eq!(sections.len(), 1);
+        let actions: Vec<_> = sections[0].items.iter().map(|tile| tile.action).collect();
+        assert_eq!(actions, vec!["settings", "notifications", "clip-history"]);
+        let clip = sections[0].items.last().unwrap();
+        assert_eq!(state.hit(menu, f64::from(clip.x + 10), f64::from(clip.y + 10)),
+                   Some(Hit::Action(2)));
+        assert_eq!(action_label("clip-history"), "RiceClip history");
+    }
+
+    #[test]
     fn luna_footer_actions_have_nonoverlapping_pointer_bounds_and_opt_in_only() {
         let luna = crate::recipe::parse(
             include_str!("../../../examples/wayland/xp-luna-columns.json"),
