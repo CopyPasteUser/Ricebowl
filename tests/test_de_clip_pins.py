@@ -29,6 +29,7 @@ class PinHistoryTests(unittest.TestCase):
             insert(history, f"entry-{index}")
         receipt = change_pin(history, "pin", 4)
         self.assertEqual(receipt["pinned"], True)
+        self.assertEqual(receipt["selected_index"], 0)
         self.assertEqual(history.items[0], "keep-private")
         self.assertEqual(history.handle({"op": "status"})["pinned_count"], 1)
 
@@ -73,12 +74,15 @@ class PinHistoryTests(unittest.TestCase):
         revision = history.revision
         receipt = change_pin(history, "pin", 0)
         self.assertEqual(receipt["revision"], revision)
+        self.assertEqual(receipt["selected_index"], 0)
         self.assertEqual(history.revision, revision)
         # Another newly pinned item joins the pinned prefix.
         change_pin(history, "pin", 2)
         self.assertEqual(history.items, ["B", "A", "C"])
         # Unpin keeps an item in the recent-unpinned part, not at the end.
-        change_pin(history, "unpin", 0)
+        unpinned = change_pin(history, "unpin", 0)
+        self.assertEqual(unpinned["selected_index"], 1)
+        self.assertEqual(unpinned["revision"], history.revision)
         self.assertEqual(history.items, ["A", "B", "C"])
         rev = history.revision
         self.assertFalse(change_pin(history, "unpin", 1)["pinned"])
