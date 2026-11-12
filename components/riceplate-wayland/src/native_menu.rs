@@ -122,6 +122,7 @@ pub fn action_label(action: &str) -> &'static str {
         "applications" => "Applications",
         "terminal" => "Terminal",
         "settings" => "RiceSpice settings",
+        "clip-history" => "RiceClip history",
         "documents" => "My Documents",
         "computer" => "My Computer",
         "lock" => "Lock screen",
