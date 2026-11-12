@@ -20,6 +20,7 @@ from pathlib import Path
 
 MAX_TEXT_BYTES = 64 * 1024
 MAX_ITEMS = 20
+MAX_PINS = 5
 MAX_REQUEST_BYTES = 512 * 1024
 ERROR_MESSAGES = {
     "unavailable": "RiceClip requires a private XDG runtime directory and Wayland session",
@@ -30,6 +31,7 @@ ERROR_MESSAGES = {
     "stale_history": "RiceClip history changed; refresh the list before copying",
     "copy_unavailable": "Wayland clipboard copy requires wl-copy",
     "copy_failed": "Could not restore this RiceClip item to the clipboard",
+    "pin_limit": "Only five clipboard entries can be pinned per session",
 }
 
 
@@ -59,6 +61,7 @@ def socket_path() -> Path:
 class History:
     def __init__(self):
         self.items: list[str] = []
+        self.pins: set[str] = set()
         self.paused = False
         # A per-watcher monotonic generation protects GUI list selections
         # against asynchronous clipboard ingestion/reordering.
@@ -77,7 +80,10 @@ class History:
             previous = self.items.copy()
             if data in self.items:
                 self.items.remove(data)
-            self.items.insert(0, data)
+            # Keep pinned entries as a stable prefix; new selections cannot
+            # evict a favorite. Repeated copies of pinned text stay pinned.
+            first_unpinned = sum(item in self.pins for item in self.items)
+            self.items.insert(0 if data in self.pins else first_unpinned, data)
             del self.items[MAX_ITEMS:]
             if self.items != previous:
                 self.revision += 1
@@ -86,20 +92,55 @@ class History:
             return {"ok": True, "paused": self.paused, "count": len(self.items),
                     "revision": self.revision, "session_id": self.session_id,
                     "max_items": MAX_ITEMS, "max_text_bytes": MAX_TEXT_BYTES,
+                    "pinned_count": len(self.pins), "max_pins": MAX_PINS,
                     "persistent": False}
         if op == "list":
             return {"ok": True, "revision": self.revision,
                     "session_id": self.session_id, "items": [
-                {"index": index, "preview": item[:80], "characters": len(item)}
+                {"index": index, "preview": item[:80], "characters": len(item),
+                 "pinned": item in self.pins}
                 for index, item in enumerate(self.items)]}
         if op == "clear":
             if self.items:
                 self.items.clear()
+                self.pins.clear()
                 self.revision += 1
             return {"ok": True, "count": 0}
         if op in ("pause", "resume"):
             self.paused = op == "pause"
             return {"ok": True, "paused": self.paused}
+        if op in ("pin", "unpin"):
+            # Unlike legacy index-only copy, pin mutations always require
+            # a current GUI snapshot from this exact watcher incarnation.
+            identity = request.get("session_id")
+            revision = request.get("revision")
+            index = request.get("index")
+            if (type(identity) is not str or type(revision) is not int or revision < 0
+                    or type(index) is not int):
+                raise ClipError("invalid_request")
+            if identity != self.session_id or revision != self.revision:
+                raise ClipError("stale_history")
+            if not 0 <= index < len(self.items):
+                raise ClipError("invalid_request")
+            item = self.items[index]
+            already_pinned = item in self.pins
+            if op == "pin" and not already_pinned:
+                if len(self.pins) >= MAX_PINS:
+                    raise ClipError("pin_limit")
+                self.pins.add(item)
+                self.items.pop(index)
+                self.items.insert(0, item)
+            elif op == "unpin" and already_pinned:
+                self.pins.remove(item)
+                self.items.pop(index)
+                boundary = sum(other in self.pins for other in self.items)
+                self.items.insert(boundary, item)
+            else:
+                return {"ok": True, "pinned": already_pinned,
+                        "revision": self.revision}
+            self.revision += 1
+            return {"ok": True, "pinned": op == "pin",
+                    "revision": self.revision}
         if op == "copy":
             # A restart resets numeric revisions; its random watcher ID must
             # also match, or a once-valid index could refer to different text.
