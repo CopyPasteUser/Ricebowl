@@ -231,7 +231,36 @@ clip_gui=
 
 clip_cli --clip-op copy --clip-index 0 --json >"$runtime/riceclip-copy.json"
 wait_for_clipboard wayland "$clip_text"
-clip_cli --clip-op clear --json >/dev/null
+# Exercise the new LOCK->clear hook on the live Wayland watcher, while
+# replacing only the locker executable with a test acknowledgement. This
+# does NOT claim a physical/compositor screen lock; separate lock unit tests
+# verify order and fail-closed behavior. Avoid altering real runner screen.
+RICEBOWL_CLIP_TEST_ROOT="$source_root" /usr/bin/python3 -B - <<'PY'
+import os
+import subprocess
+import sys
+sys.path.insert(0, os.environ["RICEBOWL_CLIP_TEST_ROOT"])
+from macrice.de import clip
+from macrice.de.lock import lock_screen
+
+assert clip.request("status")["count"] >= 1
+acknowledged = []
+def confirmed(command, **kwargs):
+    acknowledged.append(tuple(command))
+    return subprocess.CompletedProcess(command, 0)
+
+result = lock_screen(
+    environment={"RICEBOWL_DE_NESTED": "0",
+                 "RICEBOWL_DE_SHELL_CHILD": "1",
+                 "WAYLAND_DISPLAY": os.environ["WAYLAND_DISPLAY"]},
+    which=lambda _name: "/ci/fake-swaylock",
+    run=confirmed,
+)
+assert acknowledged == [("/ci/fake-swaylock", "-f")]
+assert result == {"locked": True, "riceclip_cleared": True}
+assert clip.request("status")["count"] == 0
+assert clip.request("status")["pinned_count"] == 0
+PY
 clip_cli --clip-op status --json >"$runtime/riceclip-status.json"
 grep -Fq '"count": 0' "$runtime/riceclip-status.json"
 grep -Fq '"pinned_count": 0' "$runtime/riceclip-status.json"
