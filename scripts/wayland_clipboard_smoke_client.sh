@@ -197,11 +197,44 @@ kill "$clip_gui" 2>/dev/null || :
 wait "$clip_gui" 2>/dev/null || :
 clip_gui=
 
+# Exercise the real Wayland watcher socket against an explicitly pinned
+# synthetic entry. GUI snapshot revisions must prevent stale mutations.
+# Keep a pin visible for the subsequent REAL headless GTK screenshot.
+RICEBOWL_CLIP_TEST_ROOT="$source_root" /usr/bin/python3 -B - <<'PY'
+import os
+import sys
+sys.path.insert(0, os.environ["RICEBOWL_CLIP_TEST_ROOT"])
+from macrice.de import clip
+
+before = clip.request("list")
+assert len(before["items"]) >= 1
+original = before["items"][0]
+assert original["preview"] == "riceclip-Luna-über-Wayland-✓"
+assert original["pinned"] is False
+pinned = clip.request("pin", index=0, revision=before["revision"],
+                     session_id=before["session_id"])
+assert pinned["ok"] and pinned["pinned"]
+after = clip.request("list")
+assert after["items"][0]["pinned"] is True
+assert after["items"][0]["preview"] == original["preview"]
+assert after["revision"] > before["revision"]
+try:
+    clip.request("unpin", index=0, revision=before["revision"],
+                 session_id=before["session_id"])
+except clip.ClipError as exc:
+    assert exc.code == "stale_history"
+else:
+    raise AssertionError("RiceClip accepted a stale pin mutation")
+status = clip.request("status")
+assert status["pinned_count"] == 1
+assert status["persistent"] is False
+PY
 clip_cli --clip-op copy --clip-index 0 --json >"$runtime/riceclip-copy.json"
 wait_for_clipboard wayland "$clip_text"
 clip_cli --clip-op clear --json >/dev/null
 clip_cli --clip-op status --json >"$runtime/riceclip-status.json"
 grep -Fq '"count": 0' "$runtime/riceclip-status.json"
+grep -Fq '"pinned_count": 0' "$runtime/riceclip-status.json"
 kill "$clip_monitor"
 wait "$clip_monitor" 2>/dev/null || :
 clip_monitor=
