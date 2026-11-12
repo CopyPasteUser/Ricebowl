@@ -484,6 +484,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         keyboard_icon_surface: None,
         desktop_selection: desktop_selection::Selection::default(),
         desktop_context: None,
+        context_generation: 0,
         context_focused: false,
         focused_widget: None,
         keyboard_widget_surface: None,
@@ -906,6 +907,8 @@ struct RicePlate {
     keyboard_icon_surface: Option<wl_surface::WlSurface>,
     desktop_selection: desktop_selection::Selection,
     desktop_context: Option<DesktopContextLayer>,
+    // Invalidates pending AT-SPI actions when menus reopen or change views.
+    context_generation: u64,
     context_focused: bool,
     focused_widget: Option<usize>,
     keyboard_widget_surface: Option<wl_surface::WlSurface>,
@@ -1003,6 +1006,7 @@ impl RicePlate {
         if self.calendar_state.visible { self.set_calendar_visible(false, qh); }
         if self.tray_popup_open() { self.set_tray_popup_visible(false, qh); }
         self.close_desktop_context();
+        self.context_generation = self.context_generation.wrapping_add(1);
         let surface = self.layer_shell.create_layer_surface(
             qh, self.compositor.create_surface(qh), Layer::Overlay,
             Some("riceplate-luna-shortcut-context"), Some(&output),
@@ -1027,6 +1031,7 @@ impl RicePlate {
         let index = menu.icon_index;
         if !action.enabled(menu.can_move, menu.can_reset) { return; }
         if action == DesktopContextAction::Properties {
+            self.context_generation = self.context_generation.wrapping_add(1);
             if let Some(menu) = self.desktop_context.as_mut() {
                 menu.properties = true;
                 menu.hovered = None;
@@ -1191,6 +1196,39 @@ impl RicePlate {
                               format!("{}, {}; F6 next display, F7 all displays",
                                       item.label, assignment),
                               Some(Target::DesktopIcon(index)));
+                }
+            }
+        }
+        if let Some(menu) = self.desktop_context.as_ref() {
+            if menu.properties {
+                model.add(32_000, ROOT, AccessibleRole::Dialog, "Shortcut properties", None);
+                if let Some(item) = self.icon_layers.get(menu.icon_index)
+                    .and_then(|layer| self.recipe.desktop_icons.get(layer.recipe_index)) {
+                    let (kind, destination) = desktop_context::details(&item.action);
+                    model.add(32_001, 32_000, AccessibleRole::Label,
+                              format!("Name: {}; Type: {}; {}", item.label, kind, destination),
+                              None);
+                }
+                model.add(32_900, 32_000, AccessibleRole::Button,
+                          "Back to shortcut actions",
+                          Some(Target::DesktopContextBack {
+                              icon: menu.icon_index, generation: self.context_generation,
+                          }));
+                if self.context_focused { model.focus = 32_900; }
+            } else {
+                model.add(32_000, ROOT, AccessibleRole::Menu, "Shortcut actions", None);
+                for action in DesktopContextAction::ALL {
+                    model.add(32_100 + action.index() as u64, 32_000,
+                              AccessibleRole::MenuItem,
+                              action.label(),
+                              action.enabled(menu.can_move, menu.can_reset).then_some(
+                                  Target::DesktopContextAction {
+                                      icon: menu.icon_index, generation: self.context_generation,
+                                      action,
+                                  }));
+                }
+                if self.context_focused {
+                    model.focus = 32_100 + menu.selected.index() as u64;
                 }
             }
         }
@@ -1483,7 +1521,7 @@ impl RicePlate {
             }
         }
         model.window_focused = self.menu_focused || self.calendar_focused
-            || self.tray_popup_focused || self.focused_panel.is_some()
+            || self.tray_popup_focused || self.context_focused || self.focused_panel.is_some()
             || self.keyboard_icon_surface.is_some() || self.keyboard_widget_surface.is_some();
         model
     }
@@ -1507,6 +1545,26 @@ impl RicePlate {
                         let action = item.action.clone();
                         self.activate_action(&action, qh);
                     }
+                }
+            }
+            Target::DesktopContextAction { icon, generation, action } => {
+                let valid = self.desktop_context.as_ref().is_some_and(|menu|
+                    menu.icon_index == icon && self.context_generation == generation
+                    && !menu.properties && action.enabled(menu.can_move, menu.can_reset));
+                if valid { self.choose_desktop_context(action, qh); }
+            }
+            Target::DesktopContextBack { icon, generation } => {
+                let valid = self.desktop_context.as_ref().is_some_and(|menu|
+                    menu.icon_index == icon && self.context_generation == generation
+                    && menu.properties);
+                if valid {
+                    if let Some(menu) = self.desktop_context.as_mut() {
+                        menu.properties = false;
+                        menu.back_hovered = false;
+                        menu.back_pressed = false;
+                    }
+                    self.context_generation = self.context_generation.wrapping_add(1);
+                    self.redraw_desktop_context();
                 }
             }
             Target::DesktopWidget(index) => {
@@ -5384,6 +5442,7 @@ impl KeyboardHandler for RicePlate {
                             menu.back_hovered = false;
                             menu.back_pressed = false;
                         }
+                        self.context_generation = self.context_generation.wrapping_add(1);
                         self.redraw_desktop_context();
                     }
                     _ => {}
@@ -5803,6 +5862,7 @@ impl PointerHandler for RicePlate {
                                 if menu.back_pressed && back {
                                     menu.properties = false;
                                     menu.back_hovered = false;
+                                    self.context_generation = self.context_generation.wrapping_add(1);
                                     repaint = true;
                                 }
                                 menu.back_pressed = false;
