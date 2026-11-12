@@ -48,7 +48,11 @@ def lock_screen(
     # Never block/unlock the actual screen on a missing, terminated or busy
     # clipboard watcher; report the distinction rather than pretending clean.
     try:
-        cleared = clear("clear")
+        # Pause first so asynchronous clipboard events cannot re-fill history
+        # immediately after the clear. User must explicitly resume recording
+        # after unlock; this is intentional privacy-first behavior.
+        pause = clear("pause")
+        cleared = clear("clear") if pause.get("ok") and pause.get("paused") else {"ok": False}
     except clip.ClipError as exc:
         # RiceClip is disabled by default. A verified absent socket is not a
         # failure; a socket that exists but cannot be reached is a warning.
