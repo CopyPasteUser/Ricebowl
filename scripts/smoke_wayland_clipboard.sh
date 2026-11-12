@@ -34,7 +34,7 @@ dbus-run-session -- sh -eu -c '
     done
     if [ ! -f "$runtime/clipboard-ok" ]; then
         echo "Wayland/XWayland clipboard handoff failed or timed out" >&2
-        if [ -f "$runtime/client.log" ]; then sed -n "1,55p" "$runtime/client.log" >&2; fi
+        if [ -f "$runtime/client.log" ]; then tail -n 80 "$runtime/client.log" >&2; fi
         if [ -f "$runtime/wl-copy.log" ]; then sed -n "1,25p" "$runtime/wl-copy.log" >&2; fi
         if [ -f "$runtime/xclip.log" ]; then sed -n "1,25p" "$runtime/xclip.log" >&2; fi
         if [ -f "$runtime/xterm.log" ]; then sed -n "1,25p" "$runtime/xterm.log" >&2; fi
