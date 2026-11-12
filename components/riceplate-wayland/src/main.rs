@@ -5198,6 +5198,8 @@ impl KeyboardHandler for RicePlate {
         _: &[u32],
         _: &[Keysym],
     ) {
+        self.context_focused = self.desktop_context.as_ref().is_some_and(|menu|
+            menu.surface.wl_surface() == surface);
         self.menu_focused = self.menu_state.visible
             && self.active_menu.as_ref() == Some(surface);
         self.calendar_focused = self.calendar_state.visible
@@ -5257,6 +5259,10 @@ impl KeyboardHandler for RicePlate {
         surface: &wl_surface::WlSurface,
         _: u32,
     ) {
+        if self.desktop_context.as_ref().is_some_and(|menu|
+            menu.surface.wl_surface() == surface) && self.context_focused {
+            self.close_desktop_context();
+        }
         if self.active_menu.as_ref() == Some(surface) && self.menu_focused {
             self.set_menu_visible(false, qh);
         }
@@ -5294,6 +5300,34 @@ impl KeyboardHandler for RicePlate {
         _: u32,
         event: KeyEvent,
     ) {
+        if self.context_focused {
+            let mut action = None;
+            let mut changed = false;
+            match event.keysym {
+                Keysym::Escape => {
+                    self.close_desktop_context();
+                    return;
+                }
+                Keysym::Up | Keysym::ISO_Left_Tab |
+                Keysym::Down | Keysym::Tab => {
+                    if let Some(menu) = self.desktop_context.as_mut() {
+                        let delta = if matches!(event.keysym, Keysym::Up | Keysym::ISO_Left_Tab) {
+                            -1
+                        } else { 1 };
+                        menu.selected = desktop_context::navigate(
+                            menu.selected, delta, menu.can_move);
+                        changed = true;
+                    }
+                }
+                Keysym::Return | Keysym::KP_Enter | Keysym::space => {
+                    action = self.desktop_context.as_ref().map(|menu| menu.selected);
+                }
+                _ => {}
+            }
+            if let Some(action) = action { self.choose_desktop_context(action, qh); }
+            else if changed { self.redraw_desktop_context(); }
+            return;
+        }
         if self.tray_popup_state.visible && self.tray_popup_focused {
             let count = self.tray_state.entries.len();
             match event.keysym {
@@ -5385,6 +5419,9 @@ impl KeyboardHandler for RicePlate {
                         self.redraw_icon(index);
                         self.redraw_icon(next);
                     }
+                }
+                Keysym::Menu if self.recipe.id == "xp-luna-columns" => {
+                    self.open_desktop_context(index, (52.0, 42.0), qh);
                 }
                 Keysym::Return | Keysym::KP_Enter | Keysym::space => {
                     let action = self.recipe.desktop_icons[self.icon_layers[index].recipe_index]
@@ -5650,6 +5687,49 @@ impl PointerHandler for RicePlate {
         events: &[PointerEvent],
     ) {
         for event in events {
+            if self.desktop_context.as_ref().is_some_and(|menu|
+                menu.surface.wl_surface() == &event.surface) {
+                let mut activate = None;
+                let mut repaint = false;
+                if let Some(menu) = self.desktop_context.as_mut() {
+                    let hit = desktop_context::hit(event.position.0, event.position.1)
+                        .filter(|action| action.enabled(menu.can_move));
+                    match event.kind {
+                        PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
+                            if menu.hovered != hit {
+                                menu.hovered = hit;
+                                repaint = true;
+                            }
+                        }
+                        PointerEventKind::Leave { .. } => {
+                            menu.hovered = None;
+                            menu.pressed = None;
+                            repaint = true;
+                        }
+                        PointerEventKind::Press { button: BTN_LEFT, .. } => {
+                            menu.pressed = hit;
+                            if let Some(selected) = hit {
+                                menu.selected = selected;
+                                repaint = true;
+                            }
+                        }
+                        PointerEventKind::Release { button: BTN_LEFT, .. } => {
+                            if menu.pressed.take().is_some_and(|pressed| Some(pressed) == hit) {
+                                activate = hit;
+                            } else {
+                                repaint = true;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                if let Some(action) = activate {
+                    self.choose_desktop_context(action, qh);
+                } else if repaint {
+                    self.redraw_desktop_context();
+                }
+                continue;
+            }
             if self.active_tray_popup.as_ref() == Some(&event.surface) {
                 if self.tray_menu_state.visible {
                     match event.kind {
@@ -5914,7 +5994,11 @@ impl PointerHandler for RicePlate {
                     continue;
                 }
                 match event.kind {
+                    PointerEventKind::Press { button: BTN_RIGHT, .. } => {
+                        self.open_desktop_context(index, event.position, qh);
+                    }
                     PointerEventKind::Press { button: BTN_LEFT, .. } => {
+                        self.close_desktop_context();
                         self.select_luna_icon(index);
                         if let Some(position) = self.icon_layers[index].placed {
                             self.icon_drag = Some(IconDrag {
@@ -6060,7 +6144,10 @@ impl PointerHandler for RicePlate {
                     && event.position.1 >= 0.0
                     && event.position.1 < f64::from(panel_height)
                 {
-                    if button == BTN_LEFT { self.clear_luna_selection(); }
+                    if button == BTN_LEFT {
+                        self.close_desktop_context();
+                        self.clear_luna_selection();
+                    }
                     let groups = self.grouped_tasks();
                     match recipe::hit(
                         event.position.0,
@@ -7002,6 +7089,35 @@ mod tests {
         draw_notification_text(&mut notification, 320, 20, 14, 3,
                                "Alerts & status", style.foreground, &style);
         assert_eq!(bitmap, notification);
+    }
+
+
+    #[test]
+    fn luna_context_paint_marks_real_selected_and_disabled_rows() {
+        let style = recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let bytes = (desktop_context::WIDTH * desktop_context::HEIGHT * 4) as usize;
+        let mut before = vec![0; bytes];
+        let mut selected = vec![0; bytes];
+        paint_desktop_context(&mut before, &style, DesktopContextAction::Open, None, false);
+        paint_desktop_context(&mut selected, &style, DesktopContextAction::AllDisplays,
+                              Some(DesktopContextAction::AllDisplays), false);
+        let pixel = |buffer: &[u8], x: u32, y: u32| -> u32 {
+            let at = ((y * desktop_context::WIDTH + x) * 4) as usize;
+            u32::from_le_bytes(buffer[at..at+4].try_into().unwrap())
+        };
+        assert_eq!(pixel(&before, 12, desktop_context::row(DesktopContextAction::Open)),
+                   0xff36_6ac9);
+        assert_eq!(pixel(&selected, 12, desktop_context::row(DesktopContextAction::AllDisplays)),
+                   0xff36_6ac9);
+        assert_eq!(pixel(&before, 12, desktop_context::row(DesktopContextAction::NextDisplay)),
+                   0xfffc_faf2);
+        assert_ne!(before, selected);
+        let mut enabled = vec![0; bytes];
+        paint_desktop_context(&mut enabled, &style, DesktopContextAction::NextDisplay, None, true);
+        assert_eq!(pixel(&enabled, 12, desktop_context::row(DesktopContextAction::NextDisplay)),
+                   0xff36_6ac9);
     }
 
     #[test]
