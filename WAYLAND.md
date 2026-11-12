@@ -132,6 +132,21 @@ selection is refused. Pins are cleared with history and on watcher exit, never
 persisted or auto-restored. Configurable retention, physical hardware input,
 and a composited in-panel history view remain open.
 
+In the **full opt-in RiceBowl Wayland session**, the native Lock action,
+the Waybar/rice fallback panel and labwc menu, labwc **Super+L**,
+swayidle automatic timeout/before-sleep and logind-initiated
+lock events use the same fixed `ricebowl de lock` helper. It waits for
+`swaylock -f` to report a compositor lock, then requests the existing RiceClip
+watcher to **pause recording first and then clear** its session-only text
+and pins. Recording stays paused after unlock until explicitly resumed from
+the RiceClip browser or CLI; there is no automatic plaintext recapture.
+A failed or absent watcher
+**cannot prevent screen locking**; an unconfirmed cleanup is reported without
+clipboard content. Direct third-party `swaylock` calls, other locker protocols,
+remaining previews cached in already-open clients and physical suspend/lock
+behavior are **not claimed covered**. The watcher is still not auto-started.
+No XFCE/X11 or global keybindings are changed.
+
 The watcher requires `wl-paste --watch` **and** compositor support for
 wlroots data-control; copy-back requires `wl-copy`. It saves at most 20 text
 entries of 64 KiB each, deduplicates them, refuses non-UTF-8/oversized data,

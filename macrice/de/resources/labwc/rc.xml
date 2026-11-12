@@ -10,7 +10,7 @@
       <action name="Execute" command="fuzzel" />
     </keybind>
     <keybind key="W-l">
-      <action name="Execute" command="swaylock -f" />
+      <action name="Execute" command="ricebowl de lock" />
     </keybind>
     <!-- Only this opt-in labwc session owns these keys; XFCE stays unchanged. -->
     <keybind key="Print">

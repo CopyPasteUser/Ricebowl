@@ -165,6 +165,9 @@ class ShellV4Tests(unittest.TestCase):
         top = root.find("menu")
         self.assertEqual(top.attrib["id"], "root-menu")
         self.assertEqual(top.attrib["label"], "Y2K Desktop")
+        # Waybar's fallback panel must use the same lock-and-clear action,
+        # not bypass RiceClip privacy through a raw swaylock invocation.
+        self.assertEqual(recipes.PANEL_ACTION_COMMANDS["lock"], "ricebowl de lock")
         groups = top.findall("menu")
         self.assertEqual([group.attrib["label"] for group in groups],
                          ["Programs", "Session"])
@@ -173,7 +176,7 @@ class ShellV4Tests(unittest.TestCase):
         self.assertEqual(actions, [
             {"name": "Execute", "command": "fuzzel"},
             {"name": "Execute", "command": "foot"},
-            {"name": "Execute", "command": "swaylock -f"},
+            {"name": "Execute", "command": "ricebowl de lock"},
             {"name": "Exit"},
         ])
         # Even a custom menu that omits logout must retain an emergency exit.

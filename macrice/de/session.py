@@ -848,10 +848,14 @@ def shell(
                     raise SessionError(
                         "Full Wayland session requires swayidle and swaylock "
                         "for automatic and pre-suspend screen locking.")
-                lock_command = shlex.join([locker, "-f"])
+                # One fixed lock path for idle, suspend and logind locks.
+                # swaylock -f confirms the compositor lock before the short
+                # best-effort IPC clear runs, avoiding plaintext before sleep.
+                lock_command = shlex.join(
+                    [sys.executable, str(project_root() / "launcher.py"), "de", "lock"])
                 idle_process = spawn(
                     [idle, "-w", "timeout", "600", lock_command,
-                     "before-sleep", lock_command],
+                     "before-sleep", lock_command, "lock", lock_command],
                     env=env, stdin=subprocess.DEVNULL,
                 )
                 background.append(idle_process)
