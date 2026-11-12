@@ -45,7 +45,8 @@ See the [real headless Wayland Luna screenshots](../../screenshots/wayland/READM
 desktop with the separately running original `swaybg` wallpaper and the opened
 two-column native Start menu. These are CI captures, not hardware acceptance.
 
-The original `xp-luna` rice and any existing private imported recipe remain
+The original `xp-luna` recipe ID and its existing controls remain; the
+RiceClip menu action is additive. Existing private imported recipes stay
 unchanged. The preparation script imports `xp-luna-columns` under a new ID
 and the 120-second TTY test starts only that preview. No display-manager,
 autologin, package, or XFCE configuration is changed. Existing installed
