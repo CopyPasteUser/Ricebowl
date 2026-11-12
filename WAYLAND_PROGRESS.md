@@ -403,3 +403,23 @@ acceptance and a fully native high-resolution menu remain open.
   new clicks activate Recycle Bin through an isolated Gio stand-in.
 - A native background right-click context menu and physical mouse/trackpad
   behavior are separate outstanding tasks, not claimed as complete.
+
+### Native XP Luna desktop shortcut context menu (12 November 2026)
+
+- Right-clicking a native `xp-luna-columns` shortcut opens a bounded
+  224×134 logical-pixel Wayland overlay, anchored to that shortcut's actual
+  output and clamped clear of the panel; no full-screen input interception.
+- The fixed safe actions are **Open**, **Next display** (disabled on
+  single-monitor setups), and **All displays**. They reuse existing
+  allowlisted launch and display-placement functions; no raw shell
+  commands, duplicate window manager or extra resident process.
+- Mouse press/release, hover, keyboard Menu key, Up/Down, Enter/Space
+  and Escape are wired into the same state model. The popup is discarded
+  when dismissed, when the icon layout reflows or a monitor changes.
+- Rust unit tests validate menu hitboxes, disabled navigation, placement and
+  framebuffer states. Headless labwc checks real right-click creates a menu
+  without launching Gio, then clicking Open invokes only the expected
+  isolated Gio location. Physical Wayland user testing remains outstanding.
+- Full desktop-background context actions and file-properties UI are
+  not implemented in this sprint; neither can be truthfully inferred from
+  the shortcut popup.
