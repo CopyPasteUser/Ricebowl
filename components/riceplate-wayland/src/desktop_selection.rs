@@ -33,6 +33,12 @@ impl Selection {
             self.cancel();
             return false;
         }
+        // Monotonic clocks should not move backwards, but reject a stale
+        // synthetic/out-of-order timestamp rather than keep an old click.
+        if self.last.is_some_and(|prev| now < prev.at) {
+            self.cancel();
+            return false;
+        }
         let activate = self.last.is_some_and(|prev| prev.icon == icon
             && (prev.point.0 - point.0).abs() <= MAX_DRIFT
             && (prev.point.1 - point.1).abs() <= MAX_DRIFT
@@ -91,7 +97,8 @@ mod tests {
         state.select(1);
         assert!(!state.release(1, (8.0, 8.0), t));
         assert!(!state.release(1, (8.0, 8.0), t + Duration::from_millis(651)));
-        assert!(!state.release(1, (8.0, 8.0), t));
-        assert!(state.release(1, (8.0, 8.0), t + Duration::from_millis(651)));
+        assert!(!state.release(1, (8.0, 8.0), t)); // out of order
+        assert!(!state.release(1, (8.0, 8.0), t + Duration::from_millis(651)));
+        assert!(state.release(1, (8.0, 8.0), t + Duration::from_millis(660)));
     }
 }
