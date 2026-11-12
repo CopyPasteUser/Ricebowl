@@ -839,7 +839,7 @@ def main(argv: list[str] | None = None) -> int:
                     raise ValueError("de lock is a full-session action; no preview or JSON output")
                 from .de.lock import lock_screen
                 result = lock_screen()
-                if not result["riceclip_cleared"]:
+                if not result["riceclip_cleared"] and not result["riceclip_inactive"]:
                     print("RiceBowl: screen locked, but RiceClip cleanup was not confirmed",
                           file=sys.stderr)
                 return 0
