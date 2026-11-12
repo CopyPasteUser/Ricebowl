@@ -229,8 +229,24 @@ kill "$clip_gui" 2>/dev/null || :
 wait "$clip_gui" 2>/dev/null || :
 clip_gui=
 
-clip_cli --clip-op copy --clip-index 0 --json >"$runtime/riceclip-copy.json"
+if ! clip_cli --clip-op copy --clip-index 0 --json >"$runtime/riceclip-copy.json"; then
+    echo "RiceClip: explicit copy-back failed before lock test" >&2
+    /usr/bin/python3 - "$runtime/riceclip-copy.json" <<'PY'
+import json
+import sys
+try:
+    error = json.load(open(sys.argv[1], encoding="utf-8")).get("error", {})
+    code = error.get("code")
+except (OSError, ValueError, AttributeError):
+    code = None
+print("RiceClip copy-back error code:", code if isinstance(code, str) else "unknown",
+      file=sys.stderr)
+PY
+    exit 1
+fi
+echo 'RiceClip accepted explicit synthetic copy-back'
 wait_for_clipboard wayland "$clip_text"
+echo 'RiceClip synthetic clipboard copy-back reached Wayland reader'
 # Exercise the new LOCK->clear hook on the live Wayland watcher, while
 # replacing only the locker executable with a test acknowledgement. This
 # does NOT claim a physical/compositor screen lock; separate lock unit tests
