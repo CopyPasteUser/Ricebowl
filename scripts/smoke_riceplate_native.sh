@@ -786,6 +786,62 @@ PY
             fi
             kill -0 "$plate"
             echo "Verified My Computer real pointer dispatch to RiceField XP theme"
+            # XP Start Run and Help are real bounded overlay surfaces.
+            # Capture the actual compositor frames, not an illustrated mock.
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 35 748 1366 768
+            sleep 0.3
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-start.png"
+            cp "$runtime/xp-luna-parity-start.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-parity-start.png"
+            # On 1366x768 the 400x380 Start popup is at y348. The 10-row
+            # native right shelf places Help at logical y176..194.
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 265 580 1366 768
+            sleep 0.35
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-help.png"
+            cp "$runtime/xp-luna-parity-help.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-parity-help.png"
+            # The 448x232 overlay is centered at (459,248). Close uses
+            # its actual on-screen button and must return keyboard ownership.
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 759 450 1366 768
+            sleep 0.25
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 35 748 1366 768
+            sleep 0.25
+            # Run is the next right-shelf action: logical y194..212.
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 265 602 1366 768
+            sleep 0.35
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run.png"
+            cp "$runtime/xp-luna-parity-run.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-parity-run.png"
+            # Submitting an empty command must display an error, never
+            # dispatch an empty argv or perform any host operation.
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 759 450 1366 768
+            sleep 0.25
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-empty.png"
+            cp "$runtime/xp-luna-parity-run-empty.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-parity-run-empty.png"
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 843 450 1366 768
+            sleep 0.25
+            kill -0 "$plate"
+            /usr/bin/python3 - "$runtime" <<PY
+from pathlib import Path
+from PIL import Image, ImageChops
+
+folder = Path("$runtime")
+names = ["start", "help", "run", "run-empty"]
+images = {name: Image.open(folder / f"xp-luna-parity-{name}.png").convert("RGB")
+          for name in names}
+assert all(img.size == (1366, 768) for img in images.values())
+region = (459, 248, 907, 480)
+def changed(a, b):
+    delta = ImageChops.difference(images[a].crop(region), images[b].crop(region))
+    return sum(1 for r, g, b in delta.getdata() if max(r, g, b) > 18)
+assert changed("start", "help") > 5000, "Help did not open a real Wayland dialog"
+assert changed("start", "run") > 5000, "Run did not open a real Wayland dialog"
+assert changed("help", "run") > 1500, "Run and Help must have distinct real UI"
+assert changed("run", "run-empty") > 80, "Empty Run input must show a visible error"
+print("Validated native labwc Run/Help screenshots and empty-input error state")
+PY
+            echo "Verified real Luna Start Help and Run dialogs at 1366x768"
         fi
         if [ "$label" = overflow-v5 ]; then
             # Separate recipe deliberately requests x=4090 on a 1024px output.
