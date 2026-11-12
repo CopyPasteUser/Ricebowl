@@ -15,6 +15,7 @@ mod desktop_selection;
 mod icon_positions;
 mod installed_apps;
 mod luna_places;
+mod luna_dialog;
 mod menu_chrome;
 mod menu_pins;
 mod menu_recents;
@@ -485,6 +486,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         desktop_selection: desktop_selection::Selection::default(),
         desktop_context: None,
         context_focused: false,
+        luna_dialog: None,
+        luna_dialog_focused: false,
         focused_widget: None,
         keyboard_widget_surface: None,
         pressed_widget: None,
@@ -799,6 +802,13 @@ struct IconDrag {
     original_positions: icon_positions::OutputPositions,
 }
 
+struct LunaDialogLayer {
+    surface: LayerSurface,
+    pool: Option<SlotPool>,
+    configured: bool,
+    state: luna_dialog::State,
+}
+
 struct DesktopContextLayer {
     surface: LayerSurface,
     pool: Option<SlotPool>,
@@ -903,6 +913,8 @@ struct RicePlate {
     desktop_selection: desktop_selection::Selection,
     desktop_context: Option<DesktopContextLayer>,
     context_focused: bool,
+    luna_dialog: Option<LunaDialogLayer>,
+    luna_dialog_focused: bool,
     focused_widget: Option<usize>,
     keyboard_widget_surface: Option<wl_surface::WlSurface>,
     pressed_widget: Option<usize>,
@@ -950,6 +962,117 @@ impl RicePlate {
         if let Some(old) = self.desktop_selection.clear() { self.redraw_icon(old); }
     }
 
+
+
+    fn close_luna_dialog(&mut self) {
+        // Drop the real overlay surface on dismissal; no transparent
+        // fullscreen input grab, background worker or hidden popup survives.
+        self.luna_dialog = None;
+        self.luna_dialog_focused = false;
+    }
+
+    fn open_luna_dialog(&mut self, kind: luna_dialog::Kind,
+                        qh: &QueueHandle<Self>) {
+        // The opt-in themed two-column Start is the only source of these
+        // actions; non-Luna and X11 profiles retain their original behavior.
+        let menu_output = self.active_menu.as_ref().and_then(|surface|
+            self.menu_layer.iter().chain(self.menu_mirrors.iter())
+                .find(|menu| menu.surface.wl_surface() == surface)
+                .and_then(|menu| menu.output.clone()));
+        let output = menu_output.or_else(|| self.primary_output.clone())
+            .or_else(|| self.outputs.outputs().next());
+        let Some(output) = output else {
+            self.menu_state.notice = Some("No monitor available");
+            self.redraw_menu(qh);
+            return;
+        };
+        let Some(size) = self.logical_output_size(&output) else {
+            self.menu_state.notice = Some("Display unavailable");
+            self.redraw_menu(qh);
+            return;
+        };
+        let Some((x, y)) = luna_dialog::position(size, self.recipe.height, self.recipe.top) else {
+            self.menu_state.notice = Some("Screen too small");
+            self.redraw_menu(qh);
+            return;
+        };
+        self.set_menu_visible(false, qh);
+        self.close_desktop_context();
+        self.close_luna_dialog();
+        let surface = self.layer_shell.create_layer_surface(
+            qh, self.compositor.create_surface(qh), Layer::Overlay,
+            Some("riceplate-luna-run-help"), Some(&output),
+        );
+        surface.set_anchor(Anchor::TOP | Anchor::LEFT);
+        surface.set_size(luna_dialog::WIDTH, luna_dialog::HEIGHT);
+        surface.set_margin(y as i32, 0, 0, x as i32);
+        surface.set_exclusive_zone(-1);
+        // This is an explicit modal dialog; only while open may it own
+        // keystrokes. The normal desktop and other rices remain untouched.
+        surface.set_keyboard_interactivity(KeyboardInteractivity::Exclusive);
+        surface.commit();
+        self.luna_dialog = Some(LunaDialogLayer {
+            surface, pool: None, configured: false,
+            state: luna_dialog::State::new(kind),
+        });
+    }
+
+    fn execute_luna_dialog(&mut self) {
+        let Some(dialog) = self.luna_dialog.as_mut() else { return };
+        if dialog.state.kind == luna_dialog::Kind::Help {
+            self.close_luna_dialog();
+            return;
+        }
+        let argv = match dialog.state.argv() {
+            Ok(argv) => argv,
+            Err(notice) => {
+                dialog.state.notice = Some(notice);
+                self.redraw_luna_dialog();
+                return;
+            }
+        };
+        // An explicit local user action, never recipe data. Pass literal argv
+        // directly to execve via std::process::Command: no /bin/sh, pipes,
+        // wildcard expansion, or potentially injected shell fragments.
+        let program = &argv[0];
+        match Command::new(program).args(argv.iter().skip(1)).spawn() {
+            Ok(_) => self.close_luna_dialog(),
+            Err(error) => {
+                eprintln!("RicePlate: Run could not start the requested program: {error}");
+                if let Some(dialog) = self.luna_dialog.as_mut() {
+                    dialog.state.notice = Some("Program missing or denied");
+                }
+                self.redraw_luna_dialog();
+            }
+        }
+    }
+
+    fn redraw_luna_dialog(&mut self) {
+        let Some(dialog) = self.luna_dialog.as_mut() else { return };
+        if !dialog.configured { return; }
+        let Some(pool) = dialog.pool.as_mut() else { return };
+        let (buffer, canvas) = match pool.create_buffer(
+            luna_dialog::WIDTH as i32, luna_dialog::HEIGHT as i32,
+            (luna_dialog::WIDTH * 4) as i32, wl_shm::Format::Argb8888,
+        ) {
+            Ok(value) => value,
+            Err(error) => {
+                eprintln!("RicePlate: Luna dialog buffer unavailable: {error}");
+                self.close_luna_dialog();
+                return;
+            }
+        };
+        paint_luna_dialog(canvas, &self.recipe, &dialog.state);
+        let surface = dialog.surface.wl_surface();
+        surface.damage_buffer(0, 0, luna_dialog::WIDTH as i32,
+                             luna_dialog::HEIGHT as i32);
+        if let Err(error) = buffer.attach_to(surface) {
+            eprintln!("RicePlate: Luna dialog attach failed: {error}");
+            self.close_luna_dialog();
+            return;
+        }
+        dialog.surface.commit();
+    }
 
     fn close_desktop_context(&mut self) {
         self.context_focused = false;
@@ -4393,6 +4516,70 @@ fn paint_calendar(canvas: &mut [u8], style: &PanelStyle, state: &CalendarState) 
                         style.foreground, style);
 }
 
+
+
+fn paint_luna_dialog(canvas: &mut [u8], style: &PanelStyle, state: &luna_dialog::State) {
+    let (w, h) = (luna_dialog::WIDTH, luna_dialog::HEIGHT);
+    canvas.fill(0);
+    fill_rect(canvas, w, h, 0, 0, w, h, 0xff1a_439c);
+    fill_rect(canvas, w, h, 3, 3, w - 6, h - 6, 0xfff6_f3e9);
+    fill_rect(canvas, w, h, 4, 4, w - 8, 34, 0xff1c_57c3);
+    // Authentic-ish blue caption and a distinct red close glyph, all original.
+    draw_rice_text(canvas, w, h, 15, 14, if state.kind == luna_dialog::Kind::Run {
+        "Run" } else { "Help and Support" }, 0xffff_ffff, style);
+    fill_rounded_rect(canvas, w, h, 414, 9, 24, 23, 3, 0xffd8_4039);
+    draw_rice_text(canvas, w, h, 422, 16, "x", 0xffff_ffff, style);
+
+    match state.kind {
+        luna_dialog::Kind::Run => {
+            fill_rounded_rect(canvas, w, h, 25, 67, 67, 73, 8, 0xff2b_64ae);
+            fill_rect(canvas, w, h, 38, 81, 41, 33, 0xffe2_f5ff);
+            fill_rect(canvas, w, h, 44, 87, 29, 21, 0xff8a_d6ec);
+            fill_rect(canvas, w, h, 50, 116, 17, 7, 0xffab_c6d7);
+            draw_rice_text(canvas, w, h, 118, 68, "Type a program name.", 0xff17_315c, style);
+            draw_rice_text(canvas, w, h, 118, 87, "No shell expansion.", 0xff4d_6284, style);
+            draw_rice_text(canvas, w, h, 118, 104, "Open:", 0xff17_315c, style);
+            fill_rect(canvas, w, h, 118, 111, 306, 32, 0xff75_879f);
+            fill_rect(canvas, w, h, 120, 113, 302, 28, 0xffff_ffff);
+            let cells = (282_u32 / (8 * style.font_scale.max(1))) as usize;
+            let text: String = state.input.chars().rev().take(cells)
+                .collect::<Vec<_>>().into_iter().rev().collect();
+            draw_rice_text(canvas, w, h, 128, 122, &text, 0xff10_2849, style);
+            let notice = state.notice.unwrap_or("Executes a command directly as your user.");
+            draw_rice_text(canvas, w, h, 22, 163,
+                           &notice.chars().take(50).collect::<String>(),
+                           if state.notice.is_some() { 0xffb2_302e } else { 0xff4d_6284 }, style);
+        }
+        luna_dialog::Kind::Help => {
+            for (line, text) in [
+                "Start menu: All Programs lists installed apps.",
+                "Find searches real desktop entries and actions.",
+                "F2 pins an action; F3 opens Saved.",
+                "Double-click a shortcut to open it.",
+                "Right-click a shortcut for display options.",
+                "Run starts typed commands without a shell.",
+            ].iter().enumerate() {
+                draw_rice_text(canvas, w, h, 23, 54 + line as u32 * 22,
+                               text, 0xff17_315c, style);
+            }
+        }
+    }
+    let primary = if state.kind == luna_dialog::Kind::Run { "OK" } else { "Close" };
+    for (x, label, hit) in [(260, primary, luna_dialog::Hit::Accept),
+                           (346, "Cancel", luna_dialog::Hit::Cancel)] {
+        if state.kind == luna_dialog::Kind::Help && hit == luna_dialog::Hit::Cancel {
+            continue;
+        }
+        let shade = if state.pressed == Some(hit) { 0xff1e_4d9a }
+                    else if state.hover == Some(hit) { 0xff4e_8ddd }
+                    else { 0xff37_6bbd };
+        fill_rounded_rect(canvas, w, h, x, 188, 78, 30, 3, shade);
+        fill_rect(canvas, w, h, x + 3, 190, 72, 1, 0xffc3_dffb);
+        draw_rice_text(canvas, w, h, x + if label == "Cancel" { 12 }
+                       else if label == "Close" { 16 } else { 30 },
+                       198, label, 0xffff_ffff, style);
+    }
+}
 
 fn paint_desktop_context(canvas: &mut [u8], style: &PanelStyle,
                          selected: DesktopContextAction,
