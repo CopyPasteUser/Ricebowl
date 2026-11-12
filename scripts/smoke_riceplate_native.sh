@@ -709,7 +709,7 @@ PY
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-shortcut-context.png"
             cp "$runtime/xp-luna-shortcut-context.png" \
                "$source_root/dist/riceplate-native-preview/xp-luna-shortcut-context.png"
-            # Popup anchored at (68,435); 'Open' occupies row 36..63.
+            # Popup anchored at (68,435); Open occupies row 36..63.
             WAYLAND_DISPLAY=wayland-0 "$clicker" 88 485 1366 768
             count=0
             while [ ! -s "$runtime/trash-gio.log" ] && [ "$count" -lt 25 ]; do
