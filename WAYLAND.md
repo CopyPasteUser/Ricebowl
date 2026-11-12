@@ -115,8 +115,9 @@ supports keyboard/row activation, explicit copy-back, pause/resume, manual
 refresh and confirmed clearing. It **never starts the watcher implicitly**,
 writes history to disk, polls in the background or claims to detect passwords.
 If the watcher is not active, the window explains how to enable it. List/copy
-requests carry a revision: if new clipboard content moves a selected index,
-copy-back is rejected and the user must refresh, preventing wrong-item copies.
+requests carry a revision and random per-watcher identity: if new clipboard
+content moves an index **or the watcher restarts**, copy-back is rejected
+and the user must refresh, preventing wrong-item copies.
 The older CLI `--clip-index` behavior is unchanged. This is an early GUI,
 not the full RicePlate-integrated pinned/retention-management feature.
 
