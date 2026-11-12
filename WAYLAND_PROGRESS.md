@@ -432,3 +432,20 @@ acceptance and a fully native high-resolution menu remain open.
 - The opt-in native screen-reader bridge now exposes the popup as an AccessKit menu and its details as a dialog, including enabled actions and keyboard focus. A per-popup revision invalidates stale AT-SPI clicks after reopening or switching views; inaccessible/disabled actions cannot be forced through the bridge.
 - Pure Rust tests cover row bounds, disabled navigation, metadata, output placement, per-monitor reset isolation, and stale accessibility targets. Headless labwc smoke additionally opens Properties and Back through an actual virtual pointer, compares compositor screenshots, and confirms that properties never launch the desktop shortcut.
 - **Still outstanding:** physical Mint input/Orca acceptance; true file/folder Properties supplied by a file manager; an empty-desktop background menu; wider native context menus beyond the opt-in Luna profile. CI acceptance for this change must be checked on its PR.
+
+### Native XP Luna · RiceField Explorer integration (12 November 2026)
+
+- The opt-in `xp-luna-columns` profile prefers the installed
+  `ricefield --theme xp-luna --separate-window <absolute-directory>`
+  when the user opens My Computer, Documents, Pictures or Music, including
+  from existing desktop shortcuts. It uses RiceField 1.0's documented CLI,
+  not a duplicate Explorer, user shell, global file-manager default or new
+  background process.
+- If RiceField is not installed, native RicePlate retains Gio fallback
+  transparently. If an installed executable fails for a reason other than
+  absence, the error is logged instead of misrepresenting successful launch.
+- Network and Trash remain with Gio/GVfs: RiceField does not claim those
+  virtual root URIs. Other Wayland rices retain their existing handler.
+- Tests verify exact theme, argv, absolute directory validation, no
+  command flags/extra parameters, and supported versus virtual locations.
+  Real file browser startup/SMB hardware acceptance remains outstanding.

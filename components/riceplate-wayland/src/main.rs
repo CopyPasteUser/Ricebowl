@@ -2228,7 +2228,7 @@ impl RicePlate {
             return;
         }
         if matches!(action, "documents" | "computer" | "pictures" | "music" | "network" | "trash") {
-            luna_places::launch(action);
+            luna_places::launch(action, self.recipe.id == "xp-luna-columns");
             return;
         }
         if action.starts_with("desktop:") {

@@ -1840,3 +1840,12 @@ and keyboard actions use fixed, validated native handlers. No full-screen
 desktop input capture, custom labwc behavior or automatic filesystem writes.
 Physical mouse, multi-output hotplug and focus QA still gate the release;
 desktop background right-click and file-properties remain open work.
+
+### XP Luna / RiceField 1.0 integration (12 November 2026)
+
+The native Luna shell now delegates real local drive and XDG user-folder
+navigation to separately installed RiceField via its documented XP theme
+and secondary-window CLI, with ordinary Gio fallback when RiceField is
+absent. Non-Luna profiles, global MIME defaults and network/trash GVfs
+navigation remain untouched. Validate actual file manager launch, window
+focus and SMB behavior on the physical ThinkPad before release.

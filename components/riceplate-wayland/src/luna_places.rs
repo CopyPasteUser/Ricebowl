@@ -75,15 +75,48 @@ fn location_command(action: &str) -> Option<Command> {
     Some(command)
 }
 
-/// Only validated, fixed location IDs reach Gio. Never pass an Exec field
-/// or recipe-supplied path to a shell, and never claim a launch succeeded on
-/// spawn failure.
-pub fn launch(action: &str) -> bool {
-    let Some(mut command) = location_command(action) else {
+/// The only local locations RiceField 1.0 accepts here: absolute filesystem
+/// paths. Virtual GVfs locations (trash/network) must remain in the user's
+/// default Gio/GVfs handler because RiceField does not claim those URIs.
+/// The option is exclusive to the opt-in Luna recipe.
+fn ricefield_command(action: &str, fallback: &Command) -> Option<Command> {
+    if !matches!(action, "computer" | "documents" | "pictures" | "music") {
+        return None;
+    }
+    let mut args = fallback.get_args();
+    if args.next()? != "open" { return None; }
+    let target = Path::new(args.next()?);
+    if !target.is_absolute() || !target.is_dir() || args.next().is_some() { return None; }
+    let mut cmd = Command::new("ricefield");
+    cmd.args(["--theme", "xp-luna", "--separate-window"]).arg(target);
+    Some(cmd)
+}
+
+/// Prefer the existing installed RiceField 1.0 for real local Explorer
+/// navigation in the XP profile, but keep working Gio fallback for machines
+/// without RiceField. This does not change desktop file associations.
+pub fn launch(action: &str, prefer_ricefield: bool) -> bool {
+    let Some(mut fallback) = location_command(action) else {
         eprintln!("RicePlate: {action} location unavailable");
         return false;
     };
-    match command.spawn() {
+    if prefer_ricefield {
+        if let Some(mut cmd) = ricefield_command(action, &fallback) {
+            match cmd.spawn() {
+                Ok(_) => return true,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    // RiceField is optional, and ordinary Gio remains usable.
+                }
+                Err(error) => {
+                    eprintln!("RicePlate: cannot launch RiceField for {action}: {error}");
+                    // A damaged install or denied executable is not the same
+                    // as an absent package. Avoid silently masking the error.
+                    return false;
+                }
+            }
+        }
+    }
+    match fallback.spawn() {
         Ok(_) => true,
         Err(error) => {
             eprintln!("RicePlate: cannot open {action} location: {error}");
@@ -95,6 +128,35 @@ pub fn launch(action: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn xp_ricefield_uses_real_theme_and_separate_window_for_local_places_only() {
+        for action in ["computer", "documents", "pictures", "music"] {
+            if let Some(gio) = location_command(action) {
+                let cmd = ricefield_command(action, &gio)
+                    .expect("existing local location accepted by RiceField");
+                assert_eq!(cmd.get_program(), "ricefield");
+                let args = cmd.get_args().map(|arg| arg.to_string_lossy().into_owned())
+                    .collect::<Vec<_>>();
+                assert_eq!(&args[0..3], &["--theme", "xp-luna", "--separate-window"]);
+                assert!(Path::new(&args[3]).is_absolute());
+                assert_eq!(args.len(), 4);
+            }
+        }
+        for action in ["network", "trash"] {
+            let fallback = location_command(action).unwrap();
+            assert!(ricefield_command(action, &fallback).is_none());
+        }
+        let mut malicious = Command::new("gio");
+        malicious.arg("open").arg("--dangerous");
+        assert!(ricefield_command("computer", &malicious).is_none());
+        let mut extra = Command::new("gio");
+        extra.arg("open").arg("/").arg("/etc");
+        assert!(ricefield_command("computer", &extra).is_none());
+        let mut relative = Command::new("gio");
+        relative.arg("open").arg("relative/path");
+        assert!(ricefield_command("computer", &relative).is_none());
+    }
 
     #[test]
     fn computer_is_a_fixed_gio_location_without_shell() {
