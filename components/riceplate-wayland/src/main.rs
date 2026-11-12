@@ -2234,6 +2234,16 @@ impl RicePlate {
     }
 
     fn activate_action(&mut self, action: &str, qh: &QueueHandle<Self>) {
+        if matches!(action, "run" | "help") {
+            // The schema permits these only in the themed columns profile.
+            if self.recipe.menu.as_ref().is_some_and(|menu|
+                menu.presentation == recipe::MenuPresentation::Columns
+                    && menu.palette.is_some()) {
+                self.open_luna_dialog(if action == "run" { luna_dialog::Kind::Run }
+                                      else { luna_dialog::Kind::Help }, qh);
+            }
+            return;
+        }
         if action == "notifications" {
             self.request_notifications(NotificationIntent::Refresh, qh);
             return;
@@ -4951,7 +4961,10 @@ impl LayerShellHandler for RicePlate {
             self.focused_panel = None;
             self.focused_target = None;
         }
-        if self.desktop_context.as_ref().is_some_and(|menu|
+        if self.luna_dialog.as_ref().is_some_and(|dialog|
+            dialog.surface.wl_surface() == layer.wl_surface()) {
+            self.close_luna_dialog();
+        } else if self.desktop_context.as_ref().is_some_and(|menu|
             menu.surface.wl_surface() == layer.wl_surface()) {
             self.close_desktop_context();
         } else if layer.wl_surface() == self.layer.wl_surface() {
@@ -5021,6 +5034,29 @@ impl LayerShellHandler for RicePlate {
         config: LayerSurfaceConfigure,
         _: u32,
     ) {
+        if self.luna_dialog.as_ref().is_some_and(|dialog|
+            dialog.surface.wl_surface() == layer.wl_surface()) {
+            if config.new_size != (luna_dialog::WIDTH, luna_dialog::HEIGHT) {
+                eprintln!("RicePlate: compositor proposed unsupported Luna dialog size");
+                self.close_luna_dialog();
+                return;
+            }
+            let dialog = self.luna_dialog.as_mut().expect("matched Luna dialog");
+            if dialog.pool.is_none() {
+                let bytes = (luna_dialog::WIDTH * luna_dialog::HEIGHT * 4 * 3) as usize;
+                match SlotPool::new(bytes, &self.shm) {
+                    Ok(pool) => dialog.pool = Some(pool),
+                    Err(error) => {
+                        eprintln!("RicePlate: cannot allocate Luna dialog: {error}");
+                        self.close_luna_dialog();
+                        return;
+                    }
+                }
+            }
+            dialog.configured = true;
+            self.redraw_luna_dialog();
+            return;
+        }
         if self.desktop_context.as_ref().is_some_and(|menu|
             menu.surface.wl_surface() == layer.wl_surface()) {
             if config.new_size != (desktop_context::WIDTH, desktop_context::HEIGHT) {
@@ -5390,6 +5426,8 @@ impl KeyboardHandler for RicePlate {
         _: &[u32],
         _: &[Keysym],
     ) {
+        self.luna_dialog_focused = self.luna_dialog.as_ref().is_some_and(|dialog|
+            dialog.surface.wl_surface() == surface);
         self.context_focused = self.desktop_context.as_ref().is_some_and(|menu|
             menu.surface.wl_surface() == surface);
         self.menu_focused = self.menu_state.visible
@@ -5451,6 +5489,10 @@ impl KeyboardHandler for RicePlate {
         surface: &wl_surface::WlSurface,
         _: u32,
     ) {
+        if self.luna_dialog.as_ref().is_some_and(|dialog|
+            dialog.surface.wl_surface() == surface) && self.luna_dialog_focused {
+            self.close_luna_dialog();
+        }
         if self.desktop_context.as_ref().is_some_and(|menu|
             menu.surface.wl_surface() == surface) && self.context_focused {
             self.close_desktop_context();
@@ -5492,6 +5534,31 @@ impl KeyboardHandler for RicePlate {
         _: u32,
         event: KeyEvent,
     ) {
+        if self.luna_dialog_focused {
+            let mut execute = false;
+            let mut repaint = false;
+            match event.keysym {
+                Keysym::Escape => {
+                    self.close_luna_dialog();
+                    return;
+                }
+                Keysym::Return | Keysym::KP_Enter => execute = true,
+                Keysym::BackSpace => {
+                    if let Some(dialog) = self.luna_dialog.as_mut() {
+                        repaint = dialog.state.erase();
+                    }
+                }
+                _ => {
+                    if let (Some(dialog), Some(text)) =
+                        (self.luna_dialog.as_mut(), event.utf8.as_deref()) {
+                        repaint = dialog.state.enter(text);
+                    }
+                }
+            }
+            if execute { self.execute_luna_dialog(); }
+            else if repaint { self.redraw_luna_dialog(); }
+            return;
+        }
         if self.context_focused {
             let mut action = None;
             let mut changed = false;
@@ -5839,7 +5906,8 @@ impl KeyboardHandler for RicePlate {
     ) {
         // Never repeat Enter/Space: holding a key must not launch multiple apps.
         if matches!(event.keysym, Keysym::Left | Keysym::Right | Keysym::Up
-            | Keysym::Down | Keysym::Tab | Keysym::ISO_Left_Tab) {
+            | Keysym::Down | Keysym::Tab | Keysym::ISO_Left_Tab)
+            || (self.luna_dialog_focused && event.keysym == Keysym::BackSpace) {
             self.press_key(conn, qh, keyboard, serial, event);
         }
     }
@@ -5879,6 +5947,45 @@ impl PointerHandler for RicePlate {
         events: &[PointerEvent],
     ) {
         for event in events {
+            if self.luna_dialog.as_ref().is_some_and(|dialog|
+                dialog.surface.wl_surface() == &event.surface) {
+                let mut activate = None;
+                let mut repaint = false;
+                if let Some(dialog) = self.luna_dialog.as_mut() {
+                    let hit = luna_dialog::hit(event.position.0, event.position.1,
+                                               dialog.state.kind);
+                    match event.kind {
+                        PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
+                            if dialog.state.hover != hit {
+                                dialog.state.hover = hit;
+                                repaint = true;
+                            }
+                        }
+                        PointerEventKind::Leave { .. } => {
+                            dialog.state.hover = None;
+                            dialog.state.pressed = None;
+                            repaint = true;
+                        }
+                        PointerEventKind::Press { button: BTN_LEFT, .. } => {
+                            dialog.state.pressed = hit;
+                            repaint = true;
+                        }
+                        PointerEventKind::Release { button: BTN_LEFT, .. } => {
+                            if dialog.state.pressed.take().is_some_and(|start| Some(start) == hit) {
+                                activate = hit;
+                            } else { repaint = true; }
+                        }
+                        _ => {}
+                    }
+                }
+                match activate {
+                    Some(luna_dialog::Hit::Accept) => self.execute_luna_dialog(),
+                    Some(luna_dialog::Hit::Cancel) => self.close_luna_dialog(),
+                    Some(luna_dialog::Hit::Input) | None =>
+                        if repaint { self.redraw_luna_dialog(); },
+                }
+                continue;
+            }
             if self.desktop_context.as_ref().is_some_and(|menu|
                 menu.surface.wl_surface() == &event.surface) {
                 let mut activate = None;
