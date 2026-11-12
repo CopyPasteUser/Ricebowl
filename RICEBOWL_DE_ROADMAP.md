@@ -874,6 +874,14 @@ must not be represented as blockers for the Wayland DE 1.0 core release.
 - [ ] Add a RicePlate-invoked searchable history UI with keyboard navigation,
   copy-back, pins and configurable retention; preserve focus/selection and
   support cross-rice token changes without a duplicate UI implementation.
+  **12 Nov software candidate:** an explicit, nonresident GTK3 browser is
+  available through `de clip --clip-op gui`: local preview-only search, keyboard
+  row selection, manual refresh, guarded revision-based copy-back and confirmed
+  clearing, with no clipboard persistence or implicit watcher. The indexed
+  history race is handled by a backwards-compatible per-watcher revision in
+  the socket protocol. This remains **CI-gated**; RicePlate menu invocation,
+  pins, retention settings, cross-rice presentation and device QA are still
+  unfinished, so the parent checkbox must remain open.
 - [ ] Keep history **off until explicitly enabled**; default to session-only
   memory, clear on logout/lock or user action, and never log clipboard contents.
   The foreground prototype already stays off by default and clears on exit or

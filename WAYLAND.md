@@ -102,11 +102,24 @@ In another terminal, inspect and manage that same session's bounded history:
 ```bash
 ricebowl de clip --clip-op status --json
 ricebowl de clip --clip-op list
+ricebowl de clip --clip-op gui  # GTK browser; manual refresh and preview search
 ricebowl de clip --clip-op copy --clip-index 0
 ricebowl de clip --clip-op pause
 ricebowl de clip --clip-op resume
 ricebowl de clip --clip-op clear
 ```
+
+RiceClip's optional **on-demand GTK3 browser** displays only 80-character
+previews (not full clipboard contents), filters those previews locally,
+supports keyboard/row activation, explicit copy-back, pause/resume, manual
+refresh and confirmed clearing. It **never starts the watcher implicitly**,
+writes history to disk, polls in the background or claims to detect passwords.
+If the watcher is not active, the window explains how to enable it. List/copy
+requests carry a revision and random per-watcher identity: if new clipboard
+content moves an index **or the watcher restarts**, copy-back is rejected
+and the user must refresh, preventing wrong-item copies.
+The older CLI `--clip-index` behavior is unchanged. This is an early GUI,
+not the full RicePlate-integrated pinned/retention-management feature.
 
 The watcher requires `wl-paste --watch` **and** compositor support for
 wlroots data-control; copy-back requires `wl-copy`. It saves at most 20 text

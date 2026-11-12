@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import secrets
 import shutil
 import signal
 import socket
@@ -26,6 +27,7 @@ ERROR_MESSAGES = {
     "already_running": "RiceClip already has a watcher for this Wayland display",
     "watch_unavailable": "RiceClip needs wl-paste --watch and compositor data-control support",
     "invalid_request": "Invalid RiceClip operation or history index",
+    "stale_history": "RiceClip history changed; refresh the list before copying",
     "copy_unavailable": "Wayland clipboard copy requires wl-copy",
     "copy_failed": "Could not restore this RiceClip item to the clipboard",
 }
@@ -58,6 +60,10 @@ class History:
     def __init__(self):
         self.items: list[str] = []
         self.paused = False
+        # A per-watcher monotonic generation protects GUI list selections
+        # against asynchronous clipboard ingestion/reordering.
+        self.revision = 0
+        self.session_id = secrets.token_hex(16)
 
     def handle(self, request: dict[str, object]) -> dict[str, object]:
         op = request.get("op")
@@ -68,26 +74,50 @@ class History:
                 return {"ok": True, "recorded": False}
             if self.paused or not data:
                 return {"ok": True, "recorded": False}
+            previous = self.items.copy()
             if data in self.items:
                 self.items.remove(data)
             self.items.insert(0, data)
             del self.items[MAX_ITEMS:]
+            if self.items != previous:
+                self.revision += 1
             return {"ok": True, "recorded": True}
         if op == "status":
             return {"ok": True, "paused": self.paused, "count": len(self.items),
+                    "revision": self.revision, "session_id": self.session_id,
                     "max_items": MAX_ITEMS, "max_text_bytes": MAX_TEXT_BYTES,
                     "persistent": False}
         if op == "list":
-            return {"ok": True, "items": [
+            return {"ok": True, "revision": self.revision,
+                    "session_id": self.session_id, "items": [
                 {"index": index, "preview": item[:80], "characters": len(item)}
                 for index, item in enumerate(self.items)]}
         if op == "clear":
-            self.items.clear()
+            if self.items:
+                self.items.clear()
+                self.revision += 1
             return {"ok": True, "count": 0}
         if op in ("pause", "resume"):
             self.paused = op == "pause"
             return {"ok": True, "paused": self.paused}
         if op == "copy":
+            # A restart resets numeric revisions; its random watcher ID must
+            # also match, or a once-valid index could refer to different text.
+            if "session_id" in request:
+                identity = request["session_id"]
+                if type(identity) is not str:
+                    raise ClipError("invalid_request")
+                if identity != self.session_id:
+                    raise ClipError("stale_history")
+            # Old CLI index-only copy remains supported. GUI clients send the
+            # revision of their visible snapshot, failing closed if an ingest
+            # has moved a row since it was shown.
+            if "revision" in request:
+                revision = request["revision"]
+                if type(revision) is not int or revision < 0:
+                    raise ClipError("invalid_request")
+                if revision != self.revision:
+                    raise ClipError("stale_history")
             index = request.get("index")
             if type(index) is not int or not 0 <= index < len(self.items):
                 raise ClipError("invalid_request")
@@ -127,15 +157,22 @@ def _transact(connection: socket.socket, history: History) -> None:
 
 
 def request(op: str, *, index: int | None = None, text: str | None = None,
-            state: str | None = None) -> dict[str, object]:
+            state: str | None = None, revision: int | None = None,
+            session_id: str | None = None) -> dict[str, object]:
     path = socket_path()
     try:
         with socket.socket(socket.AF_UNIX) as connection:
-            connection.settimeout(3)
+            # wl-copy has a bounded 10-second timeout at the server, so a
+            # guarded copy needs longer than the usual 3-second socket read.
+            connection.settimeout(12 if op == "copy" else 3)
             connection.connect(str(path))
             payload = {"op": op}
             if index is not None:
                 payload["index"] = index
+            if revision is not None:
+                payload["revision"] = revision
+            if session_id is not None:
+                payload["session_id"] = session_id
             if text is not None:
                 payload.update(text=text, state=state)
             connection.sendall(json.dumps(payload, ensure_ascii=False).encode("utf-8") + b"\n")
