@@ -33,7 +33,8 @@ class RiceClipLockTests(unittest.TestCase):
         report = lock.lock_screen(environment=FULL_SESSION,
                                   which=lambda name: "/usr/bin/swaylock",
                                   run=run, clear=clear)
-        self.assertEqual(report, {"locked": True, "riceclip_cleared": True})
+        self.assertEqual(report, {"locked": True, "riceclip_cleared": True,
+                                  "riceclip_inactive": False})
         self.assertEqual(order, [("lock", ["/usr/bin/swaylock", "-f"]),
                                  ("clear", "clear")])
 
@@ -80,9 +81,25 @@ class RiceClipLockTests(unittest.TestCase):
         self.assertFalse(report["riceclip_cleared"])
         runner.assert_called_once()
 
+    def test_verified_absent_optional_watcher_is_a_normal_lock_outcome(self):
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as directory, \
+             mock.patch.object(lock.clip, "socket_path",
+                               return_value=Path(directory) / "absent.sock"):
+            report = lock.lock_screen(
+                environment=FULL_SESSION, which=lambda _name: "/usr/bin/swaylock",
+                run=lambda command, **_kwargs: subprocess.CompletedProcess(command, 0),
+                clear=lambda _operation: (_ for _ in ()).throw(clip.ClipError("not_running")))
+        self.assertTrue(report["locked"])
+        self.assertFalse(report["riceclip_cleared"])
+        self.assertTrue(report["riceclip_inactive"])
+
     def test_cli_lock_cannot_run_from_preview_or_json_and_never_autostarts_watcher(self):
         with mock.patch.object(lock, "lock_screen", return_value={
-            "locked": True, "riceclip_cleared": True}) as wrapper, \
+            "locked": True, "riceclip_cleared": True,
+            "riceclip_inactive": False}) as wrapper, \
              mock.patch.object(clip, "watch") as watcher:
             self.assertEqual(cli(["de", "lock"]), 0)
             wrapper.assert_called_once_with()
@@ -94,7 +111,8 @@ class RiceClipLockTests(unittest.TestCase):
 
     def test_cli_reports_unconfirmed_clear_without_leaking_private_clipboard(self):
         with mock.patch.object(lock, "lock_screen", return_value={
-            "locked": True, "riceclip_cleared": False}), \
+            "locked": True, "riceclip_cleared": False,
+            "riceclip_inactive": False}), \
              redirect_stderr(io.StringIO()) as warnings:
             self.assertEqual(cli(["de", "lock"]), 0)
         self.assertIn("not confirmed", warnings.getvalue())
