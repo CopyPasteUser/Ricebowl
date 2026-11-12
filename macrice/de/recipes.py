@@ -48,14 +48,16 @@ ICON_ACTIONS = frozenset(("applications", "terminal", "lock", "trash",
 MENU_ACTIONS = frozenset(("applications", "terminal", "lock", "logout",
                           "documents", "computer",
                           "wifi-toggle", "audio-mute", "audio-up", "audio-down",
-                          "notifications", "settings"))
+                          "notifications", "settings", "clip-history"))
 # A deliberately smaller set than menu quick controls: all four work from a
 # panel without requiring a menu feedback surface or a custom command parser.
-PANEL_ACTIONS = frozenset(("applications", "terminal", "settings", "lock"))
+PANEL_ACTIONS = frozenset(("applications", "terminal", "settings", "lock",
+                           "clip-history"))
 PANEL_CONTROLS = frozenset(("wifi-toggle", "audio-mute", "audio-up", "audio-down"))
 PANEL_ACTION_COMMANDS = {
     "applications": "fuzzel", "terminal": "foot",
     "settings": "ricebowl de settings", "lock": "swaylock -f",
+    "clip-history": "ricebowl de clip --clip-op gui",
 }
 WALLPAPERS = frozenset(("aero-seven-blue", "aero-seven-night", "luna-hills",
                         "classic-teal", "ten-blue", "ten-midnight", "chrome-pastel",
@@ -1413,6 +1415,7 @@ def labwc_menu(recipe: PanelRecipe) -> str:
         "applications": ("Applications", "Execute", "fuzzel"),
         "terminal": ("Terminal", "Execute", "foot"),
         "settings": ("RiceSpice settings", "Execute", "ricebowl de settings"),
+        "clip-history": ("RiceClip history", "Execute", "ricebowl de clip --clip-op gui"),
         "lock": ("Lock screen", "Execute", "swaylock -f"),
         "logout": ("Log out of RiceBowl", "Exit", None),
     }

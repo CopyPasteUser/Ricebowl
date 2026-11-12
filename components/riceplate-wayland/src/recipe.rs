@@ -507,7 +507,7 @@ fn validate_components(input: Vec<ComponentInput>) -> Result<Vec<ComponentInput>
             "status" => ["clock", "network", "audio", "battery"]
                 .contains(&item.binding.as_str()),
             "action" => ["applications", "terminal", "settings", "lock",
-                         "wifi-toggle", "audio-mute", "audio-up", "audio-down"]
+                         "clip-history", "wifi-toggle", "audio-mute", "audio-up", "audio-down"]
                 .contains(&item.binding.as_str()),
             _ => false,
         };
@@ -632,7 +632,8 @@ fn validate_menu(menu: &Menu, version: u32) -> Result<(), Box<dyn Error>> {
         }
         for action in &group.actions {
             if !["applications", "terminal", "lock", "logout",
-                 "documents", "computer", "wifi-toggle", "audio-mute", "audio-up", "audio-down", "notifications", "settings"]
+                 "documents", "computer", "wifi-toggle", "audio-mute", "audio-up", "audio-down",
+                 "notifications", "settings", "clip-history"]
                 .contains(&action.as_str())
                 || !seen.insert(action.as_str())
             {
@@ -752,7 +753,7 @@ fn expand_layout(
             let supported = if control {
                 ["wifi-toggle", "audio-mute", "audio-up", "audio-down"].contains(&id.as_str())
             } else {
-                ["applications", "terminal", "settings", "lock"].contains(&id.as_str())
+                ["applications", "terminal", "settings", "lock", "clip-history"].contains(&id.as_str())
             };
             if version < (if control { 7 } else { 6 }) || !supported
                 || !safe_label(label, 16)
@@ -1537,6 +1538,34 @@ mod tests {
         drift["responsive"]["compact_layout"]["end"][0]["label"] =
             serde_json::json!("Audio");
         assert!(parse(&drift.to_string(), None).is_err());
+    }
+
+    #[test]
+    fn riceclip_history_is_a_bounded_shared_action_with_live_hit_geometry() {
+        const CLIP_ACTIONS: &str =
+            include_str!("../../../tests/fixtures/riceplate-clip-actions-v6.json");
+        let style = parse(CLIP_ACTIONS, Some("riceclip-actions")).unwrap();
+        assert_eq!(style.actions[0].id, "clip-history");
+        assert!(!style.actions[0].control);
+        let button = layout(&style, 1366, 0).into_iter()
+            .find(|placed| placed.widget == Widget::Action(0)).unwrap();
+        assert_eq!(hit((button.x + button.width / 2) as f64, 1366, 0, 0, &style),
+                   Some(Hit::Action(0)));
+        let menu = style.menu.as_ref().unwrap();
+        assert!(menu.groups.iter().flat_map(|group| group.actions.iter())
+            .any(|action| action == "clip-history"));
+
+        let original: serde_json::Value = serde_json::from_str(CLIP_ACTIONS).unwrap();
+        for invalid in ["clip-history;sh", "clip-history --watch", "exec"] {
+            let mut altered = original.clone();
+            altered["panel"]["layout"]["start"][0]["children"][1]["id"] =
+                serde_json::json!(invalid);
+            assert!(parse(&altered.to_string(), None).is_err());
+        }
+        let mut scripted = original;
+        scripted["panel"]["layout"]["start"][0]["children"][1]["command"] =
+            serde_json::json!("sh");
+        assert!(parse(&scripted.to_string(), None).is_err());
     }
 
     #[test]

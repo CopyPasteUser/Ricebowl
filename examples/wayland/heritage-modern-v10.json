@@ -26,7 +26,7 @@
   },
   "colors": {"background": "#c0c0c0", "foreground": "#18212a", "active": "#236180"},
   "menu": {"title": "Heritage Desk", "presentation": "tabs", "groups": [
-    {"title": "Programs", "actions": ["applications", "terminal"]},
+    {"title": "Programs", "actions": ["applications", "terminal", "clip-history"]},
     {"title": "Session", "actions": ["lock", "logout"]}
   ]},
   "desktop": {"wallpaper": "classic-teal", "icons": [

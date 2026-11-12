@@ -122,6 +122,7 @@ pub fn action_label(action: &str) -> &'static str {
         "applications" => "Applications",
         "terminal" => "Terminal",
         "settings" => "RiceSpice settings",
+        "clip-history" => "RiceClip history",
         "documents" => "My Documents",
         "computer" => "My Computer",
         "lock" => "Lock screen",
@@ -861,6 +862,22 @@ mod tests {
             search_text: format!("demo app {index}"),
             path: format!("/usr/share/applications/demo-{index}.desktop").into(),
         }).collect()
+    }
+
+    #[test]
+    fn luna_sidebar_riceclip_action_is_visible_and_clickable_not_just_declared() {
+        let style = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna.json"), Some("xp-luna")).unwrap();
+        let menu = style.menu.as_ref().unwrap();
+        let state = MenuState { visible: true, group: 1, ..MenuState::default() };
+        let sections = state.composed_sections(menu).unwrap();
+        assert_eq!(sections.len(), 1);
+        let actions: Vec<_> = sections[0].items.iter().map(|tile| tile.action).collect();
+        assert_eq!(actions, vec!["settings", "notifications", "clip-history"]);
+        let clip = sections[0].items.last().unwrap();
+        assert_eq!(state.hit(menu, f64::from(clip.x + 10), f64::from(clip.y + 10)),
+                   Some(Hit::Action(2)));
+        assert_eq!(action_label("clip-history"), "RiceClip history");
     }
 
     #[test]

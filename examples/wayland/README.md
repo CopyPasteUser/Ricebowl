@@ -10,6 +10,12 @@ sidebar Programs/System/Session categories, and responsive desktop shortcuts.
 The green launcher and five-color native menu are reusable schema-v12 primitives,
 not special-case code for this rice. Launcher hit testing, real task activation,
 app discovery, lock and logout retain their normal shared behavior.
+The optional original Luna sidebar also exposes a **RiceClip history** entry
+through the shared `clip-history` menu action. It launches the existing GTK3
+browser only on explicit selection, never autostarts the clipboard watcher,
+and does not execute user-supplied recipe commands. The six-row XP-Luna-Columns
+right shelf remains unchanged; the Creator schema offers the same action to
+other rice authors.
 
 ### XP Luna next sprint: real two-column Start menu (native preview)
 
@@ -39,7 +45,8 @@ See the [real headless Wayland Luna screenshots](../../screenshots/wayland/READM
 desktop with the separately running original `swaybg` wallpaper and the opened
 two-column native Start menu. These are CI captures, not hardware acceptance.
 
-The original `xp-luna` rice and any existing private imported recipe remain
+The original `xp-luna` recipe ID and its existing controls remain; the
+RiceClip menu action is additive. Existing private imported recipes stay
 unchanged. The preparation script imports `xp-luna-columns` under a new ID
 and the 120-second TTY test starts only that preview. No display-manager,
 autologin, package, or XFCE configuration is changed. Existing installed

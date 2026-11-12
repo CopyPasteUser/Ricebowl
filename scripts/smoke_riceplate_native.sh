@@ -28,6 +28,7 @@ cp "$source_root/tests/fixtures/riceplate-desktop-v5.json" "$runtime/desktop-v5.
 cp "$source_root/tests/fixtures/riceplate-sidebar-v6.json" "$runtime/sidebar-v6.json"
 cp "$source_root/tests/fixtures/riceplate-composed-v6.json" "$runtime/composed-v6.json"
 cp "$source_root/tests/fixtures/riceplate-actions-v6.json" "$runtime/actions-v6.json"
+cp "$source_root/tests/fixtures/riceplate-clip-actions-v6.json" "$runtime/riceclip-actions.json"
 cp "$source_root/tests/fixtures/riceplate-controls-v7.json" "$runtime/controls-v7.json"
 cp "$source_root/tests/fixtures/riceplate-layout-v8.json" "$runtime/layout-v8.json"
 cp "$source_root/tests/fixtures/riceplate-components-v9.json" "$runtime/components-v9.json"
@@ -42,6 +43,7 @@ chmod 0600 "$runtime/desktop-v5.json"
 chmod 0600 "$runtime/sidebar-v6.json"
 chmod 0600 "$runtime/composed-v6.json"
 chmod 0600 "$runtime/actions-v6.json"
+chmod 0600 "$runtime/riceclip-actions.json"
 chmod 0600 "$runtime/controls-v7.json"
 chmod 0600 "$runtime/layout-v8.json"
 chmod 0600 "$runtime/components-v9.json"
@@ -121,6 +123,26 @@ set -eu
 printf '%s\n' "$1" "$2" >"$RICEBOWL_CI_TRASH_LOG"
 GIO
 chmod 0700 "$runtime/mock-bin/gio"
+# The disposable shim records exact native argv and execs the real GTK CLI.
+# No watcher starts and no host clipboard content is read.
+cat >"$runtime/mock-bin/ricebowl" <<"CLIP_CLI"
+#!/bin/sh
+set -eu
+[ "$#" -eq 4 ] && [ "$1" = de ] && [ "$2" = clip ] \
+    && [ "$3" = --clip-op ] && [ "$4" = gui ] || exit 64
+# The wrapper shell becomes this Python process. Record the actual PID
+# directly, without relying on shell PID expansion in a generated script.
+exec /usr/bin/python3 -B -c '
+import os
+import sys
+from pathlib import Path
+Path(os.environ["RICEBOWL_CI_CLIP_PID"]).write_text(str(os.getpid()) + "\n")
+Path(os.environ["RICEBOWL_CI_CLIP_LOG"]).write_text("\n".join(sys.argv[1:]) + "\n")
+os.execv(sys.executable, [sys.executable, "-B",
+         os.environ["RICEBOWL_CI_SOURCE_ROOT"] + "/launcher.py", *sys.argv[1:]])
+' "$@"
+CLIP_CLI
+chmod 0700 "$runtime/mock-bin/ricebowl"
 export XDG_RUNTIME_DIR="$runtime"
 export WLR_BACKENDS=headless
 export WLR_HEADLESS_OUTPUTS=1
@@ -138,6 +160,13 @@ dbus-run-session -- sh -eu -c '
     plate=
     wallpaper=
     cleanup() {
+        if [ -s "$runtime/clip-action-gui.pid" ]; then
+            clip_pid=$(cat "$runtime/clip-action-gui.pid" 2>/dev/null || :)
+            case "$clip_pid" in
+                ""|*[!0-9]*) : ;;
+                *) kill "$clip_pid" 2>/dev/null || : ;;
+            esac
+        fi
         if [ -n "$wallpaper" ]; then
             kill "$wallpaper" 2>/dev/null || :
             wait "$wallpaper" 2>/dev/null || :
@@ -166,7 +195,7 @@ dbus-run-session -- sh -eu -c '
         sed -n "1,70p" "$runtime/labwc.log" >&2
         exit 1
     fi
-    for recipe in classic chrome "$runtime/custom.json" "$runtime/nested.json" "$runtime/shell-v4.json" "$runtime/desktop-v5.json" "$runtime/actions-v6.json" "$runtime/controls-v7.json" "$runtime/layout-v8.json" "$runtime/components-v9.json" "$runtime/desktop-actions-v9.json" "$runtime/appearance-v10.json" "$runtime/xp-luna-columns.json" "$runtime/xp-luna-default-icons.json" "$runtime/xp-luna-columns-menu" "$runtime/xp-luna-font-menu" "$runtime/xp-luna-columns-calendar" "$runtime/xp-luna-font-calendar" "$runtime/xp-luna-columns-osd" "$runtime/xp-luna-font-osd" "$runtime/xp-luna-columns-notifications" "$runtime/xp-luna-columns-notifications-scroll" "$runtime/xp-luna-font-notifications" "$runtime/xp-luna-columns-notification-detail" "$runtime/xp-luna-font-notification-detail" "$runtime/overflow-v5.json" "$runtime/desktop-v5-menu" "$runtime/sidebar-v6-menu" "$runtime/composed-v6-menu" "$runtime/desktop-v5-calendar"; do
+    for recipe in classic chrome "$runtime/custom.json" "$runtime/nested.json" "$runtime/shell-v4.json" "$runtime/desktop-v5.json" "$runtime/actions-v6.json" "$runtime/riceclip-actions.json" "$runtime/controls-v7.json" "$runtime/layout-v8.json" "$runtime/components-v9.json" "$runtime/desktop-actions-v9.json" "$runtime/appearance-v10.json" "$runtime/xp-luna-columns.json" "$runtime/xp-luna-default-icons.json" "$runtime/xp-luna-columns-menu" "$runtime/xp-luna-font-menu" "$runtime/xp-luna-columns-calendar" "$runtime/xp-luna-font-calendar" "$runtime/xp-luna-columns-osd" "$runtime/xp-luna-font-osd" "$runtime/xp-luna-columns-notifications" "$runtime/xp-luna-columns-notifications-scroll" "$runtime/xp-luna-font-notifications" "$runtime/xp-luna-columns-notification-detail" "$runtime/xp-luna-font-notification-detail" "$runtime/overflow-v5.json" "$runtime/desktop-v5-menu" "$runtime/sidebar-v6-menu" "$runtime/composed-v6-menu" "$runtime/desktop-v5-calendar"; do
         case "$recipe" in
             */desktop-v5-calendar) label=calendar-v5 ;;
             */desktop-v5-menu) label=menu-v5 ;;
@@ -188,6 +217,7 @@ dbus-run-session -- sh -eu -c '
             */overflow-v5.json) label=overflow-v5 ;;
             */desktop-v5.json) label=desktop-v5 ;;
             */actions-v6.json) label=actions-v6 ;;
+            */riceclip-actions.json) label=riceclip-actions ;;
             */controls-v7.json) label=controls-v7 ;;
             */layout-v8.json) label=layout-v8 ;;
             */components-v9.json) label=components-v9 ;;
@@ -242,6 +272,13 @@ dbus-run-session -- sh -eu -c '
             WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$runtime/xp-luna-font.json" --preview-notification-detail >"$runtime/plate-$label.log" 2>&1 &
         elif [ "$label" = calendar-v5 ]; then
             WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$runtime/desktop-v5.json" --preview-calendar >"$runtime/plate-$label.log" 2>&1 &
+        elif [ "$label" = riceclip-actions ]; then
+            PATH="$runtime/mock-bin:$PATH" GDK_BACKEND=wayland \
+                RICEBOWL_CI_CLIP_LOG="$runtime/clip-action-argv.log" \
+                RICEBOWL_CI_CLIP_PID="$runtime/clip-action-gui.pid" \
+                RICEBOWL_CI_SOURCE_ROOT="$source_root" \
+                WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" \
+                >"$runtime/plate-$label.log" 2>&1 &
         elif [ "$label" = xp-luna-columns ]; then
             RICEBOWL_DE_TRACE_MENU=1 PATH="$runtime/mock-bin:$PATH" \
                 RICEBOWL_CI_TRASH_LOG="$runtime/trash-gio.log" \
@@ -261,10 +298,99 @@ dbus-run-session -- sh -eu -c '
                 exit 1 ;;
         esac
         echo "Native RicePlate $label layer surface remained alive"
-        if [ "$label" = shell-v4 ] || [ "$label" = desktop-v5 ] || [ "$label" = actions-v6 ] || [ "$label" = controls-v7 ] || [ "$label" = layout-v8 ] || [ "$label" = components-v9 ] || [ "$label" = desktop-actions-v9 ] || [ "$label" = appearance-v10 ] || [ "$label" = xp-luna-columns ] || [ "$label" = xp-luna-default-icons ] || [ "$label" = xp-luna-columns-menu ] || [ "$label" = xp-luna-font-menu ] || [ "$label" = xp-luna-columns-calendar ] || [ "$label" = xp-luna-font-calendar ] || [ "$label" = xp-luna-columns-osd ] || [ "$label" = xp-luna-font-osd ] || [ "$label" = xp-luna-columns-notifications ] || [ "$label" = xp-luna-columns-notifications-scroll ] || [ "$label" = xp-luna-font-notifications ] || [ "$label" = xp-luna-columns-notification-detail ] || [ "$label" = xp-luna-font-notification-detail ] || [ "$label" = menu-v5 ] || [ "$label" = menu-sidebar-v6 ] || [ "$label" = menu-composed-v6 ] || [ "$label" = calendar-v5 ]; then
+        if [ "$label" = shell-v4 ] || [ "$label" = desktop-v5 ] || [ "$label" = actions-v6 ] || [ "$label" = riceclip-actions ] || [ "$label" = controls-v7 ] || [ "$label" = layout-v8 ] || [ "$label" = components-v9 ] || [ "$label" = desktop-actions-v9 ] || [ "$label" = appearance-v10 ] || [ "$label" = xp-luna-columns ] || [ "$label" = xp-luna-default-icons ] || [ "$label" = xp-luna-columns-menu ] || [ "$label" = xp-luna-font-menu ] || [ "$label" = xp-luna-columns-calendar ] || [ "$label" = xp-luna-font-calendar ] || [ "$label" = xp-luna-columns-osd ] || [ "$label" = xp-luna-font-osd ] || [ "$label" = xp-luna-columns-notifications ] || [ "$label" = xp-luna-columns-notifications-scroll ] || [ "$label" = xp-luna-font-notifications ] || [ "$label" = xp-luna-columns-notification-detail ] || [ "$label" = xp-luna-font-notification-detail ] || [ "$label" = menu-v5 ] || [ "$label" = menu-sidebar-v6 ] || [ "$label" = menu-composed-v6 ] || [ "$label" = calendar-v5 ]; then
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/$label.png"
             cp "$runtime/$label.png" "$source_root/dist/riceplate-native-preview/$label.png"
             echo "Captured real native RicePlate $label framebuffer"
+        fi
+        if [ "$label" = riceclip-actions ]; then
+            # A real Wayland virtual-pointer click crosses the native panel,
+            # the fixed action dispatcher and the GTK3 browser entrypoint.
+            # The only shim logs argv before execing the real Python GUI.
+            output=$(WAYLAND_DISPLAY=wayland-0 wlr-randr | sed -n "1s/[[:space:]].*//p")
+            test -n "$output"
+            WAYLAND_DISPLAY=wayland-0 wlr-randr --output "$output" \
+                --custom-mode 1366x768@60Hz --scale 1
+            sleep 0.35
+            WAYLAND_DISPLAY=wayland-0 grim - >"$runtime/riceclip-panel-before.png"
+            test ! -e "$runtime/clip-action-argv.log"
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 135 20 1366 768
+            count=0
+            while [ ! -s "$runtime/clip-action-argv.log" ] && [ "$count" -lt 30 ]; do
+                count=$((count + 1))
+                sleep 0.1
+            done
+            expected=$(printf "de\nclip\n--clip-op\ngui")
+            actual=$(cat "$runtime/clip-action-argv.log" 2>/dev/null || :)
+            if [ "$actual" != "$expected" ] || [ ! -s "$runtime/clip-action-gui.pid" ]; then
+                echo "RiceClip panel click did not dispatch the exact safe GUI command" >&2
+                exit 1
+            fi
+            clip_pid=$(cat "$runtime/clip-action-gui.pid")
+            case "$clip_pid" in
+                ""|*[!0-9]*) echo "Invalid RiceClip GUI PID" >&2; exit 1 ;;
+            esac
+            count=0
+            while [ "$count" -lt 30 ]; do
+                kill -0 "$clip_pid" 2>/dev/null || {
+                    echo "RiceClip GTK client exited before compositor capture" >&2
+                    exit 1
+                }
+                sleep 0.15
+                WAYLAND_DISPLAY=wayland-0 grim - >"$runtime/riceclip-panel-after.png"
+                if /usr/bin/python3 - "$runtime/riceclip-panel-before.png" \
+                    "$runtime/riceclip-panel-after.png" <<"PY"
+from PIL import Image, ImageChops
+import sys
+with Image.open(sys.argv[1]) as before, Image.open(sys.argv[2]) as after:
+    before.load()
+    after.load()
+    if before.size != (1366, 768) or after.size != before.size:
+        raise SystemExit(1)
+    diff = ImageChops.difference(before.convert("RGB"), after.convert("RGB"))
+    raise SystemExit(0 if sum(any(pixel) for pixel in diff.getdata()) > 15000 else 1)
+PY
+                then
+                    break
+                fi
+                count=$((count + 1))
+            done
+            if [ "$count" -eq 30 ]; then
+                echo "RiceClip GTK window did not appear on the compositor output" >&2
+                exit 1
+            fi
+            kill -0 "$plate"
+            artifact="$source_root/dist/riceplate-native-preview"
+            cp "$runtime/riceclip-panel-after.png" \
+                "$artifact/riceclip-panel-action-1366x768.png"
+            /usr/bin/python3 - "$artifact/riceclip-panel-action-1366x768.png" \
+                "$artifact/riceclip-panel-action-1366x768.json" <<"PY"
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+from PIL import Image
+image, manifest = map(Path, sys.argv[1:])
+with Image.open(image) as screenshot:
+    screenshot.load()
+    dimensions = screenshot.size
+manifest.write_text(json.dumps({
+    "source": "real headless labwc compositor, grim",
+    "renderer": "pixman",
+    "wayland_pointer_click": [135, 20],
+    "action": "clip-history",
+    "gui": "real GTK3 RiceClip client, watcher absent",
+    "command_verified": ["de", "clip", "--clip-op", "gui"],
+    "resolution": dimensions,
+    "sha256": hashlib.sha256(image.read_bytes()).hexdigest(),
+    "commit": os.environ.get("GITHUB_SHA", "unavailable"),
+    "run_id": os.environ.get("GITHUB_RUN_ID", "unavailable"),
+}, indent=2) + "\n")
+PY
+            kill "$clip_pid" 2>/dev/null || :
+            rm -f "$runtime/clip-action-gui.pid"
+            echo "Real native RicePlate click launched the on-demand GTK RiceClip browser"
         fi
         if [ "$label" = xp-luna-columns-notifications-scroll ]; then
             # A real Wayland virtual pointer must change the visible RicePop

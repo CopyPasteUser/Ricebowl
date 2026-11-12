@@ -2035,6 +2035,8 @@ impl RicePlate {
             "applications" => ("fuzzel", &[]),
             "terminal" => ("foot", &[]),
             "settings" => ("ricebowl", &["de", "settings"]),
+            // Strict, fixed argv: opens only the GTK browser, no watcher.
+            "clip-history" => ("ricebowl", &["de", "clip", "--clip-op", "gui"]),
             "lock" => ("swaylock", &["-f"]),
             "logout" => ("labwc", &["--exit"]),
             _ => return, // Validated recipe contract disallows other IDs.

@@ -118,8 +118,14 @@ If the watcher is not active, the window explains how to enable it. List/copy
 requests carry a revision and random per-watcher identity: if new clipboard
 content moves an index **or the watcher restarts**, copy-back is rejected
 and the user must refresh, preventing wrong-item copies.
-The older CLI `--clip-index` behavior is unchanged. This is an early GUI,
-not the full RicePlate-integrated pinned/retention-management feature.
+The older CLI `--clip-index` behavior is unchanged. Validated Wayland rice
+menus and panel action components may now expose `clip-history`: a fixed
+`ricebowl de clip --clip-op gui` launch with no recipe-defined commands.
+The opt-in original XP-Luna sidebar and Heritage example show it, including
+their labwc and Waybar fallbacks; the six-slot Luna-Columns right shelf is
+deliberately unaffected. This opens the shared on-demand GTK window, **not**
+a separate native RicePlate inbox. Pins, retention controls, hardware input
+and a composited in-panel history view remain open.
 
 The watcher requires `wl-paste --watch` **and** compositor support for
 wlroots data-control; copy-back requires `wl-copy`. It saves at most 20 text
