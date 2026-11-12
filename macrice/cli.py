@@ -192,6 +192,8 @@ def parser() -> argparse.ArgumentParser:
     profile.add_argument("--json", action="store_true", help="Machine-readable on-demand report")
     profile.add_argument("--samples", type=int, default=3, metavar="N",
                          help="Read 1–9 short CPU/PSS samples for report/desktop (default: 3)")
+    profile.add_argument("--wayland-session", action="store_true",
+                         help="Limit desktop inventory to this full RiceBowl Wayland login")
     from .riceware_cli import add_commands
     add_commands(commands)
     return p
@@ -1095,15 +1097,22 @@ def main(argv: list[str] | None = None) -> int:
                     print("Taskbar warning:", warning, file=sys.stderr)
             return 0
         if args.command == "performance":
-            from .performance import (apply_profile, desktop_session_report,
-                                      measure_processes, summarize_samples)
+            from .performance import (apply_profile, current_wayland_session_config,
+                                      desktop_session_report, measure_processes, summarize_samples)
+            if args.wayland_session and args.profile != "desktop":
+                raise ValueError("--wayland-session applies only to performance desktop")
             if args.profile in ("report", "desktop"):
                 if not 1 <= args.samples <= 9:
                     raise ValueError("--samples must be between 1 and 9")
                 desktop = args.profile == "desktop"
-                samples = [measure_processes(include_desktop=True) if desktop else measure_processes()
-                           for _ in range(args.samples)]
-                result = desktop_session_report(samples) if desktop else summarize_samples(samples)
+                session_config = (current_wayland_session_config(os.environ)
+                                  if args.wayland_session else None)
+                options = {"include_desktop": True} if desktop else {}
+                if session_config is not None:
+                    options["session_config"] = session_config
+                samples = [measure_processes(**options) for _ in range(args.samples)]
+                result = (desktop_session_report(samples, session_config=session_config)
+                          if desktop else summarize_samples(samples))
                 if args.json:
                     print(json.dumps(result, indent=2))
                     return 0

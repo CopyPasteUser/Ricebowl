@@ -1683,6 +1683,14 @@ component, and incompatible clients degrade gracefully.
   Waybar, native RicePlate and selected session helpers, without a resident
   monitor or duplicate shell process. Scope is explicitly all matching
   user-owned processes, not one isolated Wayland login benchmark.
+- [x] Add **opt-in current-Wayland-login process attribution** for the
+  read-only `performance desktop --wayland-session --json` report. Filter known
+  components by the exact private session-config marker inherited by labwc and
+  its children, excluding nested previews, other concurrent sessions and
+  unreadable `/proc` environments. This preserves the legacy all-user inventory
+  and does not claim an exhaustive session process tree or measured device RAM
+  targets; cold starts, mixed-DPI and long-running real-hardware sampling are
+  still open.
 - [x] Add a read-only package/CLI version consistency check and a candidate
   source-artifact gate; do not publish stable 1.0 without explicit device QA
   evidence (see `RELEASE_1_0_GATES.md`). Binary packaging remains open.

@@ -2,6 +2,7 @@
 
 import json
 import io
+import os
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -150,6 +151,68 @@ class PerformanceTests(unittest.TestCase):
                                           process("waybar", 2, 2000)]])
         self.assertIsNone(report["wayland_pss_kib"])
         self.assertIsNone(report["xfce_pss_kib"])
+
+    def test_wayland_session_inventory_excludes_other_full_and_nested_logins(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session = "/run/user/1000/ricebowl-current"
+            for pid, executable, config, nested in (
+                (101, "labwc", session, "0"),
+                (102, "riceplate-native", session, "0"),
+                (103, "labwc", "/run/user/1000/ricebowl-other", "0"),
+                (104, "waybar", session, "1"),
+                (105, "xfce4-panel", None, "0"),
+            ):
+                proc = root / str(pid)
+                proc.mkdir()
+                (proc / "cmdline").write_bytes(f"/usr/bin/{executable}\0".encode())
+                (proc / "status").write_text("Threads:\t2\n")
+                (proc / "smaps_rollup").write_text("Pss: 1000 kB\n")
+                markers = (["RICEBOWL_DE_SHELL_CHILD=1", f"RICEBOWL_DE_NESTED={nested}",
+                            f"RICEBOWL_DE_SESSION_CONFIG={config}"] if config else [])
+                (proc / "environ").write_bytes(("\0".join(markers) + "\0").encode())
+
+            unfiltered = measure_processes(proc_root=root, sample_ms=50, include_desktop=True)
+            scoped = measure_processes(proc_root=root, sample_ms=50,
+                                       include_desktop=True, session_config=session)
+        self.assertEqual(len(unfiltered), 5)
+        self.assertEqual({item["pid"] for item in scoped}, {101, 102})
+        report = desktop_session_report([scoped], session_config=session)
+        self.assertEqual(report["wayland_pss_kib"], 2000)
+        self.assertIsNone(report["xfce_pss_kib"])
+        self.assertEqual(report["scope"], "current-wayland-session")
+        self.assertIn("only recognized components", report["scope_note"])
+
+    def test_wayland_session_inventory_fails_closed_on_unreadable_environment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = Path(tmp) / "101"
+            proc.mkdir()
+            (proc / "cmdline").write_bytes(b"/usr/bin/labwc\0")
+            # No environ: never count this as the current session by inference.
+            self.assertEqual(measure_processes(proc_root=Path(tmp), sample_ms=50,
+                                               include_desktop=True,
+                                               session_config="/run/user/1000/current"), [])
+
+    def test_cli_wayland_session_mode_requires_full_marked_session(self):
+        env = {"RICEBOWL_DE_SHELL_CHILD": "1", "RICEBOWL_DE_NESTED": "0",
+               "XDG_SESSION_TYPE": "wayland",
+               "RICEBOWL_DE_SESSION_CONFIG": "/run/user/1000/ricebowl-current"}
+        with mock.patch.dict(os.environ, env):
+            with mock.patch("macrice.performance.measure_processes", return_value=[]) as measure:
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    self.assertEqual(main(["performance", "desktop", "--wayland-session",
+                                           "--samples", "2", "--json"]), 0)
+                report = json.loads(output.getvalue())
+                self.assertEqual(report["scope"], "current-wayland-session")
+                measure.assert_has_calls([mock.call(include_desktop=True,
+                                                    session_config=env["RICEBOWL_DE_SESSION_CONFIG"])] * 2)
+
+            with mock.patch.dict(os.environ, {"RICEBOWL_DE_NESTED": "1"}):
+                with mock.patch("macrice.performance.measure_processes") as measure:
+                    self.assertEqual(main(["performance", "desktop", "--wayland-session"]), 1)
+                    measure.assert_not_called()
+            self.assertEqual(main(["performance", "report", "--wayland-session"]), 1)
 
     def test_simultaneous_native_and_waybar_panels_are_only_warned_about(self):
         rows = [{"name": name, "pid": index, "role": "panel", "pss_kib": 100,

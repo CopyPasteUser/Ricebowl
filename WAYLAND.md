@@ -129,6 +129,12 @@ that it temporarily retains copied text.
 The remaining sign-off is primarily **on real hardware**: login/logout,
 suspend and resume, device/network/audio controls, GPU/display hotplug,
 mixed-DPI, input/focus, accessibility and measured idle resource use.
+From a full (non-nested) RiceBowl Wayland login, use
+`ricebowl performance desktop --wayland-session --samples 3 --json` for a
+read-only PSS/CPU snapshot of recognized processes in that login. The default
+`performance desktop` still counts all matching processes owned by your user.
+The scoped report excludes missing/unreadable process environments, so it is
+not a complete desktop-memory benchmark or hardware acceptance by itself.
 Inside the opt-in session, the read-only report
 `ricebowl de acceptance --json` (or
 `ricebowl-wayland-app de acceptance --json` with the standalone package)

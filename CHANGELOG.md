@@ -1,5 +1,18 @@
 # RiceBowl changelog
 
+## Unreleased — per-login Wayland resource attribution (11 November 2026)
+
+- Add `performance desktop --wayland-session [--json]` to sample only known
+  shell components with an exact initial Linux process-environment match for
+  the *current full* RiceBowl Wayland login. Other logins, nested previews and
+  XFCE processes no longer inflate that opt-in per-session report.
+- Require full Wayland markers, refuse the scoped option outside `desktop`
+  reports and exclude processes whose environment cannot be verified. Keep
+  the existing all-user-owned inventory unchanged and explicitly label both
+  scopes; no privileged reads, polling service or automatic profile changes.
+- This is a software measurement aid, not a complete process-tree census,
+  hardware PSS acceptance or evidence of a specific RAM improvement.
+
 ## Unreleased — serialized Wayland crash recovery across concurrent logins (11 November 2026)
 
 - Serialize dead-owner live-switch reconciliation with a persistent, owner-private
