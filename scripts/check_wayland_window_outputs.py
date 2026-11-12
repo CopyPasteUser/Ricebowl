@@ -12,6 +12,13 @@ from PIL import Image, ImageChops
 def changed_panel_pixels(before: Path, after: Path) -> int:
     """Count meaningful changes in the task-list area, excluding the clock/tray."""
     with Image.open(before) as initial, Image.open(after) as current:
+        # The taskbar is at the bottom of the framebuffer, but decoding only
+        # that crop does not prove the compositor supplied a complete image.
+        # Reject truncated PNGs rather than accepting partial visual evidence.
+        if initial.format != "PNG" or current.format != "PNG":
+            raise ValueError("Wayland taskbar captures must be PNG")
+        initial.load()
+        current.load()
         if initial.size != current.size:
             raise ValueError("Wayland framebuffer sizes changed during the window test")
         width, height = initial.size
