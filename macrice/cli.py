@@ -138,7 +138,7 @@ def parser() -> argparse.ArgumentParser:
     de.add_argument("--clipboard", action="store_true",
                     help="RiceShot: copy the PNG selection to Wayland clipboard instead of saving")
     de.add_argument("--clip-op", choices=("watch", "status", "list", "copy", "clear",
-                                           "pause", "resume", "ingest"),
+                                           "pause", "resume", "ingest", "gui"),
                     help="RiceClip: explicitly watch or manage session-only clipboard history")
     de.add_argument("--clip-index", type=int,
                     help="RiceClip: history index to restore with --clip-op copy")
@@ -843,6 +843,12 @@ def main(argv: list[str] | None = None) -> int:
                     raise ValueError("de clip --clip-op copy requires --clip-index")
                 from .de import clip
                 try:
+                    if args.clip_op == "gui":
+                        if args.json:
+                            raise ValueError("de clip --clip-op gui does not support --json")
+                        from .de.clip_ui import launch
+                        launch()
+                        return 0
                     if args.clip_op == "watch":
                         def ready():
                             if args.json:
