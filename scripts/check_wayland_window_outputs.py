@@ -9,10 +9,9 @@ from pathlib import Path
 from PIL import Image, ImageChops
 
 
-
 # PNG requires a terminal IEND chunk. Pillow load()/verify() alone can accept
 # files with a corrupted IEND CRC or trailing bytes after the last chunk.
-_PNG_IEND = b"\\x00\\x00\\x00\\x00IEND\\xaeB`\\x82"
+_PNG_IEND = b"\x00\x00\x00\x00IEND\xaeB`\x82"
 
 
 def _require_complete_png(path: Path) -> None:
@@ -25,7 +24,6 @@ def _require_complete_png(path: Path) -> None:
         source.seek(-len(_PNG_IEND), 2)
         if source.read() != _PNG_IEND:
             raise ValueError("Wayland taskbar capture has no valid terminal IEND")
-
 
 
 def changed_panel_pixels(before: Path, after: Path) -> int:
