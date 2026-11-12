@@ -66,6 +66,18 @@ def visible_rows(snapshot: ClipSnapshot, query: str) -> tuple[ClipRow, ...]:
     return tuple(row for row in snapshot.rows if needle in row.preview.casefold())
 
 
+def snapshot_message(snapshot: ClipSnapshot, query: str) -> str:
+    """Truthful empty/search state without leaking unseen clipboard contents."""
+    state = "Paused" if snapshot.paused else "Recording"
+    count = len(snapshot.rows)
+    if count == 0:
+        return f"{state} · No clipboard text saved in this session"
+    if query.strip() and not visible_rows(snapshot, query):
+        return f"No previews match your search · {count} stored in session memory"
+    noun = "item" if count == 1 else "items"
+    return f"{state} · {count} {noun} in volatile session memory"
+
+
 def restore_row(row: ClipRow, snapshot: ClipSnapshot) -> None:
     """Fail closed when a new clipboard event has changed the selected index."""
     clip.request("copy", index=row.index, revision=snapshot.revision,
@@ -199,10 +211,6 @@ class RiceClipWindow:
             self.snapshot = snapshot
             self.pause_button.set_label("Resume recording" if snapshot.paused else "Pause recording")
             self._render_rows()
-            state = "Paused" if snapshot.paused else "Recording"
-            count = len(snapshot.rows)
-            noun = "item" if count == 1 else "items"
-            self.status.set_text(f"{state} · {count} {noun} in volatile session memory")
         self._work(read_snapshot, show)
 
     def _render_rows(self):
@@ -215,6 +223,7 @@ class RiceClipWindow:
             self.store.append((row.index, preview, str(row.characters)))
         if len(self.store):
             self.list.get_selection().select_path(0)
+        self.status.set_text(snapshot_message(self.snapshot, self.search.get_text()))
         self._buttons()
 
     def _copy(self):
