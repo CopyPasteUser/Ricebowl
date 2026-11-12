@@ -13,6 +13,7 @@ use accesskit::{
 };
 use accesskit_unix::Adapter;
 use chrono::NaiveDate;
+use crate::desktop_context::Action as ShortcutAction;
 
 pub const ROOT: u64 = 1;
 
@@ -24,6 +25,8 @@ pub enum Target {
     Clock,
     Tray(usize),
     DesktopIcon(usize),
+    DesktopContextAction { icon: usize, generation: u64, action: ShortcutAction },
+    DesktopContextBack { icon: usize, generation: u64 },
     DesktopWidget(usize),
     MenuGroup(usize),
     MenuAction(String),
@@ -237,6 +240,32 @@ impl Bridge {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn context_actions_include_a_revision_to_reject_stale_popup_reuse() {
+        let mut before = Model::new();
+        before.add(32_000, ROOT, Role::Menu, "Shortcut", None);
+        before.add(32_100, 32_000, Role::MenuItem, "Open",
+                   Some(Target::DesktopContextAction {
+                       icon: 0, generation: 4, action: ShortcutAction::Open,
+                   }));
+        let request = ActionRequest {
+            action: Action::Click, target_tree: TreeId::ROOT,
+            target_node: NodeId(32_100), data: None,
+        };
+        let old = before.action_for(&request);
+        assert!(old.is_some());
+        let mut next = before.clone();
+        next.elements[1].action = Some(Target::DesktopContextAction {
+            icon: 0, generation: 5, action: ShortcutAction::Open,
+        });
+        assert_ne!(old, next.action_for(&request));
+        let mut properties = Model::new();
+        properties.add(32_000, ROOT, Role::Dialog, "Properties", None);
+        properties.add(32_900, 32_000, Role::Button, "Back",
+                       Some(Target::DesktopContextBack { icon: 0, generation: 6 }));
+        assert_eq!(properties.action_for(&request), None);
+    }
 
     #[test]
     fn panel_button_is_named_clickable_and_focus_is_real() {
