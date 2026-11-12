@@ -71,13 +71,24 @@ fn check_parents(location: &Path) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+// Missing history is acceptable; metadata failures other than ENOENT are not.
+// Inspect the directory entry itself so dangling symlinks cannot bypass checks.
+fn check_existing_parent(location: &Path) -> Result<(), Box<dyn Error>> {
+    let directory = location.parent().ok_or("Missing recent applications directory")?;
+    match fs::symlink_metadata(directory) {
+        Ok(_) => check_parents(location),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
 pub fn restore(id: &str) -> Result<Vec<String>, Box<dyn Error>> {
     let Some(location) = path(id) else { return Ok(Vec::new()); };
     restore_at(&location, id)
 }
 
 fn restore_at(location: &Path, id: &str) -> Result<Vec<String>, Box<dyn Error>> {
-    if location.parent().is_some_and(|parent| fs::symlink_metadata(parent).is_ok()) { check_parents(location)?; }
+    check_existing_parent(location)?;
     let file = match OpenOptions::new().read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC).open(location) {
             Ok(file) => file,
@@ -149,7 +160,7 @@ pub fn clear() -> Result<(), Box<dyn Error>> {
     let Some(location) = path(RICE_ID) else {
         return Err("History clearing is disabled in nested preview mode".into());
     };
-    if location.parent().is_some_and(|parent| fs::symlink_metadata(parent).is_ok()) { check_parents(&location)?; }
+    check_existing_parent(&location)?;
     match fs::symlink_metadata(&location) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error.into()),
