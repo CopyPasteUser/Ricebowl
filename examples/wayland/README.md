@@ -374,3 +374,24 @@ virtual pointer motion **without a click**.
 
 This is a fidelity step, not yet native high-resolution menu typography,
 complete XP Explorer behavior or a physical-device acceptance.
+
+### XP Luna Recycle Bin desktop shortcut
+
+The opt-in `xp-luna-columns` native desktop now includes a fourth icon,
+**Recycle Bin**, with original in-engine silver/azure bin art. This adds one
+bounded `trash` desktop action to the shared validated schema and Creator
+action vocabulary. Pointer and keyboard focus use the existing Wayland desktop
+shortcut mechanism; moving between outputs and restoring icon positions still
+use the existing owner-private layout.
+
+Clicking the icon invokes only `gio open trash:///`: this requests the
+installed file manager's virtual trash view when its GIO/GVfs backend supports
+it. There is **no trashing, emptying or deleting of files** from RicePlate.
+Unsupported desktop file managers may report a handler error; this is not a
+promise of a Windows Explorer-equivalent recycle bin. Existing artwork import
+slots remain limited to Programs, Terminal and Lock; the trash pictogram is
+generated natively and requires no font or icon package. The original
+`xp-luna` and other rices retain their existing shortcut set.
+
+Python/Rust schema tests, fixed-command tests, native raster-pixel checks
+and actual headless Wayland screenshots are part of the acceptance gate.

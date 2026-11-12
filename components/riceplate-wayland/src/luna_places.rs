@@ -22,6 +22,14 @@ fn choose_documents(home: &Path, preferred: Option<PathBuf>) -> PathBuf {
 }
 
 fn location_command(action: &str) -> Option<Command> {
+    if action == "trash" {
+        // GIO understands trash:/// as a virtual location when the user's
+        // file-manager/GVfs backend supports it. Never manipulate files or
+        // call gio trash here: this action only opens the view.
+        let mut command = Command::new("gio");
+        command.arg("open").arg("trash:///");
+        return Some(command);
+    }
     let directory = match action {
         // Root is always browsable even when a GVfs 'computer:///' backend is
         // absent. This intentionally does not pretend to provide an XP drive UI.
@@ -38,7 +46,7 @@ fn location_command(action: &str) -> Option<Command> {
     Some(command)
 }
 
-/// Only two validated, fixed location IDs reach Gio. Never pass an Exec field
+/// Only validated, fixed location IDs reach Gio. Never pass an Exec field
 /// or recipe-supplied path to a shell, and never claim a launch succeeded on
 /// spawn failure.
 pub fn launch(action: &str) -> bool {
@@ -67,6 +75,16 @@ mod tests {
             .collect::<Vec<_>>(), vec!["open".to_owned(), "/".to_owned()]);
         assert!(location_command("logout").is_none());
         assert!(location_command("desktop:untrusted.desktop").is_none());
+    }
+
+    #[test]
+    fn recycle_bin_is_a_fixed_read_only_navigation_request() {
+        let command = location_command("trash").expect("fixed desktop location");
+        assert_eq!(command.get_program(), "gio");
+        assert_eq!(command.get_args().map(|value|
+            value.to_string_lossy().into_owned()).collect::<Vec<_>>(),
+            vec!["open".to_owned(), "trash:///".to_owned()]);
+        assert!(location_command("trash;rm -rf").is_none());
     }
 
     #[test]

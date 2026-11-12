@@ -192,8 +192,12 @@ def _properties(schema_version: int) -> dict[str, dict[str, Any]]:
         font = _content_addressed("font", luna_font=schema_version >= 12)
         icon = _content_addressed("icon", luna=schema_version >= 12)
         properties["/artwork/font"] = font
-        properties["/artwork/icons"] = _object({key: icon for key in recipes.ICON_ACTIONS})
-        for key in recipes.ICON_ACTIONS:
+        # Desktop action IDs and importable artwork slots are separate:
+        # trash uses original in-engine art, while the three existing icon
+        # imports keep their fixed-size/native Rust loading contract.
+        from .style_assets import ICON_ACTIONS as ARTWORK_ICON_ACTIONS
+        properties["/artwork/icons"] = _object({key: icon for key in ARTWORK_ICON_ACTIONS})
+        for key in ARTWORK_ICON_ACTIONS:
             properties[f"/artwork/icons/{key}"] = icon
     if schema_version >= 12:
         launcher = {"label": _label(16), "background": _color(),

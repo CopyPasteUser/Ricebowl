@@ -103,8 +103,9 @@ class CreatorPropertySchemaTests(unittest.TestCase):
         heritage = json.loads((root / "examples/wayland/heritage-modern-v10.json").read_text())
         latest = json.loads(json.dumps(heritage))
         latest["schema_version"] = 11
+        from macrice.de.style_assets import ICON_ACTIONS as ARTWORK_ICON_ACTIONS
         latest["artwork"] = {"font": "builtin", "icons": {
-            action: "builtin" for action in recipes.ICON_ACTIONS}}
+            action: "builtin" for action in ARTWORK_ICON_ACTIONS}}
         luna = recipes.parse((root / "examples/wayland/xp-luna-columns.json").read_bytes())
         samples = (recipes.load("classic"),
                    recipes.parse(json.dumps(heritage).encode()),

@@ -1995,7 +1995,7 @@ impl RicePlate {
             eprintln!("RicePlate: log out unavailable outside a labwc-managed session");
             return;
         }
-        if matches!(action, "documents" | "computer") {
+        if matches!(action, "documents" | "computer" | "trash") {
             luna_places::launch(action);
             return;
         }
@@ -4231,18 +4231,35 @@ fn paint_icon(canvas: &mut [u8], icon: &recipe::DesktopIcon, style: &PanelStyle,
         "applications" => "Apps",
         "terminal" => ">_",
         "lock" => "Lock",
+        "trash" => "Bin",
         _ => return,
     };
+    // The generic default is an original, fully vector-rasterized bin.
+    // This still works without host icon themes or proprietary XP artwork.
+    let native_bin = icon.action == "trash" && custom.is_none();
     if custom.is_some() {
         // Transparent 48px artwork sits in the existing, keyboard-reachable
         // 104x88 desktop icon surface. Wayland focus/label stay unchanged.
         style_art::paint_icon(canvas, width, custom.unwrap(), 28, 4);
+    } else if native_bin {
+        // Original compact trash-can drawing, not a copied XP logo or asset.
+        fill_rounded_rect(canvas, width, height, 35, 12, 34, 39, 5, 0xff48_719d);
+        fill_rounded_rect(canvas, width, height, 37, 15, 30, 33, 4, 0xffd0_eaf8);
+        fill_rect(canvas, width, height, 39, 18, 26, 28, 0xffac_d3e7);
+        fill_rect(canvas, width, height, 40, 20, 4, 23, 0xffe6_f5ff);
+        fill_rect(canvas, width, height, 48, 20, 3, 23, 0xff79_accf);
+        fill_rect(canvas, width, height, 55, 20, 3, 23, 0xffe6_f5ff);
+        fill_rect(canvas, width, height, 62, 20, 2, 23, 0xff79_accf);
+        fill_rounded_rect(canvas, width, height, 32, 9, 40, 9, 4, 0xff41_6992);
+        fill_rect(canvas, width, height, 35, 11, 34, 3, 0xffe7_f9ff);
+        fill_rect(canvas, width, height, 47, 6, 11, 4, 0xff90_bdd8);
+        fill_rect(canvas, width, height, 43, 46, 18, 2, 0xff76_a5c5);
     } else {
         fill_rounded_rect(canvas, width, height, 24, 4, 56, 48, 10, active);
     }
     // Contrast backplate prevents white labels from vanishing on bright rices.
     fill_rounded_rect(canvas, width, height, 2, 58, 100, 26, 6, 0xb020_2c36);
-    if custom.is_none() {
+    if custom.is_none() && !native_bin {
         draw_rice_text(canvas, width, height,
                        52_u32.saturating_sub(text_pixel_width(glyph, style.font_scale) / 2),
                        24, glyph, foreground, style);
@@ -6708,6 +6725,30 @@ mod tests {
         draw_notification_text(&mut notification, 320, 20, 14, 3,
                                "Alerts & status", style.foreground, &style);
         assert_eq!(bitmap, notification);
+    }
+
+    #[test]
+    fn recycle_bin_uses_real_validated_desktop_icon_and_original_raster() {
+        let style = recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let icon = style.desktop_icons.iter()
+            .find(|icon| icon.action == "trash").unwrap();
+        assert_eq!(icon.label, "Recycle Bin");
+        let mut pixels = vec![0; (recipe::ICON_WIDTH * recipe::ICON_HEIGHT * 4) as usize];
+        paint_icon(&mut pixels, icon, &style, false, None);
+        assert_eq!(&pixels[..4], &[0, 0, 0, 0]);
+        let pixel = |x: u32, y: u32| -> u32 {
+            let index = ((y * recipe::ICON_WIDTH + x) * 4) as usize;
+            u32::from_le_bytes(pixels[index..index+4].try_into().unwrap())
+        };
+        assert_eq!(pixel(45, 35), 0xffac_d3e7);
+        assert_ne!(pixel(45, 35), style.active);
+        assert_ne!(pixel(40, 28), pixel(50, 28)); // Original bin vertical ribs
+        assert_ne!(pixel(50, 65), 0); // Accessible shortcut label remains present
+        let mut focused = vec![0; pixels.len()];
+        paint_icon(&mut focused, icon, &style, true, None);
+        assert_eq!(&focused[..4], &style.foreground.to_le_bytes());
     }
 
     #[test]

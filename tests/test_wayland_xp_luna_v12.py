@@ -44,6 +44,23 @@ class WaylandLunaTests(unittest.TestCase):
                          ["Programs", "Places", "Session"])
         self.assertEqual(parsed.menu[1][1].actions,
                          ("documents", "computer", "settings", "notifications"))
+        self.assertEqual(parsed.desktop_icons[-1].label, "Recycle Bin")
+        self.assertEqual(parsed.desktop_icons[-1].action, "trash")
+        schema = creator_schema.describe(12)
+        properties = schema["properties"]["operations"]["items"]["oneOf"]
+        edit = {operation["properties"]["path"]["const"]: operation
+                for operation in properties if "const" in operation["properties"]["path"]}
+        self.assertIn("trash", edit["/desktop/icons"]["properties"]["value"]["items"]
+                      ["properties"]["action"]["enum"])
+        # The native trash art is drawn in-engine, not an arbitrary fourth
+        # imported image that the three-slot Rust artwork loader cannot read.
+        artwork_keys = set(edit["/artwork/icons"]["properties"]["value"]["properties"])
+        self.assertEqual(artwork_keys, {"applications", "terminal", "lock"})
+        self.assertNotIn("/artwork/icons/trash", edit)
+        invalid_icon = json.loads(path.read_text(encoding="utf-8"))
+        invalid_icon["desktop"]["icons"][-1]["action"] = "trash; rm -rf"
+        with self.assertRaises(recipes.RecipeError):
+            recipes.parse(json.dumps(invalid_icon).encode("utf-8"))
         # Six right-side hits fit; eight must fail rather than paint into footer.
         overflowing = json.loads(path.read_text(encoding="utf-8"))
         overflowing["menu"]["groups"][2]["actions"] = [
