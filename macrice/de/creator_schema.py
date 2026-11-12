@@ -122,9 +122,9 @@ def _properties(schema_version: int) -> dict[str, dict[str, Any]]:
                             "title": _label(24), "limit": _integer(1, 4)})
     menu_fields: dict[str, Any] = {
         "title": _label(24),
-        # The full parser restricts six actions to the themed Luna Places group.
+        # The full parser restricts eight actions to the themed Luna Places group.
         "actions": _array({"enum": sorted(recipes.MENU_ACTIONS)}, 1,
-                          6 if schema_version >= 12 else 4, unique=True),
+                          8 if schema_version >= 12 else 4, unique=True),
     }
     if schema_version >= 6:
         menu_fields["content"] = _array(menu_content, 1, 2)

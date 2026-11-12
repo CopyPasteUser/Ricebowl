@@ -109,7 +109,9 @@
           "pictures",
           "music",
           "settings",
-          "notifications"
+          "notifications",
+          "help",
+          "run"
         ]
       },
       {

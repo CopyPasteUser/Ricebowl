@@ -48,7 +48,7 @@ ICON_ACTIONS = frozenset(("applications", "terminal", "lock", "trash",
 MENU_ACTIONS = frozenset(("applications", "terminal", "lock", "logout",
                           "documents", "computer", "pictures", "music",
                           "wifi-toggle", "audio-mute", "audio-up", "audio-down",
-                          "notifications", "settings", "clip-history"))
+                          "notifications", "settings", "clip-history", "help", "run"))
 # A deliberately smaller set than menu quick controls: all four work from a
 # panel without requiring a menu feedback surface or a custom command parser.
 PANEL_ACTIONS = frozenset(("applications", "terminal", "settings", "lock",
@@ -352,10 +352,10 @@ def _parse_menu(value: Any, *, schema_version: int = 4) -> tuple[str, tuple[Menu
                          or "content" not in value["groups"][0]
                          or any(not isinstance(group, dict) or "content" in group
                                 or not isinstance(group.get("actions"), list)
-                                or len(group["actions"]) > (6 if "colors" in value else 2)
+                                or len(group["actions"]) > (8 if "colors" in value else 2)
                                 for group in value["groups"][1:])
                          or sum(len(group["actions"])
-                                for group in value["groups"][1:]) > (8 if "colors" in value else 4))):
+                                for group in value["groups"][1:]) > (10 if "colors" in value else 4))):
                 raise RecipeError("Menu presentation requires a compatible bounded layout")
             allowed.add("presentation")
         if "colors" in value and schema_version >= 12:
@@ -381,12 +381,14 @@ def _parse_menu(value: Any, *, schema_version: int = 4) -> tuple[str, tuple[Menu
         luna_columns = (schema_version >= 12 and
                         data.get("presentation") == "columns" and
                         "colors" in data)
-        group_limit = (6 if luna_columns and group_index == 1
+        group_limit = (8 if luna_columns and group_index == 1
                        else 2 if luna_columns and group_index == 2
                        else 4)
         if (not _safe_label(group["title"]) or not isinstance(actions, list)
                 or not 1 <= len(actions) <= group_limit or any(type(action) is not str
-                or action not in MENU_ACTIONS or action in seen for action in actions)
+                or action not in MENU_ACTIONS or action in seen
+                or (action in ("run", "help") and not luna_columns)
+                for action in actions)
                 or len(actions) != len(set(actions))):
             raise RecipeError("Menu group uses unsupported or duplicate actions")
         seen.update(actions)
