@@ -55,6 +55,20 @@ class ClipRevisionTests(unittest.TestCase):
         history.handle({"op": "clear"})
         self.assertEqual(history.revision, 2)
 
+    def test_copy_rejects_restarted_watcher_with_same_revision(self):
+        old = clip.History()
+        new = clip.History()
+        old.handle({"op": "ingest", "state": "data", "text": "old secret"})
+        new.handle({"op": "ingest", "state": "data", "text": "new secret"})
+        self.assertEqual(old.revision, new.revision)
+        self.assertNotEqual(old.session_id, new.session_id)
+        with mock.patch.object(clip.shutil, "which") as which:
+            with self.assertRaises(clip.ClipError) as raised:
+                new.handle({"op": "copy", "index": 0, "revision": old.revision,
+                            "session_id": old.session_id})
+            self.assertEqual(raised.exception.code, "stale_history")
+            which.assert_not_called()
+
     def test_bogus_revision_never_runs_clipboard_process(self):
         history = clip.History()
         history.handle({"op": "ingest", "state": "data", "text": "private"})
@@ -85,12 +99,14 @@ class ClipRevisionTests(unittest.TestCase):
 class ClipBrowserModelTests(unittest.TestCase):
     @staticmethod
     def _status(revision=5, count=2):
-        return {"ok": True, "revision": revision, "paused": False,
+        return {"ok": True, "revision": revision, "session_id": "a" * 32,
+                "paused": False,
                 "count": count, "persistent": False}
 
     @staticmethod
     def _listing(revision=5):
-        return {"ok": True, "revision": revision, "items": [
+        return {"ok": True, "revision": revision, "session_id": "a" * 32,
+                "items": [
             {"index": 0, "preview": "Hello world", "characters": 11},
             {"index": 1, "preview": "Grüße ☀", "characters": 7},
         ]}
@@ -118,6 +134,16 @@ class ClipBrowserModelTests(unittest.TestCase):
                 clip_ui.read_snapshot()
         self.assertEqual(raised.exception.code, "stale_history")
 
+    def test_watcher_identity_change_during_snapshot_fails_closed(self):
+        old = self._status()
+        changed = self._listing()
+        changed["session_id"] = "b" * 32
+        with mock.patch.object(clip_ui.clip, "request",
+                               side_effect=[old, changed, old, changed]):
+            with self.assertRaises(clip.ClipError) as raised:
+                clip_ui.read_snapshot()
+        self.assertEqual(raised.exception.code, "stale_history")
+
     def test_snapshot_rejects_malformed_or_oversized_untrusted_results(self):
         invalid = [
             {"ok": True, "revision": 5, "items": [
@@ -136,11 +162,12 @@ class ClipBrowserModelTests(unittest.TestCase):
                         clip_ui.read_snapshot()
 
     def test_restore_always_supplies_snapshot_revision(self):
-        snapshot = clip_ui.ClipSnapshot(27, False,
+        snapshot = clip_ui.ClipSnapshot(27, "a" * 32, False,
                                        (clip_ui.ClipRow(3, "sample", 6),))
         with mock.patch.object(clip_ui.clip, "request") as request:
             clip_ui.restore_row(snapshot.rows[0], snapshot)
-        request.assert_called_once_with("copy", index=3, revision=27)
+        request.assert_called_once_with("copy", index=3, revision=27,
+                                        session_id="a" * 32)
 
     def test_gui_cli_is_explicit_and_never_starts_watcher(self):
         with mock.patch.object(clip_ui, "launch") as launch, \
