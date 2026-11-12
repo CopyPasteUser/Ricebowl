@@ -592,10 +592,10 @@ fn validate_menu(menu: &Menu, version: u32) -> Result<(), Box<dyn Error>> {
         return Err("Invalid bounded menu title/groups".into());
     }
     // Palette-free columns retain the historical two-row-per-group contract.
-    // Only opt-in, themed schema-v12 columns may use an eight-row shelf.
+    // Only opt-in, themed schema-v12 columns may use a ten-row shelf.
     // The second right-side group remains capped at two session actions.
-    let right_group_limit = if menu.colors.is_some() { 6 } else { 2 };
-    let right_total_limit = if menu.colors.is_some() { 8 } else { 4 };
+    let right_group_limit = if menu.colors.is_some() { 8 } else { 2 };
+    let right_total_limit = if menu.colors.is_some() { 10 } else { 4 };
     if let Some(presentation) = menu.presentation.as_deref() {
         if version < 6 || !matches!(presentation, "tabs" | "sidebar" | "columns")
             || (presentation == "columns" && (version < 12
@@ -613,7 +613,7 @@ fn validate_menu(menu: &Menu, version: u32) -> Result<(), Box<dyn Error>> {
     for (index, group) in menu.groups.iter().enumerate() {
         let max_actions = if menu.presentation.as_deref() == Some("columns")
             && menu.colors.is_some() {
-            match index { 1 => 6, 2 => 2, _ => 4 }
+            match index { 1 => 8, 2 => 2, _ => 4 }
         } else { 4 };
         if !safe_label(&group.title, 24) || !(1..=max_actions).contains(&group.actions.len()) {
             return Err("Invalid menu group".into());
@@ -636,9 +636,12 @@ fn validate_menu(menu: &Menu, version: u32) -> Result<(), Box<dyn Error>> {
             }
         }
         for action in &group.actions {
-            if !["applications", "terminal", "lock", "logout",
+            if (matches!(action.as_str(), "run" | "help")
+                && (version < 12 || menu.presentation.as_deref() != Some("columns")
+                    || menu.colors.is_none()))
+                || !["applications", "terminal", "lock", "logout",
                  "documents", "computer", "pictures", "music", "wifi-toggle", "audio-mute", "audio-up", "audio-down",
-                 "notifications", "settings", "clip-history"]
+                 "notifications", "settings", "clip-history", "help", "run"]
                 .contains(&action.as_str())
                 || !seen.insert(action.as_str())
             {

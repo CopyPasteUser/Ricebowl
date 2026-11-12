@@ -191,6 +191,21 @@ pub fn action_icon(canvas: &mut [u8], x: u32, y: u32, action: &str, selected: bo
             fill_rect(canvas, w, h, x, y + 6, 13, 7, 0xffe9_b447);
             fill_rect(canvas, w, h, x + 6, y + 8, 2, 3, ink);
         }
+        "help" => {
+            // Original blue assistance tile with a bright question-mark stem.
+            fill_rounded_rect(canvas, w, h, x, y, 13, 13, 2, 0xff33_79cf);
+            fill_rect(canvas, w, h, x + 4, y + 3, 5, 2, 0xffff_ffdc);
+            fill_rect(canvas, w, h, x + 8, y + 5, 2, 3, 0xffff_ffdc);
+            fill_rect(canvas, w, h, x + 5, y + 8, 3, 2, 0xffff_ffdc);
+            fill_rect(canvas, w, h, x + 5, y + 11, 3, 2, 0xffff_ffdc);
+        }
+        "run" => {
+            // Original terminal-window glyph. No shell command is inferred.
+            fill_rounded_rect(canvas, w, h, x, y, 13, 12, 2, ink);
+            fill_rect(canvas, w, h, x + 1, y + 2, 11, 9, 0xffd3_edf8);
+            fill_rect(canvas, w, h, x + 3, y + 5, 3, 1, 0xff25_64ac);
+            fill_rect(canvas, w, h, x + 6, y + 6, 2, 1, 0xff25_64ac);
+        }
         "notifications" => {
             fill_rounded_rect(canvas, w, h, x + 2, y + 1, 9, 10, 4, 0xffff_c45b);
             fill_rect(canvas, w, h, x, y + 9, 13, 2, ink);
