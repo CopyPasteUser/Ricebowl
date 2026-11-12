@@ -66,6 +66,7 @@ const COLUMNS_TOP: u32 = 92;
 const COLUMNS_RIGHT_TOP: u32 = 54;
 const COLUMNS_RIGHT_ROW_HEIGHT: u32 = 28;
 pub const COLUMNS_RIGHT_DENSE_ROW_HEIGHT: u32 = 22;
+pub const COLUMNS_RIGHT_XP_PARITY_ROW_HEIGHT: u32 = 18;
 pub const SIDEBAR_ROW_HEIGHT: u32 = 44;
 pub const ACTION_TOP: u32 = 108;
 pub const ACTION_HEIGHT: u32 = 42;
@@ -123,6 +124,8 @@ pub fn action_label(action: &str) -> &'static str {
         "applications" => "Applications",
         "terminal" => "Terminal",
         "settings" => "RiceSpice settings",
+        "help" => "Help and Support",
+        "run" => "Run...",
         "clip-history" => "RiceClip history",
         "documents" => "My Documents",
         "computer" => "My Computer",
@@ -260,6 +263,7 @@ impl MenuState {
         if menu.presentation == MenuPresentation::Columns {
             match action {
                 "applications" if menu.palette.is_some() => return "All Programs",
+                "settings" if menu.palette.is_some() => return "Control Panel",
                 "settings" => return "Settings",
                 "logout" if !logout_enabled => return "Log out (N/A)",
                 "logout" => return "Log out",
@@ -484,7 +488,9 @@ impl MenuState {
 
         let right_count = menu.groups.iter().skip(1)
             .map(|group| group.actions.len()).sum::<usize>();
-        let right_row_height = if menu.palette.is_some() && right_count > 6 {
+        let right_row_height = if menu.palette.is_some() && right_count > 8 {
+            COLUMNS_RIGHT_XP_PARITY_ROW_HEIGHT
+        } else if menu.palette.is_some() && right_count > 6 {
             COLUMNS_RIGHT_DENSE_ROW_HEIGHT
         } else if menu.palette.is_some() {
             COLUMNS_RIGHT_ROW_HEIGHT

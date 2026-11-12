@@ -3871,7 +3871,7 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
             if luna_columns && columns && section.x >= native_menu::COLUMNS_SPLIT {
                 if right_group_seen {
                     let dense = section.items.first()
-                        .is_some_and(|tile| tile.height == native_menu::COLUMNS_RIGHT_DENSE_ROW_HEIGHT);
+                        .is_some_and(|tile| tile.height <= native_menu::COLUMNS_RIGHT_DENSE_ROW_HEIGHT);
                     menu_chrome::system_group_rule(canvas,
                         section.top.saturating_sub(if dense { 0 } else { 4 }));
                 }
@@ -3901,7 +3901,9 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                 let label = state.visible_label(menu, tile.action, logout_available());
                 let pinned = state.pins.iter().any(|pin| pin.as_str() == tile.action);
                 if luna_columns && columns && !tile.grid {
-                    let icon_y = if tile.height == native_menu::COLUMNS_RIGHT_DENSE_ROW_HEIGHT {
+                    let icon_y = if tile.height == native_menu::COLUMNS_RIGHT_XP_PARITY_ROW_HEIGHT {
+                        tile.y + 2
+                    } else if tile.height == native_menu::COLUMNS_RIGHT_DENSE_ROW_HEIGHT {
                         tile.y + 4
                     } else { tile.y + 9 };
                     menu_chrome::action_icon(canvas, tile.x + 6, icon_y,
@@ -3930,6 +3932,9 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                     let short: String = label.chars()
                         .take(cap.saturating_sub(prefix.len())).collect();
                     let text_y = if luna_columns && columns
+                        && tile.height == native_menu::COLUMNS_RIGHT_XP_PARITY_ROW_HEIGHT {
+                        tile.y + (18_u32.saturating_sub(8 * style.font_scale)) / 2
+                    } else if luna_columns && columns
                         && tile.height == native_menu::COLUMNS_RIGHT_DENSE_ROW_HEIGHT {
                         tile.y + 8
                     } else { tile.y + 12 };
