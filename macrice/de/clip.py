@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import secrets
 import shutil
 import signal
 import socket
@@ -62,6 +63,7 @@ class History:
         # A per-watcher monotonic generation protects GUI list selections
         # against asynchronous clipboard ingestion/reordering.
         self.revision = 0
+        self.session_id = secrets.token_hex(16)
 
     def handle(self, request: dict[str, object]) -> dict[str, object]:
         op = request.get("op")
@@ -82,11 +84,12 @@ class History:
             return {"ok": True, "recorded": True}
         if op == "status":
             return {"ok": True, "paused": self.paused, "count": len(self.items),
-                    "revision": self.revision,
+                    "revision": self.revision, "session_id": self.session_id,
                     "max_items": MAX_ITEMS, "max_text_bytes": MAX_TEXT_BYTES,
                     "persistent": False}
         if op == "list":
-            return {"ok": True, "revision": self.revision, "items": [
+            return {"ok": True, "revision": self.revision,
+                    "session_id": self.session_id, "items": [
                 {"index": index, "preview": item[:80], "characters": len(item)}
                 for index, item in enumerate(self.items)]}
         if op == "clear":
@@ -98,6 +101,14 @@ class History:
             self.paused = op == "pause"
             return {"ok": True, "paused": self.paused}
         if op == "copy":
+            # A restart resets numeric revisions; its random watcher ID must
+            # also match, or a once-valid index could refer to different text.
+            if "session_id" in request:
+                identity = request["session_id"]
+                if type(identity) is not str:
+                    raise ClipError("invalid_request")
+                if identity != self.session_id:
+                    raise ClipError("stale_history")
             # Old CLI index-only copy remains supported. GUI clients send the
             # revision of their visible snapshot, failing closed if an ingest
             # has moved a row since it was shown.
@@ -146,7 +157,8 @@ def _transact(connection: socket.socket, history: History) -> None:
 
 
 def request(op: str, *, index: int | None = None, text: str | None = None,
-            state: str | None = None, revision: int | None = None) -> dict[str, object]:
+            state: str | None = None, revision: int | None = None,
+            session_id: str | None = None) -> dict[str, object]:
     path = socket_path()
     try:
         with socket.socket(socket.AF_UNIX) as connection:
@@ -159,6 +171,8 @@ def request(op: str, *, index: int | None = None, text: str | None = None,
                 payload["index"] = index
             if revision is not None:
                 payload["revision"] = revision
+            if session_id is not None:
+                payload["session_id"] = session_id
             if text is not None:
                 payload.update(text=text, state=state)
             connection.sendall(json.dumps(payload, ensure_ascii=False).encode("utf-8") + b"\n")
