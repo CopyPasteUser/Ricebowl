@@ -146,13 +146,13 @@ class ClipBrowserModelTests(unittest.TestCase):
 
     def test_snapshot_rejects_malformed_or_oversized_untrusted_results(self):
         invalid = [
-            {"ok": True, "revision": 5, "items": [
+            {"ok": True, "revision": 5, "session_id": "a" * 32, "items": [
                 {"index": True, "preview": "abc", "characters": 3}]},
-            {"ok": True, "revision": 5, "items": [
+            {"ok": True, "revision": 5, "session_id": "a" * 32, "items": [
                 {"index": 0, "preview": "x" * 81, "characters": 81}]},
-            {"ok": True, "revision": 5, "items": [
+            {"ok": True, "revision": 5, "session_id": "a" * 32, "items": [
                 {"index": 0, "preview": "abc", "characters": -1}]},
-            {"ok": True, "revision": 5, "items": []},
+            {"ok": True, "revision": 5, "session_id": "a" * 32, "items": []},
         ]
         for listing in invalid:
             with self.subTest(listing=listing):
