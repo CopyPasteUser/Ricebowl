@@ -386,7 +386,9 @@ def _parse_menu(value: Any, *, schema_version: int = 4) -> tuple[str, tuple[Menu
                        else 4)
         if (not _safe_label(group["title"]) or not isinstance(actions, list)
                 or not 1 <= len(actions) <= group_limit or any(type(action) is not str
-                or action not in MENU_ACTIONS or action in seen for action in actions)
+                or action not in MENU_ACTIONS or action in seen
+                or (action in ("run", "help") and not luna_columns)
+                for action in actions)
                 or len(actions) != len(set(actions))):
             raise RecipeError("Menu group uses unsupported or duplicate actions")
         seen.update(actions)

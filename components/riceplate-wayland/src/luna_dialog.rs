@@ -60,6 +60,9 @@ pub fn hit(x: f64, y: f64, kind: Kind) -> Option<Hit> {
         || !(0.0..f64::from(HEIGHT)).contains(&y) {
         return None;
     }
+    if (414.0..438.0).contains(&x) && (9.0..32.0).contains(&y) {
+        return Some(Hit::Cancel);
+    }
     if kind == Kind::Run && (118.0..424.0).contains(&x) &&
         (111.0..143.0).contains(&y) { return Some(Hit::Input); }
     if (260.0..338.0).contains(&x) && (188.0..218.0).contains(&y) {
@@ -176,6 +179,7 @@ mod tests {
         assert_eq!(hit(280.0, 195.0, Kind::Run), Some(Hit::Accept));
         assert_eq!(hit(375.0, 195.0, Kind::Run), Some(Hit::Cancel));
         assert_eq!(hit(375.0, 195.0, Kind::Help), None);
+        assert_eq!(hit(420.0, 18.0, Kind::Help), Some(Hit::Cancel));
         assert_eq!(hit(200.0, 120.0, Kind::Run), Some(Hit::Input));
         assert_eq!(hit(200.0, 120.0, Kind::Help), None);
         assert_eq!(hit(-1.0, 120.0, Kind::Run), None);

@@ -264,6 +264,7 @@ impl MenuState {
             match action {
                 "applications" if menu.palette.is_some() => return "All Programs",
                 "settings" if menu.palette.is_some() => return "Control Panel",
+                "help" if menu.palette.is_some() => return "Help & Support",
                 "settings" => return "Settings",
                 "logout" if !logout_enabled => return "Log out (N/A)",
                 "logout" => return "Log out",
@@ -1324,13 +1325,16 @@ mod tests {
         // No installed-app fixtures: all real fixed actions remain present.
         assert_eq!(state.actions(menu), vec![
             "applications", "terminal", "documents", "computer",
-            "pictures", "music", "settings", "notifications", "lock", "logout"
+            "pictures", "music", "settings", "notifications", "help", "run",
+            "lock", "logout"
         ]);
         assert_eq!(state.hit(menu, 20.0, 116.0), Some(Hit::Action(0)));
         assert_eq!(state.hit(menu, 200.0, 80.0), Some(Hit::Action(2)));
         assert_eq!(state.hit(menu, 200.0, 116.0), Some(Hit::Action(4)));
-        assert_eq!(state.hit(menu, 200.0, 226.0), Some(Hit::Action(8)));
-        assert_eq!(state.hit(menu, 200.0, 248.0), Some(Hit::Action(9)));
+        assert_eq!(state.hit(menu, 200.0, 189.0), Some(Hit::Action(8))); // Help
+        assert_eq!(state.hit(menu, 200.0, 207.0), Some(Hit::Action(9))); // Run
+        assert_eq!(state.hit(menu, 200.0, 230.0), Some(Hit::Action(10))); // Lock
+        assert_eq!(state.hit(menu, 200.0, 248.0), Some(Hit::Action(11))); // Logout
         assert_eq!(state.hit(menu, 164.0, 120.0), None);
         assert_eq!(state.hit(menu, 200.0, 290.0), None); // inert footer gap
         assert_eq!(state.hit(menu, 275.0, 290.0), Some(Hit::Close));
@@ -1350,11 +1354,14 @@ mod tests {
         // The visible shelf labels fit without losing their meaning. The
         // accessible action labels remain complete and shared with search.
         let right_width = WIDTH - COLUMNS_RIGHT - 8;
-        for action in ["pictures", "music", "settings", "notifications", "lock", "logout"] {
+        for action in ["pictures", "music", "settings", "notifications",
+                       "help", "run", "lock", "logout"] {
             let label = state.visible_label(menu, action, false);
             assert!(label.len() * 8 <= (right_width - 20) as usize, "{label}");
         }
-        assert_eq!(state.visible_label(menu, "settings", false), "Settings");
+        assert_eq!(state.visible_label(menu, "settings", false), "Control Panel");
+        assert_eq!(state.visible_label(menu, "help", false), "Help & Support");
+        assert_eq!(state.visible_label(menu, "run", false), "Run...");
         assert_eq!(state.visible_label(menu, "logout", false), "Log out (N/A)");
         assert_eq!(state.visible_label(menu, "logout", true), "Log out");
         assert_eq!(state.label("settings"), "RiceSpice settings");

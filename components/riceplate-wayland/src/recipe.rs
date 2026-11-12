@@ -636,7 +636,10 @@ fn validate_menu(menu: &Menu, version: u32) -> Result<(), Box<dyn Error>> {
             }
         }
         for action in &group.actions {
-            if !["applications", "terminal", "lock", "logout",
+            if (matches!(action.as_str(), "run" | "help")
+                && (version < 12 || menu.presentation.as_deref() != Some("columns")
+                    || menu.colors.is_none()))
+                || !["applications", "terminal", "lock", "logout",
                  "documents", "computer", "pictures", "music", "wifi-toggle", "audio-mute", "audio-up", "audio-down",
                  "notifications", "settings", "clip-history", "help", "run"]
                 .contains(&action.as_str())

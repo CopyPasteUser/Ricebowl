@@ -73,6 +73,11 @@ class WaylandLunaTests(unittest.TestCase):
         self.assertFalse({"pictures", "music"} & recipes.ICON_ACTIONS)
         self.assertEqual(edit["/menu/groups"]["properties"]["value"]
                          ["items"]["properties"]["actions"]["maxItems"], 8)
+        # New user-executable actions cannot leak into unthemed/older recipes.
+        illegal = json.loads(LUNA.read_text(encoding="utf-8"))
+        illegal["menu"]["groups"][0]["actions"][0] = "run"
+        with self.assertRaises(recipes.RecipeError):
+            recipes.parse(json.dumps(illegal).encode("utf-8"))
         overflowing = json.loads(path.read_text(encoding="utf-8"))
         overflowing["menu"]["groups"][2]["actions"] = [
             "lock", "logout", "wifi-toggle", "audio-mute"]
