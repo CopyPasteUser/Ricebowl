@@ -1,40 +1,126 @@
-//! Opt-in XP Luna shortcut selection and double-click policy.
-//! Pure input state: no filesystem, compositor handles, timers or polling.
-use std::time::{Duration, Instant};
+//! Opt-in XP Luna desktop selection and double-click policy.
+//! Pure, bounded in-memory state: no compositor handles, services or persistence.
+//! Indices identify real icon layers, not recipe IDs repeated across outputs.
+use std::{collections::BTreeSet, time::{Duration, Instant}};
 
 pub const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(650);
 const MAX_DRIFT: f64 = 8.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode { Replace, Toggle, Range }
+
 #[derive(Debug, Clone, Copy)]
 struct Click { icon: usize, at: Instant, point: (f64, f64) }
 
 #[derive(Debug, Default)]
 pub struct Selection {
-    selected: Option<usize>,
+    selected: BTreeSet<usize>,
+    anchor: Option<usize>,
     last: Option<Click>,
 }
+
 impl Selection {
-    pub fn selected(&self) -> Option<usize> { self.selected }
+    /// Keyboard-range anchor; kept for existing single-selection callers.
+    pub fn selected(&self) -> Option<usize> { self.anchor }
+
+    pub fn is_selected(&self, icon: usize) -> bool { self.selected.contains(&icon) }
+
+    pub fn count(&self) -> usize { self.selected.len() }
+
+    /// Previous anchor of a normal single click, for backwards compatibility.
     pub fn select(&mut self, icon: usize) -> Option<usize> {
-        let prior = self.selected.replace(icon);
-        if prior != Some(icon) { self.last = None; }
-        prior
+        let old = self.anchor;
+        if self.selected.len() != 1 || !self.selected.contains(&icon) {
+            self.last = None;
+        }
+        self.selected.clear();
+        self.selected.insert(icon);
+        self.anchor = Some(icon);
+        old
     }
+
     pub fn cancel(&mut self) { self.last = None; }
+
     pub fn clear(&mut self) -> Option<usize> {
-        self.cancel();
-        self.selected.take()
+        let anchor = self.anchor;
+        self.clear_all();
+        anchor
     }
-    /// Use layer indices rather than recipe IDs: repeated icons on two
-    /// displays must never form a double-click pair across monitors.
+
+    pub fn clear_all(&mut self) -> Vec<usize> {
+        let removed = self.selected.iter().copied().collect();
+        self.selected.clear();
+        self.anchor = None;
+        self.cancel();
+        removed
+    }
+
+    /// Every operation is restricted to visible icon layers on the SAME
+    /// wl_output as the clicked icon. A synthetic or hidden index is ignored.
+    /// Returns only changed layer indices so rendering stays event-driven.
+    pub fn choose(&mut self, icon: usize, mode: Mode, peers: &[bool]) -> Vec<usize> {
+        if !peers.get(icon).copied().unwrap_or(false) { return Vec::new(); }
+        let before = self.selected.clone();
+        self.selected.retain(|old| peers.get(*old).copied().unwrap_or(false));
+        if self.anchor.is_some_and(|old| !peers.get(old).copied().unwrap_or(false)) {
+            self.anchor = None;
+        }
+        match mode {
+            Mode::Replace => { self.select(icon); }
+            Mode::Toggle => {
+                self.cancel();
+                if !self.selected.remove(&icon) {
+                    self.selected.insert(icon);
+                }
+                self.anchor = Some(icon);
+            }
+            Mode::Range => {
+                self.cancel();
+                let start = self.anchor.filter(|old| peers.get(*old).copied().unwrap_or(false))
+                    .unwrap_or(icon);
+                self.selected.clear();
+                for index in start.min(icon)..=start.max(icon) {
+                    if peers[index] { self.selected.insert(index); }
+                }
+                self.anchor = Some(start);
+            }
+        }
+        before.symmetric_difference(&self.selected).copied().collect()
+    }
+
+    /// Ctrl+A selects only shortcuts on the currently focused output.
+    /// This is not a batch launch, file operation or cross-monitor selection.
+    pub fn all_on_output(&mut self, peers: &[bool], anchor: usize) -> Vec<usize> {
+        if !peers.get(anchor).copied().unwrap_or(false) { return Vec::new(); }
+        let before = self.selected.clone();
+        self.selected = peers.iter().enumerate()
+            .filter_map(|(index, visible)| visible.then_some(index)).collect();
+        self.anchor = Some(anchor);
+        self.cancel();
+        before.symmetric_difference(&self.selected).copied().collect()
+    }
+
+    /// Disconnect/reflow must never keep an invisible shortcut selected.
+    pub fn retain_visible(&mut self, visible: &[bool]) -> Vec<usize> {
+        let before = self.selected.clone();
+        self.selected.retain(|index| visible.get(*index).copied().unwrap_or(false));
+        if self.anchor.is_some_and(|index| !visible.get(index).copied().unwrap_or(false)) {
+            self.anchor = self.selected.iter().next().copied();
+        }
+        if before != self.selected { self.cancel(); }
+        before.difference(&self.selected).copied().collect()
+    }
+
+    /// A modified click cannot accidentally activate a shortcut. Only a
+    /// single, currently selected icon is eligible for a double-click.
     pub fn release(&mut self, icon: usize, point: (f64, f64), now: Instant) -> bool {
-        if !point.0.is_finite() || !point.1.is_finite()
+        if self.selected.len() != 1 || !self.selected.contains(&icon)
+            || !point.0.is_finite() || !point.1.is_finite()
             || !(0.0..f64::from(crate::recipe::ICON_WIDTH)).contains(&point.0)
             || !(0.0..f64::from(crate::recipe::ICON_HEIGHT)).contains(&point.1) {
             self.cancel();
             return false;
         }
-        // Monotonic clocks should not move backwards, but reject a stale
-        // synthetic/out-of-order timestamp rather than keep an old click.
         if self.last.is_some_and(|prev| now < prev.at) {
             self.cancel();
             return false;
@@ -52,6 +138,9 @@ impl Selection {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn all(count: usize) -> Vec<bool> { vec![true; count] }
+
     #[test]
     fn first_click_selects_second_activates_and_third_is_only_selection() {
         let mut state = Selection::default();
@@ -62,6 +151,58 @@ mod tests {
         assert!(state.release(0, (23.0, 31.0), t + Duration::from_millis(600)));
         assert!(!state.release(0, (23.0, 31.0), t + Duration::from_millis(610)));
     }
+
+    #[test]
+    fn ctrl_toggle_and_shift_range_are_bounded_and_never_activate() {
+        let mut state = Selection::default();
+        let t = Instant::now();
+        let peers = all(6);
+        assert_eq!(state.choose(1, Mode::Replace, &peers), vec![1]);
+        assert_eq!(state.choose(3, Mode::Toggle, &peers), vec![3]);
+        assert_eq!(state.count(), 2);
+        assert!(!state.release(3, (20.0, 30.0), t));
+        assert_eq!(state.choose(5, Mode::Range, &peers), vec![1, 4, 5]);
+        // Anchor remains index 3; range includes 3, 4, 5.
+        assert_eq!(state.selected(), Some(3));
+        assert_eq!(state.count(), 3);
+        assert_eq!(state.choose(4, Mode::Toggle, &peers), vec![4]);
+        assert_eq!(state.count(), 2);
+        assert_eq!(state.choose(3, Mode::Toggle, &peers), vec![3]);
+        assert_eq!(state.count(), 1);
+        assert!(!state.release(5, (20.0, 30.0), t + Duration::from_millis(10)));
+    }
+
+    #[test]
+    fn ctrl_a_and_cross_output_clicks_do_not_leak_selection() {
+        let mut state = Selection::default();
+        let first = [true, true, false, false, false, false];
+        let second = [false, false, true, true, false, false];
+        assert_eq!(state.all_on_output(&first, 0), vec![0, 1]);
+        assert!(!state.is_selected(2));
+        assert_eq!(state.choose(3, Mode::Toggle, &second), vec![0, 1, 3]);
+        assert!(!state.is_selected(0));
+        assert!(state.is_selected(3));
+        assert_eq!(state.all_on_output(&second, 3), vec![2]);
+        assert_eq!(state.count(), 2);
+        assert_eq!(state.choose(4, Mode::Replace, &second), Vec::<usize>::new());
+        assert_eq!(state.count(), 2);
+    }
+
+    #[test]
+    fn hotplug_hides_selected_icons_and_invalidates_double_click() {
+        let mut state = Selection::default();
+        let t = Instant::now();
+        state.choose(0, Mode::Replace, &all(3));
+        assert!(!state.release(0, (20.0, 30.0), t));
+        state.choose(2, Mode::Toggle, &all(3));
+        assert_eq!(state.retain_visible(&[false, true, true]), vec![0]);
+        assert_eq!(state.count(), 1);
+        assert!(!state.release(2, (20.0, 30.0), t + Duration::from_millis(50)));
+        assert_eq!(state.retain_visible(&[false, false, false]), vec![2]);
+        assert_eq!(state.selected(), None);
+        assert!(state.clear_all().is_empty());
+    }
+
     #[test]
     fn monitor_changes_and_expiration_do_not_activate() {
         let mut state = Selection::default();
@@ -75,6 +216,7 @@ mod tests {
         assert_eq!(state.clear(), Some(8));
         assert_eq!(state.selected(), None);
     }
+
     #[test]
     fn drag_and_mismatched_pointer_coordinates_are_safe() {
         let mut state = Selection::default();
@@ -90,6 +232,7 @@ mod tests {
         }
         assert!(!state.release(2, (50.0, 30.0), t + Duration::from_millis(80)));
     }
+
     #[test]
     fn order_and_timing_are_bounded() {
         let mut state = Selection::default();

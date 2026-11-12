@@ -463,3 +463,26 @@ and physical hardware acceptance remain open.
 - Tests verify exact theme, argv, absolute directory validation, no
   command flags/extra parameters, and supported versus virtual locations.
   Real file browser startup/SMB hardware acceptance remains outstanding.
+
+
+### Native XP Luna: bounded multi-selection and keyboard access (12 November 2026)
+
+- Opt-in `xp-luna-columns` now supports **Ctrl-click** toggling, **Shift-click**
+  extending the current anchored range, and **Ctrl+A** selecting all *visible
+  shortcut layers on the focused output*. Shift+Tab extends a keyboard range,
+  Ctrl+Space toggles the focused shortcut, Escape clears the selection, and
+  Shift+F10 opens the focused shortcut's existing bounded context menu.
+- The selection is **session-only**, scoped to actual `wl_output` icon layers,
+  not action names. Repeated shortcuts on different monitors are independent;
+  a click on a different output discards the prior output's selection. Hotplug
+  and compact reflow discard hidden selections and cancel stale double clicks.
+- Ctrl/Shift selection never launches apps, moves files or drags icons. A
+  plain double-click can still open *one* selected shortcut; a plain drag moves
+  only its target icon. No bulk open/drag/file operations are claimed.
+- Opt-in AccessKit labels expose whether each real shortcut is selected, with
+  no new resident process or notification owner. Other rice recipes retain
+  their existing single-click actions and rendering.
+- Rust regressions cover selection toggles/ranges, Ctrl+A, cross-monitor
+  isolation, invalid indices, hotplug and double-click safety. GitHub native
+  build/headless compositor CI and hardware keyboard/Orca acceptance remain
+  separate release gates.
