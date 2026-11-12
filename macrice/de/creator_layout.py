@@ -143,7 +143,7 @@ def add_layer(manifest: dict[str, Any], kind: str) -> dict[str, Any]:
                 if all(abs(x - icon["x"]) >= recipes.ICON_WIDTH or
                        abs(y - icon["y"]) >= recipes.ICON_HEIGHT for icon in icons):
                     label = {"applications": "Apps", "terminal": "Terminal",
-                             "lock": "Lock"}[action]
+                             "lock": "Lock", "trash": "Recycle Bin"}[action]
                     # Keep desktop labels distinct for easy layer selection.
                     labels = {icon["label"] for icon in icons}
                     if label in labels:

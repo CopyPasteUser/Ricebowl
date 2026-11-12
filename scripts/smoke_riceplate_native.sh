@@ -111,6 +111,16 @@ cleanup_runtime() {
     fi
 }
 trap cleanup_runtime EXIT
+# A private fake Gio is visible only to this specific Luna test process.
+# Never open the runner home trash or change installed desktop settings.
+mkdir -m 0700 "$runtime/mock-bin"
+cat >"$runtime/mock-bin/gio" <<'GIO'
+#!/bin/sh
+set -eu
+[ "$#" -eq 2 ] || exit 64
+printf '%s\n' "$1" "$2" >"$RICEBOWL_CI_TRASH_LOG"
+GIO
+chmod 0700 "$runtime/mock-bin/gio"
 export XDG_RUNTIME_DIR="$runtime"
 export WLR_BACKENDS=headless
 export WLR_HEADLESS_OUTPUTS=1
@@ -233,7 +243,10 @@ dbus-run-session -- sh -eu -c '
         elif [ "$label" = calendar-v5 ]; then
             WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$runtime/desktop-v5.json" --preview-calendar >"$runtime/plate-$label.log" 2>&1 &
         elif [ "$label" = xp-luna-columns ]; then
-            RICEBOWL_DE_TRACE_MENU=1 WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" >"$runtime/plate-$label.log" 2>&1 &
+            RICEBOWL_DE_TRACE_MENU=1 PATH="$runtime/mock-bin:$PATH" \
+                RICEBOWL_CI_TRASH_LOG="$runtime/trash-gio.log" \
+                WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" \
+                >"$runtime/plate-$label.log" 2>&1 &
         else
             WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" >"$runtime/plate-$label.log" 2>&1 &
         fi
@@ -526,6 +539,27 @@ dbus-run-session -- sh -eu -c '
             done
             WAYLAND_DISPLAY=wayland-0 wlr-randr --output "$output" --custom-mode 1366x768@60Hz --scale 1
             sleep 0.5
+            # Actual labwc-delivered left-click on the fourth Luna desktop
+            # icon (24,400; 104x88). Capture exact Gio argv in a private
+            # stand-in; no host trash backend or user files are touched.
+            test ! -e "$runtime/trash-gio.log"
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 68 435 1366 768
+            count=0
+            while [ ! -s "$runtime/trash-gio.log" ] && [ "$count" -lt 25 ]; do
+                count=$((count + 1))
+                sleep 0.1
+            done
+            expected=$(printf "open\ntrash:///")
+            actual=$(cat "$runtime/trash-gio.log" 2>/dev/null || :)
+            if [ "$actual" != "$expected" ]; then
+                echo "Luna Recycle Bin compositor click did not issue safe Gio open" >&2
+                exit 1
+            fi
+            kill -0 "$plate"
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-recycle-bin-click.png"
+            cp "$runtime/xp-luna-recycle-bin-click.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-recycle-bin-click.png"
+            echo "Verified real Luna Recycle Bin pointer activation through isolated Gio stand-in"
         fi
         if [ "$label" = overflow-v5 ]; then
             # Separate recipe deliberately requests x=4090 on a 1024px output.

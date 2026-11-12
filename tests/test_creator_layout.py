@@ -58,6 +58,18 @@ class CreatorLayoutTests(unittest.TestCase):
         clamped = layout.move_layer(self.manifest, "icon", 1, 9999, 9999, 1024, 768)
         self.assertLessEqual(clamped["desktop"]["icons"][1]["x"], 1024 - recipes.ICON_WIDTH)
 
+    def test_recycle_bin_is_a_real_allowlisted_creator_desktop_action(self):
+        # Art slots are still the original three; Creator may place a
+        # fourth native, non-importable Recycle Bin shortcut independently.
+        created = layout.add_layer(self.manifest, "icon:trash")
+        icon = created["desktop"]["icons"][-1]
+        self.assertEqual((icon["label"], icon["action"]), ("Recycle Bin", "trash"))
+        self.assertEqual(recipes.parse(json.dumps(created).encode()).desktop_icons[-1].action,
+                         "trash")
+        self.assertEqual(len(self.manifest["desktop"]["icons"]), 3)
+        with self.assertRaises(layout.LayoutError):
+            layout.add_layer(self.manifest, "icon:trash;rm")
+
     def test_create_widgets_and_actions_are_allowlisted_and_bounded(self):
         result = layout.add_layer(self.manifest, "text")
         self.assertEqual(result["composition"]["widgets"][-1]["kind"], "text")

@@ -139,6 +139,12 @@
         "action": "lock",
         "x": 24,
         "y": 296
+      },
+      {
+        "label": "Recycle Bin",
+        "action": "trash",
+        "x": 24,
+        "y": 400
       }
     ]
   },

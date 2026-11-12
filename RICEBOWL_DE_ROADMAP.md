@@ -1038,6 +1038,11 @@ daemon or duplication of RicePlate/RiceSpice/RicePop responsibilities.
     cached task-group hit lookup and legacy visual regression tests.
     Implemented on an isolated PR branch; headless CI and real-device
     acceptance are pending. Native high-DPI typography remains open.
+  - [ ] XP Luna Recycle Bin desktop link: allowlisted `trash` icon action,
+    original native raster art, safe `gio open trash:///` navigation only,
+    current Creator and per-output icon layout preserved. This code is a
+    CI-gated candidate; GVfs availability and real-device icon input remain
+    pending. Trash deletion/emptying is deliberately out of scope.
   - [ ] XP Luna native Start footer: introduce separate Lock, Log off and
     Close pointer actions (no shell evaluation), gated to opt-in themed columns;
     draw original bevelled iconography and a genuinely unavailable logout state.
