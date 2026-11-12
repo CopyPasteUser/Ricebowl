@@ -650,7 +650,7 @@ fn validate_icons(icons: Vec<DesktopIconInput>) -> Result<Vec<DesktopIcon>, Box<
     let mut result: Vec<DesktopIcon> = Vec::new();
     for icon in icons {
         if !safe_label(&icon.label, 12)
-            || !["applications", "terminal", "lock", "trash"].contains(&icon.action.as_str())
+            || !["applications", "terminal", "lock", "trash", "documents", "computer", "network"].contains(&icon.action.as_str())
             || icon.x > 4096
             || !(72..=4096).contains(&icon.y)
             || result.iter().any(|existing| {

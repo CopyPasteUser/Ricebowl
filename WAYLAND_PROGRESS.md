@@ -373,3 +373,10 @@ labwc capture tests idle versus hover using real virtual-pointer motion.
 Native Rust, Python, real labwc multi-resolution/hotplug screenshot and
 rollback checks passed on PR #298 (merge `a0e9a68`). Physical-device input
 acceptance and a fully native high-resolution menu remain open.
+
+### XP Luna · native Start recents and real desktop places (12 November 2026; candidate)
+
+- Opt-in `xp-luna-columns` now restores up to eight recently dispatched XDG desktop apps after relogin. Only verified application IDs are displayed, missing/uninstalled apps are ignored, entries are private (0600), schema-validated and atomically saved. Other recipes keep session-only recents. Nested previews neither read nor persist this history.
+- Privacy reset without connecting to Wayland: `riceplate-native --clear-luna-recents`. The history file is `~/.config/ricebowl/native-menu-recents/xp-luna-columns.json` (or below `XDG_CONFIG_HOME`). The command refuses to follow/remove symlinks or non-owner files.
+- The XP desktop offers My Computer, My Documents, My Network, Recycle Bin and three ordinary shortcuts, with original rasterized device/folder/network icons. These launch fixed `gio open` locations; GVfs handles authentication and network availability. A separate XP Explorer or drive browser is **not** claimed.
+- Rust regression coverage includes validation, ownership/permissions, symlink refusal, stale app filtering, fixed Gio targets and recipe layout. Physical labwc input, live GVfs network discovery, and screenshot approval remain outstanding until CI/device verification.
