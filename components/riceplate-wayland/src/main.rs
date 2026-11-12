@@ -7392,6 +7392,32 @@ mod tests {
 
 
     #[test]
+    fn xp_run_help_and_error_have_distinct_native_framebuffers() {
+        let style = recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let size = (luna_dialog::WIDTH * luna_dialog::HEIGHT * 4) as usize;
+        let mut run = vec![0_u8; size];
+        let mut help = vec![0_u8; size];
+        let mut error = vec![0_u8; size];
+        paint_luna_dialog(&mut run, &style, &luna_dialog::State::new(luna_dialog::Kind::Run));
+        paint_luna_dialog(&mut help, &style, &luna_dialog::State::new(luna_dialog::Kind::Help));
+        let mut invalid = luna_dialog::State::new(luna_dialog::Kind::Run);
+        invalid.notice = Some("Enter a program name");
+        paint_luna_dialog(&mut error, &style, &invalid);
+        assert_ne!(run, help);
+        assert_ne!(run, error);
+        assert_eq!(&run[..4], &0xff1a_439c_u32.to_le_bytes());
+        let at = ((luna_dialog::WIDTH * 17 + 418) * 4) as usize;
+        assert_eq!(&run[at..at+4], &0xffd8_4039_u32.to_le_bytes());
+        let mut text = luna_dialog::State::new(luna_dialog::Kind::Run);
+        for ch in "foot -e true".chars() { assert!(text.enter(&ch.to_string())); }
+        let mut typed = vec![0_u8; size];
+        paint_luna_dialog(&mut typed, &style, &text);
+        assert_ne!(typed, run);
+    }
+
+    #[test]
     fn luna_context_paint_marks_real_selected_and_disabled_rows() {
         let style = recipe::parse(
             include_str!("../../../examples/wayland/xp-luna-columns.json"),

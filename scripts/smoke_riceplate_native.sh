@@ -759,7 +759,7 @@ PY
             WAYLAND_DISPLAY=wayland-0 "$clicker" 843 450 1366 768
             sleep 0.25
             kill -0 "$plate"
-            /usr/bin/python3 - "$runtime" <<\PY
+            /usr/bin/python3 - "$runtime" <<PY
 from pathlib import Path
 from PIL import Image, ImageChops
 
