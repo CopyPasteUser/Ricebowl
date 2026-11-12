@@ -52,12 +52,32 @@ fn parse(bytes: &[u8], id: &str) -> Result<Vec<String>, Box<dyn Error>> {
     Ok(data.apps)
 }
 
+// Never traverse a substituted private history directory, including when
+// reading or clearing history. The parent ricebowl directory may be shared
+// with other RiceBowl settings, but must still be owned and non-symlinked.
+fn check_parents(location: &Path) -> Result<(), Box<dyn Error>> {
+    let directory = location.parent().ok_or("Missing recent applications directory")?;
+    let root = directory.parent().ok_or("Missing RiceBowl configuration directory")?;
+    for parent in [root, directory] {
+        let meta = fs::symlink_metadata(parent)?;
+        if !meta.is_dir() || meta.file_type().is_symlink()
+            || meta.uid() != unsafe { libc::geteuid() } {
+            return Err("Unsafe XP Luna history parent directory".into());
+        }
+    }
+    if fs::symlink_metadata(directory)?.mode() & 0o077 != 0 {
+        return Err("XP Luna history directory must be private".into());
+    }
+    Ok(())
+}
+
 pub fn restore(id: &str) -> Result<Vec<String>, Box<dyn Error>> {
     let Some(location) = path(id) else { return Ok(Vec::new()); };
     restore_at(&location, id)
 }
 
 fn restore_at(location: &Path, id: &str) -> Result<Vec<String>, Box<dyn Error>> {
+    if location.parent().is_some_and(|parent| parent.exists()) { check_parents(location)?; }
     let file = match OpenOptions::new().read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC).open(location) {
             Ok(file) => file,
@@ -98,6 +118,7 @@ fn save_at(location: &Path, id: &str, apps: &[String]) -> Result<(), Box<dyn Err
         || dir_meta.uid() != unsafe { libc::geteuid() } || dir_meta.mode() & 0o077 != 0 {
         return Err("Recent applications directory must be owner-private".into());
     }
+    check_parents(location)?;
     match fs::symlink_metadata(location) {
         Ok(meta) if !meta.is_file() || meta.file_type().is_symlink()
             || meta.uid() != unsafe { libc::geteuid() } || meta.mode() & 0o077 != 0 =>
@@ -128,6 +149,7 @@ pub fn clear() -> Result<(), Box<dyn Error>> {
     let Some(location) = path(RICE_ID) else {
         return Err("History clearing is disabled in nested preview mode".into());
     };
+    if location.parent().is_some_and(|parent| parent.exists()) { check_parents(&location)?; }
     match fs::symlink_metadata(&location) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error.into()),
@@ -179,6 +201,49 @@ mod tests {
             assert!(parse(bad, RICE_ID).is_err());
         }
         assert!(save_at(&location, "classic", &[good]).is_err());
+        fs::remove_dir_all(location.ancestors().nth(3).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn substituted_history_parent_is_rejected() {
+        let location = location();
+        save_at(&location, RICE_ID, &[]).unwrap();
+        let parent = location.parent().unwrap();
+        let replacement = parent.with_file_name("replacement");
+        fs::rename(parent, &replacement).unwrap();
+        symlink(&replacement, parent).unwrap();
+        assert!(restore_at(&location, RICE_ID).is_err());
+        assert!(save_at(&location, RICE_ID, &[]).is_err());
+        fs::remove_file(parent).unwrap();
+        fs::rename(&replacement, parent).unwrap();
+        fs::remove_dir_all(location.ancestors().nth(3).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn substituted_ricebowl_root_is_rejected_without_touching_history() {
+        let location = location();
+        save_at(&location, RICE_ID, &[]).unwrap();
+        let root = location.parent().unwrap().parent().unwrap();
+        let replacement = root.with_file_name("ricebowl-replacement");
+        fs::rename(root, &replacement).unwrap();
+        symlink(&replacement, root).unwrap();
+        assert!(restore_at(&location, RICE_ID).is_err());
+        assert!(save_at(&location, RICE_ID, &[]).is_err());
+        fs::remove_file(root).unwrap();
+        fs::rename(&replacement, root).unwrap();
+        fs::remove_dir_all(location.ancestors().nth(3).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn non_private_history_parent_is_rejected() {
+        let location = location();
+        save_at(&location, RICE_ID, &[]).unwrap();
+        let directory = location.parent().unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(directory, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(restore_at(&location, RICE_ID).is_err());
+        assert!(save_at(&location, RICE_ID, &[]).is_err());
+        fs::set_permissions(directory, fs::Permissions::from_mode(0o700)).unwrap();
         fs::remove_dir_all(location.ancestors().nth(3).unwrap()).unwrap();
     }
 
