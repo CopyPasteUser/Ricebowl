@@ -28,6 +28,7 @@ cp "$source_root/tests/fixtures/riceplate-desktop-v5.json" "$runtime/desktop-v5.
 cp "$source_root/tests/fixtures/riceplate-sidebar-v6.json" "$runtime/sidebar-v6.json"
 cp "$source_root/tests/fixtures/riceplate-composed-v6.json" "$runtime/composed-v6.json"
 cp "$source_root/tests/fixtures/riceplate-actions-v6.json" "$runtime/actions-v6.json"
+cp "$source_root/tests/fixtures/riceplate-clip-actions-v6.json" "$runtime/riceclip-actions.json"
 cp "$source_root/tests/fixtures/riceplate-controls-v7.json" "$runtime/controls-v7.json"
 cp "$source_root/tests/fixtures/riceplate-layout-v8.json" "$runtime/layout-v8.json"
 cp "$source_root/tests/fixtures/riceplate-components-v9.json" "$runtime/components-v9.json"
@@ -42,6 +43,7 @@ chmod 0600 "$runtime/desktop-v5.json"
 chmod 0600 "$runtime/sidebar-v6.json"
 chmod 0600 "$runtime/composed-v6.json"
 chmod 0600 "$runtime/actions-v6.json"
+chmod 0600 "$runtime/riceclip-actions.json"
 chmod 0600 "$runtime/controls-v7.json"
 chmod 0600 "$runtime/layout-v8.json"
 chmod 0600 "$runtime/components-v9.json"
@@ -121,6 +123,18 @@ set -eu
 printf '%s\n' "$1" "$2" >"$RICEBOWL_CI_TRASH_LOG"
 GIO
 chmod 0700 "$runtime/mock-bin/gio"
+# The disposable shim records exact native argv and execs the real GTK CLI.
+# No watcher starts and no host clipboard content is read.
+cat >"$runtime/mock-bin/ricebowl" <<"CLIP_CLI"
+#!/bin/sh
+set -eu
+[ "$#" -eq 4 ] && [ "$1" = de ] && [ "$2" = clip ] \
+    && [ "$3" = --clip-op ] && [ "$4" = gui ] || exit 64
+printf "%s\n" "$1" "$2" "$3" "$4" >"$RICEBOWL_CI_CLIP_LOG"
+printf "%s\n" "$" >"$RICEBOWL_CI_CLIP_PID"
+exec /usr/bin/python3 -B "$RICEBOWL_CI_SOURCE_ROOT/launcher.py" "$@"
+CLIP_CLI
+chmod 0700 "$runtime/mock-bin/ricebowl"
 export XDG_RUNTIME_DIR="$runtime"
 export WLR_BACKENDS=headless
 export WLR_HEADLESS_OUTPUTS=1
@@ -166,7 +180,7 @@ dbus-run-session -- sh -eu -c '
         sed -n "1,70p" "$runtime/labwc.log" >&2
         exit 1
     fi
-    for recipe in classic chrome "$runtime/custom.json" "$runtime/nested.json" "$runtime/shell-v4.json" "$runtime/desktop-v5.json" "$runtime/actions-v6.json" "$runtime/controls-v7.json" "$runtime/layout-v8.json" "$runtime/components-v9.json" "$runtime/desktop-actions-v9.json" "$runtime/appearance-v10.json" "$runtime/xp-luna-columns.json" "$runtime/xp-luna-default-icons.json" "$runtime/xp-luna-columns-menu" "$runtime/xp-luna-font-menu" "$runtime/xp-luna-columns-calendar" "$runtime/xp-luna-font-calendar" "$runtime/xp-luna-columns-osd" "$runtime/xp-luna-font-osd" "$runtime/xp-luna-columns-notifications" "$runtime/xp-luna-columns-notifications-scroll" "$runtime/xp-luna-font-notifications" "$runtime/xp-luna-columns-notification-detail" "$runtime/xp-luna-font-notification-detail" "$runtime/overflow-v5.json" "$runtime/desktop-v5-menu" "$runtime/sidebar-v6-menu" "$runtime/composed-v6-menu" "$runtime/desktop-v5-calendar"; do
+    for recipe in classic chrome "$runtime/custom.json" "$runtime/nested.json" "$runtime/shell-v4.json" "$runtime/desktop-v5.json" "$runtime/actions-v6.json" "$runtime/riceclip-actions.json" "$runtime/controls-v7.json" "$runtime/layout-v8.json" "$runtime/components-v9.json" "$runtime/desktop-actions-v9.json" "$runtime/appearance-v10.json" "$runtime/xp-luna-columns.json" "$runtime/xp-luna-default-icons.json" "$runtime/xp-luna-columns-menu" "$runtime/xp-luna-font-menu" "$runtime/xp-luna-columns-calendar" "$runtime/xp-luna-font-calendar" "$runtime/xp-luna-columns-osd" "$runtime/xp-luna-font-osd" "$runtime/xp-luna-columns-notifications" "$runtime/xp-luna-columns-notifications-scroll" "$runtime/xp-luna-font-notifications" "$runtime/xp-luna-columns-notification-detail" "$runtime/xp-luna-font-notification-detail" "$runtime/overflow-v5.json" "$runtime/desktop-v5-menu" "$runtime/sidebar-v6-menu" "$runtime/composed-v6-menu" "$runtime/desktop-v5-calendar"; do
         case "$recipe" in
             */desktop-v5-calendar) label=calendar-v5 ;;
             */desktop-v5-menu) label=menu-v5 ;;
@@ -188,6 +202,7 @@ dbus-run-session -- sh -eu -c '
             */overflow-v5.json) label=overflow-v5 ;;
             */desktop-v5.json) label=desktop-v5 ;;
             */actions-v6.json) label=actions-v6 ;;
+            */riceclip-actions.json) label=riceclip-actions ;;
             */controls-v7.json) label=controls-v7 ;;
             */layout-v8.json) label=layout-v8 ;;
             */components-v9.json) label=components-v9 ;;
@@ -242,6 +257,13 @@ dbus-run-session -- sh -eu -c '
             WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$runtime/xp-luna-font.json" --preview-notification-detail >"$runtime/plate-$label.log" 2>&1 &
         elif [ "$label" = calendar-v5 ]; then
             WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$runtime/desktop-v5.json" --preview-calendar >"$runtime/plate-$label.log" 2>&1 &
+        elif [ "$label" = riceclip-actions ]; then
+            PATH="$runtime/mock-bin:$PATH" GDK_BACKEND=wayland \
+                RICEBOWL_CI_CLIP_LOG="$runtime/clip-action-argv.log" \
+                RICEBOWL_CI_CLIP_PID="$runtime/clip-action-gui.pid" \
+                RICEBOWL_CI_SOURCE_ROOT="$source_root" \
+                WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" \
+                >"$runtime/plate-$label.log" 2>&1 &
         elif [ "$label" = xp-luna-columns ]; then
             RICEBOWL_DE_TRACE_MENU=1 PATH="$runtime/mock-bin:$PATH" \
                 RICEBOWL_CI_TRASH_LOG="$runtime/trash-gio.log" \
@@ -261,7 +283,7 @@ dbus-run-session -- sh -eu -c '
                 exit 1 ;;
         esac
         echo "Native RicePlate $label layer surface remained alive"
-        if [ "$label" = shell-v4 ] || [ "$label" = desktop-v5 ] || [ "$label" = actions-v6 ] || [ "$label" = controls-v7 ] || [ "$label" = layout-v8 ] || [ "$label" = components-v9 ] || [ "$label" = desktop-actions-v9 ] || [ "$label" = appearance-v10 ] || [ "$label" = xp-luna-columns ] || [ "$label" = xp-luna-default-icons ] || [ "$label" = xp-luna-columns-menu ] || [ "$label" = xp-luna-font-menu ] || [ "$label" = xp-luna-columns-calendar ] || [ "$label" = xp-luna-font-calendar ] || [ "$label" = xp-luna-columns-osd ] || [ "$label" = xp-luna-font-osd ] || [ "$label" = xp-luna-columns-notifications ] || [ "$label" = xp-luna-columns-notifications-scroll ] || [ "$label" = xp-luna-font-notifications ] || [ "$label" = xp-luna-columns-notification-detail ] || [ "$label" = xp-luna-font-notification-detail ] || [ "$label" = menu-v5 ] || [ "$label" = menu-sidebar-v6 ] || [ "$label" = menu-composed-v6 ] || [ "$label" = calendar-v5 ]; then
+        if [ "$label" = shell-v4 ] || [ "$label" = desktop-v5 ] || [ "$label" = actions-v6 ] || [ "$label" = riceclip-actions ] || [ "$label" = controls-v7 ] || [ "$label" = layout-v8 ] || [ "$label" = components-v9 ] || [ "$label" = desktop-actions-v9 ] || [ "$label" = appearance-v10 ] || [ "$label" = xp-luna-columns ] || [ "$label" = xp-luna-default-icons ] || [ "$label" = xp-luna-columns-menu ] || [ "$label" = xp-luna-font-menu ] || [ "$label" = xp-luna-columns-calendar ] || [ "$label" = xp-luna-font-calendar ] || [ "$label" = xp-luna-columns-osd ] || [ "$label" = xp-luna-font-osd ] || [ "$label" = xp-luna-columns-notifications ] || [ "$label" = xp-luna-columns-notifications-scroll ] || [ "$label" = xp-luna-font-notifications ] || [ "$label" = xp-luna-columns-notification-detail ] || [ "$label" = xp-luna-font-notification-detail ] || [ "$label" = menu-v5 ] || [ "$label" = menu-sidebar-v6 ] || [ "$label" = menu-composed-v6 ] || [ "$label" = calendar-v5 ]; then
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/$label.png"
             cp "$runtime/$label.png" "$source_root/dist/riceplate-native-preview/$label.png"
             echo "Captured real native RicePlate $label framebuffer"
