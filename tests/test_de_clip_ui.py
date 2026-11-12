@@ -185,7 +185,7 @@ class ClipBrowserModelTests(unittest.TestCase):
         self.assertIn("1 pinned", clip_ui.snapshot_message(snapshot, ""))
 
     def test_reject_inconsistent_pinned_metadata(self):
-        for malformed in (True, "true", 1, None):
+        for malformed in ("true", 1, None, [], {}):
             status = self._status()
             status["pinned_count"] = 1
             listing = self._listing()
