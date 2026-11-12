@@ -74,7 +74,7 @@ def parser() -> argparse.ArgumentParser:
     de.add_argument("action", choices=(
         "check", "acceptance", "start", "shell", "catalog", "fonts", "creator-api", "creator-history", "creator-schema", "creator-snapshot", "creator-recovery", "creator-recover", "review", "draft-check", "draft-edit", "visual-compare",
         "visual-baseline",
-        "capture", "shot", "clip", "render", "render-matrix", "render-matrix-inspect",
+        "capture", "shot", "clip", "lock", "render", "render-matrix", "render-matrix-inspect",
         "creator-status", "creator-stage", "creator-rollback",
         "creator-live-status", "creator-live-apply", "creator-live-restore", "creator-live-recovery",
         "display-refresh", "display-confirm",
@@ -833,6 +833,15 @@ def main(argv: list[str] | None = None) -> int:
                         print(f"Captured Wayland {report['mode']}: {report['path']} "
                               f"({report['width']}x{report['height']})")
                     print("The screenshot may contain private screen data")
+                return 0
+            if args.action == "lock":
+                if args.nested or args.recipe or args.panel != "waybar" or args.json:
+                    raise ValueError("de lock is a full-session action; no preview or JSON output")
+                from .de.lock import lock_screen
+                result = lock_screen()
+                if not result["riceclip_cleared"]:
+                    print("RiceBowl: screen locked, but RiceClip cleanup was not confirmed",
+                          file=sys.stderr)
                 return 0
             if args.action == "clip":
                 if args.nested or args.recipe or args.panel != "waybar" or args.output:
