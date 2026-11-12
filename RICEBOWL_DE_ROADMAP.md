@@ -901,7 +901,7 @@ must not be represented as blockers for the Wayland DE 1.0 core release.
   a shared full-session `de lock` helper now waits for `swaylock -f` to confirm
   the compositor lock before sending bounded `pause` and `clear` requests to
   the existing watcher; recording remains paused until manually resumed,
-  preventing immediate clipboard re-ingestion during lock. The the native RicePlate Lock action, generated Waybar panel/labwc
+  preventing immediate clipboard re-ingestion during lock. The native RicePlate Lock action, generated Waybar panel/labwc
   menus, labwc Win+L binding, swayidle timeout, before-sleep and logind lock
   events all use this same path. A failed or absent
   watcher never prevents locking; cleanup failures are reported without content
