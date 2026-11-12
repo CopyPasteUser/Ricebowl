@@ -49,6 +49,19 @@ def lock_screen(
     # clipboard watcher; report the distinction rather than pretending clean.
     try:
         cleared = clear("clear")
-    except (clip.ClipError, OSError):
-        return {"locked": True, "riceclip_cleared": False}
-    return {"locked": True, "riceclip_cleared": bool(cleared.get("ok"))}
+    except clip.ClipError as exc:
+        # RiceClip is disabled by default. A verified absent socket is not a
+        # failure; a socket that exists but cannot be reached is a warning.
+        inactive = False
+        if exc.code == "not_running":
+            try:
+                inactive = not clip.socket_path().exists()
+            except clip.ClipError:
+                pass
+        return {"locked": True, "riceclip_cleared": False,
+                "riceclip_inactive": inactive}
+    except OSError:
+        return {"locked": True, "riceclip_cleared": False,
+                "riceclip_inactive": False}
+    return {"locked": True, "riceclip_cleared": bool(cleared.get("ok")),
+            "riceclip_inactive": False}
