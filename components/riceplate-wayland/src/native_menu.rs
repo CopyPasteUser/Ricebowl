@@ -7,6 +7,11 @@ use crate::{installed_apps::{self, App}, recipe::{MenuContentKind, MenuPresentat
 
 pub const WIDTH: u32 = 320;
 pub const HEIGHT: u32 = 304;
+/// Opt-in XP footer: three separate buttons with an inert gap between them.
+pub const LUNA_FOOTER_Y: u32 = HEIGHT - 28;
+pub const LUNA_LOCK_RECT: (u32, u32) = (7, 79);
+pub const LUNA_LOGOUT_RECT: (u32, u32) = (86, 183);
+pub const LUNA_CLOSE_RECT: (u32, u32) = (251, 315);
 const HEADER_BUTTON_WIDTH: u32 = 56;
 const HEADER_BUTTON_GAP: u32 = 4;
 const HEADER_BUTTON_MARGIN: u32 = 4;
@@ -146,6 +151,8 @@ pub enum Hit {
     Search,
     Saved,
     Close,
+    FooterLock,
+    FooterLogout,
 }
 
 /// One geometry contract for painting, pointer input and compact reflow.
@@ -158,6 +165,26 @@ pub fn header_button_rect(size: (u32, u32), hit: Hit) -> Option<(u32, u32, u32, 
     };
     let height = if size == (WIDTH, HEIGHT) { 28 } else { 24 };
     Some((x, 4, HEADER_BUTTON_WIDTH, height))
+}
+
+/// Full-size Luna footer only. Compact outputs and other menu variants keep
+/// their original one-click Close target, avoiding unusable miniature buttons.
+pub fn luna_footer_hit(menu: &NativeMenu, x: f64, y: f64) -> Option<Hit> {
+    if menu.presentation != MenuPresentation::Columns || menu.palette.is_none()
+        || !x.is_finite() || !y.is_finite() || x < 0.0
+        || x >= f64::from(WIDTH) || y < f64::from(LUNA_FOOTER_Y)
+        || y >= f64::from(HEIGHT) {
+        return None;
+    }
+    if x >= f64::from(LUNA_LOCK_RECT.0) && x < f64::from(LUNA_LOCK_RECT.1) {
+        Some(Hit::FooterLock)
+    } else if x >= f64::from(LUNA_LOGOUT_RECT.0)
+        && x < f64::from(LUNA_LOGOUT_RECT.1) {
+        Some(Hit::FooterLogout)
+    } else if x >= f64::from(LUNA_CLOSE_RECT.0)
+        && x < f64::from(LUNA_CLOSE_RECT.1) {
+        Some(Hit::Close)
+    } else { None }
 }
 
 fn header_hit(x: f64, y: f64, size: (u32, u32)) -> Option<Hit> {
@@ -175,6 +202,8 @@ pub struct MenuState {
     pub group: usize,
     pub selected: usize,
     pub notice: Option<&'static str>,
+    /// Transient pointer affordance; never changes keyboard action selection.
+    pub footer_hover: Option<Hit>,
     pub view: View,
     pub search: String,
     pub pins: Vec<String>,
@@ -266,6 +295,7 @@ impl MenuState {
         self.group = 0;
         self.selected = 0;
         self.notice = None;
+        self.footer_hover = None;
         self.view = View::Groups;
         self.search.clear();
         self.wheel_remainder = 0.0;
@@ -273,6 +303,7 @@ impl MenuState {
 
     pub fn close(&mut self) {
         self.visible = false;
+        self.footer_hover = None;
         self.wheel_remainder = 0.0;
     }
 
@@ -745,6 +776,10 @@ impl MenuState {
         if let Some(hit) = header_hit(x, y, (WIDTH, HEIGHT)) {
             return Some(hit);
         }
+        if menu.presentation == MenuPresentation::Columns && menu.palette.is_some()
+            && y >= f64::from(LUNA_FOOTER_Y) {
+            return luna_footer_hit(menu, x, y);
+        }
         match menu.presentation {
             MenuPresentation::Tabs if (f64::from(TAB_TOP)..f64::from(TAB_TOP + TAB_HEIGHT)).contains(&y) => {
                 let index = (x as usize * menu.groups.len()) / WIDTH as usize;
@@ -814,6 +849,53 @@ mod tests {
             search_text: format!("demo app {index}"),
             path: format!("/usr/share/applications/demo-{index}.desktop").into(),
         }).collect()
+    }
+
+    #[test]
+    fn luna_footer_actions_have_nonoverlapping_pointer_bounds_and_opt_in_only() {
+        let luna = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let menu = luna.menu.as_ref().unwrap();
+        let mut state = MenuState::default();
+        state.open();
+        for (x, expected) in [
+            (0.0, None), (6.0, None), (7.0, Some(Hit::FooterLock)),
+            (78.9, Some(Hit::FooterLock)), (79.0, None),
+            (85.0, None), (86.0, Some(Hit::FooterLogout)),
+            (182.9, Some(Hit::FooterLogout)), (183.0, None),
+            (200.0, None), (250.0, None), (251.0, Some(Hit::Close)),
+            (314.9, Some(Hit::Close)), (315.0, None),
+        ] {
+            assert_eq!(state.hit(menu, x, 291.0), expected, "x={x}");
+        }
+        assert_eq!(state.hit(menu, 20.0, 275.0), None);
+        assert_eq!(state.hit(menu, 20.0, 276.0), Some(Hit::FooterLock));
+        assert_eq!(state.hit(menu, 20.0, 303.9), Some(Hit::FooterLock));
+        assert_eq!(state.hit(menu, 20.0, 304.0), None);
+        assert_eq!(state.hit(menu, f64::NAN, 290.0), None);
+        assert_eq!(state.hit(menu, -2.0, 290.0), None);
+        // The existing compact menu continues to expose one Close target.
+        let size = fitted_size(320, 240, 40);
+        assert_eq!(state.compact_hit(menu, 20.0, f64::from(size.1 - 5), size),
+                   Some(Hit::Close));
+        // Palette-free columns must keep the pre-existing full-width Close.
+        let mut plain = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        plain.menu.as_mut().unwrap().palette = None;
+        assert_eq!(state.hit(plain.menu.as_ref().unwrap(), 20.0, 290.0),
+                   Some(Hit::Close));
+        let sidebar = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna.json"),
+            Some("xp-luna")).unwrap();
+        assert_eq!(state.hit(sidebar.menu.as_ref().unwrap(), 20.0, 290.0),
+                   Some(Hit::Close));
+        state.footer_hover = Some(Hit::FooterLock);
+        state.close();
+        assert_eq!(state.footer_hover, None);
+        state.open();
+        assert_eq!(state.footer_hover, None);
     }
 
     #[test]
@@ -1205,7 +1287,8 @@ mod tests {
         assert_eq!(state.hit(menu, 200.0, 210.0), Some(Hit::Action(6)));
         assert_eq!(state.hit(menu, 200.0, 238.0), Some(Hit::Action(7)));
         assert_eq!(state.hit(menu, 164.0, 120.0), None);
-        assert_eq!(state.hit(menu, 200.0, 290.0), Some(Hit::Close));
+        assert_eq!(state.hit(menu, 200.0, 290.0), None); // inert footer gap
+        assert_eq!(state.hit(menu, 275.0, 290.0), Some(Hit::Close));
 
         state.horizontal_by(menu, 1);
         assert_eq!(state.current_action(menu), Some("computer"));

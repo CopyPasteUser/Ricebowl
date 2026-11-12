@@ -53,18 +53,60 @@ pub fn shelf(canvas: &mut [u8], palette: MenuPalette) {
     fill_rect(canvas, w, h, w - 1, 38, 1, h - 66, 0xff83_a8df);
 }
 
-pub fn footer(canvas: &mut [u8], palette: MenuPalette) {
+/// Original bevelled footer buttons, using shared native_menu hit rectangles.
+/// Lock and Log off are actual session actions; Log off looks disabled when the
+/// compositor's supervised logout is unavailable (e.g. Creator preview).
+fn footer_button(canvas: &mut [u8], left: u32, right: u32, hovered: bool,
+                 disabled: bool, warm: bool) {
+    let (w, h) = (native_menu::WIDTH, native_menu::HEIGHT);
+    let y = native_menu::LUNA_FOOTER_Y + 3;
+    let span = right.saturating_sub(left);
+    let base = if disabled { 0xff64_7895 } else if warm { 0xffa8_5829 }
+               else { 0xff3d_70be };
+    let face = if hovered && !disabled { blend(base, 0xffff_ffff, 75) }
+               else { blend(base, 0xffff_ffff, 18) };
+    fill_rounded_rect(canvas, w, h, left, y, span, 22, 4,
+                      blend(base, 0xff00_1039, 94));
+    fill_rounded_rect(canvas, w, h, left + 1, y + 1, span.saturating_sub(2),
+                      19, 3, face);
+    fill_rect(canvas, w, h, left + 5, y + 2, span.saturating_sub(10), 1,
+              if disabled { 0xff91_a3bd } else { 0xffb9_d9ff });
+    // Small hand-painted lock/power glyph, not a Windows icon asset.
+    if warm {
+        fill_rounded_rect(canvas, w, h, left + 8, y + 6, 11, 11, 5,
+                          if disabled { 0xffa5_b5c9 } else { 0xffff_e6b2 });
+        fill_rect(canvas, w, h, left + 12, y + 4, 3, 8, face);
+    } else {
+        fill_rounded_rect(canvas, w, h, left + 9, y + 4, 10, 11, 5,
+                          0xffde_ecff);
+        fill_rect(canvas, w, h, left + 8, y + 10, 13, 8, 0xffff_cb68);
+        fill_rect(canvas, w, h, left + 14, y + 13, 2, 4, 0xff43_6191);
+    }
+}
+
+pub fn footer(canvas: &mut [u8], palette: MenuPalette,
+              hovered: Option<native_menu::Hit>, logout_enabled: bool) {
     let (w, h) = (native_menu::WIDTH, native_menu::HEIGHT);
     for y in h - 28..h {
         let shade = blend(palette.header, 0xff00_174e, 20 + (y - (h - 28)) * 3);
         fill_rect(canvas, w, h, 0, y, w, 1, shade);
     }
     fill_rect(canvas, w, h, 0, h - 28, w, 1, 0xff86_b4f3);
-    // The entire footer is an existing Close hit target; this is the visible,
-    // accurately positioned affordance for that working action.
-    fill_rounded_rect(canvas, w, h, w - 69, h - 24, 64, 20, 5, 0xff0c_327d);
-    fill_rounded_rect(canvas, w, h, w - 67, h - 23, 60, 17, 4, 0xff38_73c6);
-    fill_rect(canvas, w, h, w - 59, h - 21, 44, 1, 0xffa7_d8ff);
+    let lock = native_menu::LUNA_LOCK_RECT;
+    let logout = native_menu::LUNA_LOGOUT_RECT;
+    let close = native_menu::LUNA_CLOSE_RECT;
+    footer_button(canvas, lock.0, lock.1,
+                  hovered == Some(native_menu::Hit::FooterLock), false, false);
+    footer_button(canvas, logout.0, logout.1,
+                  hovered == Some(native_menu::Hit::FooterLogout), !logout_enabled, true);
+    // Close stays in its previous 64px region, with an independent hit target.
+    fill_rounded_rect(canvas, w, h, close.0, h - 24, close.1 - close.0,
+                      20, 5, 0xff0c_327d);
+    fill_rounded_rect(canvas, w, h, close.0 + 2, h - 23, close.1 - close.0 - 4,
+                      17, 4, if hovered == Some(native_menu::Hit::Close) {
+                          0xff66_9be0
+                      } else { 0xff38_73c6 });
+    fill_rect(canvas, w, h, close.0 + 10, h - 21, 44, 1, 0xffa7_d8ff);
 }
 
 /// Native XP-style green All Programs chevron. Its entire row remains the
@@ -169,6 +211,32 @@ mod tests {
     }
 
     #[test]
+    fn luna_footer_hover_and_logout_unavailability_are_painted_not_faked() {
+        let style = recipe::parse(include_str!("../../../examples/wayland/xp-luna-columns.json"),
+                                  Some("xp-luna-columns")).unwrap();
+        let palette = style.menu.unwrap().palette.unwrap();
+        let frame = || vec![0; (native_menu::WIDTH * native_menu::HEIGHT * 4) as usize];
+        let mut idle = frame();
+        footer(&mut idle, palette, None, true);
+        let mut locked = frame();
+        footer(&mut locked, palette, Some(native_menu::Hit::FooterLock), true);
+        let mut logged_out = frame();
+        footer(&mut logged_out, palette, Some(native_menu::Hit::FooterLogout), true);
+        let mut unavailable = frame();
+        footer(&mut unavailable, palette, Some(native_menu::Hit::FooterLogout), false);
+        // Distinct live hover states for only the actual button surfaces.
+        assert_ne!(at(&idle, 45, 287), at(&locked, 45, 287));
+        assert_eq!(at(&idle, 140, 287), at(&locked, 140, 287));
+        assert_ne!(at(&idle, 140, 287), at(&logged_out, 140, 287));
+        // Hovering an unavailable logout does not light up a fake action.
+        let mut disabled_idle = frame();
+        footer(&mut disabled_idle, palette, None, false);
+        assert_eq!(at(&disabled_idle, 140, 287), at(&unavailable, 140, 287));
+        assert_ne!(at(&idle, 140, 287), at(&unavailable, 140, 287));
+        assert_eq!(at(&idle, 217, 287), at(&locked, 217, 287));
+    }
+
+    #[test]
     fn menu_chrome_has_bevel_shelf_and_actionable_footer() {
         let style = recipe::parse(include_str!("../../../examples/wayland/xp-luna-columns.json"),
                                   Some("xp-luna-columns")).unwrap();
@@ -177,7 +245,7 @@ mod tests {
         let mut pixels = vec![0; (native_menu::WIDTH * native_menu::HEIGHT * 4) as usize];
         header(&mut pixels, palette);
         shelf(&mut pixels, palette);
-        footer(&mut pixels, palette);
+        footer(&mut pixels, palette, None, false);
         assert_ne!(at(&pixels, 100, 0), at(&pixels, 100, 29));
         assert_ne!(at(&pixels, 240, 48), at(&pixels, 240, 240));
         assert_ne!(at(&pixels, 280, native_menu::HEIGHT - 16),

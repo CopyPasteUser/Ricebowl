@@ -457,6 +457,24 @@ dbus-run-session -- sh -eu -c '
                     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-programs-back-$geometry.png"
                     cp "$runtime/xp-luna-pointer-programs-back-$geometry.png" \
                        "$source_root/dist/riceplate-native-preview/xp-luna-pointer-programs-back-$geometry.png"
+                    # The real full-size XP footer now has three independent
+                    # hit boxes. Move without clicking: do not lock CI or log
+                    # out the isolated labwc session during visual QA.
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 45 713 "$width" "$height"
+                    sleep 0.25
+                    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-footer-lock-hover-$geometry.png"
+                    cp "$runtime/xp-luna-footer-lock-hover-$geometry.png" \
+                       "$source_root/dist/riceplate-native-preview/xp-luna-footer-lock-hover-$geometry.png"
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 138 713 "$width" "$height"
+                    sleep 0.25
+                    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-footer-logout-hover-$geometry.png"
+                    cp "$runtime/xp-luna-footer-logout-hover-$geometry.png" \
+                       "$source_root/dist/riceplate-native-preview/xp-luna-footer-logout-hover-$geometry.png"
+                    if cmp -s "$runtime/xp-luna-footer-lock-hover-$geometry.png" \
+                              "$runtime/xp-luna-footer-logout-hover-$geometry.png"; then
+                        echo "XP Luna native Lock footer hover did not redraw independently" >&2
+                        exit 1
+                    fi
                     # Exercise real labwc pointer motion across the new XP
                     # places and existing Session rows on 1024x768. The popup
                     # starts at screen y=424; native hit centers are y=80 and

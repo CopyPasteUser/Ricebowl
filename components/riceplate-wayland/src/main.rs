@@ -1199,6 +1199,20 @@ impl RicePlate {
                           if self.menu_state.view == native_menu::View::Saved {
                               "Back to menu groups"
                           } else { "Show saved actions" }, Some(Target::MenuSaved));
+                // The opt-in full-size Luna footer contains two additional
+                // genuine buttons. Expose their own AT-SPI nodes; compact and
+                // palette-free menu trees must not announce invisible controls.
+                if menu.presentation == recipe::MenuPresentation::Columns
+                    && menu.palette.is_some() && !compact {
+                    model.add(20_993, 20_000, AccessibleRole::Button,
+                              "Lock screen (Start footer)",
+                              Some(Target::MenuAction("lock".to_string())));
+                    let can_logout = logout_available();
+                    model.add(20_994, 20_000, AccessibleRole::Button,
+                              if can_logout { "Log off (Start footer)" }
+                              else { "Log off unavailable (Start footer)" },
+                              can_logout.then(|| Target::MenuAction("logout".to_string())));
+                }
                 model.add(20_999, 20_000, AccessibleRole::Button,
                           "Close menu", Some(Target::MenuClose));
                 if self.menu_focused {
@@ -3795,9 +3809,41 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
     }
     }
     if luna_columns {
-        menu_chrome::footer(canvas, menu.palette.unwrap());
+        menu_chrome::footer(canvas, menu.palette.unwrap(), state.footer_hover,
+                            logout_available());
     } else if columns {
         fill_rect(canvas, width, height, 0, height - 28, width, 28, header);
+    }
+    if luna_columns {
+        // Three original XP-style footer buttons, all backed by fixed native
+        // actions. Avoid painting the legacy shortcut hint under real controls.
+        let caption = |x: u32, value: &str, color: u32, canvas: &mut [u8]| {
+            draw_rice_text(canvas, width, height, x, height - 16, value, color, style);
+        };
+        caption(31, "Lock", header_fg, canvas);
+        caption(109, "Log off", if logout_available() { header_fg }
+                else { 0xffb9_c9e0 }, canvas);
+        caption(261, "Close", header_fg, canvas);
+        // Moving real controls into the footer must not silently remove the
+        // action feedback / keyboard discovery it previously provided. The
+        // left shelf has a free strip above its first action; bound text to
+        // the pane so it cannot paint across the system column.
+        let status = state.notice.unwrap_or(match state.view {
+            native_menu::View::Programs => "Enter open  Esc back",
+            native_menu::View::Search => "Find  F2 Pin",
+            native_menu::View::Saved => "F2 Remove  F3 Back",
+            native_menu::View::Groups => "F2 Pin  F3 Saved",
+        });
+        let available_chars = (native_menu::COLUMNS_SPLIT.saturating_sub(20)
+            / (8 * style.font_scale.max(1))) as usize;
+        draw_rice_text(canvas, width, height, 12, 47,
+                       &status.chars().take(available_chars).collect::<String>(),
+                       fg, style);
+        // Keep the genuine range indicator visible on long search pages.
+        if let Some((start, end, total)) = state.page_status(menu, native_menu::VISIBLE_ACTIONS) {
+            caption(190, &format!("{start}-{end}/{total}"), header_fg, canvas);
+        }
+        return;
     }
     // On a long list the visible row range must be discoverable without a
     // keyboard shortcut. Keep the counter right-aligned and bound the hint so
@@ -5439,6 +5485,14 @@ impl PointerHandler for RicePlate {
                     }
                     continue;
                 }
+                // A pointer leaving the menu must not strand a lit footer
+                // button when another window or output takes the hover.
+                if matches!(event.kind, PointerEventKind::Leave { .. }) {
+                    if self.menu_state.footer_hover.take().is_some() {
+                        self.redraw_menu(qh);
+                    }
+                    continue;
+                }
                 // Hover and keyboard selection share one state. Update only
                 // on a changed action to avoid repainting on every motion.
                 if matches!(event.kind, PointerEventKind::Motion { .. })
@@ -5447,12 +5501,23 @@ impl PointerHandler for RicePlate {
                         let hit = if compact {
                             self.menu_state.compact_hit(menu, pointer.0, pointer.1, menu_size)
                         } else { self.menu_state.hit(menu, pointer.0, pointer.1) };
+                        let hovered = if !compact && menu.presentation == recipe::MenuPresentation::Columns
+                            && menu.palette.is_some() {
+                            match hit {
+                                Some(MenuHit::FooterLock | MenuHit::FooterLogout | MenuHit::Close)
+                                    => hit,
+                                _ => None,
+                            }
+                        } else { None };
+                        let mut changed = self.menu_state.footer_hover != hovered;
+                        self.menu_state.footer_hover = hovered;
                         if let Some(MenuHit::Action(index)) = hit {
                             if self.menu_state.selected != index {
                                 self.menu_state.selected = index;
-                                self.redraw_menu(qh);
+                                changed = true;
                             }
                         }
+                        if changed { self.redraw_menu(qh); }
                     }
                     continue;
                 }
@@ -5543,6 +5608,15 @@ impl PointerHandler for RicePlate {
                                 }
                             }
                             Some(MenuHit::Close) => self.set_menu_visible(false, qh),
+                            Some(MenuHit::FooterLock) if !compact => {
+                                self.activate_action("lock", qh);
+                            }
+                            Some(MenuHit::FooterLogout) if !compact => {
+                                if logout_available() {
+                                    self.activate_action("logout", qh);
+                                }
+                            }
+                            Some(MenuHit::FooterLock | MenuHit::FooterLogout) => {},
                             None => {}
                         }
                     }
@@ -6371,6 +6445,31 @@ mod tests {
         paint_menu(&mut canvas, menu, &style, &state);
         assert_eq!(pixel(&canvas, 176, 80), palette.header); // current right action
         assert_eq!(pixel(&canvas, 12, 110), palette.background);
+    }
+
+    #[test]
+    fn luna_footer_keeps_action_feedback_visible_without_repainting_real_buttons() {
+        let style = recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let menu = style.menu.as_ref().unwrap();
+        let frame = || vec![0; (native_menu::WIDTH * native_menu::HEIGHT * 4) as usize];
+        let mut state = native_menu::MenuState::default();
+        state.open();
+        let mut idle = frame();
+        paint_menu(&mut idle, menu, &style, &state);
+        let mut notice = frame();
+        state.notice = Some("Action pinned");
+        paint_menu(&mut notice, menu, &style, &state);
+        let strip = |pixels: &[u8]| (47_u32..63).flat_map(|y|
+            (12_u32..native_menu::COLUMNS_SPLIT).flat_map(move |x| {
+                let index = ((y * native_menu::WIDTH + x) * 4) as usize;
+                pixels[index..index + 4].to_vec()
+            })).collect::<Vec<_>>();
+        assert_ne!(strip(&idle), strip(&notice), "Luna must retain menu feedback");
+        let footer = (native_menu::LUNA_FOOTER_Y * native_menu::WIDTH * 4) as usize;
+        assert_eq!(&idle[footer..], &notice[footer..],
+                   "A transient notice must not corrupt real footer buttons");
     }
 
     #[test]
