@@ -173,7 +173,7 @@ class ShellV4Tests(unittest.TestCase):
         self.assertEqual(actions, [
             {"name": "Execute", "command": "fuzzel"},
             {"name": "Execute", "command": "foot"},
-            {"name": "Execute", "command": "swaylock -f"},
+            {"name": "Execute", "command": "ricebowl de lock"},
             {"name": "Exit"},
         ])
         # Even a custom menu that omits logout must retain an emergency exit.
