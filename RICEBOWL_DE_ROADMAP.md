@@ -879,9 +879,14 @@ must not be represented as blockers for the Wayland DE 1.0 core release.
   row selection, manual refresh, guarded revision-based copy-back and confirmed
   clearing, with no clipboard persistence or implicit watcher. The indexed
   history race is handled by a backwards-compatible per-watcher revision in
-  the socket protocol. This remains **CI-gated**; RicePlate menu invocation,
-  pins, retention settings, cross-rice presentation and device QA are still
-  unfinished, so the parent checkbox must remain open.
+  the socket protocol. **12 Nov native-action candidate:** the allowlisted
+  `clip-history` action now opens this GTK client from RicePlate menus,
+  native panel action components and the optional Waybar/labwc fallback,
+  without starting the watcher. The normal XP-Luna sidebar and the distinct
+  Heritage demo expose it; the size-constrained Luna-Columns six-row shelf
+  remains unchanged. An isolated compositor pointer test must still pass CI.
+  Native in-menu history rendering, pins, retention settings, cross-rice
+  presentation and device QA remain unfinished; the checkbox stays open.
 - [ ] Keep history **off until explicitly enabled**; default to session-only
   memory, clear on logout/lock or user action, and never log clipboard contents.
   The foreground prototype already stays off by default and clears on exit or
