@@ -22,6 +22,10 @@ def calendar_matches(paths: list[Path]) -> list[int]:
         with Image.open(path) as image:
             if image.format != "PNG" or min(image.size) < 480:
                 raise ValueError("Invalid native calendar capture")
+            # Validate the complete framebuffer before trusting a header pixel.
+            # Partial PNGs can retain the sampled calendar region while the
+            # remaining Wayland capture is corrupt or missing.
+            image.load()
             x = image.width - 336 - 8 + 20
             y = image.height - 36 - 352 + 10
             rgb = image.convert("RGB").getpixel((x, y))
