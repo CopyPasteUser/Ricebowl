@@ -257,7 +257,7 @@ result = lock_screen(
     run=confirmed,
 )
 assert acknowledged == [("/ci/fake-swaylock", "-f")]
-assert result == {"locked": True, "riceclip_cleared": True}
+assert result == {"locked": True, "riceclip_cleared": True, "riceclip_inactive": False}
 assert clip.request("status")["count"] == 0
 assert clip.request("status")["pinned_count"] == 0
 PY
