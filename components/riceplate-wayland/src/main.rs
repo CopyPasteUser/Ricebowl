@@ -483,6 +483,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         focused_icon: None,
         keyboard_icon_surface: None,
         desktop_selection: desktop_selection::Selection::default(),
+        selection_modifiers: Modifiers::default(),
         desktop_context: None,
         context_generation: 0,
         context_focused: false,
@@ -906,6 +907,7 @@ struct RicePlate {
     focused_icon: Option<usize>,
     keyboard_icon_surface: Option<wl_surface::WlSurface>,
     desktop_selection: desktop_selection::Selection,
+    selection_modifiers: Modifiers,
     desktop_context: Option<DesktopContextLayer>,
     // Invalidates pending AT-SPI actions when menus reopen or change views.
     context_generation: u64,
@@ -943,20 +945,39 @@ struct RicePlate {
 }
 
 impl RicePlate {
-    fn select_luna_icon(&mut self, index: usize) {
+    fn luna_icon_peers(&self, index: usize) -> Vec<bool> {
+        let Some(source) = self.icon_layers.get(index) else { return Vec::new() };
+        // Layer identity, not a recipe shortcut action: repeated shortcuts on
+        // independent monitors must not share one selection.
+        self.icon_layers.iter().map(|icon|
+            icon.placed.is_some() && icon.bound_output == source.bound_output
+        ).collect()
+    }
+
+    fn select_luna_icon_mode(&mut self, index: usize, mode: desktop_selection::Mode) {
         if self.recipe.id != "xp-luna-columns" { return; }
-        let previous = self.desktop_selection.select(index);
-        if previous != Some(index) {
-            if let Some(old) = previous { self.redraw_icon(old); }
-            self.redraw_icon(index);
+        let peers = self.luna_icon_peers(index);
+        for changed in self.desktop_selection.choose(index, mode, &peers) {
+            self.redraw_icon(changed);
+        }
+    }
+
+    fn select_luna_icon(&mut self, index: usize) {
+        self.select_luna_icon_mode(index, desktop_selection::Mode::Replace);
+    }
+
+    fn select_all_luna_icons(&mut self, index: usize) {
+        if self.recipe.id != "xp-luna-columns" { return; }
+        let peers = self.luna_icon_peers(index);
+        for changed in self.desktop_selection.all_on_output(&peers, index) {
+            self.redraw_icon(changed);
         }
     }
 
     fn clear_luna_selection(&mut self) {
         if self.recipe.id != "xp-luna-columns" { return; }
-        if let Some(old) = self.desktop_selection.clear() { self.redraw_icon(old); }
+        for changed in self.desktop_selection.clear_all() { self.redraw_icon(changed); }
     }
-
 
     fn close_desktop_context(&mut self) {
         self.context_focused = false;
@@ -1187,9 +1208,13 @@ impl RicePlate {
                 if let Some(item) = self.recipe.desktop_icons.get(icon.recipe_index) {
                     let assignment = self.icon_outputs.owner(icon.recipe_index)
                         .map_or("mirrored on all displays", |_| "assigned to one display");
+                    let selection_state = if self.recipe.id == "xp-luna-columns" {
+                        if self.desktop_selection.is_selected(index) { ", selected" }
+                        else { ", not selected" }
+                    } else { "" };
                     model.add(30_100 + index as u64, 30_000, AccessibleRole::Button,
-                              format!("{}, {}; F6 next display, F7 all displays",
-                                      item.label, assignment),
+                              format!("{}, {}{}; F6 next display, F7 all displays",
+                                      item.label, assignment, selection_state),
                               Some(Target::DesktopIcon(index)));
                 }
             }
@@ -1827,7 +1852,8 @@ impl RicePlate {
         let before = self.icon_layers.len();
         self.icon_layers.retain(|icon| icon.bound_output.as_ref()
             .is_none_or(|output| outputs.contains(output)));
-        if before != self.icon_layers.len() {
+        let icons_removed = before != self.icon_layers.len();
+        if icons_removed {
             self.desktop_selection.clear();
             // Layer indices can shift after hot-unplug. Never leave an icon
             // keyboard target or drag pointing at a different surface.
@@ -1905,6 +1931,14 @@ impl RicePlate {
             }
         }
         self.reflow_icons();
+        if icons_removed {
+            // Existing icon surfaces may keep an old selection highlight even
+            // when their placement did not change during unplug. Refresh the
+            // survivors once; indices were invalidated by retain().
+            for index in 0..self.icon_layers.len() {
+                self.redraw_icon(index);
+            }
+        }
         self.menu_mirrors.retain(|menu|
             menu.output.as_ref().is_some_and(|output| outputs.contains(output)));
         if self.menu_layer.is_some() {
@@ -2543,7 +2577,7 @@ impl RicePlate {
         paint_icon(canvas, icon, &self.recipe,
                    self.focused_icon == Some(index)
                        || (self.recipe.id == "xp-luna-columns"
-                           && self.desktop_selection.selected() == Some(index)), icon_pixels);
+                           && self.desktop_selection.is_selected(index)), icon_pixels);
         surface.damage_buffer(0, 0, width as i32, height as i32);
         if let Err(error) = buffer.attach_to(surface) {
             eprintln!("RicePlate: desktop icon attach failed: {error}");
@@ -2887,6 +2921,13 @@ impl RicePlate {
             if restored {
                 self.redraw_icon(index);
             }
+        }
+        // No stale selection is retained after output loss or a compact
+        // layout hides its icon. This also invalidates a pending double click.
+        let visible: Vec<bool> = self.icon_layers.iter()
+            .map(|layer| layer.placed.is_some()).collect();
+        for changed in self.desktop_selection.retain_visible(&visible) {
+            self.redraw_icon(changed);
         }
         for index in 0..self.widget_layers.len() {
             let layer = &self.widget_layers[index];
@@ -5286,6 +5327,9 @@ impl SeatHandler for RicePlate {
             self.desktop_selection.cancel();
             self.save_icon_positions();
         } else if capability == Capability::Keyboard {
+            // A removed keyboard never sends release/modifier updates.
+            self.selection_modifiers = Modifiers::default();
+            self.desktop_selection.cancel();
             if let Some(keyboard) = self.keyboard.take() {
                 keyboard.release();
             }
@@ -5359,7 +5403,10 @@ impl KeyboardHandler for RicePlate {
         if self.focused_icon != next {
             let previous = self.focused_icon;
             self.focused_icon = next;
-            if let Some(index) = next { self.select_luna_icon(index); }
+            // The focused surface is not necessarily selected: pointer focus
+            // arrives before the Ctrl-click. Selecting on focus-enter would
+            // silently invert a fresh Ctrl-toggle. Pointer press and explicit
+            // keyboard navigation own selection changes instead.
             if let Some(index) = previous { self.redraw_icon(index); }
             if let Some(index) = next { self.redraw_icon(index); }
             self.save_icon_positions();
@@ -5386,6 +5433,10 @@ impl KeyboardHandler for RicePlate {
         surface: &wl_surface::WlSurface,
         _: u32,
     ) {
+        // Compositors do not deliver key releases to unfocused surfaces.
+        // Never carry a stale Ctrl/Shift into the next icon pointer press.
+        self.selection_modifiers = Modifiers::default();
+        self.desktop_selection.cancel();
         if self.desktop_context.as_ref().is_some_and(|menu|
             menu.surface.wl_surface() == surface) && self.context_focused {
             self.close_desktop_context();
@@ -5558,12 +5609,30 @@ impl KeyboardHandler for RicePlate {
                     let delta = if event.keysym == Keysym::ISO_Left_Tab { -1 } else { 1 };
                     if let Some(next) = desktop_layout::navigate(&visible, index, delta) {
                         self.focused_icon = Some(next);
-                        self.select_luna_icon(next);
+                        let mode = if self.selection_modifiers.shift
+                            && self.recipe.id == "xp-luna-columns" {
+                            desktop_selection::Mode::Range
+                        } else { desktop_selection::Mode::Replace };
+                        self.select_luna_icon_mode(next, mode);
                         self.redraw_icon(index);
                         self.redraw_icon(next);
                     }
                 }
+                Keysym::a | Keysym::A if self.selection_modifiers.ctrl
+                    && self.recipe.id == "xp-luna-columns" => {
+                    self.select_all_luna_icons(index);
+                }
+                Keysym::space if self.selection_modifiers.ctrl
+                    && self.recipe.id == "xp-luna-columns" => {
+                    self.select_luna_icon_mode(index, desktop_selection::Mode::Toggle);
+                }
                 Keysym::Menu if self.recipe.id == "xp-luna-columns" => {
+                    self.open_desktop_context(index, (52.0, 42.0), qh);
+                }
+                Keysym::F10 if self.recipe.id == "xp-luna-columns"
+                    && self.selection_modifiers.shift => {
+                    // Standard keyboard equivalent of the context-menu key.
+                    // The popup still targets just the focused shortcut.
                     self.open_desktop_context(index, (52.0, 42.0), qh);
                 }
                 Keysym::Return | Keysym::KP_Enter | Keysym::space => {
@@ -5586,6 +5655,7 @@ impl KeyboardHandler for RicePlate {
                 Keysym::F6 => self.assign_icon_to_next_output(index),
                 Keysym::F7 => self.mirror_icon_on_all_outputs(index),
                 Keysym::Escape => {
+                    self.clear_luna_selection();
                     self.save_icon_positions();
                 }
                 _ => {}
@@ -5814,10 +5884,16 @@ impl KeyboardHandler for RicePlate {
         _: &QueueHandle<Self>,
         _: &wl_keyboard::WlKeyboard,
         _: u32,
-        _: Modifiers,
+        modifiers: Modifiers,
         _: RawModifiers,
         _: u32,
     ) {
+        self.selection_modifiers = modifiers;
+        // A held Ctrl/Shift modifier invalidates any pending plain double
+        // click even if the focus stays on the same shortcut.
+        if modifiers.ctrl || modifiers.shift {
+            self.desktop_selection.cancel();
+        }
     }
 }
 
@@ -6173,12 +6249,24 @@ impl PointerHandler for RicePlate {
                     }
                     PointerEventKind::Press { button: BTN_LEFT, .. } => {
                         self.close_desktop_context();
-                        self.select_luna_icon(index);
-                        if let Some(position) = self.icon_layers[index].placed {
-                            self.icon_drag = Some(IconDrag {
-                                index, anchor: event.position, started: position, moved: false,
-                                original_positions: self.icon_outputs.clone(),
-                            });
+                        let mode = if self.recipe.id == "xp-luna-columns" {
+                            if self.selection_modifiers.ctrl {
+                                desktop_selection::Mode::Toggle
+                            } else if self.selection_modifiers.shift {
+                                desktop_selection::Mode::Range
+                            } else { desktop_selection::Mode::Replace }
+                        } else { desktop_selection::Mode::Replace };
+                        self.select_luna_icon_mode(index, mode);
+                        // Modified selections are not draggable and never
+                        // count toward the plain double-click launch sequence.
+                        self.icon_drag = None;
+                        if mode == desktop_selection::Mode::Replace {
+                            if let Some(position) = self.icon_layers[index].placed {
+                                self.icon_drag = Some(IconDrag {
+                                    index, anchor: event.position, started: position, moved: false,
+                                    original_positions: self.icon_outputs.clone(),
+                                });
+                            }
                         }
                     }
                     PointerEventKind::Motion { .. } => {
