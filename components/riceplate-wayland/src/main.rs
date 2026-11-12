@@ -2016,6 +2016,9 @@ impl RicePlate {
             "applications" => ("fuzzel", &[]),
             "terminal" => ("foot", &[]),
             "settings" => ("ricebowl", &["de", "settings"]),
+            // Strict, fixed argv: this opens the on-demand GTK browser only.
+            // The session-only clipboard watcher is never started implicitly.
+            "clip-history" => ("ricebowl", &["de", "clip", "--clip-op", "gui"]),
             "lock" => ("swaylock", &["-f"]),
             "logout" => ("labwc", &["--exit"]),
             _ => return, // Validated recipe contract disallows other IDs.
