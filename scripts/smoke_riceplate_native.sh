@@ -709,6 +709,40 @@ PY
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-shortcut-context.png"
             cp "$runtime/xp-luna-shortcut-context.png" \
                "$source_root/dist/riceplate-native-preview/xp-luna-shortcut-context.png"
+            # Real pointer-driven properties transition on the SAME bounded
+            # output-local popup. No shortcut launch, no external settings app.
+            # Properties row is the fifth row (148..175), Back is at 150..177.
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 88 596 1366 768
+            sleep 0.3
+            if [ -e "$runtime/trash-gio.log" ]; then
+                echo "Luna properties unexpectedly launched a shortcut" >&2
+                exit 1
+            fi
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-shortcut-properties.png"
+            cp "$runtime/xp-luna-shortcut-properties.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-shortcut-properties.png"
+            /usr/bin/python3 - "$runtime/xp-luna-shortcut-context.png" \
+                "$runtime/xp-luna-shortcut-properties.png" <<'PY'
+from PIL import Image, ImageChops
+import sys
+with Image.open(sys.argv[1]) as menu, Image.open(sys.argv[2]) as details:
+    menu.load()
+    details.load()
+    if menu.size != (1366, 768) or details.size != menu.size:
+        raise SystemExit("Luna properties screenshot geometry changed")
+    # Popup is output-local; check the actual compositor pixels, not just
+    # that both PNGs exist or have different metadata.
+    region = (68, 435, 292, 625)
+    if ImageChops.difference(menu.crop(region).convert("RGB"),
+                            details.crop(region).convert("RGB")).getbbox() is None:
+        raise SystemExit("Luna properties did not redraw its native popup")
+PY
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 88 596 1366 768
+            sleep 0.15
+            if [ -e "$runtime/trash-gio.log" ]; then
+                echo "Luna properties Back unexpectedly launched a shortcut" >&2
+                exit 1
+            fi
             # Popup anchored at (68,435); Open occupies row 36..63.
             WAYLAND_DISPLAY=wayland-0 "$clicker" 88 485 1366 768
             count=0
