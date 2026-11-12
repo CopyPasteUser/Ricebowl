@@ -991,14 +991,9 @@ impl RicePlate {
         let can_move = output_names.len() > 1;
         // Only named-output overrides can be reset safely. Never claim to
         // restore source coordinates from an already mutated global recipe.
-        let can_reset = self.icon_output_name(index)
-            .and_then(|name| self.icon_outputs
-                .for_output(&name, self.recipe.desktop_icons.len())
-                .and_then(|positions| positions.get(recipe_index).copied()))
-            .is_some_and(|saved| {
-                let base = &self.recipe.desktop_icons[recipe_index];
-                saved.x != base.x || saved.y != base.y
-            });
+        let can_reset = self.icon_output_name(index).is_some_and(|name|
+            self.icon_outputs.can_reset_position(
+                &name, &self.recipe.desktop_icons, recipe_index));
         self.icon_drag = None;
         self.desktop_selection.cancel();
         self.select_luna_icon(index);
@@ -2794,19 +2789,19 @@ impl RicePlate {
         let Some(layer) = self.icon_layers.get(layer_index) else { return };
         let recipe_index = layer.recipe_index;
         let Some(name) = self.icon_output_name(layer_index) else { return };
-        let Some(base) = self.recipe.desktop_icons.get(recipe_index) else { return };
-        let coords = icon_positions::Coordinates { x: base.x, y: base.y };
         // The named layout is the only mutable target. Keep the recipe,
         // shortcuts on other displays, and cross-display ownership intact.
-        if let Err(error) = self.icon_outputs.set(
-            &name, &self.recipe.desktop_icons, recipe_index, coords,
+        match self.icon_outputs.reset_position(
+            &name, &self.recipe.desktop_icons, recipe_index,
         ) {
-            eprintln!("RicePlate: cannot reset icon position: {error}");
-            return;
+            Ok(true) => {
+                self.reflow_icons();
+                self.icon_position_dirty = true;
+                self.save_icon_positions();
+            }
+            Ok(false) => {}
+            Err(error) => eprintln!("RicePlate: cannot reset icon position: {error}"),
         }
-        self.reflow_icons();
-        self.icon_position_dirty = true;
-        self.save_icon_positions();
     }
 
     fn mirror_icon_on_all_outputs(&mut self, layer_index: usize) {
