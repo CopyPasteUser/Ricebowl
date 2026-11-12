@@ -387,3 +387,19 @@ acceptance and a fully native high-resolution menu remain open.
 - Both actions use the user's valid XDG PICTURES/MUSIC locations or an existing conventional directory. Absent folders are reported as unavailable; no silent home-directory fallback, shell command or background service.
 - Previous six-action columns keep their 28px rows; non-Luna layouts and the XFCE/X11 profile are unchanged.
 - Rust unit tests cover the new action schema, 8-row interaction bounds and media lookup. Native compositor screenshot and physical Mint/ThinkPad acceptance are **pending** until CI/hardware validation.
+
+### Native XP Luna: selected desktop shortcuts and double-click activation (12 November 2026)
+
+- The opt-in `xp-luna-columns` desktop now uses a selected blue label and
+  double-click to open shortcuts (second click within 650 ms / 8 logical px).
+  Pointer dragging and monitor reflow cancel pending activation; repeatable
+  shortcuts on different outputs never trigger each other.
+- Keyboard Enter/Space and AT-SPI activation remain immediate, including for
+  users unable to double-click. Non-Luna profiles preserve single-click
+  activation and their existing icon rendering.
+- Rust regression tests cover initial selection, elapsed time, pointer drift,
+  invalid coordinates, reflow cancellation and pixel rendering. The existing
+  headless-labwc smoke now proves one mouse click does not call Gio, while two
+  new clicks activate Recycle Bin through an isolated Gio stand-in.
+- A native background right-click context menu and physical mouse/trackpad
+  behavior are separate outstanding tasks, not claimed as complete.

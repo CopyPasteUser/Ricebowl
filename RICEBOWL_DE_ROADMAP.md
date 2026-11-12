@@ -1805,3 +1805,12 @@ recoverable as a desktop environment. RAM targets are measured, not promised.
 - [XDG Desktop Portal documentation](https://flatpak.github.io/xdg-desktop-portal/docs/)
 - [Current XFCE service ownership](XFCE_RESOURCE_BOUNDARIES.md)
 - [RicePlate X11 preview and gates](RICEPLATE_DESKTOP_ROADMAP.md)
+
+### XP Luna native desktop input fidelity (12 November 2026)
+
+Opt-in mouse single-selection, blue shortcut highlighting, bounded timed
+double-click activation and drag cancellation are implemented in RicePlate.
+The CI test uses real compositor pointer events and a private Gio spy;
+keyboard and accessibility actions remain one-step. Physical Wayland QA,
+per-shortcut context menus and desktop-wide selection outside the small
+non-input-stealing icon surfaces remain open.

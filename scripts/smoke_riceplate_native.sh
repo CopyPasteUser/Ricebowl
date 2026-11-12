@@ -665,10 +665,22 @@ PY
             done
             WAYLAND_DISPLAY=wayland-0 wlr-randr --output "$output" --custom-mode 1366x768@60Hz --scale 1
             sleep 0.5
-            # Actual labwc-delivered left-click on the fourth Luna desktop
-            # icon (24,400; 104x88). Capture exact Gio argv in a private
-            # stand-in; no host trash backend or user files are touched.
+            # XP semantics: first compositor-delivered click selects;
+            # two subsequent clicks within 650 ms activate the safe Gio target.
+            # All events run in isolated labwc with a private Gio stand-in.
             test ! -e "$runtime/trash-gio.log"
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 68 435 1366 768
+            sleep 0.2
+            if [ -e "$runtime/trash-gio.log" ]; then
+                echo "Luna single-select unexpectedly opened a desktop location" >&2
+                exit 1
+            fi
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-icon-selected.png"
+            cp "$runtime/xp-luna-icon-selected.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-icon-selected.png"
+            # Expire the initial click, then immediately perform a fresh pair.
+            sleep 0.85
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 68 435 1366 768
             WAYLAND_DISPLAY=wayland-0 "$clicker" 68 435 1366 768
             count=0
             while [ ! -s "$runtime/trash-gio.log" ] && [ "$count" -lt 25 ]; do
@@ -685,7 +697,7 @@ PY
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-recycle-bin-click.png"
             cp "$runtime/xp-luna-recycle-bin-click.png" \
                "$source_root/dist/riceplate-native-preview/xp-luna-recycle-bin-click.png"
-            echo "Verified real Luna Recycle Bin pointer activation through isolated Gio stand-in"
+            echo "Verified Luna single-select and double-open through real pointer/Gio events"
         fi
         if [ "$label" = overflow-v5 ]; then
             # Separate recipe deliberately requests x=4090 on a 1024px output.
