@@ -220,6 +220,34 @@ mod tests {
     }
 
     #[test]
+    fn substituted_ricebowl_root_is_rejected_without_touching_history() {
+        let location = location();
+        save_at(&location, RICE_ID, &[]).unwrap();
+        let root = location.parent().unwrap().parent().unwrap();
+        let replacement = root.with_file_name("ricebowl-replacement");
+        fs::rename(root, &replacement).unwrap();
+        symlink(&replacement, root).unwrap();
+        assert!(restore_at(&location, RICE_ID).is_err());
+        assert!(save_at(&location, RICE_ID, &[]).is_err());
+        fs::remove_file(root).unwrap();
+        fs::rename(&replacement, root).unwrap();
+        fs::remove_dir_all(location.ancestors().nth(3).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn non_private_history_parent_is_rejected() {
+        let location = location();
+        save_at(&location, RICE_ID, &[]).unwrap();
+        let directory = location.parent().unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(directory, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(restore_at(&location, RICE_ID).is_err());
+        assert!(save_at(&location, RICE_ID, &[]).is_err());
+        fs::set_permissions(directory, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::remove_dir_all(location.ancestors().nth(3).unwrap()).unwrap();
+    }
+
+    #[test]
     fn nofollow_and_private_file_rules_preserve_unmanaged_data() {
         let location = location();
         save_at(&location, RICE_ID, &[]).unwrap();
