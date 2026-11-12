@@ -122,6 +122,15 @@ class ClipBrowserModelTests(unittest.TestCase):
                           clip_ui.visible_rows(snapshot, "GRÜßE")], [1])
         self.assertEqual(clip_ui.visible_rows(snapshot, "not in previews"), ())
 
+    def test_empty_and_filtered_history_have_explicit_ui_states(self):
+        empty = clip_ui.ClipSnapshot(0, "a" * 32, False, ())
+        self.assertIn("No clipboard text", clip_ui.snapshot_message(empty, ""))
+        paused = clip_ui.ClipSnapshot(
+            4, "a" * 32, True, (clip_ui.ClipRow(0, "hello", 5),))
+        self.assertIn("No previews match", clip_ui.snapshot_message(paused, "not here"))
+        self.assertIn("Paused", clip_ui.snapshot_message(paused, "hello"))
+        self.assertIn("1 item", clip_ui.snapshot_message(paused, "hello"))
+
     def test_status_list_race_retries_then_fails_closed(self):
         with mock.patch.object(clip_ui.clip, "request",
                                side_effect=[self._status(5), self._listing(6),
