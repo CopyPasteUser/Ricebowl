@@ -1841,6 +1841,21 @@ desktop input capture, custom labwc behavior or automatic filesystem writes.
 Physical mouse, multi-output hotplug and focus QA still gate the release;
 desktop background right-click and file-properties remain open work.
 
+### Native XP Luna X11 parity sprint (12 November 2026)
+
+- [x] XP-style Run and Help link semantics in the opt-in native Start menu;
+  preserve existing Places, Session and footer, use compact ten-row hitbox.
+- [x] Rust/Python/Creator schema parity for safe bounded menu action bindings.
+- [x] Native Run/Help dialog surfaces, input validation, direct process argv,
+  real error states, on-demand allocation, pointer/keyboard access.
+- [x] Add compositor-backed screenshot regression for Start/Help/Run/error.
+- [ ] Complete X11-style category Control Panel and Help Center depth.
+- [ ] Match X11 pinned Internet/mail/recents and recent file submenu.
+- [ ] Integrate RiceField Explorer navigation and device/volume views.
+- [ ] Complete accessibility/input-method/hardware sign-off on Mint laptop.
+
+[Full X11-versus-Wayland XP feature matrix](WAYLAND_XP_LUNA_PARITY.md).
+
 ### XP Luna / RiceField 1.0 integration (12 November 2026)
 
 The native Luna shell now delegates real local drive and XDG user-folder
