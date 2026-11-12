@@ -130,8 +130,8 @@ cat >"$runtime/mock-bin/ricebowl" <<"CLIP_CLI"
 set -eu
 [ "$#" -eq 4 ] && [ "$1" = de ] && [ "$2" = clip ] \
     && [ "$3" = --clip-op ] && [ "$4" = gui ] || exit 64
-printf "%s\n" "$1" "$2" "$3" "$4" >"$RICEBOWL_CI_CLIP_LOG"
 printf "%s\n" "$" >"$RICEBOWL_CI_CLIP_PID"
+printf "%s\n" "$1" "$2" "$3" "$4" >"$RICEBOWL_CI_CLIP_LOG"
 exec /usr/bin/python3 -B "$RICEBOWL_CI_SOURCE_ROOT/launcher.py" "$@"
 CLIP_CLI
 chmod 0700 "$runtime/mock-bin/ricebowl"
