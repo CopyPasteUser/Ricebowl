@@ -130,9 +130,17 @@ cat >"$runtime/mock-bin/ricebowl" <<"CLIP_CLI"
 set -eu
 [ "$#" -eq 4 ] && [ "$1" = de ] && [ "$2" = clip ] \
     && [ "$3" = --clip-op ] && [ "$4" = gui ] || exit 64
-printf "%s\n" "$" >"$RICEBOWL_CI_CLIP_PID"
-printf "%s\n" "$1" "$2" "$3" "$4" >"$RICEBOWL_CI_CLIP_LOG"
-exec /usr/bin/python3 -B "$RICEBOWL_CI_SOURCE_ROOT/launcher.py" "$@"
+# The wrapper shell becomes this Python process. Record the actual PID
+# directly, without relying on shell PID expansion in a generated script.
+exec /usr/bin/python3 -B -c '
+import os
+import sys
+from pathlib import Path
+Path(os.environ["RICEBOWL_CI_CLIP_PID"]).write_text(str(os.getpid()) + "\n")
+Path(os.environ["RICEBOWL_CI_CLIP_LOG"]).write_text("\n".join(sys.argv[1:]) + "\n")
+os.execv(sys.executable, [sys.executable, "-B",
+         os.environ["RICEBOWL_CI_SOURCE_ROOT"] + "/launcher.py", *sys.argv[1:]])
+' "$@"
 CLIP_CLI
 chmod 0700 "$runtime/mock-bin/ricebowl"
 export XDG_RUNTIME_DIR="$runtime"
