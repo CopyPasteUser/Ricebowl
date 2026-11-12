@@ -22,6 +22,7 @@ class ClipRow:
 @dataclass(frozen=True)
 class ClipSnapshot:
     revision: int
+    session_id: str
     paused: bool
     rows: tuple[ClipRow, ...]
 
@@ -32,9 +33,13 @@ def read_snapshot() -> ClipSnapshot:
         status = clip.request("status")
         listing = clip.request("list")
         revision = listing.get("revision")
-        if type(revision) is not int or type(status.get("revision")) is not int:
+        identity = listing.get("session_id")
+        if (type(revision) is not int or type(status.get("revision")) is not int
+                or not isinstance(identity, str) or len(identity) != 32
+                or any(character not in "0123456789abcdef" for character in identity)
+                or not isinstance(status.get("session_id"), str)):
             raise clip.ClipError("invalid_request")
-        if revision != status["revision"]:
+        if revision != status["revision"] or identity != status["session_id"]:
             continue
         items = listing.get("items")
         if (type(status.get("paused")) is not bool or type(status.get("count")) is not int
@@ -51,7 +56,7 @@ def read_snapshot() -> ClipSnapshot:
                     or item["characters"] < len(item["preview"])):
                 raise clip.ClipError("invalid_request")
             rows.append(ClipRow(position, item["preview"], item["characters"]))
-        return ClipSnapshot(revision, status["paused"], tuple(rows))
+        return ClipSnapshot(revision, identity, status["paused"], tuple(rows))
     raise clip.ClipError("stale_history")
 
 
@@ -63,7 +68,8 @@ def visible_rows(snapshot: ClipSnapshot, query: str) -> tuple[ClipRow, ...]:
 
 def restore_row(row: ClipRow, snapshot: ClipSnapshot) -> None:
     """Fail closed when a new clipboard event has changed the selected index."""
-    clip.request("copy", index=row.index, revision=snapshot.revision)
+    clip.request("copy", index=row.index, revision=snapshot.revision,
+                 session_id=snapshot.session_id)
 
 
 class RiceClipWindow:
