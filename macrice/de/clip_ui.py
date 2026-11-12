@@ -88,9 +88,9 @@ class RiceClipWindow:
         root.set_border_width(14)
         self.window.add(root)
 
-        heading = Gtk.Label(label="RiceClip")
+        heading = Gtk.Label()
+        heading.set_markup("<span size='x-large' weight='bold'>RiceClip</span>")
         heading.set_xalign(0)
-        heading.get_style_context().add_class("title")
         root.pack_start(heading, False, False, 0)
 
         description = Gtk.Label(label="Session-only text history · search visible previews")
@@ -112,7 +112,13 @@ class RiceClipWindow:
             renderer = Gtk.CellRendererText()
             if number == 1:
                 renderer.set_property("ellipsize", 3)  # Pango.EllipsizeMode.END
-            self.list.append_column(Gtk.TreeViewColumn(title, renderer, text=number))
+            column = Gtk.TreeViewColumn(title, renderer, text=number)
+            if number == 1:
+                # Grow previews into the available viewport instead of
+                # ellipsizing at a tiny default column width.
+                column.set_expand(True)
+                column.set_resizable(True)
+            self.list.append_column(column)
         self.list.get_selection().set_mode(Gtk.SelectionMode.SINGLE)
         self.list.get_selection().connect("changed", lambda _selection: self._buttons())
         self.list.connect("row-activated", lambda *_args: self._copy())
@@ -194,7 +200,9 @@ class RiceClipWindow:
             self.pause_button.set_label("Resume recording" if snapshot.paused else "Pause recording")
             self._render_rows()
             state = "Paused" if snapshot.paused else "Recording"
-            self.status.set_text(f"{state} · {len(snapshot.rows)} items in volatile session memory")
+            count = len(snapshot.rows)
+            noun = "item" if count == 1 else "items"
+            self.status.set_text(f"{state} · {count} {noun} in volatile session memory")
         self._work(read_snapshot, show)
 
     def _render_rows(self):
