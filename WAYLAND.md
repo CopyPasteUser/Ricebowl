@@ -142,9 +142,18 @@ and pins. Recording stays paused after unlock until explicitly resumed from
 the RiceClip browser or CLI; there is no automatic plaintext recapture.
 A failed or absent watcher
 **cannot prevent screen locking**; an unconfirmed cleanup is reported without
-clipboard content. Direct third-party `swaylock` calls, other locker protocols,
-remaining previews cached in already-open clients and physical suspend/lock
-behavior are **not claimed covered**. The watcher is still not auto-started.
+clipboard content. An open RiceClip GTK browser additionally subscribes
+to a **bounded, same-UID event-only Unix-socket stream**. The watcher sends
+no clipboard text through this stream: pause/clear/resume deliver state-only
+messages; unexpected watcher exit invalidates all cached preview rows and
+search terms. The GUI does not poll, and a paused watcher does not expose
+retained items in the preview window. Results of pending GUI refreshes are
+discarded after a privacy event. Subscriptions are capped at eight and exist
+only while the on-demand GUI is open.
+Direct third-party `swaylock` calls or other locker protocols bypassing
+RiceBowl's helper, other clipboard applications, screenshots and physical
+suspend/lock behavior are **not claimed covered**. The watcher is still
+not auto-started.
 No XFCE/X11 or global keybindings are changed.
 
 The watcher requires `wl-paste --watch` **and** compositor support for
