@@ -22,6 +22,13 @@ fn choose_documents(home: &Path, preferred: Option<PathBuf>) -> PathBuf {
 }
 
 fn location_command(action: &str) -> Option<Command> {
+    if action == "network" {
+        // GVfs owns network discovery, SMB/SFTP mounts and authentication.
+        // Never enumerate, mount, or synthesize remote hosts in RicePlate.
+        let mut command = Command::new("gio");
+        command.arg("open").arg("network:///");
+        return Some(command);
+    }
     if action == "trash" {
         // GIO understands trash:/// as a virtual location when the user's
         // file-manager/GVfs backend supports it. Never manipulate files or
@@ -85,6 +92,12 @@ mod tests {
             value.to_string_lossy().into_owned()).collect::<Vec<_>>(),
             vec!["open".to_owned(), "trash:///".to_owned()]);
         assert!(location_command("trash;rm -rf").is_none());
+        let command = location_command("network").expect("GVfs network location");
+        assert_eq!(command.get_program(), "gio");
+        assert_eq!(command.get_args().map(|value|
+            value.to_string_lossy().into_owned()).collect::<Vec<_>>(),
+            vec!["open".to_owned(), "network:///".to_owned()]);
+        assert!(location_command("network;touch /tmp/pwned").is_none());
     }
 
     #[test]

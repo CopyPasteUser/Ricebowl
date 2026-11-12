@@ -15,6 +15,7 @@ mod installed_apps;
 mod luna_places;
 mod menu_chrome;
 mod menu_pins;
+mod menu_recents;
 mod native_menu;
 mod panel_chrome;
 mod osd;
@@ -138,6 +139,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("riceplate-native 0.1.0 (experimental)");
         return Ok(());
     }
+    if matches!(arguments.as_slice(), [arg] if arg == "--clear-luna-recents") {
+        menu_recents::clear()?;
+        println!("XP Luna recent applications cleared");
+        return Ok(());
+    }
     if matches!(arguments.as_slice(), [arg] if arg == "--watch-outputs") {
         return output_watch::run();
     }
@@ -181,6 +187,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             eprintln!("RicePlate: ignored invalid saved menu pins: {error}");
             Vec::new()
         })
+    });
+    let saved_menu_recents = menu_recents::restore(&recipe.id).unwrap_or_else(|error| {
+        eprintln!("RicePlate: ignored invalid XP Luna recent applications: {error}");
+        Vec::new()
     });
     if (preview_menu || preview_notifications || preview_notification_detail || preview_notifications_scroll)
         && recipe.menu.is_none() {
@@ -445,7 +455,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         calendar_mirrors: Vec::new(),
         active_calendar: None,
         preview_secondary_calendar,
-        menu_state: MenuState::with_pins(saved_menu_pins),
+        menu_state: MenuState::with_pins_and_recents(saved_menu_pins, saved_menu_recents),
         notification_state: NotificationState::default(),
         notification_sender: None,
         calendar_state: CalendarState::new(Local::now().date_naive()),
@@ -1995,7 +2005,7 @@ impl RicePlate {
             eprintln!("RicePlate: log out unavailable outside a labwc-managed session");
             return;
         }
-        if matches!(action, "documents" | "computer" | "trash") {
+        if matches!(action, "documents" | "computer" | "network" | "trash") {
             luna_places::launch(action);
             return;
         }
@@ -2004,7 +2014,16 @@ impl RicePlate {
             // and desktop-file quoting. Never interpret Exec as a shell command.
             if let Some(path) = self.menu_state.app_path(action).map(std::path::Path::to_path_buf) {
                 match Command::new("gio").arg("launch").arg(&path).spawn() {
-                    Ok(_) => { self.menu_state.record_app_launch(action); }
+                    Ok(_) => {
+                        if self.menu_state.record_app_launch(action)
+                            && self.recipe.id == "xp-luna-columns"
+                        {
+                            if let Err(error) = menu_recents::save(
+                                &self.recipe.id, self.menu_state.recent_apps()) {
+                                eprintln!("RicePlate: cannot save XP Luna recents: {error}");
+                            }
+                        }
+                    }
                     Err(error) => {
                         eprintln!("RicePlate: cannot launch desktop application: {error}");
                     }
@@ -4232,6 +4251,9 @@ fn paint_icon(canvas: &mut [u8], icon: &recipe::DesktopIcon, style: &PanelStyle,
         "terminal" => ">_",
         "lock" => "Lock",
         "trash" => "Bin",
+        "computer" => "PC",
+        "documents" => "Docs",
+        "network" => "Net",
         _ => return,
     };
     // The generic default is an original, fully vector-rasterized bin.
@@ -4241,6 +4263,37 @@ fn paint_icon(canvas: &mut [u8], icon: &recipe::DesktopIcon, style: &PanelStyle,
         // Transparent 48px artwork sits in the existing, keyboard-reachable
         // 104x88 desktop icon surface. Wayland focus/label stay unchanged.
         style_art::paint_icon(canvas, width, custom.unwrap(), 28, 4);
+    } else if matches!(icon.action.as_str(), "computer" | "documents" | "network") {
+        // Dedicated original pixel-art silhouettes for fixed XP desktop places.
+        // No host icon dependency and no proprietary Windows assets.
+        match icon.action.as_str() {
+            "computer" => {
+                fill_rounded_rect(canvas, width, height, 30, 8, 44, 33, 4, 0xff4a_5870);
+                fill_rect(canvas, width, height, 34, 11, 36, 25, 0xff8d_c9e3);
+                fill_rect(canvas, width, height, 36, 13, 32, 20, 0xffd4_f0fd);
+                fill_rect(canvas, width, height, 47, 41, 10, 6, 0xffb3_c4d7);
+                fill_rounded_rect(canvas, width, height, 38, 47, 28, 4, 2, 0xff62_7088);
+            }
+            "documents" => {
+                fill_rounded_rect(canvas, width, height, 27, 13, 50, 36, 4, 0xff9f_7c39);
+                fill_rect(canvas, width, height, 33, 10, 24, 8, 0xffff_e6a0);
+                fill_rounded_rect(canvas, width, height, 30, 20, 44, 27, 2, 0xfff7_cd62);
+                fill_rect(canvas, width, height, 36, 27, 33, 3, 0xffff_eaa4);
+                fill_rect(canvas, width, height, 36, 34, 26, 3, 0xffde_a644);
+            }
+            "network" => {
+                for x in [30, 55] {
+                    fill_rounded_rect(canvas, width, height, x, 8, 21, 21, 3, 0xff50_6784);
+                    fill_rect(canvas, width, height, x + 3, 11, 15, 13, 0xff9b_dceb);
+                    fill_rect(canvas, width, height, x + 8, 29, 5, 4, 0xffbd_c8d3);
+                    fill_rect(canvas, width, height, x + 3, 33, 15, 3, 0xff60_7485);
+                }
+                fill_rect(canvas, width, height, 49, 22, 8, 4, 0xffe5_c456);
+                fill_rect(canvas, width, height, 49, 36, 5, 8, 0xffe5_c456);
+                fill_rect(canvas, width, height, 40, 42, 26, 4, 0xffe5_c456);
+            }
+            _ => unreachable!(),
+        }
     } else if native_bin {
         // Original compact trash-can drawing, not a copied XP logo or asset.
         fill_rounded_rect(canvas, width, height, 35, 12, 34, 39, 5, 0xff48_719d);
@@ -4259,7 +4312,8 @@ fn paint_icon(canvas: &mut [u8], icon: &recipe::DesktopIcon, style: &PanelStyle,
     }
     // Contrast backplate prevents white labels from vanishing on bright rices.
     fill_rounded_rect(canvas, width, height, 2, 58, 100, 26, 6, 0xb020_2c36);
-    if custom.is_none() && !native_bin {
+    if custom.is_none() && !native_bin
+        && !matches!(icon.action.as_str(), "computer" | "documents" | "network") {
         draw_rice_text(canvas, width, height,
                        52_u32.saturating_sub(text_pixel_width(glyph, style.font_scale) / 2),
                        24, glyph, foreground, style);
