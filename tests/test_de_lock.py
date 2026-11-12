@@ -28,7 +28,8 @@ class RiceClipLockTests(unittest.TestCase):
 
         def clear(operation):
             order.append(("clear", operation))
-            return {"ok": True, "count": 0}
+            return ({"ok": True, "paused": True} if operation == "pause"
+                    else {"ok": True, "count": 0})
 
         report = lock.lock_screen(environment=FULL_SESSION,
                                   which=lambda name: "/usr/bin/swaylock",
@@ -36,7 +37,7 @@ class RiceClipLockTests(unittest.TestCase):
         self.assertEqual(report, {"locked": True, "riceclip_cleared": True,
                                   "riceclip_inactive": False})
         self.assertEqual(order, [("lock", ["/usr/bin/swaylock", "-f"]),
-                                 ("clear", "clear")])
+                                 ("clear", "pause"), ("clear", "clear")])
 
     def test_failing_locker_never_reports_a_lock_or_clears_history(self):
         def fail(command, **_kwargs):
