@@ -1,0 +1,113 @@
+{
+  "schema_version": 6,
+  "id": "riceclip-actions",
+  "name": "RiceClip action on the native panel",
+  "panel": {
+    "position": "top",
+    "height": 40,
+    "metrics": {
+      "launcher_width": 104,
+      "task_width": 164,
+      "clock_width": 96
+    },
+    "layout": {
+      "start": [
+        {
+          "type": "group",
+          "gap": 8,
+          "children": [
+            {
+              "type": "widget",
+              "id": "launcher"
+            },
+            {
+              "type": "action",
+              "id": "clip-history",
+              "label": "RiceClip"
+            },
+            {
+              "type": "widget",
+              "id": "tasks"
+            }
+          ]
+        }
+      ],
+      "center": [],
+      "end": [
+        {
+          "type": "action",
+          "id": "settings",
+          "label": "Settings"
+        },
+        {
+          "type": "widget",
+          "id": "clock"
+        }
+      ]
+    }
+  },
+  "colors": {
+    "background": "#203c59",
+    "foreground": "#f3f7fa",
+    "active": "#4179aa"
+  },
+  "menu": {
+    "title": "Workstation",
+    "groups": [
+      {
+        "title": "Programs",
+        "actions": [
+          "applications",
+          "terminal"
+        ]
+      },
+      {
+        "title": "Session",
+        "actions": [
+          "settings",
+          "lock",
+          "clip-history"
+        ]
+      }
+    ]
+  },
+  "desktop": {
+    "wallpaper": "luna-hills",
+    "icons": [
+      {
+        "label": "Terminal",
+        "action": "terminal",
+        "x": 32,
+        "y": 96
+      }
+    ]
+  },
+  "tokens": {
+    "label_padding": 10,
+    "task_radius": 6
+  },
+  "responsive": {
+    "compact_max_width": 720,
+    "compact_layout": {
+      "start": [
+        {
+          "type": "widget",
+          "id": "launcher"
+        }
+      ],
+      "center": [
+        {
+          "type": "widget",
+          "id": "tasks"
+        }
+      ],
+      "end": [
+        {
+          "type": "action",
+          "id": "settings",
+          "label": "Settings"
+        }
+      ]
+    }
+  }
+}
