@@ -9,6 +9,7 @@ use font8x8::{UnicodeFonts, BASIC_FONTS, LATIN_FONTS, GREEK_FONTS, HIRAGANA_FONT
 mod accessibility;
 mod brightness;
 mod calendar;
+mod desktop_context;
 mod desktop_layout;
 mod desktop_selection;
 mod icon_positions;
@@ -42,6 +43,7 @@ enum StatusEvent {
     ObservedAudio(Audio),
 }
 use calendar::{CalendarState, Hit as CalendarHit};
+use desktop_context::Action as DesktopContextAction;
 use recipe::{Hit, PanelStyle, Widget};
 use task_navigation::Target as KeyboardTarget;
 use smithay_client_toolkit::{
@@ -481,6 +483,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         focused_icon: None,
         keyboard_icon_surface: None,
         desktop_selection: desktop_selection::Selection::default(),
+        desktop_context: None,
+        context_focused: false,
         focused_widget: None,
         keyboard_widget_surface: None,
         pressed_widget: None,
@@ -795,6 +799,17 @@ struct IconDrag {
     original_positions: icon_positions::OutputPositions,
 }
 
+struct DesktopContextLayer {
+    surface: LayerSurface,
+    pool: Option<SlotPool>,
+    configured: bool,
+    icon_index: usize,
+    selected: DesktopContextAction,
+    hovered: Option<DesktopContextAction>,
+    pressed: Option<DesktopContextAction>,
+    can_move: bool,
+}
+
 struct MenuLayer {
     surface: LayerSurface,
     pool: Option<SlotPool>,
@@ -886,6 +901,8 @@ struct RicePlate {
     focused_icon: Option<usize>,
     keyboard_icon_surface: Option<wl_surface::WlSurface>,
     desktop_selection: desktop_selection::Selection,
+    desktop_context: Option<DesktopContextLayer>,
+    context_focused: bool,
     focused_widget: Option<usize>,
     keyboard_widget_surface: Option<wl_surface::WlSurface>,
     pressed_widget: Option<usize>,
@@ -931,6 +948,108 @@ impl RicePlate {
     fn clear_luna_selection(&mut self) {
         if self.recipe.id != "xp-luna-columns" { return; }
         if let Some(old) = self.desktop_selection.clear() { self.redraw_icon(old); }
+    }
+
+
+    fn close_desktop_context(&mut self) {
+        self.context_focused = false;
+        // Drop the real, strictly bounded layer-shell surface. A hidden
+        // full-output input region is never allocated or left behind.
+        self.desktop_context = None;
+    }
+
+    fn open_desktop_context(&mut self, index: usize, pointer: (f64, f64),
+                            qh: &QueueHandle<Self>) {
+        if self.recipe.id != "xp-luna-columns" { return; }
+        let Some(icon) = self.icon_layers.get(index) else { return; };
+        let Some(position) = icon.placed else { return; };
+        let Some(output) = icon.bound_output.as_ref()
+            .or(self.primary_output.as_ref()).or(icon.output.as_ref()).cloned()
+            else { return };
+        let Some(size) = self.logical_output_size(&output) else { return };
+        let Some((x, y)) = desktop_context::placement(
+            position, pointer, size, self.recipe.height, self.recipe.top)
+            else { return };
+        let recipe_index = icon.recipe_index;
+        let mut output_names: Vec<_> = self.icon_layers.iter()
+            .filter(|layer| layer.recipe_index == recipe_index)
+            .filter_map(|layer| {
+                let output = layer.bound_output.as_ref()
+                    .or(self.primary_output.as_ref()).or(layer.output.as_ref())?;
+                self.logical_output_size(output)?;
+                self.outputs.info(output)?.name
+            }).collect();
+        output_names.sort();
+        output_names.dedup();
+        let can_move = output_names.len() > 1;
+        self.icon_drag = None;
+        self.desktop_selection.cancel();
+        self.select_luna_icon(index);
+        if self.menu_state.visible { self.set_menu_visible(false, qh); }
+        if self.calendar_state.visible { self.set_calendar_visible(false, qh); }
+        if self.tray_popup_open() { self.set_tray_popup_visible(false, qh); }
+        self.close_desktop_context();
+        let surface = self.layer_shell.create_layer_surface(
+            qh, self.compositor.create_surface(qh), Layer::Overlay,
+            Some("riceplate-luna-shortcut-context"), Some(&output),
+        );
+        surface.set_anchor(Anchor::TOP | Anchor::LEFT);
+        surface.set_size(desktop_context::WIDTH, desktop_context::HEIGHT);
+        surface.set_margin(y as i32, 0, 0, x as i32);
+        surface.set_exclusive_zone(-1);
+        surface.set_keyboard_interactivity(KeyboardInteractivity::OnDemand);
+        surface.commit();
+        self.desktop_context = Some(DesktopContextLayer {
+            surface, pool: None, configured: false, icon_index: index,
+            selected: DesktopContextAction::Open, hovered: None,
+            pressed: None, can_move,
+        });
+    }
+
+    fn choose_desktop_context(&mut self, action: DesktopContextAction,
+                               qh: &QueueHandle<Self>) {
+        let Some(menu) = self.desktop_context.as_ref() else { return };
+        let index = menu.icon_index;
+        if !action.enabled(menu.can_move) { return; }
+        let Some(icon) = self.icon_layers.get(index) else {
+            self.close_desktop_context();
+            return;
+        };
+        let icon_action = self.recipe.desktop_icons[icon.recipe_index].action.clone();
+        self.close_desktop_context();
+        match action {
+            DesktopContextAction::Open => self.activate_action(&icon_action, qh),
+            DesktopContextAction::NextDisplay => self.assign_icon_to_next_output(index),
+            DesktopContextAction::AllDisplays => self.mirror_icon_on_all_outputs(index),
+        }
+    }
+
+    fn redraw_desktop_context(&mut self) {
+        let Some(menu) = self.desktop_context.as_mut() else { return };
+        if !menu.configured { return; }
+        let Some(pool) = menu.pool.as_mut() else { return };
+        let (buffer, canvas) = match pool.create_buffer(
+            desktop_context::WIDTH as i32, desktop_context::HEIGHT as i32,
+            (desktop_context::WIDTH * 4) as i32, wl_shm::Format::Argb8888,
+        ) {
+            Ok(value) => value,
+            Err(error) => {
+                eprintln!("RicePlate: desktop context buffer unavailable: {error}");
+                self.close_desktop_context();
+                return;
+            }
+        };
+        paint_desktop_context(canvas, &self.recipe, menu.selected,
+                              menu.hovered, menu.can_move);
+        let surface = menu.surface.wl_surface();
+        surface.damage_buffer(0, 0, desktop_context::WIDTH as i32,
+                             desktop_context::HEIGHT as i32);
+        if let Err(error) = buffer.attach_to(surface) {
+            eprintln!("RicePlate: desktop context attach failed: {error}");
+            self.close_desktop_context();
+            return;
+        }
+        menu.surface.commit();
     }
 
     fn panel_pointer_visual(&self, surface: &wl_surface::WlSurface) -> PanelPointerVisual {
@@ -2595,6 +2714,9 @@ impl RicePlate {
     }
 
     fn reflow_icons(&mut self) {
+        // A context menu is anchored to one physical output; hotplug and
+        // icon position changes invalidate its coordinates and target.
+        self.close_desktop_context();
         // Output reflow and icon dragging invalidate pending pointer timing.
         self.desktop_selection.cancel();
         // An advertised output without a shell surface must not swallow
@@ -4266,6 +4388,29 @@ fn paint_calendar(canvas: &mut [u8], style: &PanelStyle, state: &CalendarState) 
                         style.foreground, style);
 }
 
+
+fn paint_desktop_context(canvas: &mut [u8], style: &PanelStyle,
+                         selected: DesktopContextAction,
+                         hovered: Option<DesktopContextAction>, can_move: bool) {
+    let (w, h) = (desktop_context::WIDTH, desktop_context::HEIGHT);
+    canvas.fill(0);
+    fill_rect(canvas, w, h, 0, 0, w, h, 0xff20_3f7e);
+    fill_rect(canvas, w, h, 2, 2, w - 4, h - 4, 0xfffc_faf2);
+    fill_rect(canvas, w, h, 3, 3, w - 6, 29, 0xff24_5ed3);
+    draw_rice_text(canvas, w, h, 12, 11, "Shortcut", 0xffff_ffff, style);
+    for action in DesktopContextAction::ALL {
+        let y = desktop_context::row(action);
+        if action == selected || hovered == Some(action) {
+            fill_rect(canvas, w, h, 5, y, w - 10, 27,
+                      if action.enabled(can_move) { 0xff36_6ac9 } else { 0xffdb_dfeb });
+        }
+        let color = if !action.enabled(can_move) { 0xff7c_8291 }
+                    else if action == selected || hovered == Some(action) { 0xffff_ffff }
+                    else { 0xff1d_273d };
+        draw_rice_text(canvas, w, h, 15, y + 8, action.label(), color, style);
+    }
+}
+
 fn paint_icon(canvas: &mut [u8], icon: &recipe::DesktopIcon, style: &PanelStyle,
               focused: bool, custom: Option<&style_art::IconPixels>) {
     let width = recipe::ICON_WIDTH;
@@ -4614,7 +4759,10 @@ impl LayerShellHandler for RicePlate {
             self.focused_panel = None;
             self.focused_target = None;
         }
-        if layer.wl_surface() == self.layer.wl_surface() {
+        if self.desktop_context.as_ref().is_some_and(|menu|
+            menu.surface.wl_surface() == layer.wl_surface()) {
+            self.close_desktop_context();
+        } else if layer.wl_surface() == self.layer.wl_surface() {
             self.closed = true;
         } else if let Some(index) = self.mirrors.iter().position(|mirror|
                 mirror.surface.wl_surface() == layer.wl_surface()) {
@@ -4681,6 +4829,29 @@ impl LayerShellHandler for RicePlate {
         config: LayerSurfaceConfigure,
         _: u32,
     ) {
+        if self.desktop_context.as_ref().is_some_and(|menu|
+            menu.surface.wl_surface() == layer.wl_surface()) {
+            if config.new_size != (desktop_context::WIDTH, desktop_context::HEIGHT) {
+                eprintln!("RicePlate: compositor rejected bounded desktop context");
+                self.close_desktop_context();
+                return;
+            }
+            let menu = self.desktop_context.as_mut().expect("matched context layer");
+            if menu.pool.is_none() {
+                let bytes = (desktop_context::WIDTH * desktop_context::HEIGHT * 4 * 3) as usize;
+                match SlotPool::new(bytes, &self.shm) {
+                    Ok(pool) => menu.pool = Some(pool),
+                    Err(error) => {
+                        eprintln!("RicePlate: desktop context allocation failed: {error}");
+                        self.close_desktop_context();
+                        return;
+                    }
+                }
+            }
+            menu.configured = true;
+            self.redraw_desktop_context();
+            return;
+        }
         if let Some(index) = self.mirrors.iter().position(|mirror|
                 mirror.surface.wl_surface() == layer.wl_surface()) {
             let width = config.new_size.0;
