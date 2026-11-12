@@ -808,6 +808,10 @@ struct DesktopContextLayer {
     hovered: Option<DesktopContextAction>,
     pressed: Option<DesktopContextAction>,
     can_move: bool,
+    can_reset: bool,
+    properties: bool,
+    back_hovered: bool,
+    back_pressed: bool,
 }
 
 struct MenuLayer {
@@ -982,6 +986,16 @@ impl RicePlate {
         output_names.sort();
         output_names.dedup();
         let can_move = output_names.len() > 1;
+        // Only named-output overrides can be reset safely. Never claim to
+        // restore source coordinates from an already mutated global recipe.
+        let can_reset = self.icon_output_name(index)
+            .and_then(|name| self.icon_outputs
+                .for_output(&name, self.recipe.desktop_icons.len())
+                .and_then(|positions| positions.get(recipe_index).copied()))
+            .is_some_and(|saved| {
+                let base = &self.recipe.desktop_icons[recipe_index];
+                saved.x != base.x || saved.y != base.y
+            });
         self.icon_drag = None;
         self.desktop_selection.cancel();
         self.select_luna_icon(index);
@@ -1002,7 +1016,8 @@ impl RicePlate {
         self.desktop_context = Some(DesktopContextLayer {
             surface, pool: None, configured: false, icon_index: index,
             selected: DesktopContextAction::Open, hovered: None,
-            pressed: None, can_move,
+            pressed: None, can_move, can_reset,
+            properties: false, back_hovered: false, back_pressed: false,
         });
     }
 
@@ -1010,7 +1025,18 @@ impl RicePlate {
                                qh: &QueueHandle<Self>) {
         let Some(menu) = self.desktop_context.as_ref() else { return };
         let index = menu.icon_index;
-        if !action.enabled(menu.can_move) { return; }
+        if !action.enabled(menu.can_move, menu.can_reset) { return; }
+        if action == DesktopContextAction::Properties {
+            if let Some(menu) = self.desktop_context.as_mut() {
+                menu.properties = true;
+                menu.hovered = None;
+                menu.pressed = None;
+                menu.back_hovered = false;
+                menu.back_pressed = false;
+            }
+            self.redraw_desktop_context();
+            return;
+        }
         let Some(icon) = self.icon_layers.get(index) else {
             self.close_desktop_context();
             return;
@@ -1021,6 +1047,8 @@ impl RicePlate {
             DesktopContextAction::Open => self.activate_action(&icon_action, qh),
             DesktopContextAction::NextDisplay => self.assign_icon_to_next_output(index),
             DesktopContextAction::AllDisplays => self.mirror_icon_on_all_outputs(index),
+            DesktopContextAction::ResetPosition => self.reset_icon_position(index),
+            DesktopContextAction::Properties => unreachable!("read-only view handled above"),
         }
     }
 
@@ -1039,8 +1067,12 @@ impl RicePlate {
                 return;
             }
         };
+        let details = self.icon_layers.get(menu.icon_index)
+            .and_then(|layer| self.recipe.desktop_icons.get(layer.recipe_index))
+            .map(|icon| (icon.label.as_str(), icon.action.as_str()));
         paint_desktop_context(canvas, &self.recipe, menu.selected,
-                              menu.hovered, menu.can_move);
+                              menu.hovered, menu.can_move, menu.can_reset,
+                              menu.properties, details, menu.back_hovered);
         let surface = menu.surface.wl_surface();
         surface.damage_buffer(0, 0, desktop_context::WIDTH as i32,
                              desktop_context::HEIGHT as i32);
@@ -2695,6 +2727,25 @@ impl RicePlate {
         // keyboard focus; do not fake a keyboard enter on the new output.
         self.focused_icon = None;
         self.keyboard_icon_surface = None;
+        self.reflow_icons();
+        self.icon_position_dirty = true;
+        self.save_icon_positions();
+    }
+
+    fn reset_icon_position(&mut self, layer_index: usize) {
+        let Some(layer) = self.icon_layers.get(layer_index) else { return };
+        let recipe_index = layer.recipe_index;
+        let Some(name) = self.icon_output_name(layer_index) else { return };
+        let Some(base) = self.recipe.desktop_icons.get(recipe_index) else { return };
+        let coords = icon_positions::Coordinates { x: base.x, y: base.y };
+        // The named layout is the only mutable target. Keep the recipe,
+        // shortcuts on other displays, and cross-display ownership intact.
+        if let Err(error) = self.icon_outputs.set(
+            &name, &self.recipe.desktop_icons, recipe_index, coords,
+        ) {
+            eprintln!("RicePlate: cannot reset icon position: {error}");
+            return;
+        }
         self.reflow_icons();
         self.icon_position_dirty = true;
         self.save_icon_positions();
@@ -4391,20 +4442,43 @@ fn paint_calendar(canvas: &mut [u8], style: &PanelStyle, state: &CalendarState) 
 
 fn paint_desktop_context(canvas: &mut [u8], style: &PanelStyle,
                          selected: DesktopContextAction,
-                         hovered: Option<DesktopContextAction>, can_move: bool) {
+                         hovered: Option<DesktopContextAction>,
+                         can_move: bool, can_reset: bool, properties: bool,
+                         details: Option<(&str, &str)>, back_hovered: bool) {
     let (w, h) = (desktop_context::WIDTH, desktop_context::HEIGHT);
     canvas.fill(0);
     fill_rect(canvas, w, h, 0, 0, w, h, 0xff20_3f7e);
     fill_rect(canvas, w, h, 2, 2, w - 4, h - 4, 0xfffc_faf2);
     fill_rect(canvas, w, h, 3, 3, w - 6, 29, 0xff24_5ed3);
-    draw_rice_text(canvas, w, h, 12, 11, "Shortcut", 0xffff_ffff, style);
+    draw_rice_text(canvas, w, h, 12, 11,
+                   if properties { "Properties" } else { "Shortcut" },
+                   0xffff_ffff, style);
+    if properties {
+        // Bounded, read-only metadata for validated actions; no stat calls,
+        // untrusted command strings or guessed file targets.
+        let (label, action) = details.unwrap_or(("Unknown", ""));
+        let (kind, target) = desktop_context::details(action);
+        draw_rice_text(canvas, w, h, 12, 48, "Name:", 0xff1d_273d, style);
+        draw_rice_text(canvas, w, h, 68, 48, label, 0xff1d_273d, style);
+        draw_rice_text(canvas, w, h, 12, 82, "Type:", 0xff1d_273d, style);
+        draw_rice_text(canvas, w, h, 68, 82, kind, 0xff1d_273d, style);
+        draw_rice_text(canvas, w, h, 12, 116, target, 0xff1d_273d, style);
+        let y = desktop_context::BACK_ROW;
+        fill_rect(canvas, w, h, 5, y, w - 10, 27,
+                  if back_hovered { 0xff36_6ac9 } else { 0xffe5_e9f2 });
+        draw_rice_text(canvas, w, h, 15, y + 8, "Back",
+                       if back_hovered { 0xffff_ffff } else { 0xff1d_273d }, style);
+        return;
+    }
     for action in DesktopContextAction::ALL {
         let y = desktop_context::row(action);
         if action == selected || hovered == Some(action) {
             fill_rect(canvas, w, h, 5, y, w - 10, 27,
-                      if action.enabled(can_move) { 0xff36_6ac9 } else { 0xffdb_dfeb });
+                      if action.enabled(can_move, can_reset) {
+                          0xff36_6ac9
+                      } else { 0xffdb_dfeb });
         }
-        let color = if !action.enabled(can_move) { 0xff7c_8291 }
+        let color = if !action.enabled(can_move, can_reset) { 0xff7c_8291 }
                     else if action == selected || hovered == Some(action) { 0xffff_ffff }
                     else { 0xff1d_273d };
         draw_rice_text(canvas, w, h, 15, y + 8, action.label(), color, style);
@@ -5301,6 +5375,21 @@ impl KeyboardHandler for RicePlate {
         event: KeyEvent,
     ) {
         if self.context_focused {
+            if self.desktop_context.as_ref().is_some_and(|menu| menu.properties) {
+                match event.keysym {
+                    Keysym::Escape | Keysym::BackSpace |
+                    Keysym::Return | Keysym::KP_Enter | Keysym::space => {
+                        if let Some(menu) = self.desktop_context.as_mut() {
+                            menu.properties = false;
+                            menu.back_hovered = false;
+                            menu.back_pressed = false;
+                        }
+                        self.redraw_desktop_context();
+                    }
+                    _ => {}
+                }
+                return;
+            }
             let mut action = None;
             let mut changed = false;
             match event.keysym {
@@ -5315,7 +5404,7 @@ impl KeyboardHandler for RicePlate {
                             -1
                         } else { 1 };
                         menu.selected = desktop_context::navigate(
-                            menu.selected, delta, menu.can_move);
+                            menu.selected, delta, menu.can_move, menu.can_reset);
                         changed = true;
                     }
                 }
@@ -5692,35 +5781,65 @@ impl PointerHandler for RicePlate {
                 let mut activate = None;
                 let mut repaint = false;
                 if let Some(menu) = self.desktop_context.as_mut() {
-                    let hit = desktop_context::hit(event.position.0, event.position.1)
-                        .filter(|action| action.enabled(menu.can_move));
-                    match event.kind {
-                        PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
-                            if menu.hovered != hit {
-                                menu.hovered = hit;
+                    if menu.properties {
+                        let back = desktop_context::back_hit(
+                            event.position.0, event.position.1);
+                        match event.kind {
+                            PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
+                                if menu.back_hovered != back {
+                                    menu.back_hovered = back;
+                                    repaint = true;
+                                }
+                            }
+                            PointerEventKind::Leave { .. } => {
+                                menu.back_hovered = false;
+                                menu.back_pressed = false;
                                 repaint = true;
                             }
+                            PointerEventKind::Press { button: BTN_LEFT, .. } => {
+                                menu.back_pressed = back;
+                            }
+                            PointerEventKind::Release { button: BTN_LEFT, .. } => {
+                                if menu.back_pressed && back {
+                                    menu.properties = false;
+                                    menu.back_hovered = false;
+                                    repaint = true;
+                                }
+                                menu.back_pressed = false;
+                            }
+                            _ => {}
                         }
-                        PointerEventKind::Leave { .. } => {
-                            menu.hovered = None;
-                            menu.pressed = None;
-                            repaint = true;
-                        }
-                        PointerEventKind::Press { button: BTN_LEFT, .. } => {
-                            menu.pressed = hit;
-                            if let Some(selected) = hit {
-                                menu.selected = selected;
+                    } else {
+                        let hit = desktop_context::hit(event.position.0, event.position.1)
+                            .filter(|action| action.enabled(menu.can_move, menu.can_reset));
+                        match event.kind {
+                            PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
+                                if menu.hovered != hit {
+                                    menu.hovered = hit;
+                                    repaint = true;
+                                }
+                            }
+                            PointerEventKind::Leave { .. } => {
+                                menu.hovered = None;
+                                menu.pressed = None;
                                 repaint = true;
                             }
-                        }
-                        PointerEventKind::Release { button: BTN_LEFT, .. } => {
-                            if menu.pressed.take().is_some_and(|pressed| Some(pressed) == hit) {
-                                activate = hit;
-                            } else {
-                                repaint = true;
+                            PointerEventKind::Press { button: BTN_LEFT, .. } => {
+                                menu.pressed = hit;
+                                if let Some(selected) = hit {
+                                    menu.selected = selected;
+                                    repaint = true;
+                                }
                             }
+                            PointerEventKind::Release { button: BTN_LEFT, .. } => {
+                                if menu.pressed.take().is_some_and(|pressed| Some(pressed) == hit) {
+                                    activate = hit;
+                                } else {
+                                    repaint = true;
+                                }
+                            }
+                            _ => {}
                         }
-                        _ => {}
                     }
                 }
                 if let Some(action) = activate {
@@ -7100,9 +7219,11 @@ mod tests {
         let bytes = (desktop_context::WIDTH * desktop_context::HEIGHT * 4) as usize;
         let mut before = vec![0; bytes];
         let mut selected = vec![0; bytes];
-        paint_desktop_context(&mut before, &style, DesktopContextAction::Open, None, false);
+        paint_desktop_context(&mut before, &style, DesktopContextAction::Open, None,
+                              false, false, false, None, false);
         paint_desktop_context(&mut selected, &style, DesktopContextAction::AllDisplays,
-                              Some(DesktopContextAction::AllDisplays), false);
+                              Some(DesktopContextAction::AllDisplays),
+                              false, false, false, None, false);
         let pixel = |buffer: &[u8], x: u32, y: u32| -> u32 {
             let at = ((y * desktop_context::WIDTH + x) * 4) as usize;
             u32::from_le_bytes(buffer[at..at+4].try_into().unwrap())
@@ -7115,8 +7236,20 @@ mod tests {
                    0xfffc_faf2);
         assert_ne!(before, selected);
         let mut enabled = vec![0; bytes];
-        paint_desktop_context(&mut enabled, &style, DesktopContextAction::NextDisplay, None, true);
+        paint_desktop_context(&mut enabled, &style, DesktopContextAction::NextDisplay,
+                              None, true, false, false, None, false);
         assert_eq!(pixel(&enabled, 12, desktop_context::row(DesktopContextAction::NextDisplay)),
+                   0xff36_6ac9);
+        let mut info = vec![0; bytes];
+        paint_desktop_context(&mut info, &style, DesktopContextAction::Properties,
+                              None, false, false, true,
+                              Some(("Recycle Bin", "trash")), true);
+        assert_ne!(info, before);
+        assert_eq!(pixel(&info, 10, desktop_context::BACK_ROW), 0xff36_6ac9);
+        let mut reset = vec![0; bytes];
+        paint_desktop_context(&mut reset, &style, DesktopContextAction::ResetPosition,
+                              None, false, true, false, None, false);
+        assert_eq!(pixel(&reset, 12, desktop_context::row(DesktopContextAction::ResetPosition)),
                    0xff36_6ac9);
     }
 
