@@ -507,7 +507,7 @@ fn validate_components(input: Vec<ComponentInput>) -> Result<Vec<ComponentInput>
             "status" => ["clock", "network", "audio", "battery"]
                 .contains(&item.binding.as_str()),
             "action" => ["applications", "terminal", "settings", "lock",
-                         "wifi-toggle", "audio-mute", "audio-up", "audio-down"]
+                         "clip-history", "wifi-toggle", "audio-mute", "audio-up", "audio-down"]
                 .contains(&item.binding.as_str()),
             _ => false,
         };
@@ -632,7 +632,8 @@ fn validate_menu(menu: &Menu, version: u32) -> Result<(), Box<dyn Error>> {
         }
         for action in &group.actions {
             if !["applications", "terminal", "lock", "logout",
-                 "documents", "computer", "wifi-toggle", "audio-mute", "audio-up", "audio-down", "notifications", "settings"]
+                 "documents", "computer", "wifi-toggle", "audio-mute", "audio-up", "audio-down",
+                 "notifications", "settings", "clip-history"]
                 .contains(&action.as_str())
                 || !seen.insert(action.as_str())
             {
@@ -752,7 +753,7 @@ fn expand_layout(
             let supported = if control {
                 ["wifi-toggle", "audio-mute", "audio-up", "audio-down"].contains(&id.as_str())
             } else {
-                ["applications", "terminal", "settings", "lock"].contains(&id.as_str())
+                ["applications", "terminal", "settings", "lock", "clip-history"].contains(&id.as_str())
             };
             if version < (if control { 7 } else { 6 }) || !supported
                 || !safe_label(label, 16)
