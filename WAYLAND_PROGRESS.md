@@ -332,6 +332,18 @@ The source CI artifact contains `capture-manifest.json` and `creator-examples/ma
 
 </details>
 
+
+## XP Luna Start history validation (11 November 2026; tested candidate)
+
+The XFCE/X11 Luna Start preferences reader now rejects malformed JSON types for
+favorites and launch history instead of coercing strings or mappings into
+unintended entries. The writer rejects invalid in-memory favorite types before
+creating a file. A backwards system-clock adjustment cannot demote an app just
+launched again. Focused regression tests cover invalid payloads, non-mutation,
+clock rollback and launch-count saturation. This change does not alter native
+RicePlate Wayland's session-only recent-app list, menu appearance or schemas;
+physical Wayland acceptance remains a separate gate; the Python Tests workflow passed for the original code branch.
+
 ---
 
 [**RiceBowl README**](README.md) · [**Wayland overview**](WAYLAND.md) · [**Wayland technical guide**](WAYLAND_SESSION.md) · [**Release status**](DESKTOP_ENVIRONMENT_STATUS.md) · [**Screenshots**](screenshots/wayland/README.md)

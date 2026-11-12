@@ -69,5 +69,45 @@ class LunaStartStateTests(unittest.TestCase):
                 load_start_state(destination)
 
 
+    def test_malformed_json_types_are_rejected_without_mutating_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "winxp-start.json"
+            invalid = (
+                {"schema": 1, "favorites": "firefox.desktop"},
+                {"schema": 1, "favorites": [42]},
+                {"schema": 1, "favorites": {"a": "b"}},
+                {"schema": 1, "launches": []},
+                {"schema": 1, "launches": {"firefox.desktop": "1,2"}},
+                {"schema": 1, "launches": {"firefox.desktop": [True, 10]}},
+            )
+            for payload in invalid:
+                with self.subTest(payload=payload):
+                    original = json.dumps(payload)
+                    path.write_text(original)
+                    with self.assertRaises(ValueError):
+                        load_start_state(path)
+                    self.assertEqual(path.read_text(), original)
+
+    def test_clock_rollback_preserves_recent_order_and_caps_count(self):
+        state = StartState()
+        record_launch(state, "browser.desktop", now=300)
+        record_launch(state, "browser.desktop", now=200)
+        self.assertEqual(state.launches["browser.desktop"], (2, 300))
+        record_launch(state, "mail.desktop", now=-10)
+        self.assertEqual(state.launches["mail.desktop"], (1, 0))
+        state.launches["browser.desktop"] = (1000000, 300)
+        record_launch(state, "browser.desktop", now=301)
+        self.assertEqual(state.launches["browser.desktop"], (1000000, 301))
+
+    def test_invalid_in_memory_favorites_cannot_be_saved(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "winxp-start.json"
+            for favorites in ("browser.desktop", (None,), (123,)):
+                with self.subTest(favorites=favorites):
+                    with self.assertRaises(ValueError):
+                        save_start_state(StartState(favorites, {}), path)
+                    self.assertFalse(path.exists())
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -28,15 +28,20 @@ def state_path() -> Path:
 
 def _validate(state: StartState):
     if state.favorites is not None:
-        if (len(state.favorites) > START_FAVORITE_LIMIT or
+        if (not isinstance(state.favorites, tuple) or
+                len(state.favorites) > START_FAVORITE_LIMIT or
                 len(set(state.favorites)) != len(state.favorites)):
             raise ValueError("Invalid XP Start favorites")
-        if any(not ID_PATTERN.fullmatch(item) for item in state.favorites):
+        if any(not isinstance(item, str) or not ID_PATTERN.fullmatch(item)
+               for item in state.favorites):
             raise ValueError("Invalid desktop favorite")
+    if not isinstance(state.launches, dict):
+        raise ValueError("Invalid XP Start history")
     if len(state.launches) > 128:
         raise ValueError("XP Start history is too large")
     for identifier, entry in state.launches.items():
-        if (not ID_PATTERN.fullmatch(identifier) or not isinstance(entry, tuple)
+        if (not isinstance(identifier, str) or not ID_PATTERN.fullmatch(identifier)
+                or not isinstance(entry, tuple)
                 or len(entry) != 2 or any(type(value) is not int or value < 0
                                        for value in entry)):
             raise ValueError("Invalid XP Start history")
@@ -55,9 +60,17 @@ def load_start_state(path: Path | None = None) -> StartState:
         if not isinstance(data, dict) or data.get("schema") != 1:
             raise ValueError("Unsupported Start configuration")
         raw_favorites = data.get("favorites")
+        if raw_favorites is not None and not isinstance(raw_favorites, list):
+            raise ValueError("Invalid favorites payload")
         favorites = None if raw_favorites is None else tuple(raw_favorites)
-        launches = {identifier: tuple(entry) for identifier, entry in
-                    data.get("launches", {}).items()}
+        raw_launches = data.get("launches", {})
+        if not isinstance(raw_launches, dict):
+            raise ValueError("Invalid history payload")
+        launches = {}
+        for identifier, entry in raw_launches.items():
+            if not isinstance(entry, list):
+                raise ValueError("Invalid history entry")
+            launches[identifier] = tuple(entry)
         state = StartState(favorites, launches)
         _validate(state)
         return state
@@ -93,8 +106,11 @@ def record_launch(state: StartState, identifier: str, *, now: int | None = None)
     """Record successful launches only, pruning stale entries to 80."""
     if not ID_PATTERN.fullmatch(identifier or ""):
         return
-    timestamp = int(time.time()) if now is None else max(0, now)
-    count = state.launches.get(identifier, (0, 0))[0] + 1
+    timestamp = int(time.time()) if now is None else max(0, int(now))
+    previous_count, previous_time = state.launches.get(identifier, (0, 0))
+    # A backwards wall clock must not make a freshly launched app look older.
+    timestamp = max(timestamp, previous_time)
+    count = previous_count + 1
     state.launches[identifier] = min(1000000, count), timestamp
     if len(state.launches) > 80:
         ranked = sorted(state.launches.items(), key=lambda pair: pair[1][1], reverse=True)
