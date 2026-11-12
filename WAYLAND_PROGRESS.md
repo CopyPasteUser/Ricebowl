@@ -423,3 +423,17 @@ acceptance and a fully native high-resolution menu remain open.
 - Full desktop-background context actions and file-properties UI are
   not implemented in this sprint; neither can be truthfully inferred from
   the shortcut popup.
+
+### Native XP Luna X11 parity: Run, Help and ten-action Start (12 November 2026)
+
+The opt-in `xp-luna-columns` native shell now includes fully bound **Run**
+and **Help and Support** Start links, an XP-style Control Panel label
+(backed by existing RiceSpice settings), and an adaptive ten-row system shelf.
+Run executes only explicit user-typed argv without a shell and exposes errors
+in the actual UI; Help explains the implemented shortcuts. No resident service
+or XFCE/X11 changes. Native labwc regression captures four new Run/Help and
+Start frames and compares their real pixel differences. See the
+[feature-by-feature X11 parity ledger](WAYLAND_XP_LUNA_PARITY.md).
+Full X11 parity is **not yet claimed**: category Control Panel, rich Help
+Center, Explorer/file manager, browser/mail pinned slots, recent documents,
+and physical hardware acceptance remain open.
