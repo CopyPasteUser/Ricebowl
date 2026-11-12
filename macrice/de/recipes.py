@@ -56,7 +56,7 @@ PANEL_ACTIONS = frozenset(("applications", "terminal", "settings", "lock",
 PANEL_CONTROLS = frozenset(("wifi-toggle", "audio-mute", "audio-up", "audio-down"))
 PANEL_ACTION_COMMANDS = {
     "applications": "fuzzel", "terminal": "foot",
-    "settings": "ricebowl de settings", "lock": "swaylock -f",
+    "settings": "ricebowl de settings", "lock": "ricebowl de lock",
     "clip-history": "ricebowl de clip --clip-op gui",
 }
 WALLPAPERS = frozenset(("aero-seven-blue", "aero-seven-night", "luna-hills",
@@ -1416,7 +1416,7 @@ def labwc_menu(recipe: PanelRecipe) -> str:
         "terminal": ("Terminal", "Execute", "foot"),
         "settings": ("RiceSpice settings", "Execute", "ricebowl de settings"),
         "clip-history": ("RiceClip history", "Execute", "ricebowl de clip --clip-op gui"),
-        "lock": ("Lock screen", "Execute", "swaylock -f"),
+        "lock": ("Lock screen", "Execute", "ricebowl de lock"),
         "logout": ("Log out of RiceBowl", "Exit", None),
     }
     for index, group in enumerate(groups):
