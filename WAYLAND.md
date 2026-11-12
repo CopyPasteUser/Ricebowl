@@ -137,7 +137,10 @@ the Waybar/rice fallback panel and labwc menu, labwc **Super+L**,
 swayidle automatic timeout/before-sleep and logind-initiated
 lock events use the same fixed `ricebowl de lock` helper. It waits for
 `swaylock -f` to report a compositor lock, then requests the existing RiceClip
-watcher to clear its session-only text and pins. A failed or absent watcher
+watcher to **pause recording first and then clear** its session-only text
+and pins. Recording stays paused after unlock until explicitly resumed from
+the RiceClip browser or CLI; there is no automatic plaintext recapture.
+A failed or absent watcher
 **cannot prevent screen locking**; an unconfirmed cleanup is reported without
 clipboard content. Direct third-party `swaylock` calls, other locker protocols,
 remaining previews cached in already-open clients and physical suspend/lock
