@@ -2005,7 +2005,7 @@ impl RicePlate {
             eprintln!("RicePlate: log out unavailable outside a labwc-managed session");
             return;
         }
-        if matches!(action, "documents" | "computer" | "network" | "trash") {
+        if matches!(action, "documents" | "computer" | "pictures" | "music" | "network" | "trash") {
             luna_places::launch(action);
             return;
         }
@@ -3726,7 +3726,10 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
         for section in sections {
             if luna_columns && columns && section.x >= native_menu::COLUMNS_SPLIT {
                 if right_group_seen {
-                    menu_chrome::system_group_rule(canvas, section.top.saturating_sub(4));
+                    let dense = section.items.first()
+                        .is_some_and(|tile| tile.height == native_menu::COLUMNS_RIGHT_DENSE_ROW_HEIGHT);
+                    menu_chrome::system_group_rule(canvas,
+                        section.top.saturating_sub(if dense { 0 } else { 4 }));
                 }
                 right_group_seen = true;
             }
@@ -3754,7 +3757,10 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                 let label = state.visible_label(menu, tile.action, logout_available());
                 let pinned = state.pins.iter().any(|pin| pin.as_str() == tile.action);
                 if luna_columns && columns && !tile.grid {
-                    menu_chrome::action_icon(canvas, tile.x + 6, tile.y + 9,
+                    let icon_y = if tile.height == native_menu::COLUMNS_RIGHT_DENSE_ROW_HEIGHT {
+                        tile.y + 4
+                    } else { tile.y + 9 };
+                    menu_chrome::action_icon(canvas, tile.x + 6, icon_y,
                                              tile.action, tile.index == state.selected);
                     if tile.action == "applications" {
                         // Green XP-inspired glyph over the *real* All Programs
@@ -3779,7 +3785,11 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                     let prefix = if pinned { "* " } else { "" };
                     let short: String = label.chars()
                         .take(cap.saturating_sub(prefix.len())).collect();
-                    draw_rice_text(canvas, width, height, tile.x + text_inset, tile.y + 12,
+                    let text_y = if luna_columns && columns
+                        && tile.height == native_menu::COLUMNS_RIGHT_DENSE_ROW_HEIGHT {
+                        tile.y + 8
+                    } else { tile.y + 12 };
+                    draw_rice_text(canvas, width, height, tile.x + text_inset, text_y,
                                    &format!("{prefix}{short}"), tile_fg, style);
                 }
             }

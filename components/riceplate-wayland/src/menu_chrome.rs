@@ -156,6 +156,21 @@ pub fn action_icon(canvas: &mut [u8], x: u32, y: u32, action: &str, selected: bo
             fill_rect(canvas, w, h, x + 1, y + 7, 11, 5, 0xffff_d16d);
             fill_rect(canvas, w, h, x + 2, y + 8, 9, 1, 0xffff_e2a0);
         }
+        "pictures" => {
+            // RiceBowl's own blue picture frame with a green landscape.
+            fill_rect(canvas, w, h, x, y + 1, 13, 12, 0xff4c_71b7);
+            fill_rect(canvas, w, h, x + 2, y + 3, 9, 8, 0xffa8_dcf5);
+            fill_rect(canvas, w, h, x + 3, y + 8, 7, 3, 0xff61_a94f);
+            fill_rounded_rect(canvas, w, h, x + 7, y + 4, 2, 2, 1, 0xffff_ee97);
+        }
+        "music" => {
+            // Twin musical notes, drawn from primitives rather than host art.
+            fill_rect(canvas, w, h, x + 5, y + 1, 7, 2, ink);
+            fill_rect(canvas, w, h, x + 5, y + 3, 2, 8, ink);
+            fill_rect(canvas, w, h, x + 10, y + 3, 2, 6, ink);
+            fill_rounded_rect(canvas, w, h, x + 1, y + 9, 6, 4, 2, light);
+            fill_rounded_rect(canvas, w, h, x + 7, y + 8, 6, 4, 2, light);
+        }
         "computer" => {
             // Cobalt desktop monitor and original turquoise screen glint.
             fill_rect(canvas, w, h, x, y + 1, 13, 10, 0xff1e_436c);
