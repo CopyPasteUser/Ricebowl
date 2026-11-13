@@ -323,3 +323,21 @@ matcher is not proof of correct compositor keyboard dispatch.
 Current production main keeps the working pointer-driven desktop context
 menu unchanged. Do not advertise shortcut typing on labwc 0.7.1 as
 implemented or accepted.
+
+
+## Follow-up: event seat, popup geometry and output ownership (13 Nov 2026)
+
+A follow-up hardens the true XDG popup against incorrect multi-seat serials:
+right-click uses the originating pointer's wl_seat and button serial, while
+Menu/Shift+F10 use the keyboard seat and key serial. Both devices and the
+popup's grab owner are explicitly tracked. Capability/seat loss closes the
+owned popup; popup configure is validated against its original icon parent
+and output work area, with reposition geometry tests. Focus-owner changes
+reset type-to-select. Output removal no longer treats the primary display
+as disconnected merely because it is excluded from the mirror-panel list.
+
+This is an input/lifecycle correctness repair, **not** a claim that labwc
+0.7.1 supports keyboard focus on Bottom-layer-owned popups. The strict
+real-compositor wtype/grim smoke remains a merge blocker. PR #327's
+independent Overlay input approach remains rejected; its bounded matcher
+logic is already present, so no duplicate selector is introduced.

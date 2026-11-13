@@ -215,6 +215,23 @@ mod tests {
     }
 
     #[test]
+    fn type_to_select_cycles_and_forgets_focus_owner() {
+        let labels = [Some("Programs"), Some("Pictures"), None,
+                      Some("Paint"), Some("Äpfel"), Some("Öffnen")];
+        let now = Instant::now();
+        let mut search = TypeSelect::default();
+        assert_eq!(search.feed(&labels, 0, "p", now), Some(1));
+        assert_eq!(search.feed(&labels, 1, "p", now + Duration::from_millis(30)), Some(3));
+        assert_eq!(search.feed(&labels, 3, "p", now + Duration::from_millis(60)), Some(0));
+        search.reset(); // Keyboard focus moved to a different client.
+        assert_eq!(search.feed(&labels, 0, "ä", now + Duration::from_millis(100)), Some(4));
+        search.reset();
+        assert_eq!(search.feed(&labels, 4, "ö", now + Duration::from_millis(150)), Some(5));
+        assert_eq!(search.feed(&labels, 5, "😀", now + Duration::from_millis(160)), None);
+        assert_eq!(search.feed(&labels, 5, "\n", now + Duration::from_millis(180)), None);
+    }
+
+    #[test]
     fn type_to_select_stays_bounded_and_resets_clock() {
         let mut search = TypeSelect::default();
         let labels = [Some("abcdefghijklmnopqrstuvwxyz123456789")];

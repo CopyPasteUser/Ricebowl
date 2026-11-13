@@ -95,6 +95,21 @@ pub fn details(action: &str) -> (&'static str, &'static str) {
 
 /// Position in the chosen wl_output's logical coordinates, never outside its
 /// work area; no global pointer coordinates or cross-output assumptions.
+/// The compositor reports popup coordinates relative to its icon parent.
+/// Use 64-bit arithmetic to validate every output work-area edge.
+pub fn configured_inside_output(
+    icon: (u32, u32), offset: (i32, i32), output: (u32, u32),
+    panel_height: u32, top_panel: bool,
+) -> bool {
+    let x = i64::from(icon.0) + i64::from(offset.0);
+    let y = i64::from(icon.1) + i64::from(offset.1);
+    let upper = if top_panel { panel_height } else { 0 };
+    let lower = if top_panel { 0 } else { panel_height };
+    x >= 0 && y >= i64::from(upper)
+        && x + i64::from(WIDTH) <= i64::from(output.0)
+        && y + i64::from(HEIGHT) + i64::from(lower) <= i64::from(output.1)
+}
+
 pub fn placement(icon: (u32, u32), pointer: (f64, f64),
                  output: (u32, u32), panel_height: u32, top_panel: bool)
                  -> Option<(u32, u32)> {
@@ -150,6 +165,26 @@ mod tests {
         assert_eq!(details("terminal"), ("Application", "Terminal launcher"));
         assert_eq!(details("dangerous arbitrary shell string"),
                    ("Shortcut", "Supported action"));
+    }
+
+    #[test]
+    fn configured_popup_respects_parent_and_panel_after_reposition() {
+        assert!(configured_inside_output((24, 400), (44, 35),
+                                         (1366, 768), 40, false));
+        assert!(configured_inside_output((1000, 700), (-200, -162),
+                                         (1024, 768), 40, false));
+        assert!(configured_inside_output((0, 0), (0, 40),
+                                         (224, 250), 40, true));
+        assert!(!configured_inside_output((24, 400), (-25, 35),
+                                          (1366, 768), 40, false));
+        assert!(!configured_inside_output((1000, 700), (0, 0),
+                                          (1024, 768), 40, false));
+        assert!(!configured_inside_output((0, 0), (0, 0),
+                                          (224, 250), 40, true));
+        assert!(!configured_inside_output((0, 0), (i32::MAX, 0),
+                                          (1366, 768), 40, false));
+        assert!(!configured_inside_output((0, 0), (0, i32::MIN),
+                                          (1366, 768), 40, false));
     }
 
     #[test]

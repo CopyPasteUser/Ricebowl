@@ -533,7 +533,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         tray_popup_focused: false,
         control_sender: None,
         pointer: None,
+        pointer_seat: None,
         keyboard: None,
+        keyboard_seat: None,
         focused_icon: None,
         keyboard_icon_surface: None,
         desktop_selection: desktop_selection::Selection::default(),
@@ -904,6 +906,7 @@ struct LunaDialogLayer {
 struct DesktopContextLayer {
     popup: Popup,
     parent_surface: wl_surface::WlSurface,
+    grab_seat: wl_seat::WlSeat,
     pool: Option<SlotPool>,
     configured: bool,
     icon_index: usize,
@@ -1005,7 +1008,9 @@ struct RicePlate {
     tray_popup_focused: bool,
     control_sender: Option<mpsc::SyncSender<ControlAction>>,
     pointer: Option<wl_pointer::WlPointer>,
+    pointer_seat: Option<wl_seat::WlSeat>,
     keyboard: Option<wl_keyboard::WlKeyboard>,
+    keyboard_seat: Option<wl_seat::WlSeat>,
     focused_icon: Option<usize>,
     keyboard_icon_surface: Option<wl_surface::WlSurface>,
     desktop_selection: desktop_selection::Selection,
@@ -1294,8 +1299,13 @@ impl RicePlate {
     }
 
     fn open_desktop_context(&mut self, index: usize, pointer: (f64, f64),
-                            grab_serial: Option<u32>, qh: &QueueHandle<Self>) {
+                            grab: Option<(wl_seat::WlSeat, u32)>, qh: &QueueHandle<Self>) {
         if self.recipe.id != "xp-luna-columns" { return; }
+        // An XDG popup grab must use the serial AND seat of its initiating
+        // pointer/button or keyboard/key event, never an arbitrary seat.
+        let Some((seat, serial)) = grab.filter(|(_, serial)| *serial != 0) else {
+            return;
+        };
         let Some(icon) = self.icon_layers.get(index) else { return; };
         let Some(position) = icon.placed else { return; };
         let Some(output) = icon.bound_output.as_ref()
@@ -1365,12 +1375,11 @@ impl RicePlate {
         // labwc 0.7.1 does not grant it keyboard focus (CI blocker);
         // do not silently promote it or request Exclusive keyboard access.
         self.icon_layers[index].surface.get_popup(popup.xdg_popup());
-        if let (Some(seat), Some(serial)) = (self.primary_seat.as_ref(), grab_serial) {
-            popup.xdg_popup().grab(seat, serial);
-        }
+        popup.xdg_popup().grab(&seat, serial);
         popup.wl_surface().commit();
         self.desktop_context = Some(DesktopContextLayer {
             popup, parent_surface: self.icon_layers[index].surface.wl_surface().clone(),
+            grab_seat: seat,
             pool: None, configured: false, icon_index: index,
             selected: DesktopContextAction::Open, hovered: None,
             pressed: None, can_move, can_reset,
@@ -2264,10 +2273,12 @@ impl RicePlate {
         // Before the very first enter, defer to the compositor's initial
         // placement to avoid redundant startup panels.
         if !self.primary_output_seen { return; }
-        let outputs: Vec<_> = self.outputs.outputs()
-            .filter(|output| self.primary_output.as_ref() != Some(output))
+        let connected_outputs: Vec<_> = self.outputs.outputs()
             .filter(|output| self.logical_output_size(output).is_some())
-            .take(MAX_OUTPUT_PANELS).collect();
+            .collect();
+        let outputs: Vec<_> = connected_outputs.iter()
+            .filter(|output| self.primary_output.as_ref() != Some(*output))
+            .take(MAX_OUTPUT_PANELS).cloned().collect();
         let old_count = self.mirrors.len();
         self.mirrors.retain(|mirror| outputs.contains(&mirror.output));
         if old_count != self.mirrors.len() {
@@ -2302,7 +2313,7 @@ impl RicePlate {
         if self.desktop_context.as_ref().is_some_and(|menu|
             self.icon_layers.iter().any(|icon|
                 icon.surface.wl_surface() == &menu.parent_surface
-                && icon.bound_output.as_ref().is_some_and(|output| !outputs.contains(output)))) {
+                && icon.bound_output.as_ref().is_some_and(|output| !connected_outputs.contains(output)))) {
             self.close_desktop_context();
         }
         self.icon_layers.retain(|icon| icon.bound_output.as_ref()
@@ -6132,6 +6143,27 @@ impl WindowHandler for RicePlate {
 impl PopupHandler for RicePlate {
     fn configure(&mut self, _: &Connection, _: &QueueHandle<Self>,
                  popup: &Popup, config: PopupConfigure) {
+        // Keep the original icon as the popup's geometry owner even when
+        // searching changes which desktop action is highlighted.
+        let within_output = self.desktop_context.as_ref()
+            .filter(|menu| &menu.popup == popup)
+            .and_then(|menu| {
+                let parent = self.icon_layers.iter().find(|icon|
+                    icon.surface.wl_surface() == &menu.parent_surface)?;
+                let position = parent.placed?;
+                let output = parent.bound_output.as_ref()
+                    .or(self.primary_output.as_ref()).or(parent.output.as_ref())?;
+                let size = self.logical_output_size(output)?;
+                Some(desktop_context::configured_inside_output(
+                    position, config.position, size, self.recipe.height, self.recipe.top))
+            });
+        if within_output != Some(true) {
+            if within_output == Some(false) {
+                eprintln!("RicePlate: shortcut popup configured outside output work area");
+            }
+            self.close_desktop_context();
+            return;
+        }
         let Some(menu) = self.desktop_context.as_mut().filter(|menu|
             &menu.popup == popup) else { return };
         if (config.width, config.height) !=
@@ -6187,13 +6219,19 @@ impl SeatHandler for RicePlate {
     ) {
         if capability == Capability::Keyboard && self.keyboard.is_none() {
             match self.seats.get_keyboard(qh, &seat, None) {
-                Ok(keyboard) => self.keyboard = Some(keyboard),
+                Ok(keyboard) => {
+                    self.keyboard = Some(keyboard);
+                    self.keyboard_seat = Some(seat.clone());
+                },
                 Err(error) => eprintln!("RicePlate: keyboard unavailable: {error}"),
             }
         }
         if capability == Capability::Pointer && self.pointer.is_none() {
             match self.seats.get_pointer(qh, &seat) {
-                Ok(pointer) => self.pointer = Some(pointer),
+                Ok(pointer) => {
+                    self.pointer = Some(pointer);
+                    self.pointer_seat = Some(seat.clone());
+                },
                 Err(error) => eprintln!("RicePlate: pointer unavailable: {error}"),
             }
         }
@@ -6202,17 +6240,28 @@ impl SeatHandler for RicePlate {
         &mut self,
         _: &Connection,
         qh: &QueueHandle<Self>,
-        _: wl_seat::WlSeat,
+        seat: wl_seat::WlSeat,
         capability: Capability,
     ) {
-        if capability == Capability::Pointer {
+        let owned_device_removed = (capability == Capability::Pointer
+                && self.pointer_seat.as_ref() == Some(&seat))
+            || (capability == Capability::Keyboard
+                && self.keyboard_seat.as_ref() == Some(&seat));
+        if owned_device_removed && self.desktop_context.as_ref()
+            .is_some_and(|menu| menu.grab_seat == seat) {
+            self.close_desktop_context();
+        }
+        if capability == Capability::Pointer && self.pointer_seat.as_ref() == Some(&seat) {
+            self.pointer_seat = None;
             if let Some(pointer) = self.pointer.take() {
                 pointer.release();
             }
             self.icon_drag = None;
             self.desktop_selection.cancel();
             self.save_icon_positions();
-        } else if capability == Capability::Keyboard {
+        } else if capability == Capability::Keyboard
+            && self.keyboard_seat.as_ref() == Some(&seat) {
+            self.keyboard_seat = None;
             // A removed keyboard never sends release/modifier updates.
             self.selection_modifiers = Modifiers::default();
             self.desktop_selection.cancel();
@@ -6238,6 +6287,11 @@ impl SeatHandler for RicePlate {
         }
     }
     fn remove_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, seat: wl_seat::WlSeat) {
+        if self.desktop_context.as_ref().is_some_and(|menu| menu.grab_seat == seat) {
+            self.close_desktop_context();
+        }
+        if self.pointer_seat.as_ref() == Some(&seat) { self.pointer_seat = None; }
+        if self.keyboard_seat.as_ref() == Some(&seat) { self.keyboard_seat = None; }
         if self.primary_seat.as_ref() == Some(&seat) {
             self.primary_seat = None;
         }
@@ -6292,6 +6346,7 @@ impl KeyboardHandler for RicePlate {
             .position(|icon| icon.surface.wl_surface() == surface && icon.placed.is_some());
         self.keyboard_icon_surface = next.map(|_| surface.clone());
         if self.focused_icon != next {
+            self.desktop_type_select.reset();
             let previous = self.focused_icon;
             self.focused_icon = next;
             // The focused surface is not necessarily selected: pointer focus
@@ -6370,7 +6425,7 @@ impl KeyboardHandler for RicePlate {
         _: &Connection,
         qh: &QueueHandle<Self>,
         _: &wl_keyboard::WlKeyboard,
-        _: u32,
+        serial: u32,
         event: KeyEvent,
     ) {
         if std::env::var_os("RICEBOWL_DE_TRACE_DESKTOP").is_some() && self.context_focused {
@@ -6571,13 +6626,15 @@ impl KeyboardHandler for RicePlate {
                     self.select_luna_icon_mode(index, desktop_selection::Mode::Toggle);
                 }
                 Keysym::Menu if self.recipe.id == "xp-luna-columns" => {
-                    self.open_desktop_context(index, (52.0, 42.0), None, qh);
+                    self.open_desktop_context(index, (52.0, 42.0),
+                        self.keyboard_seat.clone().map(|seat| (seat, serial)), qh);
                 }
                 Keysym::F10 if self.recipe.id == "xp-luna-columns"
                     && self.selection_modifiers.shift => {
                     // Standard keyboard equivalent of the context-menu key.
                     // The popup still targets just the focused shortcut.
-                    self.open_desktop_context(index, (52.0, 42.0), None, qh);
+                    self.open_desktop_context(index, (52.0, 42.0),
+                        self.keyboard_seat.clone().map(|seat| (seat, serial)), qh);
                 }
                 Keysym::Return | Keysym::KP_Enter | Keysym::space => {
                     let action = self.recipe.desktop_icons[self.icon_layers[index].recipe_index]
@@ -7230,7 +7287,8 @@ impl PointerHandler for RicePlate {
                 }
                 match event.kind {
                     PointerEventKind::Press { button: BTN_RIGHT, serial, .. } => {
-                        self.open_desktop_context(index, event.position, Some(serial), qh);
+                        self.open_desktop_context(index, event.position,
+                            self.pointer_seat.clone().map(|seat| (seat, serial)), qh);
                     }
                     PointerEventKind::Press { button: BTN_LEFT, .. } => {
                         self.close_desktop_context();
