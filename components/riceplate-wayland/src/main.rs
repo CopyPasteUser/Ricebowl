@@ -4289,6 +4289,7 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
         // system/session commands on a pale-blue right-hand shelf.
         if luna_columns {
             menu_chrome::shelf(canvas, menu.palette.unwrap());
+            menu_chrome::left_all_programs_rule(canvas);
         } else {
             fill_rect(canvas, width, height, native_menu::COLUMNS_SPLIT, 38,
                       width - native_menu::COLUMNS_SPLIT, height - 66, selection);
@@ -4348,8 +4349,13 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                 }
                 right_group_seen = true;
             }
-            draw_rice_text(canvas, width, height, section.x + 2, section.top + 3,
-                           section.title, fg, style);
+            // XP's frequent-program pane has no stacked section headings:
+            // the white list begins directly below the account banner.
+            // Other recipes and the blue system shelf retain their labels.
+            if !(luna_columns && columns && section.x < native_menu::COLUMNS_SPLIT) {
+                draw_rice_text(canvas, width, height, section.x + 2, section.top + 3,
+                               section.title, fg, style);
+            }
             if section.items.is_empty() {
                 let empty = match section.kind {
                     recipe::MenuContentKind::Favorites => "No favorites yet",
@@ -4485,11 +4491,13 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
             native_menu::View::Saved => "F2 Remove  F3 Back",
             native_menu::View::Groups => "F2 Pin  F3 Saved",
         });
-        let available_chars = (native_menu::COLUMNS_SPLIT.saturating_sub(20)
-            / (8 * style.font_scale.max(1))) as usize;
-        draw_rice_text(canvas, width, height, 12, 47,
-                       &status.chars().take(available_chars).collect::<String>(),
-                       fg, style);
+        if state.view != native_menu::View::Groups || state.notice.is_some() {
+            let available_chars = (native_menu::COLUMNS_SPLIT.saturating_sub(20)
+                / (8 * style.font_scale.max(1))) as usize;
+            draw_rice_text(canvas, width, height, 12, 47,
+                           &status.chars().take(available_chars).collect::<String>(),
+                           fg, style);
+        }
         // Keep the genuine range indicator visible on long search pages.
         if let Some((start, end, total)) = state.page_status(menu, native_menu::VISIBLE_ACTIONS) {
             caption(190, &format!("{start}-{end}/{total}"), header_fg, canvas);
