@@ -1290,13 +1290,14 @@ mod tests {
         assert_eq!(state.hit(menu, 20.0, 116.0), Some(Hit::Action(4)));
         assert!(state.accessible_summary(menu, VISIBLE_ACTIONS)
             .contains("Showing apps 5 through 8 of 9"));
-        // Recipe pin storage cannot persist arbitrary .desktop file paths.
-        assert!(!state.toggle_pin(menu));
-        assert!(state.pins.is_empty());
+        // An actual discovered XDG app is a safe, persistable Luna favorite.
+        // A folder token or arbitrary desktop path still cannot be pinned.
+        assert!(state.toggle_pin(menu));
+        assert_eq!(state.pins, vec!["desktop:demo-4.desktop"]);
         state.search_button();
         assert_eq!(state.view, View::Groups);
-        // Returning from All Programs selects the first real preview app.
-        assert_eq!(state.current_action(menu), Some("desktop:demo-0.desktop"));
+        // Returning from All Programs previews the newly pinned app first.
+        assert_eq!(state.current_action(menu), Some("desktop:demo-4.desktop"));
 
         state.show_programs();
         assert!(state.search_input("8"));
