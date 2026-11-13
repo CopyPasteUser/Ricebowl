@@ -126,8 +126,13 @@ pub struct Bounds {
 
 /// The bottom taskbar's menu hugs its upper edge; top panels grow downward.
 pub fn bounds(total: usize, first: usize, top_panel: bool) -> Bounds {
-    let visible = total.saturating_sub(first).min(tray::POPUP_ROWS) as u32;
-    let footer = if total > tray::POPUP_ROWS { FOOTER_HEIGHT } else { 0 };
+    // Keep a fixed frame while paging a group. Otherwise the bottom-aligned
+    // painted rows move underneath the compositor's already-installed input
+    // region whenever the last page contains fewer windows.
+    let paged = total > tray::POPUP_ROWS;
+    let visible = if paged { tray::POPUP_ROWS as u32 }
+                  else { total.saturating_sub(first) as u32 };
+    let footer = if paged { FOOTER_HEIGHT } else { 0 };
     let height = (2 * PADDING + visible * ROW_HEIGHT + footer)
         .min(tray::POPUP_HEIGHT);
     Bounds { top: if top_panel { 0 } else { tray::POPUP_HEIGHT - height }, height }
@@ -142,7 +147,9 @@ pub fn menu_hit(popup: &tray::MenuPopup, x: f64, y: f64, top_panel: bool)
         || y >= f64::from(region.top + region.height) { return None; }
     let local_y = y as u32 - region.top;
     if local_y < PADDING { return None; }
-    let visible = popup.rows().len().saturating_sub(popup.first).min(tray::POPUP_ROWS);
+    let total = popup.rows().len();
+    let visible = if total > tray::POPUP_ROWS { tray::POPUP_ROWS }
+                  else { total.saturating_sub(popup.first) };
     let row_end = PADDING + visible as u32 * ROW_HEIGHT;
     if local_y < row_end {
         let index = popup.first + ((local_y - PADDING) / ROW_HEIGHT) as usize;
@@ -345,6 +352,8 @@ mod tests {
         assert_eq!(menu_hit(&popup, 24.0, f64::from(b.top + PADDING +
                    tray::POPUP_ROWS as u32 * ROW_HEIGHT + 9), true), None);
         popup.page(1);
+        assert_eq!(bounds(popup.rows().len(), popup.first, true), b,
+                   "page transitions must retain the same input geometry");
         assert_eq!(menu_hit(&popup, 24.0, f64::from(b.top + PADDING +
                    tray::POPUP_ROWS as u32 * ROW_HEIGHT + 9), true),
                    Some(tray::MenuHit::Previous));
