@@ -17,10 +17,13 @@ installation and is not yet a finished desktop environment.
   draw a persistent caret without polling or new background processes, and
   keep existing shell-free argv validation, 192-character/16-argument bounds.
   Rust regressions cover multibyte input, cursor bounds, truncation and
-  unchanged command validation. The existing genuine headless-labwc Run PNG
-  must show real compositor-painted caret pixels. Completion requires green
-  Tests and Native RicePlate CI on the final commit, then merge. This is not
-  a physical keyboard, IME or screen-reader acceptance claim.
+  unchanged command validation. The genuine headless-labwc Run PNG must show
+  real compositor-painted caret pixels. Isolated Ubuntu CI additionally
+  injects a real `wtype` virtual-keyboard sequence (type, Left, Backspace,
+  insert, Home, Delete) and archives typed/edited/cleared grim PNGs with
+  pixel-difference checks. Completion requires green Tests and Native
+  RicePlate CI on the final commit, then merge. This is not a physical
+  keyboard, IME or screen-reader acceptance claim.
 
 ### Luna recent-app privacy and write-efficiency (13 November 2026)
 
