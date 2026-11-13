@@ -300,8 +300,8 @@ mod tests {
         let many = vec![w("Window", false, false); 128];
         let (_, rows) = entries(&many).unwrap();
         assert_eq!(rows.len(), MAX_WINDOW_ROWS + 6);
-        assert!(matches!(&rows[MAX_WINDOW_ROWS].kind, tray::MenuKind::Separator));
-        assert!(!rows[MAX_WINDOW_ROWS + 1].enabled);
+        assert!(!rows[MAX_WINDOW_ROWS].enabled, "More hint must be disabled");
+        assert!(matches!(&rows[MAX_WINDOW_ROWS + 1].kind, tray::MenuKind::Separator));
         assert_eq!(decode(WINDOW_BASE + 21, 128), None);
         assert_eq!(decode(SWITCH_NEXT, 128), Some(Action::NextWindow));
     }
