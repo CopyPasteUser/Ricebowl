@@ -1446,7 +1446,7 @@ mod tests {
                            Some("xp-luna")).unwrap();
         assert_eq!(width_for(&columns, Widget::Network, 0), 28);
         assert_eq!(width_for(&columns, Widget::Audio, 0), 28);
-        assert_eq!(width_for(&columns, Widget::Battery, 0), 64);
+        assert_eq!(width_for(&columns, Widget::Battery, 0), 70);
         assert_eq!(width_for(&legacy, Widget::Network, 0), 64);
         assert_eq!(columns.artwork.as_ref().and_then(|art| art.font.as_deref()),
                    Some("builtin-luna-ui"));
