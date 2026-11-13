@@ -77,6 +77,18 @@ class ReadOnlySessionReliabilityTests(unittest.TestCase):
         self.assertEqual(len(commands), 1)
         self.assertLessEqual(commands[0][1]["timeout"], 3)
 
+    def test_protocol_names_in_window_titles_are_not_registry_advertisements(self):
+        text = ("title: zwlr_layer_shell_v1 wl_compositor xdg_wm_base\\n"
+                "unrelated: zwlr_foreign_toplevel_manager_v1")
+        report = reliability.inspect(
+            environment=self.env, which=lambda x: x,
+            run=lambda args, **kw: subprocess.CompletedProcess(args, 0, text, ""),
+            socket_probe=lambda _: "present", samples=(),
+            recovery={"ok": True, "pending": False})
+        self.assertEqual(report["protocols"]["probe"], "observed")
+        self.assertTrue(all(value is False for value in
+                            report["protocols"]["required"].values()))
+
     def test_missing_lock_and_backend_never_claim_ready(self):
         present = {"labwc", "waybar", "foot", "fuzzel", "swaylock", "riceplate-native"}
         report = reliability.inspect(
