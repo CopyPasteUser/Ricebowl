@@ -16,6 +16,7 @@ mod icon_positions;
 mod installed_apps;
 mod luna_places;
 mod luna_dialog;
+mod luna_clock;
 mod menu_chrome;
 mod menu_pins;
 mod menu_recents;
@@ -125,8 +126,8 @@ fn menu_size_decision(expected: (u32, u32), offered: (u32, u32),
     else { MenuSizeDecision::RetryExpectedSize }
 }
 
-fn clock_now() -> String {
-    Local::now().format("%H:%M").to_string()
+fn clock_now(format: luna_clock::ClockFormat) -> String {
+    luna_clock::format_time(Local::now().time(), format)
 }
 
 fn next_clock_timeout() -> Duration {
@@ -179,6 +180,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     };
     let mut recipe = recipe::load(recipe_name)?;
+    // Reading the owner-private setting is optional and confined to Luna.
+    // Other rices always retain the exact existing 24-hour clock behavior.
+    let clock_format = if recipe.id == "xp-luna-columns" {
+        luna_clock::load()
+    } else {
+        luna_clock::ClockFormat::Hour24
+    };
     if let Some(selection) = recipe.artwork.as_ref() {
         recipe.native_art = Some(style_art::load(selection, recipe.font_scale)?);
     }
@@ -465,7 +473,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         calendar_state: CalendarState::new(Local::now().date_naive()),
         calendar_focused: false,
         recipe,
-        clock: clock_now(),
+        clock: clock_now(clock_format),
         power: PowerStatus::current(),
         system_status: SystemStatus::default(),
         control_pending: None,
@@ -748,7 +756,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
         if app.osd_state.expire(Instant::now()) { app.hide_osd(); }
-        let current = clock_now();
+        let current = clock_now(clock_format);
         if app.clock != current {
             app.clock = current;
             // The fixed sysfs power supply is read at most once per minute,
@@ -3724,8 +3732,15 @@ fn paint_panel_pointer(canvas: &mut [u8], width: u32, height: u32,
                 }
             }
             Widget::Clock => {
+                // Center the shorter/longer Luna time inside its reserved slot.
+                // The previous 24h 5x8 width remains unchanged for other rices.
+                let label_width = if style.id == "xp-luna-columns" {
+                    text_pixel_width(clock, style.font_scale)
+                } else {
+                    40 * style.font_scale
+                };
                 draw_rice_text(canvas, width, height,
-                          placed.x + placed.width.saturating_sub(40 * style.font_scale) / 2,
+                          placed.x + placed.width.saturating_sub(label_width) / 2,
                           height.saturating_sub(8 * style.font_scale) / 2,
                           clock, style.foreground, style);
             }
@@ -8046,7 +8061,8 @@ mod tests {
         let time = chrono::NaiveTime::from_hms_opt(2, 3, 59).unwrap();
         assert_eq!(time.format("%H:%M").to_string(), "02:03");
         assert!(next_clock_timeout() <= Duration::from_secs(60));
-        assert!(!clock_now().is_empty());
+        assert!(!clock_now(luna_clock::ClockFormat::Hour24).is_empty());
+        assert!(text_pixel_width("9:07 PM", 1) <= 80);
     }
 
     #[test]

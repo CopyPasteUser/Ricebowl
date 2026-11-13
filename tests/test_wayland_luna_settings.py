@@ -32,6 +32,11 @@ class WaylandLunaSettingsTests(unittest.TestCase):
         self.assertIn("displays", settings.luna_search_matches("scaling"))
         self.assertIn("taskbar", settings.luna_search_matches("start menu"))
         self.assertIn("network", settings.luna_search_matches("WI-FI"))
+        self.assertIn("network", settings.luna_search_matches("wifi"))
+        self.assertIn("taskbar", settings.luna_search_matches("clock format"))
+        self.assertIn("taskbar", settings.luna_search_matches("12h"))
+        self.assertIn("taskbar", settings.luna_search_matches("24-hour"))
+        self.assertNotIn("audio", settings.luna_search_matches("clock format"))
         self.assertEqual(settings.luna_search_matches("unavailable_fake_page"), ())
 
     def test_luna_without_page_opens_overview(self):
@@ -126,6 +131,52 @@ class WaylandLunaSettingsTests(unittest.TestCase):
             GLib.timeout_add(30, lambda: (window.window.destroy(), False)[1])
             Gtk.main()
         self.assertTrue(window.closed)
+
+    def test_taskbar_clock_format_only_saves_after_explicit_apply(self):
+        try:
+            Gtk, Gdk, GLib = settings._gtk_modules()
+        except (ImportError, ValueError):
+            self.skipTest("GTK introspection typelib unavailable")
+        if not Gtk.init_check([])[0]:
+            self.skipTest("GTK display unavailable")
+
+        with mock.patch("macrice.de.luna_panel_settings.load",
+                        return_value={"clock_format": "24h"}), \
+             mock.patch("macrice.de.luna_panel_settings.save",
+                        return_value={"clock_format": "12h"}) as saved:
+            window = settings.RiceSpiceWindow(Gtk, Gdk, GLib, page="taskbar", luna=True)
+            window._background = lambda work, done: done(work())
+            choices = [child for child in window.content.get_children()
+                       if isinstance(child, Gtk.ComboBoxText)]
+            self.assertEqual(len(choices), 1)
+            combo = choices[0]
+
+            def buttons(widget):
+                found = []
+                if isinstance(widget, Gtk.Button):
+                    found.append(widget)
+                if isinstance(widget, Gtk.Container):
+                    for child in widget.get_children():
+                        found.extend(buttons(child))
+                return found
+
+            apply = next(button for button in buttons(window.content)
+                         if button.get_label() == "Save clock format for next Luna login")
+            self.assertEqual(combo.get_active_id(), "24h")
+            self.assertFalse(apply.get_sensitive())
+            saved.assert_not_called()
+            combo.set_active_id("12h")
+            self.assertTrue(apply.get_sensitive())
+            combo.set_active_id("24h")
+            self.assertFalse(apply.get_sensitive())
+            combo.set_active_id("12h")
+            apply.clicked()
+            saved.assert_called_once_with({"clock_format": "12h"},
+                                          expected={"clock_format": "24h"})
+            self.assertEqual(window.page, "taskbar")
+            GLib.timeout_add(30, lambda: (window.window.destroy(), False)[1])
+            Gtk.main()
+            self.assertTrue(window.closed)
 
     def test_invalid_pages_rejected_before_opening_gtk(self):
         with self.assertRaises(settings.backend.SettingsError):

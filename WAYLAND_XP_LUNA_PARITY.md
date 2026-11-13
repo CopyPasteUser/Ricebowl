@@ -36,9 +36,14 @@ category rows. Direct links via `--page <category>` continue to reach the
 same real RiceSpice service backends; generic RiceSpice remains unchanged. Available pages: network, audio, notifications, bluetooth,
 displays, input, accessibility, timezone, power, appearance and taskbar.
 `ricebowl de settings` retains its original presentation; XFCE defaults
-and other rices are untouched. Taskbar settings currently provide real links
-and describe unimplemented options instead of presenting nonfunctional
-checkboxes.
+and other rices are untouched. The XP Luna Taskbar and Start Menu page now offers an actual **12/24-hour
+clock-format setting** saved atomically in owner-private
+`~/.config/ricebowl/luna-panel.json` (or the user's absolute
+`XDG_CONFIG_HOME`). RicePlate reads this preference **once at Luna startup**:
+the change takes effect at the next Luna session, never restarts the current
+panel, and does not affect the non-Luna clock. The existing system control
+links remain working; unimplemented auto-hide, per-icon hiding and locking
+are stated as limitations, not fake toggles.
 
 **Open:** XP-style network/audio/power menu interaction and keyboard/AT-SPI
 focus need actual labwc/ThinkPad sign-off. Native pin reordering, show/hide per
