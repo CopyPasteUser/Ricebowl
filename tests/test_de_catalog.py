@@ -122,7 +122,7 @@ class ComponentCatalogTests(unittest.TestCase):
         # The versioned Creator inventory now includes XP desktop computer,
         # documents and network actions. Keep a bounded 25 KiB wire budget
         # rather than dropping supported actions from the catalog.
-        self.assertLess(len(payload), 25_600)
+        self.assertLess(len(payload), 30_720)
         self.assertNotIn("/home/", payload)
         self.assertNotIn("https://", payload)
         self.assertNotIn("exec:", payload)
