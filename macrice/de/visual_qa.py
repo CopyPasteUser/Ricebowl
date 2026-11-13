@@ -53,6 +53,16 @@ def _recipe_regions(diff, recipe_token: str, threshold: int) -> dict:
         box = (icon.x, icon.y, icon.x + recipes.ICON_WIDTH,
                icon.y + recipes.ICON_HEIGHT)
         regions.append((f"desktop-icon-{number}", box))
+    # Inspect declared v8+ desktop widget geometry as well as shortcuts.
+    # These are recipe coordinates, not proof of the compositor's final
+    # hotplug/reflow placement. A real capture remains the source of pixels.
+    if recipe.composition is not None:
+        for widget in recipe.composition.widgets:
+            regions.append((
+                f"desktop-widget-{widget.widget_id}",
+                (widget.x, widget.y, widget.x + recipes.DESKTOP_WIDGET_WIDTH,
+                 widget.y + recipes.DESKTOP_WIDGET_HEIGHT),
+            ))
     results = []
     for name, box in regions:
         x1, y1, x2, y2 = box
@@ -68,12 +78,13 @@ def _recipe_regions(diff, recipe_token: str, threshold: int) -> dict:
             region.update(_metrics(diff.crop(clipped), threshold=threshold))
         else:
             region["status"] = "outside_capture"
-        if name.startswith("desktop-icon-"):
+        if name.startswith(("desktop-icon-", "desktop-widget-")):
+            subject = "icon" if name.startswith("desktop-icon-") else "widget"
             if fraction < 1:
-                issues.append({"region": name, "code": "icon_outside_output"})
+                issues.append({"region": name, "code": f"{subject}_outside_output"})
             if (visible_width and visible_height and
                     clipped[1] < panel_y + recipe.height and clipped[3] > panel_y):
-                issues.append({"region": name, "code": "icon_overlaps_panel"})
+                issues.append({"region": name, "code": f"{subject}_overlaps_panel"})
         results.append(region)
     manifest = review._manifest(recipe)
     return {"recipe": {"id": recipe.recipe_id,
