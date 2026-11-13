@@ -263,7 +263,9 @@ pub fn task_button_visual(
     x: u32, span: u32, active: bool, style: &PanelStyle, visual: ButtonVisual,
 ) {
     task_button(canvas, width, height, x, span, active, style);
-    if style.launcher.is_none() || span < 18 || height < 16 { return; }
+    // XP-specific hover/pressed bevels must not leak into classic, Aero or
+    // other decorated rices, which own separate visual semantics.
+    if style.id != "xp-luna-columns" || span < 18 || height < 16 { return; }
     match visual {
         ButtonVisual::Normal => {}
         ButtonVisual::Hovered => {
@@ -444,6 +446,24 @@ mod tests {
             assert_eq!(px(frame, width, width - 1, 0), px(&idle, width, width - 1, 0));
             assert_eq!(px(frame, width, 330, height - 2), px(&idle, width, 330, height - 2));
         }
+    }
+
+    #[test]
+    fn xp_task_button_interaction_pixels_do_not_change_other_rices() {
+        let mut other = recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        other.id = "other-decorated-rice".into();
+        let (width, height) = (420, other.height);
+        let image = |visual| {
+            let mut pixels = vec![0_u8; (width * height * 4) as usize];
+            background(&mut pixels, width, height, &other, &[]);
+            task_button_visual(&mut pixels, width, height, 110, 150, false,
+                               &other, visual);
+            pixels
+        };
+        assert_eq!(image(ButtonVisual::Normal), image(ButtonVisual::Hovered));
+        assert_eq!(image(ButtonVisual::Normal), image(ButtonVisual::Pressed));
     }
 
     #[test]
