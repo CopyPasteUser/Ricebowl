@@ -169,6 +169,7 @@ pub enum Hit {
     Launcher,
     Action(u8),
     Clock,
+    Status(Widget),
     Task(usize),
     PreviousTasks,
     NextTasks,
@@ -1138,6 +1139,7 @@ fn width_for(style: &PanelStyle, widget: Widget, tasks: usize) -> u32 {
         // XP's notification area uses tightly packed 16px status glyphs,
         // whereas the other recipes intentionally retain readable labels.
         Widget::Network | Widget::Audio if style.id == "xp-luna-columns" => 28,
+        Widget::Battery if style.id == "xp-luna-columns" => 58,
         Widget::Battery | Widget::Network | Widget::Audio => 64 * style.font_scale,
         Widget::Tray => crate::tray::WIDTH,
         Widget::Tasks => tasks as u32 * style.widths[1],
@@ -1174,8 +1176,12 @@ pub fn layout(style: &PanelStyle, screen_width: u32, tasks: usize) -> Vec<Placed
     let fixed_width = fixed_width.saturating_add(section_gaps);
     let optional = [Widget::Battery, Widget::Audio, Widget::Network];
     let enabled = optional.map(|widget| sections.iter().flatten().any(|&w| w == widget));
-    let without_status = fixed_width.saturating_sub(
-        enabled.iter().filter(|&&present| present).count() as u32 * 64 * style.font_scale);
+    // Subtract the *actual* recipe-specific widths. XP Luna uses 28px
+    // status glyphs, not the 64px text indicators of other rices.
+    let optional_width = optional.iter().zip(enabled.iter())
+        .filter(|(_, present)| **present)
+        .map(|(widget, _)| width_for(style, *widget, 0)).sum::<u32>();
+    let without_status = fixed_width.saturating_sub(optional_width);
     let has_clock = sections.iter().flatten().any(|&w| w == Widget::Clock);
     let show_clock = !has_clock || screen_width >= without_status;
     let mut effective_fixed = without_status.saturating_sub(
@@ -1186,10 +1192,14 @@ pub fn layout(style: &PanelStyle, screen_width: u32, tasks: usize) -> Vec<Placed
     // when the next one does not cost an existing visible task group.
     for (index, present) in enabled.into_iter().enumerate() {
         if !present { continue; }
-        let next_width = effective_fixed + 64 * style.font_scale;
+        let next_width = effective_fixed + width_for(style, optional[index], 0);
         let slots = screen_width.saturating_sub(next_width + 8) / style.widths[1];
-        if screen_width >= next_width && (slots >= tasks.min(MAX_TRACKED_TASKS) as u32
-            || slots == baseline_slots) {
+        // XP always reserves its notification-area icons when one task slot
+        // remains. Other rices retain the original task-first policy.
+        let fits = if style.id == "xp-luna-columns" { slots >= 1 }
+            else { slots >= tasks.min(MAX_TRACKED_TASKS) as u32
+                || slots == baseline_slots };
+        if screen_width >= next_width && fits {
             show_status[index] = true;
             effective_fixed = next_width;
         }
@@ -1311,6 +1321,8 @@ pub fn hit(
             Widget::Action(index) => Some(Hit::Action(index)),
             Widget::Tray => Some(Hit::Tray(((x - f64::from(item.x)) /
                 f64::from(crate::tray::SLOT_WIDTH)) as usize)),
+            Widget::Battery | Widget::Network | Widget::Audio
+                if style.id == "xp-luna-columns" => Some(Hit::Status(item.widget)),
             Widget::Battery | Widget::Network | Widget::Audio => None,
             Widget::Gap(_) | Widget::Divider(_) | Widget::Label(_) => None,
         };
@@ -1512,6 +1524,22 @@ mod tests {
         let mut missing = original;
         missing.as_object_mut().unwrap().remove("composition");
         assert!(parse(&missing.to_string(), None).is_err());
+    }
+
+    #[test]
+    fn luna_system_icons_are_clickable_and_preserved_in_compact_layout() {
+        let style = parse(include_str!("../../../examples/wayland/xp-luna-columns.json"),
+                          Some("xp-luna-columns")).unwrap();
+        for width in [800, 1024, 1366] {
+            let placed = layout(&style, width, 7);
+            for widget in [Widget::Network, Widget::Audio, Widget::Battery] {
+                let icon = placed.iter().find(|item| item.widget == widget).unwrap();
+                assert_eq!(hit((icon.x + icon.width / 2) as f64, width, 7, 0, &style),
+                           Some(Hit::Status(widget)));
+            }
+            assert!(placed.iter().any(|item| item.widget == Widget::Tray));
+            assert!(placed.iter().any(|item| item.widget == Widget::Clock));
+        }
     }
 
     #[test]
