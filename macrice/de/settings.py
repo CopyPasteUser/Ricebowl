@@ -1781,19 +1781,23 @@ class RiceSpiceWindow:
         else:
             self._text("Quick Launch exposes Apps, Terminal and Show Desktop. "
                        "Auto-hide reduces the panel to a 3-pixel edge handle; "
-                       "enter the edge to reveal it. Both apply at the next "
-                       "Luna session, without changing XFCE or other rices.",
+                       "enter the edge to reveal it. Grouping combines windows "
+                       "from the same application. These changes apply at the "
+                       "next Luna login; XFCE and other rices are unaffected.",
                        css="ricespice-note")
             auto_hide = self.Gtk.CheckButton(label="Automatically hide the taskbar")
             quick_launch = self.Gtk.CheckButton(label="Show Quick Launch buttons")
+            grouping = self.Gtk.CheckButton(label="Group similar taskbar buttons")
             auto_hide.set_active(saved["auto_hide"])
             quick_launch.set_active(saved["quick_launch"])
-            for control in (auto_hide, quick_launch):
+            grouping.set_active(saved["group_similar_windows"])
+            for control in (auto_hide, quick_launch, grouping):
                 self.content.pack_start(control, False, False, 0)
 
             def save_behavior():
                 desired = {"auto_hide": auto_hide.get_active(),
-                           "quick_launch": quick_launch.get_active()}
+                           "quick_launch": quick_launch.get_active(),
+                           "group_similar_windows": grouping.get_active()}
                 self._background(
                     lambda: luna_taskbar_settings.save(desired, expected=saved),
                     lambda _value: self.show_page("taskbar"))
@@ -1804,10 +1808,12 @@ class RiceSpiceWindow:
             def sync_button(_widget=None):
                 save_button.set_sensitive(
                     auto_hide.get_active() != saved["auto_hide"]
-                    or quick_launch.get_active() != saved["quick_launch"])
+                    or quick_launch.get_active() != saved["quick_launch"]
+                    or grouping.get_active() != saved["group_similar_windows"])
 
             auto_hide.connect("toggled", sync_button)
             quick_launch.connect("toggled", sync_button)
+            grouping.connect("toggled", sync_button)
             sync_button()
         self._text("Taskbar position is specified by the selected Rice recipe; "
                    "drag-to-reposition and a separate Lock taskbar switch are "
