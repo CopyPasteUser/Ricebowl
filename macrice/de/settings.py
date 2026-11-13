@@ -546,6 +546,21 @@ class RiceSpiceWindow:
     def _state(self, message: str):
         self.status.set_text(message)
 
+    def _show_content(self):
+        """Finish a dynamic view with a real GTK relayout.
+
+        On a native Wayland GtkViewport the parent may already have a valid
+        allocation while newly inserted children still have GTK's sentinel
+        (-1, -1, 1, 1) allocation. Explicitly invalidate the viewport after
+        adding children, rather than painting a blank but mapped page.
+        """
+        self.content.show_all()
+        self.content.queue_resize()
+        parent = self.content.get_parent()
+        if parent is not None:
+            parent.queue_resize()
+        self.window.queue_resize()
+
     def _background(self, work: Callable[[], object], done: Callable[[object], None]):
         if self.busy or self.closed:
             return
@@ -838,7 +853,7 @@ class RiceSpiceWindow:
         for key in pages:
             flow.add(self._luna_category_button(key))
         self.content.pack_start(flow, False, False, 0)
-        self.content.show_all()
+        self._show_content()
 
     def show_home(self):
         if not self.luna:
@@ -866,7 +881,7 @@ class RiceSpiceWindow:
             for category in LUNA_CONTROL_CATEGORIES:
                 flow.add(self._luna_group_button(category))
         self.content.pack_start(flow, False, False, 0)
-        self.content.show_all()
+        self._show_content()
 
     def show_search_results(self, query: str):
         if not self.luna:
@@ -885,7 +900,7 @@ class RiceSpiceWindow:
         else:
             self._text("No matching settings. Try Network, Sound, Display or Power.",
                        css="ricespice-note")
-        self.content.show_all()
+        self._show_content()
 
     def show_page(self, name: str, *, rescan: bool = False):
         if name not in self.nav_buttons:
@@ -920,7 +935,7 @@ class RiceSpiceWindow:
             self._displays()
         else:
             self._external(name)
-        self.content.show_all()
+        self._show_content()
 
     def _notifications(self):
         self._text("Do Not Disturb hides incoming notification banners while retaining "
@@ -936,7 +951,7 @@ class RiceSpiceWindow:
                          lambda: self._background(
                              lambda: notifications.set_dnd(not enabled, expected=enabled),
                              lambda _result: self.show_page("notifications")), primary=True)
-            self.content.show_all()
+            self._show_content()
 
         self._background(notifications.dnd_status, present)
         self._notification_appearance()
@@ -1150,7 +1165,7 @@ class RiceSpiceWindow:
                 self._text("For EAP-TLS/client certificates and advanced VPN protocols, "
                            "install NetworkManager's connection editor.",
                            css="ricespice-note")
-            self.content.show_all()
+            self._show_content()
 
         def collect():
             def safe(work):
@@ -1397,7 +1412,7 @@ class RiceSpiceWindow:
                                 lambda _result: self.show_page("audio")),
                             parent=controls)
                         button.set_sensitive(enabled)
-            self.content.show_all()
+            self._show_content()
 
         self._background(collect, present)
 
@@ -1424,7 +1439,7 @@ class RiceSpiceWindow:
                                      lambda: backend.set_bluetooth_connection(
                                          d["address"], not d["connected"], expected=d["connected"]),
                                      lambda _result: self.show_page("bluetooth")))
-            self.content.show_all()
+            self._show_content()
 
         self._background(backend.bluetooth_snapshot, present)
 
@@ -1636,7 +1651,7 @@ class RiceSpiceWindow:
                 else:
                     self._text("No monitor layout has been saved.", css="ricespice-note")
             self._state(f"{len(outputs)} active monitor(s) detected")
-            self.content.show_all()
+            self._show_content()
 
         self._background(wayland_displays.inventory, present)
 
@@ -1644,7 +1659,7 @@ class RiceSpiceWindow:
         self._state("Monitor trial started. Confirm before the 18-second timeout.")
         keep_button = self._button("Keep these display settings",
                                    lambda: self._keep_display(change), primary=True)
-        self.content.show_all()
+        self._show_content()
         serial = self.generation
 
         def poll():
@@ -1793,7 +1808,7 @@ class RiceSpiceWindow:
             search.connect("changed", update)
             search.connect("activate", lambda _entry: choose(visible[0]) if visible else None)
             update()
-            self.content.show_all()
+            self._show_content()
 
         def time_snapshot():
             result = backend.timezone_snapshot()
@@ -1836,7 +1851,7 @@ class RiceSpiceWindow:
                         lambda _result: self.show_page("power"))
 
                 self._button("Apply energy profile", apply, primary=True)
-            self.content.show_all()
+            self._show_content()
 
         self._background(backend.power_snapshot, present)
         self._text("Lock the current desktop or request a system suspend.",
@@ -2010,7 +2025,7 @@ class RiceSpiceWindow:
             else:
                 self._text("Rice Creator is not installed. Wallpaper editing is "
                            "unavailable in this session.", css="ricespice-note")
-            self.content.show_all()
+            self._show_content()
 
         try:
             present()
