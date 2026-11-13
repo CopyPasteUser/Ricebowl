@@ -25,7 +25,7 @@ jobs:
           timeout 18s dbus-run-session -- xvfb-run -a /usr/bin/python3 -m unittest tests.test_wayland_luna_settings -v
           # Visual QA from a real GTK client under Xvfb (not a Wayland capture).
           timeout 18s dbus-run-session -- xvfb-run -a -s '-screen 0 1280x800x24' /usr/bin/python3 scripts/capture_luna_control_panel.py --output-dir dist/luna-settings
-          /usr/bin/python3 -c 'from pathlib import Path; from PIL import Image; ps=sorted(Path("dist/luna-settings").glob("luna-control-panel-*.png")); assert len(ps)==2, ps; assert all((lambda im: im.width >= 700 and im.height >= 470)(Image.open(p)) for p in ps), "Clipped Luna Control Panel capture"'
+          /usr/bin/python3 -c 'from pathlib import Path; from PIL import Image; ps=sorted(Path("dist/luna-settings").glob("luna-control-panel-*.png")); assert len(ps)==3, ps; assert all((lambda im: im.width >= 700 and im.height >= 470)(Image.open(p)) for p in ps), "Clipped Luna Control Panel capture"'
           # Exercise real Windows 10 Settings search, sidebar and live controls.
           timeout 18s dbus-run-session -- xvfb-run -a /usr/bin/python3 -m unittest tests.test_ten_settings_gui -v
           # Exercise the actual Win98 Find GTK widgets, not only parser contracts.
