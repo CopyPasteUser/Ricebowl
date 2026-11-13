@@ -3,7 +3,8 @@
 
 use std::{collections::HashMap, time::{Duration, Instant}};
 
-use crate::{installed_apps::{self, App}, menu_programs::Category,
+use crate::{installed_apps::{self, App}, menu_documents::{self, Document},
+    menu_programs::Category,
     recipe::{MenuContentKind, MenuPresentation, NativeMenu}};
 
 pub const WIDTH: u32 = 320;
@@ -148,6 +149,7 @@ pub enum View {
     #[default]
     Groups,
     Programs,
+    Documents,
     Search,
     Saved,
 }
@@ -161,6 +163,7 @@ pub enum Hit {
     Close,
     FooterLock,
     FooterLogout,
+    RecentDocuments,
 }
 
 /// One geometry contract for painting, pointer input and compact reflow.
@@ -217,6 +220,7 @@ pub struct MenuState {
     pub pins: Vec<String>,
     pub apps: Vec<App>,
     pub app_categories: HashMap<String, Category>,
+    pub documents: Vec<Document>,
     /// Category navigation is exclusive to the opt-in Luna columns menu.
     pub program_tree: bool,
     pub program_category: Option<Category>,
@@ -262,6 +266,10 @@ impl MenuState {
 
     pub fn label<'a>(&'a self, action: &'a str) -> &'a str {
         if let Some(category) = Category::from_action(action) { return category.title(); }
+        if let Some(index) = menu_documents::index(action) {
+            return self.documents.get(index).map_or("Unavailable document",
+                                                     |document| document.label.as_str());
+        }
         self.apps.iter().find(|app| app.action == action)
             .map_or_else(|| action_label(action), |app| app.name.as_str())
     }
@@ -288,6 +296,21 @@ impl MenuState {
         } else {
             self.label(action)
         }
+    }
+
+    pub fn document_path(&self, action: &str) -> Option<&std::path::Path> {
+        menu_documents::index(action).and_then(|index|
+            self.documents.get(index).map(|document| document.path.as_path()))
+    }
+
+    pub fn show_documents(&mut self, documents: Vec<Document>) {
+        self.documents = documents.into_iter().take(menu_documents::MAX_DOCUMENTS).collect();
+        self.program_tree = false;
+        self.program_category = None;
+        self.view = View::Documents;
+        self.selected = 0;
+        self.notice = None;
+        self.wheel_remainder = 0.0;
     }
 
     pub fn app_path(&self, action: &str) -> Option<&std::path::Path> {
@@ -492,6 +515,8 @@ impl MenuState {
                 }
                 result
             }
+            View::Documents => self.documents.iter().enumerate()
+                .map(|(index, _)| menu_documents::ACTIONS[index]).collect(),
             View::Saved => self.pins.iter().filter(|pin|
                 menu.groups.iter().any(|group| group.actions.contains(pin))
                     || (menu.presentation == MenuPresentation::Columns
@@ -695,25 +720,29 @@ impl MenuState {
             View::Search if self.search.is_empty() => "Find".to_owned(),
             View::Search => format!("Find: {}", self.search),
             View::Saved => "Saved actions".to_owned(),
+            View::Documents => "Recent Documents".to_owned(),
         };
         let count = self.actions(menu).len();
         let noun = if self.view == View::Programs && self.program_tree
             && self.program_category.is_none() && self.search.is_empty() {
             "folders"
-        } else if self.view == View::Programs { "apps" } else { "actions" };
+        } else if self.view == View::Programs { "apps" }
+        else if self.view == View::Documents { "documents" } else { "actions" };
         let detail = if count == 0 {
             match self.view {
                 View::Programs if !self.search.is_empty() => "No matching apps".to_owned(),
                 View::Programs => "No installed apps".to_owned(),
                 View::Search => "No matching actions".to_owned(),
                 View::Saved => "No saved actions".to_owned(),
+                View::Documents => "No recent local documents".to_owned(),
                 View::Groups => "No available actions".to_owned(),
             }
         } else if let Some((first, last, total)) = self.page_status(menu, rows) {
             format!("Showing {noun} {first} through {last} of {total}")
         } else {
             format!("{count} available {}", if count == 1 {
-                if self.view == View::Programs { "app" } else { "action" }
+                if self.view == View::Programs { "app" }
+                else if self.view == View::Documents { "document" } else { "action" }
             } else { noun })
         };
         let help = match self.view {
@@ -722,6 +751,7 @@ impl MenuState {
             View::Search => "Type to refine, Backspace deletes; F2 or right click saves an action",
             View::Groups => "Type to search; F2 or right click pins actions; F3 opens Saved",
             View::Saved => "F2 removes saved actions; F4/F5 reorder; F3 returns to menu",
+            View::Documents => "Enter opens an existing local file with Gio; Escape returns to Start",
         };
         format!("{intro}. {detail}. {help}")
     }
@@ -988,7 +1018,13 @@ impl MenuState {
             return sections.iter().flat_map(|section| section.items.iter())
                 .find(|tile| x >= f64::from(tile.x) && x < f64::from(tile.x + tile.width)
                     && y >= f64::from(tile.y) && y < f64::from(tile.y + tile.height))
-                .map(|tile| Hit::Action(tile.index))
+                .map(|tile| {
+                    if menu.presentation == MenuPresentation::Columns && menu.palette.is_some()
+                        && tile.action == "documents"
+                        && x >= f64::from(tile.x + tile.width.saturating_sub(22)) {
+                        Hit::RecentDocuments
+                    } else { Hit::Action(tile.index) }
+                })
                 .or_else(|| (y >= f64::from(HEIGHT - 28)).then_some(Hit::Close));
         }
         if (f64::from(ACTION_TOP)..f64::from(ACTION_TOP + VISIBLE_ACTIONS as u32 * ACTION_HEIGHT)).contains(&y) {
@@ -2078,6 +2114,30 @@ mod tests {
         assert!(state.toggle_pin(menu));
         assert_eq!(state.actions(menu), vec!["desktop:demo-1.desktop"]);
         assert!(!state.toggle_pin(menu)); // no selected action beyond the one present? 
+    }
+
+    #[test]
+    fn recent_document_tokens_are_non_launchable_navigation_and_bounded() {
+        let recipe = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let menu = recipe.menu.as_ref().unwrap();
+        let mut state = MenuState::default();
+        state.open();
+        assert_eq!(state.hit(menu, 315.0, 80.0), Some(Hit::RecentDocuments));
+        assert_eq!(state.hit(menu, 185.0, 80.0), Some(Hit::Action(2)));
+        state.show_documents(vec![Document {
+            label: "Important document.txt".into(),
+            path: "/tmp/important-document.txt".into(),
+        }]);
+        assert_eq!(state.actions(menu), vec!["menu-document:0"]);
+        assert_eq!(state.label("menu-document:0"), "Important document.txt");
+        assert!(state.app_path("menu-document:0").is_none());
+        assert_eq!(state.document_path("menu-document:0"),
+                   Some(std::path::Path::new("/tmp/important-document.txt")));
+        assert!(state.document_path("menu-document:1").is_none());
+        assert!(state.back());
+        assert_eq!(state.view, View::Groups);
     }
 
 }
