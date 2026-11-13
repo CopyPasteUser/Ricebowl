@@ -339,6 +339,7 @@ jobs:
             dist/riceplate-native-preview/luna-grouped-window-menu.png
             dist/riceplate-native-preview/luna-group-menu-dismissed.png
             dist/riceplate-native-preview/luna-single-after-group-close.png
+            dist/riceplate-native-preview/luna-clock-status-popup.png
           if-no-files-found: error
           retention-days: 14
       - name: Boot native Wayland layer surface
