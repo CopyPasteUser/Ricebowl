@@ -1431,15 +1431,24 @@ class RiceSpiceWindow:
         combos = {}
         section_flag = "input_enabled" if page == "input" else "accessibility_enabled"
         for key, description, choices in options:
-            self._text(description, css="ricespice-section")
-            combo = self.Gtk.ComboBoxText()
-            combo.get_accessible().set_name(description)
-            for choice in choices:
-                title = ("On" if choice else "Off") if type(choice) is bool else str(choice)
-                combo.append(str(choice), title)
-            combo.set_active_id(str(current[key]))
-            combos[key] = (combo, choices)
-            self.content.pack_start(combo, False, False, 0)
+            if self.luna and choices == (False, True):
+                # XP-era checkboxes for Boolean options, still backed by
+                # the same validated owner-private preferences and readback.
+                check = self.Gtk.CheckButton(label=description)
+                check.get_accessible().set_name(description)
+                check.set_active(bool(current[key]))
+                combos[key] = (check, choices)
+                self.content.pack_start(check, False, False, 0)
+            else:
+                self._text(description, css="ricespice-section")
+                combo = self.Gtk.ComboBoxText()
+                combo.get_accessible().set_name(description)
+                for choice in choices:
+                    title = ("On" if choice else "Off") if type(choice) is bool else str(choice)
+                    combo.append(str(choice), title)
+                combo.set_active_id(str(current[key]))
+                combos[key] = (combo, choices)
+                self.content.pack_start(combo, False, False, 0)
         if page == "accessibility":
             self._text("Cursor themes can ignore requested sizes. Text scaling uses "
                        "GDK_DPI_SCALE and does not scale Qt, Electron or the native "
@@ -1458,8 +1467,11 @@ class RiceSpiceWindow:
             requested = dict(current)
             requested[section_flag] = True
             for key, (combo, choices) in combos.items():
-                requested[key] = next((choice for choice in choices
-                                       if str(choice) == combo.get_active_id()), None)
+                if isinstance(combo, self.Gtk.CheckButton):
+                    requested[key] = combo.get_active()
+                else:
+                    requested[key] = next((choice for choice in choices
+                                           if str(choice) == combo.get_active_id()), None)
                 if requested[key] is None:
                     self._state("Choose a supported value for each option")
                     return
