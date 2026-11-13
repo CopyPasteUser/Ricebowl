@@ -48,6 +48,25 @@ pub(crate) enum PointerSignal { Hover, Leave, Press, Release }
 /// Physical hover/pressed feedback is strictly surface scoped. A leave on
 /// one monitor must not erase a newer hover on another monitor. Release
 /// clears the captured pressed state, even when delivered on another surface.
+/// Change one output-owned target only when the hit or owner actually
+/// changes. A high-frequency Motion over the same widget must not clone a
+/// Wayland surface proxy or schedule another frame.
+fn assign_target<S: Clone + PartialEq, T: PartialEq>(
+    slot: &mut Option<(S, T)>, surface: &S, target: Option<T>,
+) -> bool {
+    if slot.as_ref().is_none_or(|(owner, _)| owner != surface)
+        || slot.as_ref().is_some_and(|(_, old)| target.as_ref() != Some(old)) {
+        if slot.is_none() && target.is_none() { return false; }
+        *slot = target.map(|hit| (surface.clone(), hit));
+        return true;
+    }
+    if slot.is_some() && target.is_none() {
+        *slot = None;
+        return true;
+    }
+    false
+}
+
 pub(crate) fn update_feedback<S: Clone + PartialEq, T: Clone + PartialEq>(
     hovered: &mut Option<(S, T)>,
     pressed: &mut Option<(S, T)>,
@@ -55,30 +74,31 @@ pub(crate) fn update_feedback<S: Clone + PartialEq, T: Clone + PartialEq>(
     target: Option<T>,
     signal: PointerSignal,
 ) -> bool {
-    let old_hover = hovered.clone();
-    let old_press = pressed.clone();
     match signal {
-        PointerSignal::Hover => {
-            *hovered = target.map(|hit| (surface.clone(), hit));
-        }
+        PointerSignal::Hover => assign_target(hovered, surface, target),
         PointerSignal::Leave => {
+            let mut changed = false;
             if hovered.as_ref().is_some_and(|(owner, _)| owner == surface) {
                 *hovered = None;
+                changed = true;
             }
             if pressed.as_ref().is_some_and(|(owner, _)| owner == surface) {
                 *pressed = None;
+                changed = true;
             }
+            changed
         }
         PointerSignal::Press => {
-            *hovered = target.clone().map(|hit| (surface.clone(), hit));
-            *pressed = target.map(|hit| (surface.clone(), hit));
+            let hover_changed = assign_target(hovered, surface, target.clone());
+            let press_changed = assign_target(pressed, surface, target);
+            hover_changed || press_changed
         }
         PointerSignal::Release => {
-            *pressed = None;
-            *hovered = target.map(|hit| (surface.clone(), hit));
+            let press_changed = pressed.take().is_some();
+            let hover_changed = assign_target(hovered, surface, target);
+            press_changed || hover_changed
         }
     }
-    *hovered != old_hover || *pressed != old_press
 }
 
 /// Paint-only feedback: the recipe's hit test and command path remain the
@@ -162,10 +182,12 @@ mod tests {
         assert_eq!(pressed, Some((a, Hit::Launcher)));
         assert!(update_feedback(&mut hovered, &mut pressed, &b,
             Some(Hit::Task(0)), PointerSignal::Hover));
-        assert!(!update_feedback(&mut hovered, &mut pressed, &a,
+        assert!(update_feedback(&mut hovered, &mut pressed, &a,
             None, PointerSignal::Leave));
         assert_eq!(hovered, Some((b, Hit::Task(0))));
         assert_eq!(pressed, None);
+        assert!(!update_feedback(&mut hovered, &mut pressed, &a,
+            None, PointerSignal::Leave));
         assert!(update_feedback(&mut hovered, &mut pressed, &b,
             Some(Hit::Task(0)), PointerSignal::Press));
         assert!(update_feedback(&mut hovered, &mut pressed, &b,
@@ -187,4 +209,31 @@ mod tests {
                      pressed: Some(Hit::Launcher) }.button(Hit::Launcher),
                    ButtonVisual::Normal);
     }
+    #[test]
+    fn unchanged_motion_does_not_clone_wayland_surface_owner() {
+        use std::{cell::Cell, rc::Rc};
+        #[derive(Debug)]
+        struct Owner { id: usize, clones: Rc<Cell<u64>> }
+        impl PartialEq for Owner {
+            fn eq(&self, other: &Self) -> bool { self.id == other.id }
+        }
+        impl Clone for Owner {
+            fn clone(&self) -> Self {
+                self.clones.set(self.clones.get() + 1);
+                Self { id: self.id, clones: self.clones.clone() }
+            }
+        }
+        let clones = Rc::new(Cell::new(0));
+        let owner = Owner { id: 1, clones: clones.clone() };
+        let mut hovered = None;
+        let mut pressed = None;
+        assert!(update_feedback(&mut hovered, &mut pressed, &owner,
+            Some(Hit::Launcher), PointerSignal::Hover));
+        for _ in 0..10_000 {
+            assert!(!update_feedback(&mut hovered, &mut pressed, &owner,
+                Some(Hit::Launcher), PointerSignal::Hover));
+        }
+        assert_eq!(clones.get(), 1, "unchanged hover must not clone a wl_surface");
+    }
+
 }
