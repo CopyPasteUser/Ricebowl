@@ -195,6 +195,13 @@ LUNA_CSS = b"""
 .ricespice-luna .luna-category-row:hover {
   background: #eaf3ff; border-color: #bbd1ed;
 }
+.ricespice-luna button:focus {
+  outline-style: solid; outline-color: #f0a23b; outline-width: 2px;
+  outline-offset: -2px;
+}
+.ricespice-luna .luna-divider {
+  background: #ccd6e3; margin-top: 11px; margin-bottom: 3px;
+}
 .ricespice-luna .luna-category-title {
   color: #1555a1; font-weight: bold; font-size: 13px;
 }
@@ -268,7 +275,6 @@ class RiceSpiceWindow:
             toolbar.pack_start(home, False, False, 0)
             self.breadcrumb = Gtk.Label(label="All settings", xalign=0)
             self.breadcrumb.get_style_context().add_class("luna-breadcrumb")
-            self.breadcrumb.set_ellipsize(3)  # Pango.EllipsizeMode.END
             toolbar.pack_start(self.breadcrumb, True, True, 0)
             self.search_entry = Gtk.SearchEntry()
             self.search_entry.set_placeholder_text("Find a setting…")
@@ -364,6 +370,10 @@ class RiceSpiceWindow:
         return label
 
     def _text(self, message: str, *, css: str = ""):
+        if self.luna and css == "ricespice-section":
+            divider = self.Gtk.Separator(orientation=self.Gtk.Orientation.HORIZONTAL)
+            divider.get_style_context().add_class("luna-divider")
+            self.content.pack_start(divider, False, False, 0)
         self.content.pack_start(self._label(message, css=css), False, False, 0)
 
     def _button(self, label: str, callback: Callable[[], None], *, primary: bool = False,
