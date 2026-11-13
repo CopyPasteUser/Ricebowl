@@ -76,13 +76,40 @@ fn read_documents(path: &Path) -> std::io::Result<Vec<Document>> {
 /// network fetch, XML processor or arbitrary sub-element interpretation.
 /// Malformed entries are skipped rather than evaluated as actions.
 fn parse_xbel(data: &str) -> Vec<Document> {
+    // This deliberately small reader is *not* an XML entity processor.
+    // Reject DTDs and skip comments/CDATA so an old, commented-out bookmark
+    // cannot be surfaced as a live "Recent Document" action.
+    if data.contains("<!DOCTYPE") || data.contains("<!ENTITY") {
+        return Vec::new();
+    }
     let mut rest = data;
     let mut candidates = Vec::new();
-    for _ in 0..MAX_BOOKMARKS {
-        let Some(start) = rest.find("<bookmark") else { break; };
-        rest = &rest[start + "<bookmark".len()..];
-        if !rest.starts_with(char::is_whitespace) { continue; }
+    let mut examined = 0;
+    while let Some(start) = rest.find('<') {
+        rest = &rest[start + 1..];
+        if let Some(comment) = rest.strip_prefix("!--") {
+            let Some(end) = comment.find("-->") else { break; };
+            rest = &comment[end + 3..];
+            continue;
+        }
+        if let Some(cdata) = rest.strip_prefix("![CDATA[") {
+            let Some(end) = cdata.find("]]>") else { break; };
+            rest = &cdata[end + 3..];
+            continue;
+        }
+        if !rest.starts_with("bookmark") {
+            let Some(end) = rest.find('>') else { break; };
+            rest = &rest[end + 1..];
+            continue;
+        }
+        rest = &rest["bookmark".len()..];
         let Some(end) = rest.find('>') else { break; };
+        if !rest.starts_with(char::is_whitespace) {
+            rest = &rest[end + 1..];
+            continue;
+        }
+        examined += 1;
+        if examined > MAX_BOOKMARKS { break; }
         if end > MAX_HREF_BYTES { rest = &rest[end + 1..]; continue; }
         let header = &rest[..end];
         if let Some(href) = attribute(header, "href").and_then(unescape_xml) {
@@ -217,6 +244,15 @@ mod tests {
             "<xbel><bookmark href=\"{uri}\" visited=\"2026-11-13T12:00:00Z\"/>\\n             <bookmark href=\"{uri}\" visited=\"2026-11-12T12:00:00Z\"/>             <bookmark href=\"https://example.com/file\"/></xbel>");
         let docs = parse_xbel(&xbel);
         assert_eq!(docs.len(), 1);
+        // XML comments and CDATA must not fabricate live bookmark actions;
+        // refuse document type declarations rather than expanding entities.
+        let single = format!("<bookmark href=\"{uri}\"/>");
+        let guarded = format!(
+            "<xbel><!--{single}--><![CDATA[{single}]]>{single}</xbel>");
+        assert_eq!(parse_xbel(&guarded).len(), 1);
+        assert!(parse_xbel(&format!(
+            "<!DOCTYPE xbel [<!ENTITY ignored \"file://example\">]><xbel>{single}</xbel>"
+        )).is_empty());
         assert_eq!(docs[0].label, "My file.txt");
         assert_eq!(docs[0].path, file);
         let link = dir.join("recently-used.xbel");
