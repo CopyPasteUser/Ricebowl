@@ -32,6 +32,11 @@ class WaylandLunaSettingsTests(unittest.TestCase):
         self.assertIn("displays", settings.luna_search_matches("scaling"))
         self.assertIn("taskbar", settings.luna_search_matches("start menu"))
         self.assertIn("network", settings.luna_search_matches("WI-FI"))
+        self.assertIn("network", settings.luna_search_matches("wifi"))
+        self.assertIn("taskbar", settings.luna_search_matches("clock format"))
+        self.assertIn("taskbar", settings.luna_search_matches("12h"))
+        self.assertIn("taskbar", settings.luna_search_matches("24-hour"))
+        self.assertNotIn("audio", settings.luna_search_matches("clock format"))
         self.assertEqual(settings.luna_search_matches("unavailable_fake_page"), ())
 
     def test_luna_without_page_opens_overview(self):
