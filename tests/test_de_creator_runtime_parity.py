@@ -24,8 +24,20 @@ DEMOS = (
 
 
 class CreatorRuntimeParityTests(unittest.TestCase):
+    def setUp(self):
+        # A public Git checkout uses 0644; intentionally do not weaken
+        # recipes.load's owner-private file requirement for Creator previews.
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.demos = []
+        for example in DEMOS:
+            source = Path(temporary.name) / example.name
+            source.write_bytes(example.read_bytes())
+            source.chmod(0o600)
+            self.demos.append(source)
+
     def test_two_distinct_composer_rices_have_real_allowlisted_interactions(self):
-        results = [parity.describe(str(path)) for path in DEMOS]
+        results = [parity.describe(str(path)) for path in self.demos]
         self.assertNotEqual(results[0]["recipe"]["semantic_sha256"],
                             results[1]["recipe"]["semantic_sha256"])
         self.assertEqual([item["recipe"]["schema_version"] for item in results], [10, 10])
@@ -58,7 +70,7 @@ class CreatorRuntimeParityTests(unittest.TestCase):
             [(r["area"], r["kind"], r["binding"]) for r in results[1]["components"]])
 
     def test_real_small_full_hd_fractional_and_second_monitor_rules_are_explicit(self):
-        results = [parity.describe(str(path)) for path in DEMOS]
+        results = [parity.describe(str(path)) for path in self.demos]
         for report in results:
             cases = {item["case"]: item for item in report["output_cases"]}
             self.assertEqual(len(cases), 5)
@@ -107,7 +119,7 @@ class CreatorRuntimeParityTests(unittest.TestCase):
             with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config)}), \
                  mock.patch("macrice.de.session.start") as start, \
                  mock.patch("macrice.de.recipes.change_selection") as select:
-                for source in DEMOS:
+                for source in self.demos:
                     result = parity.describe(str(source))
                     self.assertEqual(result["recipe"]["semantic_sha256"],
                                      review.review(str(source))["summary"]["semantic_sha256"])
