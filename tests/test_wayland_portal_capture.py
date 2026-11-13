@@ -211,6 +211,42 @@ class RequestProtocolTests(unittest.TestCase):
         self.assertEqual(response["uri"], "file:///tmp/test.png")
         self.assertEqual(fake.unsubscribed, 5)
 
+    def test_wrong_request_handle_and_cancel_response_fail_closed(self):
+        from gi.repository import GLib
+
+        class FakeConnection:
+            def __init__(self, response):
+                self.response = response
+                self.unsubscribed = False
+
+            def get_unique_name(self):
+                return ":1.25"
+
+            def signal_subscribe(self, _dest, _iface, _signal, path,
+                                 _arg0, _flags, callback):
+                self.path = path
+                self.callback = callback
+                return 7
+
+            def call_sync(self, *_args):
+                if self.response == "wrong-handle":
+                    return GLib.Variant("(o)", ("/org/freedesktop/portal/desktop/request/wrong",))
+                self.callback(self, ":1.4", self.path, portal.REQUEST,
+                              "Response", GLib.Variant("(ua{sv})", (1, {})))
+                return GLib.Variant("(o)", (self.path,))
+
+            def signal_unsubscribe(self, subscription):
+                self.unsubscribed = subscription == 7
+
+        for response, expected in (("wrong-handle", "Unexpected portal request handle"),
+                                   ("cancel", "response=1")):
+            with self.subTest(response=response):
+                connection = FakeConnection(response)
+                with self.assertRaisesRegex(RuntimeError, expected):
+                    portal.request(connection, portal.SCREENSHOT, "Screenshot",
+                                   "(sa{sv})", ("",))
+                self.assertTrue(connection.unsubscribed)
+
 
 if __name__ == "__main__":
     unittest.main()
