@@ -24,6 +24,8 @@ EXTERNAL_PAGES = {
     "input": (("gnome-control-center", "mouse"),),
     "accessibility": (("gnome-control-center", "universal-access"),),
     "timezone": (("gnome-control-center", "datetime"),),
+    # The existing Wayland Rice Creator owns editable wallpaper/recipe assets.
+    "luna_creator": (("ricebowl", "creator"),),
 }
 
 _TIMEZONE = re.compile(r"[A-Za-z0-9_+.-]+(?:/[A-Za-z0-9_+.-]+){0,4}\Z")
