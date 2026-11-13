@@ -885,6 +885,27 @@ def shell(
                     output.write(content)
         wallpaper_process: subprocess.Popen[bytes] | None = None
         try:
+            # Establish full-session lock supervision before optional clients.
+            idle_process: subprocess.Popen[bytes] | None = None
+            if env.get("RICEBOWL_DE_NESTED") != "1":
+                idle = which("swayidle")
+                locker = which("swaylock")
+                if not idle or not locker:
+                    raise SessionError(
+                        "Full Wayland session requires swayidle and swaylock "
+                        "for automatic and pre-suspend screen locking.")
+                # One fixed lock path for idle, suspend and logind locks.
+                # swaylock -f confirms the compositor lock before the short
+                # best-effort IPC clear runs, avoiding plaintext before sleep.
+                lock_command = shlex.join(
+                    [sys.executable, str(project_root() / "launcher.py"), "de", "lock"])
+                idle_process = spawn(
+                    [idle, "-w", "timeout", "600", lock_command,
+                     "before-sleep", lock_command, "lock", lock_command],
+                    env=env, stdin=subprocess.DEVNULL,
+                )
+                background.append(idle_process)
+
             swaybg = which("swaybg")
             from .recipes import load, wallpaper_path
             wallpaper = wallpaper_path(load(selected or "classic"))
@@ -932,14 +953,11 @@ def shell(
             if env.get("RICEBOWL_DE_SCREEN_READER") == "1" and env.get("RICEBOWL_DE_NESTED") != "1":
                 orca = which("orca")
                 if orca:
-                    try:
-                        service = _OptionalService(
-                            "Orca screen reader", [orca], env=env, spawn=spawn,
-                            background=background)
-                        if service.process is not None:
-                            optional_services.append(service)
-                    except OSError as error:
-                        print(f"RiceBowl: Orca could not start: {error}", file=sys.stderr)
+                    service = _OptionalService(
+                        "Orca screen reader", [orca], env=env, spawn=spawn,
+                        background=background)
+                    if service.process is not None:
+                        optional_services.append(service)
                 else:
                     print("RiceBowl: Orca screen reader requested but not installed",
                           file=sys.stderr)
@@ -954,26 +972,6 @@ def shell(
                     if service.process is not None:
                         optional_services.append(service)
                         break
-
-            idle_process: subprocess.Popen[bytes] | None = None
-            if env.get("RICEBOWL_DE_NESTED") != "1":
-                idle = which("swayidle")
-                locker = which("swaylock")
-                if not idle or not locker:
-                    raise SessionError(
-                        "Full Wayland session requires swayidle and swaylock "
-                        "for automatic and pre-suspend screen locking.")
-                # One fixed lock path for idle, suspend and logind locks.
-                # swaylock -f confirms the compositor lock before the short
-                # best-effort IPC clear runs, avoiding plaintext before sleep.
-                lock_command = shlex.join(
-                    [sys.executable, str(project_root() / "launcher.py"), "de", "lock"])
-                idle_process = spawn(
-                    [idle, "-w", "timeout", "600", lock_command,
-                     "before-sleep", lock_command, "lock", lock_command],
-                    env=env, stdin=subprocess.DEVNULL,
-                )
-                background.append(idle_process)
 
             shutting_down = False
             shutdown_signal = signal.SIGTERM
