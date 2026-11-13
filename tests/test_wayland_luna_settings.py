@@ -59,6 +59,31 @@ class WaylandLunaSettingsTests(unittest.TestCase):
                 settings.launch(page="home", luna=True)
         self.assertIn("GTK3", str(error.exception))
 
+    def test_luna_gtk_home_search_and_back_navigation(self):
+        try:
+            Gtk, Gdk, GLib = settings._gtk_modules()
+        except (ImportError, ValueError):
+            self.skipTest("GTK introspection typelib unavailable")
+        if not Gtk.init_check([])[0]:
+            self.skipTest("GTK display unavailable")
+        window = settings.RiceSpiceWindow(Gtk, Gdk, GLib, page="taskbar", luna=True)
+        window.show_home()
+        self.assertEqual(window.page, "home")
+        self.assertEqual(len(window.nav_buttons), len(settings.LUNA_SECTIONS))
+        window.search_entry.set_text("start menu")
+        self.assertEqual(window.page, "search")
+        self.assertTrue(window.nav_buttons["taskbar"].get_visible())
+        self.assertFalse(window.nav_buttons["bluetooth"].get_visible())
+        window.nav_buttons["taskbar"].clicked()
+        self.assertEqual(window.page, "taskbar")
+        self.assertEqual(window.search_entry.get_text(), "")
+        self.assertTrue(window.nav_buttons["bluetooth"].get_visible())
+        window.show_home()
+        self.assertEqual(window.page, "home")
+        GLib.timeout_add(30, lambda: (window.window.destroy(), False)[1])
+        Gtk.main()
+        self.assertTrue(window.closed)
+
     def test_invalid_pages_rejected_before_opening_gtk(self):
         with self.assertRaises(settings.backend.SettingsError):
             settings.launch(page="invalid", luna=True)
