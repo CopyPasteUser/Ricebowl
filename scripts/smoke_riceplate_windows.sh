@@ -5,8 +5,8 @@ set -eu
 
 mode=${1:-native}
 case "$mode" in
-    native|--xwayland) ;;
-    *) echo "Usage: $0 [--xwayland]" >&2; exit 2 ;;
+    native|--xwayland|--luna) ;;
+    *) echo "Usage: $0 [--xwayland|--luna]" >&2; exit 2 ;;
 esac
 
 source_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
@@ -24,6 +24,11 @@ if [ "$mode" = "--xwayland" ]; then
 fi
 runtime=$(mktemp -d)
 chmod 0700 "$runtime"
+if [ "$mode" = "--luna" ]; then
+    # RicePlate requires an owner-private file for absolute recipe loading.
+    cp "$source_root/examples/wayland/xp-luna-columns.json" "$runtime/luna.json"
+    chmod 0600 "$runtime/luna.json"
+fi
 trap 'rm -r -- "$runtime"' EXIT
 export XDG_RUNTIME_DIR="$runtime"
 export WLR_BACKENDS=headless
@@ -81,8 +86,13 @@ dbus-run-session -- sh -eu -c '
     WAYLAND_DISPLAY=wayland-0 wlr-randr --output "$output" \
         --custom-mode 1024x768@60Hz --scale 1
 
+    if [ "$mode" = "--luna" ]; then
+        recipe="$runtime/luna.json"
+    else
+        recipe=classic
+    fi
     WAYLAND_DISPLAY=wayland-0 RICEBOWL_DE_TRACE_WINDOWS=1 \
-        "$native" --recipe classic >"$runtime/panel.log" 2>&1 &
+        "$native" --recipe "$recipe" >"$runtime/panel.log" 2>&1 &
     plate=$!
     sleep 1
     kill -0 "$plate" || { sed -n "1,50p" "$runtime/panel.log" >&2; exit 1; }
@@ -151,10 +161,41 @@ dbus-run-session -- sh -eu -c '
         return 1
     }
     wait_window_state "active=true minimized=false"
-    WAYLAND_DISPLAY=wayland-0 "$clicker" 132 750 1024 768
+    task_click_x=132
+    if [ "$mode" = "--luna" ]; then
+        # Real XP Luna recipe geometry at 1024px: Start 0..94;
+        # Apps 102..134, Terminal 136..168, Show Desktop 170..202.
+        # These coordinates are additionally asserted by Rust hit tests.
+        # The actual virtual pointer hits the wl_surface, not a test hook.
+        WAYLAND_DISPLAY=wayland-0 "$clicker" 186 750 1024 768
+        wait_window_state "minimized=true"
+        kill -0 "$window"
+        WAYLAND_DISPLAY=wayland-0 grim - >"$runtime/luna-hidden.png"
+        WAYLAND_DISPLAY=wayland-0 "$clicker" 186 750 1024 768
+        wait_window_state "minimized=false"
+        WAYLAND_DISPLAY=wayland-0 grim - >"$runtime/luna-restored.png"
+        if cmp -s "$runtime/opened.png" "$runtime/luna-hidden.png"; then
+            echo "Show Desktop did not change real compositor pixels" >&2
+            exit 1
+        fi
+        out="$source_root/dist/riceplate-native-preview"
+        if [ -d "$out" ]; then
+            cp "$runtime/opened.png" "$out/luna-taskbar-window-open.png"
+            cp "$runtime/luna-hidden.png" "$out/luna-taskbar-show-desktop.png"
+            cp "$runtime/luna-restored.png" "$out/luna-taskbar-window-restored.png"
+            sha256sum "$out/luna-taskbar-window-open.png" \
+                      "$out/luna-taskbar-show-desktop.png" \
+                      "$out/luna-taskbar-window-restored.png" \
+                > "$out/luna-taskbar-interaction-SHA256SUMS"
+        fi
+        task_click_x=240
+        echo "XP Luna Show Desktop: real Wayland client minimized/restored twice"
+    fi
+    # Verify the normal task button still works after a Show Desktop cycle.
+    WAYLAND_DISPLAY=wayland-0 "$clicker" "$task_click_x" 750 1024 768
     wait_window_state "minimized=true"
     kill -0 "$window"
-    WAYLAND_DISPLAY=wayland-0 "$clicker" 132 750 1024 768
+    WAYLAND_DISPLAY=wayland-0 "$clicker" "$task_click_x" 750 1024 768
     wait_window_state "active=true minimized=false"
     echo "Real taskbar pointer click minimized and restored the Wayland client"
 
