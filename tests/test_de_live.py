@@ -46,6 +46,8 @@ class LiveRiceTests(unittest.TestCase):
         self.menu_dir.mkdir(mode=0o700)
         self.menu = self.menu_dir / "menu.xml"
         self.menu.write_text((resources() / "labwc/menu.xml").read_text())
+        self.rc = self.menu_dir / "rc.xml"
+        self.rc.write_text((resources() / "labwc/rc.xml").read_text())
         self.env = {"XDG_RUNTIME_DIR": str(self.runtime),
                     "RICEBOWL_DE_SESSION_CONFIG": str(self.menu_dir),
                     "RICEBOWL_DE_RECIPE": "classic", "WAYLAND_DISPLAY": "wayland-19"}
@@ -98,9 +100,19 @@ class LiveRiceTests(unittest.TestCase):
         self.assertTrue(response["changed"])
         self.assertIn("#4b9bed", override.read_text(encoding="utf-8"))
         self.assertEqual(override.stat().st_mode & 0o777, 0o600)
+        from macrice.de import luna_hotkeys
+        bindings = luna_hotkeys.commands(self.rc.read_text())
+        self.assertEqual(bindings["W-d"], "riceplate-native --desktop-command show-desktop")
+        self.assertEqual(bindings["W-e"], "riceplate-native --desktop-command explorer")
+        self.assertEqual(bindings["W-r"], "riceplate-native --desktop-command run")
+        self.assertEqual(self.rc.stat().st_mode & 0o777, 0o600)
         self.assertEqual(recipes.current_selection()[0], token)
         self.change("restore", expected=token)
         self.assertFalse(override.exists())
+        bindings = luna_hotkeys.commands(self.rc.read_text())
+        self.assertNotIn("W-d", bindings)
+        self.assertNotIn("W-e", bindings)
+        self.assertNotIn("W-r", bindings)
         self.assertEqual(recipes.current_selection()[0], "classic")
 
     def test_luna_chrome_rolls_back_on_failed_selection(self):
@@ -113,6 +125,9 @@ class LiveRiceTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "selection_conflict")
         self.assertEqual(self.menu.read_bytes(), original_menu)
         self.assertFalse((self.menu_dir / "themerc-override").exists())
+        from macrice.de import luna_hotkeys
+        self.assertFalse(any(value.startswith("riceplate-native --desktop-command ")
+                             for value in luna_hotkeys.commands(self.rc.read_text()).values()))
         self.assertEqual(recipes.current_selection(), ("classic", None))
         self.assertFalse(self.initial_panel.terminated)
 

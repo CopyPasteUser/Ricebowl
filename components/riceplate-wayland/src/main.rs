@@ -1068,6 +1068,9 @@ impl RicePlate {
     fn handle_luna_desktop_request(&mut self, request: luna_desktop_ipc::Request,
                                    qh: &QueueHandle<Self>) {
         if self.recipe.id != "xp-luna-columns" { return; }
+        if std::env::var("RICEBOWL_DE_TRACE_SHORTCUTS").as_deref() == Ok("1") {
+            eprintln!("RicePlate: Luna private IPC {request:?}");
+        }
         use luna_desktop_ipc::Request;
         match request {
             Request::Arrange => {
@@ -1117,6 +1120,11 @@ impl RicePlate {
                 self.request_redraw(qh);
             }
             Request::Properties => self.launch_luna_settings("appearance"),
+            // These three operations are the very same handlers as the real
+            // Luna taskbar/menu buttons, never independent compositor state.
+            Request::ShowDesktop => self.activate_action("show-desktop", qh),
+            Request::Run => self.activate_action("run", qh),
+            Request::Explorer => self.activate_action("computer", qh),
         }
     }
 
