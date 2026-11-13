@@ -53,16 +53,22 @@ small and reviewed by integration, while behavior lives in owned modules.
 
 ```text
 main (verified baseline c9373bd2)
+├── #359 seat-owned input / Show Desktop (Draft; shared main.rs)
 ├── #342 desktop focus (Draft, native compositor focus gate FAIL)
 │   └── #355 XDG Desktop/RiceField (Draft, native gate FAIL)
+│       └── #356 inotify desktop refresh (Draft; stacked on #355)
 ├── #343 window actions (Draft, CI FAIL)
 │   └── #352 taskbar follow-up (Draft, CI PASS on own head; parent FAIL)
 ├── #349 Start/All Programs (Draft, CI FAIL)
 │   └── #353 Start menu follow-up (Draft, native keyboard FAIL)
+├── #357 strict GLES2/PipeWire portal CI (Draft, new system lane)
 ├── #354 Control Panel/System UX (Draft, Tests + Wayland PASS;
 │    native capture covered by Wayland workflow; review still required)
-└── #337 recents roadmap (Draft, branch diverged; scope must be cleaned)
+├── #337 recents roadmap (Draft, branch diverged; scope must be cleaned)
+└── #358 integration contract (Draft; docs only)
 ```
+
+See [issue #360](https://github.com/CopyPasteUser/Ricebowl/issues/360) for live cross-lane handoffs and CI triage. This graph must be refreshed whenever a concurrent agent opens a new PR.
 
 The graph describes actual *PR base branches* as observed on this date, not
 permanent ownership. Every entry is conditional on current refs and checks.
