@@ -389,6 +389,36 @@ mod tests {
     }
 
     #[test]
+    fn local_luna_clock_uses_same_headerless_painter_and_hit_geometry() {
+        let items = vec![
+            tray::MenuRow { id: 107, label: "Adjust Date/Time...".into(),
+                enabled: true, kind: tray::MenuKind::Action { checked: false, radio: false } },
+            tray::MenuRow { id: 108, label: "Taskbar Properties...".into(),
+                enabled: true, kind: tray::MenuKind::Action { checked: false, radio: false } },
+        ];
+        let mut popup = tray::MenuPopup::default();
+        assert!(popup.open_local("Date and Time", items));
+        assert!(popup.is_local());
+        let bounds = bounds(popup.rows().len(), popup.first, false);
+        assert_eq!(bounds.height, 60);
+        assert_eq!(bounds.top, tray::POPUP_HEIGHT - 60);
+        let mut pixels = vec![0; (tray::POPUP_WIDTH * tray::POPUP_HEIGHT * 4) as usize];
+        paint(&mut pixels, &popup, false);
+        assert_eq!(&pixels[..4], &[0, 0, 0, 0],
+                   "The old oversized blue SNI header must be transparent");
+        let index = (((bounds.top + PADDING + 4) * tray::POPUP_WIDTH + 40) * 4) as usize;
+        assert_ne!(&pixels[index..index + 4], &[0, 0, 0, 0],
+                   "Real menu rows should be painted, not hidden");
+        assert_eq!(menu_hit(&popup, 42.0, f64::from(bounds.top + PADDING + 8), false),
+                   Some(tray::MenuHit::Row(0)));
+        assert_eq!(menu_hit(&popup, 42.0,
+                            f64::from(bounds.top + PADDING + ROW_HEIGHT + 8), false),
+                   Some(tray::MenuHit::Row(1)));
+        assert_eq!(menu_hit(&popup, 42.0, f64::from(bounds.top - 5), false), None);
+        assert_eq!(menu_hit(&popup, f64::NAN, 220.0, false), None);
+    }
+
+    #[test]
     fn compact_menu_raster_is_transparent_above_the_bottom_panel_menu() {
         let (_, rows) = entries(&[w("Document", true, false)]).unwrap();
         let mut popup = tray::MenuPopup::default();
