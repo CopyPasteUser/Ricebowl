@@ -38,6 +38,52 @@ pub fn background(
         return;
     }
 
+    if style.id == "xp-luna-columns" {
+        // Luna's taskband has three distinct optical zones: a narrow sky-blue
+        // rim, a saturated cobalt face, and a deep bottom edge. The gradient
+        // is calculated once per scanline and remains entirely opaque.
+        for y in 0..height {
+            let tone = if y == 0 { 0xff83_b9ff }
+                else if y < 3 { 0xff4c_8beb }
+                else if y < height / 2 {
+                    mix_rgb(0xff1f_58c4, 0xff4f_92ee,
+                            95_u32.saturating_sub(y.saturating_mul(3)))
+                } else {
+                    mix_rgb(0xff25_61ce, 0xff0a_2e87,
+                            (y - height / 2) * 85 / (height / 2).max(1))
+                };
+            fill_rect(canvas, width, height, 0, y, width, 1, tone);
+        }
+        if height > 3 {
+            fill_rect(canvas, width, height, 0, 2, width, 1, 0xff1d_4ea4);
+        }
+        // The notification area stays part of the same physical panel and
+        // starts precisely at the actual right-side status widget geometry.
+        let shelf_start = layout.iter()
+            .filter(|item| matches!(item.widget,
+                Widget::Network | Widget::Audio | Widget::Battery | Widget::Tray | Widget::Clock))
+            .filter(|item| item.x >= width / 2)
+            .map(|item| item.x).min();
+        if let Some(start) = shelf_start {
+            let left = start.saturating_sub(4);
+            for y in 1..height {
+                let tone = if y < height / 2 {
+                    mix_rgb(0xff49_b9ee, 0xffd0_faff,
+                            60_u32.saturating_sub(y.saturating_mul(3)))
+                } else {
+                    mix_rgb(0xff2c_98db, 0xff0d_5aab,
+                            (y - height / 2) * 84 / (height / 2).max(1))
+                };
+                fill_rect(canvas, width, height, left, y, width - left, 1, tone);
+            }
+            fill_rect(canvas, width, height, left, 1, 1,
+                      height.saturating_sub(1), 0xff11_448d);
+            fill_rect(canvas, width, height, left + 1, 1, 1,
+                      height.saturating_sub(1), 0xff98_dfff);
+        }
+        return;
+    }
+
     // Opaque 40px-classic taskbar: a soft top reflection and darker bottom.
     // Bounded by the compositor-validated panel height; no allocations.
     for y in 0..height {
@@ -118,6 +164,26 @@ pub fn launcher(
     }
 }
 
+/// Final optical pass for the opt-in native Luna Start button. It does not
+/// alter the launcher geometry or input state of older desktop recipes.
+pub fn luna_launcher_finish(canvas: &mut [u8], width: u32, height: u32,
+                            x: u32, span: u32, visual: ButtonVisual) {
+    if span < 40 || height < 28 { return; }
+    let top = if visual == ButtonVisual::Pressed { 5 } else { 4 };
+    // An asymmetric raised highlight and a dark-green lower return reproduce
+    // the XP taskbar's characteristic chunky, glassy Start silhouette.
+    fill_rect(canvas, width, height, x + 15, top, span.saturating_sub(34),
+              1, if visual == ButtonVisual::Pressed { 0xff78_bf5a } else { 0xffd9_ffb8 });
+    fill_rect(canvas, width, height, x + 9, 7, 1, height.saturating_sub(16),
+              0xffa0_ea6d);
+    fill_rect(canvas, width, height, x + 13, height.saturating_sub(7),
+              span.saturating_sub(27), 1, 0xff1d_5f1b);
+    if visual == ButtonVisual::Hovered {
+        fill_rect(canvas, width, height, x + 17, top + 1,
+                  span.saturating_sub(37), 1, 0xfff2_ffd8);
+    }
+}
+
 /// Layer input feedback over the existing native green Start capsule.
 pub fn launcher_visual(
     canvas: &mut [u8], width: u32, height: u32, x: u32,
@@ -157,6 +223,24 @@ pub fn task_button(
         return;
     }
     if span < 8 || height < 10 { return; }
+
+    if style.id == "xp-luna-columns" {
+        // Inactive task buttons are raised and luminous; active windows sit
+        // slightly recessed with the unmistakable deeper cobalt-blue face.
+        let edge = if active { 0xff0c_327b } else { 0xff1c_479f };
+        let face = if active { 0xff174a9e } else { 0xff397cda };
+        fill_rounded_rect(canvas, width, height, x + 1, 3,
+                          span - 3, height - 6, 4, edge);
+        fill_rounded_rect(canvas, width, height, x + 2, 4,
+                          span - 5, height - 8, 3, face);
+        fill_rect(canvas, width, height, x + 6, 4,
+                  span.saturating_sub(13), 1,
+                  if active { 0xff2e_69bf } else { 0xffa2_d5ff });
+        fill_rect(canvas, width, height, x + 6, height - 6,
+                  span.saturating_sub(13), 1,
+                  if active { 0xff0c_306e } else { 0xff1b_4ba5 });
+        return;
+    }
 
     let base = if active {
         style.active
@@ -360,6 +444,33 @@ mod tests {
             assert_eq!(px(frame, width, width - 1, 0), px(&idle, width, width - 1, 0));
             assert_eq!(px(frame, width, 330, height - 2), px(&idle, width, 330, height - 2));
         }
+    }
+
+    #[test]
+    fn luna_taskband_palette_is_layered_and_legacy_is_not_affected() {
+        let style = recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let width = 600;
+        let mut pixels = vec![0_u8; (width * style.height * 4) as usize];
+        let layout = recipe::layout(&style, width, 2);
+        background(&mut pixels, width, style.height, &style, &layout);
+        // Distinct sky-blue rim, cobalt task face and lower navy finish.
+        assert_ne!(px(&pixels, width, 250, 0), px(&pixels, width, 250, 15));
+        assert_ne!(px(&pixels, width, 250, 15),
+                   px(&pixels, width, 250, style.height - 2));
+        let original = pixels.clone();
+        task_button(&mut pixels, width, style.height, 105, 150, false, &style);
+        let inactive = px(&pixels, width, 125, 18);
+        task_button(&mut pixels, width, style.height, 105, 150, true, &style);
+        assert_ne!(inactive, px(&pixels, width, 125, 18));
+        assert_eq!(px(&pixels, width, 450, 15), px(&original, width, 450, 15));
+        let decor = style.launcher.as_ref().unwrap();
+        launcher_visual(&mut pixels, width, style.height, 0, 94, decor, ButtonVisual::Hovered);
+        let hovered = pixels.clone();
+        luna_launcher_finish(&mut pixels, width, style.height, 0, 94, ButtonVisual::Hovered);
+        assert_ne!(hovered, pixels);
+        assert_eq!(px(&pixels, width, 450, 15), px(&original, width, 450, 15));
     }
 
     #[test]
