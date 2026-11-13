@@ -12,9 +12,12 @@ pub const HANDLE_HEIGHT: u32 = 3;
 pub struct Options {
     pub auto_hide: bool,
     pub quick_launch: bool,
+    pub group_similar_windows: bool,
 }
 impl Default for Options {
-    fn default() -> Self { Self { auto_hide: false, quick_launch: true } }
+    fn default() -> Self {
+        Self { auto_hide: false, quick_launch: true, group_similar_windows: true }
+    }
 }
 
 #[derive(Deserialize)]
@@ -23,12 +26,22 @@ struct Stored {
     version: u8,
     auto_hide: bool,
     quick_launch: bool,
+    #[serde(default)]
+    group_similar_windows: Option<bool>,
 }
 
 fn parse(raw: &[u8]) -> Option<Options> {
     let entry: Stored = serde_json::from_slice(raw).ok()?;
-    (entry.version == 1).then_some(Options {
+    // v1 preferences remain valid and preserve the previous grouping.
+    // v2 requires an explicit grouping value; an unknown schema fails closed.
+    let grouped = match (entry.version, entry.group_similar_windows) {
+        (1, None) => true,
+        (2, Some(value)) => value,
+        _ => return None,
+    };
+    Some(Options {
         auto_hide: entry.auto_hide, quick_launch: entry.quick_launch,
+        group_similar_windows: grouped,
     })
 }
 
@@ -92,19 +105,24 @@ mod tests {
     #[test]
     fn options_are_bounded_and_reject_unsupported_types() {
         assert_eq!(parse(br#"{"version":1,"auto_hide":true,"quick_launch":false}"#),
-            Some(Options {auto_hide:true,quick_launch:false}));
+            Some(Options {auto_hide:true,quick_launch:false,group_similar_windows:true}));
+        assert_eq!(parse(br#"{"version":2,"auto_hide":false,"quick_launch":true,"group_similar_windows":false}"#),
+            Some(Options {auto_hide:false,quick_launch:true,group_similar_windows:false}));
         for raw in [
             br#"{"version":2,"auto_hide":true,"quick_launch":true}"#.as_slice(),
+            br#"{"version":1,"auto_hide":true,"quick_launch":true,"group_similar_windows":false}"#,
+            br#"{"version":2,"auto_hide":true,"quick_launch":true,"group_similar_windows":1}"#,
+            br#"{"version":3,"auto_hide":true,"quick_launch":true,"group_similar_windows":true}"#,
             br#"{"version":1,"auto_hide":1,"quick_launch":true}"#,
             br#"{"version":1,"auto_hide":false}"#,
             br#"{"version":1,"auto_hide":false,"quick_launch":true,"command":"rm"}"#,
         ] { assert_eq!(parse(raw), None); }
         assert_eq!(panel_height(Options::default(), true, 40), 40);
-        assert_eq!(panel_height(Options {auto_hide:true,quick_launch:true}, true, 40), 3);
-        assert_eq!(panel_height(Options {auto_hide:true,quick_launch:true}, false, 40), 40);
+        assert_eq!(panel_height(Options {auto_hide:true,quick_launch:true,group_similar_windows:true}, true, 40), 3);
+        assert_eq!(panel_height(Options {auto_hide:true,quick_launch:true,group_similar_windows:true}, false, 40), 40);
         assert!(is_quick_launch("show-desktop"));
         assert!(!is_quick_launch("wifi-toggle"));
-        let auto = Options { auto_hide: true, quick_launch: true };
+        let auto = Options { auto_hide: true, quick_launch: true, group_similar_windows: true };
         assert!(should_collapse(auto, false, false));
         assert!(!should_collapse(auto, true, false));
         assert!(!should_collapse(auto, false, true));
