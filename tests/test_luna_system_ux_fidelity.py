@@ -232,6 +232,48 @@ class LunaSystemUXTests(unittest.TestCase):
             shell.bar.destroy()
         self.assertIsNone(shell._luna_help_dialog)
 
+    def test_xp_accessibility_checkboxes_use_private_verified_readback(self):
+        try:
+            Gtk, Gdk, GLib = settings._gtk_modules()
+        except (ValueError, ImportError):
+            self.skipTest("GTK3 unavailable")
+        if not Gtk.init_check([])[0]:
+            self.skipTest("Graphical GTK session unavailable")
+        original = dict(settings.preferences.DEFAULTS)
+        with mock.patch.object(settings.preferences, "load", return_value=original), \
+             mock.patch.object(settings.preferences, "save", return_value=original) as save:
+            window = settings.RiceSpiceWindow(
+                Gtk, Gdk, GLib, page="accessibility", luna=True)
+            try:
+                def descend(widget):
+                    yield widget
+                    if isinstance(widget, Gtk.Container):
+                        for child in widget.get_children():
+                            yield from descend(child)
+                widgets = list(descend(window.content))
+                checkboxes = {w.get_label(): w for w in widgets
+                              if isinstance(w, Gtk.CheckButton)}
+                self.assertEqual(set(checkboxes), {
+                    "Request high-contrast GTK theme",
+                    "Start Orca on full RiceBowl login",
+                })
+                screenreader = checkboxes["Start Orca on full RiceBowl login"]
+                self.assertFalse(screenreader.get_active())
+                screenreader.set_active(True)
+                save.assert_not_called()
+                window._background = lambda work, done: done(work())
+                apply = next(w for w in widgets if isinstance(w, Gtk.Button)
+                             and w.get_label() == "Save for next RiceBowl login")
+                apply.clicked()
+                expected_new = dict(original)
+                expected_new.update(accessibility_enabled=True,
+                                    screen_reader_enabled=True)
+                save.assert_called_once_with(expected_new, expected=original)
+            finally:
+                GLib.timeout_add(30, lambda: (window.window.destroy(), False)[1])
+                Gtk.main()
+            self.assertTrue(window.closed)
+
     def test_default_gtk_chrome_and_recipe_are_not_changed(self):
         self.assertIn(".ricespice-window", settings.CSS.decode())
         self.assertEqual(settings.LUNA_CONTROL_CATEGORIES[2][0], "sound")
