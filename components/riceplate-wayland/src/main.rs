@@ -50,6 +50,7 @@ use system_status::{Audio, ControlAction, SystemStatus};
 use control_feedback::ControlFeedback;
 use frame_scheduler::FrameGate;
 use input_core::{PanelKey, PanelPointerVisual, PointerSignal};
+use seat_routing::ActivationSource;
 use raster::{fill_rect, fill_rounded_rect};
 use overlay_renderer::{paint_calendar, paint_compact_notifications, paint_notifications};
 #[cfg(test)]
@@ -1874,7 +1875,7 @@ impl RicePlate {
             Target::Launcher(panel) => self.activate_launcher(
                 if panel == 0 { None } else { Some(panel - 1) }, qh),
             Target::PanelAction(action) => self.activate_action(&action, qh),
-            Target::Task(index) => self.activate_group(index),
+            Target::Task(index) => self.activate_group(index, ActivationSource::Assistive),
             Target::Clock => self.toggle_calendar_for_panel(None, qh),
             Target::Status(widget) => {
                 let source = self.layer.wl_surface().clone();
@@ -2055,7 +2056,7 @@ impl RicePlate {
         self.request_redraw(qh);
     }
 
-    fn activate_group(&mut self, index: usize) {
+    fn activate_group(&mut self, index: usize, source: ActivationSource) {
         let groups = self.grouped_tasks();
         if let Some(group) = groups.get(index) {
             let active_index = group.members.iter().copied()
@@ -2065,7 +2066,7 @@ impl RicePlate {
                 eprintln!("RicePlate taskbar action={} app_id={:?} seat={} minimized={}",
                     if minimize { "minimize" } else { "restore" },
                     self.tasks[target].app_id,
-                    self.seat_assignments.activation_seat().is_some(), self.tasks[target].minimized);
+                    self.seat_assignments.activation_seat_for(source).is_some(), self.tasks[target].minimized);
             }
             if minimize {
                 self.tasks[target].handle.set_minimized();
@@ -2075,7 +2076,7 @@ impl RicePlate {
                 if self.tasks[target].minimized {
                     self.tasks[target].handle.unset_minimized();
                 }
-                if let Some(seat) = self.seat_assignments.activation_seat() {
+                if let Some(seat) = self.seat_assignments.activation_seat_for(source) {
                     self.tasks[target].handle.activate(seat);
                 }
             }
@@ -2114,7 +2115,7 @@ impl RicePlate {
                         }
                     }
                     Some(KeyboardTarget::Task(index)) if key != Keysym::Menu =>
-                        self.activate_group(index),
+                        self.activate_group(index, ActivationSource::Keyboard),
                     Some(KeyboardTarget::Status(widget)) => {
                         let source = surface.clone();
                         self.open_luna_status_menu(widget, &source, qh);
@@ -6859,7 +6860,7 @@ impl PointerHandler for RicePlate {
                                 self.focused_target = Some(KeyboardTarget::Task(index));
                                 self.request_redraw(qh);
                             }
-                            self.activate_group(index);
+                            self.activate_group(index, ActivationSource::Pointer);
                         }
                         Some(Hit::PreviousTasks) => {
                             if let Some(view) = recipe::task_view(
