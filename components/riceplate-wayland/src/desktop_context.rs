@@ -29,6 +29,14 @@ impl Action {
             Self::Properties => "Properties",
         }
     }
+    pub fn label_for_file(self) -> &'static str {
+        match self {
+            Self::NextDisplay => "Rename...",
+            Self::AllDisplays => "Move to Trash",
+            Self::ResetPosition => "Open in Explorer",
+            _ => self.label(),
+        }
+    }
     pub fn enabled(self, multi_output: bool, can_reset: bool) -> bool {
         match self {
             Self::NextDisplay => multi_output,
@@ -45,6 +53,45 @@ impl Action {
             Self::Properties => 4,
         }
     }
+}
+
+/// Keyboard and pointer share the same bounded edit policy.
+#[derive(Debug, Clone)]
+pub struct RenameInput {
+    value: String,
+    pub error: Option<&'static str>,
+}
+impl RenameInput {
+    pub fn new(current: &str) -> Option<Self> {
+        let mut next = Self { value: current.to_owned(), error: None };
+        if !next.valid() { return None; }
+        next.error = None;
+        Some(next)
+    }
+    pub fn value(&self) -> &str { &self.value }
+    pub fn insert(&mut self, typed: &str) -> bool {
+        if typed.chars().count() != 1 || typed.chars().any(|c|
+            c.is_control() || matches!(c, '/' | '\0')) { return false; }
+        if self.value.chars().count() >= 64 || self.value.len() + typed.len() > 255 {
+            self.error = Some("Name too long");
+            return false;
+        }
+        self.value.push_str(typed);
+        self.error = None;
+        true
+    }
+    pub fn erase(&mut self) -> bool {
+        let changed = self.value.pop().is_some();
+        if changed { self.error = None; }
+        changed
+    }
+    pub fn valid(&self) -> bool {
+        let b = self.value.as_bytes();
+        !b.is_empty() && b.len() <= 255 && b[0] != b'.'
+            && self.value != "." && self.value != ".."
+            && !self.value.chars().any(|c| c.is_control() || c == '/')
+    }
+    pub fn set_error(&mut self, message: &'static str) { self.error = Some(message); }
 }
 
 pub fn row(action: Action) -> u32 { FIRST_ROW + action.index() as u32 * ROW_HEIGHT }
@@ -87,6 +134,8 @@ pub fn details(action: &str) -> (&'static str, &'static str) {
         "lock" => ("System action", "Lock screen"),
         "trash" => ("Virtual folder", "Trash via Gio"),
         "documents" => ("User folder", "Documents via Gio"),
+        action if action.starts_with("desktop-file:") =>
+            ("Desktop entry", "Open via system MIME handler"),
         "computer" => ("Virtual folder", "Computer via Gio"),
         "network" => ("Virtual folder", "Network via Gio"),
         _ => ("Shortcut", "Supported action"),
@@ -134,6 +183,23 @@ pub fn placement(icon: (u32, u32), pointer: (f64, f64),
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_filename_editor_blocks_traversal_and_supports_unicode() {
+        let mut input = RenameInput::new("Report").unwrap();
+        for c in " Grüße🚀".chars() {
+            assert!(input.insert(&c.to_string()));
+        }
+        assert_eq!(input.value(), "Report Grüße🚀");
+        assert!(!input.insert("/"));
+        assert!(input.valid());
+        for _ in 0.."Report Grüße🚀".chars().count() { assert!(input.erase()); }
+        assert!(!input.valid());
+        assert!(!input.insert("\0"));
+        assert_eq!(Action::NextDisplay.label_for_file(), "Rename...");
+        assert_eq!(Action::AllDisplays.label_for_file(), "Move to Trash");
+        assert_eq!(Action::ResetPosition.label_for_file(), "Open in Explorer");
+    }
 
     #[test]
     fn rows_disabled_navigation_and_back_are_bounded() {
