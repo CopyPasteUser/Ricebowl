@@ -20,6 +20,7 @@ mod luna_clock;
 mod luna_taskbar;
 mod luna_desktop_ipc;
 mod menu_chrome;
+mod menu_documents;
 mod menu_pins;
 mod menu_programs;
 mod menu_recents;
@@ -2702,6 +2703,21 @@ impl RicePlate {
         // Only the opt-in Luna columns rice replaces the external launcher
         // with an XP-style All Programs page. Desktop shortcuts and every
         // other menu presentation retain their existing fuzzel action.
+        if action.starts_with("menu-document:") {
+            if let Some(path) = self.menu_state.document_path(action)
+                .map(std::path::Path::to_path_buf) {
+                if std::fs::metadata(&path).is_ok_and(|metadata| metadata.is_file()) {
+                    self.set_menu_visible(false, qh);
+                    if let Err(error) = Command::new("gio").arg("open").arg(&path).spawn() {
+                        eprintln!("RicePlate: cannot open recent document: {error}");
+                    }
+                } else {
+                    self.menu_state.notice = Some("Document no longer available");
+                    self.redraw_menu(qh);
+                }
+            }
+            return;
+        }
         if action == "applications" && self.recipe.menu.as_ref().is_some_and(|menu|
             menu.presentation == recipe::MenuPresentation::Columns && menu.palette.is_some()) {
             self.menu_state.show_program_tree();
@@ -4416,6 +4432,7 @@ fn paint_compact_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
     let heading = match state.view {
         native_menu::View::Groups => menu.title.as_str(),
         native_menu::View::Programs => "All Programs",
+        native_menu::View::Documents => "Recent Documents",
         native_menu::View::Search => "Find applications & actions",
         native_menu::View::Saved => "Saved actions",
     };
@@ -4466,8 +4483,10 @@ fn paint_compact_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
         let unavailable = *action == "logout" && !logout_available();
         let label = state.visible_label(menu, action, !unavailable);
         let pinned = state.pins.iter().any(|pin| pin.as_str() == *action);
-        let text = format!("{}{}{}", if menu_programs::Category::from_action(action).is_some() {
-            "> " } else { "" }, if pinned { "* " } else { "" }, label);
+        let text = format!("{}{}{}{}", if menu_programs::Category::from_action(action).is_some() {
+            "> " } else { "" }, if pinned { "* " } else { "" }, label,
+            if *action == "documents" && state.view == native_menu::View::Groups {
+                " >" } else { "" });
         let limit = width.saturating_sub(24) / (8 * style.font_scale);
         let color = if unavailable && style.disabled != 0 {
             style.disabled
@@ -4486,11 +4505,13 @@ fn paint_compact_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
         format!("Find: {}", state.search)
     } else if state.view == native_menu::View::Programs && !state.search.is_empty() {
         format!("Filter: {}", state.search)
-    } else if state.view == native_menu::View::Programs && actions.is_empty() {
+    } else if matches!(state.view, native_menu::View::Programs |
+                        native_menu::View::Documents) && actions.is_empty() {
         "Esc: back".to_owned()
     } else if actions.is_empty() {
         "Esc: close".to_owned()
-    } else if state.view == native_menu::View::Programs {
+    } else if matches!(state.view, native_menu::View::Programs |
+                        native_menu::View::Documents) {
         format!("{}-{} / {}  Esc: back", first + 1,
                 (first + rows).min(actions.len()), actions.len())
     } else {
@@ -4631,6 +4652,9 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
     } else if state.view == native_menu::View::Saved {
         draw_rice_text(canvas, width, height, content_x, 91,
                        &format!("Favorites: {}", state.actions(menu).len()), fg, style);
+    } else if state.view == native_menu::View::Documents {
+        draw_rice_text(canvas, width, height, content_x, 91,
+                       "Recent Documents", fg, style);
     }
     if let Some(sections) = state.composed_sections(menu) {
         let mut right_group_seen = false;
@@ -4680,6 +4704,11 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                     } else { tile.y + 9 };
                     menu_chrome::action_icon(canvas, tile.x + 6, icon_y,
                                              tile.action, tile.index == state.selected);
+                    if tile.action == "documents" {
+                        menu_chrome::submenu_chevron(canvas,
+                            tile.x + tile.width.saturating_sub(16), tile.y + 8,
+                            tile.index == state.selected);
+                    }
                     if tile.action == "applications" {
                         // Green XP-inspired glyph over the *real* All Programs
                         // action, not a duplicate or nonfunctional control.
@@ -4729,6 +4758,8 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                            else { "No matching apps" }
                        } else if state.view == native_menu::View::Saved {
                            "No saved actions"
+                       } else if state.view == native_menu::View::Documents {
+                           "No recent local files"
                        } else { "No matching actions" }, fg, style);
     } else {
         for (row, action) in actions.into_iter().skip(state.first_action_row())
@@ -4793,6 +4824,7 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
         // the pane so it cannot paint across the system column.
         let status = state.notice.unwrap_or(match state.view {
             native_menu::View::Programs => "Enter open  Esc back",
+            native_menu::View::Documents => "Enter open  Esc back",
             native_menu::View::Search => "Find  F2 Pin",
             native_menu::View::Saved => "F2 Unpin F4/F5 Move",
             native_menu::View::Groups => "F2 Pin  F3 Saved",
@@ -6190,7 +6222,11 @@ impl KeyboardHandler for RicePlate {
                 None
             }
             Keysym::Right => {
-                if self.menu_state.program_tree && self.menu_state.view == native_menu::View::Programs {
+                if self.recipe.id == "xp-luna-columns"
+                    && self.menu_state.view == native_menu::View::Groups
+                    && self.menu_state.current_action(menu) == Some("documents") {
+                    self.menu_state.show_documents(menu_documents::discover());
+                } else if self.menu_state.program_tree && self.menu_state.view == native_menu::View::Programs {
                     self.menu_state.program_horizontal(menu, 1);
                 } else if active_compact.is_some() { self.menu_state.group_by(menu, 1); }
                 else { self.menu_state.horizontal_by(menu, 1); }
@@ -6632,6 +6668,12 @@ impl PointerHandler for RicePlate {
                             Some(MenuHit::Saved) => {
                                 self.menu_state.show_saved();
                                 self.redraw_menu(qh);
+                            }
+                            Some(MenuHit::RecentDocuments) => {
+                                if self.recipe.id == "xp-luna-columns" {
+                                    self.menu_state.show_documents(menu_documents::discover());
+                                    self.redraw_menu(qh);
+                                }
                             }
                             Some(MenuHit::Group(index)) => {
                                 self.menu_state.select_group(menu, index);
