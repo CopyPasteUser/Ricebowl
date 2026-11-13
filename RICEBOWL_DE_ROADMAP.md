@@ -33,12 +33,13 @@ installation and is not yet a finished desktop environment.
   refusing an unsafe file. Tests and Native RicePlate CI passed on PR #319,
   merged as `ccb6d16d`. This does not imply physical session acceptance or
   that a privacy clear securely erases storage blocks.
-- [ ] Skip rewriting byte-identical, owner-private, bounded recent-app JSON,
-  preserving its inode and modification time. Changed history still takes the
-  existing atomic rename and directory-fsync path; malformed or unmanaged
-  files retain their rejection rules. The Rust regression must pass with
-  Tests and Native RicePlate CI on the final PR head before completion.
-  This is an I/O reduction by design, not a measured performance claim.
+- [x] Skip rewriting byte-identical, owner-private, bounded recent-app JSON,
+  preserving its inode and modification time. The current native Rust
+  `menu_recents.rs` implementation compares bounded canonical bytes before
+  its atomic rename and directory-fsync path, and includes the
+  `unchanged_recent_history_save_preserves_inode_and_mtime` regression.
+  Malformed or unmanaged files retain their rejection rules. This is an
+  I/O reduction by design, not a measured performance claim.
 
 ### Wayland XP Luna recipe (10 November 2026, preview sprint)
 
