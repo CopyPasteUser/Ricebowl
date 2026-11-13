@@ -62,8 +62,14 @@ pub fn decode(id: i32, window_count: usize) -> Option<Action> {
 /// visible instead of reusing the taskbar's 18-character label limit.
 fn title_label(title: &str, app_id: &str) -> String {
     let clean = |value: &str| -> String {
-        value.chars().filter(|ch| !ch.is_control())
-            .take(28).collect::<String>().trim().to_owned()
+        // Foreign-toplevel titles are owned by applications, not RicePlate.
+        // Ignore Unicode bidirectional formatting and invisible direction
+        // marks as well as terminal controls, which could spoof menu labels.
+        value.chars().filter(|ch| {
+            !ch.is_control() && !matches!(*ch,
+                '\u{061c}' | '\u{200e}' | '\u{200f}' |
+                '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+        }).take(28).collect::<String>().trim().to_owned()
     };
     let name = clean(title);
     if !name.is_empty() { return name; }
@@ -327,6 +333,12 @@ mod tests {
         assert_eq!(title_label("\n\r", "org.example.Editor"), "org.example.Editor");
         assert_eq!(title_label("", ""), "Window");
         assert_eq!(title_label("One", "ignored"), "One");
+        // Directional isolates/overrides are formatting controls, even
+        // though Rust char::is_control() does not classify them as such.
+        assert_eq!(title_label("invoice\u{202e}cod.exe\u{202c}", ""), "invoicecod.exe");
+        assert_eq!(title_label("\u{2066}Report\u{2069}", ""), "Report");
+        assert_eq!(title_label("\u{200e}\u{061c}", "org.example.Editor"),
+                   "org.example.Editor");
     }
 
     #[test]
