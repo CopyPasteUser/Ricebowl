@@ -934,6 +934,7 @@ struct DesktopContextLayer {
     properties: bool,
     back_hovered: bool,
     back_pressed: bool,
+    file_operation: Option<desktop_context::FileOperation>,
 }
 
 struct MenuLayer {
@@ -1191,6 +1192,113 @@ impl RicePlate {
         }
     }
 
+    /// A real compositor-owned XDG popup provides the focus and the explicit
+    /// user decision. No invisible input surface or arbitrary shell commands.
+    fn begin_file_rename(&mut self) {
+        let Some(menu) = self.desktop_context.as_ref() else { return };
+        let Some(recipe_index) = self.icon_layers.get(menu.icon_index).map(|icon| icon.recipe_index)
+            else { return };
+        let Some(file_index) = recipe_index.checked_sub(self.static_icon_count) else { return };
+        let Some(current) = self.desktop_files.as_ref()
+            .and_then(|files| files.entry(file_index))
+            .and_then(|entry| entry.name.to_str()) else {
+            eprintln!("RicePlate: cannot edit an invalid UTF-8 file name in this popup");
+            return;
+        };
+        let Some(input) = desktop_context::RenameInput::new(current) else { return };
+        if let Some(menu) = self.desktop_context.as_mut() {
+            menu.file_operation = Some(desktop_context::FileOperation::Rename(input));
+            menu.properties = false;
+        }
+        self.redraw_desktop_context();
+    }
+
+    fn begin_file_trash(&mut self) {
+        let Some(menu) = self.desktop_context.as_ref() else { return };
+        if self.icon_layers.get(menu.icon_index)
+            .is_none_or(|icon| icon.recipe_index < self.static_icon_count) { return; }
+        if let Some(menu) = self.desktop_context.as_mut() {
+            menu.file_operation = Some(desktop_context::FileOperation::ConfirmTrash);
+            menu.properties = false;
+        }
+        self.redraw_desktop_context();
+    }
+
+    fn commit_file_rename(&mut self, qh: &QueueHandle<Self>) {
+        let Some(menu) = self.desktop_context.as_ref() else { return };
+        let Some(file_index) = self.icon_layers.get(menu.icon_index)
+            .and_then(|icon| icon.recipe_index.checked_sub(self.static_icon_count)) else { return };
+        let Some(desktop_context::FileOperation::Rename(input)) = menu.file_operation.as_ref()
+            else { return };
+        if !input.valid() { return; }
+        let proposed = input.value().to_owned();
+        let result = self.desktop_files.as_mut().map(|files|
+            files.rename(file_index, std::ffi::OsStr::new(&proposed)));
+        match result {
+            Some(Ok(_)) => {
+                self.close_desktop_context();
+                self.rebuild_desktop_file_icons(qh);
+            }
+            Some(Err(error)) => {
+                let message = match error.kind() {
+                    std::io::ErrorKind::AlreadyExists => "Name already exists",
+                    std::io::ErrorKind::PermissionDenied => "Permission denied",
+                    std::io::ErrorKind::NotFound => "File disappeared",
+                    _ => "Rename failed",
+                };
+                eprintln!("RicePlate: Desktop rename failed: {error}");
+                if let Some(desktop_context::FileOperation::Rename(input)) =
+                    self.desktop_context.as_mut().and_then(|menu| menu.file_operation.as_mut()) {
+                    input.set_error(message);
+                }
+                self.redraw_desktop_context();
+            }
+            None => (),
+        }
+    }
+
+    fn confirm_file_trash(&mut self, qh: &QueueHandle<Self>) {
+        let Some(menu) = self.desktop_context.as_ref() else { return };
+        let Some(file_index) = self.icon_layers.get(menu.icon_index)
+            .and_then(|icon| icon.recipe_index.checked_sub(self.static_icon_count)) else { return };
+        let command = self.desktop_files.as_ref().map(|files| files.trash_command(file_index));
+        self.close_desktop_context();
+        match command {
+            Some(Ok(mut cmd)) => match cmd.spawn() {
+                Ok(_) => {
+                    // Gio reports completion asynchronously; the bounded
+                    // directory scan confirms the actual disappearance.
+                    eprintln!("RicePlate: requested Gio Trash move for Desktop file");
+                    self.refresh_desktop_files(qh);
+                }
+                Err(error) => eprintln!("RicePlate: cannot request Gio Trash: {error}"),
+            },
+            Some(Err(error)) => eprintln!("RicePlate: unsafe Trash request rejected: {error}"),
+            None => (),
+        }
+    }
+
+    fn show_file_in_explorer(&self, file_index: usize) {
+        let Some(files) = self.desktop_files.as_ref() else { return };
+        let mut command = match files.explorer_command(file_index) {
+            Ok(command) => command,
+            Err(error) => {
+                eprintln!("RicePlate: cannot open file location: {error}");
+                return;
+            }
+        };
+        match command.spawn() {
+            Ok(_) => (),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                if let Err(error) = files.gio_explorer_command(file_index)
+                    .and_then(|mut cmd| cmd.spawn().map(|_| ())) {
+                    eprintln!("RicePlate: Gio Explorer fallback unavailable: {error}");
+                }
+            }
+            Err(error) => eprintln!("RicePlate: RiceField Explorer denied: {error}"),
+        }
+    }
+
     fn handle_luna_desktop_request(&mut self, request: luna_desktop_ipc::Request,
                                    qh: &QueueHandle<Self>) {
         if self.recipe.id != "xp-luna-columns" { return; }
@@ -1430,13 +1538,13 @@ impl RicePlate {
             }).collect();
         output_names.sort();
         output_names.dedup();
-        let can_move = output_names.len() > 1 && recipe_index < self.static_icon_count;
+        let can_move = recipe_index >= self.static_icon_count || output_names.len() > 1;
         // Only named-output overrides can be reset safely. Never claim to
         // restore source coordinates from an already mutated global recipe.
-        let can_reset = recipe_index < self.static_icon_count && self.icon_output_name(index).is_some_and(|name|
+        let can_reset = recipe_index >= self.static_icon_count
+            || (self.icon_output_name(index).is_some_and(|name|
             self.icon_outputs.can_reset_position(
-                &name, &self.recipe.desktop_icons[..self.static_icon_count], recipe_index));
-        self.icon_drag = None;
+                &name, &self.recipe.desktop_icons[..self.static_icon_count], recipe_index)));        self.icon_drag = None;
         self.desktop_selection.cancel();
         self.select_luna_icon(index);
         if self.menu_state.visible { self.set_menu_visible(false, qh); }
@@ -1488,6 +1596,7 @@ impl RicePlate {
             selected: DesktopContextAction::Open, hovered: None,
             pressed: None, can_move, can_reset,
             properties: false, back_hovered: false, back_pressed: false,
+            file_operation: None,
         });
     }
 
@@ -1506,11 +1615,11 @@ impl RicePlate {
             }).collect();
         names.sort();
         names.dedup();
-        let can_move = names.len() > 1 && recipe_index < self.static_icon_count;
-        let can_reset = recipe_index < self.static_icon_count && self.icon_output_name(index).is_some_and(|name|
+        let can_move = recipe_index >= self.static_icon_count || names.len() > 1;
+        let can_reset = recipe_index >= self.static_icon_count
+            || (self.icon_output_name(index).is_some_and(|name|
             self.icon_outputs.can_reset_position(
-                &name, &self.recipe.desktop_icons[..self.static_icon_count], recipe_index));
-        (can_move, can_reset)
+                &name, &self.recipe.desktop_icons[..self.static_icon_count], recipe_index)));        (can_move, can_reset)
     }
 
     fn type_select_desktop_context(&mut self, typed: &str) -> bool {
@@ -1572,6 +1681,23 @@ impl RicePlate {
             return;
         };
         let icon_action = self.recipe.desktop_icons[icon.recipe_index].action.clone();
+        let file_index = icon.recipe_index.checked_sub(self.static_icon_count);
+        if let Some(file_index) = file_index {
+            match action {
+                DesktopContextAction::NextDisplay => self.begin_file_rename(),
+                DesktopContextAction::AllDisplays => self.begin_file_trash(),
+                DesktopContextAction::ResetPosition => {
+                    self.close_desktop_context();
+                    self.show_file_in_explorer(file_index);
+                }
+                DesktopContextAction::Open => {
+                    self.close_desktop_context();
+                    self.activate_action(&icon_action, qh);
+                }
+                DesktopContextAction::Properties => unreachable!("handled above"),
+            }
+            return;
+        }
         self.close_desktop_context();
         match action {
             DesktopContextAction::Open => self.activate_action(&icon_action, qh),

@@ -159,6 +159,15 @@ impl Model {
         Ok(cmd)
     }
 
+    pub fn gio_explorer_command(&self, index: usize) -> io::Result<Command> {
+        let entry = self.validated(index)?;
+        let parent = entry.path.parent().ok_or_else(|| io::Error::new(
+            io::ErrorKind::InvalidInput, "No parent directory"))?;
+        let mut cmd = Command::new("gio");
+        cmd.arg("open").arg(parent);
+        Ok(cmd)
+    }
+
     pub fn gio_open_command(&self, index: usize) -> io::Result<Command> {
         let entry = self.validated(index)?;
         let mut cmd = Command::new("gio");
