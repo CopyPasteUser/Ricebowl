@@ -55,6 +55,10 @@ assert report["standalone_de_ready"] is False
 
     # Runs the actual .desktop Exec target without a display manager. The
     # wrapper selects the packaged app, then labwc starts native RicePlate.
+    # CI headless timing only: monotonic clock from launch to observable
+    # socket and actual PNG. Never treat this as greeter/login hardware timing.
+    now_ns() { /usr/bin/python3 -c "import time; print(time.monotonic_ns())"; }
+    started_ns=$(now_ns)
     /usr/bin/ricebowl-wayland-session --native >"$runtime/session.log" 2>&1 &
     session=$!
     ready=0
@@ -75,6 +79,7 @@ assert report["standalone_de_ready"] is False
         exit 1
     fi
 
+    socket_ns=$(now_ns)
     ready=0
     attempt=0
     while [ "$attempt" -lt 40 ]; do
@@ -101,6 +106,10 @@ assert data[:8] == b"\x89PNG\r\n\x1a\n" and len(data) > 512
 width, height = struct.unpack(">II", data[16:24])
 assert width >= 640 and height >= 480, (width, height)
 '\'' "$runtime/native.png"
+    visible_ns=$(now_ns)
+    echo "HEADLESS_SOCKET_READY_MS=$(( (socket_ns - started_ns) / 1000000 ))"
+    echo "HEADLESS_VISIBLE_NATIVE_MS=$(( (visible_ns - started_ns) / 1000000 ))"
+    echo "HEADLESS_MEASUREMENT_SCOPE=disposable-ubuntu-labwc-not-physical-login"
     echo "PASS: installed native RicePlate, labwc, swayidle and real Wayland framebuffer"
 
     # Crash the installed Rust panel, not a source-tree test double. A real
