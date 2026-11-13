@@ -25,6 +25,8 @@ pub struct Entry {
     pub name: OsString,
     pub path: PathBuf,
     pub kind: Kind,
+    pub device: u64,
+    pub inode: u64,
 }
 
 impl Entry {
@@ -77,7 +79,8 @@ pub fn scan_at(root: &Path) -> io::Result<Vec<Entry>> {
         }
         let meta = fs::symlink_metadata(item.path())?;
         if let Some(kind) = kind(&meta) {
-            entries.push(Entry { name, path: item.path(), kind });
+            entries.push(Entry { name, path: item.path(), kind,
+                                 device: meta.dev(), inode: meta.ino() });
         }
     }
     // Stable raw-byte ordering: locale changes cannot retarget index clicks.
@@ -123,7 +126,8 @@ impl Model {
             return Err(io::Error::new(io::ErrorKind::PermissionDenied, "Outside Desktop directory"));
         }
         let actual = fs::symlink_metadata(&entry.path)?;
-        if kind(&actual) != Some(entry.kind) || !entry.is_openable() {
+        if kind(&actual) != Some(entry.kind) || !entry.is_openable()
+            || actual.dev() != entry.device || actual.ino() != entry.inode {
             return Err(io::Error::new(io::ErrorKind::PermissionDenied,
                 "Desktop entry changed or is a symlink"));
         }
@@ -297,6 +301,20 @@ mod tests {
         let renamed = model.rename(id, OsStr::new("Grüße 🚀")).unwrap();
         assert_eq!(fs::read(renamed).unwrap(), b"keep");
         assert!(!root.join("old").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn replacement_same_name_is_never_misidentified_as_original_click() {
+        let root = temp();
+        let path = root.join("important.txt");
+        fs::write(&path, b"original").unwrap();
+        let model = Model { root: Some(root.clone()), entries: scan_at(&root).unwrap() };
+        fs::rename(&path, root.join("old-important.txt")).unwrap();
+        fs::write(&path, b"replacement").unwrap();
+        assert!(model.open_command(0, false).is_err());
+        assert!(model.trash_command(0).is_err());
+        assert_eq!(fs::read(path).unwrap(), b"replacement");
         fs::remove_dir_all(root).unwrap();
     }
 
