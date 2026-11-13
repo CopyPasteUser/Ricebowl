@@ -1060,7 +1060,12 @@ impl MenuState {
             rows as u32 * COMPACT_ACTION_HEIGHT)).contains(&y) {
             let index = self.first_action_row_for(rows) +
                 (y as u32 - COMPACT_ACTION_TOP) as usize / COMPACT_ACTION_HEIGHT as usize;
-            return self.actions(menu).get(index).map(|_| Hit::Action(index));
+            return self.actions(menu).get(index).map(|action| {
+                if menu.presentation == MenuPresentation::Columns && menu.palette.is_some()
+                    && *action == "documents" && x >= f64::from(size.0.saturating_sub(22)) {
+                    Hit::RecentDocuments
+                } else { Hit::Action(index) }
+            });
         }
         (y >= f64::from(size.1 - COMPACT_FOOTER_HEIGHT)).then_some(Hit::Close)
     }
