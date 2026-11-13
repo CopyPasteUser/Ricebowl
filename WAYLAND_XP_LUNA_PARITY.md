@@ -177,6 +177,10 @@ about proprietary Windows assets.
   12/24-hour clock and desktop shortcut captions correctly. Long real window
   titles and XDG menu actions use bounded, Unicode-safe ellipsis truncation
   against their drawing rectangles instead of assuming eight pixels per glyph.
+- **Desktop labels:** unfocused shortcuts now float directly above the wallpaper
+  with a dark text shadow rather than permanently opaque label pills. Only
+  focused icons keep the blue highlight; icon surfaces and focus input stay
+  the same.
 - **Menu symbols:** Programs and Control Panel now have distinct folder/gear
   glyphs; Lock and Log off have distinct lock/door-arrow glyphs. The artwork is
   original raster drawing without a system icon-theme dependency.
