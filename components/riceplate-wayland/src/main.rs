@@ -3406,7 +3406,7 @@ impl RicePlate {
     }
 
     fn grouped_tasks(&self) -> Vec<TaskGroup> {
-        task_groups::group_windows(
+        task_groups::group_windows_with_policy(
             self.tasks
                 .iter()
                 .enumerate()
@@ -3415,8 +3415,10 @@ impl RicePlate {
                     app_id: &task.app_id,
                     title: &task.title,
                     active: task.active,
+                    minimized: task.minimized,
                     ready: task.ready,
                 }),
+            self.recipe.id != "xp-luna-columns" || self.luna_options.group_similar_windows,
         )
     }
 
@@ -3526,6 +3528,19 @@ impl RicePlate {
         self.show_tray_surface_at(target, qh);
     }
 
+    /// A group is captured by exact compositor handles at popup open time.
+    /// Refuse actions if a member was regrouped, replaced or closed, rather
+    /// than sending Close/Minimize to a different group through stale rows.
+    fn task_menu_matches_live_group(&self, handles: &[ZwlrForeignToplevelHandleV1]) -> bool {
+        !handles.is_empty() && self.grouped_tasks().iter().any(|group| {
+            group.members.len() == handles.len()
+                && group.members.iter().zip(handles).all(|(&index, handle)| {
+                    self.tasks.get(index).is_some_and(|task|
+                        task.ready && &task.handle == handle)
+                })
+        })
+    }
+
     fn raise_luna_task(&self, handle: &ZwlrForeignToplevelHandleV1) {
         let Some(task) = self.tasks.iter().find(|task|
             &task.handle == handle && task.ready) else { return; };
@@ -3538,6 +3553,7 @@ impl RicePlate {
     fn apply_luna_task_action(&self, id: i32, handles: &[ZwlrForeignToplevelHandleV1]) {
         use luna_window_menu::Action;
         let Some(action) = luna_window_menu::decode(id, handles.len()) else { return; };
+        if !self.task_menu_matches_live_group(handles) { return; }
         match action {
             Action::Activate(index) => {
                 if let Some(handle) = handles.get(index) { self.raise_luna_task(handle); }
@@ -4142,14 +4158,19 @@ fn paint_panel_pointer(canvas: &mut [u8], width: u32, height: u32,
                         view.cell_width
                     };
                     let task_visual = visual.button(Hit::Task(view.start + index));
-                    panel_chrome::task_button_visual(canvas, width, height, x, cell_width,
-                                                     group.active, style, task_visual);
+                    panel_chrome::task_button_state_visual(
+                        canvas, width, height, x, cell_width,
+                        group.active, group.minimized, style, task_visual,
+                    );
                     let label = fitted_task_label(group, cell_width, style);
+                    let label_color = if style.id == "xp-luna-columns" && group.minimized {
+                        0xffc3_d0eb
+                    } else { style.foreground };
                     draw_rice_text(canvas, width, height, x + 10,
                               height.saturating_sub(8 * style.font_scale) / 2
                                   + u32::from(task_visual
                                       == panel_chrome::ButtonVisual::Pressed),
-                              &label, style.foreground, style);
+                              &label, label_color, style);
                     if selected == Some(KeyboardTarget::Task(view.start + index)) {
                         paint_focus_border(canvas, width, height, x, cell_width,
                                            if style.focus != 0 { style.focus } else { style.foreground });
@@ -7120,6 +7141,11 @@ impl Dispatch<ZwlrForeignToplevelManagerV1, ()> for RicePlate {
                     eprintln!("RicePlate window event=manager-finished");
                 }
                 state.toplevel_manager = None;
+                // The compositor has invalidated all foreign-toplevel handles.
+                // Dismiss a task-owned popup before discarding its proxy list.
+                if !state.task_menu_handles.is_empty() {
+                    state.set_tray_popup_visible(false, qh);
+                }
                 state.tasks.clear();
                 state.show_desktop_restore.clear();
                 state.task_offset = 0;
@@ -7176,6 +7202,14 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for RicePlate {
             return;
         }
         if let Some(index) = state.tasks.iter().position(|task| task.handle == *proxy) {
+            // A changing app ID can move this handle into another task group;
+            // never leave a menu displaying actions for an outdated group.
+            let app_changed = matches!(&event,
+                zwlr_foreign_toplevel_handle_v1::Event::AppId { app_id }
+                if *app_id != state.tasks[index].app_id);
+            if app_changed && state.task_menu_handles.iter().any(|h| h == proxy) {
+                state.set_tray_popup_visible(false, qh);
+            }
             let task = &mut state.tasks[index];
             let mut refresh = false;
             match event {
