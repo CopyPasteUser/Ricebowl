@@ -152,6 +152,21 @@ class CreatorLayoutTests(unittest.TestCase):
         recipes.parse(json.dumps(created).encode())
         self.assertEqual(json.dumps(self.manifest, sort_keys=True), original)
 
+    def test_new_widgets_do_not_intersect_desktop_shortcuts_at_edge(self):
+        source = json.loads(json.dumps(self.manifest))
+        source["desktop"]["icons"].append({
+            "label": "Documents", "action": "documents", "x": 24, "y": 622,
+        })
+        result = layout.add_layer(source, "text", screen_width=1366, screen_height=768)
+        widget = result["composition"]["widgets"][-1]
+        icon = source["desktop"]["icons"][-1]
+        self.assertFalse(
+            widget["x"] < icon["x"] + recipes.ICON_WIDTH
+            and icon["x"] < widget["x"] + recipes.DESKTOP_WIDGET_WIDTH
+            and widget["y"] < icon["y"] + recipes.ICON_HEIGHT
+            and icon["y"] < widget["y"] + recipes.DESKTOP_WIDGET_HEIGHT)
+        recipes.parse(json.dumps(result).encode())
+
     def test_invalid_canvas_geometry_and_visibility_fail_closed(self):
         for size in ((0, 480), (640, 0), (True, 480), (640, 16385)):
             with self.subTest(size=size), self.assertRaises(layout.LayoutError):
