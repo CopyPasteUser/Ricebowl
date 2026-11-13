@@ -518,7 +518,7 @@ impl MenuState {
             View::Documents => self.documents.iter().enumerate()
                 .map(|(index, _)| menu_documents::ACTIONS[index]).collect(),
             View::Saved => self.pins.iter().filter(|pin|
-                menu.groups.iter().any(|group| group.actions.contains(pin))
+                menu.groups.iter().any(|group| group.actions.contains(*pin))
                     || (menu.presentation == MenuPresentation::Columns
                         && menu.palette.is_some()
                         && self.apps.iter().any(|app| app.action == **pin)))
@@ -578,7 +578,7 @@ impl MenuState {
                 MenuContentKind::Actions => programs.actions.iter().map(String::as_str)
                     .take(source.limit).collect(),
                 MenuContentKind::Favorites => self.pins.iter().filter(|pin|
-                    menu.groups.iter().any(|group| group.actions.contains(pin)))
+                    menu.groups.iter().any(|group| group.actions.contains(*pin)))
                     .map(String::as_str).take(source.limit).collect(),
                 MenuContentKind::AppsList | MenuContentKind::AppsGrid => {
                     if menu.palette.is_some() { self.luna_preview_apps(source.limit) }
@@ -657,7 +657,7 @@ impl MenuState {
                 MenuContentKind::Actions => group.actions.iter().map(String::as_str)
                     .take(source.limit).collect(),
                 MenuContentKind::Favorites => self.pins.iter().filter(|pin|
-                    menu.groups.iter().any(|group| group.actions.contains(pin)))
+                    menu.groups.iter().any(|group| group.actions.contains(*pin)))
                     .map(String::as_str).take(source.limit).collect(),
                 MenuContentKind::AppsList | MenuContentKind::AppsGrid => self.apps.iter()
                     .map(|app| app.action.as_str()).take(source.limit).collect(),
@@ -2129,7 +2129,7 @@ mod tests {
         let menu = recipe.menu.as_ref().unwrap();
         let mut state = MenuState::default();
         state.open();
-        assert_eq!(state.hit(menu, 315.0, 80.0), Some(Hit::RecentDocuments));
+        assert_eq!(state.hit(menu, 305.0, 80.0), Some(Hit::RecentDocuments));
         assert_eq!(state.hit(menu, 185.0, 80.0), Some(Hit::Action(2)));
         state.show_documents(vec![Document {
             label: "Important document.txt".into(),
