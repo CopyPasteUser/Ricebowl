@@ -479,8 +479,8 @@ class _LiveSwitch:
         from . import luna_hotkeys
         # Retain all reviewed RiceSpice input preferences. Only remove our
         # own exact three shortcuts for subsequent live-switch/rollback.
-        self._base_rc = luna_hotkeys.without_shortcuts(
-            self.rc.read_text(encoding="utf-8"))
+        self._base_rc = (luna_hotkeys.without_shortcuts(
+            self.rc.read_text(encoding="utf-8")) if self.rc.is_file() else None)
         self.profile = (riceprofile.ProfileSession.from_environment(env)
                         if any(key.env_key in env for key in riceprofile.CLIENTS) else None)
         self.fallback = False
@@ -552,8 +552,8 @@ class _LiveSwitch:
         # The Luna IPC listener belongs to native RicePlate. If that process
         # crashed, a rescue bar must not inherit dead W-d/W-e/W-r bindings:
         # labwc's own default W-d remains available through <default/>.
-        old_rc = self.rc.read_text(encoding="utf-8")
-        if old_rc != self._base_rc:
+        old_rc = self.rc.read_text(encoding="utf-8") if self._base_rc is not None else None
+        if old_rc is not None and old_rc != self._base_rc:
             try:
                 _atomic_labwc_text(self.rc, self._base_rc)
                 self._reconfigure()
@@ -627,10 +627,12 @@ class _LiveSwitch:
             old_menu = self.menu.read_text(encoding="utf-8")
             new_chrome = labwc_chrome(recipe)
             old_chrome = self.chrome.read_text(encoding="utf-8") if self.chrome.exists() else None
-            old_rc = self.rc.read_text(encoding="utf-8")
-            new_rc = luna_hotkeys.render(self._base_rc,
+            old_rc = (self.rc.read_text(encoding="utf-8")
+                      if self._base_rc is not None else None)
+            new_rc = (luna_hotkeys.render(self._base_rc,
                 self.mode == "native" and not self.fallback and not self.nested
                 and recipe.recipe_id == "xp-luna-columns")
+                if self._base_rc is not None else None)
             old_digest = self.active_digest
             prepared_profiles = self.profile.preflight(recipe) if self.profile else {}
             selection_before = recipes._selection_snapshot() if not self.nested else None
@@ -668,7 +670,7 @@ class _LiveSwitch:
                 _atomic_labwc_text(self.chrome, new_chrome)
             else:
                 self.chrome.unlink(missing_ok=True)
-            if new_rc != old_rc:
+            if new_rc is not None and new_rc != old_rc:
                 rc_attempted = True
                 _atomic_labwc_text(self.rc, new_rc)
             self._reconfigure()
@@ -708,7 +710,7 @@ class _LiveSwitch:
                         self.chrome.unlink(missing_ok=True)
                 except OSError as restore_error:
                     recovery_errors.append(f"chrome: {restore_error}")
-            if rc_attempted:
+            if rc_attempted and old_rc is not None:
                 try:
                     _atomic_labwc_text(self.rc, old_rc)
                 except OSError as restore_error:
