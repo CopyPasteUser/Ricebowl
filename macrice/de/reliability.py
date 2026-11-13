@@ -91,7 +91,7 @@ def _sample_pid(path: Path, *, uid: int) -> ProcessSample | None:
             sched = (path / "sched").read_text(encoding="ascii")
             wakeups = None
             for line in sched.splitlines():
-                if re.match(r"^nr_wakeups\\s*:", line):
+                if re.match(r"^nr_wakeups\s*:", line):
                     value = line.split(":", 1)[1].strip()
                     if value.isdigit():
                         wakeups = int(value)
@@ -144,9 +144,12 @@ def _probe_protocols(*, enabled: bool, env: Mapping[str, str],
             raise ValueError("Protocol discovery failed")
         # Only known interface names leave this function. Arbitrary compositor
         # text and window/application titles are never returned.
-        found = {name for name in names
-                 if re.search(r"(?<![A-Za-z0-9_])" + re.escape(name) +
-                              r"(?![A-Za-z0-9_])", result.stdout)}
+        # Parse protocol registry advertisements, not arbitrary titles,
+        # error strings or help text that merely mention an interface.
+        advertised = set(re.findall(
+            r"""^\\s*interface:\\s*['"]([a-zA-Z0-9_]+)['"]""",
+            result.stdout, flags=re.MULTILINE))
+        found = set(names) & advertised
         return {"probe": "observed",
                 "required": {name: name in found for name in REQUIRED_PROTOCOLS},
                 "optional": {name: name in found for name in OPTIONAL_PROTOCOLS}}
