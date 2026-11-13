@@ -1430,12 +1430,12 @@ impl RicePlate {
             }).collect();
         output_names.sort();
         output_names.dedup();
-        let can_move = output_names.len() > 1;
+        let can_move = output_names.len() > 1 && recipe_index < self.static_icon_count;
         // Only named-output overrides can be reset safely. Never claim to
         // restore source coordinates from an already mutated global recipe.
-        let can_reset = self.icon_output_name(index).is_some_and(|name|
+        let can_reset = recipe_index < self.static_icon_count && self.icon_output_name(index).is_some_and(|name|
             self.icon_outputs.can_reset_position(
-                &name, &self.recipe.desktop_icons, recipe_index));
+                &name, &self.recipe.desktop_icons[..self.static_icon_count], recipe_index));
         self.icon_drag = None;
         self.desktop_selection.cancel();
         self.select_luna_icon(index);
@@ -1506,10 +1506,10 @@ impl RicePlate {
             }).collect();
         names.sort();
         names.dedup();
-        let can_move = names.len() > 1;
-        let can_reset = self.icon_output_name(index).is_some_and(|name|
+        let can_move = names.len() > 1 && recipe_index < self.static_icon_count;
+        let can_reset = recipe_index < self.static_icon_count && self.icon_output_name(index).is_some_and(|name|
             self.icon_outputs.can_reset_position(
-                &name, &self.recipe.desktop_icons, recipe_index));
+                &name, &self.recipe.desktop_icons[..self.static_icon_count], recipe_index));
         (can_move, can_reset)
     }
 
@@ -3310,13 +3310,20 @@ impl RicePlate {
         let layer = &self.icon_layers[layer_index];
         let original = &self.recipe.desktop_icons[layer.recipe_index];
         self.icon_output_name(layer_index).as_deref()
-            .and_then(|name| self.icon_outputs.for_output(name, self.recipe.desktop_icons.len()))
+            .and_then(|name| self.icon_outputs.for_output(name, self.static_icon_count))
             .and_then(|positions| positions.get(layer.recipe_index)).copied()
             .unwrap_or(icon_positions::Coordinates { x: original.x, y: original.y })
     }
 
     fn move_icon(&mut self, layer_index: usize, desired: (u32, u32)) {
         let recipe_index = self.icon_layers[layer_index].recipe_index;
+        if recipe_index >= self.static_icon_count {
+            if let Some(icon) = self.recipe.desktop_icons.get_mut(recipe_index) {
+                (icon.x, icon.y) = desired;
+            }
+            self.reflow_icons();
+            return;
+        }
         let coords = icon_positions::Coordinates { x: desired.0, y: desired.1 };
         if let Some(output) = self.icon_output_name(layer_index) {
             if let Err(error) = self.icon_outputs.set(&output, &self.recipe.desktop_icons,
@@ -3345,6 +3352,7 @@ impl RicePlate {
             .and_then(|info| info.logical_position) else { return false };
         let Some(source_name) = self.icon_output_name(drag.index) else { return false };
         let recipe_index = source_layer.recipe_index;
+        if recipe_index >= self.static_icon_count { return false; }
         // Only currently configured, named shell outputs are valid targets.
         // Without xdg-output logical geometry retain the single-display drag.
         let target = self.icon_layers.iter().enumerate().find_map(|(index, layer)| {
@@ -3366,7 +3374,7 @@ impl RicePlate {
         // Discard transient moves against the source output. A cross-monitor
         // drop should not rewrite its previous layout or mirrored fallback.
         let mut next = drag.original_positions.clone();
-        let transferred = match next.transfer(&self.recipe.desktop_icons, recipe_index, &name,
+        let transferred = match next.transfer(&self.recipe.desktop_icons[..self.static_icon_count], recipe_index, &name,
             icon_positions::Coordinates { x: desired.0, y: desired.1 }) {
             Ok(()) => { self.icon_outputs = next; true }
             Err(error) => {
@@ -3411,7 +3419,7 @@ impl RicePlate {
         let next = names.iter().position(|name| name == &current)
             .map_or(0, |index| (index + 1) % names.len());
         if let Err(error) = self.icon_outputs.assign(
-            &self.recipe.desktop_icons, recipe_index, Some(&names[next]),
+            &self.recipe.desktop_icons[..self.static_icon_count], recipe_index, Some(&names[next]),
         ) {
             eprintln!("RicePlate: cannot assign desktop icon to output: {error}");
             return;
@@ -3432,7 +3440,7 @@ impl RicePlate {
         // The named layout is the only mutable target. Keep the recipe,
         // shortcuts on other displays, and cross-display ownership intact.
         match self.icon_outputs.reset_position(
-            &name, &self.recipe.desktop_icons, recipe_index,
+            &name, &self.recipe.desktop_icons[..self.static_icon_count], recipe_index,
         ) {
             Ok(true) => {
                 self.reflow_icons();
@@ -3447,7 +3455,7 @@ impl RicePlate {
     fn mirror_icon_on_all_outputs(&mut self, layer_index: usize) {
         let recipe_index = self.icon_layers[layer_index].recipe_index;
         if let Err(error) = self.icon_outputs.assign(
-            &self.recipe.desktop_icons, recipe_index, None,
+            &self.recipe.desktop_icons[..self.static_icon_count], recipe_index, None,
         ) {
             eprintln!("RicePlate: cannot restore mirrored desktop icon: {error}");
             return;
@@ -3483,15 +3491,18 @@ impl RicePlate {
             let name = self.icon_output_name(index);
             let mut local_icons = self.recipe.desktop_icons.clone();
             if let Some(positions) = name.as_deref().and_then(|name|
-                self.icon_outputs.for_output(name, local_icons.len())) {
-                for (icon, position) in local_icons.iter_mut().zip(positions) {
+                self.icon_outputs.for_output(name, self.static_icon_count)) {
+                for (icon, position) in local_icons.iter_mut().take(self.static_icon_count).zip(positions) {
                     (icon.x, icon.y) = (position.x, position.y);
                 }
             }
             let visible: Vec<_> = (0..local_icons.len())
-                .map(|icon| self.icon_outputs.visible_on(
-                    icon, name.as_deref(), layer.bound_output.is_none(), &connected,
-                )).collect();
+                .map(|icon| if icon < self.static_icon_count {
+                    self.icon_outputs.visible_on(
+                        icon, name.as_deref(), layer.bound_output.is_none(), &connected)
+                } else {
+                    layer.bound_output.is_none()
+                }).collect();
             let placement = if let Some(composition) = &self.recipe.composition {
                 desktop_layout::compose_visible(&local_icons, &visible, composition, width, height,
                     self.recipe.top, self.recipe.height,
@@ -3546,15 +3557,18 @@ impl RicePlate {
             let name = output.and_then(|o| self.outputs.info(o)).and_then(|info| info.name);
             let mut local_icons = self.recipe.desktop_icons.clone();
             if let Some(positions) = name.as_deref().and_then(|name|
-                self.icon_outputs.for_output(name, local_icons.len())) {
-                for (icon, position) in local_icons.iter_mut().zip(positions) {
+                self.icon_outputs.for_output(name, self.static_icon_count)) {
+                for (icon, position) in local_icons.iter_mut().take(self.static_icon_count).zip(positions) {
                     (icon.x, icon.y) = (position.x, position.y);
                 }
             }
             let visible: Vec<_> = (0..local_icons.len())
-                .map(|icon| self.icon_outputs.visible_on(
-                    icon, name.as_deref(), layer.bound_output.is_none(), &connected,
-                )).collect();
+                .map(|icon| if icon < self.static_icon_count {
+                    self.icon_outputs.visible_on(
+                        icon, name.as_deref(), layer.bound_output.is_none(), &connected)
+                } else {
+                    layer.bound_output.is_none()
+                }).collect();
             let placement = desktop_layout::compose_visible(
                 &local_icons, &visible, composition, width, height, self.recipe.top, self.recipe.height,
                 self.recipe.compact.as_ref().map_or(720, |(threshold, _)| *threshold),
