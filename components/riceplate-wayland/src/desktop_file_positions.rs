@@ -124,7 +124,8 @@ fn read_at(path: &Path) -> io::Result<BTreeMap<String, BTreeMap<String, Point>>>
     if content.len() as u64 > MAX_BYTES {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "Oversized positions"));
     }
-    let data: Saved = serde_json::from_slice(&content)?;
+    let data: Saved = serde_json::from_slice(&content).map_err(|error|
+        io::Error::new(io::ErrorKind::InvalidData, error))?;
     if data.schema_version != 1 || !bounded(&data.files) {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid position schema"));
     }
@@ -150,7 +151,8 @@ fn write_at(path: &Path, data: &BTreeMap<String, BTreeMap<String, Point>>)
         Err(error) if error.kind() == io::ErrorKind::NotFound => (),
         Err(error) => return Err(error),
     }
-    let data = serde_json::to_vec(&Saved { schema_version: 1, files: data.clone() })?;
+    let data = serde_json::to_vec(&Saved { schema_version: 1, files: data.clone() })
+        .map_err(io::Error::other)?;
     if data.len() as u64 > MAX_BYTES {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "Positions exceed budget"));
     }

@@ -1128,6 +1128,9 @@ impl RicePlate {
     /// User file layers are separate runtime state; never rewrite a recipe.
     fn rebuild_desktop_file_icons(&mut self, qh: &QueueHandle<Self>) {
         let Some(files) = self.desktop_files.as_ref() else { return };
+        if self.file_positions.retain_entries(files.entries()) {
+            self.icon_position_dirty = true;
+        }
         let entries: Vec<_> = files.entries().iter().enumerate().map(|(index, entry)| {
             let slot = index + self.static_icon_count;
             recipe::DesktopIcon {
@@ -6869,7 +6872,7 @@ impl PointerHandler for RicePlate {
                     if menu.file_operation.is_some() {
                         let back = desktop_context::back_hit(
                             event.position.0, event.position.1);
-                        let yes = matches!(menu.file_operation,
+                        let yes = matches!(menu.file_operation.as_ref(),
                             Some(desktop_context::FileOperation::ConfirmTrash))
                             && event.position.0.is_finite() && event.position.1.is_finite()
                             && (5.0..f64::from(desktop_context::WIDTH - 5)).contains(&event.position.0)
