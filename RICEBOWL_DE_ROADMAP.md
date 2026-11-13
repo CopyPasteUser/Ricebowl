@@ -11,6 +11,8 @@ installation and is not yet a finished desktop environment.
 
 ### Native XP Luna context-menu keyboard-selection gate (13 November 2026)
 
+**Gate blocked:** Native compositor run #43365078976 failed after explicit Overlay-header focus; task remains unchecked and the implementation remains Draft. Follow issue #328 for a true icon-parented `xdg_popup` rather than independent Overlay layer-shell focus assumptions. Do not claim the existing Rust tests establish functional keyboard selection.
+
 - [ ] Native `xp-luna-columns` shortcut context Overlay, deliberately
   opened by right-click, should accept bounded Unicode prefix typing and
   select visible desktop icons on the same output. Enter activates the
