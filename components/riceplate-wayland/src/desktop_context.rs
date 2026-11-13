@@ -94,6 +94,12 @@ impl RenameInput {
     pub fn set_error(&mut self, message: &'static str) { self.error = Some(message); }
 }
 
+#[derive(Debug, Clone)]
+pub enum FileOperation {
+    Rename(RenameInput),
+    ConfirmTrash,
+}
+
 pub fn row(action: Action) -> u32 { FIRST_ROW + action.index() as u32 * ROW_HEIGHT }
 
 pub fn hit(x: f64, y: f64) -> Option<Action> {
