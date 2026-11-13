@@ -637,8 +637,11 @@ class _LiveSwitch:
                     raise LiveError("Active recipe changed; output refresh refused",
                                     code="recipe_changed")
                 new_panel = self._start_panel(self.active, recipe)
-            except LiveError:
-                raise
+            except LiveError as exc:
+                if exc.code == "recipe_changed":
+                    raise
+                raise LiveError("Waybar output refresh could not start",
+                                code="component_failed") from exc
             except (recipes.RecipeError, OSError) as exc:
                 raise LiveError("Waybar output refresh could not start",
                                 code="component_failed") from exc
