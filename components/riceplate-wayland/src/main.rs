@@ -546,6 +546,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         primary_output_seen: false,
         toplevel_manager,
         trace_window_events: std::env::var("RICEBOWL_DE_TRACE_WINDOWS").as_deref() == Ok("1"),
+        trace_frames: std::env::var("RICEBOWL_DE_TRACE_FRAMES").as_deref() == Ok("1"),
         tasks: Vec::new(),
         show_desktop_restore: Vec::new(),
         luna_options,
@@ -1017,6 +1018,7 @@ struct RicePlate {
     primary_output_seen: bool,
     toplevel_manager: Option<ZwlrForeignToplevelManagerV1>,
     trace_window_events: bool,
+    trace_frames: bool,
     tasks: Vec<Task>,
     // Only windows actually minimized by Show Desktop are restored.
     show_desktop_restore: Vec<ZwlrForeignToplevelHandleV1>,
@@ -2459,6 +2461,7 @@ impl RicePlate {
     }
 
     fn redraw_mirror(&mut self, index: usize, qh: &QueueHandle<Self>) {
+        let paint_started = self.trace_frames.then(Instant::now);
         let groups = self.grouped_tasks();
         self.cached_task_group_count = groups.len();
         let selected = if self.focused_panel.as_ref()
@@ -2497,6 +2500,12 @@ impl RicePlate {
         surface.frame(qh, FrameCallbackData(surface.clone()));
         mirror.frame.submitted();
         mirror.surface.commit();
+        if let Some(started) = paint_started {
+            let stats = mirror.frame.stats();
+            eprintln!("RicePlate frame=mirror output={index} paint_us={} commits={} invalidations={} coalesced={} shm_retries={}",
+                started.elapsed().as_micros(), stats.commits, stats.invalidations,
+                stats.coalesced, stats.busy_retries);
+        }
     }
 
     fn set_menu_visible(&mut self, visible: bool, qh: &QueueHandle<Self>) {
@@ -3766,6 +3775,7 @@ impl RicePlate {
         if !self.configured || self.width == 0 || self.height == 0 {
             return;
         }
+        let paint_started = self.trace_frames.then(Instant::now);
         let width = self.width;
         let height = self.height;
         let groups = self.grouped_tasks();
@@ -3810,6 +3820,12 @@ impl RicePlate {
         surface.frame(qh, FrameCallbackData(surface.clone()));
         self.frame.submitted();
         self.layer.commit();
+        if let Some(started) = paint_started {
+            let stats = self.frame.stats();
+            eprintln!("RicePlate frame=primary paint_us={} commits={} invalidations={} coalesced={} shm_retries={}",
+                started.elapsed().as_micros(), stats.commits, stats.invalidations,
+                stats.coalesced, stats.busy_retries);
+        }
     }
 }
 
