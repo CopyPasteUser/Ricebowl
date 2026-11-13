@@ -718,6 +718,20 @@ PY
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-shortcut-context.png"
             cp "$runtime/xp-luna-shortcut-context.png" \
                "$source_root/dist/riceplate-native-preview/xp-luna-shortcut-context.png"
+            /usr/bin/python3 - "$runtime/xp-luna-recycle-bin-click.png" \
+                "$runtime/xp-luna-shortcut-context.png" <<"PY"
+from PIL import Image, ImageChops
+import sys
+with Image.open(sys.argv[1]) as before, Image.open(sys.argv[2]) as after:
+    before.load()
+    after.load()
+    assert before.size == after.size == (1366, 768)
+    region = (68, 435, 292, 625)
+    diff = ImageChops.difference(before.crop(region).convert("RGB"),
+                                 after.crop(region).convert("RGB"))
+    changed = sum(max(pixel) > 18 for pixel in diff.getdata())
+    assert changed > 500, f"Icon-parented XDG popup never mapped: {changed} pixels"
+PY
             # A real icon-parented xdg_popup must become keyboard focusable
             # on deliberate right-click despite the parent Bottom layer.
             # No click on an independent Overlay; no global keyboard grab.
@@ -731,7 +745,17 @@ PY
             grep -q "RicePlate desktop context keyboard focused" \
                 "$runtime/plate-$label.log" || {
                 echo "Parented Luna xdg_popup never received keyboard focus" >&2
-                tail -n 65 "$runtime/plate-$label.log" >&2
+                grep "RicePlate desktop popup" "$runtime/plate-$label.log" >&2 || :
+                # Diagnostic only: does a separate deliberate click on the
+                # bounded popup header restore focus on old labwc 0.7.1?
+                WAYLAND_DISPLAY=wayland-0 "$clicker" 88 450 1366 768
+                WAYLAND_DISPLAY=wayland-0 wtype -d 35 p
+                sleep 0.25
+                WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-popup-extra-click.png"
+                cp "$runtime/xp-luna-popup-extra-click.png" \
+                   "$source_root/dist/riceplate-native-preview/xp-luna-popup-extra-click.png"
+                grep "RicePlate desktop context keyboard focused" \
+                    "$runtime/plate-$label.log" >&2 || :
                 exit 1
             }
             grep -q "RicePlate desktop type-select from=.* to=" \
