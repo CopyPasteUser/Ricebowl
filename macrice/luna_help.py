@@ -46,6 +46,16 @@ TOPICS = {
 }
 
 
+# Only destinations provided by the existing XP Control Panel. Topic text
+# without a supported destination remains Help-only, not an inert fake link.
+TOPIC_DESTINATIONS = {
+    "Connecting to networks": "Network and Internet Connections",
+    "Sound and battery": "Sounds, Speech, and Audio Devices",
+    "Files and the desktop": "Appearance and Themes",
+    "Accessibility and recovery": "Accessibility Options",
+}
+
+
 def search_topics(text: str) -> tuple[str, ...]:
     query = text.strip().casefold()
     return tuple(key for key, value in TOPICS.items()
@@ -146,9 +156,13 @@ def show_help(shell, Gtk):
 
     toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=7)
     back = Gtk.Button(label="◂ Back")
+    forward = Gtk.Button(label="Forward ▸")
+    forward.set_sensitive(False)
+    forward.get_accessible().set_name("Next Help topic")
+    back.get_accessible().set_name("Previous Help topic")
     home = Gtk.Button(label="Home")
     system = Gtk.Button(label="System Information…")
-    for widget in (back, home):
+    for widget in (back, forward, home):
         toolbar.pack_start(widget, False, False, 0)
     toolbar.pack_end(system, False, False, 0)
     area.pack_start(toolbar, False, False, 0)
@@ -182,6 +196,10 @@ def show_help(shell, Gtk):
     text.set_wrap_mode(Gtk.WrapMode.WORD)
     text_scroll.add(text)
     article.pack_start(text_scroll, True, True, 0)
+    related = Gtk.Button(label="Open related Control Panel category…")
+    related.get_accessible().set_name("Open the related Control Panel category")
+    related.get_style_context().add_class("luna-help-related")
+    article.pack_start(related, False, False, 0)
     body.pack2(article, resize=True, shrink=False)
 
     history = ["Getting started"]
@@ -192,6 +210,14 @@ def show_help(shell, Gtk):
         topic_title.set_text(name)
         text.get_buffer().set_text(TOPICS[name])
         back.set_sensitive(position > 0)
+        forward.set_sensitive(position + 1 < len(history))
+        category = TOPIC_DESTINATIONS.get(name)
+        available = (category is not None
+                     and callable(getattr(shell, "luna_control_show_category", None)))
+        related.set_sensitive(available)
+        related.set_tooltip_text(
+            "Navigate to the installed Linux settings tasks for " + category
+            if available else "No additional Control Panel action for this topic")
 
     def visit(name):
         nonlocal position
@@ -228,10 +254,53 @@ def show_help(shell, Gtk):
             position -= 1
             display()
 
+    def go_forward(_button):
+        nonlocal position
+        if position + 1 < len(history):
+            position += 1
+            display()
+
+    def open_related(_button):
+        category = TOPIC_DESTINATIONS.get(history[position])
+        callback = getattr(shell, "luna_control_show_category", None)
+        if category is None or not callable(callback):
+            return
+        # Use the real existing Control Panel window and its allowlisted
+        # category route; no duplicate Linux settings launcher or shell command.
+        if not shell.actions.get_visible():
+            shell._toggle_actions()
+        if shell.actions.get_visible():
+            callback(category)
+            shell.actions.present()
+
+    def key_press(_widget, event):
+        if event.state & Gdk.ModifierType.MOD1_MASK:
+            if event.keyval == Gdk.KEY_Left:
+                go_back(None)
+                return True
+            if event.keyval == Gdk.KEY_Right:
+                go_forward(None)
+                return True
+        if event.state & Gdk.ModifierType.CONTROL_MASK and event.keyval in (
+                Gdk.KEY_f, Gdk.KEY_F):
+            search.grab_focus()
+            search.select_region(0, -1)
+            return True
+        if event.keyval == Gdk.KEY_Escape:
+            if search.get_text():
+                search.set_text("")
+            else:
+                dialog.response(Gtk.ResponseType.CLOSE)
+            return True
+        return False
+
     listing.connect("row-activated", lambda _list, row:
                     visit(row.topic) if hasattr(row, "topic") else None)
     search.connect("search-changed", refresh)
     back.connect("clicked", go_back)
+    forward.connect("clicked", go_forward)
+    related.connect("clicked", open_related)
+    dialog.connect("key-press-event", key_press)
     home.connect("clicked", lambda _button: visit("Getting started"))
     system.connect("clicked", lambda _button: show_system(shell, Gtk))
     dialog.connect("response", lambda window, _response: window.destroy())
