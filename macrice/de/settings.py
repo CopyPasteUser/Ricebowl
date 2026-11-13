@@ -733,7 +733,11 @@ class RiceSpiceWindow:
         # Changing a FlowBox column count is cheap and prevents truncated XP
         # captions at 1024x768, fractional scaling and narrow window sizes.
         if self.luna_flow is not None:
-            self.luna_flow.set_max_children_per_line(1 if allocation.width < 880 else 2)
+            columns = 1 if allocation.width < 880 else 2
+            # Avoid queueing a fresh FlowBox resize from *every* size-allocate
+            # emission. This can starve rendering under headless labwc.
+            if self.luna_flow.get_max_children_per_line() != columns:
+                self.luna_flow.set_max_children_per_line(columns)
 
     def _luna_new_flow(self):
         flow = self.Gtk.FlowBox()
