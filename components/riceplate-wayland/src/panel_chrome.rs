@@ -539,7 +539,10 @@ mod tests {
 
     #[test]
     fn minimized_luna_tasks_have_distinct_pixels_without_other_rice_regression() {
-        let style = luna();
+        let style = recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns"),
+        ).unwrap();
         let mut normal = vec![0; (300 * 40 * 4) as usize];
         task_button_state_visual(&mut normal, 300, 40, 10, 125,
                                  false, false, &style, ButtonVisual::Normal);
