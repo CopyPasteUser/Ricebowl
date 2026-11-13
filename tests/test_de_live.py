@@ -224,6 +224,49 @@ class LiveRiceTests(unittest.TestCase):
         self.assertEqual(len(self.processes), 1)
         self.assertTrue(self.initial_panel.terminated)
 
+    def test_direct_output_refresh_rejects_changed_active_recipe(self):
+        self.controller.mode = "waybar"
+        with mock.patch.object(staging, "_hash", return_value="0" * 64):
+            with self.assertRaises(live.LiveError) as caught:
+                self.controller.handle({
+                    "action": "refresh-outputs", "recipe": None,
+                    "sha256": None, "expected": None,
+                })
+        self.assertEqual(caught.exception.code, "recipe_changed")
+        self.assertFalse(self.initial_panel.terminated)
+        self.assertFalse(self.initial_wallpaper.terminated)
+        self.assertEqual(self.processes, [])
+
+    def test_automatic_output_refresh_checks_digest_even_without_layout_change(self):
+        self.controller.mode = "waybar"
+        with mock.patch.object(staging, "_hash", return_value="0" * 64):
+            with self.assertRaises(live.LiveError) as caught:
+                _refresh_changed_outputs(
+                    self.controller, ("classic", "unchanged"), self.env, self.tools.get)
+        self.assertEqual(caught.exception.code, "recipe_changed")
+        self.assertEqual(self.processes, [])
+        self.assertFalse(self.initial_panel.terminated)
+
+    def test_shutdown_during_output_refresh_keeps_existing_panel(self):
+        self.controller.mode = "waybar"
+        original_spawn = self.controller.spawn
+
+        def shutdown_after_spawn(command, **kwargs):
+            process = original_spawn(command, **kwargs)
+            self.controller.stopping = lambda: True
+            return process
+
+        self.controller.spawn = shutdown_after_spawn
+        with self.assertRaises(live.LiveError) as caught:
+            self.controller.handle({
+                "action": "refresh-outputs", "recipe": None,
+                "sha256": None, "expected": None,
+            })
+        self.assertEqual(caught.exception.code, "session_stopping")
+        self.assertFalse(self.initial_panel.terminated)
+        self.assertEqual(len(self.processes), 1)
+        self.assertTrue(self.processes[0][2].terminated)
+
     def test_refresh_outputs_fails_closed_with_old_bar_alive(self):
         self.controller.mode = "waybar"
         self.controller.which = lambda name: None if name == "waybar" else self.tools.get(name)
