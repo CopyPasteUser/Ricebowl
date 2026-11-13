@@ -63,6 +63,11 @@ the sign-off guard and its tests are deliberately unchanged.
   and attempt Start. The CI pixman renderer rejects Start with response 2;
   this is explicitly reported as an **untested ScreenCast backend**, never as
   PipeWire-stream success. The unattended chooser override is CI-private.
+- [ ] A **separate strict headless GLES2/Mesa CI lane** must pass with a real
+  ScreenCast Start node and valid PipeWire remote FD; the pixman response-2
+  limitation remains non-blocking only in the regular lane. This is
+  negotiation acceptance, not actual video-frame or hardware proof. Track
+  the strict lane in issue #304.
 - [ ] Verify successful ScreenCast Start, PipeWire node/FD, consent UX and
   actual frame delivery on a GPU-backed Wayland session; also Flatpak sandbox,
   permissions, denial and multi-monitor behavior on real hardware.
