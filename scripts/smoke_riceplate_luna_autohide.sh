@@ -5,7 +5,7 @@ set -eu
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 native="$root/components/riceplate-wayland/target/release/riceplate-native"
 clicker="$root/components/riceplate-wayland/target/release/examples/wayland_pointer_click"
-for command in labwc grim dbus-run-session wlr-randr wtype; do
+for command in labwc grim dbus-run-session wlr-randr; do
     command -v "$command" >/dev/null || { echo "Missing: $command" >&2; exit 1; }
 done
 test -x "$native" && test -x "$clicker"
@@ -67,14 +67,12 @@ dbus-run-session -- sh -eu -c '
     WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 120 585 1024 768
     sleep .4
     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/menu-open.png"
-    # labwc does NOT deliver off-surface wallpaper clicks to RicePlate.
-    # Dismiss through the native Start menu keyboard Escape handler, while
-    # the pointer remains off the panel. This exercises popup focus and
-    # exactly the state transition that previously left Auto-hide open.
-    # Use the inert XP header, not an app/action row: the styled
-    # 480x456 menu begins at y=272 above the 40px taskbar.
-    WAYLAND_DISPLAY=wayland-0 "$clicker" 120 290 1024 768
-    WAYLAND_DISPLAY=wayland-0 wtype -k Escape
+    # Real XP footer Close hit: logical x251..315 / y276..304.
+    # Styled native 480x456 menu begins at y272, so (420,702) maps
+    # to logical (280,287). This is a genuine menu hit, not an
+    # off-surface click or an unreliable synthetic keyboard focus.
+    # Pointer stays away from the taskbar: closing must collapse it.
+    WAYLAND_DISPLAY=wayland-0 "$clicker" 420 702 1024 768
     sleep .45
     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/menu-closed.png"
     echo "Luna menu and Auto-hide state trace:"
