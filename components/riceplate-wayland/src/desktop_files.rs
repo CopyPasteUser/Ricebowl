@@ -24,7 +24,7 @@ pub fn action_for(kind: Kind, index: usize) -> String {
 }
 pub fn action_index(action: &str) -> Option<usize> {
     ["desktop-file:", "desktop-folder:", "desktop-link:"]
-        .iter().find_map(|prefix| action.strip_prefix(prefix))
+        .iter().find_map(|&prefix| action.strip_prefix(prefix))
         .and_then(|number| number.parse().ok())
 }
 

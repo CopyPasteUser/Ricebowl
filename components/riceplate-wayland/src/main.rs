@@ -1570,7 +1570,8 @@ impl RicePlate {
         let can_reset = recipe_index >= self.static_icon_count
             || (self.icon_output_name(index).is_some_and(|name|
             self.icon_outputs.can_reset_position(
-                &name, &self.recipe.desktop_icons[..self.static_icon_count], recipe_index)));        self.icon_drag = None;
+                &name, &self.recipe.desktop_icons[..self.static_icon_count], recipe_index)));
+        self.icon_drag = None;
         self.desktop_selection.cancel();
         self.select_luna_icon(index);
         if self.menu_state.visible { self.set_menu_visible(false, qh); }
@@ -1651,7 +1652,8 @@ impl RicePlate {
         let can_reset = recipe_index >= self.static_icon_count
             || (self.icon_output_name(index).is_some_and(|name|
             self.icon_outputs.can_reset_position(
-                &name, &self.recipe.desktop_icons[..self.static_icon_count], recipe_index)));        (can_move, can_reset)
+                &name, &self.recipe.desktop_icons[..self.static_icon_count], recipe_index)));
+        (can_move, can_reset)
     }
 
     fn type_select_desktop_context(&mut self, typed: &str) -> bool {
