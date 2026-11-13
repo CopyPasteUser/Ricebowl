@@ -12,6 +12,7 @@ mod control_feedback;
 mod desktop_context;
 mod desktop_layout;
 mod desktop_selection;
+mod frame_scheduler;
 mod icon_positions;
 mod installed_apps;
 mod luna_places;
@@ -44,6 +45,7 @@ use ricepop::{Intent as NotificationIntent, Request as NotificationRequest,
               State as NotificationState};
 use system_status::{Audio, ControlAction, SystemStatus};
 use control_feedback::ControlFeedback;
+use frame_scheduler::FrameGate;
 use raster::{fill_rect, fill_rounded_rect};
 use overlay_renderer::{paint_calendar, paint_compact_notifications, paint_notifications};
 #[cfg(test)]
@@ -575,8 +577,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         height: 0,
         configured: false,
         closed: false,
-        frame_pending: false,
-        needs_redraw: false,
+        frame: FrameGate::default(),
         accessibility: None,
     };
     // Only a real standalone Luna session owns the root-menu command socket.
@@ -957,8 +958,7 @@ struct PanelMirror {
     width: u32,
     height: u32,
     configured: bool,
-    frame_pending: bool,
-    needs_redraw: bool,
+    frame: FrameGate,
     task_offset: usize,
 }
 
@@ -1049,8 +1049,7 @@ struct RicePlate {
     height: u32,
     configured: bool,
     closed: bool,
-    frame_pending: bool,
-    needs_redraw: bool,
+    frame: FrameGate,
     accessibility: Option<accessibility::Bridge>,
 }
 
@@ -2215,7 +2214,7 @@ impl RicePlate {
             surface.commit();
             self.mirrors.push(PanelMirror {
                 output, surface, pool: None, width: 0, height: 0,
-                configured: false, frame_pending: false, needs_redraw: false,
+                configured: false, frame: FrameGate::default(),
                 task_offset: 0,
             });
         }
@@ -2503,7 +2502,7 @@ impl RicePlate {
             Err(error) => {
                 eprintln!("RicePlate: deferring busy output panel buffer: {error}");
                 surface.frame(qh, FrameCallbackData(surface.clone()));
-                mirror.frame_pending = true;
+                mirror.frame.buffer_busy();
                 mirror.surface.commit();
                 return;
             }
@@ -2518,8 +2517,7 @@ impl RicePlate {
             return;
         }
         surface.frame(qh, FrameCallbackData(surface.clone()));
-        mirror.frame_pending = true;
-        mirror.needs_redraw = false;
+        mirror.frame.submitted();
         mirror.surface.commit();
     }
 
@@ -3748,13 +3746,11 @@ impl RicePlate {
     }
 
     fn request_redraw(&mut self, qh: &QueueHandle<Self>) {
-        self.needs_redraw = true;
-        if !self.frame_pending {
-            self.redraw(qh);
-        }
+        if self.frame.invalidate() { self.redraw(qh); }
         for index in 0..self.mirrors.len() {
-            self.mirrors[index].needs_redraw = true;
-            if !self.mirrors[index].frame_pending { self.redraw_mirror(index, qh); }
+            if self.mirrors[index].frame.invalidate() {
+                self.redraw_mirror(index, qh);
+            }
         }
     }
 
@@ -3818,7 +3814,7 @@ impl RicePlate {
                 // frame instead of killing the shell during a burst of events.
                 eprintln!("RicePlate: deferring busy Wayland buffer: {error}");
                 surface.frame(qh, FrameCallbackData(surface.clone()));
-                self.frame_pending = true;
+                self.frame.buffer_busy();
                 self.layer.commit();
                 return;
             }
@@ -3834,8 +3830,7 @@ impl RicePlate {
             return;
         }
         surface.frame(qh, FrameCallbackData(surface.clone()));
-        self.frame_pending = true;
-        self.needs_redraw = false;
+        self.frame.submitted();
         self.layer.commit();
     }
 }
@@ -5118,15 +5113,13 @@ impl CompositorHandler for RicePlate {
         if surface != self.layer.wl_surface() {
             if let Some(index) = self.mirrors.iter().position(|mirror|
                     mirror.surface.wl_surface() == surface) {
-                self.mirrors[index].frame_pending = false;
-                if self.mirrors[index].needs_redraw { self.redraw_mirror(index, qh); }
+                if self.mirrors[index].frame.frame_ready() {
+                    self.redraw_mirror(index, qh);
+                }
             }
             return;
         }
-        self.frame_pending = false;
-        if self.needs_redraw {
-            self.redraw(qh);
-        }
+        if self.frame.frame_ready() { self.redraw(qh); }
     }
     fn surface_enter(
         &mut self,
