@@ -7668,6 +7668,42 @@ mod tests {
     }
 
     #[test]
+    fn luna_quick_launch_uses_exact_real_input_slots_and_collapsed_handle_is_inert() {
+        let luna = recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let width = 1366;
+        let placed = recipe::layout(&luna, width, 2);
+        let commands: Vec<_> = placed.iter().filter_map(|item| match item.widget {
+            Widget::Action(index) =>
+                luna.actions.get(index as usize)
+                    .map(|action| (action.id.as_str(), item.x, item.width, index)),
+            _ => None,
+        }).collect();
+        assert_eq!(commands.len(), 3);
+        assert_eq!(commands.iter().map(|slot| slot.0).collect::<Vec<_>>(),
+                   vec!["applications", "terminal", "show-desktop"]);
+        for (_, x, span, index) in &commands {
+            assert_eq!(*span, 32);
+            assert_eq!(recipe::hit(f64::from(*x + 16), width, 2, 0, &luna),
+                       Some(Hit::Action(*index)));
+        }
+        let mut expanded = vec![0; (width * luna.height * 4) as usize];
+        paint_panel(&mut expanded, width, luna.height, &luna, &[], "12:00",
+                    &PowerStatus::NotPresent, &SystemStatus::default(),
+                    &tray::State::default(), 0, None, None, None);
+        let mut collapsed = vec![0; (width * luna_taskbar::HANDLE_HEIGHT * 4) as usize];
+        paint_panel(&mut collapsed, width, luna_taskbar::HANDLE_HEIGHT, &luna,
+                    &[], "12:00", &PowerStatus::NotPresent,
+                    &SystemStatus::default(), &tray::State::default(),
+                    0, None, None, None);
+        assert!(collapsed.chunks_exact(4).all(|pixel| pixel[3] == 255));
+        assert_ne!(&collapsed[..4], &expanded[..4]);
+        let classic = recipe::load("classic").unwrap();
+        assert!(!classic.actions.iter().any(|action| action.id == "show-desktop"));
+    }
+
+    #[test]
     fn luna_taskbar_pointer_states_are_real_but_legacy_rices_are_unchanged() {
         let luna = recipe::parse(
             include_str!("../../../examples/wayland/xp-luna-columns.json"),
