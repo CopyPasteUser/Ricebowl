@@ -103,7 +103,7 @@ pub fn entries(windows: &[Window<'_>]) -> Option<(String, Vec<tray::MenuRow>)> {
         }
         rows.push(separator());
         rows.push(item(SWITCH_NEXT, "Next window", true, false));
-        rows.push(item(RESTORE_ALL,
+        rows.push(item(RESTORE_ALL, "Restore all",
                        windows.iter().any(|w| w.minimized || w.maximized), false));
         rows.push(item(MINIMIZE_ALL, "Minimize all", windows.iter().any(|w| !w.minimized), false));
         rows.push(item(CLOSE_ALL, "Close group", true, false));
