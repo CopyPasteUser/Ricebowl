@@ -132,8 +132,7 @@ fn desktop_folder() -> io::Result<PathBuf> {
     Ok(candidate)
 }
 
-pub fn new_folder() -> io::Result<PathBuf> {
-    let dir = desktop_folder()?;
+fn new_folder_in(dir: &Path) -> io::Result<PathBuf> {
     for attempt in 1..=100 {
         let label = if attempt == 1 { "New Folder".to_owned() }
                     else { format!("New Folder ({attempt})") };
@@ -145,6 +144,10 @@ pub fn new_folder() -> io::Result<PathBuf> {
         }
     }
     Err(io::Error::new(io::ErrorKind::AlreadyExists,"No unused folder name"))
+}
+
+pub fn new_folder() -> io::Result<PathBuf> {
+    new_folder_in(&desktop_folder()?)
 }
 
 #[cfg(test)]
@@ -186,12 +189,22 @@ mod tests {
     }
 
     #[test]
-    fn safe_new_folder_uses_only_bounded_nonoverwriting_names() {
-        // Validate collision semantics without mutating a real Desktop.
-        let names: Vec<_> = (1..=3).map(|i| if i==1 {"New Folder".to_owned()}
-            else {format!("New Folder ({i})")}).collect();
-        assert_eq!(names,vec!["New Folder","New Folder (2)","New Folder (3)"]);
+    fn safe_new_folder_creates_real_unique_directories_without_overwriting() {
+        use std::{os::unix::fs::DirBuilderExt,time::{SystemTime,UNIX_EPOCH}};
+        let n=SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let root=env::temp_dir().join(format!("luna-folders-{}-{n}",std::process::id()));
+        fs::DirBuilder::new().mode(0o700).create(&root).unwrap();
+        let first=new_folder_in(&root).unwrap();
+        assert_eq!(first.file_name().unwrap(),"New Folder");
+        let marker=first.join("keep.txt");
+        fs::write(&marker,b"important").unwrap();
+        let second=new_folder_in(&root).unwrap();
+        assert_eq!(second.file_name().unwrap(),"New Folder (2)");
+        assert_eq!(fs::read(&marker).unwrap(),b"important");
         assert!(Request::parse("new-folder;rm").is_none());
-        let _ = Path::new(".");
+        fs::remove_file(marker).unwrap();
+        fs::remove_dir(first).unwrap();
+        fs::remove_dir(second).unwrap();
+        fs::remove_dir(root).unwrap();
     }
 }
