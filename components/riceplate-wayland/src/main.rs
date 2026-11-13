@@ -297,6 +297,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // briefly reserve 40 pixels until the pointer happens to leave.
     let initial_panel_height = luna_taskbar::panel_height(
         luna_options, luna_options.auto_hide, recipe.height);
+    let initial_panel_collapsed = initial_panel_height < recipe.height;
     let layer = layer_shell.create_layer_surface(
         &qh,
         compositor.create_surface(&qh),
@@ -554,7 +555,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         tasks: Vec::new(),
         show_desktop_restore: Vec::new(),
         luna_options,
-        panel_collapsed: initial_panel_height < recipe.height,
+        panel_collapsed: initial_panel_collapsed,
         task_offset: 0,
         // Refreshed when real task state is painted, not on mouse motion.
         cached_task_group_count: 0,
