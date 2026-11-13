@@ -11,6 +11,7 @@ mod calendar;
 mod control_feedback;
 mod desktop_context;
 mod desktop_files;
+mod desktop_file_positions;
 mod desktop_layout;
 mod desktop_selection;
 mod frame_scheduler;
@@ -485,6 +486,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     });
 
     let static_icon_count = recipe.desktop_icons.len();
+    let file_positions = if recipe.id == "xp-luna-columns"
+        && std::env::var("RICEBOWL_DE_NESTED").as_deref() != Ok("1") {
+        desktop_file_positions::Store::restore()
+    } else { desktop_file_positions::Store::default() };
     let mut app = RicePlate {
         compositor,
         layer_shell,
@@ -536,6 +541,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         keyboard_icon_surface: None,
         desktop_selection: desktop_selection::Selection::default(),
         desktop_files: None,
+        file_positions,
         static_icon_count,
         desktop_type_select: desktop_selection::TypeSelect::default(),
         selection_modifiers: Modifiers::default(),
@@ -1031,6 +1037,7 @@ struct RicePlate {
     keyboard_icon_surface: Option<wl_surface::WlSurface>,
     desktop_selection: desktop_selection::Selection,
     desktop_files: Option<desktop_files::Model>,
+    file_positions: desktop_file_positions::Store,
     static_icon_count: usize,
     desktop_type_select: desktop_selection::TypeSelect,
     selection_modifiers: Modifiers,
@@ -2482,6 +2489,11 @@ impl RicePlate {
 
     fn save_icon_positions(&mut self) {
         if !self.icon_position_dirty { return; }
+        if let Err(error) = self.file_positions.save() {
+            eprintln!("RicePlate: cannot persist file icon positions: {error}");
+            return;
+        }
+        // Runtime file icons may never enter the immutable recipe position JSON.
         let extras = self.recipe.desktop_icons.split_off(self.static_icon_count);
         let result = icon_positions::save(&self.recipe, &self.icon_outputs);
         self.recipe.desktop_icons.extend(extras);
@@ -2555,7 +2567,8 @@ impl RicePlate {
             self.save_icon_positions();
         }
         for output in &outputs {
-            for (recipe_index, icon) in self.recipe.desktop_icons.iter().enumerate() {
+            for (recipe_index, icon) in self.recipe.desktop_icons.iter()
+                .take(self.static_icon_count).enumerate() {
                 if self.icon_layers.iter().any(|layer|
                     layer.recipe_index == recipe_index && layer.bound_output.as_ref() == Some(output)) {
                     continue;
@@ -3436,6 +3449,15 @@ impl RicePlate {
     fn icon_coordinates(&self, layer_index: usize) -> icon_positions::Coordinates {
         let layer = &self.icon_layers[layer_index];
         let original = &self.recipe.desktop_icons[layer.recipe_index];
+        if let Some(file_index) = layer.recipe_index.checked_sub(self.static_icon_count) {
+            if let Some(point) = self.desktop_files.as_ref()
+                .and_then(|model| model.entry(file_index))
+                .and_then(|entry| self.file_positions.get(entry,
+                    self.icon_output_name(layer_index).as_deref().unwrap_or("primary"))) {
+                return icon_positions::Coordinates { x: point.x, y: point.y };
+            }
+            return icon_positions::Coordinates { x: original.x, y: original.y };
+        }
         self.icon_output_name(layer_index).as_deref()
             .and_then(|name| self.icon_outputs.for_output(name, self.static_icon_count))
             .and_then(|positions| positions.get(layer.recipe_index)).copied()
@@ -3445,10 +3467,21 @@ impl RicePlate {
     fn move_icon(&mut self, layer_index: usize, desired: (u32, u32)) {
         let recipe_index = self.icon_layers[layer_index].recipe_index;
         if recipe_index >= self.static_icon_count {
+            let file_index = recipe_index - self.static_icon_count;
+            if let Some(file) = self.desktop_files.as_ref()
+                .and_then(|model| model.entry(file_index)) {
+                let output = self.icon_output_name(layer_index).unwrap_or_else(|| "primary".into());
+                if let Err(error) = self.file_positions.set(file, &output,
+                    desktop_file_positions::Point { x: desired.0, y: desired.1 }) {
+                    eprintln!("RicePlate: cannot store file icon position: {error}");
+                    return;
+                }
+            } else { return; }
             if let Some(icon) = self.recipe.desktop_icons.get_mut(recipe_index) {
                 (icon.x, icon.y) = desired;
             }
             self.reflow_icons();
+            self.icon_position_dirty = true;
             return;
         }
         let coords = icon_positions::Coordinates { x: desired.0, y: desired.1 };
@@ -3623,6 +3656,17 @@ impl RicePlate {
                     (icon.x, icon.y) = (position.x, position.y);
                 }
             }
+            if let Some(files) = self.desktop_files.as_ref() {
+                let owner = name.as_deref().unwrap_or("primary");
+                for (index, icon) in local_icons.iter_mut().enumerate()
+                    .skip(self.static_icon_count) {
+                    if let Some(pos) = files.entry(index - self.static_icon_count)
+                        .and_then(|entry| self.file_positions.get(entry, owner)) {
+                        icon.x = pos.x;
+                        icon.y = pos.y;
+                    }
+                }
+            }
             let visible: Vec<_> = (0..local_icons.len())
                 .map(|icon| if icon < self.static_icon_count {
                     self.icon_outputs.visible_on(
@@ -3687,6 +3731,17 @@ impl RicePlate {
                 self.icon_outputs.for_output(name, self.static_icon_count)) {
                 for (icon, position) in local_icons.iter_mut().take(self.static_icon_count).zip(positions) {
                     (icon.x, icon.y) = (position.x, position.y);
+                }
+            }
+            if let Some(files) = self.desktop_files.as_ref() {
+                let owner = name.as_deref().unwrap_or("primary");
+                for (index, icon) in local_icons.iter_mut().enumerate()
+                    .skip(self.static_icon_count) {
+                    if let Some(pos) = files.entry(index - self.static_icon_count)
+                        .and_then(|entry| self.file_positions.get(entry, owner)) {
+                        icon.x = pos.x;
+                        icon.y = pos.y;
+                    }
                 }
             }
             let visible: Vec<_> = (0..local_icons.len())
