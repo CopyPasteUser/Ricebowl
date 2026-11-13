@@ -96,6 +96,14 @@ class CreatorRuntimeParityTests(unittest.TestCase):
             self.assertFalse(any(item["area"] == "panel-compact" for item in report["components"]))
             self.assertEqual(report["python_validation"], "passed")
             self.assertEqual(report["output_cases"][0]["panel_mode"], "wide")
+            self.assertEqual(
+                report["known_keyboard_access_gaps"],
+                ["/panel/sections/end/3", "/panel/sections/end/4"],
+            )
+            self.assertTrue(all(row["keyboard_access_gap"] is False
+                                for row in report["components"]
+                                if row["kind"] == "widget" and
+                                row["binding"] in ("launcher", "tasks")))
 
     def test_declarative_shortcut_widget_overlap_is_a_review_warning(self):
         payload = json.loads(DEMOS[0].read_text())
