@@ -6,6 +6,57 @@ use std::{collections::BTreeSet, time::{Duration, Instant}};
 pub const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(650);
 const MAX_DRIFT: f64 = 8.0;
 
+/// Bounded, Unicode-safe shortcut search. Only the caller's visible
+/// shortcuts on a single wl_output are ever eligible for selection.
+const TYPE_TIMEOUT: Duration = Duration::from_millis(1200);
+const MAX_TYPE_CHARS: usize = 32;
+
+#[derive(Debug, Default)]
+pub struct TypeSelect {
+    prefix: String,
+    last: Option<Instant>,
+}
+
+impl TypeSelect {
+    pub fn reset(&mut self) {
+        self.prefix.clear();
+        self.last = None;
+    }
+
+    /// A repeated initial letter cycles eligible icons. Longer prefixes
+    /// retain the same match. Never launch an action from an ordinary key.
+    pub fn feed(&mut self, labels: &[Option<&str>], current: usize,
+                typed: &str, now: Instant) -> Option<usize> {
+        if typed.chars().count() != 1 || !typed.chars().all(char::is_alphanumeric)
+            || labels.is_empty() || current >= labels.len() { return None; }
+        if self.last.is_none_or(|previous| now.checked_duration_since(previous)
+            .is_none_or(|elapsed| elapsed > TYPE_TIMEOUT)) {
+            self.reset();
+        }
+        let single = typed.to_lowercase();
+        let extended = format!("{}{}", self.prefix, single);
+        let match_from = |query: &str, include_current: bool| -> Option<usize> {
+            (0..labels.len()).find_map(|step| {
+                let start = usize::from(!include_current);
+                let index = (current + start + step) % labels.len();
+                labels[index].filter(|label|
+                    label.to_lowercase().starts_with(query)).map(|_| index)
+            })
+        };
+        let extended_hit = (extended.chars().count() <= MAX_TYPE_CHARS)
+            .then(|| match_from(&extended, !self.prefix.is_empty())).flatten();
+        let (query, selected) = if let Some(index) = extended_hit {
+            (extended, index)
+        } else {
+            (single.clone(), match_from(&single, false)?)
+        };
+        self.prefix = query;
+        self.last = Some(now);
+        Some(selected)
+    }
+}
+
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode { Replace, Toggle, Range }
 
@@ -140,6 +191,44 @@ mod tests {
     use super::*;
 
     fn all(count: usize) -> Vec<bool> { vec![true; count] }
+
+    #[test]
+    fn type_to_select_filters_hidden_output_and_keeps_unicode_prefix() {
+        let labels = [Some("My Computer"), Some("My Documents"), None,
+                      Some("Programs"), Some("Pictures"), Some("Äpfel")];
+        let mut search = TypeSelect::default();
+        let now = Instant::now();
+        assert_eq!(search.feed(&labels, 1, "P", now), Some(3));
+        assert_eq!(search.feed(&labels, 3, "r", now + Duration::from_millis(100)), Some(3));
+        assert_eq!(search.feed(&labels, 3, "o", now + Duration::from_millis(150)), Some(3));
+        assert_eq!(search.feed(&labels, 3, "P", now + Duration::from_millis(1400)), Some(4));
+        assert_eq!(search.feed(&labels, 4, "p", now + Duration::from_millis(1450)), Some(3));
+        search.reset();
+        assert_eq!(search.feed(&labels, 4, "ä", now + Duration::from_millis(1600)), Some(5));
+        assert_eq!(search.feed(&labels, 0, "\n", now), None);
+        assert_eq!(search.feed(&labels, 0, "ab", now), None);
+        assert_eq!(search.feed(&labels, 0, " ", now), None);
+        assert_eq!(search.feed(&labels, 0, "D", now), Some(1));
+        assert_eq!(search.feed(&[None, None], 0, "D", now), None);
+        assert_eq!(search.feed(&labels, 99, "D", now), None);
+        assert_eq!(search.feed(&[], 0, "D", now), None);
+    }
+
+    #[test]
+    fn type_to_select_stays_bounded_and_resets_clock() {
+        let mut search = TypeSelect::default();
+        let labels = [Some("abcdefghijklmnopqrstuvwxyz123456789")];
+        let now = Instant::now();
+        for (i, c) in "abcdefghijklmnopqrstuvwxyz123456789".chars().enumerate() {
+            let _ = search.feed(&labels, 0, &c.to_string(),
+                                now + Duration::from_millis(i as u64 * 10));
+            assert!(search.prefix.chars().count() <= MAX_TYPE_CHARS);
+        }
+        let past = now - Duration::from_millis(1);
+        assert_eq!(search.feed(&labels, 0, "a", past), Some(0));
+        assert_eq!(search.prefix, "a");
+    }
+
 
     #[test]
     fn first_click_selects_second_activates_and_third_is_only_selection() {
