@@ -8145,6 +8145,29 @@ mod tests {
         );
     }
 
+
+    #[test]
+    fn luna_font_metrics_clip_at_actual_pixel_width_and_keep_legacy_cells() {
+        let mut luna = recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let art = style_art::load(luna.artwork.as_ref().unwrap(), luna.font_scale)
+            .expect("embedded Luna artwork");
+        luna.native_art = Some(art);
+        assert!(rice_text_width("WWW", &luna) > rice_text_width("iii", &luna));
+        let long = "Mein sehr langes Fenster – Übung";
+        for allowed in [0_u32, 8, 24, 40, 65, 100] {
+            let clipped = fit_rice_text(long, allowed, &luna);
+            assert!(rice_text_width(&clipped, &luna) <= allowed,
+                    "long text must never overpaint the neighbour at {allowed}px");
+            assert!(clipped.is_char_boundary(clipped.len()));
+        }
+        assert_eq!(fit_rice_text("OK", 100, &luna), "OK");
+        let legacy = recipe::load("classic").unwrap();
+        assert_eq!(rice_text_width("WWW", &legacy), text_pixel_width("WWW", legacy.font_scale));
+        assert_eq!(rice_text_width("WWW", &legacy), rice_text_width("iii", &legacy));
+    }
+
     #[test]
     fn label_pixels_come_from_font_glyphs() {
         let mut pixels = vec![0_u8; 20 * 12 * 4];
