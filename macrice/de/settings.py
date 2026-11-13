@@ -1830,7 +1830,9 @@ class RiceSpiceWindow:
             current, previous = recipes.current_selection()
             choices = [name for name in recipes.BUILTINS]
             choices.extend(recipe.recipe_id for recipe, _path in recipes.imported_recipes())
+            self._text("Desktop theme", css="ricespice-section")
             combo = self.Gtk.ComboBoxText()
+            combo.get_accessible().set_name("Rice recipe for the next Wayland login")
             for name in choices:
                 combo.append(name, name)
             combo.set_active_id(current)
@@ -1839,17 +1841,35 @@ class RiceSpiceWindow:
 
             def apply():
                 selected = combo.get_active_id()
-                if selected is None:
+                if selected is None or selected == current:
                     return
                 self._background(lambda: recipes.change_selection(
                     selected, expected_active=current),
                     lambda _result: self.show_page("appearance"))
 
-            self._button("Use at next login", apply, primary=True)
+            save = self._button("Use at next login", apply, primary=True)
+            combo.connect("changed", lambda widget: save.set_sensitive(
+                widget.get_active_id() is not None
+                and widget.get_active_id() != current))
+            save.set_sensitive(False)
             if previous is not None:
                 self._button("Restore previous next-login rice", lambda: self._background(
                     lambda: recipes.change_selection(restore=True, expected_active=current),
                     lambda _result: self.show_page("appearance")))
+            self._text("Desktop background", css="ricespice-section")
+            self._text("Wallpapers belong to Rice recipes. The installed Rice Creator "
+                       "can select bundled backgrounds or import verified private PNGs. "
+                       "Save and activate that recipe to use its wallpaper; this Control "
+                       "Panel does not silently overwrite the running desktop.",
+                       css="ricespice-note")
+            if backend.external_tool("luna_creator") is not None:
+                self._button("Open Rice Creator for wallpaper and themes…",
+                             lambda: self._background(
+                                 lambda: backend.open_external("luna_creator"),
+                                 lambda _result: self._state("Rice Creator launch requested")))
+            else:
+                self._text("Rice Creator is not installed. Wallpaper editing is "
+                           "unavailable in this session.", css="ricespice-note")
             self.content.show_all()
 
         try:
