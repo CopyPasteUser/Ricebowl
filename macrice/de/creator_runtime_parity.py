@@ -147,8 +147,10 @@ def describe(recipe_token: str) -> dict[str, Any]:
                        logical_width <= recipe["responsive"]["compact_max_width"])
         hidden = set(composition["compact_hide_widgets"]) if compact and composition else set()
         warnings = []
+        declared_items: list[tuple[str, int, int, int, int]] = []
 
         def bounds(path: str, x: int, y: int, width: int, height: int) -> None:
+            declared_items.append((path, x, y, x + width, y + height))
             if x + width > logical_width or y + height > logical_height:
                 warnings.append({"path": path, "code": "declared-outside-logical-output"})
             panel_height = panel["height"]
@@ -164,6 +166,14 @@ def describe(recipe_token: str) -> dict[str, Any]:
                 if widget["id"] not in hidden:
                     bounds(f"/composition/widgets/{i}", widget["x"], widget["y"],
                            recipes.DESKTOP_WIDGET_WIDTH, recipes.DESKTOP_WIDGET_HEIGHT)
+        # Report potential declared overlaps independently of native
+        # placement; runtime output reflow may resolve a collision.
+        for index, (left_path, left_x1, left_y1, left_x2, left_y2) in enumerate(declared_items):
+            for right_path, right_x1, right_y1, right_x2, right_y2 in declared_items[index + 1:]:
+                if (left_x1 < right_x2 and right_x1 < left_x2
+                        and left_y1 < right_y2 and right_y1 < left_y2):
+                    warnings.append({"path": left_path, "other_path": right_path,
+                                     "code": "declared-element-overlap"})
         outputs.append({
             "case": name, "physical": [physical_width, physical_height],
             "scale": scale, "logical": [logical_width, logical_height],
