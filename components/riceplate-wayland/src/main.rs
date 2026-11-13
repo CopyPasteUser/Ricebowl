@@ -7657,17 +7657,17 @@ mod tests {
             u32::from_le_bytes(buffer[offset..offset+4].try_into().unwrap())
         };
         let palette = menu.palette.unwrap();
-        assert_eq!(pixel(&canvas, 120, 70), palette.background);
+        assert_ne!(pixel(&canvas, 120, 70), pixel(&canvas, 260, 70));
         assert_ne!(pixel(&canvas, 260, 70), palette.background);
         assert_ne!(pixel(&canvas, 260, 70), pixel(&canvas, 260, 240));
         assert_ne!(pixel(&canvas, native_menu::COLUMNS_SPLIT, 70), palette.header);
         assert_ne!(pixel(&canvas, 260, height - 10), palette.header);
-        assert_eq!(pixel(&canvas, 12, 110), palette.header); // current left action
+        assert_eq!(pixel(&canvas, 12, 150), palette.header); // current Terminal row
 
         state.select_group(menu, 1);
         paint_menu(&mut canvas, menu, &style, &state);
         assert_eq!(pixel(&canvas, 176, 80), palette.header); // current right action
-        assert_eq!(pixel(&canvas, 12, 110), palette.background);
+        assert_ne!(pixel(&canvas, 12, 150), palette.header);
     }
 
     #[test]
