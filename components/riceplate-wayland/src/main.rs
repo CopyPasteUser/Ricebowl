@@ -21,6 +21,7 @@ mod luna_taskbar;
 mod luna_desktop_ipc;
 mod menu_chrome;
 mod menu_pins;
+mod menu_programs;
 mod menu_recents;
 mod native_menu;
 mod panel_chrome;
@@ -2703,7 +2704,9 @@ impl RicePlate {
         // other menu presentation retain their existing fuzzel action.
         if action == "applications" && self.recipe.menu.as_ref().is_some_and(|menu|
             menu.presentation == recipe::MenuPresentation::Columns && menu.palette.is_some()) {
-            self.menu_state.show_programs();
+            self.menu_state.show_program_tree();
+            self.redraw_menu(qh);
+        } else if self.menu_state.enter_program_category(action) {
             self.redraw_menu(qh);
         } else {
             self.activate_action(action, qh);
@@ -4463,7 +4466,8 @@ fn paint_compact_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
         let unavailable = *action == "logout" && !logout_available();
         let label = state.visible_label(menu, action, !unavailable);
         let pinned = state.pins.iter().any(|pin| pin.as_str() == *action);
-        let text = format!("{}{}", if pinned { "* " } else { "" }, label);
+        let text = format!("{}{}{}", if menu_programs::Category::from_action(action).is_some() {
+            "> " } else { "" }, if pinned { "* " } else { "" }, label);
         let limit = width.saturating_sub(24) / (8 * style.font_scale);
         let color = if unavailable && style.disabled != 0 {
             style.disabled
@@ -4601,7 +4605,10 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                        &format!("Find: {}", state.search), fg, style);
     } else if state.view == native_menu::View::Programs {
         draw_rice_text(canvas, width, height, content_x, 91,
-                       &if state.search.is_empty() {
+                       &if state.program_tree && state.search.is_empty() {
+                           state.program_category.map_or_else(|| "All Programs >".to_owned(),
+                               |category| format!("> {}", category.title()))
+                       } else if state.search.is_empty() {
                            format!("All Programs ({})", state.apps.len())
                        } else {
                            format!("Matches: {}  {}", state.actions(menu).len(),
@@ -4731,11 +4738,17 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
             let label = if action == "logout" && !logout_available() {
                 "Log out (unavailable)"
             } else { state.label(action) };
+            let folder = menu_programs::Category::from_action(action).is_some();
+            if folder {
+                menu_chrome::program_folder(canvas, action_x + 11, top + 12,
+                    width.saturating_sub(32), action_index == state.selected);
+            }
             let pinned = state.pins.iter().any(|pin| pin.as_str() == action);
             let max_chars = (if sidebar { if pinned { 19 } else { 21 } }
-                             else if pinned { 33 } else { 35 }) / style.font_scale as usize;
+                             else if folder { 29 } else if pinned { 33 } else { 35 })
+                / style.font_scale as usize;
             let short_label: String = label.chars().take(max_chars).collect();
-            draw_rice_text(canvas, width, height, action_x + 12,
+            draw_rice_text(canvas, width, height, action_x + if folder { 31 } else { 12 },
                       top + if style.font_scale == 1 { 16 } else {
                           native_menu::ACTION_HEIGHT.saturating_sub(8 * style.font_scale) / 2 },
                       &format!("{}{}", if pinned { "* " } else { "" }, short_label),
@@ -6148,12 +6161,16 @@ impl KeyboardHandler for RicePlate {
                 None
             }
             Keysym::Left => {
-                if active_compact.is_some() { self.menu_state.group_by(menu, -1); }
+                if self.menu_state.program_tree && self.menu_state.view == native_menu::View::Programs {
+                    self.menu_state.program_horizontal(menu, -1);
+                } else if active_compact.is_some() { self.menu_state.group_by(menu, -1); }
                 else { self.menu_state.horizontal_by(menu, -1); }
                 None
             }
             Keysym::Right => {
-                if active_compact.is_some() { self.menu_state.group_by(menu, 1); }
+                if self.menu_state.program_tree && self.menu_state.view == native_menu::View::Programs {
+                    self.menu_state.program_horizontal(menu, 1);
+                } else if active_compact.is_some() { self.menu_state.group_by(menu, 1); }
                 else { self.menu_state.horizontal_by(menu, 1); }
                 None
             }
