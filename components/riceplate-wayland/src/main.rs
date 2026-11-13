@@ -1117,6 +1117,11 @@ impl RicePlate {
                 self.request_redraw(qh);
             }
             Request::Properties => self.launch_luna_settings("appearance"),
+            // These three operations are the very same handlers as the real
+            // Luna taskbar/menu buttons, never independent compositor state.
+            Request::ShowDesktop => self.activate_action("show-desktop", qh),
+            Request::Run => self.activate_action("run", qh),
+            Request::Explorer => self.activate_action("computer", qh),
         }
     }
 
