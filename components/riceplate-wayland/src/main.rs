@@ -5780,6 +5780,9 @@ impl KeyboardHandler for RicePlate {
         let next = self.icon_layers.iter()
             .position(|icon| icon.surface.wl_surface() == surface && icon.placed.is_some());
         self.keyboard_icon_surface = next.map(|_| surface.clone());
+        if std::env::var_os("RICEBOWL_DE_TRACE_DESKTOP").is_some() {
+            eprintln!("RicePlate desktop keyboard enter icon={next:?}");
+        }
         if self.focused_icon != next {
             self.desktop_type_select.reset();
             let previous = self.focused_icon;
@@ -5863,6 +5866,11 @@ impl KeyboardHandler for RicePlate {
         _: u32,
         event: KeyEvent,
     ) {
+        if std::env::var_os("RICEBOWL_DE_TRACE_DESKTOP").is_some() {
+            eprintln!("RicePlate desktop key focus={:?} surface={} utf8_len={:?}",
+                self.focused_icon, self.keyboard_icon_surface.is_some(),
+                event.utf8.as_deref().map(str::len));
+        }
         if self.luna_dialog_focused {
             let mut execute = false;
             let mut repaint = false;
@@ -6102,6 +6110,9 @@ impl KeyboardHandler for RicePlate {
                         if let Some(next) = self.desktop_type_select.feed(
                             &labels, index, text, Instant::now()
                         ) {
+                            if std::env::var_os("RICEBOWL_DE_TRACE_DESKTOP").is_some() {
+                                eprintln!("RicePlate desktop type-select from={index} to={next}");
+                            }
                             self.focused_icon = Some(next);
                             self.select_luna_icon(next);
                             self.redraw_icon(index);
