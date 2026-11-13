@@ -94,16 +94,42 @@ LUNA_GROUPS = (
     ("System & accessibility", ("power", "timezone", "notifications", "accessibility")),
 )
 
+# Explorer-style XP overview. Every item is a real native settings page;
+# categories are navigation only and do not execute service commands.
+# Keep each destination in exactly one category and retain the public page IDs.
+LUNA_CONTROL_CATEGORIES = (
+    ("appearance", "Appearance and Themes", "appearance",
+     "Desktop style, monitors and taskbar", ("appearance", "displays", "taskbar")),
+    ("network", "Network and Internet Connections", "network",
+     "Wi-Fi, saved connections and Bluetooth", ("network", "bluetooth")),
+    ("sound", "Sounds, Speech, and Audio Devices", "audio",
+     "Playback, recording and notifications", ("audio", "notifications")),
+    ("hardware", "Mouse, Keyboard and Other Hardware", "input",
+     "Pointer, keyboard and touchpad", ("input",)),
+    ("maintenance", "Performance and Maintenance", "power",
+     "Power profiles, date and time", ("power", "timezone")),
+    ("accessibility", "Accessibility Options", "accessibility",
+     "Make the desktop easier to use", ("accessibility",)),
+)
+
+
+def luna_category_pages(category: str) -> tuple[str, ...]:
+    """Resolve only known native page IDs; a category cannot launch a command."""
+    for key, _title, _icon, _help, pages in LUNA_CONTROL_CATEGORIES:
+        if key == category:
+            return pages
+    raise ValueError("Unknown Control Panel category")
+
 
 # Search only real destinations, but index the controls that users naturally
 # look for instead of relying on long page names. Purely local, no I/O.
 LUNA_SEARCH_HINTS = {
     "network": "wifi wlan ethernet vpn connections",
-    "audio": "volume speaker microphone recording playback",
-    "displays": "monitor resolution scale scaling",
-    "input": "mouse keyboard touchpad pointer",
+    "audio": "volume speaker microphone recording playback sounds speech",
+    "displays": "monitor resolution scale scaling screen",
+    "input": "mouse keyboard touchpad pointer hardware devices",
     "taskbar": "clock clock format time format 12h 24h 12-hour 24-hour tray start",
-    "power": "battery suspend energy profile lock",
+    "power": "battery suspend energy profile lock performance maintenance",
     "timezone": "clock synchronization ntp time zone",
     "notifications": "alerts banners do not disturb",
 }
@@ -232,6 +258,25 @@ LUNA_CSS = b"""
 .ricespice-luna .luna-category-row:hover {
   background: #eaf3ff; border-color: #bbd1ed;
 }
+.ricespice-luna .luna-control-group {
+  background: #fffefa; border: 1px solid transparent; padding: 10px 8px;
+  border-radius: 2px; box-shadow: none; text-shadow: none;
+}
+.ricespice-luna .luna-control-group:hover {
+  background: #ecf3ff; border-color: #b5cbed;
+}
+.ricespice-luna .luna-classic-row { padding: 6px 5px; }
+.ricespice-luna .luna-view-switch {
+  background: transparent; box-shadow: none; border: none; border-radius: 2px;
+  color: #154b97; text-decoration: underline; text-shadow: none;
+  padding: 7px 8px;
+}
+.ricespice-luna .luna-view-switch:hover { background: #d8e6fa; }
+.ricespice-luna .luna-control-group:focus,
+.ricespice-luna .luna-view-switch:focus,
+.ricespice-luna .luna-search:focus {
+  outline: 2px solid #f0a23b; outline-offset: -2px;
+}
 .ricespice-luna button:focus {
   outline-style: solid; outline-color: #f0a23b; outline-width: 2px;
   outline-offset: -2px;
@@ -282,7 +327,7 @@ class RiceSpiceWindow:
         self.window = Gtk.Window(title=("Control Panel · RiceBowl Luna" if luna
                                         else "RiceSpice · System settings"))
         self.window.set_default_size(960 if luna else 810, 660 if luna else 580)
-        self.window.set_size_request(700 if luna else 570, 470 if luna else 400)
+        self.window.set_size_request(580 if luna else 570, 450 if luna else 400)
         self.window.get_style_context().add_class("ricespice-window")
         if luna:
             self.window.get_style_context().add_class("ricespice-luna")
@@ -298,6 +343,8 @@ class RiceSpiceWindow:
         self.nav_groups = []
         self._luna_icon_cache = {}
         self._suppress_luna_search = False
+        self.luna_view = "categories"
+        self.luna_flow = None
 
         if luna:
             header = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
@@ -321,7 +368,7 @@ class RiceSpiceWindow:
             toolbar.pack_start(self.breadcrumb, True, True, 0)
             self.search_entry = Gtk.SearchEntry()
             self.search_entry.set_placeholder_text("Find a setting…")
-            self.search_entry.set_size_request(225, -1)
+            self.search_entry.set_size_request(160, -1)
             self.search_entry.set_tooltip_text("Search available Control Panel pages")
             self.search_entry.get_style_context().add_class("luna-search")
             self.search_entry.connect("changed", self._luna_search_changed)
@@ -335,12 +382,12 @@ class RiceSpiceWindow:
             body = root
 
         navigation = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        navigation.set_size_request(251 if luna else 215, -1)
+        navigation.set_size_request(210 if luna else 215, -1)
         navigation.get_style_context().add_class("ricespice-nav")
         if luna:
             nav_scroll = Gtk.ScrolledWindow()
             nav_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-            nav_scroll.set_size_request(254, -1)
+            nav_scroll.set_size_request(216, -1)
             nav_scroll.get_style_context().add_class("luna-side-scroll")
             nav_scroll.add(navigation)
             body.pack_start(nav_scroll, False, False, 0)
@@ -351,6 +398,14 @@ class RiceSpiceWindow:
         brand.set_xalign(0)
         brand.get_style_context().add_class("ricespice-brand")
         navigation.pack_start(brand, False, False, 0)
+        self.luna_view_switch = None
+        if luna:
+            self.luna_view_switch = Gtk.Button(label="Switch to Classic View")
+            self.luna_view_switch.get_style_context().add_class("luna-view-switch")
+            self.luna_view_switch.get_accessible().set_name(
+                "Switch Control Panel category or classic view")
+            self.luna_view_switch.connect("clicked", self._luna_switch_view)
+            navigation.pack_start(self.luna_view_switch, False, False, 0)
 
         self.nav_buttons = {}
 
@@ -387,11 +442,13 @@ class RiceSpiceWindow:
                 add_nav(key, title)
 
         viewport = Gtk.ScrolledWindow()
-        viewport.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        viewport.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         body.pack_start(viewport, True, True, 0)
         self.content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=13)
         self.content.get_style_context().add_class("ricespice-content")
         viewport.add(self.content)
+        if luna:
+            self.window.connect("size-allocate", self._luna_size_allocate)
         if page == "home" and luna:
             self.show_home()
         else:
@@ -471,6 +528,7 @@ class RiceSpiceWindow:
         self.generation += 1
         self.busy = False
         self.page = name
+        self.luna_flow = None
         self._selecting_nav = True
         try:
             for key, button in self.nav_buttons.items():
@@ -534,11 +592,40 @@ class RiceSpiceWindow:
             self.search_entry.grab_focus()
             self.search_entry.select_region(0, -1)
             return True
+        if control and event.keyval in (self.Gdk.KEY_1, self.Gdk.KEY_2):
+            self.luna_view = ("categories" if event.keyval == self.Gdk.KEY_1
+                              else "classic")
+            self.show_home()
+            return True
+        if (event.state & self.Gdk.ModifierType.MOD1_MASK
+                and event.keyval == self.Gdk.KEY_Left and self.page != "home"):
+            self.show_home()
+            return True
         if event.keyval == self.Gdk.KEY_Escape and self.search_entry.get_text():
             self.show_home()
             self.search_entry.grab_focus()
             return True
         return False
+
+    def _luna_switch_view(self, _button):
+        self.luna_view = "classic" if self.luna_view == "categories" else "categories"
+        self.show_home()
+
+    def _luna_size_allocate(self, _window, allocation):
+        # Changing a FlowBox column count is cheap and prevents truncated XP
+        # captions at 1024x768, fractional scaling and narrow window sizes.
+        if self.luna_flow is not None:
+            self.luna_flow.set_max_children_per_line(1 if allocation.width < 880 else 2)
+
+    def _luna_new_flow(self):
+        flow = self.Gtk.FlowBox()
+        flow.set_selection_mode(self.Gtk.SelectionMode.NONE)
+        flow.set_min_children_per_line(1)
+        flow.set_max_children_per_line(1 if self.window.get_allocated_width() < 880 else 2)
+        flow.set_row_spacing(5)
+        flow.set_column_spacing(10)
+        self.luna_flow = flow
+        return flow
 
     def _luna_icon(self, key: str, pixels: int):
         """Load bundled XP-style SVGs; fall back safely if packaging is incomplete."""
@@ -586,22 +673,75 @@ class RiceSpiceWindow:
         button.add(row)
         return button
 
+    def _luna_group_button(self, category: tuple):
+        """XP-style category opens tasks first, not an unrelated system tool."""
+        key, title, icon, description, _pages = category
+        Gtk = self.Gtk
+        button = Gtk.Button()
+        button.get_style_context().add_class("luna-control-group")
+        button.get_accessible().set_name("Browse " + title)
+        button.set_tooltip_text(description)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=11)
+        row.pack_start(self._luna_icon(icon, 40), False, False, 0)
+        labels = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        heading = Gtk.Label(label=title, xalign=0)
+        heading.set_line_wrap(True)
+        heading.get_style_context().add_class("luna-category-title")
+        labels.pack_start(heading, False, False, 0)
+        detail = Gtk.Label(label=description, xalign=0)
+        detail.set_line_wrap(True)
+        detail.get_style_context().add_class("luna-category-detail")
+        labels.pack_start(detail, False, False, 0)
+        row.pack_start(labels, True, True, 0)
+        button.add(row)
+        button.connect("clicked", lambda _button: self.show_category(key))
+        return button
+
+    def show_category(self, category: str):
+        if not self.luna:
+            return
+        match = next((entry for entry in LUNA_CONTROL_CATEGORIES
+                      if entry[0] == category), None)
+        if match is None:
+            return
+        self._luna_clear_search()
+        self._begin_view("category")
+        _key, title, _icon, description, pages = match
+        self.breadcrumb.set_text("Control Panel  /  " + title)
+        self._text(title, css="ricespice-title")
+        self._text(description, css="ricespice-desc")
+        self._button("‹  Back to categories", self.show_home)
+        flow = self._luna_new_flow()
+        for key in pages:
+            flow.add(self._luna_category_button(key))
+        self.content.pack_start(flow, False, False, 0)
+        self.content.show_all()
+
     def show_home(self):
         if not self.luna:
             return
         self._luna_clear_search()
         self._begin_view("home")
-        self._text("Pick a category", css="ricespice-title")
-        self._text("Configure your RiceBowl desktop and connected system services.",
+        classic = self.luna_view == "classic"
+        self.luna_view_switch.set_label(
+            "Switch to Category View" if classic else "Switch to Classic View")
+        self.breadcrumb.set_text("Control Panel" + ("  /  Classic View" if classic else ""))
+        self._text("Classic View" if classic else "Pick a category",
+                   css="ricespice-title")
+        self._text("Open an individual settings applet." if classic else
+                   "Pick a category to configure your computer.",
                    css="ricespice-desc")
-        for group_title, keys in LUNA_GROUPS:
-            self._text(group_title, css="ricespice-section")
-            grid = self.Gtk.Grid(column_spacing=14, row_spacing=7)
-            grid.set_column_homogeneous(True)
-            for index, key in enumerate(keys):
-                grid.attach(self._luna_category_button(key),
-                            index % 2, index // 2, 1, 1)
-            self.content.pack_start(grid, False, False, 0)
+        flow = self._luna_new_flow()
+        if classic:
+            for key, _title, _description in sorted(
+                    LUNA_SECTIONS, key=lambda entry: entry[1].casefold()):
+                button = self._luna_category_button(key)
+                button.get_style_context().add_class("luna-classic-row")
+                flow.add(button)
+        else:
+            for category in LUNA_CONTROL_CATEGORIES:
+                flow.add(self._luna_group_button(category))
+        self.content.pack_start(flow, False, False, 0)
         self.content.show_all()
 
     def show_search_results(self, query: str):
@@ -610,15 +750,13 @@ class RiceSpiceWindow:
         self._begin_view("search")
         matches = luna_search_matches(query)
         self._text("Search settings", css="ricespice-title")
-        self._text(f"{len(matches)} matching categories for “{query}”",
+        self._text(f"{len(matches)} matching settings for “{query}”",
                    css="ricespice-desc")
         if matches:
-            grid = self.Gtk.Grid(column_spacing=13, row_spacing=6)
-            grid.set_column_homogeneous(True)
-            for index, key in enumerate(matches):
-                grid.attach(self._luna_category_button(key),
-                            index % 2, index // 2, 1, 1)
-            self.content.pack_start(grid, False, False, 0)
+            flow = self._luna_new_flow()
+            for key in matches:
+                flow.add(self._luna_category_button(key))
+            self.content.pack_start(flow, False, False, 0)
         else:
             self._text("No matching settings. Try Network, Sound, Display or Power.",
                        css="ricespice-note")
@@ -1676,14 +1814,10 @@ class RiceSpiceWindow:
                    "not supported.", css="ricespice-note")
 
         self._text("Related controls", css="ricespice-section")
-        grid = self.Gtk.Grid(column_spacing=12, row_spacing=7)
-        grid.set_column_homogeneous(True)
-        for index, key in enumerate((
-            "notifications", "network", "audio", "power", "timezone", "appearance"
-        )):
-            grid.attach(self._luna_category_button(key),
-                        index % 2, index // 2, 1, 1)
-        self.content.pack_start(grid, False, False, 0)
+        flow = self._luna_new_flow()
+        for key in ("notifications", "network", "audio", "power", "timezone", "appearance"):
+            flow.add(self._luna_category_button(key))
+        self.content.pack_start(flow, False, False, 0)
         self._text("Start favorites and recent programs are managed in the Start menu. "
                    "Per-app icon visibility is provider-owned; no false toggles "
                    "are shown.", css="ricespice-note")
@@ -1696,7 +1830,9 @@ class RiceSpiceWindow:
             current, previous = recipes.current_selection()
             choices = [name for name in recipes.BUILTINS]
             choices.extend(recipe.recipe_id for recipe, _path in recipes.imported_recipes())
+            self._text("Desktop theme", css="ricespice-section")
             combo = self.Gtk.ComboBoxText()
+            combo.get_accessible().set_name("Rice recipe for the next Wayland login")
             for name in choices:
                 combo.append(name, name)
             combo.set_active_id(current)
@@ -1705,17 +1841,35 @@ class RiceSpiceWindow:
 
             def apply():
                 selected = combo.get_active_id()
-                if selected is None:
+                if selected is None or selected == current:
                     return
                 self._background(lambda: recipes.change_selection(
                     selected, expected_active=current),
                     lambda _result: self.show_page("appearance"))
 
-            self._button("Use at next login", apply, primary=True)
+            save = self._button("Use at next login", apply, primary=True)
+            combo.connect("changed", lambda widget: save.set_sensitive(
+                widget.get_active_id() is not None
+                and widget.get_active_id() != current))
+            save.set_sensitive(False)
             if previous is not None:
                 self._button("Restore previous next-login rice", lambda: self._background(
                     lambda: recipes.change_selection(restore=True, expected_active=current),
                     lambda _result: self.show_page("appearance")))
+            self._text("Desktop background", css="ricespice-section")
+            self._text("Wallpapers belong to Rice recipes. The installed Rice Creator "
+                       "can select bundled backgrounds or import verified private PNGs. "
+                       "Save and activate that recipe to use its wallpaper; this Control "
+                       "Panel does not silently overwrite the running desktop.",
+                       css="ricespice-note")
+            if backend.external_tool("luna_creator") is not None:
+                self._button("Open Rice Creator for wallpaper and themes…",
+                             lambda: self._background(
+                                 lambda: backend.open_external("luna_creator"),
+                                 lambda _result: self._state("Rice Creator launch requested")))
+            else:
+                self._text("Rice Creator is not installed. Wallpaper editing is "
+                           "unavailable in this session.", css="ricespice-note")
             self.content.show_all()
 
         try:
