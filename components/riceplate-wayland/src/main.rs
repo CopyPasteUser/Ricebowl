@@ -484,6 +484,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         focused_icon: None,
         keyboard_icon_surface: None,
         desktop_selection: desktop_selection::Selection::default(),
+        desktop_type_select: desktop_selection::TypeSelect::default(),
         selection_modifiers: Modifiers::default(),
         desktop_context: None,
         context_generation: 0,
@@ -917,6 +918,7 @@ struct RicePlate {
     focused_icon: Option<usize>,
     keyboard_icon_surface: Option<wl_surface::WlSurface>,
     desktop_selection: desktop_selection::Selection,
+    desktop_type_select: desktop_selection::TypeSelect,
     selection_modifiers: Modifiers,
     desktop_context: Option<DesktopContextLayer>,
     // Invalidates pending AT-SPI actions when menus reopen or change views.
@@ -5638,6 +5640,7 @@ impl KeyboardHandler for RicePlate {
             .position(|icon| icon.surface.wl_surface() == surface && icon.placed.is_some());
         self.keyboard_icon_surface = next.map(|_| surface.clone());
         if self.focused_icon != next {
+            self.desktop_type_select.reset();
             let previous = self.focused_icon;
             self.focused_icon = next;
             // The focused surface is not necessarily selected: pointer focus
@@ -5673,6 +5676,7 @@ impl KeyboardHandler for RicePlate {
         // Never retain Ctrl/Shift after compositor keyboard focus leaves.
         self.selection_modifiers = Modifiers::default();
         self.desktop_selection.cancel();
+        self.desktop_type_select.reset();
         if self.luna_dialog.as_ref().is_some_and(|dialog|
             dialog.surface.wl_surface() == surface) && self.luna_dialog_focused {
             self.close_luna_dialog();
@@ -5880,6 +5884,13 @@ impl KeyboardHandler for RicePlate {
             return;
         }
         if let Some(index) = self.focused_icon.filter(|_| self.keyboard_icon_surface.is_some()) {
+            // The selection prefix belongs to this focused icon surface. A
+            // navigation/action key breaks it; text is event-driven, never
+            // captured from another client or a global keyboard shortcut.
+            if self.selection_modifiers.ctrl || event.utf8.as_deref().is_none_or(|value|
+                value.chars().count() != 1 || !value.chars().all(char::is_alphanumeric)) {
+                self.desktop_type_select.reset();
+            }
             match event.keysym {
                 Keysym::Tab | Keysym::ISO_Left_Tab => {
                     let output = self.icon_layers[index].bound_output.as_ref();
@@ -5937,6 +5948,25 @@ impl KeyboardHandler for RicePlate {
                 Keysym::Escape => {
                     self.clear_luna_selection();
                     self.save_icon_positions();
+                }
+                _ if self.recipe.id == "xp-luna-columns"
+                    && !self.selection_modifiers.ctrl => {
+                    if let Some(text) = event.utf8.as_deref() {
+                        let output = self.icon_layers[index].bound_output.as_ref();
+                        let labels: Vec<Option<&str>> = self.icon_layers.iter().map(|layer| {
+                            (layer.placed.is_some() && layer.bound_output.as_ref() == output)
+                                .then(|| self.recipe.desktop_icons.get(layer.recipe_index)
+                                    .map(|icon| icon.label.as_str())).flatten()
+                        }).collect();
+                        if let Some(next) = self.desktop_type_select.feed(
+                            &labels, index, text, Instant::now()
+                        ) {
+                            self.focused_icon = Some(next);
+                            self.select_luna_icon(next);
+                            self.redraw_icon(index);
+                            self.redraw_icon(next);
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -6563,6 +6593,9 @@ impl PointerHandler for RicePlate {
             {
                 if self.icon_layers[index].placed.is_none() {
                     continue;
+                }
+                if matches!(event.kind, PointerEventKind::Press { .. }) {
+                    self.desktop_type_select.reset();
                 }
                 match event.kind {
                     PointerEventKind::Press { button: BTN_RIGHT, .. } => {
