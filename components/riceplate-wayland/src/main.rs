@@ -8568,6 +8568,26 @@ mod tests {
     }
 
     #[test]
+    fn native_xdg_desktop_file_folder_and_symlink_painters_are_distinct() {
+        let style = recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let bytes = (recipe::ICON_WIDTH * recipe::ICON_HEIGHT * 4) as usize;
+        let icon = |action:&str| recipe::DesktopIcon {
+            label: "Grüße & files 🚀".into(), action: action.into(), x: 24, y: 96,
+        };
+        let mut file = vec![0; bytes];
+        let mut folder = vec![0; bytes];
+        let mut symlink = vec![0; bytes];
+        paint_icon(&mut file, &icon("desktop-file:0"), &style, false, None);
+        paint_icon(&mut folder, &icon("desktop-folder:1"), &style, false, None);
+        paint_icon(&mut symlink, &icon("desktop-link:2"), &style, false, None);
+        assert_ne!(file, folder, "folder must render a genuine folder silhouette");
+        assert_ne!(file, symlink, "blocked symlink must be distinguishable");
+        assert!(folder.iter().any(|v| *v != 0), "real folder icon cannot be transparent");
+    }
+
+    #[test]
     fn xp_icon_selection_changes_label_pixels_only_for_luna() {
         let style = recipe::parse(
             include_str!("../../../examples/wayland/xp-luna-columns.json"),
