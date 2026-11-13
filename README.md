@@ -1,15 +1,16 @@
 <div align="center">
 
-<img src="assets/ricebowl-symbolic.svg" alt="RiceBowl" width="80">
+<img src="assets/ricebowl-symbolic.svg" alt="RiceBowl logo" width="76">
 
 # RiceBowl
 
 **Build a desktop, not just a theme.**
 
-A modular Linux desktop project with two distinct paths: **ready-to-use
-XFCE/X11 rices** and an **experimental native Wayland desktop**.
+A modular Linux desktop project: polished **XFCE/X11 rices** today, and an
+**experimental native Wayland desktop** in development.
 
-**[XFCE/X11 guide](X11.md)** · **[Wayland guide](WAYLAND.md)** · [Roadmap](RICEBOWL_DE_ROADMAP.md) · [Releases](https://github.com/CopyPasteUser/Ricebowl/releases)
+[**XFCE/X11 guide**](X11.md) · [**Wayland guide**](WAYLAND.md) ·
+[Roadmap](RICEBOWL_DE_ROADMAP.md) · [Releases](https://github.com/CopyPasteUser/Ricebowl/releases)
 
 </div>
 
@@ -17,67 +18,57 @@ XFCE/X11 rices** and an **experimental native Wayland desktop**.
 
 | | XFCE / X11 | Wayland / labwc |
 | --- | --- | --- |
-| **Status** | **Current supported default** | **Opt-in preview — not 1.0** |
-| **Foundation** | XFCE, XFWM4 and existing GTK/Python components | Upstream labwc and native Rust RicePlate |
-| **Customize** | Seven OS-inspired desktop families | Validated RicePlate recipes and Rice Creator 0.9 |
-| **Switching** | Plan/apply/restore XFCE rices | Separate session, nested preview and guarded recipe switching |
-| **Read first** | **[X11 installation and usage](X11.md)** | **[Wayland setup and limitations](WAYLAND.md)** |
+| **Status** | Supported default | Opt-in preview; **not 1.0** |
+| **Desktop** | Existing XFCE + XFWM4 | labwc + native Rust RicePlate |
+| **Styles** | Seven OS-inspired families | Recipe-driven shell; XP Luna in active development |
+| **Start here** | [Install and restore](X11.md) | [Requirements and safe preview](WAYLAND.md) |
 
-These are **different implementations**. Installing the XFCE version never
-automatically replaces your login session with Wayland.
+These are **separate implementations**. Installing or changing an XFCE rice
+does not switch your login session to Wayland.
 
-## XFCE / X11 · current default
+## Screenshots
 
-[![RiceBowl XP Luna running on XFCE/X11](screenshots/current/winxp-start.webp)](screenshots/current/README.md)
+| XFCE/X11 · XP Luna | Native Wayland · XP Luna preview |
+| :---: | :---: |
+| [![Actual XP Luna-style XFCE Start menu](screenshots/current/winxp-start.webp)](screenshots/current/README.md) | [![Actual Wayland labwc and RicePlate Luna Start menu](screenshots/wayland/luna-ui-font-menu-20261111.webp)](screenshots/wayland/README.md) |
+| [X11 gallery](screenshots/current/README.md) | [Wayland gallery](screenshots/wayland/README.md) |
 
-Seven desktop families: **Windows 98, XP, Windows 7, Windows 10, ChromeOS,
-Frutiger Aero and macOS-inspired** styles. Includes the RiceBowl Hub,
-reversible rice switching and optional desktop components.
+Both screenshots come from real automated desktop sessions, **not mockups**.
+The Wayland image is a headless compositor capture, not evidence of a finished
+or hardware-approved desktop.
 
-**[Install and use XFCE/X11](X11.md)** · [Real X11 screenshots](screenshots/current/README.md)
+## XFCE/X11 · use it now
 
-## Wayland · experimental preview
+Choose from **Windows 98, XP Luna, Windows 7 Aero, Windows 10, ChromeOS,
+Frutiger Aero and macOS-inspired** styles. RiceBowl Hub provides previews,
+explicit apply/restore actions and optional shell components while keeping
+XFCE underneath.
 
-[![Orbit Studio running native RicePlate in headless labwc](screenshots/wayland/orbit.webp)](screenshots/wayland/README.md)
+**[Installation, daily use and recovery →](X11.md)**
 
-The next-generation desktop combines **labwc + Rust RicePlate**, RiceSpice
-settings, RicePop notifications and the experimental **Rice Creator 0.9**.
-Menus, desktop shortcuts, live controls, recipes and safe recovery paths are
-implemented; **physical login, suspend/resume, devices, mixed-DPI and
-accessibility still need acceptance**. The image is a real *headless CI*
-capture, not proof of a tested laptop installation.
+## Wayland · build the next desktop
 
-**[Wayland overview and safe first steps](WAYLAND.md)** · [Progress and screenshots](WAYLAND_PROGRESS.md)
+**labwc** handles windows; **RicePlate** renders native panels, Start menus,
+tasks, tray and desktop surfaces. **RiceSpice** provides settings,
+**RicePop** handles notifications, and **Rice Creator** edits and previews
+validated recipes. XP Luna is an actively developed Wayland rice, not an
+exact Windows XP replica.
 
-New: [XP Luna-inspired Wayland rice](examples/wayland/README.md#xp-luna-for-native-wayland-schema-v12)
-with a green Start button, cobalt taskbar and supervised two-minute test.
-Creator can also choose a local TrueType face via Fontconfig and package a
-reviewed private copy in RicePack v4; `ricebowl de fonts --json` lists supported
-fonts without installing or applying anything.
-Creator can import or reopen an installed schema-v10–v12 RicePack as a new,
-editable private draft without replacing the original rice or changing the session.
-Imported license and artist credits survive editing and export; review them
-before publishing a derivative rice. An import checks existing recipe IDs,
-private attribution, wallpapers, fonts and icons before installing assets;
-interrupted identical imports can resume, but multi-file power-loss atomicity
-is not claimed. A failed import now retains a private verified recovery archive;
-run `ricebowl de pack-recover --json` to finish installing its assets and recipe
-without changing the active rice or next-login selection. The next pack import
-also checks and resumes a pending transaction first.
-The Creator's **Try interactive Wayland window** action runs a saved version in
-a separate nested labwc session; closing it leaves the active rice and next
-login unchanged. Actual Wayland apply/restore remains a separate confirmed action.
-RiceSpice's **Notifications** page now controls RicePop's Mako Do Not Disturb
-mode inside a verified full RiceBowl session. To inspect it from a terminal,
-use `ricebowl de notification-dnd --json`; switching on requires
-`--dnd on --expect-dnd off` (and vice versa). Nested previews and unrelated
-notification services are never changed.
+Use the [Wayland setup guide](WAYLAND.md) to check prerequisites and try a
+**nested session** without replacing XFCE. Automated compositor tests cover
+many behaviors, but **physical login, suspend/resume, device integration,
+mixed-DPI and accessibility acceptance remain open**.
 
-## Project links
+[**See Wayland screenshots**](screenshots/wayland/README.md) ·
+[Feature parity](WAYLAND_XP_LUNA_PARITY.md) ·
+[Engineering status](DESKTOP_ENVIRONMENT_STATUS.md) ·
+[1.0 release gates](RELEASE_1_0_GATES.md)
 
-- [RiceField file manager](https://github.com/CopyPasteUser/Ricefield) and [Taskotto task manager](https://github.com/CopyPasteUser/Taskotto): optional, validated appearance integration.
-- [Wayland engineering status](DESKTOP_ENVIRONMENT_STATUS.md) · [1.0 release gates](RELEASE_1_0_GATES.md) · [Full roadmap](RICEBOWL_DE_ROADMAP.md)
-- [Contributing](CONTRIBUTING.md) · [License](LICENSE)
+## Project
 
-RiceBowl is independent of Microsoft, Apple and Google. Included artwork is
-original. The Wayland desktop is **not yet a stable 1.0 release**.
+[RiceField file manager](https://github.com/CopyPasteUser/Ricefield) ·
+[Taskotto task manager](https://github.com/CopyPasteUser/Taskotto) ·
+[Contributing](CONTRIBUTING.md) · [License](LICENSE)
+
+RiceBowl is independent of Microsoft, Apple and Google. The Wayland
+desktop is **not yet a stable 1.0 release**.
