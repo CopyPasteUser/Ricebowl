@@ -311,11 +311,35 @@ jobs:
         run: /usr/bin/python3 -m unittest discover -s tests -p test_de_calendar_outputs.py -v
       - name: Validate two-output menu pixel analyzer
         run: /usr/bin/python3 -m unittest discover -s tests -p test_de_menu_outputs.py -v
-      - name: Boot native Wayland layer surface
-        # The smoke suite exercises many real compositor clicks, resizes and
-        # captures. The old 70s cap interrupted otherwise healthy runners
-        # mid-capture (exit 124); keep a finite but realistic upper bound.
-        run: timeout -k 5s 120s sh scripts/smoke_riceplate_native.sh
+      - name: Boot native Wayland layer surface (legacy labwc pointer semantics)
+        # Ubuntu 24.04 ships labwc 0.7.1; that compositor cannot focus
+        # xdg_popups owned by unfocused layer-shell parents. Keep its real
+        # context pointer/dismissal coverage; require keyboard on newer labwc.
+        run: RICEBOWL_LUNA_POPUP_FOCUS_REQUIRED=0 timeout -k 5s 120s sh scripts/smoke_riceplate_native.sh
+      - name: Prove genuine popup keyboard focus on labwc 0.9.4+
+        # Ubuntu 26.10 ships labwc >=0.9.4. Run the SAME strict wtype/grim
+        # smoke in an isolated contemporary compositor, not a Rust mock.
+        run: |
+          docker run --rm --init \
+            --mount type=bind,source="$PWD",target=/workspace \
+            --workdir /workspace \
+            -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
+            ubuntu:26.10 /bin/bash -ceu '
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update -qq
+              apt-get install -y --no-install-recommends \
+                labwc grim foot xwayland xterm xclip wl-clipboard wlr-randr \
+                wtype swaybg fonts-dejavu-core python3 python3-pil python3-gi \
+                gir1.2-gtk-3.0 dbus-user-session dbus-x11 \
+                libxkbcommon0 libdbus-1-3 libglib2.0-bin \
+                xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-wlr
+              labwc --version
+              installed=$(dpkg-query -W -f="\${Version}" labwc)
+              dpkg --compare-versions "$installed" ge "0.9.4"
+              RICEBOWL_LUNA_POPUP_FOCUS_REQUIRED=1 \
+                timeout -k 5s 170s sh scripts/smoke_riceplate_native.sh
+              chown -R "$HOST_UID:$HOST_GID" dist/riceplate-native-preview
+            '
       - name: Prove live Wayland application taskbar lifecycle
         run: |
           /usr/bin/python3 -m unittest tests.test_de_window_outputs -v
@@ -768,6 +792,9 @@ jobs:
             dist/riceplate-native-preview/xp-luna-recycle-bin-click.png
             dist/riceplate-native-preview/xp-luna-shortcut-context.png
             dist/riceplate-native-preview/xp-luna-popup-extra-click.png
+            dist/riceplate-native-preview/xp-luna-popup-dismissed.png
+            dist/riceplate-native-preview/xp-luna-type-before.png
+            dist/riceplate-native-preview/xp-luna-type-programs.png
           if-no-files-found: warn
           retention-days: 7
       - name: Archive smoke-tested native RicePlate preview binary

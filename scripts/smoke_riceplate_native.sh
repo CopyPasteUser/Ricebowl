@@ -732,6 +732,11 @@ with Image.open(sys.argv[1]) as before, Image.open(sys.argv[2]) as after:
     changed = sum(max(pixel) > 18 for pixel in diff.getdata())
     assert changed > 500, f"Icon-parented XDG popup never mapped: {changed} pixels"
 PY
+            # The legacy Ubuntu 24.04 labwc 0.7.1 has no implementation for
+            # focus on an unfocused layer-shell parent's xdg_popup. Test the
+            # pointer actions there, and require actual keyboard focus under
+            # the separate modern compositor CI. Default remains STRICT.
+            if [ "${RICEBOWL_LUNA_POPUP_FOCUS_REQUIRED:-1}" = 1 ]; then
             # A real icon-parented xdg_popup must become keyboard focusable
             # on deliberate right-click despite the parent Bottom layer.
             # No click on an independent Overlay; no global keyboard grab.
@@ -788,6 +793,30 @@ PY
             WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click 68 435 1366 768
             sleep 0.3
             echo "Verified real Wayland keyboard selects Programs through parented XDG popup"
+            else
+                # On known-incompatible labwc, exercise real compositor
+                # popup_done and re-open to protect the pointer-only fallback.
+                WAYLAND_DISPLAY=wayland-0 "$clicker" 330 480 1366 768
+                sleep 0.25
+                WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-popup-dismissed.png"
+                cp "$runtime/xp-luna-popup-dismissed.png" \
+                   "$source_root/dist/riceplate-native-preview/xp-luna-popup-dismissed.png"
+                /usr/bin/python3 - "$runtime/xp-luna-shortcut-context.png" \
+                    "$runtime/xp-luna-popup-dismissed.png" <<"PY"
+from PIL import Image, ImageChops
+import sys
+with Image.open(sys.argv[1]) as opened, Image.open(sys.argv[2]) as dismissed:
+    assert opened.size == dismissed.size == (1366, 768)
+    region = (68, 435, 292, 625)
+    diff = ImageChops.difference(opened.crop(region).convert("RGB"),
+                                 dismissed.crop(region).convert("RGB"))
+    changed = sum(max(pixel) > 18 for pixel in diff.getdata())
+    assert changed > 500, f"Popup did not dismiss on outside pointer press: {changed}"
+PY
+                WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click 68 435 1366 768
+                sleep 0.3
+                echo "Verified legacy labwc pointer dismissal/reopen; keyboard focus requires newer labwc"
+            fi
             # Real pointer-driven properties transition on the SAME bounded
             # output-local popup. No shortcut launch, no external settings app.
             # Properties row is the fifth row (148..175), Back is at 150..177.

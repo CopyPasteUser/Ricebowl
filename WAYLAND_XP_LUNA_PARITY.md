@@ -341,3 +341,21 @@ This is an input/lifecycle correctness repair, **not** a claim that labwc
 real-compositor wtype/grim smoke remains a merge blocker. PR #327's
 independent Overlay input approach remains rejected; its bounded matcher
 logic is already present, so no duplicate selector is introduced.
+
+
+### Version-aware real compositor acceptance
+
+The Ubuntu 24.04 CI image provides labwc 0.7.1, which cannot grant keyboard
+focus to the XDG popup from an unfocused Bottom-layer parent. That runner
+now tests actual popup rendering, outside-click dismissal, reopening and
+pointer actions without falsely claiming to test keyboard input. The same
+real `wtype`/`grim` smoke runs separately in an Ubuntu 26.10 container
+with an explicit installed labwc >=0.9.4 version gate. In that path the
+keyboard-focus log event, selected Programs pixels, Escape and pointer
+context actions are mandatory. No synthetic key injection into RicePlate,
+exclusive keyboard surfaces or suppression of modern focus assertions.
+
+All gates must pass before PR #342 can merge. Users of older compositors
+retain pointer context actions but cannot expect type-to-select until they
+upgrade their compositor; physical Linux Mint and accessibility checks are
+still necessary.
