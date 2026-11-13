@@ -9,6 +9,19 @@ installation and is not yet a finished desktop environment.
 
 - [ ] Require complete PNG decoding before the classic panel pixel probe; add synthetic complete/truncated/wrong-color/invalid-geometry unit cases. Local focused tests pass, but the native labwc compositor screenshot matrix and full CI remain mandatory before this is marked complete. The synthetic unit fixtures are **not** real desktop screenshots.
 
+### Native XP Luna Run text-editing gate (13 November 2026)
+
+- [ ] Enable Unicode scalar-safe insertion, in-place Backspace/Delete, and
+  Left/Right/Home/End caret navigation in the *actual* native Run dialog.
+  Scroll the visible text by the selected bitmap/proportional font metrics,
+  draw a persistent caret without polling or new background processes, and
+  keep existing shell-free argv validation, 192-character/16-argument bounds.
+  Rust regressions cover multibyte input, cursor bounds, truncation and
+  unchanged command validation. The existing genuine headless-labwc Run PNG
+  must show real compositor-painted caret pixels. Completion requires green
+  Tests and Native RicePlate CI on the final commit, then merge. This is not
+  a physical keyboard, IME or screen-reader acceptance claim.
+
 ### Luna recent-app privacy hardlink regression (12 November 2026)
 
 - [ ] Reject a multiply hard-linked private recent-app history inode for restore,
