@@ -1485,11 +1485,12 @@ mod tests {
         state.open();
         // No installed-app fixtures: all real fixed actions remain present.
         assert_eq!(state.actions(menu), vec![
-            "applications", "terminal", "documents", "computer",
+            "terminal", "applications", "documents", "computer",
             "pictures", "music", "settings", "notifications", "help", "run",
             "lock", "logout"
         ]);
-        assert_eq!(state.hit(menu, 20.0, 116.0), Some(Hit::Action(0)));
+        assert_eq!(state.hit(menu, 20.0, 155.0), Some(Hit::Action(0)));
+        assert_eq!(state.hit(menu, 20.0, 255.0), Some(Hit::Action(1)));
         assert_eq!(state.hit(menu, 200.0, 80.0), Some(Hit::Action(2)));
         assert_eq!(state.hit(menu, 200.0, 116.0), Some(Hit::Action(4)));
         assert_eq!(state.hit(menu, 200.0, 189.0), Some(Hit::Action(8))); // Help
@@ -1501,7 +1502,7 @@ mod tests {
         assert_eq!(state.hit(menu, 275.0, 290.0), Some(Hit::Close));
 
         state.horizontal_by(menu, 1);
-        assert_eq!(state.current_action(menu), Some("pictures"));
+        assert_eq!(state.current_action(menu), Some("settings"));
         state.horizontal_by(menu, -1);
         assert_eq!(state.current_action(menu), Some("applications"));
         state.select_group(menu, 2);
