@@ -3439,7 +3439,8 @@ impl RicePlate {
             self.request_redraw(qh);
             return false;
         }
-        let updated = tray::State::from_items(host.get_all_items());
+        let mut updated = tray::State::from_items(host.get_all_items());
+        updated.preserve_slot_order(&self.tray_state);
         if self.tray_menu_state.visible && !self.tray_menu_state.is_local() {
             let bus_name = self.tray_menu_state.bus_name.clone();
             let stale = if let Some(item) = host.get_item(&bus_name) {
