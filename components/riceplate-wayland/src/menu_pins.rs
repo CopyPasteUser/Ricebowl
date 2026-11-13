@@ -43,7 +43,7 @@ fn desktop_id(id: &str) -> bool {
     let Some(file) = id.strip_prefix("desktop:") else { return false; };
     file.len() >= ".desktop".len() + 1 && file.len() <= 160
         && file.ends_with(".desktop") && file.bytes().all(|byte|
-            byte.is_ascii_alphanumeric() || matches!(byte, b\'.\' | b\'_\' | b\'-\'))
+            byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
 
 fn valid(id: &str, menu: &NativeMenu, pins: &[String]) -> bool {
