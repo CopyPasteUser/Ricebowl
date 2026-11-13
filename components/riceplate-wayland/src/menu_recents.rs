@@ -157,7 +157,8 @@ fn checked_history_file(directory: &File, name: &CStr)
     };
     let metadata = file.metadata()?;
     if !metadata.is_file() || metadata.uid() != unsafe { libc::geteuid() }
-        || metadata.mode() & 0o077 != 0 || metadata.len() > MAX_BYTES
+        || metadata.mode() & 0o077 != 0 || metadata.nlink() != 1
+        || metadata.len() > MAX_BYTES
     {
         return Err("XP Luna recent applications require a private regular file".into());
     }
@@ -397,6 +398,22 @@ mod tests {
         assert!(restore_at(&location, RICE_ID).is_err());
         assert!(save_at(&location, RICE_ID, &[]).is_err());
         fs::set_permissions(directory, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::remove_dir_all(location.ancestors().nth(3).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn hardlinked_history_is_rejected_and_privacy_clear_preserves_other_link() {
+        let location = location();
+        let entries = vec!["desktop:org.example.Editor.desktop".to_owned()];
+        save_at(&location, RICE_ID, &entries).unwrap();
+        let other = location.parent().unwrap().join("other-link.json");
+        fs::hard_link(&location, &other).unwrap();
+        let original = fs::read(&other).unwrap();
+        assert!(restore_at(&location, RICE_ID).is_err());
+        assert!(save_at(&location, RICE_ID, &entries).is_err());
+        assert!(clear_at(&location).is_err());
+        assert_eq!(fs::read(&other).unwrap(), original);
+        assert!(location.exists());
         fs::remove_dir_all(location.ancestors().nth(3).unwrap()).unwrap();
     }
 
