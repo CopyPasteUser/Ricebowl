@@ -15,6 +15,9 @@ class WaylandLunaSettingsTests(unittest.TestCase):
         self.assertTrue(set(keys) - {"taskbar"} <=
                         {name for name, _title, _help in settings.SECTIONS})
         self.assertEqual(set(keys), set(settings.LUNA_ICONS))
+        self.assertEqual(set(keys), set(settings.LUNA_ICON_FILES))
+        for asset in settings.LUNA_ICON_FILES.values():
+            self.assertTrue((settings.LUNA_ICON_DIR / asset).is_file(), asset)
 
     def test_luna_groups_cover_each_real_category_exactly_once(self):
         grouped = [key for _name, keys in settings.LUNA_GROUPS for key in keys]
