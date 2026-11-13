@@ -201,11 +201,16 @@ impl Model {
         Ok(cmd)
     }
 
-    /// Safe local rename: atomic RENAME_NOREPLACE, no implicit overwrite,
-    /// no path separators and no traversal. Never follow an old symlink.
+    /// Atomic no-overwrite rename anchored to the already validated Desktop
+    /// directory descriptor. Directory-path replacements never redirect a
+    /// rename to a different folder; a hostile same-UID actor can still race
+    /// the source name between fstatat and renameat2 (Linux lacks a
+    /// compare-and-rename-by-inode syscall).
     #[cfg(target_os = "linux")]
     pub fn rename(&mut self, index: usize, name: &OsStr) -> io::Result<PathBuf> {
-        let source = self.validated(index)?.path.clone();
+        use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+
+        let entry = self.validated(index)?.clone();
         let root = self.root.as_ref().ok_or_else(|| io::Error::new(
             io::ErrorKind::NotFound, "No Desktop directory"))?;
         let bytes = name.as_bytes();
@@ -215,17 +220,55 @@ impl Model {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "Unsafe rename target"));
         }
         let target = root.join(name);
-        if source == target { return Ok(source); }
-        let a = CString::new(source.as_os_str().as_bytes()).map_err(|_| {
-            io::Error::new(io::ErrorKind::InvalidInput, "Invalid source name")
-        })?;
-        let b = CString::new(target.as_os_str().as_bytes()).map_err(|_| {
-            io::Error::new(io::ErrorKind::InvalidInput, "Invalid destination name")
-        })?;
-        // RENAME_NOREPLACE is Linux-specific and fails closed when missing.
+        if entry.path == target { return Ok(entry.path); }
+
+        let path = CString::new(root.as_os_str().as_bytes())
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid Desktop path"))?;
+        let root_meta = fs::symlink_metadata(root)?;
+        let raw = unsafe {
+            libc::open(path.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        };
+        if raw < 0 { return Err(io::Error::last_os_error()); }
+        // SAFETY: libc::open returned an owned directory descriptor.
+        let dir = unsafe { OwnedFd::from_raw_fd(raw) };
+
+        let stat_of = |name: &CString, flags: libc::c_int| -> io::Result<libc::stat> {
+            let mut result = std::mem::MaybeUninit::<libc::stat>::uninit();
+            let code = unsafe {
+                if flags == -1 {
+                    libc::fstat(dir.as_raw_fd(), result.as_mut_ptr())
+                } else {
+                    libc::fstatat(dir.as_raw_fd(), name.as_ptr(), result.as_mut_ptr(), flags)
+                }
+            };
+            if code != 0 { return Err(io::Error::last_os_error()); }
+            Ok(unsafe { result.assume_init() })
+        };
+        let opened = stat_of(&path, -1)?;
+        if opened.st_dev as u64 != root_meta.dev()
+            || opened.st_ino as u64 != root_meta.ino()
+            || root_meta.uid() != unsafe { libc::geteuid() } {
+            return Err(io::Error::new(io::ErrorKind::PermissionDenied,
+                "Desktop directory was replaced"));
+        }
+        let from = CString::new(entry.name.as_bytes())
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid source name"))?;
+        let to = CString::new(bytes)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid destination name"))?;
+        let current = stat_of(&from, libc::AT_SYMLINK_NOFOLLOW)?;
+        if current.st_dev as u64 != entry.device
+            || current.st_ino as u64 != entry.inode
+            || (current.st_mode & libc::S_IFMT) == libc::S_IFLNK {
+            return Err(io::Error::new(io::ErrorKind::PermissionDenied,
+                "Desktop source was replaced"));
+        }
+
+        // Both names are single path components relative to the same fd.
+        // RENAME_NOREPLACE fails closed if target exists or kernel lacks support.
         let result = unsafe {
-            libc::syscall(libc::SYS_renameat2, libc::AT_FDCWD, a.as_ptr(),
-                          libc::AT_FDCWD, b.as_ptr(), libc::RENAME_NOREPLACE)
+            libc::syscall(libc::SYS_renameat2, dir.as_raw_fd(), from.as_ptr(),
+                          dir.as_raw_fd(), to.as_ptr(), libc::RENAME_NOREPLACE)
         };
         if result != 0 { return Err(io::Error::last_os_error()); }
         self.refresh()?;
