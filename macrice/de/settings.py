@@ -277,6 +277,7 @@ class RiceSpiceWindow:
         self.search_entry = None
         self.breadcrumb = None
         self.nav_groups = []
+        self._luna_icon_cache = {}
         self._suppress_luna_search = False
 
         if luna:
@@ -497,12 +498,16 @@ class RiceSpiceWindow:
         """Load bundled XP-style SVGs; fall back safely if packaging is incomplete."""
         try:
             from gi.repository import GdkPixbuf
-            asset = LUNA_ICON_DIR / LUNA_ICON_FILES[key]
-            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
-                str(asset), pixels, pixels, True)
+            cache_key = (key, pixels)
+            pixbuf = self._luna_icon_cache.get(cache_key)
+            if pixbuf is None:
+                asset = LUNA_ICON_DIR / LUNA_ICON_FILES[key]
+                pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
+                    str(asset), pixels, pixels, True)
+                self._luna_icon_cache[cache_key] = pixbuf
             return self.Gtk.Image.new_from_pixbuf(pixbuf)
-        except (KeyError, OSError, Exception):
-            # A missing SVG loader must not prevent opening any settings page.
+        except (KeyError, OSError, ImportError, self.GLib.Error):
+            # An unavailable SVG loader cannot block access to system settings.
             return self.Gtk.Image.new_from_icon_name(
                 LUNA_ICONS[key], self.Gtk.IconSize.DIALOG if pixels > 24
                 else self.Gtk.IconSize.MENU)
