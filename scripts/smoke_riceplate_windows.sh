@@ -275,16 +275,18 @@ PY
     else
         kill "$window"
     fi
-    # A foot that ignores a real Close request must fail the compositor
-    # acceptance test. The shell never fakes a Close by killing the process.
+    # Verify Close by the compositor's foreign-toplevel Closed event.
+    # A background child may briefly remain a zombie until the shell reaps
+    # it, so kill -0 alone is not a reliable native window-lifecycle probe.
     if [ "$mode" = "--luna" ]; then
         count=0
-        while kill -0 "$window" 2>/dev/null && [ "$count" -lt 40 ]; do
+        while ! grep -Fq "event=closed app_id=\"$app_id\"" "$runtime/panel.log" &&
+              [ "$count" -lt 40 ]; do
             sleep 0.25
             count=$((count + 1))
         done
-        if kill -0 "$window" 2>/dev/null; then
-            echo "Real Wayland Close action did not close foot" >&2
+        if [ "$count" -ge 40 ]; then
+            echo "Real Wayland Close action did not close the compositor window" >&2
             tail -n 35 "$runtime/panel.log" >&2
             exit 1
         fi
