@@ -281,7 +281,7 @@ class RiceSpiceWindow:
             self.search_entry.set_size_request(225, -1)
             self.search_entry.set_tooltip_text("Search available Control Panel pages")
             self.search_entry.get_style_context().add_class("luna-search")
-            self.search_entry.connect("search-changed", self._luna_search_changed)
+            self.search_entry.connect("changed", self._luna_search_changed)
             toolbar.pack_end(self.search_entry, False, False, 0)
             root.pack_start(toolbar, False, False, 0)
 
