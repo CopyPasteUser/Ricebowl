@@ -2564,14 +2564,7 @@ impl RicePlate {
         for layer in self.menu_layer.iter().chain(self.menu_mirrors.iter()) {
             let active = layer.surface.wl_surface() == &surface;
             layer.surface.set_keyboard_interactivity(if active {
-                // In Luna, typing/Escape must work while Start is open,
-                // independent of compositor pointer focus on the wallpaper.
-                // Other rices keep their established OnDemand policy.
-                if self.recipe.id == "xp-luna-columns" {
-                    KeyboardInteractivity::Exclusive
-                } else {
-                    KeyboardInteractivity::OnDemand
-                }
+                KeyboardInteractivity::OnDemand
             } else {
                 KeyboardInteractivity::None
             });
