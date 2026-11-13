@@ -78,6 +78,10 @@ recipe/assets → preview → test → apply/restore** path. One-click conversio
 an arbitrary image is not a current implemented feature and must never be
 claimed as such.
 
+## Parallel Wayland DE integration
+
+For concurrent work on the native DE, follow the [DE 1.0 integration contract](docs/de-integration-governance.md): owner lanes, shared-file handoffs, stacked PR dependencies, exact-head CI and guarded merges. Only the integration lane merges reviewed DE work into `main`; retain all existing XFCE/X11 and release-safety rules below.
+
 ## Delivery and verification
 
 - Work from the active repo state; preserve user changes and working features.

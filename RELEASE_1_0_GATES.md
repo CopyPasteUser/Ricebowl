@@ -76,6 +76,10 @@ the sign-off guard and its tests are deliberately unchanged.
   restored one step, with safe classic fallback after missing/corrupt state;
   no claim of live multi-component rice switching.
 
+## Multi-lane integration gate
+
+For Wayland DE changes, apply the [parallel integration contract](docs/de-integration-governance.md). Each parent and stacked PR must be reviewed and tested at its exact final head, and the relevant full workflows must be rerun on the resulting `main` merge commit. Green checks on an earlier head or unrelated branch are insufficient; CI-only success never substitutes for the physical-device gates below. The contract does not relax the existing 1.0 sign-off requirements.
+
 ## Deferred: real-hardware acceptance (not done; not in software progress %)
 
 - [ ] Login and logout on physical Mint 22 hardware, including crash recovery.

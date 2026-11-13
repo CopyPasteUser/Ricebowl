@@ -237,6 +237,8 @@ recognizable, but build missing behavior as shared primitives first. Detailed
 historical fidelity has a separate acceptance gate after the foundation;
 no per-OS fork of the native shell is permitted.
 
+**Parallel integration discipline:** The [DE 1.0 integration contract](docs/de-integration-governance.md) assigns core, desktop, system and shell ownership, records stacked PR dependencies and requires exact-head CI plus post-merge verification. This coordination document is not evidence of new runtime functionality, and does not close any 1.0 gate.
+
 ### Runtime and Creator boundary (partially implemented; 1.0 gates open)
 
 - **RiceBowl Runtime** owns the lightweight Wayland session, rendering,
