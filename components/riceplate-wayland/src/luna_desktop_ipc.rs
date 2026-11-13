@@ -120,7 +120,7 @@ pub fn receive(socket: &UnixDatagram) -> io::Result<Option<Request>> {
 
 /// Resolve the configured Desktop location only if it is a real user-owned
 /// directory. Never create folders in HOME or an arbitrary recipe path.
-fn desktop_folder() -> io::Result<PathBuf> {
+pub(crate) fn desktop_folder() -> io::Result<PathBuf> {
     let home = env::var_os("HOME").map(PathBuf::from)
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound,"No HOME"))?;
     if !home.is_absolute() { return Err(io::ErrorKind::InvalidInput.into()); }
