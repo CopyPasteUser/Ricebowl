@@ -361,6 +361,10 @@ PY
         WAYLAND_DISPLAY=wayland-0 grim - >"$runtime/luna-grouped-taskbar.png"
         WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click 240 750 1024 768
         sleep 0.4
+        if ! grep -Fq "RicePlate task menu event=opened members=2" "$runtime/panel.log"; then
+            echo "Real two-member group context did not open" >&2
+            exit 1
+        fi
         WAYLAND_DISPLAY=wayland-0 grim - >"$runtime/luna-grouped-window-menu.png"
         # Compare actual compositor frames from the same output.
         /usr/bin/python3 - "$runtime/luna-grouped-taskbar.png" \
@@ -390,6 +394,10 @@ PY
         done
         if [ "$count" -ge 40 ]; then
             echo "Grouped task close did not reach the compositor" >&2
+            exit 1
+        fi
+        if ! grep -Fq "RicePlate task menu event=owner-closed" "$runtime/panel.log"; then
+            echo "Closing a grouped window did not dismiss the owner popup" >&2
             exit 1
         fi
         sleep 0.3
