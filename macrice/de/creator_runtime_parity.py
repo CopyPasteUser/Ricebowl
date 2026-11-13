@@ -14,7 +14,7 @@ from . import catalog, recipes, review
 
 PARITY_VERSION = 1
 OUTPUT_CASES = (
-    ("small", 800, 600, 1.0),
+    ("small", 640, 480, 1.0),
     ("laptop", 1366, 768, 1.0),
     ("desktop", 1920, 1080, 1.0),
     ("fractional", 1366, 768, 1.25),
