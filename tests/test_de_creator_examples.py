@@ -6,7 +6,9 @@ import json
 from pathlib import Path
 import unittest
 
-from macrice.de import recipes, review, pack
+from macrice.de import recipes, review, pack, creator_workspace, creator_structure
+from unittest import mock
+import os
 
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples/wayland"
@@ -86,6 +88,27 @@ class CreatorExamplesTests(unittest.TestCase):
                 self.assertNotIn('"on-click": "nmcli', wide)
                 self.assertIn("window#waybar", css)
 
+    def test_composer_rices_are_real_distinct_native_v10_structures(self):
+        heritage = recipes.parse((EXAMPLES / "heritage-composer-v10.json").read_bytes())
+        orbit = recipes.parse((EXAMPLES / "orbit-composer-v10.json").read_bytes())
+        self.assertEqual((heritage.schema_version, orbit.schema_version), (10, 10))
+        self.assertEqual(heritage.position, "bottom")
+        self.assertEqual(orbit.position, "top")
+        self.assertEqual(heritage.layout[1][0].value, "WORKSTATION")
+        self.assertTrue(any(node.kind == "control" and node.value == "audio-mute"
+                            for node in heritage.layout[2]))
+        self.assertEqual(orbit.layout[1][0].children[1].value, "FOCUS MODE")
+        self.assertNotEqual(heritage.layout, orbit.layout)
+        self.assertNotEqual(heritage.compact, orbit.compact)
+        for recipe in (heritage, orbit):
+            config, _ = recipes.waybar_config(recipe, screen_width=1366)
+            compact_config, _ = recipes.waybar_config(recipe, screen_width=640)
+            self.assertIn('"wlr/taskbar"', config)
+            self.assertIn('"wlr/taskbar"', compact_config)
+            self.assertEqual(
+                review._manifest(recipes.parse(json.dumps(review._manifest(recipe)).encode())),
+                review._manifest(recipe))
+
     def test_luna_columns_are_data_only_and_backwards_compatible(self):
         source = json.loads((EXAMPLES / "xp-luna-columns.json").read_text())
         recipe = recipes.parse(json.dumps(source).encode("utf-8"))
@@ -121,6 +144,50 @@ class CreatorExamplesTests(unittest.TestCase):
                     inspected = pack.inspect_pack(archive)
                     self.assertTrue(inspected["ok"])
                     self.assertFalse(inspected["applied"])
+
+    def test_end_to_end_authoring_review_pack_and_private_import(self):
+        import tempfile
+        for template in ("heritage", "orbit"):
+            with self.subTest(template=template), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                state, config = root / "state", root / "config"
+                state.mkdir(mode=0o700)
+                config.mkdir(mode=0o700)
+                with mock.patch.dict(os.environ, {
+                    "XDG_STATE_HOME": str(state), "XDG_CONFIG_HOME": str(config)
+                }):
+                    original = creator_workspace.create_draft(template)
+                    manifest = review.review(str(original.path))["recipe"]
+                    updated = creator_structure.edit_layout(
+                        manifest, "start", (), "add",
+                        node={"type": "label", "text": "CREATOR TEST"},
+                        target_index=0)
+                    changes = {"/panel/layout/start": updated}
+                    preview = creator_workspace.preview_revision(
+                        original.path, changes, expected_sha256=original.semantic_sha256)
+                    self.assertTrue(preview["validated"])
+                    self.assertFalse(preview["created"])
+                    self.assertEqual(len(creator_workspace.list_drafts()), 1)
+                    revised, delta = creator_workspace.save_revision(
+                        original.path, changes,
+                        expected_sha256=preview["source_semantic_sha256"],
+                        expected_draft_sha256=preview["draft_semantic_sha256"])
+                    self.assertEqual(revised.semantic_sha256, preview["draft_semantic_sha256"])
+                    self.assertIn("/panel/layout/start", [item["path"] for item in delta])
+                    self.assertEqual(len(creator_workspace.version_history(revised)), 2)
+                    archive = root / "authoring.ricepack"
+                    pack.export_pack(str(revised.path), archive)
+                    inspection = pack.inspect_pack(archive)
+                    self.assertTrue(inspection["compatibility"]["assets_integrity_verified"])
+                    self.assertFalse(inspection["compatibility"]["host_backends_checked"])
+                    self.assertFalse(inspection["compatibility"]["activates_on_import"])
+                    result = pack.import_pack(archive)
+                    self.assertTrue(result["imported"])
+                    self.assertFalse(result["applied"])
+                    self.assertEqual(
+                        review.review(result["recipe_id"])["summary"]["semantic_sha256"],
+                        revised.semantic_sha256)
+                    self.assertEqual(recipes.current_selection()[0], "classic")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,186 @@
+{
+  "schema_version": 10,
+  "id": "heritage-composer-v10",
+  "name": "Heritage Composer",
+  "components": [
+    {
+      "id": "net-status",
+      "role": "status",
+      "binding": "network",
+      "label": "Network"
+    },
+    {
+      "id": "audio-status",
+      "role": "status",
+      "binding": "audio",
+      "label": "Volume"
+    },
+    {
+      "id": "wifi-switch",
+      "role": "action",
+      "binding": "wifi-toggle",
+      "label": "Wi-Fi"
+    }
+  ],
+  "panel": {
+    "position": "bottom",
+    "height": 36,
+    "metrics": {
+      "launcher_width": 88,
+      "task_width": 144,
+      "clock_width": 80
+    },
+    "layout": {
+      "start": [
+        {
+          "type": "widget",
+          "id": "launcher"
+        },
+        {
+          "type": "gap",
+          "width": 4
+        },
+        {
+          "type": "widget",
+          "id": "tasks"
+        }
+      ],
+      "center": [
+        {
+          "type": "label",
+          "text": "WORKSTATION"
+        }
+      ],
+      "end": [
+        {
+          "type": "component",
+          "ref": "wifi-switch"
+        },
+        {
+          "type": "component",
+          "ref": "audio-status"
+        },
+        {
+          "type": "widget",
+          "id": "clock"
+        },
+        {
+          "type": "control",
+          "id": "audio-mute",
+          "label": "Mute"
+        }
+      ]
+    }
+  },
+  "colors": {
+    "background": "#c0c0c0",
+    "foreground": "#18212a",
+    "active": "#236180"
+  },
+  "menu": {
+    "title": "Heritage Desk",
+    "presentation": "tabs",
+    "groups": [
+      {
+        "title": "Programs",
+        "actions": [
+          "applications",
+          "terminal",
+          "clip-history"
+        ]
+      },
+      {
+        "title": "Session",
+        "actions": [
+          "lock",
+          "logout"
+        ]
+      }
+    ]
+  },
+  "desktop": {
+    "wallpaper": "classic-teal",
+    "icons": [
+      {
+        "label": "Programs",
+        "action": "applications",
+        "x": 24,
+        "y": 92
+      },
+      {
+        "label": "Console",
+        "action": "terminal",
+        "x": 144,
+        "y": 92
+      },
+      {
+        "label": "Lock",
+        "action": "lock",
+        "x": 24,
+        "y": 208
+      }
+    ]
+  },
+  "tokens": {
+    "label_padding": 4,
+    "task_radius": 0
+  },
+  "appearance": {
+    "font_scale": 1,
+    "font_weight": "regular",
+    "item_spacing": 2,
+    "hover": "#849da5",
+    "focus": "#236180",
+    "disabled": "#6f7276"
+  },
+  "responsive": {
+    "compact_max_width": 760,
+    "compact_layout": {
+      "start": [
+        {
+          "type": "widget",
+          "id": "launcher"
+        }
+      ],
+      "center": [
+        {
+          "type": "widget",
+          "id": "tasks"
+        }
+      ],
+      "end": [
+        {
+          "type": "widget",
+          "id": "clock"
+        }
+      ]
+    }
+  },
+  "composition": {
+    "widgets": [
+      {
+        "id": "desk-heading",
+        "kind": "text",
+        "text": "HERITAGE WORKSTATION",
+        "x": 24,
+        "y": 320
+      },
+      {
+        "id": "desk-network",
+        "kind": "component",
+        "ref": "net-status",
+        "x": 24,
+        "y": 432
+      }
+    ],
+    "window_region": {
+      "x": 36,
+      "y": 8,
+      "width": 60,
+      "height": 84
+    },
+    "compact_hide_widgets": [
+      "desk-network"
+    ]
+  }
+}

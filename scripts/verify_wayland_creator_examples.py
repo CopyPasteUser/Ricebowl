@@ -27,12 +27,18 @@ EXAMPLES = ROOT / "examples/wayland"
 SIZES = ((1024, 768, 1.0), (1366, 768, 1.0), (1920, 1080, 1.0),
          (1366, 768, 1.25))
 SCHEMAS = {"heritage-workstation": 5, "orbit-atelier": 5,
-           "heritage-modern-v10": 10, "orbit-studio-v10": 10}
-NAMES = tuple(SCHEMAS)
+           "heritage-modern-v10": 10, "orbit-studio-v10": 10,
+           "heritage-composer-v10": 10, "orbit-composer-v10": 10}
+# Preserve the original four-capture matrix for existing consumers.
+NAMES = ("heritage-workstation", "orbit-atelier",
+         "heritage-modern-v10", "orbit-studio-v10")
+COMPOSERS = ("heritage-composer-v10", "orbit-composer-v10")
 
 
-def build_gallery(destination: Path) -> dict[str, object]:
+def build_gallery(destination: Path, *, names: tuple[str, ...] = NAMES) -> dict[str, object]:
     """Write only new artifacts; callers own and create a private output dir."""
+    if not names or len(set(names)) != len(names) or any(name not in SCHEMAS for name in names):
+        raise ValueError("Gallery needs distinct known validated recipes")
     if not destination.is_absolute() or not destination.is_dir() or any(destination.iterdir()):
         raise ValueError("Gallery destination must be an empty absolute directory")
     if os.geteuid() == 0:
@@ -51,7 +57,7 @@ def build_gallery(destination: Path) -> dict[str, object]:
     hashes_by_size: dict[tuple[int, int, float], set[str]] = {}
     with tempfile.TemporaryDirectory(prefix="ricebowl-gallery-private-") as temp:
         temporary = Path(temp)
-        for name in NAMES:
+        for name in names:
             source = EXAMPLES / f"{name}.json"
             payload = source.read_bytes()
             parsed = recipes.parse(payload)
@@ -103,8 +109,8 @@ def build_gallery(destination: Path) -> dict[str, object]:
                                 for item in diagnostics["regions"]],
                     "layout_issues": [],
                 })
-    if len(manifest["captures"]) != len(NAMES) * len(SIZES) or any(
-            len(digests) != len(NAMES) for digests in hashes_by_size.values()):
+    if len(manifest["captures"]) != len(names) * len(SIZES) or any(
+            len(digests) != len(names) for digests in hashes_by_size.values()):
         raise ValueError("Distinct rice previews were not captured at every size")
     destination.joinpath("manifest.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -115,8 +121,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, required=True,
                         help="An existing, empty, absolute output directory")
+    parser.add_argument("--composers", action="store_true",
+                        help="Capture only the two schema-v10 Composer demonstrators")
     arguments = parser.parse_args()
-    result = build_gallery(arguments.output_dir)
+    result = build_gallery(arguments.output_dir,
+                           names=COMPOSERS if arguments.composers else NAMES)
     print(json.dumps({"ok": True, "capture_count": len(result["captures"]),
                       "manifest": str(arguments.output_dir / "manifest.json")}, sort_keys=True))
     return 0
