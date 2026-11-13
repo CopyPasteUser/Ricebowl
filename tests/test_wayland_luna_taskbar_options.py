@@ -20,15 +20,15 @@ class NativeLunaTaskbarOptionsTest(unittest.TestCase):
         self.path = self.root / "ricebowl" / "luna-taskbar.json"
 
     def test_defaults_are_read_only(self):
-        self.assertEqual(options.load(), {"auto_hide": False, "quick_launch": True})
+        self.assertEqual(options.load(), {"auto_hide": False, "quick_launch": True, "group_similar_windows": True})
         self.assertFalse(self.path.parent.exists())
 
     def test_private_atomic_save_and_cas(self):
         before = options.load()
-        chosen = {"auto_hide": True, "quick_launch": False}
+        chosen = {"auto_hide": True, "quick_launch": False, "group_similar_windows": False}
         self.assertEqual(options.save(chosen, expected=before), chosen)
         self.assertEqual(options.load(), chosen)
-        self.assertEqual(json.loads(self.path.read_text()), {"version": 1, **chosen})
+        self.assertEqual(json.loads(self.path.read_text()), {"version": 2, **chosen})
         self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o600)
         self.assertFalse(list(self.path.parent.glob(".luna-taskbar-*")))
         with self.assertRaisesRegex(options.TaskbarSettingsError, "changed elsewhere"):
@@ -42,6 +42,9 @@ class NativeLunaTaskbarOptionsTest(unittest.TestCase):
             {"version": 2, **options.DEFAULTS},
             {"version": True, **options.DEFAULTS},
             {"version": 1, "auto_hide": 1, "quick_launch": False},
+            {"version": 1, **options.DEFAULTS},
+            {"version": 2, "auto_hide": False, "quick_launch": True},
+            {"version": 2, **options.DEFAULTS, "group_similar_windows": 1},
             {"version": 1, "auto_hide": False},
             {"version": 1, **options.DEFAULTS, "command": "rm"},
         ]:
@@ -51,6 +54,20 @@ class NativeLunaTaskbarOptionsTest(unittest.TestCase):
                 options.load()
         with self.assertRaises(options.TaskbarSettingsError):
             options.save({"auto_hide": True, "quick_launch": 1}, expected=options.DEFAULTS)
+
+    def test_v1_preferences_load_with_grouping_enabled_and_migrate_on_save(self):
+        self.path.parent.mkdir()
+        legacy = {"version": 1, "auto_hide": True, "quick_launch": False}
+        self.path.write_text(json.dumps(legacy))
+        self.path.chmod(0o600)
+        restored = options.load()
+        self.assertEqual(restored, {
+            "auto_hide": True, "quick_launch": False, "group_similar_windows": True,
+        })
+        requested = {**restored, "group_similar_windows": False}
+        options.save(requested, expected=restored)
+        self.assertEqual(json.loads(self.path.read_text()), {"version": 2, **requested})
+        self.assertEqual(options.load(), requested)
 
     def test_symlink_and_world_readable_file_rejected(self):
         self.path.parent.mkdir()
