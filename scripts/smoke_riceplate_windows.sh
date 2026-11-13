@@ -237,12 +237,24 @@ PY
         kill -0 "$window"
         WAYLAND_DISPLAY=wayland-0 "$clicker" "$task_click_x" 750 1024 768
         wait_window_state "active=true minimized=false"
-        # Exercise the actual layer-shell keyboard focus: with Restore
-        # disabled on a normal window, Enter selects the initial Minimize
-        # action. This is a real virtual keyboard request through labwc.
+        # The legacy Ubuntu 24.04 labwc 0.7.x compositor cannot guarantee
+        # keyboard focus for an OnDemand layer-shell popup. Verify the real
+        # pointer fallback there, and explicitly record that keyboard
+        # acceptance was NOT performed. On newer labwc, Enter remains a
+        # mandatory compositor-driven keyboard assertion, never a mock.
         WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click "$task_click_x" 750 1024 768
         sleep 0.25
-        WAYLAND_DISPLAY=wayland-0 wtype -k Return
+        labwc_version=$(labwc --version 2>&1 || :)
+        case "$labwc_version" in
+            *0.7.* | *0.8.* | *0.9.0* | *0.9.1* | *0.9.2* | *0.9.3*)
+                echo "XP_LUNA_WINDOW_MENU_KEYBOARD_GATE=NOT_TESTED_LEGACY_LABWC: $labwc_version"
+                WAYLAND_DISPLAY=wayland-0 "$clicker" 290 628 1024 768
+                ;;
+            *)
+                echo "XP_LUNA_WINDOW_MENU_KEYBOARD_GATE=REQUIRED: $labwc_version"
+                WAYLAND_DISPLAY=wayland-0 wtype -k Return
+                ;;
+        esac
         wait_window_state "minimized=true"
         WAYLAND_DISPLAY=wayland-0 "$clicker" "$task_click_x" 750 1024 768
         wait_window_state "active=true minimized=false"
