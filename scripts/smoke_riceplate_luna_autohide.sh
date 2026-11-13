@@ -67,12 +67,23 @@ dbus-run-session -- sh -eu -c '
     WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 120 585 1024 768
     sleep .4
     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/menu-open.png"
-    # Real XP footer Close hit: logical x251..315 / y276..304.
-    # Styled native 480x456 menu begins at y272, so (420,702) maps
-    # to logical (280,287). This is a genuine menu hit, not an
-    # off-surface click or an unreliable synthetic keyboard focus.
-    # Pointer stays away from the taskbar: closing must collapse it.
-    WAYLAND_DISPLAY=wayland-0 "$clicker" 420 702 1024 768
+    # Actual native menu size is compositor-specific: the real labwc
+    # configure can keep 320x304 even when a 480x456 resize was requested.
+    # Use the active menu geometry observed in RicePlate trace, never a
+    # guessed visual size. The XP footer Close is logical x251..315,
+    # y276..304. Both variants end 40px above the bottom panel.
+    # Deliberately fail closed for any unexpected size.
+    if grep -Fq "menu trace show Some(((320, 304), true))" "$runtime/plate.log"; then
+        close_x=280
+    elif grep -Fq "menu trace show Some(((480, 456), true))" "$runtime/plate.log"; then
+        close_x=420
+    else
+        echo "Cannot determine actual native Start menu geometry" >&2
+        grep -E "menu trace show|menu trace resize" "$runtime/plate.log" | tail -n 12 >&2 || :
+        exit 1
+    fi
+    # y710 is inside the 28px footer for either size, and off the panel.
+    WAYLAND_DISPLAY=wayland-0 "$clicker" "$close_x" 710 1024 768
     sleep .45
     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/menu-closed.png"
     echo "Luna menu and Auto-hide state trace:"
