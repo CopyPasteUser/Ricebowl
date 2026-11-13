@@ -1,123 +1,103 @@
-# RiceBowl · Wayland screenshots
+# RiceBowl · Native Wayland screenshots
 
-[← Project](../../README.md) · [Wayland setup](../../WAYLAND.md) ·
-[XFCE/X11 gallery](../current/README.md)
+[← RiceBowl](../../README.md) · [Wayland setup](../../WAYLAND.md) ·
+[XP Luna parity](../../WAYLAND_XP_LUNA_PARITY.md) · [XFCE/X11 gallery](../current/README.md)
 
-**Genuine labwc + native RicePlate compositor captures.** These images
-show the experimental Wayland shell in headless CI, not mockups or a signed-off
-installation on physical hardware. Click a screenshot for its full-size WebP.
+**Real labwc + native Rust RicePlate captures, not rendered mockups.**
+They were recorded in an isolated headless compositor with a pixman renderer
+and virtual input. They show the experimental Wayland desktop, **not**
+physical-hardware acceptance or completed Windows XP fidelity.
 
-## Newest verified build captures · 13 November 2026
+## XP Luna · verified screenshot gallery (13 November 2026)
 
-The **latest merged main revision at capture time**, `bdbae75b4c3fbc1`,
-has a newer [successful Native RicePlate run #43368674306](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43368674306).
-Its downloadable `riceplate-native-preview-…` artifact contains the actual
-full-resolution PNGs for `xp-luna-columns-1366x768.png`,
-`xp-luna-parity-start.png`, `xp-luna-columns-calendar.png`,
-`xp-luna-pointer-programs-1024x768.png`,
-`xp-luna-shortcut-context.png`, and
-`xp-luna-shortcut-properties.png`. These are compositor captures rather
-than hand-painted desktop mockups.
+Source: successful [Native RicePlate CI run #43368674306](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43368674306),
+on the then-current **main** commit
+[bdbae75](https://github.com/CopyPasteUser/Ricebowl/commit/bdbae75b4c3fbc1c721fed4c20a231c227ef0a54).
+Each preview links to the full-size checked-in WebP.
 
-The same source revision also produced **two real GTK3 Control Panel client
-captures**, `dist/luna-settings/luna-control-panel-home.png` and
-`dist/luna-settings/luna-control-panel-taskbar.png`, in
-[Tests run #43368674304](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43368674304).
-Those files were archived **before** an unrelated failing X11/Aero libwnck
-fixture-discovery test. GTK/Xvfb screenshots are *not* native labwc captures.
-
-[XP Luna keyboard-search PR #334](https://github.com/CopyPasteUser/Ricebowl/pull/334)
-adds keyboard-first Control Panel navigation and a **third real GTK capture**,
-`luna-control-panel-search.png`. Look at the PR's Tests artifact for that new
-view. [Tests #43375407093](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43375407093)
-passed on source commit `5bdd7de7` and archived all three GTK captures.
-This verifies the on-demand GTK client in CI, not real hardware or native
-labwc keyboard focus. The six thumbnails below remain pinned to an earlier
-known-good compositor revision for reproducibility.
-
-## XP Luna · refreshed native desktop (13 November 2026)
-
-These six newly checked-in previews are **actual labwc + native RicePlate
-screen captures from 13 November 2026's verified CI snapshot**, not mockups.
-The source was captured on commit `c0bdb46c` by
-[successful native CI #43354447753](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43354447753),
-at 1366×768 using a headless compositor and pixman renderer.
-
-| Full desktop | Two-column Start |
+| Desktop and taskbar | Two-column Start menu |
 | :---: | :---: |
-| [![Seven native XP-inspired desktop shortcuts and bottom taskbar](luna-desktop-20261113.webp)](luna-desktop-20261113.webp) | [![Expanded XP-inspired Start menu from live native Wayland compositor](luna-start-20261113.webp)](luna-start-20261113.webp) |
+| [![Native Wayland XP Luna desktop with shortcut icons and taskbar](luna-desktop-20261113.webp)](luna-desktop-20261113.webp) | [![Native XP Luna two-column Start menu](luna-start-20261113.webp)](luna-start-20261113.webp) |
 
-| Help & Support | Native Run dialog |
+| All Programs · pointer navigation | Taskbar calendar |
 | :---: | :---: |
-| [![Real native XP Help and Support dialog](luna-help-20261113.webp)](luna-help-20261113.webp) | [![Run dialog containing text typed by real Wayland virtual keyboard](luna-run-20261113.webp)](luna-run-20261113.webp) |
+| [![All Programs page navigated with genuine Wayland pointer input](luna-all-programs-20261113.webp)](luna-all-programs-20261113.webp) | [![Calendar panel beside a real terminal window on the native desktop](luna-calendar-20261113.webp)](luna-calendar-20261113.webp) |
 
-| Desktop shortcut menu | Shortcut Properties |
+| Desktop shortcut context menu | Shortcut properties |
 | :---: | :---: |
-| [![Actual right-click context menu on Recycle Bin desktop shortcut](luna-context-20261113.webp)](luna-context-20261113.webp) | [![Real context-menu Properties view in native compositor](luna-properties-20261113.webp)](luna-properties-20261113.webp) |
+| [![Recycle Bin shortcut context menu opened by right-click](luna-context-20261113.webp)](luna-context-20261113.webp) | [![Native shortcut properties opened through the context menu](luna-properties-20261113.webp)](luna-properties-20261113.webp) |
 
-Source PNG hashes, checked-in WebP hashes and whether each original is
-listed in the capture manifest are documented in
-[the provenance record](luna-gallery-provenance-20261113.json).
-Detailed context and dialog captures were generated by the same native
-smoke script but were not individually included in the historical capture
-manifest; their bytes are pinned in the new record. No fabricated system
-indicators, Windows assets or post-capture painting were used.
-
-**Scope:** these images document the specified passing CI revision, not
-unmerged features or a current physical-device QA sign-off. Screenshots of
-subsequent commits require new successful native CI captures.
-
-## Native interaction
-
-| Find after pointer click | Saved after right-click pin |
+| Help & Support | Run dialog |
 | :---: | :---: |
-| [![Native Find view opened using compositor pointer events](luna-pointer-find.webp)](luna-pointer-find.webp) | [![Native Saved actions populated using a compositor right-click](luna-saved-pinned-rightclick.webp)](luna-saved-pinned-rightclick.webp) |
+| [![Native XP-inspired Help and Support dialog](luna-help-20261113.webp)](luna-help-20261113.webp) | [![Run dialog with text entered through a virtual Wayland keyboard](luna-run-20261113.webp)](luna-run-20261113.webp) |
 
-These are **input-driven state changes** in headless labwc, not overlays
-painted onto screenshots. Sources:
-[Find / Back CI #42973287104](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42973287104) ·
-[pin/unpin CI #42977523704](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42977523704).
+The [provenance record](luna-gallery-provenance-20261113.json) pins each
+original PNG filename, source commit, CI run, framebuffer dimensions,
+SHA-256 of the source and SHA-256 of the published WebP. All eight previews
+come from [the verified-artifact importer](../../scripts/import_native_wayland_gallery.py).
+No desktop elements are added or painted after capture. Six established WebP
+URLs are retained; All Programs and calendar are new entries.
 
-## Output scaling and window chrome
+**More recent, unmerged fidelity work:** [XP Luna PR #335](https://github.com/CopyPasteUser/Ricebowl/pull/335)
+has separate, genuine captures in [successful CI candidate #43377726436](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43377726436)
+on commit 0d85613a. Full-resolution PNGs are available from the
+riceplate-native-preview artifact of that run. These unfinished visuals are
+**not silently mixed** into the main-branch gallery.
 
-| 1024×768 | 1920×1080 | 125% scale |
+## Native input interactions
+
+| Find after pointer click | Saved after context-menu pin |
+| :---: | :---: |
+| [![Find page opened through Wayland pointer input](luna-pointer-find.webp)](luna-pointer-find.webp) | [![Saved actions populated by genuine right-click](luna-saved-pinned-rightclick.webp)](luna-saved-pinned-rightclick.webp) |
+
+Source: [Find/Back CI #42973287104](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42973287104) ·
+[Pin/unpin CI #42977523704](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42977523704).
+These are earlier tested interactions, not captures from the gallery revision.
+
+## Resolution, scaling and window frames
+
+| 1024×768 | 1920×1080 | 125% output scale |
 | :---: | :---: | :---: |
-| [![Live native Start menu at 1024 by 768](luna-live-1024.webp)](luna-live-1024.webp) | [![Live native Start menu at Full HD](luna-live-fullhd.webp)](luna-live-fullhd.webp) | [![Live native Start menu at 125 percent output scale](luna-live-scale125.webp)](luna-live-scale125.webp) |
+| [![Native Start menu at 1024 by 768](luna-live-1024.webp)](luna-live-1024.webp) | [![Native Start menu at Full HD](luna-live-fullhd.webp)](luna-live-fullhd.webp) | [![Native Start menu at 125 percent output scale](luna-live-scale125.webp)](luna-live-scale125.webp) |
 
-The **same running compositor** was tested with live output reconfiguration
-([CI #42963768429](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42963768429)).
-The Full HD preview is downscaled for display; the original PNG is in the
-run artifact. Geometry tests do not establish mixed-DPI hardware support.
+[Live output reconfiguration CI #42963768429](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42963768429).
+The Full HD preview is downscaled for viewing; original PNGs are in its
+CI artifact. This does not establish mixed-DPI hardware support.
 
-| Default XWayland frame | Opt-in Luna frame |
+| Default XWayland frame | Optional Luna-colored frame |
 | :---: | :---: |
-| [![Default labwc server-side XWayland window frame](luna-window-default.webp)](luna-window-default.webp) | [![Luna-colored server-side XWayland window frame](luna-window-chrome.webp)](luna-window-chrome.webp) |
+| [![Default labwc server-side XWayland frame](luna-window-default.webp)](luna-window-default.webp) | [![Luna-inspired server-side XWayland frame](luna-window-chrome.webp)](luna-window-chrome.webp) |
 
-[Window-chrome CI #42907311728](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42907311728).
-The frame styling applies to tested server-side decorations, not all
-third-party client-side decorated windows.
+[Window chrome CI #42907311728](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42907311728).
+This only covers tested server-side decorations, not arbitrary client-side
+decorated windows.
 
-## Other Wayland compositions
+## Other experimental Wayland compositions
 
 | Orbit Studio | Heritage Modern |
 | :---: | :---: |
-| [![Native Orbit Studio Wayland desktop](orbit.webp)](orbit.webp) | [![Native Heritage Modern Wayland desktop](heritage.webp)](heritage.webp) |
+| [![Native Orbit Studio composition](orbit.webp)](orbit.webp) | [![Native Heritage Modern composition](heritage.webp)](heritage.webp) |
 
-From [native creator example CI #42625109733](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42625109733).
-Other historical and diagnostic images remain in this folder, but are no
-longer repeated throughout the gallery.
+Source: [creator example CI #42625109733](https://github.com/CopyPasteUser/Ricebowl/actions/runs/42625109733).
 
-## Capture provenance and limitations
+## Settings screenshots and capture limits
 
-Checked-in WebPs are optimized from genuine headless compositor PNGs;
-the linked CI runs retain full-resolution source frames for their artifact
-retention period. Hardware-dependent indicators may read **N/A** in CI.
-These captures do **not** prove physical input, GPU rendering, screen-reader
-support, suspend/resume, or pixel-perfect Windows XP parity.
+The separate GTK3 Control Panel client has genuine Xvfb screenshots in
+[Tests CI #43368674304](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43368674304),
+including luna-control-panel-home.png and luna-control-panel-taskbar.png.
+The keyboard-search version also produced luna-control-panel-search.png in
+[Tests CI #43375407093](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43375407093).
+They are **GTK/Xvfb screenshots, not native labwc compositor captures**.
 
-To capture **your running Wayland session** (requires `grim`), use
-`scripts/capture_wayland_panel.sh /absolute/new-capture.png`.
-The script rejects overwriting existing files. See the
-[native capture workflow](../../.github/workflows/riceplate-native.yml),
-[Wayland engineering progress](../../WAYLAND_PROGRESS.md) and
-[release gates](../../RELEASE_1_0_GATES.md) for the test details.
+Headless CI cannot confirm physical trackpad/keyboard input, real GPU
+rendering, Wayland login, audio/network hardware, suspend/resume,
+accessibility or pixel-perfect XP parity. For a capture of your own running
+Wayland session use the capture script with grim installed:
+
+    scripts/capture_wayland_panel.sh /absolute/new-capture.png
+
+Existing files are never overwritten.
+
+See the [native CI workflow](../../.github/workflows/riceplate-native.yml),
+[engineering progress](../../WAYLAND_PROGRESS.md) and
+[release gates](../../RELEASE_1_0_GATES.md).
