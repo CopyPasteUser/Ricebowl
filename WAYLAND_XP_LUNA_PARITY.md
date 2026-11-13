@@ -6,10 +6,10 @@ Wayland uses upstream labwc plus RicePlate. Original/licensed art only.
 
 | XP behavior | X11/XFCE `winxp` | Native `xp-luna-columns` (current sprint) | Gap |
 | --- | --- | --- | --- |
-| Green Start, cobalt taskbar, active tasks and notifications | XFWM/GTK shell, real tasks/status | Native painted buttons, live toplevels/tray/status | Full device QA and exact chrome |
+| Green Start, cobalt taskbar, active tasks and notifications | XFWM/GTK shell, real tasks/status | Native taskbar, live SNI app icons and overflow, interactive network/audio/battery controls with bounded XP-style context menus | Device QA, configurable quick launch/notification-area policy, exact chrome |
 | Two-column Start, program discovery and search | Installed apps, categories, search, pinned browser/mail | Native All Programs, search, saved actions and app-recents | Pinned browser/mail defaults; category flyout |
 | My Computer, Documents, Pictures, Music | XDG/GVfs-backed locations and X11 Control Panel browser | Gio-backed real locations with safe missing-folder handling | Drive/volume explorer and path breadcrumbs |
-| Control Panel | Dedicated XP category/task UI with applets | **Control Panel** Start link opens real RiceSpice settings | No native XP nine-category presentation |
+| Control Panel | Dedicated XP category/task UI with applets | Native Start link opens XP-inspired category navigation in RiceSpice; deep links reach real audio, network, power, date/time and taskbar pages | More exact XP category/task hierarchy and physical-device QA |
 | Help and Support | GTK Help Center with multiple pages | **Native Help window** for implemented Wayland shortcuts and capabilities | Dedicated interactive XP-style Help Center |
 | Run | X11 Run dialog | **Native bounded Run dialog** using literal argv, no shell | No XDG app-name completion; device keyboard QA pending |
 | Recent programs and Start pins | Private favorites and history | Private persisted XP program recents; validated action pins | Reorderable Start favorites, browser/mail slots |
@@ -18,6 +18,31 @@ Wayland uses upstream labwc plus RicePlate. Original/licensed art only.
 | File manager / Explorer | Styled Thunar with real file operations | Gio opens the registered file manager | RiceField/Explorer structural integration |
 | Window decorations | XFWM Luna borders/buttons | labwc-managed decoration/theme support | Cannot skin all Wayland CSD windows |
 | Display/login/recovery | Existing XFCE/X11 session | Opt-in labwc native preview; package rollback in CI | Physical Mint/ThinkPad sign-off |
+
+## Native XP notification area and Control Panel (November 2026)
+
+The opt-in `xp-luna-columns` panel now retains NetworkManager, WirePlumber,
+power and clock icons alongside the live StatusNotifier (SNI) application tray
+at regular and compact widths where a task slot can fit. SNI icons continue to
+activate their real providers and use provider-owned D-Bus menu actions;
+overflow paging is used if more than three app icons need space. The native
+Network, Volume, Power and Clock indicators open XP-colored, keyboard-navigable
+local menus rather than sending fake SNI events. Actions are capability-gated
+and use the existing bounded, verified system-control workers.
+
+The `ricebowl de settings --luna --page <category>` command opens an
+on-demand XP-themed Control Panel navigation backed by the existing real
+RiceSpice services. Available pages: network, audio, notifications, bluetooth,
+displays, input, accessibility, timezone, power, appearance and taskbar.
+`ricebowl de settings` retains its original presentation; XFCE defaults
+and other rices are untouched. Taskbar settings currently provide real links
+and describe unimplemented options instead of presenting nonfunctional
+checkboxes.
+
+**Open:** XP-style network/audio/power menu interaction and keyboard/AT-SPI
+focus need actual labwc/ThinkPad sign-off. Native pin reordering, show/hide per
+app icon, quick-launch preferences, auto-hide and exact historical artwork
+remain future work; no hardware completion is implied by Rust or Python tests.
 
 ## New native Run/Help design
 
