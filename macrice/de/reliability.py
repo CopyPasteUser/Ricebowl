@@ -147,7 +147,7 @@ def _probe_protocols(*, enabled: bool, env: Mapping[str, str],
         # Parse protocol registry advertisements, not arbitrary titles,
         # error strings or help text that merely mention an interface.
         advertised = set(re.findall(
-            r"""^\\s*interface:\\s*['"]([a-zA-Z0-9_]+)['"]""",
+            r"""^\s*interface:\s*['"]([a-zA-Z0-9_]+)['"]""",
             result.stdout, flags=re.MULTILINE))
         found = set(names) & advertised
         return {"probe": "observed",
