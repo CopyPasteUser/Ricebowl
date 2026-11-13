@@ -61,7 +61,7 @@ fn read_documents(path: &Path) -> std::io::Result<Vec<Document>> {
         };
     let metadata = file.metadata()?;
     if !metadata.is_file() || metadata.uid() != unsafe { libc::geteuid() }
-        || metadata.len() > MAX_XBEL_BYTES {
+        || metadata.mode() & 0o022 != 0 || metadata.len() > MAX_XBEL_BYTES {
         return Ok(Vec::new());
     }
     let mut data = Vec::new();
@@ -184,7 +184,8 @@ fn file_uri(uri: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{os::unix::fs::symlink, time::{SystemTime, UNIX_EPOCH}};
+    use std::{os::unix::fs::{symlink, PermissionsExt},
+              time::{SystemTime, UNIX_EPOCH}};
 
     #[test]
     fn rejects_remote_and_broken_file_uris() {
@@ -216,6 +217,11 @@ mod tests {
         let link = dir.join("recently-used.xbel");
         symlink(&file, &link).unwrap();
         assert!(read_documents(&link).is_err());
+        fs::remove_file(&link).unwrap();
+        fs::write(&link, xbel).unwrap();
+        fs::set_permissions(&link, fs::Permissions::from_mode(0o666)).unwrap();
+        assert!(read_documents(&link).unwrap().is_empty(),
+                "World-writable recent-document sources are untrusted");
         fs::remove_dir_all(dir).unwrap();
     }
 }
