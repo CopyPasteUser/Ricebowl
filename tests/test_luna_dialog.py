@@ -3,7 +3,7 @@
 import unittest
 from unittest import mock
 
-from macrice.luna_dialog import attach_luna_dialog_chrome
+from macrice.luna_dialog import attach_luna_dialog_chrome, uses_native_wayland_decoration
 
 
 class LunaDialogChromeTests(unittest.TestCase):
@@ -33,6 +33,25 @@ class LunaDialogChromeTests(unittest.TestCase):
         close.get_accessible().set_name.assert_called_once_with("Close Run")
         close.connect.call_args.args[1](None)
         dialog.response.assert_called_once_with(gtk.ResponseType.CANCEL)
+
+    def test_native_wayland_delegates_titlebar_entirely_to_window_manager(self):
+        dialog, gtk, gdk = mock.Mock(), mock.Mock(), mock.Mock()
+        body = gtk.Box.return_value
+        gdk.Display.get_default.return_value.get_name.return_value = "wayland-0"
+        self.assertTrue(uses_native_wayland_decoration(gdk))
+        result = attach_luna_dialog_chrome(
+            dialog, gtk, gdk, role="ricebowl-xp-help-center",
+            title="Help and Support Center", close_response=21, resizable=True)
+        self.assertIs(result, body)
+        self.assertIsNone(dialog._luna_caption)
+        dialog.set_decorated.assert_called_once_with(True)
+        gtk.Box.assert_called_once_with(
+            orientation=gtk.Orientation.VERTICAL, spacing=0)
+        gtk.EventBox.assert_not_called()
+        dialog.get_content_area().pack_start.assert_called_once_with(
+            body, True, True, 0)
+        gdk.Display.get_default.return_value.get_name.return_value = ":0"
+        self.assertFalse(uses_native_wayland_decoration(gdk))
 
     def test_help_center_remains_resizable_with_keyboard_draggable_caption(self):
         dialog = mock.Mock()
