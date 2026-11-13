@@ -4,7 +4,7 @@ Section: x11
 Priority: optional
 Architecture: all
 Maintainer: CopyPasteUser
-Depends: python3 (>= 3.12), python3-gi, gir1.2-gtk-3.0, python3-pil
+Depends: python3 (>= 3.12), python3-gi, gir1.2-gtk-3.0, python3-pil, librsvg2-common
 Description: Standalone RiceBowl Wayland application and Creator preview
  Installs the versioned Python Wayland supervisor, RiceSpice, Creator,
  recipes and bundled appearance data under /usr/lib/ricebowl-wayland.

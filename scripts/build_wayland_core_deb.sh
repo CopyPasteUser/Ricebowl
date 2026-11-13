@@ -39,7 +39,7 @@ mkdir -p -- "$stage" "$snapshot"
 git -C "$project_root" archive -o "$work/source.tar" HEAD -- \
     packaging/wayland/core-control packaging/wayland/ricebowl-wayland-app \
     packaging/wayland/ricebowl-wayland-command \
-    launcher.py macrice assets/wallpapers \
+    launcher.py macrice assets/wallpapers assets/icons/RiceHub-Luna-Icons \
     assets/ricebowl-symbolic.svg assets/macrice-symbolic.svg \
     assets/ricehub-symbolic.svg examples/wayland
 tar -xf "$work/source.tar" -C "$snapshot"
@@ -62,7 +62,7 @@ install -D -m 0755 "$snapshot/packaging/wayland/ricebowl-wayland-command" \
 # point to a real tree so recipes, wallpapers and Creator work.
 manifest="$work/tracked-files"
 git -C "$project_root" ls-tree -r -z --name-only HEAD -- \
-    launcher.py macrice assets/wallpapers \
+    launcher.py macrice assets/wallpapers assets/icons/RiceHub-Luna-Icons \
     assets/ricebowl-symbolic.svg assets/macrice-symbolic.svg \
     assets/ricehub-symbolic.svg examples/wayland > "$manifest"
 count=0
