@@ -274,6 +274,18 @@ class WaylandSessionTests(unittest.TestCase):
         with self.assertRaisesRegex(session.SessionError, "owner-only"):
             session.start(environment=self.env, which=self.which, execute=_record_exec)
 
+    def test_symlinked_runtime_is_rejected_before_any_compositor_exec(self):
+        actual = Path(self.runtime.name)
+        alias = actual.parent / (actual.name + "-ricebowl-alias")
+        alias.symlink_to(actual, target_is_directory=True)
+        self.addCleanup(alias.unlink)
+        with mock.patch("macrice.de.session.os.geteuid", return_value=os.geteuid()), \
+             mock.patch("macrice.de.session._custom_labwc_config") as create:
+            with self.assertRaisesRegex(session.SessionError, "owner-only"):
+                session.start(environment={**self.env, "XDG_RUNTIME_DIR": str(alias)},
+                              which=self.which, execute=_record_exec)
+            create.assert_not_called()
+
     @mock.patch("macrice.de.session.os.geteuid", return_value=0)
     def test_no_root_session(self, _uid):
         with self.assertRaisesRegex(session.SessionError, "unprivileged"):
