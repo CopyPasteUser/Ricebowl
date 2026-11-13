@@ -13,9 +13,11 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import time
 from types import SimpleNamespace
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from macrice.de.settings import RiceSpiceWindow, _gtk_modules
 from macrice import luna_help
 
@@ -68,8 +70,6 @@ def main() -> int:
         target = destination / f"luna-labwc-{name}.png"
         if target.exists():
             raise RuntimeError("Refusing to overwrite a native screenshot")
-        if not panel.window.get_mapped():
-            raise RuntimeError("The real GTK Wayland window is not mapped")
         subprocess.run(["grim", str(target)], check=True, timeout=8,
                        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         if target.stat().st_size < 14000:
@@ -77,14 +77,10 @@ def main() -> int:
         pngs.append(target)
 
     def open_help():
-        panel.window.hide()
         help_dialog = luna_help.show_help(shell, Gtk)
         dialogs.append(help_dialog)
 
     def open_properties():
-        help_dialog = shell._luna_help_dialog
-        if help_dialog is not None:
-            help_dialog.hide()
         properties = luna_help.show_system(shell, Gtk)
         dialogs.append(properties)
 
@@ -145,6 +141,8 @@ def main() -> int:
                 if not dialog.get_mapped():
                     raise RuntimeError("Expected system dialog did not map on labwc")
             else:
+                if not panel.window.get_mapped():
+                    raise RuntimeError("Control Panel did not map on labwc")
                 if panel.page != ("category" if name == "category" else
                                   "search" if name == "search" else
                                   "home" if name in ("home", "classic") else name):
