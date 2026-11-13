@@ -36,12 +36,23 @@ fn path(id: &str) -> Option<PathBuf> {
     config.is_absolute().then(|| config.join("ricebowl/native-menu-pins").join(format!("{id}.json")))
 }
 
+/// Desktop identifiers are never file paths or executable strings. A pinned
+/// desktop ID is displayed/activated only if normal XDG discovery currently
+/// contains it; this syntactic check is just the untrusted persistence gate.
+fn desktop_id(id: &str) -> bool {
+    let Some(file) = id.strip_prefix("desktop:") else { return false; };
+    file.len() >= ".desktop".len() + 1 && file.len() <= 160
+        && file.ends_with(".desktop") && file.bytes().all(|byte|
+            byte.is_ascii_alphanumeric() || matches!(byte, b\'.\' | b\'_\' | b\'-\'))
+}
+
 fn valid(id: &str, menu: &NativeMenu, pins: &[String]) -> bool {
     let allowed: HashSet<&str> = menu.groups.iter()
         .flat_map(|group| group.actions.iter().map(String::as_str)).collect();
     let mut seen = HashSet::new();
     pins.len() <= MAX_PINS && pins.iter().all(|pin|
-        allowed.contains(pin.as_str()) && seen.insert(pin.as_str()))
+        (allowed.contains(pin.as_str()) || (id == "xp-luna-columns" && desktop_id(pin)))
+            && seen.insert(pin.as_str()))
         && !id.is_empty() && id.len() <= 32
         && id.as_bytes()[0].is_ascii_lowercase()
         && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
@@ -183,4 +194,22 @@ mod tests {
         assert_eq!(fs::read(victim).unwrap(), b"KEEP");
         fs::remove_dir_all(location.ancestors().nth(3).unwrap()).unwrap();
     }
+    #[test]
+    fn xp_pins_allow_only_bounded_desktop_ids_and_never_paths() {
+        let luna = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap().menu.unwrap();
+        let app = "desktop:org.example.Editor.desktop".to_owned();
+        assert!(valid("xp-luna-columns", &luna, &[app.clone()]));
+        assert!(!valid("mockup-desktop", &menu(), &[app.clone()]));
+        for invalid in ["desktop:../escape.desktop", "desktop:/tmp/code.desktop",
+                        "desktop:bad name.desktop", "desktop:bad;cmd.desktop",
+                        "desktop:..\\code.desktop", "menu-category:games",
+                        "desktop:.desktop"] {
+            assert!(!valid("xp-luna-columns", &luna, &[invalid.into()]), "{invalid}");
+        }
+        assert!(!valid("xp-luna-columns", &luna, &[app.clone(), app.clone()]));
+        assert!(!valid("xp-luna-columns", &luna, &vec![app; MAX_PINS + 1]));
+    }
+
 }
