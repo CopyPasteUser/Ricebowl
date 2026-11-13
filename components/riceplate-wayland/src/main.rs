@@ -2574,10 +2574,17 @@ impl RicePlate {
         self.active_menu = Some(surface.clone());
         for layer in self.menu_layer.iter().chain(self.menu_mirrors.iter()) {
             let active = layer.surface.wl_surface() == &surface;
-            layer.surface.set_keyboard_interactivity(if active {
-                KeyboardInteractivity::OnDemand
-            } else {
+            layer.surface.set_keyboard_interactivity(if !active {
                 KeyboardInteractivity::None
+            } else if self.recipe.id == "xp-luna-columns" {
+                // labwc 0.7.x does not reliably transfer keyboard focus to
+                // an OnDemand layer-shell menu after pointer navigation.
+                // A visible Start menu is modal: capture keys only while open
+                // so Escape/arrow navigation reaches its real Wayland surface.
+                // set_menu_visible(false) restores None before hiding it.
+                KeyboardInteractivity::Exclusive
+            } else {
+                KeyboardInteractivity::OnDemand
             });
             layer.surface.set_margin(
                 if self.recipe.top { self.recipe.height as i32 } else { 0 },
