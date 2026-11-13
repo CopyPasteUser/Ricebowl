@@ -96,3 +96,15 @@ applications is claimed.
 - This is **not** file URI clipboard transfer, Wayland DnD or native bulk copy;
   those are separate protocol integrations and remain delegated to RiceField.
   No new global MIME associations or data-destructive actions are added.
+
+### Rename path anchoring
+
+Renames on Linux now open the verified Desktop directory with
+`O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC` and use a directory-relative
+`renameat2(RENAME_NOREPLACE)` after comparing directory and source
+device/inode metadata. A replaced Desktop path cannot redirect the operation
+to another directory. The kernel does not provide atomic
+compare-source-inode-and-rename, so a same-UID process racing a single
+source basename between `fstatat` and `renameat2` remains a known limitation.
+The regression fixture explicitly replaces the Desktop root with a symlink and
+verifies unrelated files are untouched.

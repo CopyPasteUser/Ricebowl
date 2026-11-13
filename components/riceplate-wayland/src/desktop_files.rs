@@ -233,21 +233,13 @@ impl Model {
         // SAFETY: libc::open returned an owned directory descriptor.
         let dir = unsafe { OwnedFd::from_raw_fd(raw) };
 
-        let stat_of = |name: &CString, flags: libc::c_int| -> io::Result<libc::stat> {
-            let mut result = std::mem::MaybeUninit::<libc::stat>::uninit();
-            let code = unsafe {
-                if flags == -1 {
-                    libc::fstat(dir.as_raw_fd(), result.as_mut_ptr())
-                } else {
-                    libc::fstatat(dir.as_raw_fd(), name.as_ptr(), result.as_mut_ptr(), flags)
-                }
-            };
-            if code != 0 { return Err(io::Error::last_os_error()); }
-            Ok(unsafe { result.assume_init() })
-        };
-        let opened = stat_of(&path, -1)?;
-        if opened.st_dev as u64 != root_meta.dev()
-            || opened.st_ino as u64 != root_meta.ino()
+        let mut opened = std::mem::MaybeUninit::<libc::stat>::uninit();
+        if unsafe { libc::fstat(dir.as_raw_fd(), opened.as_mut_ptr()) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let opened = unsafe { opened.assume_init() };
+        if opened.st_dev != root_meta.dev()
+            || opened.st_ino != root_meta.ino()
             || root_meta.uid() != unsafe { libc::geteuid() } {
             return Err(io::Error::new(io::ErrorKind::PermissionDenied,
                 "Desktop directory was replaced"));
@@ -256,9 +248,16 @@ impl Model {
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid source name"))?;
         let to = CString::new(bytes)
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid destination name"))?;
-        let current = stat_of(&from, libc::AT_SYMLINK_NOFOLLOW)?;
-        if current.st_dev as u64 != entry.device
-            || current.st_ino as u64 != entry.inode
+        let mut current = std::mem::MaybeUninit::<libc::stat>::uninit();
+        if unsafe {
+            libc::fstatat(dir.as_raw_fd(), from.as_ptr(), current.as_mut_ptr(),
+                          libc::AT_SYMLINK_NOFOLLOW)
+        } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let current = unsafe { current.assume_init() };
+        if current.st_dev != entry.device
+            || current.st_ino != entry.inode
             || (current.st_mode & libc::S_IFMT) == libc::S_IFLNK {
             return Err(io::Error::new(io::ErrorKind::PermissionDenied,
                 "Desktop source was replaced"));
@@ -392,6 +391,29 @@ mod tests {
         assert!(model.trash_command(0).is_err());
         assert_eq!(fs::read(path).unwrap(), b"replacement");
         fs::remove_dir_all(root).unwrap();
+    }
+
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn rename_never_enters_replaced_desktop_root() {
+        let root = temp();
+        let unrelated = temp();
+        fs::write(root.join("file"), b"original").unwrap();
+        fs::write(unrelated.join("file"), b"do not touch").unwrap();
+        let mut model = Model {
+            root: Some(root.clone()),
+            entries: scan_at(&root).unwrap(),
+        };
+        let moved = root.with_extension("moved");
+        fs::rename(&root, &moved).unwrap();
+        std::os::unix::fs::symlink(&unrelated, &root).unwrap();
+        assert!(model.rename(0, OsStr::new("renamed")).is_err());
+        assert!(!unrelated.join("renamed").exists());
+        assert_eq!(fs::read(unrelated.join("file")).unwrap(), b"do not touch");
+        fs::remove_file(root).unwrap();
+        fs::remove_dir_all(moved).unwrap();
+        fs::remove_dir_all(unrelated).unwrap();
     }
 
     #[test]
