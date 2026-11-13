@@ -35,7 +35,9 @@ does not switch your login session to Wayland.
 
 Both screenshots come from real automated desktop sessions, **not mockups**.
 The Wayland image is a headless compositor capture, not evidence of a finished
-or hardware-approved desktop.
+or hardware-approved desktop. The [eight-view native Wayland gallery](screenshots/wayland/README.md)
+also shows **All Programs, the calendar, shortcut context menus, Properties,
+Help and Run**, with source commit and CI provenance.
 
 ## XFCE/X11 · use it now
 
