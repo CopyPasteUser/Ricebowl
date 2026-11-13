@@ -97,6 +97,23 @@ class CreatorRuntimeParityTests(unittest.TestCase):
             self.assertEqual(report["python_validation"], "passed")
             self.assertEqual(report["output_cases"][0]["panel_mode"], "wide")
 
+    def test_declarative_shortcut_widget_overlap_is_a_review_warning(self):
+        payload = json.loads(DEMOS[0].read_text())
+        payload["composition"]["widgets"][0]["x"] = payload["desktop"]["icons"][0]["x"]
+        payload["composition"]["widgets"][0]["y"] = payload["desktop"]["icons"][0]["y"]
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "overlapping.json"
+            source.write_text(json.dumps(payload))
+            source.chmod(0o600)
+            report = parity.describe(str(source))
+            warning = next(
+                item for item in report["output_cases"][2]["declared_geometry_warnings"]
+                if item["code"] == "declared-element-overlap"
+            )
+        self.assertEqual(warning["path"], "/desktop/icons/0")
+        self.assertEqual(warning["other_path"], "/composition/widgets/0")
+        self.assertEqual(report["native_render_execution"], "not_performed")
+
     def test_script_injection_cannot_reach_parity_inventory(self):
         raw = json.loads(DEMOS[0].read_text())
         raw["panel"]["layout"]["end"][0] = {
