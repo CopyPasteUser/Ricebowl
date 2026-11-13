@@ -189,8 +189,8 @@ class ReadOnlySessionReliabilityTests(unittest.TestCase):
 class ResourceMeasurementTests(unittest.TestCase):
     def test_cpu_pss_context_switch_and_kernel_wakeup_accounting(self):
         observed = iter([
-            (sample(cpu=150, rss=3000, pss=1100, switches=12, wakeups=22),),
-            (sample(cpu=200, rss=3200, pss=1200, switches=27, wakeups=32),),
+            (sample(role="native-panel", cpu=150, rss=3000, pss=1100, switches=12, wakeups=22),),
+            (sample(role="native-panel", cpu=200, rss=3200, pss=1200, switches=27, wakeups=32),),
         ])
         times = iter([0.0, 2.0])
         results = measure("native", seconds=2, reader=lambda: next(observed),
@@ -205,8 +205,42 @@ class ResourceMeasurementTests(unittest.TestCase):
         self.assertEqual(results["pss_kib"], 1200)
         self.assertEqual(results["rss_kib"], 3200)
         self.assertTrue(results["profile_matches"])
+        self.assertTrue(results["process_role_verified"])
         self.assertFalse(results["hardware_accepted"])
         self.assertIsNone(results["cold_login_to_ready_ms"])
+
+    def test_native_label_does_not_accept_waybar_rescue_or_ambiguous_panels(self):
+        env = {"XDG_SESSION_TYPE": "wayland",
+               "RICEBOWL_DE_SHELL_CHILD": "1",
+               "RICEBOWL_DE_PANEL": "native"}
+        for records in [
+            (sample(pid=41, role="fallback-panel"),),
+            (sample(pid=41, role="native-panel"),
+             sample(pid=42, role="fallback-panel")),
+        ]:
+            with self.subTest(roles=[item.role for item in records]):
+                result = measure(
+                    "native", seconds=1, reader=lambda: records,
+                    sleep=lambda _: None, clock=iter([0., 1.]).__next__,
+                    ticks_per_second=100, environment=env)
+                self.assertEqual(result["profile_observed"], "native")
+                self.assertFalse(result["process_role_verified"])
+                self.assertFalse(result["profile_matches"])
+                self.assertFalse(result["hardware_accepted"])
+
+    def test_profile_role_must_survive_both_samples(self):
+        records = iter([
+            (sample(pid=41, role="native-panel"),),
+            (sample(pid=42, role="fallback-panel"),),
+        ])
+        result = measure(
+            "native", seconds=1, reader=lambda: next(records),
+            sleep=lambda _: None, clock=iter([0., 1.]).__next__,
+            ticks_per_second=100, environment={
+                "XDG_SESSION_TYPE": "wayland",
+                "RICEBOWL_DE_SHELL_CHILD": "1", "RICEBOWL_DE_PANEL": "native"})
+        self.assertFalse(result["profile_matches"])
+        self.assertTrue(result["process_restart_or_exit_detected"])
 
     def test_missing_kernel_wakeups_and_pid_reuse_are_not_fake_zero(self):
         observed = iter([

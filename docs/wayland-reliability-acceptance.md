@@ -55,6 +55,10 @@ Critical contracts:
   treating those integrations as prerequisites for login.
 - An unreachable or timed-out D-Bus Ping is reported separately from an
   undeclared bus; neither state triggers automatic restarts.
+- The requested native/Waybar backend must be observed in both resource
+  samples without a competing panel process; a post-crash Waybar rescue
+  cannot be silently reported as an accepted native profile. This still
+  does not establish exclusive session ownership.
 - Process counts cover only **same-UID kernel process names**. Without
   session-specific cgroup membership they can contain another session's
   processes. An absent entry does not prove an optional service crashed.

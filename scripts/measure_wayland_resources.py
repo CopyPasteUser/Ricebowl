@@ -53,13 +53,17 @@ def measure(profile: str, *, seconds: float = 10.0,
     if ticks <= 0:
         raise ValueError("Kernel clock resolution is invalid")
     env = os.environ if environment is None else environment
-    first = { (p.pid, p.start_ticks): p for p in reader() if p.role in PROFILES[profile] }
+    first_seen = reader()
+    first = {(p.pid, p.start_ticks): p for p in first_seen
+             if p.role in PROFILES[profile]}
     begin = clock()
     sleep(seconds)
     elapsed = clock() - begin
     if elapsed <= 0:
         raise ValueError("Nonpositive sample duration")
-    last = { (p.pid, p.start_ticks): p for p in reader() if p.role in PROFILES[profile] }
+    last_seen = reader()
+    last = {(p.pid, p.start_ticks): p for p in last_seen
+            if p.role in PROFILES[profile]}
     matched = set(first) & set(last)
     cpu = sum(max(0, last[key].cpu_ticks - first[key].cpu_ticks) for key in matched)
     switches = _total([last[key].switches - first[key].switches
@@ -70,9 +74,27 @@ def measure(profile: str, *, seconds: float = 10.0,
                       else None for key in matched])
     current = list(last.values())
     actual = actual_profile(env)
+    before_roles = {p.role for p in first_seen}
+    after_roles = {p.role for p in last_seen}
+    # Startup's RICEBOWL_DE_PANEL marks the originally requested backend;
+    # it is not updated when the native shell crashes into Waybar rescue.
+    # A valid comparison must observe the intended panel at *both* samples,
+    # with no competing panel. This is still process-name evidence only,
+    # never proof of session ownership or physical hardware acceptance.
+    expected_role = {
+        "native": "native-panel", "waybar": "fallback-panel",
+        "xfce": "xfce-session",
+    }[profile]
+    other_role = "fallback-panel" if profile == "native" else (
+        "native-panel" if profile == "waybar" else None)
+    process_role_verified = (
+        expected_role in before_roles and expected_role in after_roles
+        and (other_role is None or (other_role not in before_roles
+                                    and other_role not in after_roles)))
     return {
         "schema_version": 1, "profile_requested": profile, "profile_observed": actual,
-        "profile_matches": actual == profile, "read_only": True,
+        "profile_matches": actual == profile and process_role_verified,
+        "process_role_verified": process_role_verified, "read_only": True,
         "hardware_accepted": False, "idle_confirmed": False,
         "cold_login_to_ready_ms": None,
         "elapsed_s": round(elapsed, 3),
@@ -89,6 +111,7 @@ def measure(profile: str, *, seconds: float = 10.0,
         "notes": [
             "Kernel wakeups only when /proc/PID/sched exports nr_wakeups; "
             "context switches are not wakeups",
+            "Requested panel must be observed in both samples, without competing panel",
             "A per-user process-name sample cannot prove session membership",
             "Cold greeter-to-ready timing and idle status require manual on-device observation",
             "Compare three separately captured profiles on identical hardware and workload",
