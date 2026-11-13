@@ -4949,12 +4949,12 @@ fn paint_luna_dialog(canvas: &mut [u8], style: &PanelStyle, state: &luna_dialog:
         }
         luna_dialog::Kind::Help => {
             for (line, text) in [
-                "Start menu: All Programs lists installed apps.",
-                "Find searches real desktop entries and actions.",
-                "F2 pins an action; F3 opens Saved.",
-                "Double-click a shortcut to open it.",
-                "Right-click a shortcut for display options.",
-                "Run starts typed commands without a shell.",
+                "Start: All Programs lists installed apps.",
+                "Start Find searches apps; Run uses no shell.",
+                "Inside Start: F2 pins; F3 opens Saved.",
+                "On taskbar: F3 finds desktop shortcuts.",
+                "Type a name; Enter opens, Esc cancels.",
+                "Double-click opens; right-click has options.",
             ].iter().enumerate() {
                 draw_rice_text(canvas, w, h, 23, 54 + line as u32 * 22,
                                text, 0xff17_315c, style);
