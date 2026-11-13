@@ -169,6 +169,40 @@ at 1024×768, 1366×768, 1920×1080 and 125% output scale. Visual correctness on
 headless pixman is *not* a physical Mint/ThinkPad 1:1 XP acceptance, and this
 pass does not claim an original Microsoft theme.
 
+## Sprint 3 – Visuelle Fidelity 2.0 (13 November 2026)
+
+This sprint targets the **native labwc + RicePlate XP Luna Columns** rice only.
+Its goal is clearer, more consistent XP-era UI art, not a pixel-exact claim
+about proprietary Windows assets.
+
+- **Typography:** native proportional glyph advances center the Start label,
+  12/24-hour clock and desktop shortcut captions correctly. Long real window
+  titles and XDG menu actions use bounded, Unicode-safe ellipsis truncation
+  against their drawing rectangles instead of assuming eight pixels per glyph.
+- **Desktop labels:** unfocused shortcuts now float directly above the wallpaper
+  with a dark text shadow rather than permanently opaque label pills. Only
+  focused icons keep the blue highlight; icon surfaces and focus input stay
+  the same.
+- **Menu symbols:** Programs and Control Panel now have distinct folder/gear
+  glyphs; Lock and Log off have distinct lock/door-arrow glyphs. The artwork is
+  original raster drawing without a system icon-theme dependency.
+- **Window chrome:** private, opt-in labwc server-side Luna chrome receives a
+  brighter active cobalt gradient and muted inactive steel-blue frame. The
+  tested border width and 26-pixel titlebar buttons remain unchanged.
+- **Regression protection:** Rust checks exercise font-width and menu-icon
+  pixels. Python checks verify the private theme and non-Luna isolation.
+
+**Unchanged:** recipe schema, native menu logical 320×304 hitboxes, pointer
+inverse mapping at 400×380/480×456, X11/XFCE, global labwc theme, session
+commands, unrelated recipes or desktop icon hit regions.
+
+**Acceptance gate:** passing Tests and Native RicePlate prototype workflows
+on the exact sprint head, plus a genuine headless labwc screenshot. A capture
+from an unmerged revision must never be described as a current-main capture.
+
+Physical hardware input, client-side GTK/Qt titlebar styling and the separate
+labwc keyboard-focus issue are not resolved by this visual sprint.
+
 ## XP Luna Desktop/Taskbar functional Sprint 1 (13 November 2026)
 
 Opt-in `xp-luna-columns` now has three genuine compact Quick Launch buttons:

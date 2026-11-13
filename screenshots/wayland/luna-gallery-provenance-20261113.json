@@ -1,5 +1,5 @@
 {
-  "ci_run": 43368674306,
+  "ci_run": 43384733571,
   "environment": {
     "backend": "headless",
     "compositor": "labwc",
@@ -9,93 +9,104 @@
   "images": [
     {
       "preview": "luna-desktop-20261113.webp",
-      "preview_sha256": "1eaab9c0df88b9c752ea447ae2b1baba7c5c2cc9b32c55ef96784cfef2fe40d0",
+      "preview_sha256": "1f3e05263ead213312c1a5a73ae058ce13c1ade99d82f7edff29ca9e52eaa982",
       "size": [
         1366,
         768
       ],
       "source": "xp-luna-columns-1366x768.png",
       "source_manifest_verified": true,
-      "source_sha256": "e7c9cd5cd04adf6e4406fabd19c8579c3a0790ea070314dfab5cb988eb3ec727"
+      "source_sha256": "c9f8bfca070e9f7fa5d312418a4607ce7632dff289ef0cc4e55f0babde046fa2"
     },
     {
       "preview": "luna-start-20261113.webp",
-      "preview_sha256": "0c3fce10d83fbdcfb91b07de67047d3aa26d6ac9eb0f7a58aacb3c54c1b278e7",
+      "preview_sha256": "90b16c545aaa8d5cc030782413b1490bf5bf778f42852c23af67d47792b6ea11",
       "size": [
         1366,
         768
       ],
       "source": "xp-luna-parity-start.png",
       "source_manifest_verified": false,
-      "source_sha256": "097d2a14d604f8c1b0ecf90e67f0976a04bb90d006f7319f9a782dad5e2c29d2"
+      "source_sha256": "987b519172596ce296b8553e3cdb2c2e1a14721fefc3b2c38fa3e69318a837f6"
     },
     {
       "preview": "luna-help-20261113.webp",
-      "preview_sha256": "f21d05e3f7fa4360b885702d7b1daaa9310f7d502234b6f667cbe2d82e72e637",
+      "preview_sha256": "40fecf1547f6067b1cfb3965b77feeded43e56bd8b1070d322e72a30db6555cd",
       "size": [
         1366,
         768
       ],
       "source": "xp-luna-parity-help.png",
       "source_manifest_verified": false,
-      "source_sha256": "ad1d6f7e9a94be3b6775e3be40210ea2fb64ae18d85060c06f97d3c69c4f1215"
+      "source_sha256": "3afebef0e5c51d2950f89662fe5c13646a38434f2873475a189d1be3cfbf3063"
     },
     {
       "preview": "luna-run-20261113.webp",
-      "preview_sha256": "f048815e9c0df3bf78998bb53c61edab6302d0251271e6478d86c0dcb46642c7",
+      "preview_sha256": "6ccfba7e2d92a5b16c94d728a3475b7d5f8c0fc468368b8b0c8e1db8477fe97b",
       "size": [
         1366,
         768
       ],
       "source": "xp-luna-parity-run-typed.png",
       "source_manifest_verified": false,
-      "source_sha256": "1081e4c5076d03530fe5f737857aafd51732679b54b98b3b8a5123231e8fb950"
+      "source_sha256": "d55cbd1e6e82343feb918140138bc73300e023cc355ab9774d5031e40bff55dd"
     },
     {
       "preview": "luna-context-20261113.webp",
-      "preview_sha256": "1adbfac121ed2a2d181026ec98c44164b0535b30083c92a3d2aadd792d5e8591",
+      "preview_sha256": "7c3a98f30ddb71a3a381dff976653cf381c0473a92ea87f663e8d568d9c12a66",
       "size": [
         1366,
         768
       ],
       "source": "xp-luna-shortcut-context.png",
       "source_manifest_verified": false,
-      "source_sha256": "81f9c8b5c03489d3016e99e51e46ab77af8f5abe9b404f7ab3a0c7b2b7e04084"
+      "source_sha256": "e8a27e4b352051e6c35d7b1753f76dad919648803173e95ac4db60128206500f"
     },
     {
       "preview": "luna-properties-20261113.webp",
-      "preview_sha256": "470f8909643c8f0bd4f677831403e4daa13979baa8be8762c38c006e5003cf03",
+      "preview_sha256": "fa7c417af39142a82d70a2d866532c3fbea992647f554d40083c5084bfe4bd97",
       "size": [
         1366,
         768
       ],
       "source": "xp-luna-shortcut-properties.png",
       "source_manifest_verified": false,
-      "source_sha256": "3dccc7ca88ffb5ed18a6b2389c21f7b31c51ac2f2c4cea69ae183b84f0a29e50"
+      "source_sha256": "01d5fb7c4248cc30bca723dd81b90c3f2e9818ccf5463dd3b3b7561d677bcbc2"
     },
     {
       "preview": "luna-calendar-20261113.webp",
-      "preview_sha256": "ca8d92694b5a1ead7e134e32d28a9d783b0b9965b801ff7415f4e496d3958ec7",
+      "preview_sha256": "18fee132969a945aa22769e60b5af941961aff498ac51d40c04474cc5165313c",
       "size": [
         1366,
         768
       ],
       "source": "xp-luna-columns-calendar.png",
       "source_manifest_verified": true,
-      "source_sha256": "e14dc1e19305e1f943645fe3d102932adedd42925dff447c8c598878b7dc0d71"
+      "source_sha256": "da3d68d383e8bef878c34805a81eceb18dfcfad3cda3b612770f9723694d263d"
     },
     {
       "preview": "luna-all-programs-20261113.webp",
-      "preview_sha256": "30284bf04f0e7c35adc71a3b245804c413203bc590c6ab4aebf0a4fceaf649d0",
+      "preview_sha256": "2da33ca5c20c4462ebed8ece7acc73af3925f016c8de826934390742dbc6910a",
       "size": [
         1024,
         768
       ],
       "source": "xp-luna-pointer-programs-1024x768.png",
       "source_manifest_verified": false,
-      "source_sha256": "189393a969a27ff2c140a2b44e5869b19ce5c13b33e1c5957a887d113b513f9a"
+      "source_sha256": "9faa77b8fa57a79e0bf29396ffc14394849febe2c92b84353e05db6c8732dac0"
+    },
+    {
+      "preview": "luna-titlebar-20261113.webp",
+      "preview_sha256": "0fcec5154f2c8b84c01a1c2d37ff6ec01b5ce9210ca74dc64adcbd0f272ecbbe",
+      "size": [
+        1366,
+        768
+      ],
+      "source": "xp-luna-window-chrome.png",
+      "source_manifest_verified": false,
+      "source_sha256": "736395965172bdbe206bc904adf903f419eb2df3698e5c877c4698cd2e85bf6e"
     }
   ],
   "source": "Native RicePlate CI: genuine headless labwc/grim compositor PNG",
-  "source_commit": "bdbae75b4c3fbc1c721fed4c20a231c227ef0a54"
+  "source_commit": "2d5ba729cf24fe0a9d5d05177325acd9bb215a60"
 }

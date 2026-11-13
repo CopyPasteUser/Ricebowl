@@ -8,12 +8,19 @@ They were recorded in an isolated headless compositor with a pixman renderer
 and virtual input. They show the experimental Wayland desktop, **not**
 physical-hardware acceptance or completed Windows XP fidelity.
 
-## XP Luna · verified screenshot gallery (13 November 2026)
+## XP Luna · Sprint 3: Visuelle Fidelity 2.0 (13 November 2026)
 
-Source: successful [Native RicePlate CI run #43368674306](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43368674306),
-on the then-current **main** commit
-[bdbae75](https://github.com/CopyPasteUser/Ricebowl/commit/bdbae75b4c3fbc1c721fed4c20a231c227ef0a54).
-Each preview links to the full-size checked-in WebP.
+Source: successful [Native RicePlate CI run #43384733571](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43384733571),
+on verified commit
+[2d5ba729](https://github.com/CopyPasteUser/Ricebowl/commit/2d5ba729cf24fe0a9d5d05177325acd9bb215a60),
+the code under review in [Sprint 3 PR #338](https://github.com/CopyPasteUser/Ricebowl/pull/338).
+The matching [Tests #43384739750](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43384739750)
+and [Wayland session preview #43384739847](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43384739847)
+also passed. Each preview links to its checked-in WebP.
+
+The updated set highlights the unselected desktop icon label shadow, the
+native two-column Start menu and more faithful labwc titlebar. All captures
+are real compositor output; no generated/mock screenshot is mixed in.
 
 | Desktop and taskbar | Two-column Start menu |
 | :---: | :---: |
@@ -31,18 +38,21 @@ Each preview links to the full-size checked-in WebP.
 | :---: | :---: |
 | [![Native XP-inspired Help and Support dialog](luna-help-20261113.webp)](luna-help-20261113.webp) | [![Run dialog with text entered through a virtual Wayland keyboard](luna-run-20261113.webp)](luna-run-20261113.webp) |
 
-The [provenance record](luna-gallery-provenance-20261113.json) pins each
-original PNG filename, source commit, CI run, framebuffer dimensions,
-SHA-256 of the source and SHA-256 of the published WebP. All eight previews
-come from [the verified-artifact importer](../../scripts/import_native_wayland_gallery.py).
-No desktop elements are added or painted after capture. Six established WebP
-URLs are retained; All Programs and calendar are new entries.
+| XP Luna 2.0 · actual labwc window titlebar |
+| :---: |
+| [![Actual labwc XWayland test client with XP Luna 2.0 cobalt titlebar and preserved window-button geometry](luna-titlebar-20261113.webp)](luna-titlebar-20261113.webp) |
 
-**More recent, unmerged fidelity work:** [XP Luna PR #335](https://github.com/CopyPasteUser/Ricebowl/pull/335)
-has separate, genuine captures in [successful CI candidate #43377726436](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43377726436)
-on commit 0d85613a. Full-resolution PNGs are available from the
-riceplate-native-preview artifact of that run. These unfinished visuals are
-**not silently mixed** into the main-branch gallery.
+The [provenance record](luna-gallery-provenance-20261113.json) pins every
+original PNG filename, exact source commit, CI run, framebuffer dimensions,
+SHA-256 of the source and SHA-256 of the published WebP. All nine previews
+come from [the verified-artifact importer](../../scripts/import_native_wayland_gallery.py).
+No desktop element was added or painted after capture. Existing WebP
+URLs were retained and the titlebar view is new.
+
+The earlier [first fidelity pass PR #335](https://github.com/CopyPasteUser/Ricebowl/pull/335)
+has already been merged; Sprint 3 continues that work in native RicePlate.
+These images show the verified Sprint 3 source commit, **not** hardware QA.
+
 
 ## Native input interactions
 

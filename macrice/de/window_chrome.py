@@ -20,6 +20,32 @@ def labwc_chrome(recipe: PanelRecipe) -> str | None:
     if recipe.menu_presentation != "columns" or palette is None:
         return None
     active_bg, foreground, active_border = recipe.colors
+    if recipe.recipe_id == "xp-luna-columns":
+        # XP Luna Fidelity 2.0: a brighter top-lit royal-blue titlebar,
+        # deeper inactive steel-blue frame and high-contrast title text.
+        # Only documented labwc themerc keys; never touches ~/.config/labwc.
+        # Keep 26px window-button targets and 2px border to preserve the
+        # existing functional hit areas and compositor smoke expectations.
+        return ("# RiceBowl XP Luna 2.0: private server-side labwc chrome.\n"
+                "border.width: 2\n"
+                "window.titlebar.padding.width: 3\n"
+                "window.titlebar.padding.height: 2\n"
+                "window.active.title.bg: Gradient Vertical\n"
+                "window.active.title.bg.color: #4b9bed\n"
+                "window.active.title.bg.colorTo: #17438f\n"
+                "window.inactive.title.bg: Gradient Vertical\n"
+                "window.inactive.title.bg.color: #b5c8e6\n"
+                "window.inactive.title.bg.colorTo: #7d98c3\n"
+                "window.active.border.color: #0a3278\n"
+                "window.inactive.border.color: #829dc7\n"
+                f"window.active.label.text.color: {palette.header_foreground}\n"
+                f"window.inactive.label.text.color: {palette.foreground}\n"
+                "window.label.text.justify: Left\n"
+                "window.button.width: 26\n"
+                "window.button.height: 26\n"
+                "window.button.spacing: 2\n"
+                f"window.active.button.unpressed.image.color: {foreground}\n"
+                f"window.inactive.button.unpressed.image.color: {palette.foreground}\n")
     return ("# RiceBowl private labwc chrome: recipe palette; no system theme writes.\n"
             "border.width: 2\n"
             "window.titlebar.padding.width: 3\n"

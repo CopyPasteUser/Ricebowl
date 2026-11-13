@@ -70,8 +70,8 @@ class WaylandSessionTests(unittest.TestCase):
         self.assertEqual(override.stat().st_mode & 0o777, 0o600)
         text = override.read_text(encoding="utf-8")
         self.assertIn("window.active.title.bg: Gradient Vertical", text)
-        self.assertIn("window.active.title.bg.color: #1654b5", text)
-        self.assertIn("window.active.border.color: #17469b", text)
+        self.assertIn("window.active.title.bg.color: #4b9bed", text)
+        self.assertIn("window.active.border.color: #0a3278", text)
         self.assertTrue((directory / ".ricebowl-managed").is_file())
         classic = session._custom_labwc_config(None, self.runtime.name)
         self.addCleanup(session._cleanup_labwc_config,
