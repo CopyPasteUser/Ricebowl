@@ -5726,6 +5726,11 @@ impl KeyboardHandler for RicePlate {
             menu.surface.wl_surface() == surface);
         self.menu_focused = self.menu_state.visible
             && self.active_menu.as_ref() == Some(surface);
+        if self.recipe.id == "xp-luna-columns"
+            && std::env::var_os("RICEBOWL_DE_TRACE_MENU").is_some() {
+            eprintln!("RicePlate: luna keyboard enter menu={} panel={}",
+                      self.menu_focused, self.panel_geometry(surface).is_some());
+        }
         self.calendar_focused = self.calendar_state.visible
             && self.active_calendar.as_ref() == Some(surface);
         self.tray_popup_focused = self.tray_popup_open()
@@ -5834,6 +5839,14 @@ impl KeyboardHandler for RicePlate {
         _: u32,
         event: KeyEvent,
     ) {
+        if self.recipe.id == "xp-luna-columns"
+            && self.menu_state.visible && event.keysym == Keysym::Escape
+            && std::env::var_os("RICEBOWL_DE_TRACE_MENU").is_some() {
+            eprintln!("RicePlate: luna Escape received focused={} panel={} dialog={} icon={} category={}",
+                self.menu_focused, self.focused_panel.is_some(),
+                self.luna_dialog_focused, self.keyboard_icon_surface.is_some(),
+                self.menu_state.program_category.is_some());
+        }
         if self.luna_dialog_focused {
             let mut execute = false;
             let mut repaint = false;
