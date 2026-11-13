@@ -286,6 +286,23 @@ pub fn task_button_visual(
     }
 }
 
+/// Highlight minimized groups without inventing a task or altering its hit
+/// region. Other rices retain byte-identical rendering.
+pub fn task_button_state_visual(
+    canvas: &mut [u8], width: u32, height: u32,
+    x: u32, span: u32, active: bool, minimized: bool,
+    style: &PanelStyle, visual: ButtonVisual,
+) {
+    task_button_visual(canvas, width, height, x, span, active, style, visual);
+    if style.id == "xp-luna-columns" && minimized && !active
+        && span >= 20 && height >= 18 {
+        // Muted lower inset distinguishes a minimized task from a window
+        // simply behind another window; keep hover/pressed state intact.
+        fill_rect(canvas, width, height, x + 7, height - 9,
+                  span.saturating_sub(16), 1, 0xff98_b2d8);
+    }
+}
+
 /// Original 16px tray art for the Luna recipe. The native widget keeps its
 /// existing pointer and accessible status value; only the painted pixels are
 /// changed. Other rices keep their plain, informative status text.
@@ -518,6 +535,32 @@ mod tests {
         let mut tiny = vec![0_u8; 8 * 8 * 4];
         tray_overflow_chevron(&mut tiny, 8, 8, 0);
         assert!(tiny.iter().all(|&value| value == 0));
+    }
+
+    #[test]
+    fn minimized_luna_tasks_have_distinct_pixels_without_other_rice_regression() {
+        let style = luna();
+        let mut normal = vec![0; (300 * 40 * 4) as usize];
+        task_button_state_visual(&mut normal, 300, 40, 10, 125,
+                                 false, false, &style, ButtonVisual::Normal);
+        let mut minimized = vec![0; normal.len()];
+        task_button_state_visual(&mut minimized, 300, 40, 10, 125,
+                                 false, true, &style, ButtonVisual::Normal);
+        assert_ne!(normal, minimized);
+        assert_eq!(px(&minimized, 300, 17, 31), 0xff98_b2d8);
+        let mut hovered = vec![0; normal.len()];
+        task_button_state_visual(&mut hovered, 300, 40, 10, 125,
+                                 false, true, &style, ButtonVisual::Hovered);
+        assert_ne!(hovered, minimized);
+        let mut legacy = crate::recipe::load("classic").unwrap();
+        legacy.launcher = style.launcher;
+        let mut a = vec![0; normal.len()];
+        let mut b = vec![0; normal.len()];
+        task_button_state_visual(&mut a, 300, 40, 10, 125,
+                                 false, false, &legacy, ButtonVisual::Hovered);
+        task_button_state_visual(&mut b, 300, 40, 10, 125,
+                                 false, true, &legacy, ButtonVisual::Hovered);
+        assert_eq!(a, b);
     }
 
     #[test]
