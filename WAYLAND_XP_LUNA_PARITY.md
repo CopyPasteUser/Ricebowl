@@ -14,10 +14,32 @@ Wayland uses upstream labwc plus RicePlate. Original/licensed art only.
 | Run | X11 Run dialog | **Native bounded Run dialog** using literal argv, no shell, with Unicode-safe caret editing (Left/Right/Home/End/Backspace/Delete) and proportional-font-aware horizontal input scrolling | No XDG app-name completion, IME integration or device keyboard QA |
 | Recent programs and Start pins | Private favorites and history | Private persisted XP program recents; validated action pins | Reorderable Start favorites, browser/mail slots |
 | Recent documents | Actual recent-file submenu | Not implemented | Recent-file provenance/privacy and file opener |
-| Desktop | XFCE-managed desktop with shortcuts | Seven native originals, double-click, draggable positions and shortcut context | Desktop background context, properties, multi-select |
+| Desktop | XFCE-managed desktop with shortcuts | Seven native shortcuts, multi-selection, drag/keyboard moves and context actions; **experimental** taskbar F3 type-to-select for labwc | Desktop background context and direct Bottom-layer keyboard focus; physical-device QA |
 | File manager / Explorer | Styled Thunar with real file operations | Gio opens the registered file manager | RiceField/Explorer structural integration |
 | Window decorations | XFWM Luna borders/buttons | labwc-managed decoration/theme support | Cannot skin all Wayland CSD windows |
 | Display/login/recovery | Existing XFCE/X11 session | Opt-in labwc native preview; package rollback in CI | Physical Mint/ThinkPad sign-off |
+
+## Desktop keyboard access without stealing application focus (13 November 2026)
+
+Upstream labwc explicitly prevents `OnDemand` clients in the Bottom and
+Background layers from stealing keyboard focus. XP Luna keeps its icon
+surfaces in Bottom: moving them to Top would incorrectly cover application
+windows, and a permanent Exclusive grab would break normal typing.
+
+The opt-in native Luna taskbar is already a focusable Top-layer surface.
+After **clicking an unused taskbar area**, press **F3** to begin a bounded,
+per-output desktop shortcut search; type a name, press Enter to open the
+selected validated action, or Escape to cancel. The initial selection
+highlight makes the active target visible. Focus loss, icon pointer presses
+and output reflow cancel the mode. There is no compositor config edit,
+resident worker, new background surface or input grab.
+
+The real headless-labwc smoke clicks the taskbar, injects `wtype -k F3`
+then `wtype p`, and compares unmodified `grim` frames at the Programs
+shortcut. **CI acceptance of this new search is pending on PR #327**.
+The rejected direct Bottom-layer focus path is documented in issue #328.
+Neither real hardware focus/IME/Orca nor the full classic XP desktop
+context menu are complete.
 
 ## Native XP notification area and Control Panel (November 2026)
 
@@ -82,7 +104,7 @@ diffs on the real input rectangle and a separate caret-pixel assertion
 reject a fake or inert native editor. The Rust tests additionally cover
 multibyte input and actual proportional-font width calculations.
 
-**Evidence status: pending green Native RicePlate CI on the exact PR head.**
+**Run/Help evidence:** Tests #2562 and Native RicePlate #1030 passed on PR #325 (merged into main), including real wtype/labwc/grim Run editing captures. This does not certify physical keyboard or IME support.
 These screenshots are compositor-generated CI captures, not physical device,
 IME, screen-reader, or pixel-fidelity certification.
 
