@@ -197,7 +197,7 @@ dbus-run-session -- sh -eu -c '
         WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click "$task_click_x" 750 1024 768
         sleep 0.3
         WAYLAND_DISPLAY=wayland-0 grim - >"$runtime/luna-task-context.png"
-        /usr/bin/python3 - "$runtime/opened.png" "$runtime/luna-task-context.png" <<'PY'
+        /usr/bin/python3 - "$runtime/opened.png" "$runtime/luna-task-context.png" <<PY
 import sys
 from PIL import Image, ImageChops
 with Image.open(sys.argv[1]) as opened, Image.open(sys.argv[2]) as menu:
