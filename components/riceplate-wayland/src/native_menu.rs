@@ -2118,7 +2118,8 @@ mod tests {
         assert_eq!(state.current_action(menu), Some("desktop:demo-0.desktop"));
         assert!(state.toggle_pin(menu));
         assert_eq!(state.actions(menu), vec!["desktop:demo-1.desktop"]);
-        // The remaining favorite remains accessible and re-selectable.\n        assert_eq!(state.current_action(menu), Some("desktop:demo-1.desktop"));
+        // The remaining favorite remains accessible and re-selectable.
+        assert_eq!(state.current_action(menu), Some("desktop:demo-1.desktop"));
     }
 
     #[test]
