@@ -43,9 +43,16 @@ pub struct TaskGroup {
 }
 
 pub fn task_label(title: &str, app_id: &str) -> String {
-    let label = if title.trim().is_empty() { app_id } else { title };
-    let label = if label.trim().is_empty() { "Window" } else { label };
-    label.chars().take(18).collect()
+    // wlroots titles are supplied by applications, not by the compositor.
+    // Strip control characters *before* applying the fixed taskband budget.
+    let clean = |value: &str| -> String {
+        value.chars().filter(|ch| !ch.is_control())
+            .take(18).collect::<String>().trim().to_owned()
+    };
+    let title = clean(title);
+    if !title.is_empty() { return title; }
+    let app = clean(app_id);
+    if !app.is_empty() { app } else { "Window".to_owned() }
 }
 
 /// Stable application order, but no accidental grouping of unknown app IDs.
@@ -156,6 +163,15 @@ mod tests {
         assert_eq!(visible_label(&group, 164), "Second documen (2)");
         assert_eq!(visible_label(&group, 64), "Se (2)");
         assert_eq!(visible_label(&group, 8), "");
+    }
+
+    #[test]
+    fn task_labels_ignore_untrusted_controls_before_clipping() {
+        assert_eq!(task_label("\n\tA document", "app"), "A document");
+        assert_eq!(task_label("\r\n", "org.example.App"), "org.example.App");
+        assert_eq!(task_label("", ""), "Window");
+        assert_eq!(task_label("\n\t12345678901234567890", ""),
+                   "123456789012345678");
     }
 
     #[test]
