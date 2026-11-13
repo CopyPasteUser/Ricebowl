@@ -34,11 +34,16 @@ def describe(recipe_token: str) -> dict[str, Any]:
     def add(area: str, path: str, kind: str, binding: str, label: str,
             native: str, waybar: str, role: str) -> None:
         interactive = role in ("button", "conditional-button", "menuitem")
+        # The clock's popup needs pointer focus entry and SNI tray keyboard
+        # navigation remains incomplete. Never advertise generic keyboard
+        # accessibility for these particular panel widgets.
+        keyboard = interactive and not (kind == "widget" and binding in ("clock", "tray"))
         rows.append({
             "area": area, "path": path, "kind": kind, "binding": binding,
             "label": label, "interactive": interactive,
-            "accessibility": role, "native_contract": native,
-            "waybar_contract": waybar,
+            "accessibility": role, "keyboard_navigation_contract": keyboard,
+            "keyboard_access_gap": interactive and not keyboard,
+            "native_contract": native, "waybar_contract": waybar,
             "runtime_evidence": "contract-only-not-a-render-or-input-test",
             "allowed_action": binding if interactive else None,
             "state_contract": (
@@ -192,6 +197,9 @@ def describe(recipe_token: str) -> dict[str, Any]:
         "native_render_execution": "not_performed",
         "real_input_accessibility_validation": "not_performed",
         "components": rows, "output_cases": outputs,
+        "known_keyboard_access_gaps": [
+            row["path"] for row in rows if row["keyboard_access_gap"]
+        ],
         "limitations": [
             "No custom shell commands, arbitrary script widgets, or plugin execution",
             "No vertical or floating panels; one logical-width breakpoint",
