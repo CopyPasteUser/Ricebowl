@@ -9,6 +9,20 @@ installation and is not yet a finished desktop environment.
 
 - [ ] Require complete PNG decoding before the classic panel pixel probe; add synthetic complete/truncated/wrong-color/invalid-geometry unit cases. Local focused tests pass, but the native labwc compositor screenshot matrix and full CI remain mandatory before this is marked complete. The synthetic unit fixtures are **not** real desktop screenshots.
 
+### Native XP Luna desktop keyboard-selection gate (13 November 2026)
+
+- [ ] Add `xp-luna-columns`-only type-to-select for focused desktop icons
+  using real Wayland key events and existing icon-surface focus, with a bounded
+  1.2s Unicode prefix, repeated-key cycling and visible-target filtering per
+  wl_output. Reset on pointer/focus/navigation changes; never install a
+  global keyboard grab or a resident poller. Rust tests cover prefix matching,
+  Unicode, expired/invalid input and hidden-output isolation. Native CI must
+  inject real `wtype` input after a compositor pointer click and archive a
+  genuine `grim` before/after frame pair with visual pixel verification.
+  The feature is complete only after green Tests and Native RicePlate CI on
+  the final PR head and a safe merge. Physical keyboard/Orca testing remains
+  a separate gate.
+
 ### Native XP Luna Run text-editing gate (13 November 2026)
 
 - [ ] Enable Unicode scalar-safe insertion, in-place Backspace/Delete, and
