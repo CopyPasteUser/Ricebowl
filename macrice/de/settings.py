@@ -65,6 +65,27 @@ LUNA_ICONS = {
 }
 
 
+
+# Luna's navigation is a separate presentation of the same service-backed pages.
+# Keep these keys stable: CLI deep links and backend dispatch depend on them.
+LUNA_GROUPS = (
+    ("Appearance & desktop", ("appearance", "displays", "taskbar")),
+    ("Hardware & connectivity", ("network", "audio", "bluetooth", "input")),
+    ("System & accessibility", ("power", "timezone", "notifications", "accessibility")),
+)
+
+
+def luna_search_matches(query: str) -> tuple[str, ...]:
+    """Filter the actual settings catalog; never synthesize unsupported actions."""
+    needle = query.strip().casefold()
+    if not needle:
+        return tuple(key for key, _title, _description in LUNA_SECTIONS)
+    return tuple(
+        key for key, title, description in LUNA_SECTIONS
+        if needle in " ".join((key, title, description)).casefold()
+    )
+
+
 def _gtk_modules():
     import gi
 
@@ -96,39 +117,97 @@ CSS = b"""
 # Applied only to XP Luna. Other rices retain their existing appearance.
 LUNA_CSS = b"""
 .ricespice-luna.ricespice-window {
-  background: #ece9d8; color: #202020;
-  font-family: "Tahoma", "Liberation Sans", sans-serif; font-size: 12px;
+  background: #f8f8f5; color: #202636;
+  font-family: "Liberation Sans", "Tahoma", sans-serif; font-size: 12px;
+}
+.ricespice-luna .luna-header {
+  background-image: linear-gradient(to bottom, #2864b8, #16509e 65%, #0c397b);
+  border-bottom: 1px solid #09295b; padding: 15px 22px 13px;
+}
+.ricespice-luna .luna-header-title {
+  color: #ffffff; font-size: 22px; font-weight: bold;
+  text-shadow: 0 1px #0a3977;
+}
+.ricespice-luna .luna-header-subtitle {
+  color: #e0efff; font-size: 11px;
+}
+.ricespice-luna .luna-toolbar {
+  background: #e8eef8; padding: 8px 14px;
+  border-bottom: 1px solid #a1b7d5;
+}
+.ricespice-luna .luna-toolbar button {
+  border: 1px solid #8ca7cb; border-radius: 3px;
+  padding: 5px 11px; color: #164580; text-shadow: none;
+  background-image: linear-gradient(to bottom, #ffffff, #dbe7f7);
+}
+.ricespice-luna .luna-toolbar button:hover {
+  background: #d0e2fa; border-color: #447dc0;
+}
+.ricespice-luna .luna-breadcrumb { color: #355782; font-weight: bold; }
+.ricespice-luna .luna-search {
+  background: #ffffff; color: #1d2835;
+  border: 1px solid #839cbf; border-radius: 3px;
+  padding: 6px 8px;
+}
+.ricespice-luna .luna-side-scroll {
+  background: #eef2fa; border-right: 1px solid #9aaed0;
 }
 .ricespice-luna .ricespice-nav {
-  background: #f4f5fa; padding: 10px 6px;
-  border-right: 2px solid #7d9cc1;
+  background: #eef2fa; padding: 15px 9px 18px;
 }
 .ricespice-luna .ricespice-brand {
-  color: #174c91; font-size: 19px; font-weight: 700; margin: 8px 10px 16px;
+  color: #1b427d; font-size: 12px; font-weight: bold;
+  margin: 1px 9px 11px;
+}
+.ricespice-luna .luna-nav-heading {
+  color: #61728d; font-size: 10px; font-weight: bold;
+  margin: 13px 8px 5px;
 }
 .ricespice-luna .ricespice-nav button {
-  background: transparent; color: #174c91; text-shadow: none;
-  border: 1px solid transparent; border-radius: 1px;
-  box-shadow: none; padding: 7px 8px; font-weight: 400;
+  background: transparent; color: #1d417c; text-shadow: none;
+  border: 1px solid transparent; border-radius: 3px;
+  box-shadow: none; padding: 8px 8px; font-weight: normal;
 }
 .ricespice-luna .ricespice-nav button:hover {
-  background: #dceafa; border-color: #90b2dc;
+  background: #d9e7fa; border-color: #a9c1e0;
 }
 .ricespice-luna .ricespice-nav button:checked {
-  background: #316ac5; color: #ffffff; border-color: #174c91; font-weight: 700;
+  background-image: linear-gradient(to bottom, #4a83d3, #2e63b3);
+  color: #ffffff; border-color: #1a4a95; font-weight: bold;
 }
-.ricespice-luna .ricespice-content { padding: 23px 26px; }
-.ricespice-luna .ricespice-title { font-size: 20px; color: #164a91; }
-.ricespice-luna .ricespice-desc { color: #515151; }
-.ricespice-luna .ricespice-section { color: #164a91; font-weight: 700; }
-.ricespice-luna .ricespice-note { color: #595959; }
-.ricespice-luna .ricespice-state { color: #245084; }
+.ricespice-luna .ricespice-content { padding: 22px 27px; background: #fffefa; }
+.ricespice-luna .ricespice-title {
+  font-size: 21px; font-weight: bold; color: #153e80;
+}
+.ricespice-luna .ricespice-desc {
+  color: #586577; margin-bottom: 10px;
+}
+.ricespice-luna .ricespice-section {
+  color: #1c4e92; font-weight: bold; margin: 12px 0 5px;
+}
+.ricespice-luna .ricespice-note { color: #586577; }
+.ricespice-luna .ricespice-state { color: #2a4b75; }
+.ricespice-luna .luna-category-row {
+  background: transparent; border: 1px solid transparent;
+  box-shadow: none; border-radius: 3px;
+  padding: 11px 8px; text-shadow: none;
+}
+.ricespice-luna .luna-category-row:hover {
+  background: #eaf3ff; border-color: #bbd1ed;
+}
+.ricespice-luna .luna-category-title {
+  color: #1555a1; font-weight: bold; font-size: 13px;
+}
+.ricespice-luna .luna-category-detail {
+  color: #5d6a77; font-size: 11px;
+}
 .ricespice-luna .ricespice-action {
-  background: #d4e4fb; color: #153b72; text-shadow: none;
-  border: 1px solid #7b9ac7; border-radius: 2px;
-  box-shadow: inset 1px 1px #fff, inset -1px -1px #9faec6; padding: 7px 11px;
+  background-image: linear-gradient(to bottom, #fcfdff, #ccddf5);
+  color: #173f79; text-shadow: none;
+  border: 1px solid #7899c7; border-radius: 3px;
+  box-shadow: inset 1px 1px #fff; padding: 7px 11px;
 }
-.ricespice-luna .ricespice-action:hover { background: #bed7fb; }
+.ricespice-luna .ricespice-action:hover { background: #bdd5f9; }
 """
 
 
@@ -155,32 +234,85 @@ class RiceSpiceWindow:
 
         self.window = Gtk.Window(title=("Control Panel · RiceBowl Luna" if luna
                                         else "RiceSpice · System settings"))
-        self.window.set_default_size(850 if luna else 810, 600 if luna else 580)
-        self.window.set_size_request(570, 400)
+        self.window.set_default_size(960 if luna else 810, 660 if luna else 580)
+        self.window.set_size_request(700 if luna else 570, 470 if luna else 400)
         self.window.get_style_context().add_class("ricespice-window")
         if luna:
             self.window.get_style_context().add_class("ricespice-luna")
         self.window.connect("destroy", self._close)
-        root = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+
+        root = Gtk.Box(orientation=(Gtk.Orientation.VERTICAL if luna
+                                     else Gtk.Orientation.HORIZONTAL))
         self.window.add(root)
-        navigation = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
-        navigation.set_size_request(264 if luna else 215, -1)
+        self.search_entry = None
+        self.breadcrumb = None
+        self.nav_groups = []
+        self._suppress_luna_search = False
+
+        if luna:
+            header = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+            header.get_style_context().add_class("luna-header")
+            title = Gtk.Label(label="Control Panel", xalign=0)
+            title.get_style_context().add_class("luna-header-title")
+            header.pack_start(title, False, False, 0)
+            subtitle = Gtk.Label(label="RiceBowl Luna  ·  System preferences", xalign=0)
+            subtitle.get_style_context().add_class("luna-header-subtitle")
+            header.pack_start(subtitle, False, False, 0)
+            root.pack_start(header, False, False, 0)
+
+            toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            toolbar.get_style_context().add_class("luna-toolbar")
+            home = Gtk.Button(label="◀  All settings")
+            home.get_accessible().set_name("Show all Control Panel settings")
+            home.connect("clicked", lambda _button: self.show_home())
+            toolbar.pack_start(home, False, False, 0)
+            self.breadcrumb = Gtk.Label(label="All settings", xalign=0)
+            self.breadcrumb.get_style_context().add_class("luna-breadcrumb")
+            self.breadcrumb.set_ellipsize(3)  # Pango.EllipsizeMode.END
+            toolbar.pack_start(self.breadcrumb, True, True, 0)
+            self.search_entry = Gtk.SearchEntry()
+            self.search_entry.set_placeholder_text("Find a setting…")
+            self.search_entry.set_size_request(225, -1)
+            self.search_entry.set_tooltip_text("Search available Control Panel pages")
+            self.search_entry.get_style_context().add_class("luna-search")
+            self.search_entry.connect("search-changed", self._luna_search_changed)
+            toolbar.pack_end(self.search_entry, False, False, 0)
+            root.pack_start(toolbar, False, False, 0)
+
+            body = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+            root.pack_start(body, True, True, 0)
+        else:
+            body = root
+
+        navigation = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        navigation.set_size_request(251 if luna else 215, -1)
         navigation.get_style_context().add_class("ricespice-nav")
-        root.pack_start(navigation, False, False, 0)
-        brand = Gtk.Label(label="Control Panel" if luna else "RiceSpice")
+        if luna:
+            nav_scroll = Gtk.ScrolledWindow()
+            nav_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            nav_scroll.set_size_request(254, -1)
+            nav_scroll.get_style_context().add_class("luna-side-scroll")
+            nav_scroll.add(navigation)
+            body.pack_start(nav_scroll, False, False, 0)
+        else:
+            body.pack_start(navigation, False, False, 0)
+
+        brand = Gtk.Label(label="BROWSE SETTINGS" if luna else "RiceSpice")
         brand.set_xalign(0)
         brand.get_style_context().add_class("ricespice-brand")
         navigation.pack_start(brand, False, False, 0)
+
         self.nav_buttons = {}
-        for key, title, _description in self.sections:
+
+        def add_nav(key, title):
             if luna:
                 button = Gtk.ToggleButton()
                 label_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
                 glyph = Gtk.Image.new_from_icon_name(LUNA_ICONS[key], Gtk.IconSize.MENU)
-                text = Gtk.Label(label=title, xalign=0)
-                text.set_line_wrap(True)
+                label = Gtk.Label(label=title, xalign=0)
+                label.set_line_wrap(True)
                 label_box.pack_start(glyph, False, False, 0)
-                label_box.pack_start(text, True, True, 0)
+                label_box.pack_start(label, True, True, 0)
                 button.add(label_box)
             else:
                 button = Gtk.ToggleButton(label=title)
@@ -191,13 +323,29 @@ class RiceSpiceWindow:
             navigation.pack_start(button, False, False, 0)
             self.nav_buttons[key] = button
 
+        if luna:
+            for group_title, names in LUNA_GROUPS:
+                heading = Gtk.Label(label=group_title.upper(), xalign=0)
+                heading.get_style_context().add_class("luna-nav-heading")
+                navigation.pack_start(heading, False, False, 0)
+                self.nav_groups.append((heading, names))
+                for key in names:
+                    title = next(item[1] for item in LUNA_SECTIONS if item[0] == key)
+                    add_nav(key, title)
+        else:
+            for key, title, _description in self.sections:
+                add_nav(key, title)
+
         viewport = Gtk.ScrolledWindow()
         viewport.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        root.pack_start(viewport, True, True, 0)
+        body.pack_start(viewport, True, True, 0)
         self.content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=13)
         self.content.get_style_context().add_class("ricespice-content")
         viewport.add(self.content)
-        self.show_page(page)
+        if page == "home" and luna:
+            self.show_home()
+        else:
+            self.show_page(page)
         self.window.show_all()
 
     def _close(self, _window):
@@ -258,9 +406,8 @@ class RiceSpiceWindow:
 
         future.add_done_callback(complete)
 
-    def show_page(self, name: str, *, rescan: bool = False):
-        if name not in self.nav_buttons:
-            return
+    def _begin_view(self, name: str):
+        """Cancel stale results and switch views without changing any system state."""
         self.generation += 1
         self.busy = False
         self.page = name
@@ -273,12 +420,116 @@ class RiceSpiceWindow:
             self._selecting_nav = False
         for widget in tuple(self.content.get_children()):
             widget.destroy()
+        self.status = self._label("", css="ricespice-state")
+        self.content.pack_end(self.status, False, False, 0)
+        if self.breadcrumb is not None:
+            title = next((text for key, text, _desc in LUNA_SECTIONS if key == name),
+                         "Search results" if name == "search" else "All settings")
+            self.breadcrumb.set_text(title)
+
+    def _luna_clear_search(self):
+        if self.search_entry is None or not self.search_entry.get_text():
+            return
+        self._suppress_luna_search = True
+        try:
+            self.search_entry.set_text("")
+        finally:
+            self._suppress_luna_search = False
+        self._luna_filter_sidebar("")
+
+    def _luna_filter_sidebar(self, query: str):
+        visible = set(luna_search_matches(query))
+        for key, button in self.nav_buttons.items():
+            button.set_visible(key in visible)
+        for heading, keys in self.nav_groups:
+            heading.set_visible(any(key in visible for key in keys))
+
+    def _luna_search_changed(self, entry):
+        if self._suppress_luna_search:
+            return
+        query = entry.get_text().strip()
+        self._luna_filter_sidebar(query)
+        if query:
+            self.show_search_results(query)
+        else:
+            self.show_home()
+
+    def _luna_category_button(self, key: str):
+        """An accessible XP category row, never a fake setting control."""
+        Gtk = self.Gtk
+        _name, title, description = next(item for item in LUNA_SECTIONS
+                                         if item[0] == key)
+        button = Gtk.Button()
+        button.set_relief(Gtk.ReliefStyle.NONE)
+        button.get_style_context().add_class("luna-category-row")
+        button.get_accessible().set_name(title + ". " + description)
+        button.set_tooltip_text(description)
+        button.connect("clicked", lambda _button: self.show_page(key))
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        image = Gtk.Image.new_from_icon_name(LUNA_ICONS[key], Gtk.IconSize.DIALOG)
+        image.set_valign(Gtk.Align.START)
+        row.pack_start(image, False, False, 0)
+        labels = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        name = Gtk.Label(label=title, xalign=0)
+        name.set_line_wrap(True)
+        name.get_style_context().add_class("luna-category-title")
+        labels.pack_start(name, False, False, 0)
+        detail = Gtk.Label(label=description, xalign=0)
+        detail.set_line_wrap(True)
+        detail.get_style_context().add_class("luna-category-detail")
+        labels.pack_start(detail, False, False, 0)
+        row.pack_start(labels, True, True, 0)
+        button.add(row)
+        return button
+
+    def show_home(self):
+        if not self.luna:
+            return
+        self._luna_clear_search()
+        self._begin_view("home")
+        self._text("Pick a category", css="ricespice-title")
+        self._text("Configure your RiceBowl desktop and connected system services.",
+                   css="ricespice-desc")
+        for group_title, keys in LUNA_GROUPS:
+            self._text(group_title, css="ricespice-section")
+            grid = self.Gtk.Grid(column_spacing=14, row_spacing=7)
+            grid.set_column_homogeneous(True)
+            for index, key in enumerate(keys):
+                grid.attach(self._luna_category_button(key),
+                            index % 2, index // 2, 1, 1)
+            self.content.pack_start(grid, False, False, 0)
+        self.content.show_all()
+
+    def show_search_results(self, query: str):
+        if not self.luna:
+            return
+        self._begin_view("search")
+        matches = luna_search_matches(query)
+        self._text("Search settings", css="ricespice-title")
+        self._text(f"{len(matches)} matching categories for “{query}”",
+                   css="ricespice-desc")
+        if matches:
+            grid = self.Gtk.Grid(column_spacing=13, row_spacing=6)
+            grid.set_column_homogeneous(True)
+            for index, key in enumerate(matches):
+                grid.attach(self._luna_category_button(key),
+                            index % 2, index // 2, 1, 1)
+            self.content.pack_start(grid, False, False, 0)
+        else:
+            self._text("No matching settings. Try Network, Sound, Display or Power.",
+                       css="ricespice-note")
+        self.content.show_all()
+
+    def show_page(self, name: str, *, rescan: bool = False):
+        if name not in self.nav_buttons:
+            return
+        if self.luna:
+            self._luna_clear_search()
+        self._begin_view(name)
         _key, title, description = next(section for section in self.sections
                                         if section[0] == name)
         self._text(title, css="ricespice-title")
         self._text(description, css="ricespice-desc")
-        self.status = self._label("", css="ricespice-state")
-        self.content.pack_end(self.status, False, False, 0)
         if name == "network":
             self._network(rescan=rescan)
         elif name == "audio":
@@ -1290,7 +1541,10 @@ class RiceSpiceWindow:
 
 
 def launch(*, page: str = "network", luna: bool = False) -> None:
-    if page not in {section[0] for section in (LUNA_SECTIONS if luna else SECTIONS)}:
+    valid_pages = {section[0] for section in (LUNA_SECTIONS if luna else SECTIONS)}
+    if luna:
+        valid_pages.add("home")
+    if page not in valid_pages:
         raise backend.SettingsError("This settings page is unavailable")
     try:
         Gtk, Gdk, GLib = _gtk_modules()
