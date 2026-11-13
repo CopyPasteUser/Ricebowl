@@ -197,6 +197,15 @@ def request(connection, interface: str, method: str, signature: str,
         connection.signal_unsubscribe(subscription)
 
 
+def verify_pipewire_socket_fd(fd: int) -> None:
+    """Validate and close the duplicated Gio FD, even on malformed replies."""
+    try:
+        if not stat.S_ISSOCK(os.fstat(fd).st_mode):
+            raise RuntimeError("PipeWire remote FD is not a socket")
+    finally:
+        os.close(fd)
+
+
 def verify_pipewire_remote(connection, session: str) -> None:
     from gi.repository import Gio, GLib
 
@@ -207,12 +216,7 @@ def verify_pipewire_remote(connection, session: str) -> None:
         12000, None, None)
     if descriptors is None:
         raise RuntimeError("OpenPipeWireRemote did not return a Unix FD list")
-    fd = descriptors.get(reply.unpack()[0])
-    try:
-        if not stat.S_ISSOCK(os.fstat(fd).st_mode):
-            raise RuntimeError("PipeWire remote FD is not a socket")
-    finally:
-        os.close(fd)
+    verify_pipewire_socket_fd(descriptors.get(reply.unpack()[0]))
 
 
 def run() -> None:
