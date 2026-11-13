@@ -4548,14 +4548,14 @@ fn move_saved_menu_pin(state: &mut MenuState, recipe_id: &str,
     let previous = state.pins.clone();
     let selected = state.selected;
     if !state.reorder_saved_pin(menu, direction) {
-        state.notice = Some("Cannot move this favorite");
+        state.notice = Some("Cannot reorder");
         return;
     }
     if let Err(error) = menu_pins::save(recipe_id, menu, &state.pins) {
         eprintln!("RicePlate: cannot persist reordered menu pins: {error}");
         state.pins = previous;
         state.selected = selected;
-        state.notice = Some("Cannot save pin order");
+        state.notice = Some("Order not saved");
     } else {
         state.notice = Some("Favorites reordered");
     }
@@ -4824,10 +4824,10 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
         // left shelf has a free strip above its first action; bound text to
         // the pane so it cannot paint across the system column.
         let status = state.notice.unwrap_or(match state.view {
-            native_menu::View::Programs => "Enter open  Esc back",
-            native_menu::View::Documents => "Enter open  Esc back",
+            native_menu::View::Programs => "Enter open Esc back",
+            native_menu::View::Documents => "Enter open Esc back",
             native_menu::View::Search => "Find  F2 Pin",
-            native_menu::View::Saved => "F2 Unpin F4/F5 Move",
+            native_menu::View::Saved => "F2 Unpin F4/5 Sort",
             native_menu::View::Groups => "F2 Pin  F3 Saved",
         });
         if state.view != native_menu::View::Groups || state.notice.is_some() {
