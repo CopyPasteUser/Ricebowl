@@ -3658,7 +3658,7 @@ fn paint_panel_pointer(canvas: &mut [u8], width: u32, height: u32,
                               style.active);
                 }
                 let launcher_label = style.launcher.as_ref().map_or("Apps", |item| item.label.as_str());
-                let label_width = text_pixel_width(launcher_label, style.font_scale);
+                let label_width = rice_text_width(launcher_label, style);
                 let label_x = if style.launcher.is_some()
                     && placed.width >= label_width.saturating_add(35) {
                     placed.x + 30 + (placed.width - 30 - label_width) / 2
@@ -3724,7 +3724,7 @@ fn paint_panel_pointer(canvas: &mut [u8], width: u32, height: u32,
                     let task_visual = visual.button(Hit::Task(view.start + index));
                     panel_chrome::task_button_visual(canvas, width, height, x, cell_width,
                                                      group.active, style, task_visual);
-                    let label = task_groups::visible_label(group, cell_width);
+                    let label = fitted_task_label(group, cell_width, style);
                     draw_rice_text(canvas, width, height, x + 10,
                               height.saturating_sub(8 * style.font_scale) / 2
                                   + u32::from(task_visual
@@ -3748,7 +3748,7 @@ fn paint_panel_pointer(canvas: &mut [u8], width: u32, height: u32,
                 // Center the shorter/longer Luna time inside its reserved slot.
                 // The previous 24h 5x8 width remains unchanged for other rices.
                 let label_width = if style.id == "xp-luna-columns" {
-                    text_pixel_width(clock, style.font_scale)
+                    rice_text_width(clock, style)
                 } else {
                     40 * style.font_scale
                 };
@@ -4421,8 +4421,13 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                     let cap = (tile.width.saturating_sub(text_inset + 10) /
                                (8 * style.font_scale)) as usize;
                     let prefix = if pinned { "* " } else { "" };
-                    let short: String = label.chars()
-                        .take(cap.saturating_sub(prefix.len())).collect();
+                    let short: String = if luna_columns && columns {
+                        fit_rice_text(&format!("{prefix}{label}"),
+                            tile.width.saturating_sub(text_inset + 11), style)
+                    } else {
+                        format!("{prefix}{}", label.chars()
+                            .take(cap.saturating_sub(prefix.len())).collect::<String>())
+                    };
                     let text_y = if luna_columns && columns
                         && tile.height == native_menu::COLUMNS_RIGHT_XP_PARITY_ROW_HEIGHT {
                         tile.y + (18_u32.saturating_sub(8 * style.font_scale)) / 2
@@ -4431,7 +4436,7 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                         tile.y + 8
                     } else { tile.y + 12 };
                     draw_rice_text(canvas, width, height, tile.x + text_inset, text_y,
-                                   &format!("{prefix}{short}"), tile_fg, style);
+                                   &short, tile_fg, style);
                 }
             }
         }
@@ -5082,27 +5087,30 @@ fn paint_icon(canvas: &mut [u8], icon: &recipe::DesktopIcon, style: &PanelStyle,
     } else {
         fill_rounded_rect(canvas, width, height, 24, 4, 56, 48, 10, active);
     }
-    // Contrast backplate prevents white labels from vanishing on bright rices.
-    fill_rounded_rect(canvas, width, height, 2, 58, 100, 26, 6,
-                      if focused && style.id == "xp-luna-columns" {
-                          0xd025_5ed3
-                      } else { 0xb020_2c36 });
+    // Classic XP desktop labels float directly above the wallpaper, with a
+    // small dark text shadow instead of permanent translucent black pills.
+    // Selection alone receives a cobalt label background. Other recipes keep
+    // their existing contrast backplate, without changing icon hit geometry.
+    if style.id == "xp-luna-columns" {
+        if focused {
+            fill_rounded_rect(canvas, width, height, 2, 58, 100, 26, 4, 0xd025_5ed3);
+        }
+    } else {
+        fill_rounded_rect(canvas, width, height, 2, 58, 100, 26, 6, 0xb020_2c36);
+    }
     if custom.is_none() && !native_bin
         && !matches!(icon.action.as_str(), "computer" | "documents" | "network") {
         draw_rice_text(canvas, width, height,
-                       52_u32.saturating_sub(text_pixel_width(glyph, style.font_scale) / 2),
+                       52_u32.saturating_sub(rice_text_width(glyph, style) / 2),
                        24, glyph, foreground, style);
     }
-    draw_rice_text(
-        canvas,
-        width,
-        height,
-        width.saturating_sub(text_pixel_width(&icon.label, style.font_scale)) / 2,
-        66,
-        &icon.label,
-        foreground,
-        style,
-    );
+    let label_x = width.saturating_sub(rice_text_width(&icon.label, style)) / 2;
+    if style.id == "xp-luna-columns" && !focused {
+        draw_rice_text(canvas, width, height, label_x.saturating_add(1), 67,
+                       &icon.label, 0xcc08_254b, style);
+    }
+    draw_rice_text(canvas, width, height, label_x, 66,
+                   &icon.label, foreground, style);
 }
 
 fn paint_desktop_widget(canvas: &mut [u8], title: &str, lines: &[String], style: &PanelStyle,
@@ -5212,6 +5220,63 @@ fn text_pixel_width(text: &str, scale: u32) -> u32 {
     // multiple bytes. This is a monospace width, not a Unicode shaping claim.
     u32::try_from(text.chars().count()).unwrap_or(u32::MAX)
         .saturating_mul(8 * scale)
+}
+
+/// The XP taskband must preserve a visible grouped-window count even when
+/// a proportionally rendered title needs ellipsis inside the button geometry.
+fn fitted_task_label(group: &task_groups::TaskGroup, cell: u32,
+                     style: &PanelStyle) -> String {
+    let label = task_groups::visible_label(group, cell);
+    if style.id != "xp-luna-columns" {
+        return label;
+    }
+    let available = cell.saturating_sub(22);
+    if group.members.len() <= 1 {
+        return fit_rice_text(&label, available, style);
+    }
+    let suffix = format!(" ({})", group.members.len());
+    let suffix_width = rice_text_width(&suffix, style);
+    if suffix_width >= available {
+        return fit_rice_text(&suffix, available, style);
+    }
+    let title = label.strip_suffix(&suffix).unwrap_or(&label);
+    format!("{}{}", fit_rice_text(title, available - suffix_width, style), suffix)
+}
+
+/// Use measured glyph advances for native Luna rather than assumed 8px cells.
+/// Other rices deliberately retain their historical bitmap layout.
+fn rice_text_width(text: &str, style: &PanelStyle) -> u32 {
+    if style.id == "xp-luna-columns" {
+        if let Some(font) = style.native_art.as_ref().and_then(|art| art.font.as_ref()) {
+            return font.measure_text(text);
+        }
+    }
+    text_pixel_width(text, style.font_scale)
+}
+
+/// Constrain labels to their actual task/menu hit rectangles, without splitting
+/// UTF-8 characters or letting long localized XDG names overlap neighbours.
+fn fit_rice_text(label: &str, available: u32, style: &PanelStyle) -> String {
+    if rice_text_width(label, style) <= available {
+        return label.to_owned();
+    }
+    let suffix = "…";
+    let suffix_width = rice_text_width(suffix, style);
+    if available < suffix_width {
+        return String::new();
+    }
+    let mut clipped = String::new();
+    let mut width = 0_u32;
+    for letter in label.chars() {
+        let next = rice_text_width(&letter.to_string(), style);
+        if width.saturating_add(next) > available - suffix_width {
+            break;
+        }
+        width = width.saturating_add(next);
+        clipped.push(letter);
+    }
+    clipped.push_str(suffix);
+    clipped
 }
 
 fn draw_rice_text(canvas: &mut [u8], width: u32, height: u32, x: u32, y: u32,
@@ -8028,7 +8093,7 @@ mod tests {
         paint_icon(&mut plain, icon, &style, false, None);
         paint_icon(&mut highlighted, icon, &style, true, None);
         let at = ((64 * recipe::ICON_WIDTH + 10) * 4) as usize;
-        assert_eq!(&plain[at..at+4], &0xb020_2c36_u32.to_le_bytes());
+        assert_eq!(&plain[at..at+4], &0_u32.to_le_bytes());
         assert_eq!(&highlighted[at..at+4], &0xd025_5ed3_u32.to_le_bytes());
         let classic = recipe::parse(
             include_str!("../../../tests/fixtures/riceplate-desktop-v5.json"),
@@ -8055,7 +8120,9 @@ mod tests {
         assert_eq!(pixel(45, 35), 0xffac_d3e7);
         assert_ne!(pixel(45, 35), style.active);
         assert_ne!(pixel(40, 28), pixel(50, 28)); // Original bin vertical ribs
-        assert_ne!(pixel(50, 65), 0); // Accessible shortcut label remains present
+        assert!(pixels.chunks_exact(4).skip((60 * recipe::ICON_WIDTH) as usize)
+            .any(|pixel| pixel != [0, 0, 0, 0]),
+            "accessible shortcut label must still be rendered");
         let mut focused = vec![0; pixels.len()];
         paint_icon(&mut focused, icon, &style, true, None);
         assert_eq!(&focused[..4], &style.foreground.to_le_bytes());
@@ -8099,6 +8166,50 @@ mod tests {
             &pixels[(2 * 4 + 3) * 4..(2 * 4 + 4) * 4],
             &0xff4179aa_u32.to_le_bytes()
         );
+    }
+
+
+    #[test]
+    fn luna_grouped_task_badge_survives_visual_ellipsis() {
+        let mut luna = recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        luna.native_art = Some(style_art::load(
+            luna.artwork.as_ref().unwrap(), luna.font_scale).unwrap());
+        let group = task_groups::TaskGroup {
+            members: vec![0, 1, 2], representative: 0,
+            label: "An application title with a long name".into(), active: false,
+        };
+        for width in [90, 100, 124, 156] {
+            let short = fitted_task_label(&group, width, &luna);
+            assert!(short.ends_with(" (3)"), "lost group count at {width}: {short}");
+            assert!(rice_text_width(&short, &luna) <= width - 22);
+        }
+        let legacy = recipe::load("classic").unwrap();
+        assert_eq!(fitted_task_label(&group, 156, &legacy),
+                   task_groups::visible_label(&group, 156));
+    }
+
+    #[test]
+    fn luna_font_metrics_clip_at_actual_pixel_width_and_keep_legacy_cells() {
+        let mut luna = recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let art = style_art::load(luna.artwork.as_ref().unwrap(), luna.font_scale)
+            .expect("embedded Luna artwork");
+        luna.native_art = Some(art);
+        assert!(rice_text_width("WWW", &luna) > rice_text_width("iii", &luna));
+        let long = "Mein sehr langes Fenster – Übung";
+        for allowed in [0_u32, 8, 24, 40, 65, 100] {
+            let clipped = fit_rice_text(long, allowed, &luna);
+            assert!(rice_text_width(&clipped, &luna) <= allowed,
+                    "long text must never overpaint the neighbour at {allowed}px");
+            assert!(clipped.is_char_boundary(clipped.len()));
+        }
+        assert_eq!(fit_rice_text("OK", 100, &luna), "OK");
+        let legacy = recipe::load("classic").unwrap();
+        assert_eq!(rice_text_width("WWW", &legacy), text_pixel_width("WWW", legacy.font_scale));
+        assert_eq!(rice_text_width("WWW", &legacy), rice_text_width("iii", &legacy));
     }
 
     #[test]

@@ -96,7 +96,7 @@ class LiveRiceTests(unittest.TestCase):
         self.assertFalse(override.exists())
         response = self.change("apply", token, staging._hash(token))
         self.assertTrue(response["changed"])
-        self.assertIn("#1654b5", override.read_text(encoding="utf-8"))
+        self.assertIn("#4b9bed", override.read_text(encoding="utf-8"))
         self.assertEqual(override.stat().st_mode & 0o777, 0o600)
         self.assertEqual(recipes.current_selection()[0], token)
         self.change("restore", expected=token)
