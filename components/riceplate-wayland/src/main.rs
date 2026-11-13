@@ -3519,6 +3519,9 @@ impl RicePlate {
             }
         }).collect();
         let Some((title, rows)) = luna_window_menu::entries(&windows) else { return; };
+        // Store only the count before mutably dismissing/reconfiguring Wayland
+        // surfaces; Window labels borrow from self.tasks until this point.
+        let window_count = windows.len();
         let handles: Vec<_> = group.members.iter()
             .map(|&index| self.tasks[index].handle.clone()).collect();
         let Some(target) = self.tray_popup_target(source) else { return; };
@@ -3531,7 +3534,7 @@ impl RicePlate {
         self.show_tray_surface_at(target, qh);
         if self.trace_window_events {
             // Count only; avoid recording application-controlled window titles.
-            eprintln!("RicePlate task menu event=opened members={}", windows.len());
+            eprintln!("RicePlate task menu event=opened members={window_count}");
         }
     }
 
