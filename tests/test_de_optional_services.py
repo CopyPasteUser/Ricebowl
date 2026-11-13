@@ -5,7 +5,6 @@ These tests never start labwc or alter the system/user login session.
 
 from __future__ import annotations
 
-import os
 import unittest
 from unittest import mock
 
@@ -121,6 +120,27 @@ class OptionalWaylandServiceTests(unittest.TestCase):
                                            which=choices.get, spawn=spawn), 0)
         self.assertEqual(attempts.count("/usr/bin/mako"), 2)
         self.assertTrue(restarted.terminated)
+
+    def test_lock_watcher_starts_before_optional_full_session_clients(self):
+        attempts = []
+
+        def spawn(command, **kwargs):
+            attempts.append(command[0])
+            return FakeProcess()
+
+        env = {**self.nested, "RICEBOWL_DE_NESTED": "0"}
+        choices = {"waybar": "/usr/bin/waybar", "mako": "/usr/bin/mako",
+                   "swayidle": "/usr/bin/swayidle", "swaylock": "/usr/bin/swaylock"}
+        with (mock.patch("macrice.de.session.signal.signal"),
+              mock.patch("macrice.de.notification_prefs.load_optional", return_value=None),
+              mock.patch("macrice.de.session._start_auto_monitor_trial", return_value=None)):
+            self.assertEqual(session.shell(environment=env,
+                                           which=choices.get, spawn=spawn), 0)
+        self.assertEqual(attempts[0], "/usr/bin/swayidle")
+        self.assertLess(attempts.index("/usr/bin/swayidle"),
+                        attempts.index("/usr/bin/mako"))
+        self.assertLess(attempts.index("/usr/bin/swayidle"),
+                        attempts.index("/usr/bin/waybar"))
 
     def test_security_critical_idle_guard_failure_still_aborts_full_session(self):
         attempts = []
