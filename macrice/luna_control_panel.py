@@ -127,7 +127,11 @@ def build(shell, Gtk, Gdk):
     """Create a lightweight 2001-style category view; return its GTK window."""
     window = Gtk.Window(type=Gtk.WindowType.TOPLEVEL)
     window.set_title("Control Panel")
-    window.set_decorated(False)
+    from .luna_dialog import uses_native_wayland_decoration
+    # Only XFCE's original DOCK-transient variant needs the client caption.
+    # Real Wayland GTK windows get their one titlebar from labwc.
+    native_wayland = uses_native_wayland_decoration(Gdk)
+    window.set_decorated(native_wayland)
     from gi.repository import GLib, Pango
     from .rice_windows import configure_settings_window, draggable_caption
     from .window_geometry import restore_and_track
@@ -144,21 +148,21 @@ def build(shell, Gtk, Gdk):
     scroll.add(frame)
     window.add(scroll)
 
-    caption = shell._class(Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8),
-                           "luna-control-caption")
-    title = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-    title.pack_start(shell._icon("preferences-system", Gtk.IconSize.MENU),
-                     False, False, 3)
-    title.pack_start(Gtk.Label(label="Control Panel", xalign=0), True, True, 0)
-    # Gtk.Box has no input GdkWindow: events on the caption's label/icon are
-    # unreliable. Use the shared EventBox drag handle, excluding Close.
-    caption.pack_start(draggable_caption(window, title, Gtk, Gdk), True, True, 0)
-    close = shell._class(Gtk.Button(label="×"), "luna-control-close")
-    close.get_accessible().set_name("Close Control Panel")
-    close.connect("clicked", lambda _button: shell._hide_actions())
-    caption.pack_end(close, False, False, 0)
-
-    frame.pack_start(caption, False, False, 0)
+    if not native_wayland:
+        caption = shell._class(Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8),
+                               "luna-control-caption")
+        title = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        title.pack_start(shell._icon("preferences-system", Gtk.IconSize.MENU),
+                         False, False, 3)
+        title.pack_start(Gtk.Label(label="Control Panel", xalign=0), True, True, 0)
+        # XFWM DOCK-transient can lack a WM caption; the existing X11 handle
+        # is the only titlebar in that case and excludes the Close control.
+        caption.pack_start(draggable_caption(window, title, Gtk, Gdk), True, True, 0)
+        close = shell._class(Gtk.Button(label="×"), "luna-control-close")
+        close.get_accessible().set_name("Close Control Panel")
+        close.connect("clicked", lambda _button: shell._hide_actions())
+        caption.pack_end(close, False, False, 0)
+        frame.pack_start(caption, False, False, 0)
 
     # XP's Explorer-era command/address chrome, with genuine GTK destinations.
     # These controls operate on this Control Panel only, never XFCE settings.
