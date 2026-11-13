@@ -263,14 +263,17 @@ pub fn task_button_visual(
     x: u32, span: u32, active: bool, style: &PanelStyle, visual: ButtonVisual,
 ) {
     task_button(canvas, width, height, x, span, active, style);
-    // XP-specific hover/pressed bevels must not leak into classic, Aero or
-    // other decorated rices, which own separate visual semantics.
-    if style.id != "xp-luna-columns" || span < 18 || height < 16 { return; }
+    // Keep the existing interactive states for other decorated rices.
+    // XP-specific colors are selected below without changing their pixels.
+    if style.launcher.is_none() || span < 18 || height < 16 { return; }
     match visual {
         ButtonVisual::Normal => {}
         ButtonVisual::Hovered => {
+            let top = if style.id == "xp-luna-columns" {
+                0xffe0_f2ff
+            } else { 0xffb8_e5ff };
             fill_rect(canvas, width, height, x + 6, 5,
-                      span.saturating_sub(14), 2, 0xffb8_e5ff);
+                      span.saturating_sub(14), 2, top);
             fill_rect(canvas, width, height, x + 4, 10,
                       1, height.saturating_sub(20), 0xff8d_bfff);
         }
@@ -449,7 +452,7 @@ mod tests {
     }
 
     #[test]
-    fn xp_task_button_interaction_pixels_do_not_change_other_rices() {
+    fn decorated_non_luna_task_buttons_keep_existing_hover_and_pressed_states() {
         let mut other = recipe::parse(
             include_str!("../../../examples/wayland/xp-luna-columns.json"),
             Some("xp-luna-columns")).unwrap();
@@ -462,8 +465,8 @@ mod tests {
                                &other, visual);
             pixels
         };
-        assert_eq!(image(ButtonVisual::Normal), image(ButtonVisual::Hovered));
-        assert_eq!(image(ButtonVisual::Normal), image(ButtonVisual::Pressed));
+        assert_ne!(image(ButtonVisual::Normal), image(ButtonVisual::Hovered));
+        assert_ne!(image(ButtonVisual::Normal), image(ButtonVisual::Pressed));
     }
 
     #[test]
