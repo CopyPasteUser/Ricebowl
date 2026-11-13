@@ -27,6 +27,11 @@ PROCESS_NAMES = {
     "wallpaper": ("swaybg",),
     "notifications": ("mako",),
     "accessibility": ("orca",),
+    "xfce-session": ("xfce4-session",),
+    "xfce-wm": ("xfwm4",),
+    "xfce-panel": ("xfce4-panel",),
+    "xfce-desktop": ("xfdesktop",),
+    "xfce-settings": ("xfsettingsd",),
 }
 REQUIRED_PROTOCOLS = ("wl_compositor", "xdg_wm_base", "zwlr_layer_shell_v1")
 OPTIONAL_PROTOCOLS = ("zwlr_foreign_toplevel_manager_v1", "zwlr_output_manager_v1")
@@ -83,9 +88,14 @@ def _sample_pid(path: Path, *, uid: int) -> ProcessSample | None:
         switches_b = _numeric_line(status, "nonvoluntary_ctxt_switches:")
         switches = switches_a + switches_b if switches_a is not None and switches_b is not None else None
         try:
-            wakeups = _numeric_line((path / "sched").read_text(encoding="ascii"), "nr_wakeups")
-            if wakeups is None:
-                wakeups = _numeric_line((path / "sched").read_text(encoding="ascii"), "nr_wakeups ")
+            sched = (path / "sched").read_text(encoding="ascii")
+            wakeups = None
+            for line in sched.splitlines():
+                if re.match(r"^nr_wakeups\\s*:", line):
+                    value = line.split(":", 1)[1].strip()
+                    if value.isdigit():
+                        wakeups = int(value)
+                    break
         except (OSError, UnicodeError):
             wakeups = None
         return ProcessSample(int(path.name), role, start, cpu_ticks, rss, pss, switches, wakeups)
@@ -206,6 +216,9 @@ def inspect(*, environment: Mapping[str, str] | None = None,
         "session": {"type": session_type, "ricebowl_marked": marked,
                     "nested": nested, "panel": panel, "socket": socket},
         "binaries": binaries, "required_missing": required_missing,
+        "session_bus": ("declared" if env.get("DBUS_SESSION_BUS_ADDRESS") else
+                        "launcher-available" if which("dbus-run-session") else
+                        "missing"),
         "protocols": protocols, "processes": processes,
         "process_scope": "same-uid-not-session-attributed" if marked else "not-probed",
         "recovery": journal,
