@@ -158,6 +158,29 @@ def _probe_protocols(*, enabled: bool, env: Mapping[str, str],
                 "optional": {name: None for name in OPTIONAL_PROTOCOLS}}
 
 
+def _probe_bus(*, enabled: bool, env: Mapping[str, str],
+               which: Callable[[str], str | None],
+               run: Callable[..., subprocess.CompletedProcess[str]]) -> str:
+    """Ping the existing user bus once without activating an arbitrary service."""
+    if not enabled:
+        return "not-run"
+    if not env.get("DBUS_SESSION_BUS_ADDRESS"):
+        return "not-declared"
+    binary = which("dbus-send")
+    if binary is None:
+        return "tool-missing"
+    try:
+        result = run(
+            [binary, "--session", "--type=method_call", "--print-reply=literal",
+             "--reply-timeout=1500", "--dest=org.freedesktop.DBus",
+             "/org/freedesktop/DBus", "org.freedesktop.DBus.Peer.Ping"],
+            env=dict(env), capture_output=True, text=True, timeout=3,
+            check=False)
+        return "responsive" if result.returncode == 0 else "unreachable"
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError):
+        return "unavailable"
+
+
 def inspect(*, environment: Mapping[str, str] | None = None,
             which: Callable[[str], str | None] = shutil.which,
             run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
@@ -219,9 +242,10 @@ def inspect(*, environment: Mapping[str, str] | None = None,
         "session": {"type": session_type, "ricebowl_marked": marked,
                     "nested": nested, "panel": panel, "socket": socket},
         "binaries": binaries, "required_missing": required_missing,
-        "session_bus": ("declared" if env.get("DBUS_SESSION_BUS_ADDRESS") else
-                        "launcher-available" if which("dbus-run-session") else
-                        "missing"),
+        "session_bus": {
+            "address_declared": bool(env.get("DBUS_SESSION_BUS_ADDRESS")),
+            "probe": _probe_bus(enabled=marked, env=env, which=which, run=run),
+        },
         "protocols": protocols, "processes": processes,
         "process_scope": "same-uid-not-session-attributed" if marked else "not-probed",
         "recovery": journal,
