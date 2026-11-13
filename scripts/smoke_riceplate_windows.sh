@@ -236,8 +236,12 @@ PY
         WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click "$task_click_x" 750 1024 768
         sleep 0.25
         labwc_version=$(labwc --version 2>&1 || :)
-        case "$labwc_version" in
-            *0.7.* | *0.8.* | *0.9.0* | *0.9.1* | *0.9.2* | *0.9.3*)
+        # Do not accidentally classify labwc 0.9.10 as 0.9.1:
+        # unknown/malformed versions must go through the strict keyboard gate.
+        labwc_release=$(printf '%s\n' "$labwc_version" |
+            sed -n 's/.*labwc[[:space:]]\([0-9][0-9.]*\).*/\1/p')
+        case "$labwc_release" in
+            0.7.* | 0.8.* | 0.9.0 | 0.9.1 | 0.9.2 | 0.9.3)
                 echo "XP_LUNA_WINDOW_MENU_KEYBOARD_GATE=NOT_TESTED_LEGACY_LABWC: $labwc_version"
                 WAYLAND_DISPLAY=wayland-0 "$clicker" 290 628 1024 768
                 ;;
