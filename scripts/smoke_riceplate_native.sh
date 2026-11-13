@@ -61,6 +61,24 @@ if [ ! -f "$test_font" ]; then
 fi
 mkdir -m 0700 "$runtime/config"
 export XDG_CONFIG_HOME="$runtime/config"
+# Deterministic, user-private XDG fixtures for real compositor program-folder
+# and recent-document acceptance. No host-wide installs or activity logging.
+mkdir -p "$runtime/luna-xdg/applications"
+cat >"$runtime/luna-xdg/applications/ricebowl-ci-editor.desktop" <<'DESKTOP'
+[Desktop Entry]
+Type=Application
+Name=RiceBowl CI Editor
+Exec=/usr/bin/true
+Categories=Office;WordProcessor;
+DESKTOP
+printf 'Native XP Luna recent document fixture\n' > "$runtime/luna-document.txt"
+cat >"$runtime/luna-xdg/recently-used.xbel" <<XBEL
+<?xml version="1.0" encoding="UTF-8"?>
+<xbel version="1.0">
+  <bookmark href="file://$runtime/luna-document.txt"
+            visited="2026-11-13T12:00:00Z"/>
+</xbel>
+XBEL
 python3 - "$source_root" "$runtime" "$test_font" <<'PY'
 import json
 from pathlib import Path
@@ -289,7 +307,8 @@ dbus-run-session -- sh -eu -c '
                 WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" \
                 >"$runtime/plate-$label.log" 2>&1 &
         elif [ "$label" = xp-luna-columns ]; then
-            RICEBOWL_DE_TRACE_MENU=1 PATH="$runtime/mock-bin:$PATH" \
+            XDG_DATA_HOME="$runtime/luna-xdg" \
+                RICEBOWL_DE_TRACE_MENU=1 PATH="$runtime/mock-bin:$PATH" \
                 RICEBOWL_CI_TRASH_LOG="$runtime/trash-gio.log" \
                 RICEBOWL_CI_RICEFIELD_LOG="$runtime/ricefield-argv.log" \
                 WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" \
@@ -600,11 +619,60 @@ PY
                     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-programs-$geometry.png"
                     cp "$runtime/xp-luna-pointer-programs-$geometry.png" \
                        "$source_root/dist/riceplate-native-preview/xp-luna-pointer-programs-$geometry.png"
+                    # First folder is a real XDG category, populated by a
+                    # disposable .desktop entry. Its pointer click must
+                    # navigate without starting the Exec command.
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" 60 548 "$width" "$height"
+                    sleep 0.3
+                    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-category-$geometry.png"
+                    cp "$runtime/xp-luna-pointer-category-$geometry.png" \
+                       "$source_root/dist/riceplate-native-preview/xp-luna-pointer-category-$geometry.png"
+                    # Real keyboard Escape returns to folders, not the desktop.
+                    WAYLAND_DISPLAY=wayland-0 wtype -k Escape
+                    sleep 0.3
+                    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-category-back-$geometry.png"
+                    cp "$runtime/xp-luna-pointer-category-back-$geometry.png" \
+                       "$source_root/dist/riceplate-native-preview/xp-luna-pointer-category-back-$geometry.png"
+                    /usr/bin/python3 - "$runtime" "$geometry" <<'PY'
+from PIL import Image, ImageChops
+from pathlib import Path
+import sys
+root, geometry = Path(sys.argv[1]), sys.argv[2]
+images = [Image.open(root / f"xp-luna-pointer-{name}-{geometry}.png").convert("RGB")
+          for name in ("programs", "category", "category-back")]
+region = (0, 424, 320, 700)
+diff = lambda a, b: ImageChops.difference(a.crop(region), b.crop(region)).getbbox()
+assert diff(images[0], images[1]), "Category pointer click did not change the native menu"
+assert diff(images[1], images[2]), "Escape did not restore the XDG folder view"
+PY
                     WAYLAND_DISPLAY=wayland-0 "$clicker" 220 "$header_y" "$width" "$height"
                     sleep 0.35
                     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-programs-back-$geometry.png"
                     cp "$runtime/xp-luna-pointer-programs-back-$geometry.png" \
                        "$source_root/dist/riceplate-native-preview/xp-luna-pointer-programs-back-$geometry.png"
+                    # The My Documents right-edge chevron opens only the
+                    # local, bounded GTK XBEL bookmark list. Opening a row
+                    # must delegate to fixed-argv Gio and close the menu.
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" 303 504 "$width" "$height"
+                    sleep 0.3
+                    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-documents-$geometry.png"
+                    cp "$runtime/xp-luna-pointer-documents-$geometry.png" \
+                       "$source_root/dist/riceplate-native-preview/xp-luna-pointer-documents-$geometry.png"
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" 60 548 "$width" "$height"
+                    count=0
+                    while [ ! -s "$runtime/trash-gio.log" ] && [ "$count" -lt 25 ]; do
+                        count=$((count + 1))
+                        sleep 0.1
+                    done
+                    expected=$(printf 'open\n%s' "$runtime/luna-document.txt")
+                    actual=$(cat "$runtime/trash-gio.log" 2>/dev/null || :)
+                    if [ "$actual" != "$expected" ]; then
+                        echo "Recent Documents failed real Wayland -> safe Gio argv dispatch" >&2
+                        exit 1
+                    fi
+                    rm -f "$runtime/trash-gio.log"
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" 35 "$button_y" "$width" "$height"
+                    sleep 0.25
                     # The real full-size XP footer now has three independent
                     # hit boxes. Move without clicking: do not lock CI or log
                     # out the isolated labwc session during visual QA.
