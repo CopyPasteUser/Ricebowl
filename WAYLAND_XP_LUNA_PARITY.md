@@ -237,6 +237,33 @@ currently recipe-managed and not freely draggable. Linux apps owning their
 own client-side window frames are outside Luna's border styling. These are
 software increments, not a physical ThinkPad or Orca acceptance certificate.
 
+## Follow-up sprint – Native XP keyboard shortcuts (13 November 2026)
+
+The opt-in **native** `xp-luna-columns` profile now compiles a private
+labwc keyboard map for the XP-era Super/Windows-key combinations:
+
+| Key | Actual native action | Guarantee |
+| --- | --- | --- |
+| Super+D | Toggle RicePlate Show Desktop | Shares the real taskbar restoration list; does not invent a second compositor window-state model |
+| Super+E | Open My Computer | Uses the existing RiceField-then-Gio local navigation fallback |
+| Super+R | Open native Run | Uses the existing explicit Run dialog with argv-only execution, not a shell |
+
+The session compiler only enables these fixed, allowlisted IPC commands for
+a full native XP Luna session. Nested previews, Waybar and all other rices
+keep labwc's original defaults, including its own Super+D binding.
+Live rice switching adds/removes the shortcuts transactionally and restores
+the exact previous XML if reconfigure or persistence fails. A successful
+Waybar rescue removes stale IPC shortcuts. No global/XFCE/system labwc
+configuration is changed. Super+L and Super+Return remain the existing
+RiceBowl Lock and Terminal shortcuts.
+
+**Not a keyboard focus fix:** This does not change the draft desktop icon
+context-menu type-to-select PR #327. labwc's keyboard focus limitation for
+unfocused Bottom/Overlay layer-shell shortcuts still needs an xdg-popup-backed
+solution and a real compositor/keyboard acceptance test. The new hotkeys
+themselves must pass headless labwc CI and physical hardware QA before
+1.0 sign-off.
+
 ## Sprint 2 – Auto-hide lifecycle & real Show Desktop acceptance (13 November 2026)
 
 The optional XP Luna taskbar now tracks **real compositor pointer focus** over

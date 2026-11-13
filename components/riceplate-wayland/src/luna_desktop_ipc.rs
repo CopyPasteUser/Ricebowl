@@ -1,11 +1,11 @@
 //! Opt-in Luna desktop root-menu bridge. The compositor already owns the
 //! background right-click: do not create a transparent fullscreen layer.
-//! Only four fixed commands cross the local owner-private datagram socket.
+//! Only fixed, allowlisted commands cross the local owner-private datagram socket.
 use std::{env,fs,io,os::unix::{fs::{FileTypeExt,MetadataExt,PermissionsExt},net::UnixDatagram},
           path::{Path,PathBuf}};
 
 #[derive(Clone,Copy,Debug,Eq,PartialEq)]
-pub enum Request { Arrange, NewFolder, Refresh, Properties }
+pub enum Request { Arrange, NewFolder, Refresh, Properties, ShowDesktop, Run, Explorer }
 
 impl Request {
     pub fn parse(value: &str) -> Option<Self> {
@@ -14,6 +14,9 @@ impl Request {
             "new-folder" => Some(Self::NewFolder),
             "refresh" => Some(Self::Refresh),
             "properties" => Some(Self::Properties),
+            "show-desktop" => Some(Self::ShowDesktop),
+            "run" => Some(Self::Run),
+            "explorer" => Some(Self::Explorer),
             _ => None,
         }
     }
@@ -23,6 +26,9 @@ impl Request {
             Self::NewFolder => b"new-folder",
             Self::Refresh => b"refresh",
             Self::Properties => b"properties",
+            Self::ShowDesktop => b"show-desktop",
+            Self::Run => b"run",
+            Self::Explorer => b"explorer",
         }
     }
     pub fn decode(raw: &[u8]) -> Option<Self> {
@@ -160,11 +166,15 @@ mod tests {
             ("new-folder",Request::NewFolder),
             ("refresh",Request::Refresh),
             ("properties",Request::Properties),
+            ("show-desktop",Request::ShowDesktop),
+            ("run",Request::Run),
+            ("explorer",Request::Explorer),
         ] {
             assert_eq!(Request::parse(command), Some(request));
             assert_eq!(Request::decode(request.wire()), Some(request));
         }
-        for invalid in [b"arrange;rm".as_slice(), b"refresh\0", b"new-folder/../"] {
+        for invalid in [b"arrange;rm".as_slice(), b"refresh\0", b"new-folder/../",
+                        b"explorer /etc", b"show-desktop\n", b"run;sh"] {
             assert_eq!(Request::decode(invalid),None);
         }
     }

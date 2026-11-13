@@ -20,6 +20,7 @@ on:
       - 'scripts/test_wayland_package_reproducibility.sh'
       - 'scripts/smoke_riceplate_native.sh'
       - 'scripts/smoke_luna_window_chrome.sh'
+      - 'scripts/smoke_luna_hotkeys.sh'
       - 'scripts/wayland_luna_chrome_client.sh'
       - 'scripts/smoke_riceplate_windows.sh'
       - 'scripts/smoke_riceplate_luna_autohide.sh'
@@ -83,6 +84,7 @@ on:
       - 'scripts/test_wayland_package_reproducibility.sh'
       - 'scripts/smoke_riceplate_native.sh'
       - 'scripts/smoke_luna_window_chrome.sh'
+      - 'scripts/smoke_luna_hotkeys.sh'
       - 'scripts/wayland_luna_chrome_client.sh'
       - 'scripts/smoke_riceplate_windows.sh'
       - 'scripts/smoke_riceplate_luna_autohide.sh'
@@ -153,6 +155,7 @@ jobs:
             --example wayland_pointer_click
           sh -n scripts/smoke_riceplate_native.sh
           sh -n scripts/smoke_luna_window_chrome.sh
+          sh -n scripts/smoke_luna_hotkeys.sh
           sh -n scripts/wayland_luna_chrome_client.sh
           sh -n scripts/smoke_riceplate_windows.sh
           sh -n scripts/smoke_riceplate_luna_autohide.sh
@@ -745,6 +748,8 @@ jobs:
       - name: Capture reversible Luna compositor window decorations
         run: |
           timeout -k 5s 80s sh scripts/smoke_luna_window_chrome.sh
+      - name: Verify real XP Super+D/E/R shortcuts and native Run dialog
+        run: timeout -k 5s 90s sh scripts/smoke_luna_hotkeys.sh
       - name: Render both Creator demonstrators at four real output geometries
         run: |
           set -eu
