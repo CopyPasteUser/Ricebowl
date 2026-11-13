@@ -7,6 +7,35 @@ and its backups stay intact.
 Mint 22/Ubuntu 24.04's labwc **0.7.1** is supported by using its
 `--startup` command and requesting compositor exit when the shell finishes.
 
+## Strict GLES2 ScreenCast lane (separate CI gate)
+
+Issue #304 tracks the remaining ScreenCast acceptance. The regular
+`scripts/smoke_wayland_portals.sh` still defaults to a **pixman** headless
+renderer: portal `Start` response 2 is an explicitly reported limitation,
+not success. A second, independent GitHub Actions workflow,
+`.github/workflows/wayland-portal-strict.yml`, runs the same disposable
+private-D-Bus/private-PipeWire test under Mesa llvmpipe with
+`RICEBOWL_PORTAL_RENDERER=gles2` and `RICEBOWL_PORTAL_STRICT_CI=1`.
+This lane rejects a pixman fallback, Start denials, missing or malformed
+stream nodes and invalid/non-socket PipeWire remote FDs. Successful
+negotiation is logged as `PORTAL_STRICT_OK` only after `Start` and
+`OpenPipeWireRemote` both pass. The private runtime/marker/sock guard is
+shared with the ordinary isolated test.
+
+Run **only on disposable CI or a deliberately isolated test VM**:
+
+```bash
+RICEBOWL_PORTAL_RENDERER=gles2 RICEBOWL_PORTAL_STRICT_CI=1 \
+LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe EGL_PLATFORM=surfaceless \
+timeout -k 5s 95s sh scripts/smoke_wayland_portals.sh
+```
+
+A green strict job proves D-Bus ScreenCast negotiation plus FD receipt,
+**not** delivered PipeWire video frames, interactive consent, sandboxed
+Flatpak permissions or physical-GPU/monitor compatibility. If the Mesa
+renderer cannot start or rejects ScreenCast, the strict job must remain red;
+do not relax it or check the hardware gate as complete.
+
 ## Portal integration acceptance (isolated CI)
 
 The session package routes FileChooser through GTK and Screenshot/ScreenCast
