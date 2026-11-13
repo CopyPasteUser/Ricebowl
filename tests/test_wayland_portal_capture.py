@@ -52,6 +52,25 @@ class CaptureGuardTests(unittest.TestCase):
                 runtime.chmod(0o755)
                 with self.assertRaisesRegex(RuntimeError, "0700"):
                     portal.require_private_headless_session(env)
+                runtime.chmod(0o700)
+                marker = runtime / ".ricebowl-portal-ci"
+                marker.unlink()
+                original = runtime / "original-marker"
+                original.touch()
+                marker.symlink_to(original)
+                with self.assertRaisesRegex(RuntimeError, "marker"):
+                    portal.require_private_headless_session(env)
+                marker.unlink()
+                marker.touch()
+                alias = runtime.parent / (runtime.name + "-alias")
+                alias.symlink_to(runtime, target_is_directory=True)
+                try:
+                    with self.assertRaisesRegex(RuntimeError, "symlink"):
+                        portal.require_private_headless_session({
+                            **env, "XDG_RUNTIME_DIR": str(alias),
+                            "PIPEWIRE_RUNTIME_DIR": str(alias)})
+                finally:
+                    alias.unlink()
 
     def test_rejects_capture_outside_private_session(self):
         with self.assertRaises(RuntimeError):
@@ -91,6 +110,42 @@ class ScreenshotValidationTests(unittest.TestCase):
 
 
 class ScreenCastCapabilityTests(unittest.TestCase):
+    def test_strict_mode_never_accepts_pixman_or_invalid_flags(self):
+        self.assertFalse(portal.strict_ci_mode({}))
+        self.assertTrue(portal.strict_ci_mode({
+            "RICEBOWL_PORTAL_STRICT_CI": "1", "WLR_RENDERER": "gles2"}))
+        for env in (
+            {"RICEBOWL_PORTAL_STRICT_CI": "1", "WLR_RENDERER": "pixman"},
+            {"RICEBOWL_PORTAL_STRICT_CI": "1"},
+            {"RICEBOWL_PORTAL_STRICT_CI": "yes", "WLR_RENDERER": "gles2"},
+        ):
+            with self.subTest(env=env), self.assertRaises(RuntimeError):
+                portal.strict_ci_mode(env)
+        self.assertFalse(portal.unsupported_pixman_start(
+            portal.PortalRejected("Start", 2), {
+                "RICEBOWL_PORTAL_CAPTURE_CI": "1",
+                "RICEBOWL_PORTAL_STRICT_CI": "1",
+                "WLR_BACKENDS": "headless",
+                "WLR_RENDERER": "gles2",
+            }))
+
+    def test_start_requires_real_distinct_bounded_stream_nodes(self):
+        self.assertEqual(portal.stream_nodes([(42, {}), (73, {"source_type": 1})]),
+                         (42, 73))
+        for bad in (None, [], [()], [(True, {})], [(0, {})],
+                    [(-1, {})], [(4294967296, {})], [(3, None)],
+                    [(4, {})] * 2, [(5, {}, "extra")],
+                    "bad", [(i, {}) for i in range(17)]):
+            with self.subTest(bad=bad), self.assertRaises(RuntimeError):
+                portal.stream_nodes(bad)
+
+    def test_script_restricts_renderer_and_has_separate_strict_contract(self):
+        source = (SCRIPT.parent / "smoke_wayland_portals.sh").read_text(encoding="utf-8")
+        self.assertIn('case "$renderer" in', source)
+        self.assertIn('case "$strict" in', source)
+        self.assertIn('export WLR_RENDERER="$renderer"', source)
+        self.assertIn('export RICEBOWL_PORTAL_STRICT_CI="$strict"', source)
+
     def test_only_ci_pixman_headless_start_failure_is_non_blocking(self):
         env = {"RICEBOWL_PORTAL_CAPTURE_CI": "1", "WLR_BACKENDS": "headless",
                "WLR_RENDERER": "pixman"}
