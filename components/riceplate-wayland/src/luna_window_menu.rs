@@ -55,6 +55,13 @@ pub fn decode(id: i32, window_count: usize) -> Option<Action> {
     })
 }
 
+/// Window titles are untrusted app-controlled text. The existing taskband
+/// capacity is preserved, but control characters cannot alter menu rows.
+fn title_label(title: &str, app_id: &str) -> String {
+    task_groups::task_label(title, app_id).chars()
+        .filter(|ch| !ch.is_control()).collect()
+}
+
 fn item(id: i32, label: &str, enabled: bool, checked: bool) -> tray::MenuRow {
     tray::MenuRow {
         id,
@@ -70,7 +77,7 @@ fn item(id: i32, label: &str, enabled: bool, checked: bool) -> tray::MenuRow {
 pub fn entries(windows: &[Window<'_>]) -> Option<(String, Vec<tray::MenuRow>)> {
     let first = windows.first()?;
     let title = if windows.len() == 1 {
-        task_groups::task_label(first.title, first.app_id)
+        title_label(first.title, first.app_id)
     } else {
         format!("{} windows", windows.len())
     };
@@ -82,7 +89,7 @@ pub fn entries(windows: &[Window<'_>]) -> Option<(String, Vec<tray::MenuRow>)> {
         rows.push(item(CLOSE, "Close", true, false));
     } else {
         for (index, window) in windows.iter().take(MAX_WINDOW_ROWS).enumerate() {
-            let label = task_groups::task_label(window.title, window.app_id);
+            let label = title_label(window.title, window.app_id);
             rows.push(item(WINDOW_BASE + index as i32, &label, true, window.active));
         }
         if windows.len() > MAX_WINDOW_ROWS {
@@ -140,13 +147,14 @@ mod tests {
         assert_eq!(title, "2 windows");
         assert_eq!(rows[0].label, "First");
         assert_eq!(rows[1].label, "Second");
-        assert!(matches!(rows[1].kind, tray::MenuKind::Action { checked: true, .. }));
+        assert!(matches!(&rows[1].kind, tray::MenuKind::Action { checked: true, .. }));
         assert_eq!(decode(rows[1].id, 2), Some(Action::Activate(1)));
         assert_eq!(decode(SWITCH_NEXT, 2), Some(Action::NextWindow));
         assert_eq!(decode(RESTORE_ALL, 2), Some(Action::RestoreAll));
         assert_eq!(decode(MINIMIZE_ALL, 2), Some(Action::MinimizeAll));
         assert_eq!(decode(CLOSE_ALL, 2), Some(Action::CloseAll));
         assert_eq!(decode(WINDOW_BASE + 5, 2), None);
+        assert_eq!(title_label("A\nB\rC", ""), "ABC");
 
         let many = vec![w("Window", false, false); 128];
         let (_, rows) = entries(&many).unwrap();
