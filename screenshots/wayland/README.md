@@ -18,6 +18,8 @@ Captured **11 November 2026** at 1366×768 in a real headless labwc session:
 The images include original RiceBowl Luna icons, a compact tray and
 Liberation Sans text. This is *Wayland*, not the older XFCE/X11 XP rice.
 
+**Newer CI evidence (13 November 2026):** [successful native run #43354447753](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43354447753) also archives real compositor PNGs for the expanded Start menu, Help, Run and desktop shortcut context menus. Those frames are in the CI artifact, **not yet in this checked-in WebP gallery**. The thumbnails above are the newest versions currently committed to the repository.
+
 ## Native interaction
 
 | Find after pointer click | Saved after right-click pin |
