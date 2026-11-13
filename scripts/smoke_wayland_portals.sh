@@ -1,6 +1,22 @@
 #!/bin/sh
 # Disposable labwc + private D-Bus acceptance. Never uses the live desktop.
 set -eu
+# The normal lane preserves the explicit pixman ScreenCast limitation.
+# Strict mode is intentionally separate and fails unless GLES2 is selected.
+renderer=${RICEBOWL_PORTAL_RENDERER:-pixman}
+strict=${RICEBOWL_PORTAL_STRICT_CI:-0}
+case "$renderer" in
+    pixman|gles2) ;;
+    *) echo "Unsupported isolated portal renderer: $renderer" >&2; exit 2 ;;
+esac
+case "$strict" in
+    0) ;;
+    1)
+        [ "$renderer" = gles2 ] || {
+            echo "Strict portal capture requires the GLES2 renderer" >&2; exit 2;
+        } ;;
+    *) echo "Invalid strict portal CI flag" >&2; exit 2 ;;
+esac
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 for binary in labwc pipewire dbus-run-session dbus-update-activation-environment gdbus timeout; do
     command -v "$binary" >/dev/null 2>&1 || {
@@ -41,7 +57,8 @@ export XDG_SESSION_DESKTOP=ricebowl
 export XDG_SESSION_TYPE=wayland
 export WLR_BACKENDS=headless
 export WLR_HEADLESS_OUTPUTS=1
-export WLR_RENDERER=pixman
+export WLR_RENDERER="$renderer"
+export RICEBOWL_PORTAL_STRICT_CI="$strict"
 export LABWC_UPDATE_ACTIVATION_ENV=0
 export RICEBOWL_DE_NESTED=1
 export RICEBOWL_PORTAL_CAPTURE_CI=1
