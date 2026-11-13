@@ -20,7 +20,8 @@ Wayland environment uses upstream **labwc** for window management and
 These features have **automated coverage**, including headless labwc and
 XWayland interaction tests. They have not all been signed off on a real laptop.
 
-[**See current progress and genuine Wayland screenshots**](WAYLAND_PROGRESS.md) ·
+[**View genuine Wayland screenshots**](screenshots/wayland/README.md) ·
+[Development progress](WAYLAND_PROGRESS.md) ·
 [Engineering status](DESKTOP_ENVIRONMENT_STATUS.md)
 
 ## Inspect before switching
