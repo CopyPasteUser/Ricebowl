@@ -91,6 +91,47 @@ class WaylandLunaSettingsTests(unittest.TestCase):
         Gtk.main()
         self.assertTrue(window.closed)
 
+    def test_luna_search_enter_and_shortcuts_in_real_gtk(self):
+        try:
+            Gtk, Gdk, GLib = settings._gtk_modules()
+        except (ImportError, ValueError):
+            self.skipTest("GTK introspection typelib unavailable")
+        if not Gtk.init_check([])[0]:
+            self.skipTest("GTK display unavailable")
+        window = settings.RiceSpiceWindow(Gtk, Gdk, GLib, page="home", luna=True)
+        try:
+            window.search_entry.set_text("sound")
+            self.assertEqual(window.page, "search")
+            window.search_entry.emit("activate")
+            self.assertEqual(window.page, "audio")
+            self.assertEqual(window.search_entry.get_text(), "")
+
+            # Empty Enter must not select arbitrary settings.
+            window.search_entry.emit("activate")
+            self.assertEqual(window.page, "audio")
+
+            from types import SimpleNamespace
+            shortcut = SimpleNamespace(keyval=Gdk.KEY_f,
+                                       state=Gdk.ModifierType.CONTROL_MASK)
+            self.assertTrue(window._luna_key_press(window.window, shortcut))
+            self.assertTrue(window.search_entry.is_focus())
+
+            # Unmatched queries must not navigate or execute anything.
+            window.search_entry.set_text("missing-page-xyz")
+            self.assertEqual(window.page, "search")
+            window.search_entry.emit("activate")
+            self.assertEqual(window.page, "search")
+
+            escape = SimpleNamespace(keyval=Gdk.KEY_Escape, state=0)
+            self.assertTrue(window._luna_key_press(window.window, escape))
+            self.assertEqual(window.page, "home")
+            self.assertEqual(window.search_entry.get_text(), "")
+            self.assertFalse(window._luna_key_press(window.window, escape))
+        finally:
+            GLib.timeout_add(30, lambda: (window.window.destroy(), False)[1])
+            Gtk.main()
+        self.assertTrue(window.closed)
+
     def test_taskbar_clock_format_only_saves_after_explicit_apply(self):
         try:
             Gtk, Gdk, GLib = settings._gtk_modules()

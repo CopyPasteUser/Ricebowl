@@ -94,6 +94,7 @@ LUNA_GROUPS = (
     ("System & accessibility", ("power", "timezone", "notifications", "accessibility")),
 )
 
+
 # Search only real destinations, but index the controls that users naturally
 # look for instead of relying on long page names. Purely local, no I/O.
 LUNA_SEARCH_HINTS = {
@@ -119,6 +120,7 @@ def luna_search_matches(query: str) -> tuple[str, ...]:
                                 LUNA_SEARCH_HINTS.get(key, ""))).casefold()
                for term in terms)
     )
+
 
 
 def _gtk_modules():
@@ -256,7 +258,7 @@ LUNA_CSS = b"""
 class RiceSpiceWindow:
     def __init__(self, Gtk, Gdk, GLib, *, page: str = "network",
                  luna: bool = False):
-        self.Gtk, self.GLib = Gtk, GLib
+        self.Gtk, self.Gdk, self.GLib = Gtk, Gdk, GLib
         self.luna = luna
         self.sections = LUNA_SECTIONS if luna else SECTIONS
         valid_pages = {section[0] for section in self.sections}
@@ -285,6 +287,8 @@ class RiceSpiceWindow:
         if luna:
             self.window.get_style_context().add_class("ricespice-luna")
         self.window.connect("destroy", self._close)
+        if luna:
+            self.window.connect("key-press-event", self._luna_key_press)
 
         root = Gtk.Box(orientation=(Gtk.Orientation.VERTICAL if luna
                                      else Gtk.Orientation.HORIZONTAL))
@@ -321,6 +325,7 @@ class RiceSpiceWindow:
             self.search_entry.set_tooltip_text("Search available Control Panel pages")
             self.search_entry.get_style_context().add_class("luna-search")
             self.search_entry.connect("changed", self._luna_search_changed)
+            self.search_entry.connect("activate", self._luna_search_activate)
             toolbar.pack_end(self.search_entry, False, False, 0)
             root.pack_start(toolbar, False, False, 0)
 
@@ -508,6 +513,32 @@ class RiceSpiceWindow:
             self.show_search_results(query)
         else:
             self.show_home()
+
+    def _luna_search_activate(self, _entry):
+        """Enter opens only the first real matching page; never runs an action."""
+        if not self.luna or self.search_entry is None:
+            return
+        query = self.search_entry.get_text().strip()
+        if not query:
+            return
+        matches = luna_search_matches(query)
+        if matches:
+            self.show_page(matches[0])
+
+    def _luna_key_press(self, _window, event):
+        """Control Panel keyboard navigation without a global keyboard grab."""
+        if not self.luna or self.search_entry is None:
+            return False
+        control = event.state & self.Gdk.ModifierType.CONTROL_MASK
+        if control and event.keyval in (self.Gdk.KEY_f, self.Gdk.KEY_F):
+            self.search_entry.grab_focus()
+            self.search_entry.select_region(0, -1)
+            return True
+        if event.keyval == self.Gdk.KEY_Escape and self.search_entry.get_text():
+            self.show_home()
+            self.search_entry.grab_focus()
+            return True
+        return False
 
     def _luna_icon(self, key: str, pixels: int):
         """Load bundled XP-style SVGs; fall back safely if packaging is incomplete."""
