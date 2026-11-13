@@ -31,6 +31,7 @@ pub struct WindowInfo<'a> {
     pub app_id: &'a str,
     pub title: &'a str,
     pub active: bool,
+    pub minimized: bool,
     pub ready: bool,
 }
 
@@ -40,14 +41,19 @@ pub struct TaskGroup {
     pub representative: usize,
     pub label: String,
     pub active: bool,
+    /// A group is shown as minimized only when every member is minimized.
+    pub minimized: bool,
 }
 
 pub fn task_label(title: &str, app_id: &str) -> String {
     // wlroots titles are supplied by applications, not by the compositor.
     // Strip control characters *before* applying the fixed taskband budget.
     let clean = |value: &str| -> String {
-        value.chars().filter(|ch| !ch.is_control())
-            .take(18).collect::<String>().trim().to_owned()
+        value.chars().filter(|ch| {
+            !ch.is_control() && !matches!(*ch,
+                '\u{061c}' | '\u{200e}' | '\u{200f}' |
+                '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+        }).take(18).collect::<String>().trim().to_owned()
     };
     let title = clean(title);
     if !title.is_empty() { return title; }
@@ -57,15 +63,24 @@ pub fn task_label(title: &str, app_id: &str) -> String {
 
 /// Stable application order, but no accidental grouping of unknown app IDs.
 pub fn group_windows<'a>(windows: impl IntoIterator<Item = WindowInfo<'a>>) -> Vec<TaskGroup> {
+    group_windows_with_policy(windows, true)
+}
+
+/// Keep identity and order stable while honoring Luna's opt-in grouping
+/// preference. Other rices retain their established grouped behavior.
+pub fn group_windows_with_policy<'a>(
+    windows: impl IntoIterator<Item = WindowInfo<'a>>, grouped: bool,
+) -> Vec<TaskGroup> {
     let mut groups: Vec<TaskGroup> = Vec::new();
     let mut by_app_id: HashMap<&'a str, usize> = HashMap::new();
     for window in windows {
         if !window.ready { continue; }
         let id = window.app_id.trim();
-        if !id.is_empty() {
+        if grouped && !id.is_empty() {
             if let Some(&index) = by_app_id.get(id) {
                 let group = &mut groups[index];
                 group.members.push(window.index);
+                group.minimized &= window.minimized;
                 if window.active {
                     group.active = true;
                     group.representative = window.index;
@@ -78,6 +93,7 @@ pub fn group_windows<'a>(windows: impl IntoIterator<Item = WindowInfo<'a>>) -> V
         groups.push(TaskGroup {
             members: vec![window.index], representative: window.index,
             label: task_label(window.title, window.app_id), active: window.active,
+            minimized: window.minimized,
         });
     }
     groups
@@ -118,7 +134,7 @@ mod tests {
     use super::*;
 
     fn window<'a>(index: usize, app_id: &'a str, title: &'a str, active: bool) -> WindowInfo<'a> {
-        WindowInfo { index, app_id, title, active, ready: true }
+        WindowInfo { index, app_id, title, active, minimized: false, ready: true }
     }
 
     #[test]
@@ -129,7 +145,7 @@ mod tests {
                         window(3, "", "Anonymous A", false),
                         window(4, "", "Anonymous B", false),
                         WindowInfo { index: 5, app_id: "editor", title: "Incomplete",
-                                     active: false, ready: false }];
+                                     active: false, minimized: false, ready: false }];
         let groups = group_windows(list);
         assert_eq!(groups.len(), 4);
         assert_eq!(groups[0].members, [0, 2]);
@@ -176,6 +192,36 @@ mod tests {
         assert_eq!(task_label("", ""), "Window");
         assert_eq!(task_label("\n\t12345678901234567890", ""),
                    "123456789012345678");
+    }
+
+    #[test]
+    fn group_policy_retains_distinct_instances_and_minimized_state() {
+        let entries = [
+            WindowInfo { minimized: true, ..window(0, "editor", "First", false) },
+            window(1, "editor", "Second", true),
+            WindowInfo { minimized: true, ..window(2, "editor", "Third", false) },
+            WindowInfo { minimized: true, ..window(3, "music", "Player", false) },
+        ];
+        let grouped = group_windows_with_policy(entries.iter().map(|w| WindowInfo {
+            index: w.index, app_id: w.app_id, title: w.title, active: w.active,
+            minimized: w.minimized, ready: w.ready,
+        }), true);
+        assert_eq!(grouped.len(), 2);
+        assert_eq!(grouped[0].members, [0, 1, 2]);
+        assert!(!grouped[0].minimized, "one visible editor keeps the group unminimized");
+        assert!(grouped[1].minimized);
+        let ungrouped = group_windows_with_policy(entries, false);
+        assert_eq!(ungrouped.iter().map(|g| g.members.as_slice()).collect::<Vec<_>>(),
+                   vec![&[0][..], &[1][..], &[2][..], &[3][..]]);
+        assert_eq!(ungrouped.iter().map(|g| g.minimized).collect::<Vec<_>>(),
+                   [true, false, true, true]);
+        assert_eq!(click_target(&ungrouped[1], Some(1)), (1, true));
+    }
+
+    #[test]
+    fn title_labels_strip_bidi_spoofing_without_affecting_unicode() {
+        assert_eq!(task_label("Report\u{202e}cod.exe\u{202c}", ""), "Reportcod.exe");
+        assert_eq!(task_label("\u{2066}Dokumentä\u{2069}", ""), "Dokumentä");
     }
 
     #[test]
