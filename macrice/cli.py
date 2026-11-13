@@ -415,7 +415,7 @@ def main(argv: list[str] | None = None) -> int:
                 if args.page is None and not args.luna:
                     launch()  # Keep the stable generic RiceSpice entrypoint contract.
                 else:
-                    launch(page=args.page or "network", luna=args.luna)
+                    launch(page=args.page or ("home" if args.luna else "network"), luna=args.luna)
                 return 0
             if args.action == "display-confirm":
                 if (args.json or args.nested or args.recipe or args.panel != "waybar"
