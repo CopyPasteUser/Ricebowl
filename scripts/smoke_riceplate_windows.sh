@@ -189,7 +189,37 @@ dbus-run-session -- sh -eu -c '
                 > "$out/luna-taskbar-interaction-SHA256SUMS"
         fi
         task_click_x=240
-        echo "XP Luna Show Desktop: real Wayland client minimized/restored twice"
+        # A real right-click on the XP task button must open a bounded native
+        # window context menu (not the settings application or an SNI menu).
+        WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click "$task_click_x" 750 1024 768
+        sleep 0.3
+        WAYLAND_DISPLAY=wayland-0 grim - >"$runtime/luna-task-context.png"
+        /usr/bin/python3 - "$runtime/opened.png" "$runtime/luna-task-context.png" <<'PY'
+import sys
+from PIL import Image, ImageChops
+with Image.open(sys.argv[1]) as opened, Image.open(sys.argv[2]) as menu:
+    before = opened.convert("RGB")
+    after = menu.convert("RGB")
+    assert before.size == after.size == (1024, 768)
+    # Menu is anchored to the task at x=240, above the 40px panel.
+    crop = (240, 480, 528, 720)
+    delta = ImageChops.difference(before.crop(crop), after.crop(crop))
+    changed = sum(1 for px in delta.getdata() if max(px) > 30)
+    assert changed > 4000, f"Native task context not visible: {changed} pixels"
+print("Real compositor context menu visibly appeared above the clicked task")
+PY
+        # The second local popup row is Minimize. This must reach the real
+        # foreign-toplevel handle and be observed back through the compositor.
+        WAYLAND_DISPLAY=wayland-0 "$clicker" 260 568 1024 768
+        wait_window_state "minimized=true"
+        kill -0 "$window"
+        WAYLAND_DISPLAY=wayland-0 "$clicker" "$task_click_x" 750 1024 768
+        wait_window_state "active=true minimized=false"
+        out="$source_root/dist/riceplate-native-preview"
+        if [ -d "$out" ]; then
+            cp "$runtime/luna-task-context.png" "$out/luna-taskbar-window-context.png"
+        fi
+        echo "XP Luna Show Desktop and real task context menu: compositor controls confirmed"
     fi
     # Verify the normal task button still works after a Show Desktop cycle.
     WAYLAND_DISPLAY=wayland-0 "$clicker" "$task_click_x" 750 1024 768
