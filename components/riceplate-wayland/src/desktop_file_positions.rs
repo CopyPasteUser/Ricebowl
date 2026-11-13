@@ -74,6 +74,13 @@ impl Store {
     pub fn get(&self, file: &Entry, output: &str) -> Option<Point> {
         self.files.get(&identity(file))?.get(output).copied()
     }
+    /// A disappeared inode must not use up the bounded store forever. Keep
+    /// positions across simple rename (same inode), but not delete+replace.
+    pub fn retain_entries(&mut self, entries: &[Entry]) -> bool {
+        let before = self.files.len();
+        self.files.retain(|id, _| entries.iter().any(|item| identity(item) == *id));
+        before != self.files.len()
+    }
     pub fn set(&mut self, file: &Entry, output: &str, point: Point)
         -> io::Result<()>
     {
@@ -99,6 +106,13 @@ impl Store {
 }
 
 fn read_at(path: &Path) -> io::Result<BTreeMap<String, BTreeMap<String, Point>>> {
+    if let Some(parent) = path.parent() {
+        let meta = fs::symlink_metadata(parent)?;
+        if !meta.file_type().is_dir() || meta.uid() != unsafe { libc::geteuid() }
+            || meta.mode() & 0o077 != 0 {
+            return Err(io::Error::new(io::ErrorKind::PermissionDenied, "Unsafe positions directory"));
+        }
+    }
     let file = OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(path)?;
     let meta = file.metadata()?;
     if !meta.is_file() || meta.uid() != unsafe { libc::geteuid() }
@@ -178,6 +192,9 @@ mod tests {
         assert_eq!(store.get(&entry(1,10),"HDMI-A-1"),Some(Point{x:24,y:144}));
         assert!(store.get(&entry(1,11),"DP-1").is_none());
         assert!(store.set(&entry(1,10),"bad/name",Point{x:0,y:0}).is_err());
+        assert!(!store.retain_entries(&[entry(1,10)]));
+        assert!(store.retain_entries(&[entry(1,11)]));
+        assert!(store.get(&entry(1,10),"DP-1").is_none());
     }
     #[test]
     fn private_roundtrip_and_symlink_refusal() {
