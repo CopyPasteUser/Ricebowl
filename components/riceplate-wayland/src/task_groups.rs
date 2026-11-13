@@ -90,7 +90,9 @@ pub fn visible_label(group: &TaskGroup, cell_width: u32) -> String {
         format!(" ({})", group.members.len())
     } else { String::new() };
     if capacity < suffix.len() {
-        return suffix.chars().take(capacity).collect();
+        // On a compressed taskband, retain the rightmost count digits rather
+        // than showing only the otherwise meaningless leading " (".
+        return suffix.chars().skip(suffix.len() - capacity).collect();
     }
     let mut label: String = group.label.chars().take(capacity - suffix.len()).collect();
     label.push_str(&suffix);
@@ -163,6 +165,8 @@ mod tests {
         assert_eq!(visible_label(&group, 164), "Second documen (2)");
         assert_eq!(visible_label(&group, 64), "Se (2)");
         assert_eq!(visible_label(&group, 8), "");
+        assert_eq!(visible_label(&group, 32), "2)");
+        assert_eq!(visible_label(&group, 40), "(2)");
     }
 
     #[test]
