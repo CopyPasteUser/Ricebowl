@@ -43,7 +43,7 @@ artifact="$root/dist/riceplate-native-preview"
 mkdir -p "$artifact"
 
 dbus-run-session -- sh -eu -c '
-    config=$1; runtime=$2; native=$3; artifact=$4
+    config=$1; runtime=$2; native=$3; artifact=$4; root=$5
     labwc --config-dir "$config" >"$runtime/labwc.log" 2>&1 &
     compositor=$!
     wallpaper=; plate=
@@ -68,11 +68,9 @@ dbus-run-session -- sh -eu -c '
     output=$(WAYLAND_DISPLAY=wayland-0 wlr-randr | sed -n "1s/[[:space:]].*//p")
     test -n "$output" || { echo "No active wl_output" >&2; exit 1; }
     WAYLAND_DISPLAY=wayland-0 wlr-randr --output "$output" --custom-mode 1366x768@60Hz --scale 1
-    WAYLAND_DISPLAY=wayland-0 swaybg --image "$runtime/luna.json" \
+    WAYLAND_DISPLAY=wayland-0 swaybg --image "$root/assets/wallpapers/luna-hills.jpg" \
         --mode fill >"$runtime/wallpaper.log" 2>&1 &
     wallpaper=$!
-    # The wallpaper command above is deliberately isolated: a PNG wallpaper
-    # fixture is not necessary to exercise keybindings, only a live layer.
     WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$runtime/luna.json" \
         >"$runtime/native.log" 2>&1 &
     plate=$!
@@ -111,7 +109,7 @@ dbus-run-session -- sh -eu -c '
     }
     WAYLAND_DISPLAY=wayland-0 grim - > "$artifact/xp-luna-hotkeys-run.png"
     kill -0 "$plate"
-' sh "$config" "$runtime" "$native" "$artifact"
+' sh "$config" "$runtime" "$native" "$artifact" "$root"
 
 python3 - "$runtime" "$artifact" <<'PY'
 import sys
