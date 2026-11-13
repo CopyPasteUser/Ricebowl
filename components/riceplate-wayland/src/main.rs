@@ -3724,10 +3724,7 @@ fn paint_panel_pointer(canvas: &mut [u8], width: u32, height: u32,
                     let task_visual = visual.button(Hit::Task(view.start + index));
                     panel_chrome::task_button_visual(canvas, width, height, x, cell_width,
                                                      group.active, style, task_visual);
-                    let label = task_groups::visible_label(group, cell_width);
-                    let label = if style.id == "xp-luna-columns" {
-                        fit_rice_text(&label, cell_width.saturating_sub(22), style)
-                    } else { label };
+                    let label = fitted_task_label(group, cell_width, style);
                     draw_rice_text(canvas, width, height, x + 10,
                               height.saturating_sub(8 * style.font_scale) / 2
                                   + u32::from(task_visual
@@ -5223,6 +5220,27 @@ fn text_pixel_width(text: &str, scale: u32) -> u32 {
     // multiple bytes. This is a monospace width, not a Unicode shaping claim.
     u32::try_from(text.chars().count()).unwrap_or(u32::MAX)
         .saturating_mul(8 * scale)
+}
+
+/// The XP taskband must preserve a visible grouped-window count even when
+/// a proportionally rendered title needs ellipsis inside the button geometry.
+fn fitted_task_label(group: &task_groups::TaskGroup, cell: u32,
+                     style: &PanelStyle) -> String {
+    let label = task_groups::visible_label(group, cell);
+    if style.id != "xp-luna-columns" {
+        return label;
+    }
+    let available = cell.saturating_sub(22);
+    if group.members.len() <= 1 {
+        return fit_rice_text(&label, available, style);
+    }
+    let suffix = format!(" ({})", group.members.len());
+    let suffix_width = rice_text_width(&suffix, style);
+    if suffix_width >= available {
+        return fit_rice_text(&suffix, available, style);
+    }
+    let title = label.strip_suffix(&suffix).unwrap_or(&label);
+    format!("{}{}", fit_rice_text(title, available - suffix_width, style), suffix)
 }
 
 /// Use measured glyph advances for native Luna rather than assumed 8px cells.
@@ -8150,6 +8168,27 @@ mod tests {
         );
     }
 
+
+    #[test]
+    fn luna_grouped_task_badge_survives_visual_ellipsis() {
+        let mut luna = recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        luna.native_art = Some(style_art::load(
+            luna.artwork.as_ref().unwrap(), luna.font_scale).unwrap());
+        let group = task_groups::TaskGroup {
+            members: vec![0, 1, 2], representative: 0,
+            label: "An application title with a long name".into(), active: false,
+        };
+        for width in [90, 100, 124, 156] {
+            let short = fitted_task_label(&group, width, &luna);
+            assert!(short.ends_with(" (3)"), "lost group count at {width}: {short}");
+            assert!(rice_text_width(&short, &luna) <= width - 22);
+        }
+        let legacy = recipe::load("classic").unwrap();
+        assert_eq!(fitted_task_label(&group, 156, &legacy),
+                   task_groups::visible_label(&group, 156));
+    }
 
     #[test]
     fn luna_font_metrics_clip_at_actual_pixel_width_and_keep_legacy_cells() {
