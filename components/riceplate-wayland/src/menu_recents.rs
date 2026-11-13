@@ -201,12 +201,21 @@ fn save_to(directory: &File, name: &CStr, id: &str, apps: &[String])
 {
     // A pre-existing file must be owned, private and regular. The atomic
     // rename is relative to the same already-validated directory descriptor.
-    let _existing = checked_history_file(directory, name)?;
+    let existing = checked_history_file(directory, name)?;
     let bytes = serde_json::to_vec(&History {
         schema_version: 1, recipe: id.to_owned(), apps: apps.to_vec(),
     })?;
     if bytes.len() as u64 > MAX_BYTES {
         return Err("Recent applications file is oversized".into());
+    }
+    // Avoid creating, syncing and renaming a file when the canonical state
+    // already matches. This is common when the menu persists an unchanged
+    // recent-app list and avoids unnecessary flash writes and inode churn.
+    // Read only the previously validated, bounded, private regular file.
+    if let Some(file) = existing {
+        let mut previous = Vec::new();
+        file.take(MAX_BYTES + 1).read_to_end(&mut previous)?;
+        if previous == bytes { return Ok(()); }
     }
     let nonce = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
     let temp_name = CString::new(format!(".{id}-{}-{nonce}.tmp", std::process::id()))?;
@@ -301,6 +310,26 @@ mod tests {
             .map(|entry| entry.unwrap().file_name()).collect();
         assert_eq!(names.len(), 1);
         assert_eq!(names[0].as_os_str(), location.file_name().unwrap());
+        fs::remove_dir_all(location.ancestors().nth(3).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn unchanged_recent_history_save_preserves_inode_and_mtime() {
+        let location = location();
+        let entries = vec!["desktop:org.example.Editor.desktop".to_owned()];
+        save_at(&location, RICE_ID, &entries).unwrap();
+        let original = fs::metadata(&location).unwrap();
+        let original_bytes = fs::read(&location).unwrap();
+        save_at(&location, RICE_ID, &entries).unwrap();
+        let unchanged = fs::metadata(&location).unwrap();
+        assert_eq!(original.ino(), unchanged.ino());
+        assert_eq!(original.mtime(), unchanged.mtime());
+        assert_eq!(original.mtime_nsec(), unchanged.mtime_nsec());
+        assert_eq!(fs::read(&location).unwrap(), original_bytes);
+        let next = vec!["desktop:org.example.Other.desktop".to_owned()];
+        save_at(&location, RICE_ID, &next).unwrap();
+        assert_eq!(restore_at(&location, RICE_ID).unwrap(), next);
+        assert_ne!(fs::read(&location).unwrap(), original_bytes);
         fs::remove_dir_all(location.ancestors().nth(3).unwrap()).unwrap();
     }
 
