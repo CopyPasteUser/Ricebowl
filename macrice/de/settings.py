@@ -345,6 +345,13 @@ class RiceSpiceWindow:
         self._suppress_luna_search = False
         self.luna_view = "categories"
         self.luna_flow = None
+        # Bounded, view-local Explorer-style history. Routes contain only
+        # allowlisted page/category IDs and local search text; no commands.
+        self.luna_history: list[tuple[str, str]] = []
+        self.luna_history_index = -1
+        self._luna_replaying = False
+        self.luna_back = None
+        self.luna_forward = None
 
         if luna:
             header = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
@@ -359,7 +366,17 @@ class RiceSpiceWindow:
 
             toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
             toolbar.get_style_context().add_class("luna-toolbar")
-            home = Gtk.Button(label="◀  All settings")
+            self.luna_back = Gtk.Button(label="◀ Back")
+            self.luna_back.get_accessible().set_name("Back to previous Control Panel view")
+            self.luna_back.set_sensitive(False)
+            self.luna_back.connect("clicked", lambda _button: self._luna_navigate(-1))
+            toolbar.pack_start(self.luna_back, False, False, 0)
+            self.luna_forward = Gtk.Button(label="Forward ▶")
+            self.luna_forward.get_accessible().set_name("Forward to next Control Panel view")
+            self.luna_forward.set_sensitive(False)
+            self.luna_forward.connect("clicked", lambda _button: self._luna_navigate(1))
+            toolbar.pack_start(self.luna_forward, False, False, 0)
+            home = Gtk.Button(label="Home")
             home.get_accessible().set_name("Show all Control Panel settings")
             home.connect("clicked", lambda _button: self.show_home())
             toolbar.pack_start(home, False, False, 0)
@@ -597,15 +614,74 @@ class RiceSpiceWindow:
                               else "classic")
             self.show_home()
             return True
-        if (event.state & self.Gdk.ModifierType.MOD1_MASK
-                and event.keyval == self.Gdk.KEY_Left and self.page != "home"):
-            self.show_home()
-            return True
+        if event.state & self.Gdk.ModifierType.MOD1_MASK:
+            if event.keyval == self.Gdk.KEY_Left:
+                self._luna_navigate(-1)
+                return True
+            if event.keyval == self.Gdk.KEY_Right:
+                self._luna_navigate(1)
+                return True
         if event.keyval == self.Gdk.KEY_Escape and self.search_entry.get_text():
             self.show_home()
             self.search_entry.grab_focus()
             return True
         return False
+
+    def _luna_record_route(self, kind: str, detail: str = "") -> None:
+        if not self.luna or self._luna_replaying:
+            return
+        route = (kind, detail)
+        if self.luna_history and self.luna_history[self.luna_history_index] == route:
+            return
+        # Typing a search query updates the current history entry rather than
+        # adding one entry per keystroke; Back returns to the previous screen.
+        if (kind == "search" and self.luna_history_index >= 0
+                and self.luna_history[self.luna_history_index][0] == "search"):
+            self.luna_history[self.luna_history_index] = route
+        else:
+            del self.luna_history[self.luna_history_index + 1:]
+            self.luna_history.append(route)
+            if len(self.luna_history) > 32:
+                del self.luna_history[0]
+            self.luna_history_index = len(self.luna_history) - 1
+        self._luna_update_history_buttons()
+
+    def _luna_update_history_buttons(self):
+        if self.luna_back is not None:
+            self.luna_back.set_sensitive(self.luna_history_index > 0)
+        if self.luna_forward is not None:
+            self.luna_forward.set_sensitive(
+                self.luna_history_index + 1 < len(self.luna_history))
+
+    def _luna_navigate(self, delta: int) -> None:
+        """Replay exactly a validated local view without applying settings."""
+        destination = self.luna_history_index + delta
+        if not self.luna or destination < 0 or destination >= len(self.luna_history):
+            return
+        kind, detail = self.luna_history[destination]
+        self._luna_replaying = True
+        try:
+            if kind == "home":
+                self.luna_view = detail
+                self.show_home()
+            elif kind == "category":
+                self.show_category(detail)
+            elif kind == "search":
+                self._suppress_luna_search = True
+                try:
+                    self.search_entry.set_text(detail)
+                finally:
+                    self._suppress_luna_search = False
+                self._luna_filter_sidebar(detail)
+                self.show_search_results(detail)
+            elif kind in self.nav_buttons:
+                self.show_page(kind)
+            else:
+                return
+            self.luna_history_index = destination
+        finally:
+            self._luna_replaying = False
+            self._luna_update_history_buttons()
 
     def _luna_switch_view(self, _button):
         self.luna_view = "classic" if self.luna_view == "categories" else "categories"
@@ -705,6 +781,7 @@ class RiceSpiceWindow:
         if match is None:
             return
         self._luna_clear_search()
+        self._luna_record_route("category", category)
         self._begin_view("category")
         _key, title, _icon, description, pages = match
         self.breadcrumb.set_text("Control Panel  /  " + title)
@@ -721,6 +798,7 @@ class RiceSpiceWindow:
         if not self.luna:
             return
         self._luna_clear_search()
+        self._luna_record_route("home", self.luna_view)
         self._begin_view("home")
         classic = self.luna_view == "classic"
         self.luna_view_switch.set_label(
@@ -747,6 +825,7 @@ class RiceSpiceWindow:
     def show_search_results(self, query: str):
         if not self.luna:
             return
+        self._luna_record_route("search", query)
         self._begin_view("search")
         matches = luna_search_matches(query)
         self._text("Search settings", css="ricespice-title")
@@ -767,6 +846,7 @@ class RiceSpiceWindow:
             return
         if self.luna:
             self._luna_clear_search()
+            self._luna_record_route(name)
         self._begin_view(name)
         _key, title, description = next(section for section in self.sections
                                         if section[0] == name)
