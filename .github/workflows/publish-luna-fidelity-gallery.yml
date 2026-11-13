@@ -1,0 +1,90 @@
+name: Publish verified Sprint 3 Wayland screenshots
+
+on:
+  push:
+    branches: [feat/wayland-luna-visual-fidelity-2-20261113]
+    paths: ['.github/workflows/publish-luna-fidelity-gallery.yml']
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  import-sprint3:
+    if: github.ref == 'refs/heads/feat/wayland-luna-visual-fidelity-2-20261113'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      RUN_ID: '43384733571'
+      SOURCE_SHA: '2d5ba729cf24fe0a9d5d05177325acd9bb215a60'
+      ARTIFACT_NAME: 'riceplate-native-preview-2d5ba729cf24fe0a9d5d05177325acd9bb215a60'
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install image decoder
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-pil
+
+      - name: Require an exact successful native compositor capture
+        shell: bash
+        run: |
+          set -euo pipefail
+          info="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID")"
+          test "$(jq -r '.conclusion' <<< "$info")" = success
+          test "$(jq -r '.head_sha' <<< "$info")" = "$SOURCE_SHA"
+          test "$(jq -r '.head_branch' <<< "$info")" = feat/wayland-luna-visual-fidelity-2-20261113
+          test "$(jq -r '.path' <<< "$info")" = .github/workflows/riceplate-native.yml
+          test "$(jq -r '.event' <<< "$info")" = push
+
+      - name: Download original labwc/grim PNGs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/native-captures"
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "$ARTIFACT_NAME" --dir "$RUNNER_TEMP/native-captures"
+          test -s "$RUNNER_TEMP/native-captures/capture-manifest.json"
+
+      - name: Recompress, validate and record provenance for all nine images
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/python3 scripts/import_native_wayland_gallery.py \
+            --source "$RUNNER_TEMP/native-captures" \
+            --destination screenshots/wayland \
+            --ci-run "$RUN_ID" --source-commit "$SOURCE_SHA"
+          /usr/bin/python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          path = Path("screenshots/wayland")
+          data = json.loads((path / "luna-gallery-provenance-20261113.json").read_text())
+          assert data["source_commit"] == "2d5ba729cf24fe0a9d5d05177325acd9bb215a60"
+          assert len(data["images"]) == 9
+          gallery = (path / "README.md").read_text()
+          for item in data["images"]:
+              png_sha = item["source_sha256"]
+              assert len(png_sha) == 64
+              shot = path / item["preview"]
+              assert shot.is_file()
+              assert hashlib.sha256(shot.read_bytes()).hexdigest() == item["preview_sha256"]
+              assert f"({shot.name})" in gallery
+          PY
+          git diff --check
+
+      - name: Publish checked and pinned screenshots to this PR branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add screenshots/wayland/luna-*-20261113.webp \
+            screenshots/wayland/luna-gallery-provenance-20261113.json
+          if git diff --cached --quiet; then
+            echo "Verified screenshots already current"
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -m "docs(luna): publish real Sprint 3 labwc captures"
+          git push origin "HEAD:$GITHUB_REF_NAME"
