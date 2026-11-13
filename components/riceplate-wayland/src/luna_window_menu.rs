@@ -186,7 +186,7 @@ pub fn paint(canvas: &mut [u8], popup: &tray::MenuPopup, top_panel: bool) {
     for (offset, row) in rows.iter().enumerate().skip(popup.first).take(tray::POPUP_ROWS) {
         let local = offset - popup.first;
         let row_y = y + PADDING + local as u32 * ROW_HEIGHT;
-        if matches!(row.kind, tray::MenuKind::Separator) {
+        if matches!(&row.kind, tray::MenuKind::Separator) {
             fill_rect(canvas, width, height, GUTTER + 3, row_y + ROW_HEIGHT / 2,
                       width - GUTTER - 12, 1, 0xffbb_b9b5);
             fill_rect(canvas, width, height, GUTTER + 3, row_y + ROW_HEIGHT / 2 + 1,
@@ -260,7 +260,7 @@ mod tests {
         assert_eq!(rows.iter().map(|row| row.id).collect::<Vec<_>>(),
                    [RESTORE, MINIMIZE, MAXIMIZE, 0, CLOSE]);
         assert!(!rows[0].enabled);
-        assert!(matches!(rows[3].kind, tray::MenuKind::Separator));
+        assert!(matches!(&rows[3].kind, tray::MenuKind::Separator));
         assert!(rows[1].enabled);
         assert_eq!(decode(CLOSE, 1), Some(Action::Close));
         assert_eq!(decode(CLOSE_ALL, 1), None);
@@ -293,7 +293,7 @@ mod tests {
         let many = vec![w("Window", false, false); 128];
         let (_, rows) = entries(&many).unwrap();
         assert_eq!(rows.len(), MAX_WINDOW_ROWS + 6);
-        assert!(matches!(rows[MAX_WINDOW_ROWS].kind, tray::MenuKind::Separator));
+        assert!(matches!(&rows[MAX_WINDOW_ROWS].kind, tray::MenuKind::Separator));
         assert!(!rows[MAX_WINDOW_ROWS + 1].enabled);
         assert_eq!(decode(WINDOW_BASE + 21, 128), None);
         assert_eq!(decode(SWITCH_NEXT, 128), Some(Action::NextWindow));
