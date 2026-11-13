@@ -293,6 +293,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     if toplevel_manager.is_none() {
         eprintln!("RicePlate: compositor lacks wlr-foreign-toplevel-management; taskbar disabled");
     }
+    // Honor Auto-hide from the first committed layer-shell frame; do not
+    // briefly reserve 40 pixels until the pointer happens to leave.
+    let initial_panel_height = luna_taskbar::panel_height(
+        luna_options, luna_options.auto_hide, recipe.height);
     let layer = layer_shell.create_layer_surface(
         &qh,
         compositor.create_surface(&qh),
@@ -306,8 +310,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         Anchor::BOTTOM
     };
     layer.set_anchor(edge | Anchor::LEFT | Anchor::RIGHT);
-    layer.set_size(0, recipe.height);
-    layer.set_exclusive_zone(recipe.height as i32);
+    layer.set_size(0, initial_panel_height);
+    layer.set_exclusive_zone(initial_panel_height as i32);
     layer.set_keyboard_interactivity(KeyboardInteractivity::OnDemand);
     layer.commit();
 
@@ -550,7 +554,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         tasks: Vec::new(),
         show_desktop_restore: Vec::new(),
         luna_options,
-        panel_collapsed: false,
+        panel_collapsed: initial_panel_height < recipe.height,
         task_offset: 0,
         // Refreshed when real task state is painted, not on mouse motion.
         cached_task_group_count: 0,
@@ -2167,8 +2171,10 @@ impl RicePlate {
             );
             let edge = if self.recipe.top { Anchor::TOP } else { Anchor::BOTTOM };
             surface.set_anchor(edge | Anchor::LEFT | Anchor::RIGHT);
-            surface.set_size(0, self.recipe.height);
-            surface.set_exclusive_zone(self.recipe.height as i32);
+            let height = luna_taskbar::panel_height(self.luna_options,
+                self.panel_collapsed, self.recipe.height);
+            surface.set_size(0, height);
+            surface.set_exclusive_zone(height as i32);
             surface.set_keyboard_interactivity(KeyboardInteractivity::OnDemand);
             surface.commit();
             self.mirrors.push(PanelMirror {
