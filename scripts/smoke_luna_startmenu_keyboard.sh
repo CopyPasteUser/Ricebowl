@@ -28,6 +28,10 @@ clicker="$root/components/riceplate-wayland/target/release/examples/wayland_poin
 captures="$root/dist/luna-startmenu-keyboard"
 mkdir -p "$captures" "$runtime/xdg/applications" "$runtime/xdg-config" "$runtime/xdg-system"
 chmod 0700 "$runtime/xdg" "$runtime/xdg-config"
+# Native recipe admission intentionally rejects world-readable source recipes.
+# Copy the tracked fixture into this isolated, owner-private session runtime.
+cp "$root/examples/wayland/xp-luna-columns.json" "$runtime/luna-recipe.json"
+chmod 0600 "$runtime/luna-recipe.json"
 # No installed applications, host file history, real user config or network.
 cat > "$runtime/xdg/applications/ricebowl-ci-office.desktop" <<'DESKTOP'
 [Desktop Entry]
@@ -69,11 +73,15 @@ for geometry in 1024x768 1366x768 1920x1080; do
     XDG_CONFIG_HOME="$runtime/xdg-config" XDG_DATA_HOME="$runtime/xdg" \
         XDG_DATA_DIRS="$runtime/xdg-system" RICEBOWL_DE_TRACE_MENU=1 \
         WAYLAND_DISPLAY=wayland-0 "$native" \
-        --recipe "$root/examples/wayland/xp-luna-columns.json" \
+        --recipe "$runtime/luna-recipe.json" \
         >"$runtime/plate-$geometry.log" 2>&1 &
     plate=$!
     sleep 0.9
-    kill -0 "$plate"
+    if ! kill -0 "$plate" 2>/dev/null; then
+        echo "Native RicePlate exited before Start Menu acceptance ($geometry)" >&2
+        tail -n 80 "$runtime/plate-$geometry.log" >&2 || :
+        exit 1
+    fi
     button_y=$((height - 20))
     WAYLAND_DISPLAY=wayland-0 "$clicker" 35 "$button_y" "$width" "$height"
     sleep 0.35
