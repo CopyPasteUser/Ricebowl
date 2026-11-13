@@ -17,6 +17,7 @@ mod installed_apps;
 mod luna_places;
 mod luna_dialog;
 mod luna_clock;
+mod luna_taskbar;
 mod menu_chrome;
 mod menu_pins;
 mod menu_recents;
@@ -187,6 +188,28 @@ fn main() -> Result<(), Box<dyn Error>> {
     } else {
         luna_clock::ClockFormat::Hour24
     };
+    let luna_options = if recipe.id == "xp-luna-columns" {
+        luna_taskbar::load()
+    } else {
+        luna_taskbar::Options::default()
+    };
+    if recipe.id == "xp-luna-columns" && !luna_options.quick_launch {
+        // A hidden Quick Launch reserves no space or hit targets. Action
+        // indices remain stable for existing menu and Creator contracts.
+        let actions = &recipe.actions;
+        for section in &mut recipe.sections {
+            section.retain(|widget| !matches!(widget, Widget::Action(index)
+                if actions.get(*index as usize)
+                    .is_some_and(|action| luna_taskbar::is_quick_launch(&action.id))));
+        }
+        if let Some((_, sections)) = recipe.compact.as_mut() {
+            for section in sections {
+                section.retain(|widget| !matches!(widget, Widget::Action(index)
+                    if actions.get(*index as usize)
+                        .is_some_and(|action| luna_taskbar::is_quick_launch(&action.id))));
+            }
+        }
+    }
     if let Some(selection) = recipe.artwork.as_ref() {
         recipe.native_art = Some(style_art::load(selection, recipe.font_scale)?);
     }
@@ -517,6 +540,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         trace_window_events: std::env::var("RICEBOWL_DE_TRACE_WINDOWS").as_deref() == Ok("1"),
         tasks: Vec::new(),
         show_desktop_restore: Vec::new(),
+        luna_options,
+        panel_collapsed: false,
         task_offset: 0,
         // Refreshed when real task state is painted, not on mouse motion.
         cached_task_group_count: 0,
@@ -955,6 +980,8 @@ struct RicePlate {
     tasks: Vec<Task>,
     // Only windows actually minimized by Show Desktop are restored.
     show_desktop_restore: Vec<ZwlrForeignToplevelHandleV1>,
+    luna_options: luna_taskbar::Options,
+    panel_collapsed: bool,
     task_offset: usize,
     cached_task_group_count: usize,
     pool: Option<SlotPool>,
@@ -968,6 +995,29 @@ struct RicePlate {
 }
 
 impl RicePlate {
+    /// Set the same panel geometry across all active outputs. The compositor
+    /// owns window work-area reflow; only the 3px reveal handle remains when
+    /// Luna auto-hide is enabled. Hidden canvases never paint interactive rows.
+    fn set_panel_collapsed(&mut self, collapsed: bool, qh: &QueueHandle<Self>) {
+        if !self.luna_options.auto_hide || self.panel_collapsed == collapsed {
+            return;
+        }
+        self.panel_collapsed = collapsed;
+        let height = luna_taskbar::panel_height(
+            self.luna_options, collapsed, self.recipe.height);
+        self.configured = false;
+        self.layer.set_size(0, height);
+        self.layer.set_exclusive_zone(height as i32);
+        self.layer.commit();
+        for mirror in &mut self.mirrors {
+            mirror.configured = false;
+            mirror.surface.set_size(0, height);
+            mirror.surface.set_exclusive_zone(height as i32);
+            mirror.surface.commit();
+        }
+        self.request_redraw(qh);
+    }
+
     fn luna_icon_peers(&self, index: usize) -> Vec<bool> {
         let Some(source) = self.icon_layers.get(index) else { return Vec::new() };
         // Restrict selection to visible icons on the same logical output.
@@ -3667,6 +3717,14 @@ fn paint_panel_pointer(canvas: &mut [u8], width: u32, height: u32,
     let visual = if style.id == "xp-luna-columns" {
         visual
     } else { PanelPointerVisual::default() };
+    if style.id == "xp-luna-columns" && height < style.height {
+        // The auto-hidden reveal strip deliberately has no controls and
+        // cannot run the full taskbar painter at a three-pixel height.
+        for pixel in canvas.chunks_exact_mut(4) {
+            pixel.copy_from_slice(&0xff4c_8beb_u32.to_le_bytes());
+        }
+        return;
+    }
     let layout = recipe::layout(style, width, groups.len());
     panel_chrome::background(canvas, width, height, style, &layout);
     for placed in layout {
