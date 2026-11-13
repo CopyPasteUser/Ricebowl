@@ -386,6 +386,18 @@ impl State {
         Self { entries }
     }
 
+    /// Preserve provider-to-slot identity across attention/tooltip updates.
+    /// New items append in the deterministic discovery order; existing icons
+    /// must not silently change keyboard targets or right-click providers.
+    pub fn preserve_slot_order(&mut self, previous: &Self) {
+        if previous.entries.is_empty() { return; }
+        // A native tray has at most 32 items; an allocation-free stable sort
+        // is cheaper and clearer than adding another persistent index.
+        self.entries.sort_by_key(|entry| previous.entries.iter()
+            .position(|old| old.bus_name == entry.bus_name)
+            .unwrap_or(usize::MAX));
+    }
+
     pub fn visible_count(&self) -> usize {
         if self.entries.len() > VISIBLE_ITEMS { VISIBLE_ITEMS - 1 }
         else { self.entries.len() }
@@ -486,6 +498,34 @@ mod tests {
         assert_eq!(state.overflow_count(), 2);
         assert_eq!(state.item_at(0).unwrap().bus_name, "org.test.Item5");
         assert!(state.item_at(3).is_none());
+    }
+
+    #[test]
+    fn sni_attention_updates_keep_existing_keyboard_and_pointer_slots() {
+        let before = [
+            ("org.example.Audio".to_owned(), item("Active", "Audio")),
+            ("org.example.Cloud".to_owned(), item("NeedsAttention", "Cloud")),
+            ("org.example.Network".to_owned(), item("Active", "Network")),
+        ];
+        let initial = State::from_items(before.iter().map(|(name, item)| (name, item)));
+        assert_eq!(initial.entries[0].bus_name, "org.example.Cloud");
+        let mut later = before.clone();
+        later[0].1.status = "NeedsAttention".into();
+        later[1].1.status = "Active".into();
+        let mut next = State::from_items(later.iter().map(|(name, item)| (name, item)));
+        next.preserve_slot_order(&initial);
+        let previous_ids: Vec<_> = initial.entries.iter().map(|e| &e.bus_name).collect();
+        let current_ids: Vec<_> = next.entries.iter().map(|e| &e.bus_name).collect();
+        assert_eq!(current_ids, previous_ids);
+        assert!(next.entries.iter().find(|e| e.bus_name == "org.example.Audio")
+            .unwrap().needs_attention);
+        let mut with_new = later.to_vec();
+        with_new.push(("org.example.New".into(), item("NeedsAttention", "New")));
+        let mut added = State::from_items(with_new.iter().map(|(name, item)| (name, item)));
+        added.preserve_slot_order(&next);
+        assert_eq!(&added.entries[..3].iter().map(|e| &e.bus_name)
+                   .collect::<Vec<_>>(), &current_ids);
+        assert_eq!(added.entries[3].bus_name, "org.example.New");
     }
 
     #[test]
