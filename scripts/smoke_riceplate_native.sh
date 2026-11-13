@@ -633,7 +633,7 @@ PY
                     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-category-back-$geometry.png"
                     cp "$runtime/xp-luna-pointer-category-back-$geometry.png" \
                        "$source_root/dist/riceplate-native-preview/xp-luna-pointer-category-back-$geometry.png"
-                    /usr/bin/python3 - "$runtime" "$geometry" <<'PY'
+                    /usr/bin/python3 - "$runtime" "$geometry" <<\PY
 from PIL import Image, ImageChops
 from pathlib import Path
 import sys
@@ -664,7 +664,7 @@ PY
                         count=$((count + 1))
                         sleep 0.1
                     done
-                    expected=$(printf 'open\n%s' "$runtime/luna-document.txt")
+                    expected=$(printf "open\n%s" "$runtime/luna-document.txt")
                     actual=$(cat "$runtime/trash-gio.log" 2>/dev/null || :)
                     if [ "$actual" != "$expected" ]; then
                         echo "Recent Documents failed real Wayland -> safe Gio argv dispatch" >&2
