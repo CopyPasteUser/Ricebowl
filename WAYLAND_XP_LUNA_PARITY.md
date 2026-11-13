@@ -47,10 +47,19 @@ font's measured advances; the existing 192-character/16-argument and no-shell
 execution restrictions are unchanged. This is Unicode scalar-safe editing,
 not full grapheme-cluster editing or IME composition.
 
-The existing real headless-labwc `xp-luna-parity-run.png` capture now has
-a compositor-pixel caret assertion. The new screenshot probe and Rust editor
-regressions must pass on the PR's exact head before merging; no physical
-keyboard or screen-reader acceptance is inferred.
+The headless-labwc Run smoke now injects **real Wayland virtual-keyboard
+events** through `wtype` (available in Ubuntu 24.04) and archives the original
+unmodified compositor PNGs: `xp-luna-parity-run-typed.png`,
+`xp-luna-parity-run-edited.png`, and `xp-luna-parity-run-cleared.png`.
+The sequence types `abcd`, uses Left/Backspace and inserts `X`, then uses
+Home/Delete to clear the field, all without executing the command. Pixel
+diffs on the real input rectangle and a separate caret-pixel assertion
+reject a fake or inert native editor. The Rust tests additionally cover
+multibyte input and actual proportional-font width calculations.
+
+**Evidence status: pending green Native RicePlate CI on the exact PR head.**
+These screenshots are compositor-generated CI captures, not physical device,
+IME, screen-reader, or pixel-fidelity certification.
 
 Help shows only supported, actually implemented keyboard and shortcut
 instructions; it does not pretend to provide online support or full Control
