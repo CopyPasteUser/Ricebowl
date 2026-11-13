@@ -11,7 +11,7 @@ Wayland uses upstream labwc plus RicePlate. Original/licensed art only.
 | My Computer, Documents, Pictures, Music | XDG/GVfs-backed locations and X11 Control Panel browser | Gio-backed real locations with safe missing-folder handling | Drive/volume explorer and path breadcrumbs |
 | Control Panel | Dedicated XP category/task UI with applets | **Control Panel** Start link opens real RiceSpice settings | No native XP nine-category presentation |
 | Help and Support | GTK Help Center with multiple pages | **Native Help window** for implemented Wayland shortcuts and capabilities | Dedicated interactive XP-style Help Center |
-| Run | X11 Run dialog | **Native bounded Run dialog** using literal argv, no shell | No XDG app-name completion; device keyboard QA pending |
+| Run | X11 Run dialog | **Native bounded Run dialog** using literal argv, no shell, with Unicode-safe caret editing (Left/Right/Home/End/Backspace/Delete) and proportional-font-aware horizontal input scrolling | No XDG app-name completion, IME integration or device keyboard QA |
 | Recent programs and Start pins | Private favorites and history | Private persisted XP program recents; validated action pins | Reorderable Start favorites, browser/mail slots |
 | Recent documents | Actual recent-file submenu | Not implemented | Recent-file provenance/privacy and file opener |
 | Desktop | XFCE-managed desktop with shortcuts | Seven native originals, double-click, draggable positions and shortcut context | Desktop background context, properties, multi-select |
@@ -38,6 +38,19 @@ uses direct `std::process::Command` argv execution; it **does not** start a
 shell, parse arbitrary recipe strings or perform `eval`. Missing executable
 and invalid input yield visible feedback. No command executes on dialog open
 or on an empty confirmation.
+
+The Run entry now supports **in-place editing** rather than forcing deletion
+from the end: Left/Right moves one Unicode scalar, Home/End jumps to the ends,
+Backspace removes the preceding scalar and Delete removes the following one.
+The visible caret and horizontally scrolled input share the actual selected
+font's measured advances; the existing 192-character/16-argument and no-shell
+execution restrictions are unchanged. This is Unicode scalar-safe editing,
+not full grapheme-cluster editing or IME composition.
+
+The existing real headless-labwc `xp-luna-parity-run.png` capture now has
+a compositor-pixel caret assertion. The new screenshot probe and Rust editor
+regressions must pass on the PR's exact head before merging; no physical
+keyboard or screen-reader acceptance is inferred.
 
 Help shows only supported, actually implemented keyboard and shortcut
 instructions; it does not pretend to provide online support or full Control
