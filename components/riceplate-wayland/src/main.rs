@@ -5090,27 +5090,30 @@ fn paint_icon(canvas: &mut [u8], icon: &recipe::DesktopIcon, style: &PanelStyle,
     } else {
         fill_rounded_rect(canvas, width, height, 24, 4, 56, 48, 10, active);
     }
-    // Contrast backplate prevents white labels from vanishing on bright rices.
-    fill_rounded_rect(canvas, width, height, 2, 58, 100, 26, 6,
-                      if focused && style.id == "xp-luna-columns" {
-                          0xd025_5ed3
-                      } else { 0xb020_2c36 });
+    // Classic XP desktop labels float directly above the wallpaper, with a
+    // small dark text shadow instead of permanent translucent black pills.
+    // Selection alone receives a cobalt label background. Other recipes keep
+    // their existing contrast backplate, without changing icon hit geometry.
+    if style.id == "xp-luna-columns" {
+        if focused {
+            fill_rounded_rect(canvas, width, height, 2, 58, 100, 26, 4, 0xd025_5ed3);
+        }
+    } else {
+        fill_rounded_rect(canvas, width, height, 2, 58, 100, 26, 6, 0xb020_2c36);
+    }
     if custom.is_none() && !native_bin
         && !matches!(icon.action.as_str(), "computer" | "documents" | "network") {
         draw_rice_text(canvas, width, height,
                        52_u32.saturating_sub(rice_text_width(glyph, style) / 2),
                        24, glyph, foreground, style);
     }
-    draw_rice_text(
-        canvas,
-        width,
-        height,
-        width.saturating_sub(rice_text_width(&icon.label, style)) / 2,
-        66,
-        &icon.label,
-        foreground,
-        style,
-    );
+    let label_x = width.saturating_sub(rice_text_width(&icon.label, style)) / 2;
+    if style.id == "xp-luna-columns" && !focused {
+        draw_rice_text(canvas, width, height, label_x.saturating_add(1), 67,
+                       &icon.label, 0xcc08_254b, style);
+    }
+    draw_rice_text(canvas, width, height, label_x, 66,
+                   &icon.label, foreground, style);
 }
 
 fn paint_desktop_widget(canvas: &mut [u8], title: &str, lines: &[String], style: &PanelStyle,
@@ -8072,7 +8075,7 @@ mod tests {
         paint_icon(&mut plain, icon, &style, false, None);
         paint_icon(&mut highlighted, icon, &style, true, None);
         let at = ((64 * recipe::ICON_WIDTH + 10) * 4) as usize;
-        assert_eq!(&plain[at..at+4], &0xb020_2c36_u32.to_le_bytes());
+        assert_eq!(&plain[at..at+4], &0_u32.to_le_bytes());
         assert_eq!(&highlighted[at..at+4], &0xd025_5ed3_u32.to_le_bytes());
         let classic = recipe::parse(
             include_str!("../../../tests/fixtures/riceplate-desktop-v5.json"),
@@ -8099,7 +8102,9 @@ mod tests {
         assert_eq!(pixel(45, 35), 0xffac_d3e7);
         assert_ne!(pixel(45, 35), style.active);
         assert_ne!(pixel(40, 28), pixel(50, 28)); // Original bin vertical ribs
-        assert_ne!(pixel(50, 65), 0); // Accessible shortcut label remains present
+        assert!(pixels.chunks_exact(4).skip((60 * recipe::ICON_WIDTH) as usize)
+            .any(|pixel| pixel != [0, 0, 0, 0]),
+            "accessible shortcut label must still be rendered");
         let mut focused = vec![0; pixels.len()];
         paint_icon(&mut focused, icon, &style, true, None);
         assert_eq!(&focused[..4], &style.foreground.to_le_bytes());
