@@ -839,7 +839,15 @@ assert changed("start", "help") > 5000, "Help did not open a real Wayland dialog
 assert changed("start", "run") > 5000, "Run did not open a real Wayland dialog"
 assert changed("help", "run") > 1500, "Run and Help must have distinct real UI"
 assert changed("run", "run-empty") > 80, "Empty Run input must show a visible error"
-print("Validated native labwc Run/Help screenshots and empty-input error state")
+# Native Run paints a visible 2x16px input caret at (128,120)
+# relative to its (459,248) compositor surface. Probe actual grim PNG
+# pixels rather than accepting a model fixture or a painted mockup.
+caret = images["run"].getpixel((587, 372))
+background = images["run"].getpixel((594, 372))
+assert max(abs(a-b) for a, b in zip(caret, background)) > 75, (
+    "Native Run input caret is not visible in real labwc framebuffer"
+)
+print("Validated native labwc Run/Help screenshots, caret, and empty-input error")
 PY
             echo "Verified real Luna Start Help and Run dialogs at 1366x768"
         fi
