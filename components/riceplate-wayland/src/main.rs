@@ -1284,13 +1284,14 @@ impl RicePlate {
 
     fn close_desktop_context(&mut self) {
         self.context_focused = false;
-        // Drop the real, strictly bounded layer-shell surface. A hidden
-        // full-output input region is never allocated or left behind.
+        self.desktop_type_select.reset();
+        // Destroy the icon-owned xdg_popup (not a floating Overlay layer).
+        // labwc restores the previous application's focus on popup_done.
         self.desktop_context = None;
     }
 
     fn open_desktop_context(&mut self, index: usize, pointer: (f64, f64),
-                            qh: &QueueHandle<Self>) {
+                            grab_serial: Option<u32>, qh: &QueueHandle<Self>) {
         if self.recipe.id != "xp-luna-columns" { return; }
         let Some(icon) = self.icon_layers.get(index) else { return; };
         let Some(position) = icon.placed else { return; };
@@ -1326,18 +1327,44 @@ impl RicePlate {
         if self.tray_popup_open() { self.set_tray_popup_visible(false, qh); }
         self.close_desktop_context();
         self.context_generation = self.context_generation.wrapping_add(1);
-        let surface = self.layer_shell.create_layer_surface(
-            qh, self.compositor.create_surface(qh), Layer::Overlay,
-            Some("riceplate-luna-shortcut-context"), Some(&output),
-        );
-        surface.set_anchor(Anchor::TOP | Anchor::LEFT);
-        surface.set_size(desktop_context::WIDTH, desktop_context::HEIGHT);
-        surface.set_margin(y as i32, 0, 0, x as i32);
-        surface.set_exclusive_zone(-1);
-        surface.set_keyboard_interactivity(KeyboardInteractivity::OnDemand);
-        surface.commit();
+        let Some(xdg) = self.xdg_shell.as_ref() else {
+            eprintln!("RicePlate: compositor has no XDG popup support");
+            return;
+        };
+        // A genuine child popup receives keyboard focus even when the
+        // Bottom-layer icon deliberately cannot claim it. The parent
+        // icon is the lifetime/focus owner; no global keyboard grab exists.
+        let positioner = match XdgPositioner::new(xdg) {
+            Ok(positioner) => positioner,
+            Err(error) => {
+                eprintln!("RicePlate: cannot create context positioner: {error}");
+                return;
+            }
+        };
+        positioner.set_size(desktop_context::WIDTH as i32,
+                            desktop_context::HEIGHT as i32);
+        positioner.set_anchor_rect(0, 0, 1, 1);
+        positioner.set_anchor(xdg_positioner::Anchor::TopLeft);
+        positioner.set_gravity(xdg_positioner::Gravity::BottomRight);
+        // desired output-local point -> original icon-local coordinates.
+        // placement() already clamps against the panel and output bounds.
+        positioner.set_offset(x as i32 - position.0 as i32,
+                              y as i32 - position.1 as i32);
+        let popup = match Popup::from_surface(None, &positioner, qh,
+                                             self.compositor.create_surface(qh), xdg) {
+            Ok(popup) => popup,
+            Err(error) => {
+                eprintln!("RicePlate: cannot create context popup: {error}");
+                return;
+            }
+        };
+        self.icon_layers[index].surface.get_popup(popup.xdg_popup());
+        if let (Some(seat), Some(serial)) = (self.primary_seat.as_ref(), grab_serial) {
+            popup.xdg_popup().grab(seat, serial);
+        }
+        popup.wl_surface().commit();
         self.desktop_context = Some(DesktopContextLayer {
-            surface, pool: None, configured: false, icon_index: index,
+            popup, pool: None, configured: false, icon_index: index,
             selected: DesktopContextAction::Open, hovered: None,
             pressed: None, can_move, can_reset,
             properties: false, back_hovered: false, back_pressed: false,
@@ -1397,7 +1424,7 @@ impl RicePlate {
         paint_desktop_context(canvas, &self.recipe, menu.selected,
                               menu.hovered, menu.can_move, menu.can_reset,
                               menu.properties, details, menu.back_hovered);
-        let surface = menu.surface.wl_surface();
+        let surface = menu.popup.wl_surface();
         surface.damage_buffer(0, 0, desktop_context::WIDTH as i32,
                              desktop_context::HEIGHT as i32);
         if let Err(error) = buffer.attach_to(surface) {
@@ -1405,7 +1432,7 @@ impl RicePlate {
             self.close_desktop_context();
             return;
         }
-        menu.surface.commit();
+        menu.popup.wl_surface().commit();
     }
 
     fn panel_pointer_visual(&self, surface: &wl_surface::WlSurface) -> PanelPointerVisual {
@@ -5662,7 +5689,7 @@ impl LayerShellHandler for RicePlate {
             dialog.surface.wl_surface() == layer.wl_surface()) {
             self.close_luna_dialog();
         } else if self.desktop_context.as_ref().is_some_and(|menu|
-            menu.surface.wl_surface() == layer.wl_surface()) {
+            menu.popup.wl_surface() == layer.wl_surface()) {
             self.close_desktop_context();
         } else if layer.wl_surface() == self.layer.wl_surface() {
             self.closed = true;
@@ -5752,29 +5779,6 @@ impl LayerShellHandler for RicePlate {
             }
             dialog.configured = true;
             self.redraw_luna_dialog();
-            return;
-        }
-        if self.desktop_context.as_ref().is_some_and(|menu|
-            menu.surface.wl_surface() == layer.wl_surface()) {
-            if config.new_size != (desktop_context::WIDTH, desktop_context::HEIGHT) {
-                eprintln!("RicePlate: compositor rejected bounded desktop context");
-                self.close_desktop_context();
-                return;
-            }
-            let menu = self.desktop_context.as_mut().expect("matched context layer");
-            if menu.pool.is_none() {
-                let bytes = (desktop_context::WIDTH * desktop_context::HEIGHT * 4 * 3) as usize;
-                match SlotPool::new(bytes, &self.shm) {
-                    Ok(pool) => menu.pool = Some(pool),
-                    Err(error) => {
-                        eprintln!("RicePlate: desktop context allocation failed: {error}");
-                        self.close_desktop_context();
-                        return;
-                    }
-                }
-            }
-            menu.configured = true;
-            self.redraw_desktop_context();
             return;
         }
         if let Some(index) = self.mirrors.iter().position(|mirror|
@@ -6129,7 +6133,7 @@ impl KeyboardHandler for RicePlate {
         self.luna_dialog_focused = self.luna_dialog.as_ref().is_some_and(|dialog|
             dialog.surface.wl_surface() == surface);
         self.context_focused = self.desktop_context.as_ref().is_some_and(|menu|
-            menu.surface.wl_surface() == surface);
+            menu.popup.wl_surface() == surface);
         self.menu_focused = self.menu_state.visible
             && self.active_menu.as_ref() == Some(surface);
         self.calendar_focused = self.calendar_state.visible
@@ -6200,7 +6204,7 @@ impl KeyboardHandler for RicePlate {
             self.close_luna_dialog();
         }
         if self.desktop_context.as_ref().is_some_and(|menu|
-            menu.surface.wl_surface() == surface) && self.context_focused {
+            menu.popup.wl_surface() == surface) && self.context_focused {
             self.close_desktop_context();
         }
         if self.active_menu.as_ref() == Some(surface) && self.menu_focused {
@@ -6750,7 +6754,7 @@ impl PointerHandler for RicePlate {
                 continue;
             }
             if self.desktop_context.as_ref().is_some_and(|menu|
-                menu.surface.wl_surface() == &event.surface) {
+                menu.popup.wl_surface() == &event.surface) {
                 let mut activate = None;
                 let mut repaint = false;
                 if let Some(menu) = self.desktop_context.as_mut() {
