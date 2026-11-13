@@ -556,6 +556,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         show_desktop_restore: Vec::new(),
         luna_options,
         panel_collapsed: initial_panel_collapsed,
+        panel_pointer_inside: false,
         task_offset: 0,
         // Refreshed when real task state is painted, not on mouse motion.
         cached_task_group_count: 0,
@@ -1029,6 +1030,8 @@ struct RicePlate {
     show_desktop_restore: Vec<ZwlrForeignToplevelHandleV1>,
     luna_options: luna_taskbar::Options,
     panel_collapsed: bool,
+    // Actual compositor pointer focus, not a timer or guessed screen coordinates.
+    panel_pointer_inside: bool,
     task_offset: usize,
     cached_task_group_count: usize,
     pool: Option<SlotPool>,
@@ -1042,6 +1045,22 @@ struct RicePlate {
 }
 
 impl RicePlate {
+    fn maybe_collapse_luna_panel(&mut self, qh: &QueueHandle<Self>) {
+        let popup_open = self.menu_state.visible || self.calendar_state.visible
+            || self.tray_popup_open() || self.luna_dialog.is_some()
+            || self.desktop_context.is_some();
+        if std::env::var_os("RICEBOWL_DE_TRACE_MENU").is_some()
+            && self.recipe.id == "xp-luna-columns" {
+            eprintln!("RicePlate: Luna auto-hide pointer_inside={} popup_open={} collapsed={}",
+                      self.panel_pointer_inside, popup_open, self.panel_collapsed);
+        }
+        if luna_taskbar::should_collapse(
+            self.luna_options, self.panel_pointer_inside, popup_open)
+        {
+            self.set_panel_collapsed(true, qh);
+        }
+    }
+
     /// Set the same panel geometry across all active outputs. The compositor
     /// owns window work-area reflow; only the 3px reveal handle remains when
     /// Luna auto-hide is enabled. Hidden canvases never paint interactive rows.
@@ -2521,6 +2540,9 @@ impl RicePlate {
             );
             layer.surface.commit();
         }
+        // Pointer Leave happened while Start was covering the taskbar.
+        // Reconcile now: waiting for another Leave would pin the panel open.
+        self.maybe_collapse_luna_panel(qh);
     }
 
     fn show_menu_at(&mut self, surface: wl_surface::WlSurface, qh: &QueueHandle<Self>) {
@@ -2788,6 +2810,7 @@ impl RicePlate {
             );
             layer.surface.commit();
         }
+        self.maybe_collapse_luna_panel(qh);
     }
 
     fn show_calendar_at(&mut self, surface: wl_surface::WlSurface, qh: &QueueHandle<Self>) {
@@ -3571,6 +3594,7 @@ impl RicePlate {
                 );
                 layer.surface.commit();
             }
+            self.maybe_collapse_luna_panel(qh);
             return;
         }
         if let Some(surface) = self.tray_popup_layer.as_ref()
@@ -6701,6 +6725,21 @@ impl PointerHandler for RicePlate {
         events: &[PointerEvent],
     ) {
         for event in events {
+            // A popup Enter is authoritative Wayland evidence that the
+            // pointer is no longer over the taskbar. Compositors need not
+            // deliver the previous panel Leave before transferring focus
+            // between separately managed layer-shell surfaces.
+            if self.luna_options.auto_hide
+                && matches!(event.kind, PointerEventKind::Enter { .. }
+                    | PointerEventKind::Motion { .. })
+                && (self.active_menu.as_ref() == Some(&event.surface)
+                    || self.active_calendar.as_ref() == Some(&event.surface)
+                    || self.active_tray_popup.as_ref() == Some(&event.surface)
+                    || self.luna_dialog.as_ref().is_some_and(|dialog|
+                        dialog.surface.wl_surface() == &event.surface))
+            {
+                self.panel_pointer_inside = false;
+            }
             if self.luna_dialog.as_ref().is_some_and(|dialog|
                 dialog.surface.wl_surface() == &event.surface) {
                 let mut activate = None;
@@ -7196,17 +7235,18 @@ impl PointerHandler for RicePlate {
             } else { continue; };
             if self.luna_options.auto_hide && self.recipe.id == "xp-luna-columns" {
                 match event.kind {
-                    PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. }
-                        if self.panel_collapsed => {
-                        self.set_panel_collapsed(false, qh);
-                        // The 3px reveal handle contains no tappable actions.
-                        continue;
+                    PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
+                        self.panel_pointer_inside = true;
+                        if self.panel_collapsed {
+                            self.set_panel_collapsed(false, qh);
+                            // A 3px reveal handle cannot activate controls.
+                            continue;
+                        }
                     }
-                    PointerEventKind::Leave { .. } if !self.panel_collapsed
-                        && !self.menu_state.visible && !self.calendar_state.visible
-                        && !self.tray_popup_open() && self.luna_dialog.is_none() => {
-                        self.set_panel_collapsed(true, qh);
-                        continue;
+                    PointerEventKind::Leave { .. } => {
+                        self.panel_pointer_inside = false;
+                        self.maybe_collapse_luna_panel(qh);
+                        if self.panel_collapsed { continue; }
                     }
                     _ => {}
                 }
@@ -7390,6 +7430,7 @@ impl Dispatch<ZwlrForeignToplevelManagerV1, ()> for RicePlate {
                 }
                 state.toplevel_manager = None;
                 state.tasks.clear();
+                state.show_desktop_restore.clear();
                 state.task_offset = 0;
                 state.request_redraw(qh);
             }
@@ -7420,6 +7461,9 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for RicePlate {
                     eprintln!("RicePlate window event=closed app_id={:?}", state.tasks[index].app_id);
                 }
                 state.tasks.remove(index).handle.destroy();
+                // The restore transaction must never retain a destroyed
+                // compositor proxy after a client exits.
+                state.show_desktop_restore.retain(|handle| handle != proxy);
                 state.task_offset = state
                     .task_offset
                     .min(state.grouped_tasks().len().saturating_sub(1));

@@ -78,6 +78,13 @@ pub fn panel_height(options: Options, collapsed: bool, full_height: u32) -> u32 
     if options.auto_hide && collapsed { HANDLE_HEIGHT } else { full_height }
 }
 
+/// Pure policy shared by pointer Leave and popup dismissal. The compositor
+/// owns pointer focus; do not infer that moving inside a popup is still inside
+/// the taskbar, or collapse while any taskbar-owned popup is open.
+pub fn should_collapse(options: Options, pointer_inside: bool, popup_open: bool) -> bool {
+    options.auto_hide && !pointer_inside && !popup_open
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -97,6 +104,11 @@ mod tests {
         assert_eq!(panel_height(Options {auto_hide:true,quick_launch:true}, false, 40), 40);
         assert!(is_quick_launch("show-desktop"));
         assert!(!is_quick_launch("wifi-toggle"));
+        let auto = Options { auto_hide: true, quick_launch: true };
+        assert!(should_collapse(auto, false, false));
+        assert!(!should_collapse(auto, true, false));
+        assert!(!should_collapse(auto, false, true));
+        assert!(!should_collapse(Options::default(), false, false));
     }
 
     #[test]

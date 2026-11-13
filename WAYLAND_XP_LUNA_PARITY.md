@@ -263,3 +263,30 @@ unfocused Bottom/Overlay layer-shell shortcuts still needs an xdg-popup-backed
 solution and a real compositor/keyboard acceptance test. The new hotkeys
 themselves must pass headless labwc CI and physical hardware QA before
 1.0 sign-off.
+
+## Sprint 2 – Auto-hide lifecycle & real Show Desktop acceptance (13 November 2026)
+
+The optional XP Luna taskbar now tracks **real compositor pointer focus** over
+its layer surfaces. A pointer leaving the bar while Start, the calendar or an
+SNI/status popup is open does not prematurely shrink it. On dismissal, a
+shared, tested policy checks the actual pointer location and remaining active
+popups, then collapses the bar if appropriate. It does not poll hardware,
+add a timer, move the pointer or alter other RicePlate rices.
+
+Closed real window handles and a terminated wlr foreign-toplevel manager are
+pruned from the in-memory Show Desktop restoration transaction. This avoids
+retaining dead proxies after clients exit without restoring a window that the
+user had already minimized before Show Desktop was clicked.
+
+The native CI now has a dedicated headless **labwc + real `foot` window**
+case. It presses the actual 32px Show Desktop region using the Wayland
+virtual-pointer client, waits for `minimized=true`, presses again and waits
+for `minimized=false`. Screenshots are captured through `grim`, with
+`luna-taskbar-window-open.png`, `luna-taskbar-show-desktop.png` and
+`luna-taskbar-window-restored.png` written into the native preview artifact
+only on a passing run; pixel difference is checked between open and hidden
+states. Classic and XWayland taskbar tests remain separate and unchanged.
+
+These checks validate actual compositor behavior on the headless pixman backend,
+not Mint/ThinkPad hardware or the still-blocked native type-to-select focus
+work. No new visual assets are fabricated for the screenshots.
