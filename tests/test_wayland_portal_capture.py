@@ -1,6 +1,7 @@
 """Offline safeguards for the opt-in, headless-only portal capture smoke."""
 import importlib.util
 import os
+import socket
 import struct
 import tempfile
 import unittest
@@ -138,6 +139,24 @@ class ScreenCastCapabilityTests(unittest.TestCase):
                     "bad", [(i, {}) for i in range(17)]):
             with self.subTest(bad=bad), self.assertRaises(RuntimeError):
                 portal.stream_nodes(bad)
+
+    def test_pipewire_remote_fd_requires_socket_and_always_closes_copy(self):
+        with socket.socketpair() as (sender, receiver):
+            duplicate = os.dup(sender.fileno())
+            portal.verify_pipewire_socket_fd(duplicate)
+            with self.assertRaises(OSError):
+                os.fstat(duplicate)  # Explicitly closed, original socket stays valid.
+            self.assertTrue(receiver.fileno() >= 0)
+        read_fd, write_fd = os.pipe()
+        try:
+            duplicate = os.dup(read_fd)
+            with self.assertRaisesRegex(RuntimeError, "not a socket"):
+                portal.verify_pipewire_socket_fd(duplicate)
+            with self.assertRaises(OSError):
+                os.fstat(duplicate)
+        finally:
+            os.close(read_fd)
+            os.close(write_fd)
 
     def test_script_restricts_renderer_and_has_separate_strict_contract(self):
         source = (SCRIPT.parent / "smoke_wayland_portals.sh").read_text(encoding="utf-8")
