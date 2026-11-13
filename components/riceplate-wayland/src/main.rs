@@ -3658,7 +3658,7 @@ fn paint_panel_pointer(canvas: &mut [u8], width: u32, height: u32,
                               style.active);
                 }
                 let launcher_label = style.launcher.as_ref().map_or("Apps", |item| item.label.as_str());
-                let label_width = text_pixel_width(launcher_label, style.font_scale);
+                let label_width = rice_text_width(launcher_label, style);
                 let label_x = if style.launcher.is_some()
                     && placed.width >= label_width.saturating_add(35) {
                     placed.x + 30 + (placed.width - 30 - label_width) / 2
@@ -3725,6 +3725,9 @@ fn paint_panel_pointer(canvas: &mut [u8], width: u32, height: u32,
                     panel_chrome::task_button_visual(canvas, width, height, x, cell_width,
                                                      group.active, style, task_visual);
                     let label = task_groups::visible_label(group, cell_width);
+                    let label = if style.id == "xp-luna-columns" {
+                        fit_rice_text(&label, cell_width.saturating_sub(22), style)
+                    } else { label };
                     draw_rice_text(canvas, width, height, x + 10,
                               height.saturating_sub(8 * style.font_scale) / 2
                                   + u32::from(task_visual
@@ -3748,7 +3751,7 @@ fn paint_panel_pointer(canvas: &mut [u8], width: u32, height: u32,
                 // Center the shorter/longer Luna time inside its reserved slot.
                 // The previous 24h 5x8 width remains unchanged for other rices.
                 let label_width = if style.id == "xp-luna-columns" {
-                    text_pixel_width(clock, style.font_scale)
+                    rice_text_width(clock, style)
                 } else {
                     40 * style.font_scale
                 };
@@ -4421,8 +4424,13 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                     let cap = (tile.width.saturating_sub(text_inset + 10) /
                                (8 * style.font_scale)) as usize;
                     let prefix = if pinned { "* " } else { "" };
-                    let short: String = label.chars()
-                        .take(cap.saturating_sub(prefix.len())).collect();
+                    let short: String = if luna_columns && columns {
+                        fit_rice_text(&format!("{prefix}{label}"),
+                            tile.width.saturating_sub(text_inset + 11), style)
+                    } else {
+                        format!("{prefix}{}", label.chars()
+                            .take(cap.saturating_sub(prefix.len())).collect::<String>())
+                    };
                     let text_y = if luna_columns && columns
                         && tile.height == native_menu::COLUMNS_RIGHT_XP_PARITY_ROW_HEIGHT {
                         tile.y + (18_u32.saturating_sub(8 * style.font_scale)) / 2
@@ -4431,7 +4439,7 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                         tile.y + 8
                     } else { tile.y + 12 };
                     draw_rice_text(canvas, width, height, tile.x + text_inset, text_y,
-                                   &format!("{prefix}{short}"), tile_fg, style);
+                                   &short, tile_fg, style);
                 }
             }
         }
@@ -5090,14 +5098,14 @@ fn paint_icon(canvas: &mut [u8], icon: &recipe::DesktopIcon, style: &PanelStyle,
     if custom.is_none() && !native_bin
         && !matches!(icon.action.as_str(), "computer" | "documents" | "network") {
         draw_rice_text(canvas, width, height,
-                       52_u32.saturating_sub(text_pixel_width(glyph, style.font_scale) / 2),
+                       52_u32.saturating_sub(rice_text_width(glyph, style) / 2),
                        24, glyph, foreground, style);
     }
     draw_rice_text(
         canvas,
         width,
         height,
-        width.saturating_sub(text_pixel_width(&icon.label, style.font_scale)) / 2,
+        width.saturating_sub(rice_text_width(&icon.label, style)) / 2,
         66,
         &icon.label,
         foreground,
@@ -5212,6 +5220,42 @@ fn text_pixel_width(text: &str, scale: u32) -> u32 {
     // multiple bytes. This is a monospace width, not a Unicode shaping claim.
     u32::try_from(text.chars().count()).unwrap_or(u32::MAX)
         .saturating_mul(8 * scale)
+}
+
+/// Use measured glyph advances for native Luna rather than assumed 8px cells.
+/// Other rices deliberately retain their historical bitmap layout.
+fn rice_text_width(text: &str, style: &PanelStyle) -> u32 {
+    if style.id == "xp-luna-columns" {
+        if let Some(font) = style.native_art.as_ref().and_then(|art| art.font.as_ref()) {
+            return font.measure_text(text);
+        }
+    }
+    text_pixel_width(text, style.font_scale)
+}
+
+/// Constrain labels to their actual task/menu hit rectangles, without splitting
+/// UTF-8 characters or letting long localized XDG names overlap neighbours.
+fn fit_rice_text(label: &str, available: u32, style: &PanelStyle) -> String {
+    if rice_text_width(label, style) <= available {
+        return label.to_owned();
+    }
+    let suffix = "…";
+    let suffix_width = rice_text_width(suffix, style);
+    if available < suffix_width {
+        return String::new();
+    }
+    let mut clipped = String::new();
+    let mut width = 0_u32;
+    for letter in label.chars() {
+        let next = rice_text_width(&letter.to_string(), style);
+        if width.saturating_add(next) > available - suffix_width {
+            break;
+        }
+        width = width.saturating_add(next);
+        clipped.push(letter);
+    }
+    clipped.push_str(suffix);
+    clipped
 }
 
 fn draw_rice_text(canvas: &mut [u8], width: u32, height: u32, x: u32, y: u32,
