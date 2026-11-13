@@ -138,6 +138,21 @@ pub fn footer(canvas: &mut [u8], palette: MenuPalette,
     fill_rect(canvas, w, h, close.0 + 10, h - 21, 44, 1, 0xffa7_d8ff);
 }
 
+/// Original 14px folder and right chevron on the actual selectable row.
+/// Pure pixels, no independent or inert hit target.
+pub fn program_folder(canvas: &mut [u8], x: u32, y: u32,
+                      arrow_x: u32, selected: bool) {
+    let (w, h) = (native_menu::WIDTH, native_menu::HEIGHT);
+    fill_rect(canvas, w, h, x, y + 3, 14, 10, 0xffa2_7729);
+    fill_rect(canvas, w, h, x + 2, y + 1, 6, 4, 0xffff_d77c);
+    fill_rect(canvas, w, h, x + 1, y + 5, 12, 7, 0xffff_c95f);
+    let arrow = if selected { 0xffff_ffff } else { 0xff1c_4781 };
+    for line in 0..5 {
+        fill_rect(canvas, w, h, arrow_x + line, y + 3 + line,
+                  1, 9 - 2 * line, arrow);
+    }
+}
+
 /// Native XP-style green All Programs chevron. Its entire row remains the
 /// real menu::Hit::Action; the glyph does not create a second fake target.
 pub fn all_programs_chevron(canvas: &mut [u8], x: u32, y: u32, selected: bool) {
