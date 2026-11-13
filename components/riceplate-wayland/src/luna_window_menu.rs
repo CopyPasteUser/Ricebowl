@@ -1,7 +1,7 @@
 //! XP Luna task-button context menu policy.
 //! Only real foreign-toplevel windows are exposed. The popup is local to
 //! RicePlate and reuses its existing Wayland popup, not application SNI menus.
-use crate::{draw_text, fill_rect, task_groups, tray};
+use crate::{draw_text, fill_rect, tray};
 
 pub const WINDOW_BASE: i32 = 6_000;
 pub const SWITCH_NEXT: i32 = 6_100;
@@ -56,11 +56,19 @@ pub fn decode(id: i32, window_count: usize) -> Option<Action> {
     })
 }
 
-/// Window titles are untrusted app-controlled text. The existing taskband
-/// capacity is preserved, but control characters cannot alter menu rows.
+/// Foreign-toplevel titles are application-controlled. Sanitize before
+/// truncating so leading control characters cannot consume the text budget.
+/// The popup has more room than a task button; keep distinct document names
+/// visible instead of reusing the taskbar's 18-character label limit.
 fn title_label(title: &str, app_id: &str) -> String {
-    task_groups::task_label(title, app_id).chars()
-        .filter(|ch| !ch.is_control()).collect()
+    let clean = |value: &str| -> String {
+        value.chars().filter(|ch| !ch.is_control())
+            .take(28).collect::<String>().trim().to_owned()
+    };
+    let name = clean(title);
+    if !name.is_empty() { return name; }
+    let app = clean(app_id);
+    if !app.is_empty() { app } else { "Window".to_owned() }
 }
 
 fn separator() -> tray::MenuRow {
@@ -309,6 +317,16 @@ mod tests {
         assert!(matches!(&rows[MAX_WINDOW_ROWS + 1].kind, tray::MenuKind::Separator));
         assert_eq!(decode(WINDOW_BASE + 21, 128), None);
         assert_eq!(decode(SWITCH_NEXT, 128), Some(Action::NextWindow));
+    }
+
+    #[test]
+    fn untrusted_window_titles_preserve_distinct_names_without_controls() {
+        assert_eq!(title_label("\n\r\tA long document title · Draft 2", ""),
+                   "A long document title · Draf");
+        assert_eq!(title_label("\u{0001}\u{0002}Hello", "fallback"), "Hello");
+        assert_eq!(title_label("\n\r", "org.example.Editor"), "org.example.Editor");
+        assert_eq!(title_label("", ""), "Window");
+        assert_eq!(title_label("One", "ignored"), "One");
     }
 
     #[test]
