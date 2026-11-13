@@ -1371,6 +1371,65 @@ impl RicePlate {
         });
     }
 
+    /// A popup can target another visible icon on the same wl_output while
+    /// its Wayland parent remains the right-clicked icon surface.
+    fn desktop_context_capabilities(&self, index: usize) -> (bool, bool) {
+        let Some(icon) = self.icon_layers.get(index) else { return (false, false) };
+        let recipe_index = icon.recipe_index;
+        let mut names: Vec<_> = self.icon_layers.iter()
+            .filter(|layer| layer.recipe_index == recipe_index)
+            .filter_map(|layer| {
+                let output = layer.bound_output.as_ref()
+                    .or(self.primary_output.as_ref()).or(layer.output.as_ref())?;
+                self.logical_output_size(output)?;
+                self.outputs.info(output)?.name
+            }).collect();
+        names.sort();
+        names.dedup();
+        let can_move = names.len() > 1;
+        let can_reset = self.icon_output_name(index).is_some_and(|name|
+            self.icon_outputs.can_reset_position(
+                &name, &self.recipe.desktop_icons, recipe_index));
+        (can_move, can_reset)
+    }
+
+    fn type_select_desktop_context(&mut self, typed: &str) -> bool {
+        if self.recipe.id != "xp-luna-columns"
+            || typed.chars().count() != 1
+            || !typed.chars().all(char::is_alphanumeric) {
+            return false;
+        }
+        let Some(current) = self.desktop_context.as_ref()
+            .filter(|menu| !menu.properties).map(|menu| menu.icon_index)
+            else { return false };
+        let Some(source) = self.icon_layers.get(current) else { return false };
+        let labels: Vec<Option<&str>> = self.icon_layers.iter().map(|icon| {
+            (icon.placed.is_some() && icon.bound_output == source.bound_output)
+                .then(|| self.recipe.desktop_icons.get(icon.recipe_index)
+                    .map(|entry| entry.label.as_str())).flatten()
+        }).collect();
+        let Some(next) = self.desktop_type_select.feed(
+            &labels, current, typed, Instant::now()) else { return true };
+        if next != current {
+            let (can_move, can_reset) = self.desktop_context_capabilities(next);
+            self.select_luna_icon(next);
+            if let Some(menu) = self.desktop_context.as_mut() {
+                menu.icon_index = next;
+                menu.can_move = can_move;
+                menu.can_reset = can_reset;
+                menu.selected = DesktopContextAction::Open;
+                menu.hovered = None;
+                menu.pressed = None;
+            }
+            self.context_generation = self.context_generation.wrapping_add(1);
+            if std::env::var_os("RICEBOWL_DE_TRACE_DESKTOP").is_some() {
+                eprintln!("RicePlate desktop type-select from={current} to={next}");
+            }
+            self.redraw_desktop_context();
+        }
+        true
+    }
+
     fn choose_desktop_context(&mut self, action: DesktopContextAction,
                                qh: &QueueHandle<Self>) {
         let Some(menu) = self.desktop_context.as_ref() else { return };
@@ -6134,6 +6193,9 @@ impl KeyboardHandler for RicePlate {
             dialog.surface.wl_surface() == surface);
         self.context_focused = self.desktop_context.as_ref().is_some_and(|menu|
             menu.popup.wl_surface() == surface);
+        if self.context_focused && std::env::var_os("RICEBOWL_DE_TRACE_DESKTOP").is_some() {
+            eprintln!("RicePlate desktop context keyboard focused");
+        }
         self.menu_focused = self.menu_state.visible
             && self.active_menu.as_ref() == Some(surface);
         self.calendar_focused = self.calendar_state.visible
@@ -6199,6 +6261,7 @@ impl KeyboardHandler for RicePlate {
         // Never retain Ctrl/Shift after compositor keyboard focus leaves.
         self.selection_modifiers = Modifiers::default();
         self.desktop_selection.cancel();
+        self.desktop_type_select.reset();
         if self.luna_dialog.as_ref().is_some_and(|dialog|
             dialog.surface.wl_surface() == surface) && self.luna_dialog_focused {
             self.close_luna_dialog();
@@ -6244,6 +6307,10 @@ impl KeyboardHandler for RicePlate {
         _: u32,
         event: KeyEvent,
     ) {
+        if std::env::var_os("RICEBOWL_DE_TRACE_DESKTOP").is_some() && self.context_focused {
+            eprintln!("RicePlate desktop context key utf8_len={:?}",
+                      event.utf8.as_deref().map(str::len));
+        }
         if self.luna_dialog_focused {
             let mut execute = false;
             let mut repaint = false;
@@ -6285,6 +6352,11 @@ impl KeyboardHandler for RicePlate {
             return;
         }
         if self.context_focused {
+            if !self.selection_modifiers.ctrl {
+                if let Some(typed) = event.utf8.as_deref() {
+                    if self.type_select_desktop_context(typed) { return; }
+                }
+            }
             if self.desktop_context.as_ref().is_some_and(|menu| menu.properties) {
                 match event.keysym {
                     Keysym::Escape | Keysym::BackSpace |
@@ -6433,13 +6505,13 @@ impl KeyboardHandler for RicePlate {
                     self.select_luna_icon_mode(index, desktop_selection::Mode::Toggle);
                 }
                 Keysym::Menu if self.recipe.id == "xp-luna-columns" => {
-                    self.open_desktop_context(index, (52.0, 42.0), qh);
+                    self.open_desktop_context(index, (52.0, 42.0), None, qh);
                 }
                 Keysym::F10 if self.recipe.id == "xp-luna-columns"
                     && self.selection_modifiers.shift => {
                     // Standard keyboard equivalent of the context-menu key.
                     // The popup still targets just the focused shortcut.
-                    self.open_desktop_context(index, (52.0, 42.0), qh);
+                    self.open_desktop_context(index, (52.0, 42.0), None, qh);
                 }
                 Keysym::Return | Keysym::KP_Enter | Keysym::space => {
                     let action = self.recipe.desktop_icons[self.icon_layers[index].recipe_index]
@@ -7091,8 +7163,8 @@ impl PointerHandler for RicePlate {
                     continue;
                 }
                 match event.kind {
-                    PointerEventKind::Press { button: BTN_RIGHT, .. } => {
-                        self.open_desktop_context(index, event.position, qh);
+                    PointerEventKind::Press { button: BTN_RIGHT, serial, .. } => {
+                        self.open_desktop_context(index, event.position, Some(serial), qh);
                     }
                     PointerEventKind::Press { button: BTN_LEFT, .. } => {
                         self.close_desktop_context();
