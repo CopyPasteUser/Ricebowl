@@ -17,7 +17,7 @@ from macrice import display_guard
 from macrice.riceware import media
 
 from . import audio_devices, display_presets, display_restore, network_enrollment
-from . import notifications, preferences, recipes, luna_panel_settings
+from . import notifications, preferences, recipes, luna_panel_settings, luna_taskbar_settings
 from . import settings_backend as backend, wayland_displays
 
 
@@ -1634,6 +1634,47 @@ class RiceSpiceWindow:
             update()
             self._state(f"Current saved clock format: {current_format} · next Luna login")
 
+        self._text("Taskbar behavior", css="ricespice-section")
+        try:
+            saved = luna_taskbar_settings.load()
+        except luna_taskbar_settings.TaskbarSettingsError as exc:
+            self._text(f"Taskbar preferences unavailable: {exc}", css="ricespice-note")
+            self._button("Retry taskbar preferences", lambda: self.show_page("taskbar"))
+        else:
+            self._text("Quick Launch exposes Apps, Terminal and Show Desktop. "
+                       "Auto-hide reduces the panel to a 3-pixel edge handle; "
+                       "enter the edge to reveal it. Both apply at the next "
+                       "Luna session, without changing XFCE or other rices.",
+                       css="ricespice-note")
+            auto_hide = self.Gtk.CheckButton(label="Automatically hide the taskbar")
+            quick_launch = self.Gtk.CheckButton(label="Show Quick Launch buttons")
+            auto_hide.set_active(saved["auto_hide"])
+            quick_launch.set_active(saved["quick_launch"])
+            for control in (auto_hide, quick_launch):
+                self.content.pack_start(control, False, False, 0)
+
+            def save_behavior():
+                desired = {"auto_hide": auto_hide.get_active(),
+                           "quick_launch": quick_launch.get_active()}
+                self._background(
+                    lambda: luna_taskbar_settings.save(desired, expected=saved),
+                    lambda _value: self.show_page("taskbar"))
+
+            save_button = self._button("Save taskbar options for next Luna login",
+                                       save_behavior, primary=True)
+
+            def sync_button(_widget=None):
+                save_button.set_sensitive(
+                    auto_hide.get_active() != saved["auto_hide"]
+                    or quick_launch.get_active() != saved["quick_launch"])
+
+            auto_hide.connect("toggled", sync_button)
+            quick_launch.connect("toggled", sync_button)
+            sync_button()
+        self._text("Taskbar position is specified by the selected Rice recipe; "
+                   "drag-to-reposition and a separate Lock taskbar switch are "
+                   "not supported.", css="ricespice-note")
+
         self._text("Related controls", css="ricespice-section")
         grid = self.Gtk.Grid(column_spacing=12, row_spacing=7)
         grid.set_column_homogeneous(True)
@@ -1644,9 +1685,8 @@ class RiceSpiceWindow:
                         index % 2, index // 2, 1, 1)
         self.content.pack_start(grid, False, False, 0)
         self._text("Start favorites and recent programs are managed in the Start menu. "
-                   "Auto-hide, taskbar locking and per-icon visibility have not "
-                   "been implemented; no nonfunctional switches are shown.",
-                   css="ricespice-note")
+                   "Per-app icon visibility is provider-owned; no false toggles "
+                   "are shown.", css="ricespice-note")
 
     def _appearance(self):
         self._text("Changes here apply at the next RiceBowl Wayland login, not immediately.",
