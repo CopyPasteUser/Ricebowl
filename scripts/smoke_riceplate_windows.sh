@@ -320,8 +320,8 @@ PY
     if [ "$mode" = "--luna" ]; then
         # Exercise two genuine Wayland clients with the same app ID. The
         # native context must be a grouped-window menu, not an SNI popup.
-        previous_ready=$(grep -Fc "event=ready app_id=\\\"$app_id\\\"" "$runtime/panel.log" || :)
-        previous_closed=$(grep -Fc "event=closed app_id=\\\"$app_id\\\"" "$runtime/panel.log" || :)
+        previous_ready=$(grep -Fc "event=ready app_id=\"$app_id\"" "$runtime/panel.log" || :)
+        previous_closed=$(grep -Fc "event=closed app_id=\"$app_id\"" "$runtime/panel.log" || :)
         WAYLAND_DISPLAY=wayland-0 foot --app-id="$app_id" \
             --title=RiceBowl-Group-Alpha /bin/sh -c "sleep 45" \
             >"$runtime/group-first.log" 2>&1 &
@@ -332,7 +332,7 @@ PY
         group_second=$!
         count=0
         while [ "$count" -lt 40 ]; do
-            ready=$(grep -Fc "event=ready app_id=\\\"$app_id\\\"" "$runtime/panel.log" || :)
+            ready=$(grep -Fc "event=ready app_id=\"$app_id\"" "$runtime/panel.log" || :)
             if [ "$ready" -ge "$((previous_ready + 2))" ]; then break; fi
             kill -0 "$group_first" && kill -0 "$group_second" || {
                 echo "Grouped Wayland test clients exited before discovery" >&2
@@ -371,7 +371,7 @@ PY
         group_second=
         count=0
         while [ "$count" -lt 40 ]; do
-            closed=$(grep -Fc "event=closed app_id=\\\"$app_id\\\"" "$runtime/panel.log" || :)
+            closed=$(grep -Fc "event=closed app_id=\"$app_id\"" "$runtime/panel.log" || :)
             if [ "$closed" -ge "$((previous_closed + 1))" ]; then break; fi
             sleep 0.25
             count=$((count + 1))
