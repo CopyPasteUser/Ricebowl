@@ -1826,14 +1826,20 @@ impl RicePlate {
                           else { row.label.clone() },
                           row.selectable().then_some(Target::TrayMenuRow(index)));
             }
-            model.add(51_900, 51_000, AccessibleRole::Button,
-                      "Back", Some(Target::TrayMenuBack));
-            model.add(51_901, 51_000, AccessibleRole::Button,
-                      "Previous page", Some(Target::TrayMenuPage(-1)));
-            model.add(51_902, 51_000, AccessibleRole::Button,
-                      "Next page", Some(Target::TrayMenuPage(1)));
+            let task_menu = !self.task_menu_handles.is_empty();
+            if !task_menu {
+                model.add(51_900, 51_000, AccessibleRole::Button,
+                          "Back", Some(Target::TrayMenuBack));
+            }
+            if !task_menu || self.tray_menu_state.rows().len() > tray::POPUP_ROWS {
+                model.add(51_901, 51_000, AccessibleRole::Button,
+                          "Previous page", Some(Target::TrayMenuPage(-1)));
+                model.add(51_902, 51_000, AccessibleRole::Button,
+                          "Next page", Some(Target::TrayMenuPage(1)));
+            }
             model.add(51_903, 51_000, AccessibleRole::Button,
-                      "Close tray menu", Some(Target::TrayMenuClose));
+                      if task_menu { "Dismiss window menu" } else { "Close tray menu" },
+                      Some(Target::TrayMenuClose));
             if self.tray_popup_focused {
                 model.focus = 51_100 + self.tray_menu_state.selected as u64;
             }
