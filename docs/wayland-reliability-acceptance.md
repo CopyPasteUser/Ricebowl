@@ -42,8 +42,8 @@ ricebowl de reliability --json
 ```
 
 The new reliability snapshot reports fixed, allowlisted process roles,
-required executables, whether a user D-Bus address is declared, protocol
-advertisements (queried by `wayland-info` **only** when an owned Wayland
+required executables, a bounded read-only Ping of the declared user D-Bus
+address (no service activation), protocol advertisements (queried by `wayland-info` **only** when an owned Wayland
 socket is detected), and the safe state of the pending live-switch journal.
 It does not show argv, full environment, monitor identifiers, recipe paths,
 notification contents, window titles or journal file contents.
@@ -53,7 +53,7 @@ Critical contracts:
 - `swayidle` and `swaylock` are mandatory for a full login. Mako,
   wallpaper, Orca and authentication-agent availability is reported without
   treating those integrations as prerequisites for login.
-- Process counts cover only **same-UID kernel process names**. Without
+- An unreachable or timed-out D-Bus Ping is reported separately from an\n  undeclared bus; neither state triggers automatic restarts.\n- Process counts cover only **same-UID kernel process names**. Without
   session-specific cgroup membership they can contain another session's
   processes. An absent entry does not prove an optional service crashed.
 - Protocol probing is bounded, has a three-second deadline, and reports
