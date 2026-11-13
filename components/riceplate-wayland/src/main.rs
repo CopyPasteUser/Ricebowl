@@ -5747,9 +5747,6 @@ impl LayerShellHandler for RicePlate {
         if self.luna_dialog.as_ref().is_some_and(|dialog|
             dialog.surface.wl_surface() == layer.wl_surface()) {
             self.close_luna_dialog();
-        } else if self.desktop_context.as_ref().is_some_and(|menu|
-            menu.popup.wl_surface() == layer.wl_surface()) {
-            self.close_desktop_context();
         } else if layer.wl_surface() == self.layer.wl_surface() {
             self.closed = true;
         } else if let Some(index) = self.mirrors.iter().position(|mirror|
@@ -6100,6 +6097,39 @@ impl OutputHandler for RicePlate {
         }
         self.reflow_icons();
         self.sync_mirrors(qh);
+    }
+}
+
+impl PopupHandler for RicePlate {
+    fn configure(&mut self, _: &Connection, _: &QueueHandle<Self>,
+                 popup: &Popup, config: PopupConfigure) {
+        let Some(menu) = self.desktop_context.as_mut().filter(|menu|
+            &menu.popup == popup) else { return };
+        if (config.width, config.height) !=
+            (desktop_context::WIDTH as i32, desktop_context::HEIGHT as i32) {
+            eprintln!("RicePlate: compositor rejected bounded shortcut popup geometry");
+            self.close_desktop_context();
+            return;
+        }
+        if menu.pool.is_none() {
+            let bytes = (desktop_context::WIDTH * desktop_context::HEIGHT * 4 * 3) as usize;
+            match SlotPool::new(bytes, &self.shm) {
+                Ok(pool) => menu.pool = Some(pool),
+                Err(error) => {
+                    eprintln!("RicePlate: cannot allocate shortcut popup buffer: {error}");
+                    self.close_desktop_context();
+                    return;
+                }
+            }
+        }
+        menu.configured = true;
+        self.redraw_desktop_context();
+    }
+
+    fn done(&mut self, _: &Connection, _: &QueueHandle<Self>, popup: &Popup) {
+        if self.desktop_context.as_ref().is_some_and(|menu| &menu.popup == popup) {
+            self.close_desktop_context();
+        }
     }
 }
 
