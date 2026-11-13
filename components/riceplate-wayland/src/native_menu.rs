@@ -1134,7 +1134,8 @@ mod tests {
         assert!(state.pins.is_empty());
         state.search_button();
         assert_eq!(state.view, View::Groups);
-        assert_eq!(state.current_action(menu), Some("applications"));
+        // Returning from All Programs selects the first real preview app.
+        assert_eq!(state.current_action(menu), Some("desktop:demo-0.desktop"));
 
         state.show_programs();
         assert!(state.search_input("8"));
@@ -1225,21 +1226,21 @@ mod tests {
             app("z-viewer.desktop", "Viewer"),
         ];
         state.open();
-        assert_eq!(&state.actions(menu)[2..4],
+        assert_eq!(&state.actions(menu)[..2],
                    &["desktop:firefox.desktop", "desktop:thunderbird.desktop"]);
         assert!(state.record_app_launch("desktop:z-viewer.desktop"));
-        assert_eq!(&state.actions(menu)[2..4],
+        assert_eq!(&state.actions(menu)[..2],
                    &["desktop:z-viewer.desktop", "desktop:firefox.desktop"]);
         assert!(state.record_app_launch("desktop:thunderbird.desktop"));
-        assert_eq!(&state.actions(menu)[2..4],
+        assert_eq!(&state.actions(menu)[..2],
                    &["desktop:thunderbird.desktop", "desktop:z-viewer.desktop"]);
         state.recent_apps.clear();
         state.apps.retain(|app| app.action != "desktop:thunderbird.desktop");
-        assert_eq!(&state.actions(menu)[2..4],
+        assert_eq!(&state.actions(menu)[..2],
                    &["desktop:firefox.desktop", "desktop:a-editor.desktop"]);
         // No phantom Browser or Mail entries on systems lacking both.
         state.apps.retain(|app| app.action != "desktop:firefox.desktop");
-        assert_eq!(&state.actions(menu)[2..4],
+        assert_eq!(&state.actions(menu)[..2],
                    &["desktop:a-editor.desktop", "desktop:z-viewer.desktop"]);
     }
 
@@ -1272,18 +1273,18 @@ mod tests {
         let mut state = MenuState::default();
         state.apps = demo_apps(12);
         state.open();
-        assert_eq!(&state.actions(menu)[2..4],
+        assert_eq!(&state.actions(menu)[..2],
                    &["desktop:demo-0.desktop", "desktop:demo-1.desktop"]);
         assert!(!state.record_app_launch("terminal"));
         assert!(!state.record_app_launch("desktop:unindexed.desktop"));
         assert!(state.record_app_launch("desktop:demo-9.desktop"));
         assert!(state.record_app_launch("desktop:demo-4.desktop"));
         assert!(state.record_app_launch("desktop:demo-9.desktop"));
-        assert_eq!(&state.actions(menu)[2..4],
+        assert_eq!(&state.actions(menu)[..2],
                    &["desktop:demo-9.desktop", "desktop:demo-4.desktop"]);
         assert_eq!(state.recent_apps.len(), 2);
         state.open();
-        assert_eq!(&state.actions(menu)[2..4],
+        assert_eq!(&state.actions(menu)[..2],
                    &["desktop:demo-9.desktop", "desktop:demo-4.desktop"]);
 
         // The unfiltered All Programs index and non-Luna columns remain
@@ -1297,7 +1298,7 @@ mod tests {
             Some("xp-luna-columns")).unwrap();
         let other_menu = other.menu.as_mut().unwrap();
         other_menu.palette = None;
-        assert_eq!(&state.actions(other_menu)[2..4],
+        assert_eq!(&state.actions(other_menu)[..2],
                    &["desktop:demo-0.desktop", "desktop:demo-1.desktop"]);
 
         for index in 0..12 {
@@ -1504,7 +1505,7 @@ mod tests {
         state.horizontal_by(menu, 1);
         assert_eq!(state.current_action(menu), Some("settings"));
         state.horizontal_by(menu, -1);
-        assert_eq!(state.current_action(menu), Some("applications"));
+        assert_eq!(state.current_action(menu), Some("terminal"));
         state.select_group(menu, 2);
         assert_eq!(state.current_action(menu), Some("lock"));
         state.start_search();
