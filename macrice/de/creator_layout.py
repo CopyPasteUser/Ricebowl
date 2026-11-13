@@ -203,8 +203,10 @@ def add_layer(manifest: dict[str, Any], kind: str, *,
             if any(abs(x - item["x"]) < width and abs(y - item["y"]) < height
                    for item in widgets):
                 continue
-            if any(abs(x - icon["x"]) < width and
-                   abs(y - icon["y"]) < recipes.ICON_HEIGHT
+            if any(x < icon["x"] + recipes.ICON_WIDTH and
+                   icon["x"] < x + width and
+                   y < icon["y"] + recipes.ICON_HEIGHT and
+                   icon["y"] < y + height
                    for icon in result["desktop"]["icons"]):
                 continue
             new["x"], new["y"] = x, y
