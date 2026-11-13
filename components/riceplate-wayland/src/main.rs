@@ -486,6 +486,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     });
 
     let static_icon_count = recipe.desktop_icons.len();
+    let live_luna = recipe.id == "xp-luna-columns"
+        && std::env::var("RICEBOWL_DE_NESTED").as_deref() != Ok("1");
     let file_positions = if recipe.id == "xp-luna-columns"
         && std::env::var("RICEBOWL_DE_NESTED").as_deref() != Ok("1") {
         desktop_file_positions::Store::restore()
@@ -541,6 +543,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         keyboard_icon_surface: None,
         desktop_selection: desktop_selection::Selection::default(),
         desktop_files: None,
+        local_trash_full: None,
         file_positions,
         static_icon_count,
         desktop_type_select: desktop_selection::TypeSelect::default(),
@@ -585,8 +588,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         accessibility: None,
     };
     // User-file scan only in opt-in Luna, never in isolated design previews.
-    if app.recipe.id == "xp-luna-columns"
-        && std::env::var("RICEBOWL_DE_NESTED").as_deref() != Ok("1") {
+    if live_luna {
+        app.local_trash_full = luna_places::local_trash_full();
         match desktop_files::Model::open() {
             Ok(model) => {
                 app.desktop_files = Some(model);
@@ -817,11 +820,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             .saturating_duration_since(Instant::now()));
         let timeout = [Some(next_clock_timeout()), osd_timeout, reconnect_timeout, backlight_timeout,
                        app.notification_state.refresh_timeout(Instant::now()),
-                       app.desktop_files.as_ref().map(|_| next_desktop_scan.saturating_duration_since(Instant::now()))]
+                       live_luna.then(|| next_desktop_scan.saturating_duration_since(Instant::now()))]
             .into_iter().flatten().min().unwrap_or_else(next_clock_timeout);
         event_loop.dispatch(Some(timeout), &mut app)?;
-        if app.desktop_files.is_some() && Instant::now() >= next_desktop_scan {
+        if live_luna && Instant::now() >= next_desktop_scan {
             app.refresh_desktop_files(&qh);
+            app.refresh_local_trash();
             next_desktop_scan = Instant::now() + Duration::from_secs(4);
         }
         if backlight.is_some() && Instant::now() >= next_backlight_check {
@@ -1037,6 +1041,7 @@ struct RicePlate {
     keyboard_icon_surface: Option<wl_surface::WlSurface>,
     desktop_selection: desktop_selection::Selection,
     desktop_files: Option<desktop_files::Model>,
+    local_trash_full: Option<bool>,
     file_positions: desktop_file_positions::Store,
     static_icon_count: usize,
     desktop_type_select: desktop_selection::TypeSelect,
@@ -1169,6 +1174,17 @@ impl RicePlate {
         self.reflow_icons();
         eprintln!("RicePlate: XDG Desktop shows {} bounded file entries",
             self.recipe.desktop_icons.len() - self.static_icon_count);
+    }
+
+    fn refresh_local_trash(&mut self) {
+        let state = luna_places::local_trash_full();
+        if state == self.local_trash_full { return; }
+        self.local_trash_full = state;
+        let affected: Vec<_> = self.icon_layers.iter().enumerate()
+            .filter(|(_, layer)| self.recipe.desktop_icons.get(layer.recipe_index)
+                .is_some_and(|icon| icon.action == "trash"))
+            .map(|(index, _)| index).collect();
+        for index in affected { self.redraw_icon(index); }
     }
 
     fn refresh_desktop_files(&mut self, qh: &QueueHandle<Self>) {
@@ -3334,6 +3350,14 @@ impl RicePlate {
                    self.focused_icon == Some(index)
                        || (self.recipe.id == "xp-luna-columns"
                            && self.desktop_selection.is_selected(index)), icon_pixels);
+        if icon.action == "trash" && self.recipe.id == "xp-luna-columns"
+            && self.local_trash_full == Some(true) {
+            // Real local XDG Trash has at least one item. No fabricated count
+            // for external volumes. The original XP artwork remains intact.
+            fill_rounded_rect(canvas, width, height, 69, 5, 29, 17, 3, 0xffbc_4a32);
+            draw_rice_text(canvas, width, height, 74, 10, "Full",
+                           0xffff_ffff, &self.recipe);
+        }
         surface.damage_buffer(0, 0, width as i32, height as i32);
         if let Err(error) = buffer.attach_to(surface) {
             eprintln!("RicePlate: desktop icon attach failed: {error}");

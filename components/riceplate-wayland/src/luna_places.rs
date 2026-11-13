@@ -1,7 +1,30 @@
 //! Fixed, non-shell location launchers for the opt-in Luna Start menu.
 //! Reuses the desktop's configured Gio file handler. No new background process.
 
-use std::{env, path::{Path, PathBuf}, process::Command};
+use std::{env, fs, os::unix::fs::MetadataExt, path::{Path, PathBuf}, process::Command};
+
+/// Local XDG trash status only; external-volume/GVfs trash is deliberately
+/// not counted. Never invent a global count from the home trash folder.
+pub fn local_trash_full() -> Option<bool> {
+    let data = env::var_os("XDG_DATA_HOME").map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .or_else(|| env::var_os("HOME")
+            .map(|home| PathBuf::from(home).join(".local/share")))?;
+    local_trash_full_at(&data.join("Trash/files"))
+}
+
+pub fn local_trash_full_at(path: &Path) -> Option<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_dir()
+            && meta.uid() == unsafe { libc::geteuid() } => (),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Some(false),
+        _ => return None,
+    }
+    match fs::read_dir(path) {
+        Ok(mut directory) => directory.next().map(|entry| entry.is_ok()).or(Some(false)),
+        Err(_) => None,
+    }
+}
 
 fn xdg_user_directory(kind: &str) -> Option<PathBuf> {
     // Fixed XDG directory types only. Never pass a recipe-supplied value
@@ -206,6 +229,24 @@ mod tests {
                 assert_eq!(command.get_args().count(), 2);
             }
         }
+    }
+
+    #[test]
+    fn local_trash_state_observes_real_user_items_and_rejects_links() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let root = std::env::temp_dir().join(format!("riceplate-trash-{}-{now}",std::process::id()));
+        std::fs::create_dir(&root).unwrap();
+        let trash = root.join("files");
+        assert_eq!(local_trash_full_at(&trash),Some(false));
+        std::fs::create_dir(&trash).unwrap();
+        assert_eq!(local_trash_full_at(&trash),Some(false));
+        std::fs::write(trash.join("removed.txt"), b"real file").unwrap();
+        assert_eq!(local_trash_full_at(&trash),Some(true));
+        let bad=root.join("link");
+        std::os::unix::fs::symlink(&trash,&bad).unwrap();
+        assert_eq!(local_trash_full_at(&bad),None);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
