@@ -24,6 +24,7 @@ class RiceSpiceSettingsTests(unittest.TestCase):
         })
         self.assertEqual(set(backend.EXTERNAL_PAGES), {
             "connections", "displays", "input", "accessibility", "timezone",
+            "luna_creator",
         })
 
     def test_saved_network_profiles_activate_by_uuid_without_secrets(self):
@@ -90,6 +91,22 @@ class RiceSpiceSettingsTests(unittest.TestCase):
                 backend.open_external("input")
         with self.assertRaises(backend.SettingsError):
             backend.open_external("../../tmp/evil")
+
+    def test_luna_wallpaper_editor_is_allowlisted_and_never_shell_interpreted(self):
+        with mock.patch.object(backend.shutil, "which", side_effect=lambda name:
+                               "/usr/bin/ricebowl" if name == "ricebowl" else None), \
+             mock.patch.object(backend.subprocess, "Popen") as opened:
+            self.assertEqual(backend.external_tool("luna_creator"),
+                             ("ricebowl", "creator"))
+            backend.open_external("luna_creator")
+            self.assertEqual(opened.call_args.args[0], ["ricebowl", "creator"])
+            self.assertNotIn("shell", opened.call_args.kwargs)
+        with mock.patch.object(backend.shutil, "which", return_value=None), \
+             mock.patch.object(backend.subprocess, "Popen") as opened:
+            self.assertIsNone(backend.external_tool("luna_creator"))
+            with self.assertRaises(backend.SettingsError):
+                backend.open_external("luna_creator")
+            opened.assert_not_called()
 
     def test_wifi_change_guards_stale_state_and_verifies_postcondition(self):
         with mock.patch.object(backend, "wifi_state", side_effect=[True, False]), \
