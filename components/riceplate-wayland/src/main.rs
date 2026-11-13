@@ -1049,6 +1049,11 @@ impl RicePlate {
         let popup_open = self.menu_state.visible || self.calendar_state.visible
             || self.tray_popup_open() || self.luna_dialog.is_some()
             || self.desktop_context.is_some();
+        if std::env::var_os("RICEBOWL_DE_TRACE_MENU").is_some()
+            && self.recipe.id == "xp-luna-columns" {
+            eprintln!("RicePlate: Luna auto-hide pointer_inside={} popup_open={} collapsed={}",
+                      self.panel_pointer_inside, popup_open, self.panel_collapsed);
+        }
         if luna_taskbar::should_collapse(
             self.luna_options, self.panel_pointer_inside, popup_open)
         {
@@ -2551,7 +2556,14 @@ impl RicePlate {
         for layer in self.menu_layer.iter().chain(self.menu_mirrors.iter()) {
             let active = layer.surface.wl_surface() == &surface;
             layer.surface.set_keyboard_interactivity(if active {
-                KeyboardInteractivity::OnDemand
+                // In Luna, typing/Escape must work while Start is open,
+                // independent of compositor pointer focus on the wallpaper.
+                // Other rices keep their established OnDemand policy.
+                if self.recipe.id == "xp-luna-columns" {
+                    KeyboardInteractivity::Exclusive
+                } else {
+                    KeyboardInteractivity::OnDemand
+                }
             } else {
                 KeyboardInteractivity::None
             });
