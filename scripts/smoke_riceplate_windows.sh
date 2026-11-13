@@ -39,7 +39,7 @@ export WLR_HEADLESS_OUTPUTS=1
 export WLR_RENDERER=pixman
 export RICEBOWL_DE_NESTED=1
 
-dbus-run-session -- sh -eu -c '
+dbus-run-session -- sh -eu -s -- "$source_root" "$runtime" "$native" "$clicker" "$mode" <<'RICEBOWL_WINDOW_SMOKE_SH'
     source_root=$1
     runtime=$2
     native=$3
@@ -311,4 +311,4 @@ PY
         "$runtime/before.png" "$runtime/opened.png" "$runtime/closed.png"
     kill -0 "$plate"
     echo "Native RicePlate observed and painted a real $mode window lifecycle"
-' sh "$source_root" "$runtime" "$native" "$clicker" "$mode"
+RICEBOWL_WINDOW_SMOKE_SH
