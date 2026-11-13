@@ -1298,7 +1298,9 @@ mod tests {
             Some("xp-luna-columns")).unwrap();
         let other_menu = other.menu.as_mut().unwrap();
         other_menu.palette = None;
-        assert_eq!(&state.actions(other_menu)[..2],
+        // Palette-free columns retain their historical action-first order;
+        // only opt-in Luna moves discovered app previews to the top.
+        assert_eq!(&state.actions(other_menu)[2..4],
                    &["desktop:demo-0.desktop", "desktop:demo-1.desktop"]);
 
         for index in 0..12 {
