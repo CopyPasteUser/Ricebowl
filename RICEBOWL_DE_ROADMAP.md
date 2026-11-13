@@ -9,21 +9,21 @@ installation and is not yet a finished desktop environment.
 
 - [ ] Require complete PNG decoding before the classic panel pixel probe; add synthetic complete/truncated/wrong-color/invalid-geometry unit cases. Local focused tests pass, but the native labwc compositor screenshot matrix and full CI remain mandatory before this is marked complete. The synthetic unit fixtures are **not** real desktop screenshots.
 
-### Native XP Luna desktop keyboard-selection gate (13 November 2026)
+### Native XP Luna context-menu keyboard-selection gate (13 November 2026)
 
-- [ ] Use deliberate **F3 on the focused native Top taskbar** to enter
-  `xp-luna-columns` desktop type-to-select: labwc does not grant keyboard
-  focus to on-demand Bottom-layer icons, confirmed by real compositor
-  failures in #327. A short Unicode prefix selects only visible icons on
-  the originating output; Return runs the validated selected action,
-  Escape/focus loss cancels. Never introduce a persistent Exclusive keyboard
-  grab or cover application windows with Top-layer desktop icons.
-  Rust tests cover prefixes, Unicode, timeout and hidden-output isolation;
-  real labwc CI must click the Top taskbar, send F3 then `wtype p`,
-  archive unmodified `grim` PNGs and verify Programs focus pixels.
-  Merge only after green Tests and Native RicePlate on the final head.
-  Direct Bottom-layer icon typing and device/IME/Orca acceptance remain
-  open under issue #328.
+- [ ] Native `xp-luna-columns` shortcut context Overlay, deliberately
+  opened by right-click, should accept bounded Unicode prefix typing and
+  select visible desktop icons on the same output. Enter activates the
+  selected verified action, Escape dismisses; reopening restores the normal
+  context actions and Properties. The existing Bottom icons never steal
+  other apps' keyboard focus. labwc blocks OnDemand Bottom keyboard focus;
+  neither a bare icon click nor blank Top taskbar F3 worked under real
+  compositor testing. No Exclusive keyboard grab or host config edits.
+  Rust tests cover Unicode, prefix timeout, cycling and output isolation.
+  Native CI must open the actual Overlay via pointer, inject `wtype p`,
+  capture genuine `grim` before/after frames and verify Programs pixels.
+  Require both green Tests and Native RicePlate CI on the final head before
+  merging; physical hardware, IME and Orca remain open under issue #328.
 
 ### Native XP Luna Run text-editing gate (13 November 2026)
 
