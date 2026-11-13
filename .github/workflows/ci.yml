@@ -141,6 +141,7 @@ jobs:
           path: |
             dist/creator-gtk-smoke/creator.png
             dist/luna-settings/luna-control-panel-*.png
+            dist/luna-settings/luna-control-panel-capture-metrics.json
             screenshots/ricebowl-hub-windows10-current.png
             screenshots/ricebowl-*-0.9.1.png
             screenshots/ricebowl-winxp-*-0.9.1-1024.png
