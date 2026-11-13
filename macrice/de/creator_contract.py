@@ -158,6 +158,13 @@ def describe_ricepack() -> dict[str, object]:
             {"command": "de pack-recover", "required_options": [],
              "optional_options": ["--json"], "resumes_private_pending_import": True},
         ],
+        "inspect_diagnostics": {
+            "host_backends_checked": False,
+            "native_required_for_desktop_layers": "schema-v5+",
+            "embedded_assets": "verified archive paths",
+            "missing_host_dependencies": "must be checked on destination",
+            "activates_on_import": False,
+        },
         "import": "private no-overwrite, never activates",
         "failure_exit_code": 2,
         "success_exit_code": 0,
