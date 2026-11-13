@@ -1068,6 +1068,9 @@ impl RicePlate {
     fn handle_luna_desktop_request(&mut self, request: luna_desktop_ipc::Request,
                                    qh: &QueueHandle<Self>) {
         if self.recipe.id != "xp-luna-columns" { return; }
+        if std::env::var("RICEBOWL_DE_TRACE_SHORTCUTS").as_deref() == Ok("1") {
+            eprintln!("RicePlate: Luna private IPC {request:?}");
+        }
         use luna_desktop_ipc::Request;
         match request {
             Request::Arrange => {
