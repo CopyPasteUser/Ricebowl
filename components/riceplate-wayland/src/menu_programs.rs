@@ -105,16 +105,16 @@ mod tests {
         assert_eq!(Category::from_desktop_data("[Desktop Entry]\nName=Tool\n"),
                    Category::Other);
         assert_eq!(Category::from_desktop_data(
-            "[Desktop Entry]\\n# Categories=Game;\\nCategories = Office;\\n"),
+            "[Desktop Entry]\n# Categories=Game;\nCategories = Office;\n"),
             Category::Office);
         assert_eq!(Category::from_desktop_data(
-            "[Desktop Entry]\\nCategories=Game;\\nCategories=Office;\\n"),
+            "[Desktop Entry]\nCategories=Game;\nCategories=Office;\n"),
             Category::Other);
         assert_eq!(Category::from_desktop_data(
-            "[Desktop Entry]\\nCategories=Game;\\n[Desktop Entry]\\nCategories=Office;\\n"),
+            "[Desktop Entry]\nCategories=Game;\n[Desktop Entry]\nCategories=Office;\n"),
             Category::Other);
         assert_eq!(Category::from_desktop_data(
-            "[Desktop Action Launch]\\nCategories=Game;\\n[Desktop Entry]\\nCategories=Office;\\n"),
+            "[Desktop Action Launch]\nCategories=Game;\n[Desktop Entry]\nCategories=Office;\n"),
             Category::Office);
         assert!(Category::from_action("desktop:some-app.desktop").is_none());
         for category in Category::ORDER {
