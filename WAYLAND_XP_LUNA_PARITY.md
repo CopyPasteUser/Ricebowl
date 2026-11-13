@@ -232,11 +232,14 @@ real wlr foreign-toplevel handles, and only remembers windows it actually
 minimized. The restore request is idempotent on a fast second click and never
 reopens a previously closed toplevel.
 
-Luna taskbar settings expose Quick Launch visibility and Auto-hide. The
-`luna-taskbar.json` options use a separate versioned, 0600 owner-private,
-CAS-guarded atomic file under `$XDG_CONFIG_HOME/ricebowl/`; the GTK settings
-client and native Rust renderer validate the same bounded contract at next
-login. Auto-hide adjusts layer-shell exclusive zones on the primary/mirrored
+Luna taskbar settings expose Quick Launch visibility, Auto-hide and a
+real `Group similar taskbar buttons` option. The `luna-taskbar.json` file is
+versioned and owner-private (0600), with CAS-guarded atomic updates under
+`$XDG_CONFIG_HOME/ricebowl/`. The native Rust renderer accepts legacy v1
+records (grouping enabled, matching old behavior); GTK writes strict v2
+records with the grouping boolean. Only `xp-luna-columns` uses this toggle;
+all other rices retain their previous grouping semantics. Changes apply at
+next Luna login. Auto-hide adjusts layer-shell exclusive zones on the primary/mirrored
 panels and leaves a 3-pixel handle for compositor pointer reveal. Settings
 never change XFCE or the shared schema-v12 recipe file.
 
@@ -310,3 +313,46 @@ states. Classic and XWayland taskbar tests remain separate and unchanged.
 These checks validate actual compositor behavior on the headless pixman backend,
 not Mint/ThinkPad hardware or the still-blocked native type-to-select focus
 work. No new visual assets are fabricated for the screenshots.
+
+## XP Luna Taskbar Fidelity 5.0 – stacked integration (13 November 2026)
+
+The isolated development branch in [draft PR #352](https://github.com/CopyPasteUser/Ricebowl/pull/352)
+is **stacked on #343**, not merged to `main`. The code now derives
+application grouping from the owner-private v2 Taskbar settings and identifies
+a minimized group only when *every* live member is minimized. Each window
+remains an actual foreign-toplevel handle; disabling grouping changes the real
+task model and pointer hit targets rather than adding a cosmetic checkbox.
+
+A context popup captures compositor handles in display order. Before executing
+a window action, RicePlate checks that those handles still represent **one
+identical live group**. Closing an owning window, switching its application ID,
+or losing the foreign-toplevel manager dismisses the popup. Single-window
+actions use the same enablement rules during painting and at dispatch, so
+disabled Restore/Minimize/Maximize commands are not executed from stale
+menus. No compositor commands, privileged operations or window-manager
+replacements were added.
+
+The native SNI tray now preserves provider slot identity as existing
+StatusNotifier items change attention status: keyboard and pointer targets
+do not unexpectedly switch providers. Newly discovered icons are appended
+after existing ones, with a bounded 32-icon view and the existing real
+overflow chevron. Luna status menus continue to use their existing
+capability-gated backends.
+
+**Software gate, not hardware acceptance:** the isolated `labwc` smoke
+launches two actual `foot` windows with the same app ID, captures their
+native group context via `grim`, terminates one while the popup is open,
+and checks that the popup is dismissed while the surviving window remains
+alive. New artifact names are `luna-grouped-taskbar.png`,
+`luna-grouped-window-menu.png`, `luna-group-menu-dismissed.png`
+and `luna-single-after-group-close.png`. These filenames describe a **CI
+test implementation**, not a claim that a current-head screenshot artifact
+has already passed. The test only gates completion when exact-head native
+CI has run successfully.
+
+**Unaccepted:** the physical Mint 22 laptop, non-1× scaling including 125%,
+cross-output task ownership and hotplug, XWayland/CSD interaction, Alt-Tab
+focus, multi-seat keyboard access, Orca/IME, tray provider reconnection
+under churn, actual PSS/CPU measurements, and original XP Move/Size window
+commands (labwc owns those). There is deliberately no fake
+`Lock taskbar` toggle: the selected rice recipe owns panel positioning.
