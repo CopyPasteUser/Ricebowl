@@ -467,6 +467,8 @@ and physical hardware acceptance remain open.
 
 ### XP Luna desktop: keyboard selection through a real context Overlay (13 November 2026)
 
+**NOT ACCEPTED / BLOCKED:** Real headless-labwc run [43365078976](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43365078976) failed even after a separate pointer click on the Overlay header: the Programs focus region changed **0 pixels**, and no native keyboard callback arrived. The Rust matcher is tested, but the listed keyboard interaction is NOT operational on labwc and remains exclusively on the unmerged Draft PR #327. A genuine parented `xdg_popup` is the next required architecture change (issue #328). No screenshots may be presented as accepted feature evidence.
+
 labwc deliberately prevents OnDemand Bottom-layer desktop icons from stealing
 keyboard focus; the initial direct-click and panel-F3 paths failed genuine
 headless compositor tests. The adopted interaction is an **explicitly opened,
