@@ -14,32 +14,33 @@ Wayland uses upstream labwc plus RicePlate. Original/licensed art only.
 | Run | X11 Run dialog | **Native bounded Run dialog** using literal argv, no shell, with Unicode-safe caret editing (Left/Right/Home/End/Backspace/Delete) and proportional-font-aware horizontal input scrolling | No XDG app-name completion, IME integration or device keyboard QA |
 | Recent programs and Start pins | Private favorites and history | Private persisted XP program recents; validated action pins | Reorderable Start favorites, browser/mail slots |
 | Recent documents | Actual recent-file submenu | Not implemented | Recent-file provenance/privacy and file opener |
-| Desktop | XFCE-managed desktop with shortcuts | Seven native shortcuts, multi-selection, drag/keyboard moves and context actions; **experimental** taskbar F3 type-to-select for labwc | Desktop background context and direct Bottom-layer keyboard focus; physical-device QA |
+| Desktop | XFCE-managed desktop with shortcuts | Seven native shortcuts, multi-selection, drag/keyboard moves and context actions; **experimental** context-Overlay type-to-select for labwc | Desktop background context and direct Bottom-layer keyboard focus; physical-device QA |
 | File manager / Explorer | Styled Thunar with real file operations | Gio opens the registered file manager | RiceField/Explorer structural integration |
 | Window decorations | XFWM Luna borders/buttons | labwc-managed decoration/theme support | Cannot skin all Wayland CSD windows |
 | Display/login/recovery | Existing XFCE/X11 session | Opt-in labwc native preview; package rollback in CI | Physical Mint/ThinkPad sign-off |
 
-## Desktop keyboard access without stealing application focus (13 November 2026)
+## Desktop shortcut keyboard selection and labwc focus policy (13 November 2026)
 
-Upstream labwc explicitly prevents `OnDemand` clients in the Bottom and
-Background layers from stealing keyboard focus. XP Luna keeps its icon
-surfaces in Bottom: moving them to Top would incorrectly cover application
-windows, and a permanent Exclusive grab would break normal typing.
+labwc intentionally denies regular keyboard focus to Bottom/Background
+OnDemand surfaces to protect applications. Therefore XP Luna keeps native
+shortcut icon surfaces in Bottom; no full-screen wallpaper hit target,
+always-on-top desktop icon, persistent Exclusive grab, or compositor
+configuration override is introduced.
 
-The opt-in native Luna taskbar is already a focusable Top-layer surface.
-After **clicking an unused taskbar area**, press **F3** to begin a bounded,
-per-output desktop shortcut search; type a name, press Enter to open the
-selected validated action, or Escape to cancel. The initial selection
-highlight makes the active target visible. Focus loss, icon pointer presses
-and output reflow cancel the mode. There is no compositor config edit,
-resident worker, new background surface or input grab.
+For safe intentional keyboard search: right-click a desktop shortcut to
+open the existing bounded **Overlay** context menu, then type letters.
+Prefix matches select and highlight only shortcuts visible on the same
+output, while the popup remains focused and its title follows the chosen
+item. Enter invokes the selected validated action, Escape dismisses the
+popup, and reopening gives the usual Open/Properties/display operations.
+This avoids intercepting keyboard input belonging to other applications.
 
-The real headless-labwc smoke clicks the taskbar, injects `wtype -k F3`
-then `wtype p`, and compares unmodified `grim` frames at the Programs
-shortcut. **CI acceptance of this new search is pending on PR #327**.
-The rejected direct Bottom-layer focus path is documented in issue #328.
-Neither real hardware focus/IME/Orca nor the full classic XP desktop
-context menu are complete.
+The real headless-labwc smoke records the context menu before and after
+`wtype p` using unmodified `grim` PNGs and verifies changed Programs
+focus pixels with no accidental launch. **Acceptance remains pending green
+Native RicePlate CI on PR #327**. The rejected direct Bottom-layer and
+blank-taskbar-F3 keyboard paths are recorded in issue #328; hardware
+focus, IME and Orca signoff remain separate.
 
 ## Native XP notification area and Control Panel (November 2026)
 
