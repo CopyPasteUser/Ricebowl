@@ -30,11 +30,42 @@ class PortalRejected(RuntimeError):
         self.code = code
 
 
+def strict_ci_mode(env: dict[str, str]) -> bool:
+    """Reject ambiguous strict flags and accidental pixman fallback in strict CI."""
+    flag = env.get("RICEBOWL_PORTAL_STRICT_CI", "0")
+    if flag not in ("0", "1"):
+        raise RuntimeError("RICEBOWL_PORTAL_STRICT_CI must be 0 or 1")
+    if flag == "1" and env.get("WLR_RENDERER") != "gles2":
+        raise RuntimeError("Strict ScreenCast CI requires a GLES2 compositor")
+    return flag == "1"
+
+
 def unsupported_pixman_start(response: PortalRejected, env: dict[str, str]) -> bool:
-    """Only the isolated pixman CI lane may report an untested ScreenCast FD."""
-    return (response.code == 2 and env.get("RICEBOWL_PORTAL_CAPTURE_CI") == "1"
+    """Only the non-strict, isolated pixman lane may report an untested FD."""
+    return (not strict_ci_mode(env) and response.code == 2
+            and env.get("RICEBOWL_PORTAL_CAPTURE_CI") == "1"
             and env.get("WLR_BACKENDS") == "headless"
             and env.get("WLR_RENDERER") == "pixman")
+
+
+def stream_nodes(streams: object) -> tuple[int, ...]:
+    """Accept only nonempty, distinct PipeWire nodes from a successful Start.
+
+    Each portal stream has D-Bus type (ua{sv}); bool is not a valid node ID.
+    A valid node is negotiation evidence, never proof of delivered frames.
+    """
+    if not isinstance(streams, (tuple, list)) or not 1 <= len(streams) <= 16:
+        raise RuntimeError("ScreenCast Start did not return bounded PipeWire streams")
+    nodes = []
+    for stream in streams:
+        if (not isinstance(stream, (tuple, list)) or len(stream) != 2
+                or type(stream[0]) is not int or not 0 < stream[0] <= 0xffffffff
+                or not isinstance(stream[1], dict)):
+            raise RuntimeError("ScreenCast Start returned malformed PipeWire stream data")
+        nodes.append(stream[0])
+    if len(set(nodes)) != len(nodes):
+        raise RuntimeError("ScreenCast Start returned duplicate PipeWire stream nodes")
+    return tuple(nodes)
 
 
 def require_private_headless_session(env: dict[str, str]) -> Path:
@@ -51,11 +82,17 @@ def require_private_headless_session(env: dict[str, str]) -> Path:
     runtime_text = env.get("XDG_RUNTIME_DIR", "")
     if not runtime_text or not Path(runtime_text).is_absolute():
         raise RuntimeError("Missing absolute isolated XDG_RUNTIME_DIR")
-    runtime = Path(runtime_text).resolve(strict=True)
-    if not (runtime / ".ricebowl-portal-ci").is_file():
-        raise RuntimeError("Missing private portal smoke marker")
-    if stat.S_IMODE(runtime.stat().st_mode) != 0o700:
-        raise RuntimeError("Private portal runtime must have mode 0700")
+    source = Path(runtime_text)
+    if source.is_symlink():
+        raise RuntimeError("Private portal runtime must not be a symlink")
+    runtime = source.resolve(strict=True)
+    details = runtime.stat()
+    if (not stat.S_ISDIR(details.st_mode) or details.st_uid != os.geteuid()
+            or stat.S_IMODE(details.st_mode) != 0o700):
+        raise RuntimeError("Private portal runtime must be owner-private mode 0700")
+    marker = runtime / ".ricebowl-portal-ci"
+    if marker.is_symlink() or not marker.is_file() or marker.stat().st_uid != os.geteuid():
+        raise RuntimeError("Missing private owner-controlled portal smoke marker")
     if env.get("PIPEWIRE_RUNTIME_DIR") != str(runtime):
         raise RuntimeError("PipeWire must use the private runtime")
     if not env.get("DBUS_SESSION_BUS_ADDRESS", "").startswith("unix:"):
@@ -179,7 +216,9 @@ def verify_pipewire_remote(connection, session: str) -> None:
 
 
 def run() -> None:
-    require_private_headless_session(dict(os.environ))
+    env = dict(os.environ)
+    require_private_headless_session(env)
+    strict = strict_ci_mode(env)
     import gi
 
     gi.require_version("Gio", "2.0")
@@ -208,7 +247,7 @@ def run() -> None:
         try:
             started = request(connection, SCREENCAST, "Start", "(osa{sv})", (session, ""))
         except PortalRejected as rejected:
-            if not unsupported_pixman_start(rejected, dict(os.environ)):
+            if not unsupported_pixman_start(rejected, env):
                 raise
             pixman_rejected = True
             print("PORTAL_CAPTURE_LIMIT: ScreenCast Start returned response=2 on "
@@ -216,12 +255,12 @@ def run() -> None:
                   "Real GPU acceptance still required.", flush=True)
             return
         print("PORTAL_CAPTURE_STAGE: Start responded", flush=True)
-        streams = started.get("streams")
-        if not streams or not all(isinstance(stream[0], int) and stream[0] > 0
-                                  for stream in streams):
-            raise RuntimeError("ScreenCast Start did not return PipeWire stream nodes")
+        nodes = stream_nodes(started.get("streams"))
         verify_pipewire_remote(connection, session)
-        print(f"PORTAL_CAPTURE_OK: screencast {len(streams)} node(s), PipeWire FD", flush=True)
+        print(f"PORTAL_CAPTURE_OK: screencast {len(nodes)} node(s), PipeWire FD", flush=True)
+        if strict:
+            print("PORTAL_STRICT_OK: GLES2 Start nodes and PipeWire remote FD verified; "
+                  "frame delivery and user consent remain untested.", flush=True)
     except Exception as exc:
         original_failure = exc
         raise
