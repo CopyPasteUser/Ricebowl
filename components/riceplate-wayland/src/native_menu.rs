@@ -250,18 +250,21 @@ impl MenuState {
         if self.last_app_refresh.is_some_and(|last| last.elapsed() < APP_REFRESH_INTERVAL) {
             return;
         }
-        let catalog = installed_apps::discover_catalog();
+        self.install_catalog(installed_apps::discover_catalog());
+        self.last_app_refresh = Some(Instant::now());
+    }
+
+    fn install_catalog(&mut self, catalog: installed_apps::Catalog) {
         self.apps = catalog.apps;
         self.app_categories = catalog.categories;
-        // Prune removed/hidden entries on discovery. No unknown desktop ID
-        // from private history becomes a launchable action.
+        // Recent launch history intentionally excludes removed applications.
         self.recent_apps.retain(|id|
             self.apps.iter().any(|app| app.action == *id));
-        // Keep missing desktop IDs inert; a saved entry may never launch an
-        // app absent from this XDG index, even when its ID remains on disk.
-        self.pins.retain(|id| !id.starts_with("desktop:") ||
-            self.apps.iter().any(|app| app.action == *id));
-        self.last_app_refresh = Some(Instant::now());
+        // Do not delete a user's saved favorites during a temporary XDG
+        // discovery failure or while a removable application is unavailable.
+        // actions(), luna_preview_apps() and app_path() already filter or
+        // revalidate desktop IDs. A restored favorite becomes visible again
+        // when the app returns.
     }
 
     pub fn label<'a>(&'a self, action: &'a str) -> &'a str {
@@ -904,8 +907,11 @@ impl MenuState {
         // Desktop IDs are accepted only in the real Luna program tree or
         // Saved view, and only while the XDG index confirms their existence.
         let recipe_action = menu.groups.iter().any(|group| group.actions.contains(&action));
-        let luna_app = (self.program_tree || self.view == View::Saved)
-            && menu.presentation == MenuPresentation::Columns && menu.palette.is_some()
+        // A discovered app can be pinned from the Start preview, filtered
+        // Search, All Programs or Saved. All other rices retain their original
+        // recipe-action-only pin policy.
+        let luna_app = menu.presentation == MenuPresentation::Columns
+            && menu.palette.is_some()
             && self.apps.iter().any(|app| app.action == action);
         if !recipe_action && !luna_app { return false; }
         if let Some(index) = self.pins.iter().position(|item| *item == action) {
@@ -926,13 +932,17 @@ impl MenuState {
         let actions = self.actions(menu);
         let Some(action) = actions.get(self.selected).map(|action| (*action).to_owned())
             else { return false; };
+        let target = self.selected as isize + delta;
+        if target < 0 || target >= actions.len() as isize { return false; }
+        // Reorder against the *visible* neighbor. Hidden/uninstalled favorites
+        // must not make F4/F5 swap an invisible row or appear to do nothing.
+        let neighbor = actions[target as usize].to_owned();
         let Some(position) = self.pins.iter().position(|pin| *pin == action)
             else { return false; };
-        let target = position as isize + delta;
-        if target < 0 || target >= self.pins.len() as isize { return false; }
-        self.pins.swap(position, target as usize);
-        self.selected = self.actions(menu).iter()
-            .position(|candidate| *candidate == action).unwrap_or(0);
+        let Some(other) = self.pins.iter().position(|pin| *pin == neighbor)
+            else { return false; };
+        self.pins.swap(position, other);
+        self.selected = target as usize;
         true
     }
 
@@ -2134,6 +2144,68 @@ mod tests {
         assert_eq!(state.actions(menu), vec!["desktop:demo-1.desktop"]);
         // The remaining favorite remains accessible and re-selectable.
         assert_eq!(state.current_action(menu), Some("desktop:demo-1.desktop"));
+    }
+
+    #[test]
+    fn luna_saved_order_skips_hidden_apps_and_restores_temporary_missing_pins() {
+        let parsed = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let menu = parsed.menu.as_ref().unwrap();
+        let mut state = MenuState::with_pins(vec![
+            "desktop:demo-0.desktop".into(),
+            "desktop:temporarily-missing.desktop".into(),
+            "desktop:demo-1.desktop".into(),
+        ]);
+        state.install_catalog(installed_apps::Catalog {
+            apps: demo_apps(2),
+            categories: HashMap::new(),
+        });
+        state.open();
+        state.show_saved();
+        assert_eq!(state.actions(menu), vec![
+            "desktop:demo-0.desktop", "desktop:demo-1.desktop",
+        ]);
+        assert!(state.reorder_saved_pin(menu, 1));
+        assert_eq!(state.current_action(menu), Some("desktop:demo-0.desktop"));
+        assert_eq!(state.pins, vec![
+            "desktop:demo-1.desktop",
+            "desktop:temporarily-missing.desktop",
+            "desktop:demo-0.desktop",
+        ]);
+        state.install_catalog(installed_apps::Catalog {
+            apps: demo_apps(1),
+            categories: HashMap::new(),
+        });
+        assert_eq!(state.pins.len(), 3);
+        assert_eq!(state.actions(menu), vec!["desktop:demo-0.desktop"]);
+        state.install_catalog(installed_apps::Catalog {
+            apps: demo_apps(2),
+            categories: HashMap::new(),
+        });
+        assert_eq!(state.actions(menu), vec![
+            "desktop:demo-1.desktop", "desktop:demo-0.desktop",
+        ]);
+    }
+
+    #[test]
+    fn luna_search_can_pin_a_discovered_app_without_running_it() {
+        let parsed = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let menu = parsed.menu.as_ref().unwrap();
+        let mut state = MenuState::default();
+        state.apps = demo_apps(2);
+        state.open();
+        state.start_search();
+        for ch in "Demo App 1".chars() {
+            assert!(state.search_input(&ch.to_string()));
+        }
+        assert_eq!(state.current_action(menu), Some("desktop:demo-1.desktop"));
+        assert!(state.toggle_pin(menu));
+        assert_eq!(state.pins, vec!["desktop:demo-1.desktop"]);
+        assert!(state.toggle_pin(menu));
+        assert!(state.pins.is_empty());
     }
 
     #[test]
