@@ -719,9 +719,11 @@ PY
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-shortcut-context.png"
             cp "$runtime/xp-luna-shortcut-context.png" \
                "$source_root/dist/riceplate-native-preview/xp-luna-shortcut-context.png"
-            # The deliberately opened Overlay menu, unlike Bottom icons,
-            # may receive keyboard focus in labwc. Type a real Wayland key
-            # to select Programs. The menu stays open for multi-key prefixes.
+            # labwc focus policy may require a separate click on the
+            # freshly mapped OnDemand Overlay. Click the inert title/header,
+            # never a menu action, then send a real keyboard event.
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 88 450 1366 768
+            sleep 0.25
             WAYLAND_DISPLAY=wayland-0 wtype -d 35 p
             sleep 0.25
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-type-programs.png"
@@ -729,6 +731,8 @@ PY
                "$source_root/dist/riceplate-native-preview/xp-luna-type-before.png"
             cp "$runtime/xp-luna-type-programs.png" \
                "$source_root/dist/riceplate-native-preview/xp-luna-type-programs.png"
+            echo "Native Overlay keyboard focus diagnostics:"
+            grep "RicePlate desktop key" "$runtime/plate-$label.log" | tail -n 15 || :
             /usr/bin/python3 - "$runtime/xp-luna-shortcut-context.png" \
                 "$runtime/xp-luna-type-programs.png" <<"PY"
 from PIL import Image, ImageChops
