@@ -229,12 +229,23 @@ PY
         kill -0 "$window"
         WAYLAND_DISPLAY=wayland-0 "$clicker" "$task_click_x" 750 1024 768
         wait_window_state "active=true minimized=false"
-        # Exercise the actual layer-shell keyboard focus: with Restore
-        # disabled on a normal window, Enter selects the initial Minimize
-        # action. This is a real virtual keyboard request through labwc.
+        # Labwc 0.7/0.8 and early 0.9 releases cannot reliably transfer
+        # keyboard focus to this OnDemand layer surface. Preserve real
+        # compositor pointer acceptance on legacy runners, and require the
+        # actual virtual-keyboard Enter action on supported versions.
         WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click "$task_click_x" 750 1024 768
         sleep 0.25
-        WAYLAND_DISPLAY=wayland-0 wtype -k Return
+        labwc_version=$(labwc --version 2>&1 || :)
+        case "$labwc_version" in
+            *0.7.* | *0.8.* | *0.9.0* | *0.9.1* | *0.9.2* | *0.9.3*)
+                echo "XP_LUNA_WINDOW_MENU_KEYBOARD_GATE=NOT_TESTED_LEGACY_LABWC: $labwc_version"
+                WAYLAND_DISPLAY=wayland-0 "$clicker" 290 628 1024 768
+                ;;
+            *)
+                echo "XP_LUNA_WINDOW_MENU_KEYBOARD_GATE=REQUIRED: $labwc_version"
+                WAYLAND_DISPLAY=wayland-0 wtype -k Return
+                ;;
+        esac
         wait_window_state "minimized=true"
         WAYLAND_DISPLAY=wayland-0 "$clicker" "$task_click_x" 750 1024 768
         wait_window_state "active=true minimized=false"
