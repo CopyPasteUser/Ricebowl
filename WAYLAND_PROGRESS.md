@@ -465,34 +465,31 @@ and physical hardware acceptance remain open.
   Real file browser startup/SMB hardware acceptance remains outstanding.
 
 
-### XP Luna desktop: keyboard type-to-select (13 November 2026)
+### XP Luna desktop: keyboard selection through a real context Overlay (13 November 2026)
 
-In labwc, desktop shortcuts on the Bottom layer cannot acquire regular
-keyboard focus. The initial icon-focused implementation was rejected by a
-real compositor test (0 changed screenshot pixels, no keyboard callbacks).
-Rather than hijacking application input, the native `xp-luna-columns`
-desktop now offers an **explicit taskbar F3 search**: focus the native Top
-panel (click an unused taskbar area), press F3, and type letters to highlight
-shortcuts on that monitor. Enter activates the highlighted, validated action;
-Escape or losing panel focus cancels search. No exclusive keyboard grab,
-desktop-wide input surface, hidden service or timer is introduced.
+labwc deliberately prevents OnDemand Bottom-layer desktop icons from stealing
+keyboard focus; the initial direct-click and panel-F3 paths failed genuine
+headless compositor tests. The adopted interaction is an **explicitly opened,
+bounded native Overlay shortcut menu**: right-click an XP Luna desktop icon,
+type a prefix to highlight a matching icon on that same output, and use
+Enter to open its verified action or Escape to close the menu. The menu header
+tracks the selected icon. The actual desktop icons stay below application
+windows. No permanent keyboard grab, full-screen input region, daemon, or
+system compositor configuration is introduced.
 
-Typing is event-driven and uses a bounded, case-insensitive Unicode scalar
-prefix (1.2-second typing gap, maximum 32 characters, repeated-letter
-cycling); only visible shortcut layers on the originating wl_output are
-eligible. The code retains the existing icon keyboard controls for
-compositors that can focus them, but **does not claim direct icon typing
-works on labwc**.
+The in-memory matcher is event-driven: UTF-8 scalar matching is case-insensitive,
+prefix timeout 1.2 seconds, maximum 32 characters, and repeated-letter
+cycling. Only the visible shortcut layers on the originating output qualify.
+Existing pointer actions and shortcut Properties remain reachable on reopening.
 
-Pure Rust tests exercise the matcher. The revised
-`scripts/smoke_riceplate_native.sh` tests the real panel route with
-`wtype -k F3` then `wtype p` in isolated labwc, recording unmodified
-`xp-luna-type-before.png` and `xp-luna-type-programs.png` using
-`grim` and asserting that Programs receives a visible selection.
-The screenshots remain **pending CI success on the final head**.
-This does not certify device keyboard, other application focus, IME or
-Orca acceptance. The underlying limitation is tracked as issue #328.
-XFCE/X11 and host defaults remain unchanged.
+The native labwc CI uses a real virtual pointer to open the existing
+Shortcut context menu, sends `wtype p`, captures two unmodified `grim`
+frames (`xp-luna-type-before.png`, `xp-luna-type-programs.png`) and
+must verify actual focus pixels on Programs without launching Recycle Bin.
+This evidence is **pending successful CI on the exact PR head**; do not
+claim a hardware, IME, Orca or direct-Bottom focus acceptance.
+The underlying compositor policy is documented in issue #328. XFCE/X11
+and host settings remain unchanged.
 
 ### Native XP Luna: bounded multi-selection and keyboard access (12 November 2026)
 
