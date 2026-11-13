@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import stat
 import sys
 from pathlib import Path
@@ -22,13 +23,18 @@ METRICS = ("rss_kib", "pss_kib", "cpu_percent_one_core",
 
 def load_sample(path: Path, *, profile: str) -> dict[str, object]:
     """Validate provenance and the bounded numeric subset, never trust claims."""
-    if not path.is_absolute() or path.is_symlink():
-        raise ValueError(f"{profile}: sample must be an absolute regular non-symlink file")
+    if not path.is_absolute():
+        raise ValueError(f"{profile}: sample must have an absolute path")
     try:
-        meta = path.lstat()
-        if not stat.S_ISREG(meta.st_mode) or meta.st_size > MAX_SAMPLE_BYTES:
-            raise ValueError(f"{profile}: sample is not a bounded regular file")
-        data = json.loads(path.read_bytes().decode("utf-8"))
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+        with os.fdopen(fd, "rb") as stream:
+            meta = os.fstat(stream.fileno())
+            if not stat.S_ISREG(meta.st_mode) or meta.st_size > MAX_SAMPLE_BYTES:
+                raise ValueError(f"{profile}: sample is not a bounded regular file")
+            raw = stream.read(MAX_SAMPLE_BYTES + 1)
+        if len(raw) > MAX_SAMPLE_BYTES:
+            raise ValueError(f"{profile}: sample exceeds size limit")
+        data = json.loads(raw.decode("utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError(f"{profile}: sample cannot be safely parsed") from exc
     if (type(data) is not dict or data.get("schema_version") != 1
