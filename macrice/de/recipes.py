@@ -1439,16 +1439,13 @@ def labwc_menu(recipe: PanelRecipe) -> str:
         # Labwc already handles right-click on the wallpaper. Keep this
         # native desktop context inside the disposable session config; no
         # fullscreen transparent input layer or global labwc menu mutation.
-        desktop = ET.SubElement(menu, "menu", {
-            "id": "rice-luna-desktop", "label": "Desktop",
-        })
         for label, operation in (
             ("Arrange Icons", "arrange"),
             ("New Folder", "new-folder"),
             ("Refresh", "refresh"),
             ("Properties", "properties"),
         ):
-            entry = ET.SubElement(desktop, "item", {"label": label})
+            entry = ET.SubElement(menu, "item", {"label": label})
             ET.SubElement(entry, "action", {
                 "name": "Execute",
                 "command": f"riceplate-native --desktop-command {operation}",
