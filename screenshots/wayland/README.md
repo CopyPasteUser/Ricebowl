@@ -29,9 +29,11 @@ fixture-discovery test. GTK/Xvfb screenshots are *not* native labwc captures.
 [XP Luna keyboard-search PR #334](https://github.com/CopyPasteUser/Ricebowl/pull/334)
 adds keyboard-first Control Panel navigation and a **third real GTK capture**,
 `luna-control-panel-search.png`. Look at the PR's Tests artifact for that new
-view. Until its own CI completes, neither new behavior nor new images
-constitute acceptance. The six thumbnails below remain pinned to an earlier
-known-good revision for reproducibility.
+view. [Tests #43375407093](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43375407093)
+passed on source commit `5bdd7de7` and archived all three GTK captures.
+This verifies the on-demand GTK client in CI, not real hardware or native
+labwc keyboard focus. The six thumbnails below remain pinned to an earlier
+known-good compositor revision for reproducibility.
 
 ## XP Luna · refreshed native desktop (13 November 2026)
 
