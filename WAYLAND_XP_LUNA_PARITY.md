@@ -263,3 +263,36 @@ unfocused Bottom/Overlay layer-shell shortcuts still needs an xdg-popup-backed
 solution and a real compositor/keyboard acceptance test. The new hotkeys
 themselves must pass headless labwc CI and physical hardware QA before
 1.0 sign-off.
+
+## Sprint 4 – True XDG popup keyboard focus (13 November 2026)
+
+The XP Luna Bottom-layer desktop icon context menu is now an **actual
+xdg_popup, parented to the original icon** by SCTK's
+`LayerSurface::get_popup`. It is created only on intentional right-click,
+with that Wayland pointer's real button-press serial and seat. This follows
+labwc's focus policy: Bottom-layer desktop clients cannot steal application
+keyboard focus, while icon-parented XDG popups may receive it. No Exclusive
+keyboard layer, compositor-wide shortcut hijack, or invisible fullscreen
+input region is introduced.
+
+The old menu actions (Open, move between outputs, All displays, reset
+position and read-only Properties), hitboxes and accessibility dispatch
+are preserved. The 224×190 popup is confined by the existing output/panel
+placement policy. Popup configure and dismiss are handled by the SCTK XDG
+role; closing an output or the original icon destroys the popup. Other
+recipes continue using their previous layer-shell surfaces.
+
+With popup focus, Unicode-alphanumeric typing searches **only real visible
+shortcuts on that output**, with bounded prefix length and expiry. Pressing
+`p` from the Recycle Bin popup highlights Programs without executing a
+shortcut. A genuine headless labwc / virtual keyboard / grim test compares
+before-and-after Programs icon pixels and rejects missing focus events;
+the existing pointer-driven context action test then verifies Open and
+Properties still work. Rust tests also exercise Unicode, hidden targets and
+prefix bounds.
+
+**Acceptance remains gated:** this branch must pass real native compositor
+and full CI checks on its exact head before merging. Physical ThinkPad
+keyboard, IME, screen-reader and multi-seat acceptance are outstanding.
+The older blocked experiment PR #327 must remain separate; a Rust-only
+matcher is not proof of correct compositor keyboard dispatch.
