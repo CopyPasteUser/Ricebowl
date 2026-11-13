@@ -5,6 +5,8 @@
 use std::{collections::{HashMap, HashSet}, env, fs,
           os::unix::fs::PermissionsExt, path::{Path, PathBuf}};
 
+use crate::menu_programs::Category;
+
 pub const MAX_APPS: usize = 512;
 const MAX_FILES: usize = 4096;
 const MAX_FILE_BYTES: u64 = 64 * 1024;
@@ -47,7 +49,12 @@ impl App {
     }
 }
 
-pub fn discover() -> Vec<App> {
+pub struct Catalog {
+    pub apps: Vec<App>,
+    pub categories: HashMap<String, Category>,
+}
+
+pub fn discover_catalog() -> Catalog {
     let mut roots = Vec::new();
     if let Some(path) = env::var_os("XDG_DATA_HOME").filter(|value| !value.is_empty()) {
         roots.push(PathBuf::from(path));
@@ -61,11 +68,17 @@ pub fn discover() -> Vec<App> {
     let locale = ["LC_ALL", "LC_MESSAGES", "LANG"].iter()
         .find_map(|key| env::var(key).ok().filter(|value| !value.is_empty()))
         .unwrap_or_default();
-    scan_roots(&roots, env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().as_str(),
-               &locale)
+    scan_catalog_roots(&roots, env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().as_str(),
+                       &locale)
 }
 
+#[cfg(test)]
 fn scan_roots(roots: &[PathBuf], current_desktop: &str, locale: &str) -> Vec<App> {
+    scan_catalog_roots(roots, current_desktop, locale).apps
+}
+
+fn scan_catalog_roots(roots: &[PathBuf], current_desktop: &str, locale: &str) -> Catalog {
+    let mut categories = HashMap::new();
     let mut seen = HashSet::new();
     let mut apps = Vec::new();
     let mut visited_files = 0;
@@ -73,17 +86,19 @@ fn scan_roots(roots: &[PathBuf], current_desktop: &str, locale: &str) -> Vec<App
         let dir = root.join("applications");
         if !dir.is_absolute() { continue; }
         scan_dir(&dir, &dir, 0, current_desktop, locale, &mut seen, &mut apps,
-                 &mut visited_files);
+                 &mut categories, &mut visited_files);
         if visited_files >= MAX_FILES { break; }
     }
     apps.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase())
                  .then(a.action.cmp(&b.action)));
     apps.truncate(MAX_APPS);
-    apps
+    categories.retain(|id, _| apps.iter().any(|app| app.action == *id));
+    Catalog { apps, categories }
 }
 
 fn scan_dir(root: &Path, dir: &Path, depth: usize, current_desktop: &str, locale: &str,
-            seen: &mut HashSet<String>, apps: &mut Vec<App>, visited: &mut usize) {
+            seen: &mut HashSet<String>, apps: &mut Vec<App>,
+            categories: &mut HashMap<String, Category>, visited: &mut usize) {
     if depth > MAX_DEPTH || *visited >= MAX_FILES { return; }
     let Ok(items) = fs::read_dir(dir) else { return; };
     let mut entries: Vec<_> = items.filter_map(Result::ok).take(MAX_FILES).collect();
@@ -92,7 +107,8 @@ fn scan_dir(root: &Path, dir: &Path, depth: usize, current_desktop: &str, locale
         if *visited >= MAX_FILES { break; }
         let Ok(kind) = entry.file_type() else { continue; };
         if kind.is_dir() {
-            scan_dir(root, &entry.path(), depth + 1, current_desktop, locale, seen, apps, visited);
+            scan_dir(root, &entry.path(), depth + 1, current_desktop, locale, seen,
+                     apps, categories, visited);
             continue;
         }
         if !kind.is_file() || entry.path().extension().is_none_or(|ext| ext != "desktop") {
@@ -108,8 +124,9 @@ fn scan_dir(root: &Path, dir: &Path, depth: usize, current_desktop: &str, locale
         if metadata.len() > MAX_FILE_BYTES { continue; }
         let Ok(data) = fs::read_to_string(&path) else { continue; };
         if let Some((name, search_text)) = parse_entry(&data, current_desktop, locale) {
-            apps.push(App { action: format!("desktop:{id}"), name, search_text,
-                            path });
+            let action = format!("desktop:{id}");
+            categories.insert(action.clone(), Category::from_desktop_data(&data));
+            apps.push(App { action, name, search_text, path });
         }
     }
 }
