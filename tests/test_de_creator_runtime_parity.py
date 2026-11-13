@@ -152,6 +152,23 @@ class CreatorRuntimeParityTests(unittest.TestCase):
                 start.assert_not_called()
                 select.assert_not_called()
 
+    def test_native_gallery_composer_selection_is_opt_in_and_allowlisted(self):
+        from scripts import verify_wayland_creator_examples as gallery
+
+        self.assertEqual(gallery.COMPOSERS,
+                         ("heritage-composer-v10", "orbit-composer-v10"))
+        self.assertEqual(len(gallery.NAMES), 4, "Existing gallery must not change")
+        self.assertTrue(set(gallery.COMPOSERS).isdisjoint(gallery.NAMES))
+        self.assertTrue(set(gallery.COMPOSERS) <= set(gallery.SCHEMAS))
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder)
+            for names in ((), ("invalid-script",),
+                          ("heritage-composer-v10", "heritage-composer-v10")):
+                with self.subTest(names=names), self.assertRaisesRegex(
+                        ValueError, "known validated"):
+                    gallery.build_gallery(output, names=names)
+            self.assertEqual(list(output.iterdir()), [])
+
     def test_standard_de_cli_reports_parity_without_starting_wayland(self):
         from macrice.cli import main as cli
 
