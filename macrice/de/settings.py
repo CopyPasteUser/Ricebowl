@@ -115,19 +115,21 @@ LUNA_CONTROL_CATEGORIES = (
 
 def luna_category_pages(category: str) -> tuple[str, ...]:
     """Resolve only known native page IDs; a category cannot launch a command."""
-    return next(pages for key, _title, _icon, _help, pages
-                in LUNA_CONTROL_CATEGORIES if key == category)
+    for key, _title, _icon, _help, pages in LUNA_CONTROL_CATEGORIES:
+        if key == category:
+            return pages
+    raise ValueError("Unknown Control Panel category")
 
 
 # Search only real destinations, but index the controls that users naturally
 # look for instead of relying on long page names. Purely local, no I/O.
 LUNA_SEARCH_HINTS = {
     "network": "wifi wlan ethernet vpn connections",
-    "audio": "volume speaker microphone recording playback",
-    "displays": "monitor resolution scale scaling",
-    "input": "mouse keyboard touchpad pointer",
+    "audio": "volume speaker microphone recording playback sounds speech",
+    "displays": "monitor resolution scale scaling screen",
+    "input": "mouse keyboard touchpad pointer hardware devices",
     "taskbar": "clock clock format time format 12h 24h 12-hour 24-hour tray start",
-    "power": "battery suspend energy profile lock",
+    "power": "battery suspend energy profile lock performance maintenance",
     "timezone": "clock synchronization ntp time zone",
     "notifications": "alerts banners do not disturb",
 }
