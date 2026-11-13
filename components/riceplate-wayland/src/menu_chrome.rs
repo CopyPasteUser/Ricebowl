@@ -138,6 +138,15 @@ pub fn footer(canvas: &mut [u8], palette: MenuPalette,
     fill_rect(canvas, w, h, close.0 + 10, h - 21, 44, 1, 0xffa7_d8ff);
 }
 
+/// The small XP submenu arrow at the end of My Documents' live row.
+pub fn submenu_chevron(canvas: &mut [u8], x: u32, y: u32, selected: bool) {
+    let (w, h) = (native_menu::WIDTH, native_menu::HEIGHT);
+    let color = if selected { 0xffff_ffff } else { 0xff1b_4a84 };
+    for line in 0..4 {
+        fill_rect(canvas, w, h, x + line, y + line, 1, 7 - 2 * line, color);
+    }
+}
+
 /// Original 14px folder and right chevron on the actual selectable row.
 /// Pure pixels, no independent or inert hit target.
 pub fn program_folder(canvas: &mut [u8], x: u32, y: u32,
