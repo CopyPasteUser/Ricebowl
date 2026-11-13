@@ -86,7 +86,11 @@ fn parse_xbel(data: &str) -> Vec<Document> {
         let header = &rest[..end];
         if let Some(href) = attribute(header, "href").and_then(unescape_xml) {
             if let Some(path) = file_uri(&href) {
-                if fs::metadata(&path).is_ok_and(|meta| meta.is_file()) {
+                // Exclude inaccessible files before surfacing a launch target;
+                // an existence-only stat would misleadingly expose unreadable
+                // bookmarks. A subsequent Gio open still revalidates at use.
+                if fs::metadata(&path).is_ok_and(|meta| meta.is_file())
+                    && OpenOptions::new().read(true).open(&path).is_ok() {
                     let label = path.file_name().map(|value| value.to_string_lossy())
                         .unwrap_or_default().chars()
                         .map(|ch| if ch.is_control() { ' ' } else { ch })
