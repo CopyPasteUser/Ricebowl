@@ -12,7 +12,7 @@ class ComponentCatalogTests(unittest.TestCase):
     def test_catalog_is_complete_truthful_and_declarative(self):
         info = catalog.describe()
         catalog.validate_catalog_contract()
-        self.assertEqual(info["catalog_version"], 13)
+        self.assertEqual(info["catalog_version"], 14)
         self.assertEqual(info["scope"], "wayland-shell-preview")
         self.assertFalse(info["complete_desktop_environment"])
         self.assertEqual(info["recipe"]["schema_versions"], list(range(1, 13)))
@@ -30,6 +30,12 @@ class ComponentCatalogTests(unittest.TestCase):
         self.assertEqual(info["authoring"]["visual_compare"],
                          creator_contract.describe_visual_qa())
         self.assertFalse(info["authoring"]["visual_compare"]["captures_live_desktop"])
+        palette = info["authoring_palette"]
+        self.assertFalse(palette["arbitrary_scripts"])
+        self.assertEqual(palette["panel"]["component"]["references"], "/components")
+        self.assertEqual(set(palette["panel"]["control"]["ids"]), recipes.PANEL_CONTROLS)
+        self.assertEqual(set(palette["desktop"]["shortcut"]["ids"]), recipes.ICON_ACTIONS)
+        self.assertEqual(palette["responsive"]["modes"], ["wide", "compact"])
         self.assertEqual(info["recipe"]["sections"], ["start", "center", "end"])
         self.assertEqual(info["recipe"]["panel_positions"], ["top", "bottom"])
         self.assertEqual({part["id"] for part in info["components"]}, recipes.WIDGETS)
@@ -75,6 +81,7 @@ class ComponentCatalogTests(unittest.TestCase):
         self.assertFalse(shell["calendar-popup"]["localized_month_labels"])
         self.assertTrue(shell["calendar-popup"]["close_on_output_removal"])
         self.assertEqual(shell["desktop-shortcut"]["actions"], sorted(recipes.ICON_ACTIONS))
+        self.assertEqual(shell["shared-component"]["desktop"], ["status", "action"])
         self.assertTrue(shell["desktop-shortcut"]["hotplug_across_outputs"])
         self.assertFalse(shell["desktop-shortcut"]["arbitrary_commands"])
         self.assertEqual(shell["desktop-widget"]["kinds"], sorted(recipes.DESKTOP_WIDGET_KINDS))

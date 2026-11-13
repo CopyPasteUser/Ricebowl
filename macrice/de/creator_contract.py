@@ -235,7 +235,7 @@ def describe_creator_api() -> dict[str, object]:
             "mode": "read-only-discovery-before-use",
             "recipe_schema_versions": list(range(1, 13)),
             "recommended_authoring_schema": 11,
-            "catalog_version": 13,
+            "catalog_version": 14,
             "features": [
                 {"id": "shared-status-action-bindings", "supported": True,
                  "since_schema": 9, "runtime": "native; Waybar actions disabled when unverifiable"},
@@ -314,7 +314,7 @@ def describe_creator_api() -> dict[str, object]:
         "next_login_selection_mutation": "creator-stage/rollback only; requires explicit invocation",
         "commands": [
             {"command": "catalog", "effect": "read-only component discovery",
-             "cli": "de catalog --json", "contract_version": 13},
+             "cli": "de catalog --json", "contract_version": 14},
             {"command": "fonts", "effect": "read-only installed importable TrueType font inventory",
              "cli": "de fonts --json", "contract_version": 1},
             {"command": "review", "effect": "validate recipe and compare semantic diffs",
