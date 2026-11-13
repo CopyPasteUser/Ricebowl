@@ -152,6 +152,26 @@ class CreatorRuntimeParityTests(unittest.TestCase):
                 start.assert_not_called()
                 select.assert_not_called()
 
+    def test_standard_de_cli_reports_parity_without_starting_wayland(self):
+        from macrice.cli import main as cli
+
+        source = str(self.demos[0])
+        with (mock.patch("macrice.de.session.start") as start,
+              mock.patch("macrice.de.recipes.change_selection") as selection,
+              mock.patch("builtins.print") as printer):
+            self.assertEqual(cli(["de", "creator-parity", "--recipe", source,
+                                  "--json"]), 0)
+            result = json.loads(printer.call_args.args[0])
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["parity"]["recipe"]["id"], "heritage-composer-v10")
+            self.assertEqual(result["parity"]["native_render_execution"], "not_performed")
+            printer.reset_mock()
+            self.assertEqual(cli(["de", "creator-parity", "--json"]), 1)
+            self.assertEqual(cli(["de", "creator-parity", "--recipe", source,
+                                  "--compare", "classic", "--json"]), 1)
+        start.assert_not_called()
+        selection.assert_not_called()
+
     @unittest.skipIf(Image is None, "Pillow is not installed")
     def test_visual_qa_checks_composition_widgets_not_only_desktop_shortcuts(self):
         with tempfile.TemporaryDirectory() as folder:
