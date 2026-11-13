@@ -17,7 +17,7 @@ from macrice import display_guard
 from macrice.riceware import media
 
 from . import audio_devices, display_presets, display_restore, network_enrollment
-from . import notifications, preferences, recipes
+from . import notifications, preferences, recipes, luna_panel_settings
 from . import settings_backend as backend, wayland_displays
 
 
@@ -1540,27 +1540,67 @@ class RiceSpiceWindow:
         self._button("Suspend computer…", confirm)
 
     def _taskbar(self):
-        """Actual settings destinations; never pretend XP shell flags are live."""
-        self._text("The XP taskbar displays real running applications, the "
-                   "StatusNotifier app tray, and live NetworkManager, audio, "
-                   "power and clock status.", css="ricespice-note")
-        self._text("Notification area", css="ricespice-section")
-        for title, page in (
-            ("Customize notification alerts...", "notifications"),
-            ("Network connections...", "network"),
-            ("Volume and audio devices...", "audio"),
-            ("Power options...", "power"),
-            ("Adjust date and time...", "timezone"),
-        ):
-            self._button(title, lambda destination=page: self.show_page(destination))
-        self._text("Start Menu", css="ricespice-section")
-        self._button("Change desktop appearance...", lambda: self.show_page("appearance"))
-        self._text("Start favorites and recent programs are managed inside "
-                   "the native Start menu. Per-icon hiding, taskbar locking and "
-                   "auto-hide are not currently available on the native panel.",
+        """Real Luna-only taskbar preferences and actual service deep links."""
+        self._text("The native XP taskbar shows your running windows, "
+                   "application tray and live system indicators.", css="ricespice-note")
+        self._text("Clock", css="ricespice-section")
+        try:
+            current = luna_panel_settings.load()
+        except luna_panel_settings.LunaPanelError as exc:
+            self._text(f"Clock preferences unavailable: {exc}", css="ricespice-note")
+            self._button("Retry clock preferences", lambda: self.show_page("taskbar"))
+        else:
+            current_format = current["clock_format"]
+            self._text("Choose the time format shown in the native Luna taskbar. "
+                       "This applies when Luna is next started; the current "
+                       "desktop and other rices are not changed.",
+                       css="ricespice-note")
+            formats = self.Gtk.ComboBoxText()
+            formats.get_accessible().set_name("Luna clock format")
+            formats.append("24h", "24-hour  ·  14:05")
+            formats.append("12h", "12-hour  ·  2:05 PM")
+            formats.set_active_id(current_format)
+            self.content.pack_start(formats, False, False, 0)
+            example = self._label("", css="ricespice-note")
+            self.content.pack_start(example, False, False, 0)
+
+            def apply():
+                chosen = formats.get_active_id()
+                if chosen not in luna_panel_settings.FORMATS:
+                    self._state("Choose a valid clock format")
+                    return
+                self._background(
+                    lambda: luna_panel_settings.save({"clock_format": chosen},
+                                                     expected=current),
+                    lambda _saved: self.show_page("taskbar"))
+
+            save = self._button("Save clock format for next Luna login",
+                                apply, primary=True)
+
+            def update(_widget=None):
+                selected = formats.get_active_id()
+                example.set_text("Preview: " + ("2:05 PM" if selected == "12h"
+                                                else "14:05"))
+                save.set_sensitive(selected in luna_panel_settings.FORMATS
+                                   and selected != current_format)
+
+            formats.connect("changed", update)
+            update()
+            self._state(f"Current saved clock format: {current_format} · next Luna login")
+
+        self._text("Related controls", css="ricespice-section")
+        grid = self.Gtk.Grid(column_spacing=12, row_spacing=7)
+        grid.set_column_homogeneous(True)
+        for index, key in enumerate((
+            "notifications", "network", "audio", "power", "timezone", "appearance"
+        )):
+            grid.attach(self._luna_category_button(key),
+                        index % 2, index // 2, 1, 1)
+        self.content.pack_start(grid, False, False, 0)
+        self._text("Start favorites and recent programs are managed in the Start menu. "
+                   "Auto-hide, taskbar locking and per-icon visibility have not "
+                   "been implemented; no nonfunctional switches are shown.",
                    css="ricespice-note")
-        self._state("Native Luna taskbar · installed app icons remain available "
-                    "through the tray overflow menu")
 
     def _appearance(self):
         self._text("Changes here apply at the next RiceBowl Wayland login, not immediately.",
