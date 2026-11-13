@@ -57,7 +57,7 @@ fn read_private(path: &Path) -> io::Result<Option<ClockFormat>> {
     {
         return Ok(None);
     }
-    let mut file = OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(path)?;
+    let mut file = OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(path)?;
     let meta = file.metadata()?;
     if !meta.is_file() || meta.uid() != uid
         || meta.permissions().mode() & 0o077 != 0 || meta.len() > MAX_BYTES
@@ -99,6 +99,30 @@ mod tests {
         assert_eq!(format_time(midnight, ClockFormat::Hour12), "12:05 AM");
         assert_eq!(format_time(noon, ClockFormat::Hour12), "12:05 PM");
         assert_eq!(format_time(evening, ClockFormat::Hour12), "9:07 PM");
+    }
+
+    #[test]
+    fn private_config_reader_rejects_symlinks_and_public_permissions() {
+        use std::os::unix::fs::{DirBuilderExt, symlink};
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let dir = env::temp_dir().join(format!(
+            "ricebowl-luna-clock-{}-{stamp}", std::process::id()));
+        fs::DirBuilder::new().mode(0o700).create(&dir).unwrap();
+        let file = dir.join("luna-panel.json");
+        let other = dir.join("other.json");
+        fs::write(&file, br#"{"version":1,"clock_format":"12h"}"#).unwrap();
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(read_private(&file).unwrap(), Some(ClockFormat::Hour12));
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(read_private(&file).unwrap(), None);
+        fs::remove_file(&file).unwrap();
+        fs::write(&other, br#"{"version":1,"clock_format":"24h"}"#).unwrap();
+        symlink(&other, &file).unwrap();
+        assert!(read_private(&file).is_err());
+        fs::remove_file(&file).unwrap();
+        fs::remove_file(&other).unwrap();
+        fs::remove_dir(&dir).unwrap();
     }
 
     #[test]
