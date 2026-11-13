@@ -116,6 +116,9 @@ class WaylandRicePopReadTests(unittest.TestCase):
         page._text = lambda *_a, **_k: None
         page._state = statuses.append
         page.content = SimpleNamespace(show_all=lambda: None)
+        # RiceSpice now finishes dynamic view insertion via a bounded
+        # viewport relayout helper; the fake must model that UI contract.
+        page._show_content = page.content.show_all
         page.show_page = lambda name: statuses.append("page:" + name)
 
         def button(title, callback, **_options):

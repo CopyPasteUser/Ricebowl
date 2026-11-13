@@ -50,45 +50,82 @@ def main() -> int:
         pixels.savev(str(destination), "png", [], [])
         print(f"Captured GTK client: {destination} ({width}x{height})")
 
-    def capture_overview():
-        try:
-            capture("luna-control-panel-home.png")
-            panel.show_page("taskbar")  # No hardware mutation or blocking scan.
-            GLib.timeout_add(380, capture_taskbar)
-        except Exception as error:
-            print(f"Control Panel capture failed: {error}")
-            panel.window.destroy()
-            raise
-        return False
+    # Every frame below is a mapped, genuine GTK client surface captured
+    # after the corresponding button/route transition. Xvfb is NOT labwc.
+    frames = (
+        ("home", lambda: panel.show_home()),
+        ("category", lambda: panel.show_category("sound")),
+        ("classic", lambda: (setattr(panel, "luna_view", "classic"), panel.show_home())),
+        ("input", lambda: panel.show_page("input")),
+        ("taskbar", lambda: panel.show_page("taskbar")),
+        ("search", lambda: panel.search_entry.set_text("sound")),
+    )
+    paths = []
 
-    def capture_taskbar():
+    def advance(index: int):
         try:
-            capture("luna-control-panel-taskbar.png")
-            panel.search_entry.set_text("sound")  # Real GTK changed signal + category filter.
-            GLib.timeout_add(280, capture_search)
+            if index >= len(frames):
+                panel.window.destroy()
+                return False
+            name, navigate = frames[index]
+            navigate()
+            while Gtk.events_pending():
+                Gtk.main_iteration_do(False)
+            if name == "category" and panel.page != "category":
+                raise RuntimeError("Category view did not open")
+            if name == "search" and panel.page != "search":
+                raise RuntimeError("Search view did not open")
+            if name == "classic" and panel.luna_view != "classic":
+                raise RuntimeError("Classic View did not open")
+            filename = f"luna-control-panel-{name}.png"
+            # One extra GTK idle iteration lets CSS and FlowBox allocation
+            # settle before saving the real mapped client.
+            def save_and_next():
+                try:
+                    capture(filename)
+                    paths.append(out / filename)
+                    GLib.timeout_add(100, advance, index + 1)
+                except Exception:
+                    panel.window.destroy()
+                    raise
+                return False
+            GLib.timeout_add(180, save_and_next)
         except Exception:
             panel.window.destroy()
             raise
         return False
 
-    def capture_search():
-        try:
-            if panel.page != "search":
-                raise RuntimeError("Luna search did not navigate to results")
-            capture("luna-control-panel-search.png")
-        finally:
-            panel.window.destroy()
-        return False
-
-    GLib.timeout_add(450, capture_overview)
+    GLib.timeout_add(500, advance, 0)
     Gtk.main()
-    expected = (out / "luna-control-panel-home.png",
-                out / "luna-control-panel-taskbar.png",
-                out / "luna-control-panel-search.png")
-    if not all(file.is_file() and file.stat().st_size > 12000 for file in expected):
-        raise RuntimeError("One or more Control Panel captures are missing or blank")
-    return 0
+    if len(paths) != len(frames) or not all(
+            file.is_file() and file.stat().st_size > 12000 for file in paths):
+        raise RuntimeError("One or more real Control Panel captures are missing or blank")
 
+    # Lightweight CI-only observations, not a promise of actual laptop PSS
+    # or compositor idle CPU. Read only this process' /proc information.
+    import json
+    import os
+    import time
+    metrics = {"environment": "GTK client under Xvfb, not native labwc",
+               "capture_count": len(paths),
+               "capture_names": [path.name for path in paths],
+               "screenshot_bytes": {path.name: path.stat().st_size for path in paths},
+               "process_count_measured": 1,
+               "cpu_process_seconds_at_end": time.process_time()}
+    try:
+        status = Path(f"/proc/{os.getpid()}/status").read_text()
+        metrics["rss_kib_at_end"] = int(next(
+            line.split()[1] for line in status.splitlines()
+            if line.startswith("VmRSS:")))
+        rollup = Path(f"/proc/{os.getpid()}/smaps_rollup").read_text()
+        metrics["pss_kib_at_end"] = int(next(
+            line.split()[1] for line in rollup.splitlines()
+            if line.startswith("Pss:")))
+    except (OSError, ValueError, StopIteration):
+        metrics["memory_measurement"] = "unavailable"
+    (out / "luna-control-panel-capture-metrics.json").write_text(
+        json.dumps(metrics, indent=2, sort_keys=True) + "\n")
+    return 0
 
 if __name__ == "__main__":
     raise SystemExit(main())

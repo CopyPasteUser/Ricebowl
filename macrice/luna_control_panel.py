@@ -127,7 +127,11 @@ def build(shell, Gtk, Gdk):
     """Create a lightweight 2001-style category view; return its GTK window."""
     window = Gtk.Window(type=Gtk.WindowType.TOPLEVEL)
     window.set_title("Control Panel")
-    window.set_decorated(False)
+    from .luna_dialog import uses_native_wayland_decoration
+    # Only XFCE's original DOCK-transient variant needs the client caption.
+    # Real Wayland GTK windows get their one titlebar from labwc.
+    native_wayland = uses_native_wayland_decoration(Gdk)
+    window.set_decorated(native_wayland)
     from gi.repository import GLib, Pango
     from .rice_windows import configure_settings_window, draggable_caption
     from .window_geometry import restore_and_track
@@ -144,21 +148,21 @@ def build(shell, Gtk, Gdk):
     scroll.add(frame)
     window.add(scroll)
 
-    caption = shell._class(Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8),
-                           "luna-control-caption")
-    title = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-    title.pack_start(shell._icon("preferences-system", Gtk.IconSize.MENU),
-                     False, False, 3)
-    title.pack_start(Gtk.Label(label="Control Panel", xalign=0), True, True, 0)
-    # Gtk.Box has no input GdkWindow: events on the caption's label/icon are
-    # unreliable. Use the shared EventBox drag handle, excluding Close.
-    caption.pack_start(draggable_caption(window, title, Gtk, Gdk), True, True, 0)
-    close = shell._class(Gtk.Button(label="×"), "luna-control-close")
-    close.get_accessible().set_name("Close Control Panel")
-    close.connect("clicked", lambda _button: shell._hide_actions())
-    caption.pack_end(close, False, False, 0)
-
-    frame.pack_start(caption, False, False, 0)
+    if not native_wayland:
+        caption = shell._class(Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8),
+                               "luna-control-caption")
+        title = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        title.pack_start(shell._icon("preferences-system", Gtk.IconSize.MENU),
+                         False, False, 3)
+        title.pack_start(Gtk.Label(label="Control Panel", xalign=0), True, True, 0)
+        # XFWM DOCK-transient can lack a WM caption; the existing X11 handle
+        # is the only titlebar in that case and excludes the Close control.
+        caption.pack_start(draggable_caption(window, title, Gtk, Gdk), True, True, 0)
+        close = shell._class(Gtk.Button(label="×"), "luna-control-close")
+        close.get_accessible().set_name("Close Control Panel")
+        close.connect("clicked", lambda _button: shell._hide_actions())
+        caption.pack_end(close, False, False, 0)
+        frame.pack_start(caption, False, False, 0)
 
     # XP's Explorer-era command/address chrome, with genuine GTK destinations.
     # These controls operate on this Control Panel only, never XFCE settings.
@@ -167,8 +171,13 @@ def build(shell, Gtk, Gdk):
     back_tool = shell._class(Gtk.Button(label="◂ Back"), "luna-control-tool")
     back_tool.set_sensitive(False)
     back_tool.get_accessible().set_name("Back to Control Panel categories")
-    back_tool.connect("clicked", lambda _button: show_home())
+    back_tool.connect("clicked", lambda _button: navigate(-1))
     toolbar.pack_start(back_tool, False, False, 0)
+    forward_tool = shell._class(Gtk.Button(label="Forward ▸"), "luna-control-tool")
+    forward_tool.set_sensitive(False)
+    forward_tool.get_accessible().set_name("Forward to next Control Panel view")
+    forward_tool.connect("clicked", lambda _button: navigate(1))
+    toolbar.pack_start(forward_tool, False, False, 0)
     home_tool = shell._class(Gtk.Button(label="⌂ Home"), "luna-control-tool")
     home_tool.get_accessible().set_name("Control Panel home")
     home_tool.connect("clicked", lambda _button: show_home())
@@ -230,6 +239,63 @@ def build(shell, Gtk, Gdk):
         stack.add_named(child, name)
     main.pack_start(stack, True, True, 2)
     home_view = ["categories"]
+    history = [("home", "categories")]
+    history_index = [0]
+    replaying = [False]
+    suppress_search = [False]
+
+    def remember(kind, detail):
+        if replaying[0]:
+            return
+        route = (kind, detail)
+        previous = history[history_index[0]]
+        if previous == route:
+            return
+        if kind == "search" and previous[0] == "search":
+            history[history_index[0]] = route
+        else:
+            del history[history_index[0] + 1:]
+            history.append(route)
+            if len(history) > 32:
+                history.pop(0)
+            history_index[0] = len(history) - 1
+        back_tool.set_sensitive(history_index[0] > 0)
+        forward_tool.set_sensitive(history_index[0] < len(history) - 1)
+
+    def clear_search():
+        if not search.get_text():
+            return
+        suppress_search[0] = True
+        try:
+            search.set_text("")
+        finally:
+            suppress_search[0] = False
+
+    def navigate(direction):
+        next_index = history_index[0] + direction
+        if not 0 <= next_index < len(history):
+            return
+        kind, detail = history[next_index]
+        replaying[0] = True
+        try:
+            if kind == "home":
+                show_home(detail)
+            elif kind == "category":
+                show_category(detail)
+            elif kind == "search":
+                suppress_search[0] = True
+                try:
+                    search.set_text(detail)
+                finally:
+                    suppress_search[0] = False
+                on_search(search)
+            else:
+                return
+            history_index[0] = next_index
+        finally:
+            replaying[0] = False
+            back_tool.set_sensitive(history_index[0] > 0)
+            forward_tool.set_sensitive(history_index[0] < len(history) - 1)
 
     def task_button(category, task, *, compact=False):
         name, icon, commands, explanation = task
@@ -264,8 +330,8 @@ def build(shell, Gtk, Gdk):
     def show_home(view=None):
         if view in ("categories", "classic"):
             home_view[0] = view
-        if search.get_text():
-            search.set_text("")
+        clear_search()
+        remember("home", home_view[0])
         stack.set_visible_child_name(home_view[0])
         heading.set_text("Classic View" if home_view[0] == "classic" else "Pick a category")
         description.set_text("Open an installed Control Panel tool" if home_view[0] == "classic"
@@ -273,13 +339,14 @@ def build(shell, Gtk, Gdk):
         toggle.set_label("Switch to Category View" if home_view[0] == "classic"
                          else "Switch to Classic View")
         back.hide()
-        back_tool.set_sensitive(False)
         current_location.set_text("Control Panel" if home_view[0] == "categories"
                                   else "Control Panel / Classic View")
 
     def show_category(category):
-        if search.get_text():
-            search.set_text("")
+        if category not in LUNA_TASKS:
+            return
+        clear_search()
+        remember("category", category)
         for child in details.get_children():
             details.remove(child)
         title = next((row for row in LUNA_CATEGORIES if row[0] == category), None)
@@ -298,7 +365,6 @@ def build(shell, Gtk, Gdk):
         heading.set_text(category)
         description.set_text("Pick a task")
         back.show()
-        back_tool.set_sensitive(True)
         current_location.set_text("Control Panel / " + category)
 
     for index, (name, icon, _commands, explanation) in enumerate(LUNA_CATEGORIES):
@@ -331,10 +397,13 @@ def build(shell, Gtk, Gdk):
                             index // columns, 1, 1)
 
     def on_search(entry):
+        if suppress_search[0]:
+            return
         needle = entry.get_text().strip()
         if not needle:
             show_home()
             return
+        remember("search", needle)
         for child in matches.get_children():
             matches.remove(child)
         found = matching_tasks(needle)
@@ -354,10 +423,11 @@ def build(shell, Gtk, Gdk):
         heading.set_text("Search results")
         description.set_text(str(len(found)) + " matching task" + ("" if len(found) == 1 else "s"))
         back.show()
-        back_tool.set_sensitive(True)
         current_location.set_text("Control Panel / Search results")
 
-    search.connect("search-changed", on_search)
+    # Immediate GTK changed signal keeps keyboard/SearchEntry history and
+    # visible results in sync, including programmatic Back/Forward restores.
+    search.connect("changed", on_search)
 
     nav_group = shell._class(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4),
                              "luna-control-side-group")
@@ -367,7 +437,8 @@ def build(shell, Gtk, Gdk):
     back = shell._class(Gtk.Button(label="‹  Back to Control Panel"), "luna-control-nav")
     back.set_no_show_all(True)
     back.get_accessible().set_name("Back to Control Panel home")
-    back.connect("clicked", lambda _button: show_home())
+    back.connect("clicked", lambda _button: navigate(-1) if history_index[0] > 0
+                 else show_home())
     nav_group.pack_start(back, False, False, 0)
     toggle = shell._class(Gtk.Button(label="Switch to Classic View"), "luna-control-nav")
     toggle.get_accessible().set_name("Switch Control Panel view")
@@ -383,6 +454,9 @@ def build(shell, Gtk, Gdk):
     shell.luna_control_search = search
     shell.luna_control_show_home = show_home
     shell.luna_control_show_category = show_category
+    shell.luna_control_back_tool = back_tool
+    shell.luna_control_forward_tool = forward_tool
+    shell.luna_control_history = history
 
     hardware = shell._class(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5),
                             "luna-control-side-group")
@@ -422,9 +496,13 @@ def build(shell, Gtk, Gdk):
 
     window.connect("delete-event", lambda *_args: shell._hide_actions() or True)
     def on_key(_widget, event):
-        if event.keyval == Gdk.KEY_Left and event.state & Gdk.ModifierType.MOD1_MASK:
-            show_home()
-            return True
+        if event.state & Gdk.ModifierType.MOD1_MASK:
+            if event.keyval == Gdk.KEY_Left:
+                navigate(-1)
+                return True
+            if event.keyval == Gdk.KEY_Right:
+                navigate(1)
+                return True
         return shell._action_key(event)
 
     window.connect("key-press-event", on_key)

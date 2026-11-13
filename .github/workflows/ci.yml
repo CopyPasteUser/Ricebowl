@@ -23,9 +23,10 @@ jobs:
           timeout 18s dbus-run-session -- xvfb-run -a /usr/bin/python3 -m unittest tests.test_de_settings_gui -v
           # Exercise the XP Luna-specific GTK category overview and live search.
           timeout 18s dbus-run-session -- xvfb-run -a /usr/bin/python3 -m unittest tests.test_wayland_luna_settings -v
+          timeout 18s dbus-run-session -- xvfb-run -a -s '-screen 0 1024x768x24' /usr/bin/python3 -m unittest tests.test_luna_system_ux_fidelity -v
           # Visual QA from a real GTK client under Xvfb (not a Wayland capture).
           timeout 18s dbus-run-session -- xvfb-run -a -s '-screen 0 1280x800x24' /usr/bin/python3 scripts/capture_luna_control_panel.py --output-dir dist/luna-settings
-          /usr/bin/python3 -c 'from pathlib import Path; from PIL import Image; ps=sorted(Path("dist/luna-settings").glob("luna-control-panel-*.png")); assert len(ps)==3, ps; assert all((lambda im: im.width >= 700 and im.height >= 470)(Image.open(p)) for p in ps), "Clipped Luna Control Panel capture"'
+          /usr/bin/python3 -c 'from pathlib import Path; from PIL import Image; import hashlib; ps=sorted(Path("dist/luna-settings").glob("luna-control-panel-*.png")); assert len(ps)==6, ps; assert all((lambda im: im.width >= 700 and im.height >= 470)(Image.open(p)) for p in ps), "Clipped Luna Control Panel capture"; assert len({hashlib.sha256(p.read_bytes()).digest() for p in ps})==6, "Luna Control Panel views rendered identical"; assert (Path("dist/luna-settings") / "luna-control-panel-capture-metrics.json").is_file()'
           # Exercise real Windows 10 Settings search, sidebar and live controls.
           timeout 18s dbus-run-session -- xvfb-run -a /usr/bin/python3 -m unittest tests.test_ten_settings_gui -v
           # Exercise the actual Win98 Find GTK widgets, not only parser contracts.
@@ -140,6 +141,7 @@ jobs:
           path: |
             dist/creator-gtk-smoke/creator.png
             dist/luna-settings/luna-control-panel-*.png
+            dist/luna-settings/luna-control-panel-capture-metrics.json
             screenshots/ricebowl-hub-windows10-current.png
             screenshots/ricebowl-*-0.9.1.png
             screenshots/ricebowl-winxp-*-0.9.1-1024.png
