@@ -1650,7 +1650,9 @@ def run() -> int:
             if kind is None:
                 return
             try:
-                updated = layout_engine.add_layer(self.working, kind)
+                width, height = self._screen_geometry()
+                updated = layout_engine.add_layer(
+                    self.working, kind, screen_width=width, screen_height=height)
                 self._apply_layout(updated)
                 layer = 'icon' if kind.startswith('icon:') else 'widget'
                 items = (self.working['desktop']['icons'] if layer == 'icon' else
@@ -1989,6 +1991,13 @@ def run() -> int:
                 remove.connect("clicked", lambda _b, p=path:
                                self._mutate_panel(lane, p, "remove"))
                 tools.pack_start(remove, False, False, 0)
+                if kind in ("label", "gap", "divider"):
+                    duplicate = Gtk.Button(label="Duplicate")
+                    duplicate.set_tooltip_text(
+                        "Copy this static element next to itself; validation protects node limits")
+                    duplicate.connect("clicked", lambda _b, p=path:
+                                      self._mutate_panel(lane, p, "duplicate"))
+                    tools.pack_start(duplicate, False, False, 0)
 
             # Recompose the panel without round-tripping through raw JSON.
             # This uses the same transaction-safe validator as structural edits.
