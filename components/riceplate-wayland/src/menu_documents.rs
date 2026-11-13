@@ -31,9 +31,10 @@ pub fn index(action: &str) -> Option<usize> {
 }
 
 fn recent_path() -> Option<PathBuf> {
-    if env::var("RICEBOWL_DE_NESTED").ok().as_deref() == Some("1") {
-        return None;
-    }
+    // A nested preview does not scan or collect activity. The explicit
+    // Recent Documents action may read the caller's XDG recent list, including
+    // a private XDG_DATA_HOME test fixture. No reads occur on ordinary menu
+    // open and nothing is persisted by this module.
     let root = env::var_os("XDG_DATA_HOME").filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")))?;
