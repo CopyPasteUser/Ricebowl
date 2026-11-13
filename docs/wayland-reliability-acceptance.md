@@ -26,12 +26,12 @@ smokes. It does not certify a complete desktop environment or physical device.
    exit ends the opt-in session. Live panel failure attempts one reviewed
    restore then one Waybar rescue, not an infinite loop.
 
-**Parallel-work boundary:** [PR #346](https://github.com/CopyPasteUser/Ricebowl/pull/346)
-changes optional-service ordering/restart and output refresh under
-`macrice/de/session.py`. This branch does not implement or duplicate those
-changes. The *currently merged main* starts some optional clients before
-the lock guard; the PR proposes tightening this. Review the final merged
-startup chain before taking hardware acceptance.
+**Integration boundary:** [PR #346](https://github.com/CopyPasteUser/Ricebowl/pull/346)
+has merged its lock-before-optional-clients ordering, bounded optional-service
+recovery and verified output refresh into `macrice/de/session.py`.
+This diagnostics sprint does not duplicate those responsibilities. Physical
+suspend/lock/resume behavior must still be checked on the actual Mint machine
+before hardware acceptance.
 
 ## Read-only diagnostics
 
@@ -53,7 +53,9 @@ Critical contracts:
 - `swayidle` and `swaylock` are mandatory for a full login. Mako,
   wallpaper, Orca and authentication-agent availability is reported without
   treating those integrations as prerequisites for login.
-- An unreachable or timed-out D-Bus Ping is reported separately from an\n  undeclared bus; neither state triggers automatic restarts.\n- Process counts cover only **same-UID kernel process names**. Without
+- An unreachable or timed-out D-Bus Ping is reported separately from an
+  undeclared bus; neither state triggers automatic restarts.
+- Process counts cover only **same-UID kernel process names**. Without
   session-specific cgroup membership they can contain another session's
   processes. An absent entry does not prove an optional service crashed.
 - Protocol probing is bounded, has a three-second deadline, and reports
