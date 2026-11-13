@@ -425,7 +425,9 @@ def build(shell, Gtk, Gdk):
         back.show()
         current_location.set_text("Control Panel / Search results")
 
-    search.connect("search-changed", on_search)
+    # Immediate GTK changed signal keeps keyboard/SearchEntry history and
+    # visible results in sync, including programmatic Back/Forward restores.
+    search.connect("changed", on_search)
 
     nav_group = shell._class(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4),
                              "luna-control-side-group")
