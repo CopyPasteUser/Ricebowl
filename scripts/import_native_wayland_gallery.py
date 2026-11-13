@@ -34,6 +34,7 @@ CAPTURES = {
     "luna-properties-20261113.webp": ("xp-luna-shortcut-properties.png", (1366, 768)),
     "luna-calendar-20261113.webp": ("xp-luna-columns-calendar.png", (1366, 768)),
     "luna-all-programs-20261113.webp": ("xp-luna-pointer-programs-1024x768.png", (1024, 768)),
+    "luna-titlebar-20261113.webp": ("xp-luna-window-chrome.png", (1366, 768)),
 }
 
 
