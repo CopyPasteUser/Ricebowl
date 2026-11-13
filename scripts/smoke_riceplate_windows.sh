@@ -428,6 +428,35 @@ PY
                 cp "$runtime/$name.png" "$out/$name.png"
             done
         fi
+        # A real right click on the Luna clock opens a local XP menu.
+        # Verify its small bottom-aligned rows, never the old large SNI header.
+        WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click 989 750 1024 768
+        sleep 0.35
+        if ! grep -Fq "RicePlate status menu event=opened" "$runtime/panel.log"; then
+            echo "Clock did not open a native local XP status menu" >&2
+            exit 1
+        fi
+        WAYLAND_DISPLAY=wayland-0 grim - >"$runtime/luna-clock-status-popup.png"
+        /usr/bin/python3 - "$runtime/luna-group-menu-dismissed.png" \
+            "$runtime/luna-clock-status-popup.png" <<PY
+import sys
+from PIL import Image, ImageChops
+with Image.open(sys.argv[1]) as closed, Image.open(sys.argv[2]) as clock:
+    a, b = closed.convert("RGB"), clock.convert("RGB")
+    assert a.size == b.size == (1024, 768)
+    body = (730, 660, 1016, 720)
+    delta = ImageChops.difference(a.crop(body), b.crop(body))
+    changed = sum(1 for px in delta.getdata() if max(px) > 30)
+    assert changed > 2200, f"Local clock menu was not visibly painted: {changed}"
+    header = (730, 500, 1016, 530)
+    delta = ImageChops.difference(a.crop(header), b.crop(header))
+    above = sum(1 for px in delta.getdata() if max(px) > 30)
+    assert above < 800, f"Unexpected oversized SNI header above XP clock menu: {above}"
+print("Real compact Luna clock status popup without oversized SNI header")
+PY
+        if [ -d "$out" ]; then
+            cp "$runtime/luna-clock-status-popup.png" "$out/luna-clock-status-popup.png"
+        fi
         # No longer keep the popup open as the isolated compositor shuts down.
         WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 5 5 1024 768
     fi
