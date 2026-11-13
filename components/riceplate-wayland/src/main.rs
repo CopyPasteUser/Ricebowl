@@ -1608,6 +1608,12 @@ impl RicePlate {
             properties: false, back_hovered: false, back_pressed: false,
             file_operation: None,
         });
+        // A compositor may keep keyboard focus on the original interactive
+        // Bottom layer rather than transferring it to an xdg_popup. Use only
+        // the actual wl_keyboard.enter owner observed by SCTK, not a guessed
+        // pointer focus or an Exclusive keyboard request.
+        self.context_focused = self.desktop_context.as_ref().is_some_and(|menu|
+            self.keyboard_icon_surface.as_ref() == Some(&menu.parent_surface));
     }
 
     /// A popup can target another visible icon on the same wl_output while
@@ -6165,7 +6171,7 @@ impl KeyboardHandler for RicePlate {
         self.luna_dialog_focused = self.luna_dialog.as_ref().is_some_and(|dialog|
             dialog.surface.wl_surface() == surface);
         self.context_focused = self.desktop_context.as_ref().is_some_and(|menu|
-            menu.popup.wl_surface() == surface);
+            menu.popup.wl_surface() == surface || &menu.parent_surface == surface);
         if self.context_focused && std::env::var_os("RICEBOWL_DE_TRACE_DESKTOP").is_some() {
             eprintln!("RicePlate desktop context keyboard focused");
         }
@@ -6241,7 +6247,7 @@ impl KeyboardHandler for RicePlate {
             self.close_luna_dialog();
         }
         if self.desktop_context.as_ref().is_some_and(|menu|
-            menu.popup.wl_surface() == surface) && self.context_focused {
+            menu.popup.wl_surface() == surface || &menu.parent_surface == surface) {
             self.close_desktop_context();
         }
         if self.active_menu.as_ref() == Some(surface) && self.menu_focused {
