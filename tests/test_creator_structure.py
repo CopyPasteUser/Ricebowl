@@ -43,6 +43,37 @@ class CreatorStructureTests(unittest.TestCase):
                          ["widget", "gap", "label", "widget"])
         self.assertEqual(self.original, original)
 
+    def test_insertion_and_static_duplicates_are_atomic_and_reusable(self):
+        original = copy.deepcopy(self.original)
+        label = {"type": "label", "text": "WORKSPACE"}
+        lane = structure.edit_layout(
+            original, "center", (), "add", node=label, target_index=0)
+        self.assertEqual(lane, [label])
+        proposed = copy.deepcopy(original)
+        proposed["panel"]["layout"]["center"] = lane
+        doubled = structure.edit_layout(proposed, "center", (0,), "duplicate")
+        self.assertEqual(doubled, [label, label])
+        proposed["panel"]["layout"]["center"] = doubled
+        recipes.parse(json.dumps(proposed).encode())
+        self.assertEqual(self.original, original)
+
+    def test_duplicate_unique_widgets_and_invalid_indices_fail_closed(self):
+        original = copy.deepcopy(self.original)
+        with self.assertRaises(structure.StructureError):
+            structure.edit_layout(original, "start", (0,), "duplicate")
+        for index in (-1, True, 999, "0"):
+            with self.subTest(index=index), self.assertRaises(structure.StructureError):
+                structure.edit_layout(original, "center", (), "add",
+                                      node={"type": "label", "text": "TEST"},
+                                      target_index=index)
+        with self.assertRaises(structure.StructureError):
+            structure.edit_layout(original, "center", (), "add",
+                                  node={"type": "label", "text": "TEST"},
+                                  compact="yes")
+        with self.assertRaises(structure.StructureError):
+            structure.edit_layout(original, "start", (0,), "duplicate", target_index=0)
+        self.assertEqual(self.original, original)
+
     def test_transfer_between_lanes_is_atomic_and_preserves_order(self):
         before = copy.deepcopy(self.original)
         result = structure.transfer_layout(self.original, "start", (2,), "center", target_index=0)
