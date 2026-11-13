@@ -30,7 +30,7 @@ does not switch your login session to Wayland.
 
 | XFCE/X11 · XP Luna | Native Wayland · XP Luna preview |
 | :---: | :---: |
-| [![Actual XP Luna-style XFCE Start menu](screenshots/current/winxp-start.webp)](screenshots/current/README.md) | [![Actual Wayland labwc and RicePlate Luna Start menu](screenshots/wayland/luna-ui-font-menu-20261111.webp)](screenshots/wayland/README.md) |
+| [![Actual XP Luna-style XFCE Start menu](screenshots/current/winxp-start.webp)](screenshots/current/README.md) | [![Actual Wayland labwc and RicePlate Luna Start menu, November 13](screenshots/wayland/luna-start-20261113.webp)](screenshots/wayland/README.md) |
 | [X11 gallery](screenshots/current/README.md) | [Wayland gallery](screenshots/wayland/README.md) |
 
 Both screenshots come from real automated desktop sessions, **not mockups**.

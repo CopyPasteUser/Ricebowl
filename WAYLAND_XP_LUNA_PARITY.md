@@ -108,6 +108,22 @@ See [Wayland progress](WAYLAND_PROGRESS.md),
 [the X11 Luna benchmark](XP_LUNA_ROADMAP.md) and
 [the native CI workflow](.github/workflows/riceplate-native.yml).
 
+## Refreshed Wayland screenshot evidence (13 November 2026)
+
+The checked-in [six-view native Luna gallery](screenshots/wayland/README.md)
+now shows real labwc desktop, Start, Help, typed Run, right-click context and
+shortcut Properties surfaces from successful CI
+[#43354447753](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43354447753)
+at source commit `c0bdb46c`. A reproducible, fail-closed publisher verifies
+the compositor manifest and produces RGB WebP previews without UI simulation.
+It is *not* evidence of visual parity against all X11 dialogs or acceptance
+on a physical Mint laptop.
+
+The current X11 parity gaps remain: recent documents, fuller Explorer/drive
+workflow, pinned default browser/mail, category navigation and hardware
+integration. Avoid presenting a successful headless screenshot as proof these
+gaps are closed.
+
 ## Real browser and mail entries in native Luna (13 November 2026)
 
 On a fresh XP-Luna Start menu, the two limited installed-app preview slots
