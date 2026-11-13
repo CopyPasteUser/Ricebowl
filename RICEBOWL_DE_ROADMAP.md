@@ -11,17 +11,19 @@ installation and is not yet a finished desktop environment.
 
 ### Native XP Luna desktop keyboard-selection gate (13 November 2026)
 
-- [ ] Add `xp-luna-columns`-only type-to-select for focused desktop icons
-  using real Wayland key events and existing icon-surface focus, with a bounded
-  1.2s Unicode prefix, repeated-key cycling and visible-target filtering per
-  wl_output. Reset on pointer/focus/navigation changes; never install a
-  global keyboard grab or a resident poller. Rust tests cover prefix matching,
-  Unicode, expired/invalid input and hidden-output isolation. Native CI must
-  inject real `wtype` input after a compositor pointer click and archive a
-  genuine `grim` before/after frame pair with visual pixel verification.
-  The feature is complete only after green Tests and Native RicePlate CI on
-  the final PR head and a safe merge. Physical keyboard/Orca testing remains
-  a separate gate.
+- [ ] Use deliberate **F3 on the focused native Top taskbar** to enter
+  `xp-luna-columns` desktop type-to-select: labwc does not grant keyboard
+  focus to on-demand Bottom-layer icons, confirmed by real compositor
+  failures in #327. A short Unicode prefix selects only visible icons on
+  the originating output; Return runs the validated selected action,
+  Escape/focus loss cancels. Never introduce a persistent Exclusive keyboard
+  grab or cover application windows with Top-layer desktop icons.
+  Rust tests cover prefixes, Unicode, timeout and hidden-output isolation;
+  real labwc CI must click the Top taskbar, send F3 then `wtype p`,
+  archive unmodified `grim` PNGs and verify Programs focus pixels.
+  Merge only after green Tests and Native RicePlate on the final head.
+  Direct Bottom-layer icon typing and device/IME/Orca acceptance remain
+  open under issue #328.
 
 ### Native XP Luna Run text-editing gate (13 November 2026)
 
