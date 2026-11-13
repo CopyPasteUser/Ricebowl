@@ -257,9 +257,9 @@ impl MenuState {
     fn install_catalog(&mut self, catalog: installed_apps::Catalog) {
         self.apps = catalog.apps;
         self.app_categories = catalog.categories;
-        // Recent launch history intentionally excludes removed applications.
-        self.recent_apps.retain(|id|
-            self.apps.iter().any(|app| app.action == *id));
+        // Preserve validated recent IDs too: transient XDG discovery errors
+        // must not irreversibly erase history on the next successful launch.
+        // Only known current apps render in the preview and launch via Gio.
         // Do not delete a user's saved favorites during a temporary XDG
         // discovery failure or while a removable application is unavailable.
         // actions(), luna_preview_apps() and app_path() already filter or
@@ -2170,11 +2170,11 @@ mod tests {
             include_str!("../../../examples/wayland/xp-luna-columns.json"),
             Some("xp-luna-columns")).unwrap();
         let menu = parsed.menu.as_ref().unwrap();
-        let mut state = MenuState::with_pins(vec![
+        let mut state = MenuState::with_pins_and_recents(vec![
             "desktop:demo-0.desktop".into(),
             "desktop:temporarily-missing.desktop".into(),
             "desktop:demo-1.desktop".into(),
-        ]);
+        ], vec!["desktop:demo-1.desktop".into()]);
         state.install_catalog(installed_apps::Catalog {
             apps: demo_apps(2),
             categories: HashMap::new(),
@@ -2196,6 +2196,7 @@ mod tests {
             categories: HashMap::new(),
         });
         assert_eq!(state.pins.len(), 3);
+        assert_eq!(state.recent_apps(), &["desktop:demo-1.desktop".to_owned()]);
         assert_eq!(state.actions(menu), vec!["desktop:demo-0.desktop"]);
         state.install_catalog(installed_apps::Catalog {
             apps: demo_apps(2),
