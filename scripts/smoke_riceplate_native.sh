@@ -593,10 +593,9 @@ PY
                     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-return-$geometry.png"
                     cp "$runtime/xp-luna-pointer-return-$geometry.png" \
                        "$source_root/dist/riceplate-native-preview/xp-luna-pointer-return-$geometry.png"
-                    # The first left-column action must open the native XDG
-                    # All Programs page, then the real header Back hit target
-                    # must restore the two-column Luna menu.
-                    WAYLAND_DISPLAY=wayland-0 "$clicker" 60 552 "$width" "$height"
+                    # All Programs is now the actual bottom-left XP tile;
+                    # click its moved real hitbox, then test the real Back action.
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" 60 680 "$width" "$height"
                     sleep 0.35
                     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-programs-$geometry.png"
                     cp "$runtime/xp-luna-pointer-programs-$geometry.png" \
@@ -648,7 +647,7 @@ PY
                     # This must work without any keyboard-only F2 shortcut.
                     WAYLAND_DISPLAY=wayland-0 "$clicker" 220 "$header_y" "$width" "$height"
                     sleep 0.2
-                    WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click 60 552 "$width" "$height"
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click 60 680 "$width" "$height"
                     sleep 0.2
                     WAYLAND_DISPLAY=wayland-0 "$clicker" 284 "$header_y" "$width" "$height"
                     sleep 0.35
