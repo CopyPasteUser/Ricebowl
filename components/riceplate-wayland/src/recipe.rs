@@ -1139,7 +1139,7 @@ fn width_for(style: &PanelStyle, widget: Widget, tasks: usize) -> u32 {
         // XP's notification area uses tightly packed 16px status glyphs,
         // whereas the other recipes intentionally retain readable labels.
         Widget::Network | Widget::Audio if style.id == "xp-luna-columns" => 28,
-        Widget::Battery if style.id == "xp-luna-columns" => 58,
+        Widget::Battery if style.id == "xp-luna-columns" => 70,
         Widget::Battery | Widget::Network | Widget::Audio => 64 * style.font_scale,
         Widget::Tray => crate::tray::WIDTH,
         Widget::Tasks => tasks as u32 * style.widths[1],
