@@ -9,14 +9,20 @@ installation and is not yet a finished desktop environment.
 
 - [ ] Require complete PNG decoding before the classic panel pixel probe; add synthetic complete/truncated/wrong-color/invalid-geometry unit cases. Local focused tests pass, but the native labwc compositor screenshot matrix and full CI remain mandatory before this is marked complete. The synthetic unit fixtures are **not** real desktop screenshots.
 
-### Luna recent-app privacy hardlink regression (12 November 2026)
+### Luna recent-app privacy and write-efficiency (13 November 2026)
 
-- [ ] Reject a multiply hard-linked private recent-app history inode for restore,
+- [x] Reject a multiply hard-linked private recent-app history inode for restore,
   save and explicit privacy clear. A single owner-private regular file remains
   supported; the regression preserves both links and unrelated data when
-  refusing an unsafe file. Completion requires green Tests and Native
-  RicePlate CI on the final head, then merge. This does not imply physical
-  session acceptance or that a privacy clear securely erases storage blocks.
+  refusing an unsafe file. Tests and Native RicePlate CI passed on PR #319,
+  merged as `ccb6d16d`. This does not imply physical session acceptance or
+  that a privacy clear securely erases storage blocks.
+- [ ] Skip rewriting byte-identical, owner-private, bounded recent-app JSON,
+  preserving its inode and modification time. Changed history still takes the
+  existing atomic rename and directory-fsync path; malformed or unmanaged
+  files retain their rejection rules. The Rust regression must pass with
+  Tests and Native RicePlate CI on the final PR head before completion.
+  This is an I/O reduction by design, not a measured performance claim.
 
 ### Wayland XP Luna recipe (10 November 2026, preview sprint)
 
