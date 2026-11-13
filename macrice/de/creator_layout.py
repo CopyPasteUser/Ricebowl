@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -114,6 +115,8 @@ def edit_layer(manifest: dict[str, Any], layer: str, index: int,
 
 
 def set_compact_hidden(manifest: dict[str, Any], index: int, hidden: bool) -> dict[str, Any]:
+    if type(hidden) is not bool:
+        raise LayoutError("Compact visibility must be on or off")
     result = copy.deepcopy(manifest)
     try:
         widget_id = result["composition"]["widgets"][index]["id"]
@@ -127,8 +130,17 @@ def set_compact_hidden(manifest: dict[str, Any], index: int, hidden: bool) -> di
     return _validate(result)
 
 
-def add_layer(manifest: dict[str, Any], kind: str) -> dict[str, Any]:
-    """Add an implemented static/status widget or known desktop action only."""
+def add_layer(manifest: dict[str, Any], kind: str, *,
+              screen_width: int = 1366, screen_height: int = 768) -> dict[str, Any]:
+    """Place an existing native primitive without clipping or overlapping others.
+
+    Geometry is preview-only: it is never applied to a running compositor.
+    Explicit dimensions let the same editor work at compact output sizes.
+    """
+    if (type(kind) is not str or type(screen_width) is not int
+            or type(screen_height) is not int or
+            not 1 <= screen_width <= 16_384 or not 1 <= screen_height <= 16_384):
+        raise LayoutError("Choose a known layer and positive output dimensions")
     result = copy.deepcopy(manifest)
     if kind.startswith("icon:"):
         action = kind.partition(":")[2]
@@ -137,17 +149,21 @@ def add_layer(manifest: dict[str, Any], kind: str) -> dict[str, Any]:
         icons = result["desktop"]["icons"]
         if len(icons) >= recipes.MAX_DESKTOP_ICONS:
             raise LayoutError("This rice already has eight desktop shortcuts")
-        for row in range(12):
-            for col in range(7):
-                x, y = 24 + col * 140, 92 + row * 116
+        label = {"applications": "Apps", "terminal": "Terminal",
+                 "lock": "Lock", "trash": "Recycle Bin", "documents": "Documents",
+                 "computer": "Computer", "network": "Network"}[action]
+        labels = {icon["label"] for icon in icons}
+        if label in labels:
+            for number in range(2, recipes.MAX_DESKTOP_ICONS + 2):
+                suffix = f" {number}"
+                candidate = label[:12 - len(suffix)] + suffix
+                if candidate not in labels:
+                    label = candidate
+                    break
+        for y in range(92, screen_height - recipes.ICON_HEIGHT + 1, 116):
+            for x in range(24, screen_width - recipes.ICON_WIDTH + 1, 140):
                 if all(abs(x - icon["x"]) >= recipes.ICON_WIDTH or
                        abs(y - icon["y"]) >= recipes.ICON_HEIGHT for icon in icons):
-                    label = {"applications": "Apps", "terminal": "Terminal",
-                             "lock": "Lock", "trash": "Recycle Bin"}[action]
-                    # Keep desktop labels distinct for easy layer selection.
-                    labels = {icon["label"] for icon in icons}
-                    if label in labels:
-                        label = f"{label} {len(icons) + 1}"
                     icons.append({"label": label, "action": action, "x": x, "y": y})
                     return _validate(result)
         raise LayoutError("No free desktop shortcut position")
@@ -156,7 +172,7 @@ def add_layer(manifest: dict[str, Any], kind: str) -> dict[str, Any]:
         raise LayoutError("This rice already has four desktop widgets")
     if kind.startswith("component:"):
         ref = kind.partition(":")[2]
-        definitions = {item["id"]: item for item in result["components"]}
+        definitions = {item["id"]: item for item in result.get("components", [])}
         if ref not in definitions or definitions[ref]["role"] not in ("status", "action"):
             raise LayoutError("Only validated status/action components can appear on the desktop")
         new = {"kind": "component", "ref": ref}
@@ -174,9 +190,27 @@ def add_layer(manifest: dict[str, Any], kind: str) -> dict[str, Any]:
         if candidate not in names:
             new["id"] = candidate
             break
-    new["x"], new["y"] = 24, 304 + len(widgets) * 112
-    widgets.append(new)
-    return _validate(result)
+    width, height = recipes.DESKTOP_WIDGET_WIDTH, recipes.DESKTOP_WIDGET_HEIGHT
+    # Preserve the legacy initial row where it fits. On compact outputs,
+    # search additional columns before shifting the composition off screen.
+    starts = [304 + len(widgets) * 112]
+    starts += list(range(304, screen_height - height + 1, height + 16))
+    starts += list(range(0, screen_height - height + 1, height + 16))
+    for y in dict.fromkeys(starts):
+        if y < 0 or y + height > screen_height:
+            continue
+        for x in range(24, screen_width - width + 1, width + 24):
+            if any(abs(x - item["x"]) < width and abs(y - item["y"]) < height
+                   for item in widgets):
+                continue
+            if any(abs(x - icon["x"]) < width and
+                   abs(y - icon["y"]) < recipes.ICON_HEIGHT
+                   for icon in result["desktop"]["icons"]):
+                continue
+            new["x"], new["y"] = x, y
+            widgets.append(new)
+            return _validate(result)
+    raise LayoutError("No unobstructed desktop widget space at this output size")
 
 
 def remove_layer(manifest: dict[str, Any], layer: str, index: int) -> dict[str, Any]:
@@ -200,8 +234,13 @@ def move_layer(manifest: dict[str, Any], layer: str, index: int,
                x: float, y: float, screen_width: int, screen_height: int,
                *, snap: int = 1) -> dict[str, Any]:
     """Move on the schematic screen; keep all positions inside output geometry."""
-    if layer not in ("widget", "icon", "region") or snap <= 0:
-        raise LayoutError("Unknown movable desktop layer")
+    if (layer not in ("widget", "icon", "region")
+            or type(snap) is not int or snap <= 0
+            or type(screen_width) is not int or type(screen_height) is not int
+            or not 1 <= screen_width <= 16_384 or not 1 <= screen_height <= 16_384
+            or type(x) not in (int, float) or type(y) not in (int, float)
+            or not math.isfinite(x) or not math.isfinite(y)):
+        raise LayoutError("Invalid movable layer or output geometry")
     if layer == "region":
         region = manifest["composition"]["window_region"]
         nx = round(x / screen_width * 100)
