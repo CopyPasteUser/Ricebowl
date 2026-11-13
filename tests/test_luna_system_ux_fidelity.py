@@ -106,6 +106,73 @@ class LunaSystemUXTests(unittest.TestCase):
                 Gtk.main()
             self.assertTrue(window.closed)
 
+    def test_x11_control_panel_real_category_navigation_and_history(self):
+        try:
+            Gtk, Gdk, GLib = settings._gtk_modules()
+        except (ValueError, ImportError):
+            self.skipTest("GTK3 unavailable")
+        if not Gtk.init_check([])[0]:
+            self.skipTest("Graphical GTK session unavailable")
+        from macrice import luna_control_panel
+
+        class Shell:
+            _luna_settings_positioned = False
+            def _class(self, widget, name):
+                widget.get_style_context().add_class(name)
+                return widget
+            def _icon(self, _name, _size):
+                return Gtk.Image.new_from_icon_name("preferences-system",
+                                                    Gtk.IconSize.MENU)
+            def _desktop_rect(self):
+                return SimpleNamespace(x=0, y=0, width=1024, height=768)
+            def _hide_actions(self):
+                return None
+            def _open_tool(self, _command):
+                raise AssertionError("Navigation must not launch tools")
+            def _action_key(self, _event):
+                return False
+            def _queue_volume_change(self, *_args):
+                return None
+            def _toggle_output_mute(self, *_args):
+                return None
+
+        shell = Shell()
+        with mock.patch("macrice.window_geometry.restore_and_track", return_value=True):
+            widget = luna_control_panel.build(shell, Gtk, Gdk)
+        widget.show_all()
+        try:
+            self.assertFalse(shell.luna_control_back_tool.get_sensitive())
+            shell.luna_control_show_category("Network and Internet Connections")
+            self.assertEqual(shell.luna_control_stack.get_visible_child_name(), "detail")
+            self.assertTrue(shell.luna_control_back_tool.get_sensitive())
+            shell.luna_control_back_tool.clicked()
+            self.assertEqual(shell.luna_control_stack.get_visible_child_name(), "categories")
+            shell.luna_control_forward_tool.clicked()
+            self.assertEqual(shell.luna_control_stack.get_visible_child_name(), "detail")
+            shell.luna_control_search.set_text("mouse")
+            self.assertEqual(shell.luna_control_stack.get_visible_child_name(), "search")
+            shell.luna_control_back_tool.clicked()
+            self.assertEqual(shell.luna_control_stack.get_visible_child_name(), "detail")
+            shell.luna_control_forward_tool.clicked()
+            self.assertEqual(shell.luna_control_stack.get_visible_child_name(), "search")
+            self.assertEqual(shell.luna_control_search.get_text(), "mouse")
+            shell.luna_control_show_home("classic")
+            self.assertEqual(shell.luna_control_stack.get_visible_child_name(), "classic")
+            self.assertFalse(shell.luna_control_forward_tool.get_sensitive())
+            self.assertLessEqual(len(shell.luna_control_history), 32)
+        finally:
+            widget.destroy()
+
+    def test_help_topics_open_real_control_panel_only_when_available(self):
+        from macrice import luna_help, luna_control_panel
+        self.assertEqual(
+            set(luna_help.TOPIC_DESTINATIONS.values()) -
+            set(luna_control_panel.LUNA_TASKS), set())
+        self.assertEqual(luna_help.TOPIC_DESTINATIONS["Connecting to networks"],
+                         "Network and Internet Connections")
+        self.assertNotIn("Start menu", luna_help.TOPIC_DESTINATIONS)
+        self.assertNotIn("No installed tool", luna_help.TOPIC_DESTINATIONS)
+
     def test_default_gtk_chrome_and_recipe_are_not_changed(self):
         self.assertIn(".ricespice-window", settings.CSS.decode())
         self.assertEqual(settings.LUNA_CONTROL_CATEGORIES[2][0], "sound")
