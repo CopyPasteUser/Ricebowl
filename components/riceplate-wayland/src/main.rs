@@ -64,6 +64,7 @@ use smithay_client_toolkit::{
         Capability, SeatHandler, SeatState,
     },
     shell::{
+        xdg::{XdgShell, XdgPositioner, popup::{Popup, PopupConfigure, PopupHandler}},
         wlr_layer::{
             Anchor, KeyboardInteractivity, Layer, LayerShell, LayerShellHandler, LayerSurface,
             LayerSurfaceConfigure,
@@ -78,6 +79,7 @@ use wayland_client::{
     protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_shm, wl_surface},
     Connection, Dispatch, QueueHandle,
 };
+use smithay_client_toolkit::reexports::protocols::xdg::shell::client::xdg_positioner;
 use wayland_protocols_wlr::foreign_toplevel::v1::client::{
     zwlr_foreign_toplevel_handle_v1::{self, ZwlrForeignToplevelHandleV1},
     zwlr_foreign_toplevel_manager_v1::{self, ZwlrForeignToplevelManagerV1},
@@ -288,6 +290,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     WaylandSource::new(conn.clone(), event_queue).insert(event_loop.handle())?;
     let compositor = CompositorState::bind(&globals, &qh)?;
     let layer_shell = LayerShell::bind(&globals, &qh)?;
+    // Optional XDG shell is used only for the opt-in Luna shortcut menu.
+    // Other recipes retain the original layer-shell-only startup behavior.
+    let xdg_shell = XdgShell::bind(&globals, &qh).ok();
     let shm = Shm::bind(&globals, &qh)?;
     let toplevel_manager: Option<ZwlrForeignToplevelManagerV1> = globals.bind(&qh, 1..=3, ()).ok();
     if toplevel_manager.is_none() {
@@ -485,6 +490,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut app = RicePlate {
         compositor,
         layer_shell,
+        xdg_shell,
         registry: RegistryState::new(&globals),
         outputs: OutputState::new(&globals, &qh),
         seats: SeatState::new(&globals, &qh),
@@ -529,6 +535,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         focused_icon: None,
         keyboard_icon_surface: None,
         desktop_selection: desktop_selection::Selection::default(),
+        desktop_type_select: desktop_selection::TypeSelect::default(),
         selection_modifiers: Modifiers::default(),
         desktop_context: None,
         context_generation: 0,
@@ -893,7 +900,7 @@ struct LunaDialogLayer {
 }
 
 struct DesktopContextLayer {
-    surface: LayerSurface,
+    popup: Popup,
     pool: Option<SlotPool>,
     configured: bool,
     icon_index: usize,
@@ -954,6 +961,7 @@ struct PanelMirror {
 struct RicePlate {
     compositor: CompositorState,
     layer_shell: LayerShell,
+    xdg_shell: Option<XdgShell>,
     registry: RegistryState,
     outputs: OutputState,
     seats: SeatState,
@@ -998,6 +1006,7 @@ struct RicePlate {
     focused_icon: Option<usize>,
     keyboard_icon_surface: Option<wl_surface::WlSurface>,
     desktop_selection: desktop_selection::Selection,
+    desktop_type_select: desktop_selection::TypeSelect,
     selection_modifiers: Modifiers,
     desktop_context: Option<DesktopContextLayer>,
     // Invalidates pending AT-SPI actions when menus reopen or change views.
