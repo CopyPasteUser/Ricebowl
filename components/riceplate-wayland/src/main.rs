@@ -1827,11 +1827,13 @@ impl RicePlate {
                           row.selectable().then_some(Target::TrayMenuRow(index)));
             }
             let task_menu = !self.task_menu_handles.is_empty();
-            if !task_menu {
+            let compact_luna = self.recipe.id == "xp-luna-columns"
+                && self.tray_menu_state.is_local();
+            if !compact_luna {
                 model.add(51_900, 51_000, AccessibleRole::Button,
                           "Back", Some(Target::TrayMenuBack));
             }
-            if !task_menu || self.tray_menu_state.rows().len() > tray::POPUP_ROWS {
+            if !compact_luna || self.tray_menu_state.rows().len() > tray::POPUP_ROWS {
                 model.add(51_901, 51_000, AccessibleRole::Button,
                           "Previous page", Some(Target::TrayMenuPage(-1)));
                 model.add(51_902, 51_000, AccessibleRole::Button,
@@ -3641,6 +3643,9 @@ impl RicePlate {
         self.set_tray_popup_visible(false, qh);
         self.tray_menu_state = popup;
         self.show_tray_surface_at(target, qh);
+        if self.trace_window_events {
+            eprintln!("RicePlate status menu event=opened");
+        }
     }
 
     fn launch_luna_settings(&self, page: &str) {
@@ -3788,10 +3793,16 @@ impl RicePlate {
         self.tray_popup_focused = false;
         self.active_tray_popup = Some(surface.clone());
         let right_margin = self.task_popup_right.unwrap_or(8);
-        let task_bounds = (!self.task_menu_handles.is_empty() && self.tray_menu_state.visible)
-            .then(|| luna_window_menu::bounds(self.tray_menu_state.rows().len(),
-                                              self.tray_menu_state.first, self.recipe.top));
-        let compact_input = task_bounds.and_then(|bounds| {
+        // The same compact, headerless XP popup geometry applies to owner-
+        // local status menus (clock, network, audio, power) and window menus.
+        // Real external SNI provider menus retain their own input/navigation.
+        let compact_luna = self.recipe.id == "xp-luna-columns"
+            && self.tray_menu_state.is_local();
+        let compact_bounds = compact_luna.then(|| luna_window_menu::bounds(
+            self.tray_menu_state.rows().len(),
+            self.tray_menu_state.first, self.recipe.top,
+        ));
+        let compact_input = compact_bounds.and_then(|bounds| {
             match Region::new(&self.compositor) {
                 Ok(region) => {
                     region.wl_region().add(0, bounds.top as i32,
@@ -3799,7 +3810,7 @@ impl RicePlate {
                     Some(region)
                 }
                 Err(error) => {
-                    eprintln!("RicePlate: cannot restrict task menu input: {error}");
+                    eprintln!("RicePlate: cannot restrict compact Luna menu input: {error}");
                     None
                 }
             }
@@ -3921,7 +3932,7 @@ impl RicePlate {
             }
         };
         if self.tray_menu_state.visible {
-            if !self.task_menu_handles.is_empty() {
+            if self.recipe.id == "xp-luna-columns" && self.tray_menu_state.is_local() {
                 luna_window_menu::paint(canvas, &self.tray_menu_state, self.recipe.top);
             } else {
                 paint_tray_menu(canvas, &self.recipe, &self.tray_menu_state);
@@ -6565,11 +6576,12 @@ impl PointerHandler for RicePlate {
                 if self.tray_menu_state.visible {
                     match event.kind {
                         PointerEventKind::Press { button: BTN_LEFT | BTN_RIGHT, .. } => {
-                            let hit = if self.task_menu_handles.is_empty() {
-                                self.tray_menu_state.hit(event.position.0, event.position.1)
-                            } else {
+                            let hit = if self.recipe.id == "xp-luna-columns"
+                                && self.tray_menu_state.is_local() {
                                 luna_window_menu::menu_hit(&self.tray_menu_state,
                                     event.position.0, event.position.1, self.recipe.top)
+                            } else {
+                                self.tray_menu_state.hit(event.position.0, event.position.1)
                             };
                             match hit {
                                 Some(TrayMenuHit::Row(index)) =>
@@ -6589,11 +6601,12 @@ impl PointerHandler for RicePlate {
                             }
                         }
                         PointerEventKind::Motion { .. } => {
-                            let hit = if self.task_menu_handles.is_empty() {
-                                self.tray_menu_state.hit(event.position.0, event.position.1)
-                            } else {
+                            let hit = if self.recipe.id == "xp-luna-columns"
+                                && self.tray_menu_state.is_local() {
                                 luna_window_menu::menu_hit(&self.tray_menu_state,
                                     event.position.0, event.position.1, self.recipe.top)
+                            } else {
+                                self.tray_menu_state.hit(event.position.0, event.position.1)
                             };
                             if let Some(TrayMenuHit::Row(index)) = hit {
                                 if self.tray_menu_state.rows().get(index).is_some_and(|r|
