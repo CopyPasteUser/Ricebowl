@@ -5,7 +5,7 @@
 
 use std::{
     collections::BTreeMap, env, fs::{self, DirBuilder, OpenOptions},
-    io::{self, Read, Write}, os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt},
+    io::{self, Read, Write}, os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
     path::{Path, PathBuf}, time::{SystemTime, UNIX_EPOCH},
 };
 use serde::{Deserialize, Serialize};
@@ -173,7 +173,7 @@ fn write_at(path: &Path, data: &BTreeMap<String, BTreeMap<String, Point>>)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{ffi::OsString, os::unix::fs::symlink};
+    use std::{ffi::OsString, os::unix::fs::{symlink, PermissionsExt}};
 
     fn entry(dev:u64,ino:u64) -> Entry {
         Entry { name:OsString::from("renamed.txt"),path:PathBuf::from("/tmp/renamed.txt"),

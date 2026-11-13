@@ -21,7 +21,11 @@ pub fn local_trash_full_at(path: &Path) -> Option<bool> {
         _ => return None,
     }
     match fs::read_dir(path) {
-        Ok(mut directory) => directory.next().map(|entry| entry.is_ok()).or(Some(false)),
+        Ok(mut directory) => match directory.next() {
+            None => Some(false),
+            Some(Ok(_)) => Some(true),
+            Some(Err(_)) => None,
+        },
         Err(_) => None,
     }
 }
