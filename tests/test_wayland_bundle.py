@@ -46,6 +46,7 @@ class WaylandBundleTests(unittest.TestCase):
             for path in ("launcher.py", "macrice/cli.py", "macrice/de/session.py",
                          "macrice/de/resources/labwc/rc.xml",
                          "macrice/creator_gui.py", "assets/wallpapers/aurora-night.jpg",
+                         "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-luna-cp-appearance.svg",
                          "examples/wayland/heritage-modern-v10.json"):
                 self.assertTrue((application / path).is_file(), path)
             buildinfo = extracted / "usr/lib/ricebowl-wayland/BUILDINFO"
