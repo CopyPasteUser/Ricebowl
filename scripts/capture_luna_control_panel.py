@@ -64,6 +64,18 @@ def main() -> int:
     def capture_taskbar():
         try:
             capture("luna-control-panel-taskbar.png")
+            panel.search_entry.set_text("sound")  # Real GTK changed signal + category filter.
+            GLib.timeout_add(280, capture_search)
+        except Exception:
+            panel.window.destroy()
+            raise
+        return False
+
+    def capture_search():
+        try:
+            if panel.page != "search":
+                raise RuntimeError("Luna search did not navigate to results")
+            capture("luna-control-panel-search.png")
         finally:
             panel.window.destroy()
         return False
@@ -71,7 +83,8 @@ def main() -> int:
     GLib.timeout_add(450, capture_overview)
     Gtk.main()
     expected = (out / "luna-control-panel-home.png",
-                out / "luna-control-panel-taskbar.png")
+                out / "luna-control-panel-taskbar.png",
+                out / "luna-control-panel-search.png")
     if not all(file.is_file() and file.stat().st_size > 12000 for file in expected):
         raise RuntimeError("One or more Control Panel captures are missing or blank")
     return 0
