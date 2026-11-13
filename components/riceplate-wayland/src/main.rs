@@ -64,7 +64,8 @@ use smithay_client_toolkit::{
         Capability, SeatHandler, SeatState,
     },
     shell::{
-        xdg::{XdgShell, XdgPositioner, popup::{Popup, PopupConfigure, PopupHandler}},
+        xdg::{XdgShell, XdgPositioner, popup::{Popup, PopupConfigure, PopupHandler},
+              window::{Window, WindowConfigure, WindowHandler}},
         wlr_layer::{
             Anchor, KeyboardInteractivity, Layer, LayerShell, LayerShellHandler, LayerSurface,
             LayerSurfaceConfigure,
@@ -6112,6 +6113,16 @@ impl OutputHandler for RicePlate {
         self.reflow_icons();
         self.sync_mirrors(qh);
     }
+}
+
+// XdgShell::bind delegates the optional XDG decoration manager as well.
+// RicePlate never creates an XDG toplevel; its only XDG role is the bounded
+// icon-parented popup. These no-op WindowHandler callbacks satisfy SCTK's
+// binding contract without adding window management or focus stealing.
+impl WindowHandler for RicePlate {
+    fn request_close(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &Window) {}
+    fn configure(&mut self, _: &Connection, _: &QueueHandle<Self>,
+                 _: &Window, _: WindowConfigure, _: u32) {}
 }
 
 impl PopupHandler for RicePlate {
