@@ -160,8 +160,8 @@ fn file_uri(uri: &str) -> Option<PathBuf> {
     let mut i = 0;
     while i < src.len() {
         let byte = if src[i] == b'%' {
-            let high = (src.get(i + 1)? as &u8).to_ascii_lowercase();
-            let low = (src.get(i + 2)? as &u8).to_ascii_lowercase();
+            let high = src.get(i + 1)?.to_ascii_lowercase();
+            let low = src.get(i + 2)?.to_ascii_lowercase();
             let digit = |v: u8| match v {
                 b'0'..=b'9' => Some(v - b'0'),
                 b'a'..=b'f' => Some(v - b'a' + 10),
