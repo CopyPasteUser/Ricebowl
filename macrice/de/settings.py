@@ -526,7 +526,16 @@ class RiceSpiceWindow:
         self.busy = True
         serial = self.generation
         self._state("Working with system services…")
-        future = self.executor.submit(work)
+        try:
+            future = self.executor.submit(work)
+        except RuntimeError:
+            # A closing window can race a control click. Never leave the
+            # bounded worker slot or busy indicator permanently latched.
+            self.worker_slots.release()
+            self.busy = False
+            if not self.closed:
+                self._state("System request unavailable: settings window is closing")
+            return
 
         def complete(finished):
             self.worker_slots.release()
