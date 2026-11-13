@@ -3716,6 +3716,9 @@ impl RicePlate {
             self.active_tray_popup = None;
             for layer in self.tray_popup_layer.iter().chain(self.tray_popup_mirrors.iter()) {
                 layer.surface.set_keyboard_interactivity(KeyboardInteractivity::None);
+                // Restore full input for future SNI/provider popups. The compact
+                // task menu alone restricts its otherwise transparent surface.
+                layer.surface.wl_surface().set_input_region(None);
                 layer.surface.set_margin(
                     if self.recipe.top { self.recipe.height as i32 + 8 } else { 0 },
                     MAX_WIDTH as i32,
@@ -3749,8 +3752,27 @@ impl RicePlate {
         self.tray_popup_focused = false;
         self.active_tray_popup = Some(surface.clone());
         let right_margin = self.task_popup_right.unwrap_or(8);
+        let task_bounds = (!self.task_menu_handles.is_empty() && self.tray_menu_state.visible)
+            .then(|| luna_window_menu::bounds(self.tray_menu_state.rows().len(),
+                                              self.tray_menu_state.first, self.recipe.top));
+        let compact_input = task_bounds.and_then(|bounds| {
+            match Region::new(&self.compositor) {
+                Ok(region) => {
+                    region.wl_region().add(0, bounds.top as i32,
+                                          tray::POPUP_WIDTH as i32, bounds.height as i32);
+                    Some(region)
+                }
+                Err(error) => {
+                    eprintln!("RicePlate: cannot restrict task menu input: {error}");
+                    None
+                }
+            }
+        });
         for layer in self.tray_popup_layer.iter().chain(self.tray_popup_mirrors.iter()) {
             let active = layer.surface.wl_surface() == &surface;
+            layer.surface.wl_surface().set_input_region(
+                if active { compact_input.as_ref().map(|region| region.wl_region()) }
+                else { None });
             layer.surface.set_keyboard_interactivity(if active {
                 KeyboardInteractivity::OnDemand
             } else { KeyboardInteractivity::None });
@@ -3863,7 +3885,11 @@ impl RicePlate {
             }
         };
         if self.tray_menu_state.visible {
-            paint_tray_menu(canvas, &self.recipe, &self.tray_menu_state);
+            if !self.task_menu_handles.is_empty() {
+                luna_window_menu::paint(canvas, &self.tray_menu_state, self.recipe.top);
+            } else {
+                paint_tray_menu(canvas, &self.recipe, &self.tray_menu_state);
+            }
         } else {
             paint_tray_popup(canvas, &self.recipe, &self.tray_state, &self.tray_popup_state);
         }
@@ -6498,7 +6524,13 @@ impl PointerHandler for RicePlate {
                 if self.tray_menu_state.visible {
                     match event.kind {
                         PointerEventKind::Press { button: BTN_LEFT | BTN_RIGHT, .. } => {
-                            match self.tray_menu_state.hit(event.position.0, event.position.1) {
+                            let hit = if self.task_menu_handles.is_empty() {
+                                self.tray_menu_state.hit(event.position.0, event.position.1)
+                            } else {
+                                luna_window_menu::menu_hit(&self.tray_menu_state,
+                                    event.position.0, event.position.1, self.recipe.top)
+                            };
+                            match hit {
                                 Some(TrayMenuHit::Row(index)) =>
                                     self.choose_tray_menu_row(index, qh),
                                 Some(TrayMenuHit::Back) => self.back_tray_menu(qh),
@@ -6516,8 +6548,13 @@ impl PointerHandler for RicePlate {
                             }
                         }
                         PointerEventKind::Motion { .. } => {
-                            if let Some(TrayMenuHit::Row(index)) =
-                                self.tray_menu_state.hit(event.position.0, event.position.1) {
+                            let hit = if self.task_menu_handles.is_empty() {
+                                self.tray_menu_state.hit(event.position.0, event.position.1)
+                            } else {
+                                luna_window_menu::menu_hit(&self.tray_menu_state,
+                                    event.position.0, event.position.1, self.recipe.top)
+                            };
+                            if let Some(TrayMenuHit::Row(index)) = hit {
                                 if self.tray_menu_state.rows().get(index).is_some_and(|r|
                                     r.selectable()) && self.tray_menu_state.selected != index {
                                     self.tray_menu_state.selected = index;
@@ -7105,6 +7142,12 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for RicePlate {
     ) {
         if let zwlr_foreign_toplevel_handle_v1::Event::Closed = event {
             if let Some(index) = state.tasks.iter().position(|task| task.handle == *proxy) {
+                // A window's closure invalidates task menu row indices. Close
+                // the owner-local popup instead of risking a stale handle or
+                // an action targeting a different group member.
+                if state.task_menu_handles.iter().any(|handle| handle == proxy) {
+                    state.set_tray_popup_visible(false, qh);
+                }
                 if state.trace_window_events {
                     eprintln!("RicePlate window event=closed app_id={:?}", state.tasks[index].app_id);
                 }
