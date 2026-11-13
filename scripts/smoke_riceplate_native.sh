@@ -733,7 +733,7 @@ with Image.open(sys.argv[1]) as before, Image.open(sys.argv[2]) as after:
     assert changed > 500, f"Icon-parented XDG popup never mapped: {changed} pixels"
 PY
             # The legacy Ubuntu 24.04 labwc 0.7.1 has no implementation for
-            # focus on an unfocused layer-shell parent's xdg_popup. Test the
+            # focus on an unfocused layer-shell popup parent. Test the
             # pointer actions there, and require actual keyboard focus under
             # the separate modern compositor CI. Default remains STRICT.
             if [ "${RICEBOWL_LUNA_POPUP_FOCUS_REQUIRED:-1}" = 1 ]; then
