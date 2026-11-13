@@ -516,6 +516,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         toplevel_manager,
         trace_window_events: std::env::var("RICEBOWL_DE_TRACE_WINDOWS").as_deref() == Ok("1"),
         tasks: Vec::new(),
+        show_desktop_restore: Vec::new(),
         task_offset: 0,
         // Refreshed when real task state is painted, not on mouse motion.
         cached_task_group_count: 0,
@@ -952,6 +953,8 @@ struct RicePlate {
     toplevel_manager: Option<ZwlrForeignToplevelManagerV1>,
     trace_window_events: bool,
     tasks: Vec<Task>,
+    // Only windows actually minimized by Show Desktop are restored.
+    show_desktop_restore: Vec<ZwlrForeignToplevelHandleV1>,
     task_offset: usize,
     cached_task_group_count: usize,
     pool: Option<SlotPool>,
@@ -1857,6 +1860,26 @@ impl RicePlate {
         }
     }
 
+    fn toggle_show_desktop(&mut self, qh: &QueueHandle<Self>) {
+        if !self.show_desktop_restore.is_empty() {
+            // Do not undo windows the user had already minimized, or newly
+            // opened windows. A closed foreign toplevel is ignored safely.
+            for task in &self.tasks {
+                if self.show_desktop_restore.iter().any(|handle| handle == &task.handle)
+                    && task.minimized {
+                    task.handle.unset_minimized();
+                }
+            }
+            self.show_desktop_restore.clear();
+        } else {
+            self.show_desktop_restore = self.tasks.iter()
+                .filter(|task| task.ready && !task.minimized)
+                .map(|task| task.handle.clone()).collect();
+            for handle in &self.show_desktop_restore { handle.set_minimized(); }
+        }
+        self.request_redraw(qh);
+    }
+
     fn activate_group(&mut self, index: usize) {
         let groups = self.grouped_tasks();
         if let Some(group) = groups.get(index) {
@@ -2388,6 +2411,11 @@ impl RicePlate {
     }
 
     fn activate_action(&mut self, action: &str, qh: &QueueHandle<Self>) {
+        if action == "show-desktop" {
+            if self.menu_state.visible { self.set_menu_visible(false, qh); }
+            self.toggle_show_desktop(qh);
+            return;
+        }
         if matches!(action, "run" | "help") {
             // The schema permits these only in the themed columns profile.
             if self.recipe.menu.as_ref().is_some_and(|menu|
@@ -3680,6 +3708,38 @@ fn paint_panel_pointer(canvas: &mut [u8], width: u32, height: u32,
             }
             Widget::Action(index) => {
                 if let Some(action) = style.actions.get(index as usize) {
+                    if style.id == "xp-luna-columns" && matches!(action.id.as_str(),
+                        "applications" | "terminal" | "show-desktop") {
+                        // Actual 32px input targets with original lightweight
+                        // quick-launch glyphs; no vendor artwork or dummy icon.
+                        let left = placed.x + 2;
+                        fill_rounded_rect(canvas, width, height, left, 5, 28,
+                                          height.saturating_sub(10), 3, 0xff1b_4a9f);
+                        fill_rect(canvas, width, height, left + 2, 7, 24, 1, 0xffa4_d7ff);
+                        match action.id.as_str() {
+                            "applications" => {
+                                fill_rect(canvas, width, height, left + 7, 12, 14, 12, 0xfff2_e0a3);
+                                fill_rect(canvas, width, height, left + 8, 10, 6, 4, 0xffff_f0bd);
+                                fill_rect(canvas, width, height, left + 9, 17, 11, 1, 0xffc7_913a);
+                            }
+                            "terminal" => {
+                                fill_rect(canvas, width, height, left + 6, 11, 17, 15, 0xffd3_e8fa);
+                                fill_rect(canvas, width, height, left + 8, 13, 13, 11, 0xff1e_3250);
+                                draw_text(canvas, width, height, left + 9, 15, ">", 0xffe5_faff);
+                            }
+                            _ => {
+                                fill_rect(canvas, width, height, left + 6, 12, 17, 12, 0xfff3_faff);
+                                fill_rect(canvas, width, height, left + 7, 13, 15, 8, 0xff59_a6e2);
+                                fill_rect(canvas, width, height, left + 12, 25, 6, 2, 0xffd6_e7fc);
+                                fill_rect(canvas, width, height, left + 9, 27, 12, 1, 0xffb9_cedf);
+                            }
+                        }
+                        if selected == Some(KeyboardTarget::Action(index)) {
+                            paint_focus_border(canvas, width, height, placed.x, placed.width,
+                                if style.focus != 0 { style.focus } else { style.foreground });
+                        }
+                        continue;
+                    }
                     let control = action.control.then(|| ControlAction::from_id(&action.id)).flatten();
                     let available = control.is_none_or(|item|
                         item.available(status) && pending.is_none());
