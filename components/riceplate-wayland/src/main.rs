@@ -2367,6 +2367,11 @@ impl RicePlate {
             self.request_notifications(NotificationIntent::Refresh, qh);
             return;
         }
+        if action == "settings" && self.recipe.id == "xp-luna-columns" {
+            if self.menu_state.visible { self.set_menu_visible(false, qh); }
+            self.launch_luna_settings("appearance");
+            return;
+        }
         if let Some(control) = ControlAction::from_id(action) {
             let supported = control.available(&self.system_status);
             let idle = self.control_pending.is_none();
@@ -3143,7 +3148,7 @@ impl RicePlate {
             return false;
         }
         let updated = tray::State::from_items(host.get_all_items());
-        if self.tray_menu_state.visible {
+        if self.tray_menu_state.visible && !self.tray_menu_state.is_local() {
             let bus_name = self.tray_menu_state.bus_name.clone();
             let stale = if let Some(item) = host.get_item(&bus_name) {
                 let removed = self.tray_menu_state.sync(&item.menu);
@@ -3200,6 +3205,45 @@ impl RicePlate {
 
     fn tray_popup_open(&self) -> bool {
         self.tray_popup_state.visible || self.tray_menu_state.visible
+    }
+
+    /// Open a real native Wayland surface for XP's own status icons. The SNI
+    /// host is deliberately not involved: local menu rows never emit D-Bus.
+    fn open_luna_status_menu(&mut self, widget: Widget,
+                             source: &wl_surface::WlSurface, qh: &QueueHandle<Self>) {
+        if self.recipe.id != "xp-luna-columns" { return; }
+        let Some(target) = self.tray_popup_target(source) else { return; };
+        let Some((title, rows)) = luna_status_rows(widget, &self.system_status, &self.power)
+            else { return; };
+        let mut popup = tray::MenuPopup::default();
+        if !popup.open_local(title, rows) { return; }
+        self.set_tray_popup_visible(false, qh);
+        self.tray_menu_state = popup;
+        self.show_tray_surface_at(target, qh);
+    }
+
+    fn launch_luna_settings(&self, page: &str) {
+        // This is a fixed page identifier selected from hard-coded menu rows,
+        // never a command supplied by the rice recipe or a D-Bus peer.
+        if let Err(error) = Command::new("ricebowl")
+            .args(["de", "settings", "--luna", "--page", page]).spawn() {
+            eprintln!("RicePlate: cannot open Luna settings page {page}: {error}");
+        }
+    }
+
+    fn activate_luna_status_action(&mut self, id: i32, qh: &QueueHandle<Self>) {
+        match id {
+            101 => self.activate_action("wifi-toggle", qh),
+            103 => self.activate_action("audio-mute", qh),
+            104 => self.activate_action("audio-down", qh),
+            105 => self.activate_action("audio-up", qh),
+            100 => self.launch_luna_settings("network"),
+            102 => self.launch_luna_settings("audio"),
+            106 => self.launch_luna_settings("power"),
+            107 => self.launch_luna_settings("timezone"),
+            108 => self.launch_luna_settings("appearance"),
+            _ => {}
+        }
     }
 
     fn tray_popup_target(&self, source: &wl_surface::WlSurface)
@@ -3347,6 +3391,13 @@ impl RicePlate {
 
     fn choose_tray_menu_row(&mut self, index: usize, qh: &QueueHandle<Self>) {
         let choice = self.tray_menu_state.choice(index);
+        if self.tray_menu_state.is_local() {
+            if let TrayMenuChoice::Click(id) = choice {
+                self.set_tray_popup_visible(false, qh);
+                self.activate_luna_status_action(id, qh);
+            }
+            return;
+        }
         match choice {
             TrayMenuChoice::None => return,
             TrayMenuChoice::Open(id) => {
@@ -3649,10 +3700,18 @@ fn paint_panel_pointer(canvas: &mut [u8], width: u32, height: u32,
             }
             Widget::Battery => {
                 let label = power.label();
-                draw_rice_text(canvas, width, height,
-                          placed.x + placed.width.saturating_sub(text_pixel_width(&label, style.font_scale)) / 2,
-                          height.saturating_sub(8 * style.font_scale) / 2,
-                          &label, style.foreground, style);
+                if style.id == "xp-luna-columns" {
+                    panel_chrome::status_icon(canvas, width, height, placed.x, 28,
+                        Widget::Battery, matches!(power, PowerStatus::NotPresent | PowerStatus::Unknown));
+                    draw_rice_text(canvas, width, height, placed.x + 30,
+                        height.saturating_sub(8 * style.font_scale) / 2,
+                        &label, style.foreground, style);
+                } else {
+                    draw_rice_text(canvas, width, height,
+                        placed.x + placed.width.saturating_sub(text_pixel_width(&label, style.font_scale)) / 2,
+                        height.saturating_sub(8 * style.font_scale) / 2,
+                        &label, style.foreground, style);
+                }
             }
             Widget::Network | Widget::Audio => {
                 if style.id == "xp-luna-columns" {
@@ -3796,21 +3855,70 @@ fn paint_tray_popup(canvas: &mut [u8], style: &PanelStyle,
               if next { "Next >" } else { "Last page" }, style.foreground);
 }
 
+/// XP notification-area menus use the same on-demand native popup as
+/// StatusNotifier items, but with strictly local and capability-gated actions.
+fn luna_status_rows(widget: Widget, status: &SystemStatus, power: &PowerStatus)
+    -> Option<(&'static str, Vec<tray::MenuRow>)>
+{
+    let row = |id: i32, label: String, enabled: bool, checked: bool| tray::MenuRow {
+        id, label, enabled,
+        kind: tray::MenuKind::Action { checked, radio: false },
+    };
+    let available_audio = status.audio != Audio::Unavailable;
+    match widget {
+        Widget::Network => Some(("Network Connections", vec![
+            row(0, format!("Status: {}", status.network.label()), false, false),
+            row(101, format!("Turn Wi-Fi {}", if status.wifi == system_status::WifiRadio::Enabled {
+                "off" } else { "on" }),
+                ControlAction::WifiToggle.available(status),
+                status.wifi == system_status::WifiRadio::Enabled),
+            row(100, "Network Connections...".into(), true, false),
+        ])),
+        Widget::Audio => Some(("Volume Control", vec![
+            row(0, format!("Volume: {}", status.audio.label()), false, false),
+            row(103, "Mute".into(), available_audio, status.audio == Audio::Muted),
+            row(104, "Volume Down".into(), available_audio, false),
+            row(105, "Volume Up".into(), available_audio, false),
+            row(102, "Audio Properties...".into(), true, false),
+        ])),
+        Widget::Battery => Some(("Power Meter", vec![
+            row(0, format!("Battery: {}", power.label()), false, false),
+            row(106, "Power Options...".into(), true, false),
+        ])),
+        Widget::Clock => Some(("Date and Time", vec![
+            row(107, "Adjust Date/Time...".into(), true, false),
+            row(108, "Taskbar Properties...".into(), true, false),
+        ])),
+        _ => None,
+    }
+}
+
 fn paint_tray_menu(canvas: &mut [u8], style: &PanelStyle, popup: &tray::MenuPopup) {
     let (width, height) = (tray::POPUP_WIDTH, tray::POPUP_HEIGHT);
+    let luna = style.id == "xp-luna-columns";
+    let bg = if luna { 0xfff8_f6ee } else { style.background };
+    let fg = if luna { 0xff20_2020 } else { style.foreground };
+    let header = if luna { 0xff1a_56b0 } else { style.active };
+    let header_fg = if luna { 0xffff_ffff } else { style.foreground };
     for pixel in canvas.chunks_exact_mut(4) {
-        pixel.copy_from_slice(&style.background.to_le_bytes());
+        pixel.copy_from_slice(&bg.to_le_bytes());
     }
-    fill_rect(canvas, width, height, 0, 0, width, 36, style.active);
+    fill_rect(canvas, width, height, 0, 0, width, 36, header);
+    if luna {
+        fill_rect(canvas, width, height, 0, 0, 2, height, 0xff0b_387e);
+        fill_rect(canvas, width, height, width - 2, 0, 2, height, 0xff0b_387e);
+        fill_rect(canvas, width, height, 0, height - 2, width, 2, 0xff0b_387e);
+        fill_rect(canvas, width, height, 4, 36, width - 8, 2, 0xffa5_c9f2);
+    }
     if popup.parent_id() != popup.root_id {
-        draw_text(canvas, width, height, 12, 13, "<", style.foreground);
+        draw_text(canvas, width, height, 12, 13, "<", header_fg);
     }
     let header: String = popup.title.chars().take(if popup.parent_id() == popup.root_id {
         24
     } else { 20 }).collect();
     draw_text(canvas, width, height, if popup.parent_id() == popup.root_id { 12 } else { 36 },
-              13, &header, style.foreground);
-    draw_text(canvas, width, height, width - 24, 13, "X", style.foreground);
+              13, &header, header_fg);
+    draw_text(canvas, width, height, width - 24, 13, "X", header_fg);
     for (index, row) in popup.rows().iter().enumerate().skip(popup.first)
         .take(tray::POPUP_ROWS) {
         let top = tray::POPUP_ROW_TOP + (index - popup.first) as u32 * tray::POPUP_ROW_HEIGHT;
@@ -3818,22 +3926,27 @@ fn paint_tray_menu(canvas: &mut [u8], style: &PanelStyle, popup: &tray::MenuPopu
             fill_rect(canvas, width, height, 12, top + 14, width - 24, 1, style.active);
             continue;
         }
-        if index == popup.selected && row.selectable() {
+        let selected = index == popup.selected && row.selectable();
+        if selected {
             fill_rounded_rect(canvas, width, height, 6, top + 1, width - 12,
-                              tray::POPUP_ROW_HEIGHT - 2, style.task_radius,
-                              if style.hover != 0 { style.hover } else { style.active });
+                              tray::POPUP_ROW_HEIGHT - 2, if luna { 2 } else { style.task_radius },
+                              if luna { 0xff31_6ac5 } else if style.hover != 0 {
+                                  style.hover } else { style.active });
         }
         let marker = match &row.kind {
             tray::MenuKind::Action { checked: true, radio: true } => "*",
             tray::MenuKind::Action { checked: true, .. } => "x",
             _ => "",
         };
-        draw_text(canvas, width, height, 12, top + 11, marker, style.foreground);
+        draw_text(canvas, width, height, 12, top + 11, marker,
+                  if luna && selected { header_fg } else { fg });
         let label: String = row.label.chars().take(25).collect();
-        let color = if row.enabled { style.foreground }
+        let color = if !row.enabled && luna { 0xff91_9191 }
+        else if row.enabled && luna && selected { header_fg }
+        else if row.enabled { fg }
         else if style.disabled != 0 { style.disabled } else {
-            let fg = style.foreground.to_le_bytes();
-            let bg = style.background.to_le_bytes();
+            let fg = fg.to_le_bytes();
+            let bg = bg.to_le_bytes();
             u32::from_le_bytes([
                 ((u16::from(fg[0]) + u16::from(bg[0])) / 2) as u8,
                 ((u16::from(fg[1]) + u16::from(bg[1])) / 2) as u8,
@@ -3846,13 +3959,14 @@ fn paint_tray_menu(canvas: &mut [u8], style: &PanelStyle, popup: &tray::MenuPopu
             draw_text(canvas, width, height, width - 20, top + 11, ">", color);
         }
     }
-    fill_rect(canvas, width, height, 0, 201, width, 1, style.active);
+    fill_rect(canvas, width, height, 0, 201, width, 1,
+              if luna { 0xffba_cae0 } else { style.active });
     draw_text(canvas, width, height, 12, 216,
-              if popup.first > 0 { "< Previous" } else { "First page" }, style.foreground);
+              if popup.first > 0 { "< Previous" } else { "First page" }, fg);
     draw_text(canvas, width, height, 169, 216,
               if popup.first + tray::POPUP_ROWS < popup.rows().len() {
                   "Next >"
-              } else { "Last page" }, style.foreground);
+              } else { "Last page" }, fg);
 }
 
 fn paint_focus_border(canvas: &mut [u8], width: u32, height: u32,
@@ -6725,6 +6839,13 @@ impl PointerHandler for RicePlate {
                                 self.activate_tray_item(slot, button, coords, &event.surface, qh);
                             }
                         }
+                        Some(Hit::Status(widget)) => {
+                            self.open_luna_status_menu(widget, &event.surface, qh);
+                        }
+                        Some(Hit::Clock) if button == BTN_RIGHT
+                            && self.recipe.id == "xp-luna-columns" => {
+                            self.open_luna_status_menu(Widget::Clock, &event.surface, qh);
+                        }
                         _ if button == BTN_RIGHT => {},
                         Some(Hit::Launcher) => {
                             if self.focused_panel.as_ref() == Some(&event.surface) {
@@ -7226,6 +7347,31 @@ mod tests {
         let classic = recipe::load("classic").unwrap();
         assert_eq!(render(&classic, PanelPointerVisual::default()),
                    render(&classic, task_press));
+    }
+
+    #[test]
+    fn luna_native_status_menus_have_real_capability_gates() {
+        let unavailable = SystemStatus::default();
+        let (_, network) = luna_status_rows(Widget::Network, &unavailable,
+                                            &PowerStatus::NotPresent).unwrap();
+        assert!(!network[1].enabled);
+        assert!(network[2].enabled);
+        let (_, audio) = luna_status_rows(Widget::Audio, &unavailable,
+                                          &PowerStatus::NotPresent).unwrap();
+        assert!(audio[1..4].iter().all(|row| !row.enabled));
+        let active = SystemStatus {
+            network: system_status::Network::Global,
+            audio: Audio::Volume(65),
+            wifi: system_status::WifiRadio::Enabled,
+        };
+        let (_, network) = luna_status_rows(Widget::Network, &active,
+                                            &PowerStatus::NotPresent).unwrap();
+        assert!(network[1].enabled);
+        let (_, volume) = luna_status_rows(Widget::Audio, &active,
+                                           &PowerStatus::NotPresent).unwrap();
+        assert!(volume[1..4].iter().all(|row| row.enabled));
+        assert_eq!(volume[4].id, 102);
+        assert!(luna_status_rows(Widget::Tray, &active, &PowerStatus::NotPresent).is_none());
     }
 
     #[test]
