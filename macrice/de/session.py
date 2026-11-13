@@ -633,11 +633,19 @@ class _LiveSwitch:
                 return {**self.status(), "changed": False}
             try:
                 recipe = recipes.load(self.active)
+                if staging._hash(self.active) != self.active_digest:
+                    raise LiveError("Active recipe changed; output refresh refused",
+                                    code="recipe_changed")
                 new_panel = self._start_panel(self.active, recipe)
-            except (recipes.RecipeError, OSError, LiveError) as exc:
+            except LiveError:
+                raise
+            except (recipes.RecipeError, OSError) as exc:
                 raise LiveError("Waybar output refresh could not start",
                                 code="component_failed") from exc
             time.sleep(0.5)
+            if self.stopping():
+                _stop_process(new_panel)
+                raise LiveError("Session is shutting down", code="session_stopping")
             if new_panel.poll() is not None:
                 _stop_process(new_panel)
                 raise LiveError("Waybar output refresh failed; previous bar retained",
@@ -813,10 +821,18 @@ def _refresh_changed_outputs(controller: _LiveSwitch, previous: tuple[str, str] 
                              env: Mapping[str, str], which: Callable[[str], str | None]
                              ) -> tuple[str, str]:
     """Only replace the owned Waybar when a wl_output event changed its layout."""
-    from . import recipes
+    from . import recipes, staging
+    from .live import LiveError
 
     current = controller.active
-    config = _waybar_recipe_config(recipes.load(current), env, which)[0]
+    try:
+        recipe = recipes.load(current)
+        if staging._hash(current) != controller.active_digest:
+            raise LiveError("Active recipe changed; output refresh refused",
+                            code="recipe_changed")
+    except recipes.RecipeError as exc:
+        raise LiveError("Active recipe is no longer valid", code="recipe_changed") from exc
+    config = _waybar_recipe_config(recipe, env, which)[0]
     signature = (current, config)
     if signature != previous:
         controller.handle({"action": "refresh-outputs", "recipe": None,
