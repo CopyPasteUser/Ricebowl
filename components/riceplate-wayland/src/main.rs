@@ -14,6 +14,8 @@ mod desktop_layout;
 mod desktop_selection;
 mod frame_scheduler;
 mod input_core;
+mod seat_routing;
+mod window_lifecycle;
 mod icon_positions;
 mod installed_apps;
 mod luna_places;
@@ -48,6 +50,7 @@ use system_status::{Audio, ControlAction, SystemStatus};
 use control_feedback::ControlFeedback;
 use frame_scheduler::FrameGate;
 use input_core::{PanelKey, PanelPointerVisual, PointerSignal};
+use seat_routing::ActivationSource;
 use raster::{fill_rect, fill_rounded_rect};
 use overlay_renderer::{paint_calendar, paint_compact_notifications, paint_notifications};
 #[cfg(test)]
@@ -541,14 +544,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         icon_position_dirty: false,
         icon_outputs,
         menu_focused: false,
-        primary_seat: None,
+        seat_assignments: seat_routing::SeatAssignments::default(),
         primary_output: None,
         primary_output_seen: false,
         toplevel_manager,
         trace_window_events: std::env::var("RICEBOWL_DE_TRACE_WINDOWS").as_deref() == Ok("1"),
         trace_frames: std::env::var("RICEBOWL_DE_TRACE_FRAMES").as_deref() == Ok("1"),
         tasks: Vec::new(),
-        show_desktop_restore: Vec::new(),
+        show_desktop: window_lifecycle::ShowDesktop::default(),
         luna_options,
         panel_collapsed: initial_panel_collapsed,
         panel_pointer_inside: false,
@@ -1013,7 +1016,7 @@ struct RicePlate {
     icon_position_dirty: bool,
     icon_outputs: icon_positions::OutputPositions,
     menu_focused: bool,
-    primary_seat: Option<wl_seat::WlSeat>,
+    seat_assignments: seat_routing::SeatAssignments<wl_seat::WlSeat>,
     primary_output: Option<wl_output::WlOutput>,
     primary_output_seen: bool,
     toplevel_manager: Option<ZwlrForeignToplevelManagerV1>,
@@ -1021,7 +1024,7 @@ struct RicePlate {
     trace_frames: bool,
     tasks: Vec<Task>,
     // Only windows actually minimized by Show Desktop are restored.
-    show_desktop_restore: Vec<ZwlrForeignToplevelHandleV1>,
+    show_desktop: window_lifecycle::ShowDesktop<ZwlrForeignToplevelHandleV1>,
     luna_options: luna_taskbar::Options,
     panel_collapsed: bool,
     // Actual compositor pointer focus, not a timer or guessed screen coordinates.
@@ -1872,7 +1875,7 @@ impl RicePlate {
             Target::Launcher(panel) => self.activate_launcher(
                 if panel == 0 { None } else { Some(panel - 1) }, qh),
             Target::PanelAction(action) => self.activate_action(&action, qh),
-            Target::Task(index) => self.activate_group(index),
+            Target::Task(index) => self.activate_group(index, ActivationSource::Assistive),
             Target::Clock => self.toggle_calendar_for_panel(None, qh),
             Target::Status(widget) => {
                 let source = self.layer.wl_surface().clone();
@@ -2031,28 +2034,29 @@ impl RicePlate {
     }
 
     fn toggle_show_desktop(&mut self, qh: &QueueHandle<Self>) {
-        if !self.show_desktop_restore.is_empty() {
-            // Do not undo windows the user had already minimized, or newly
-            // opened windows. A closed foreign toplevel is ignored safely.
-            for task in &self.tasks {
-                if self.show_desktop_restore.iter().any(|handle| handle == &task.handle) {
-                    // The compositor may still be processing set_minimized
-                    // from a rapid double-toggle. Unset is idempotent and
-                    // must not depend on an asynchronous state callback.
-                    task.handle.unset_minimized();
+        // Snapshot exact compositor handles, not fragile task-list indices.
+        // A rapid double-toggle must not depend on a delayed State callback.
+        let actions = self.show_desktop.toggle(self.tasks.iter()
+            .map(|task| (task.handle.clone(), task.ready, task.minimized)));
+        for action in actions {
+            match action {
+                window_lifecycle::ShowDesktopAction::Minimize(handle) => {
+                    if self.tasks.iter().any(|task| task.handle == handle && task.ready) {
+                        handle.set_minimized();
+                    }
+                }
+                window_lifecycle::ShowDesktopAction::Restore(handle) => {
+                    // Closed handles and newly opened windows are never restored.
+                    if self.tasks.iter().any(|task| task.handle == handle && task.ready) {
+                        handle.unset_minimized();
+                    }
                 }
             }
-            self.show_desktop_restore.clear();
-        } else {
-            self.show_desktop_restore = self.tasks.iter()
-                .filter(|task| task.ready && !task.minimized)
-                .map(|task| task.handle.clone()).collect();
-            for handle in &self.show_desktop_restore { handle.set_minimized(); }
         }
         self.request_redraw(qh);
     }
 
-    fn activate_group(&mut self, index: usize) {
+    fn activate_group(&mut self, index: usize, source: ActivationSource) {
         let groups = self.grouped_tasks();
         if let Some(group) = groups.get(index) {
             let active_index = group.members.iter().copied()
@@ -2062,7 +2066,7 @@ impl RicePlate {
                 eprintln!("RicePlate taskbar action={} app_id={:?} seat={} minimized={}",
                     if minimize { "minimize" } else { "restore" },
                     self.tasks[target].app_id,
-                    self.primary_seat.is_some(), self.tasks[target].minimized);
+                    self.seat_assignments.activation_seat_for(source).is_some(), self.tasks[target].minimized);
             }
             if minimize {
                 self.tasks[target].handle.set_minimized();
@@ -2072,7 +2076,7 @@ impl RicePlate {
                 if self.tasks[target].minimized {
                     self.tasks[target].handle.unset_minimized();
                 }
-                if let Some(seat) = self.primary_seat.as_ref() {
+                if let Some(seat) = self.seat_assignments.activation_seat_for(source) {
                     self.tasks[target].handle.activate(seat);
                 }
             }
@@ -2111,7 +2115,7 @@ impl RicePlate {
                         }
                     }
                     Some(KeyboardTarget::Task(index)) if key != Keysym::Menu =>
-                        self.activate_group(index),
+                        self.activate_group(index, ActivationSource::Keyboard),
                     Some(KeyboardTarget::Status(widget)) => {
                         let source = surface.clone();
                         self.open_luna_status_menu(widget, &source, qh);
@@ -5559,9 +5563,7 @@ impl SeatHandler for RicePlate {
         &mut self.seats
     }
     fn new_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, seat: wl_seat::WlSeat) {
-        if self.primary_seat.is_none() {
-            self.primary_seat = Some(seat);
-        }
+        self.seat_assignments.appeared(seat);
     }
     fn new_capability(
         &mut self,
@@ -5572,13 +5574,19 @@ impl SeatHandler for RicePlate {
     ) {
         if capability == Capability::Keyboard && self.keyboard.is_none() {
             match self.seats.get_keyboard(qh, &seat, None) {
-                Ok(keyboard) => self.keyboard = Some(keyboard),
+                Ok(keyboard) => {
+                    self.seat_assignments.claim_keyboard(seat.clone());
+                    self.keyboard = Some(keyboard);
+                },
                 Err(error) => eprintln!("RicePlate: keyboard unavailable: {error}"),
             }
         }
         if capability == Capability::Pointer && self.pointer.is_none() {
             match self.seats.get_pointer(qh, &seat) {
-                Ok(pointer) => self.pointer = Some(pointer),
+                Ok(pointer) => {
+                    self.seat_assignments.claim_pointer(seat.clone());
+                    self.pointer = Some(pointer);
+                },
                 Err(error) => eprintln!("RicePlate: pointer unavailable: {error}"),
             }
         }
@@ -5587,17 +5595,19 @@ impl SeatHandler for RicePlate {
         &mut self,
         _: &Connection,
         qh: &QueueHandle<Self>,
-        _: wl_seat::WlSeat,
+        seat: wl_seat::WlSeat,
         capability: Capability,
     ) {
-        if capability == Capability::Pointer {
+        if capability == Capability::Pointer
+            && self.seat_assignments.release_pointer(&seat) {
             if let Some(pointer) = self.pointer.take() {
                 pointer.release();
             }
             self.icon_drag = None;
             self.desktop_selection.cancel();
             self.save_icon_positions();
-        } else if capability == Capability::Keyboard {
+        } else if capability == Capability::Keyboard
+            && self.seat_assignments.release_keyboard(&seat) {
             // A removed keyboard never sends release/modifier updates.
             self.selection_modifiers = Modifiers::default();
             self.desktop_selection.cancel();
@@ -5622,10 +5632,15 @@ impl SeatHandler for RicePlate {
             self.request_redraw(qh);
         }
     }
-    fn remove_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, seat: wl_seat::WlSeat) {
-        if self.primary_seat.as_ref() == Some(&seat) {
-            self.primary_seat = None;
+    fn remove_seat(&mut self, conn: &Connection, qh: &QueueHandle<Self>, seat: wl_seat::WlSeat) {
+        // Some compositors remove a seat before the capability events.
+        if self.seat_assignments.owns_pointer(&seat) {
+            <Self as SeatHandler>::remove_capability(self, conn, qh, seat.clone(), Capability::Pointer);
         }
+        if self.seat_assignments.owns_keyboard(&seat) {
+            <Self as SeatHandler>::remove_capability(self, conn, qh, seat.clone(), Capability::Keyboard);
+        }
+        self.seat_assignments.forget_seat(&seat);
     }
 }
 
@@ -5634,12 +5649,13 @@ impl KeyboardHandler for RicePlate {
         &mut self,
         _: &Connection,
         qh: &QueueHandle<Self>,
-        _: &wl_keyboard::WlKeyboard,
+        keyboard: &wl_keyboard::WlKeyboard,
         surface: &wl_surface::WlSurface,
         _: u32,
         _: &[u32],
         _: &[Keysym],
     ) {
+        if self.keyboard.as_ref() != Some(keyboard) { return; }
         self.luna_dialog_focused = self.luna_dialog.as_ref().is_some_and(|dialog|
             dialog.surface.wl_surface() == surface);
         self.context_focused = self.desktop_context.as_ref().is_some_and(|menu|
@@ -5702,10 +5718,11 @@ impl KeyboardHandler for RicePlate {
         &mut self,
         _: &Connection,
         qh: &QueueHandle<Self>,
-        _: &wl_keyboard::WlKeyboard,
+        keyboard: &wl_keyboard::WlKeyboard,
         surface: &wl_surface::WlSurface,
         _: u32,
     ) {
+        if self.keyboard.as_ref() != Some(keyboard) { return; }
         // Never retain Ctrl/Shift after compositor keyboard focus leaves.
         self.selection_modifiers = Modifiers::default();
         self.desktop_selection.cancel();
@@ -5750,10 +5767,11 @@ impl KeyboardHandler for RicePlate {
         &mut self,
         _: &Connection,
         qh: &QueueHandle<Self>,
-        _: &wl_keyboard::WlKeyboard,
+        keyboard: &wl_keyboard::WlKeyboard,
         _: u32,
         event: KeyEvent,
     ) {
+        if self.keyboard.as_ref() != Some(keyboard) { return; }
         if self.luna_dialog_focused {
             let mut execute = false;
             let mut repaint = false;
@@ -6187,10 +6205,11 @@ impl KeyboardHandler for RicePlate {
         &mut self,
         _: &Connection,
         _: &QueueHandle<Self>,
-        _: &wl_keyboard::WlKeyboard,
+        keyboard: &wl_keyboard::WlKeyboard,
         _: u32,
         event: KeyEvent,
     ) {
+        if self.keyboard.as_ref() != Some(keyboard) { return; }
         if matches!(event.keysym, Keysym::Left | Keysym::Right | Keysym::Up | Keysym::Down) {
             self.save_icon_positions();
         }
@@ -6200,12 +6219,13 @@ impl KeyboardHandler for RicePlate {
         &mut self,
         _: &Connection,
         _: &QueueHandle<Self>,
-        _: &wl_keyboard::WlKeyboard,
+        keyboard: &wl_keyboard::WlKeyboard,
         _: u32,
         modifiers: Modifiers,
         _: RawModifiers,
         _: u32,
     ) {
+        if self.keyboard.as_ref() != Some(keyboard) { return; }
         self.selection_modifiers = modifiers;
         // A held Ctrl/Shift modifier invalidates any pending plain double
         // click even if the focus stays on the same shortcut.
@@ -6220,9 +6240,11 @@ impl PointerHandler for RicePlate {
         &mut self,
         _: &Connection,
         qh: &QueueHandle<Self>,
-        _: &wl_pointer::WlPointer,
+        pointer: &wl_pointer::WlPointer,
         events: &[PointerEvent],
     ) {
+        // Ignore queued events from a released seat's old pointer proxy.
+        if self.pointer.as_ref() != Some(pointer) { return; }
         for event in events {
             // A popup Enter is authoritative Wayland evidence that the
             // pointer is no longer over the taskbar. Compositors need not
@@ -6838,7 +6860,7 @@ impl PointerHandler for RicePlate {
                                 self.focused_target = Some(KeyboardTarget::Task(index));
                                 self.request_redraw(qh);
                             }
-                            self.activate_group(index);
+                            self.activate_group(index, ActivationSource::Pointer);
                         }
                         Some(Hit::PreviousTasks) => {
                             if let Some(view) = recipe::task_view(
@@ -6907,7 +6929,7 @@ impl Dispatch<ZwlrForeignToplevelManagerV1, ()> for RicePlate {
                 }
                 state.toplevel_manager = None;
                 state.tasks.clear();
-                state.show_desktop_restore.clear();
+                state.show_desktop.reset();
                 state.task_offset = 0;
                 state.request_redraw(qh);
             }
@@ -6940,7 +6962,7 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for RicePlate {
                 state.tasks.remove(index).handle.destroy();
                 // The restore transaction must never retain a destroyed
                 // compositor proxy after a client exits.
-                state.show_desktop_restore.retain(|handle| handle != proxy);
+                state.show_desktop.closed(proxy);
                 state.task_offset = state
                     .task_offset
                     .min(state.grouped_tasks().len().saturating_sub(1));
