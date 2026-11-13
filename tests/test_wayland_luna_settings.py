@@ -24,7 +24,7 @@ class WaylandLunaSettingsTests(unittest.TestCase):
     def test_default_settings_keep_existing_presentation(self):
         with mock.patch("macrice.de.settings.launch") as launch:
             self.assertEqual(main(["de", "settings"]), 0)
-            launch.assert_called_once_with(page="network", luna=False)
+            launch.assert_called_once_with()
 
     def test_luna_flags_do_not_leak_into_other_de_commands(self):
         with mock.patch("macrice.de.settings.launch") as launch:
