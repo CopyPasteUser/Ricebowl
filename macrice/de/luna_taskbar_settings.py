@@ -13,7 +13,8 @@ import tempfile
 from pathlib import Path
 from typing import Mapping
 
-DEFAULTS = {"auto_hide": False, "quick_launch": True}
+DEFAULTS = {"auto_hide": False, "quick_launch": True, "group_similar_windows": True}
+_V1_KEYS = frozenset(("auto_hide", "quick_launch"))
 _NAME = "luna-taskbar.json"
 _MAX_BYTES = 256
 
@@ -32,7 +33,7 @@ def _directory() -> Path:
 def _validate(value: object) -> dict[str, bool]:
     if (not isinstance(value, dict) or set(value) != set(DEFAULTS)
             or any(type(value[k]) is not bool for k in DEFAULTS)):
-        raise TaskbarSettingsError("Expected exactly two boolean taskbar settings")
+        raise TaskbarSettingsError("Expected exactly three boolean taskbar settings")
     return {key: value[key] for key in DEFAULTS}
 
 
@@ -70,10 +71,16 @@ def load() -> dict[str, bool]:
         data = json.loads(raw)
     except (ValueError, UnicodeError) as exc:
         raise TaskbarSettingsError("Invalid taskbar settings JSON") from exc
-    if (not isinstance(data, dict) or type(data.get("version")) is not int
-            or data["version"] != 1):
+    if not isinstance(data, dict) or type(data.get("version")) is not int:
         raise TaskbarSettingsError("Unsupported taskbar settings version")
-    return _validate({k: v for k, v in data.items() if k != "version"})
+    values = {k: v for k, v in data.items() if k != "version"}
+    if data["version"] == 1:
+        if set(values) != _V1_KEYS or any(type(v) is not bool for v in values.values()):
+            raise TaskbarSettingsError("Malformed legacy taskbar settings")
+        return _validate({**DEFAULTS, **values})
+    if data["version"] == 2:
+        return _validate(values)
+    raise TaskbarSettingsError("Unsupported taskbar settings version")
 
 
 def save(desired: Mapping, *, expected: Mapping) -> dict[str, bool]:
@@ -97,7 +104,7 @@ def save(desired: Mapping, *, expected: Mapping) -> dict[str, bool]:
         fd, name = tempfile.mkstemp(prefix=".luna-taskbar-", dir=directory)
         try:
             with os.fdopen(fd, "wb") as stream:
-                stream.write(json.dumps({"version": 1, **values},
+                stream.write(json.dumps({"version": 2, **values},
                                         sort_keys=True).encode("utf-8"))
                 stream.flush()
                 os.fsync(stream.fileno())
