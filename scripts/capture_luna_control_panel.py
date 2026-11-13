@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import sys
 
+# Standalone capture invoked as scripts/capture_*.py from repository root or CI.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from macrice.de.settings import RiceSpiceWindow, _gtk_modules
 
 
