@@ -412,7 +412,10 @@ def main(argv: list[str] | None = None) -> int:
                 if args.json or args.nested or args.recipe or args.panel != "waybar":
                     raise ValueError("de settings accepts only --page and --luna")
                 from .de.settings import launch
-                launch(page=args.page or "network", luna=args.luna)
+                if args.page is None and not args.luna:
+                    launch()  # Keep the stable generic RiceSpice entrypoint contract.
+                else:
+                    launch(page=args.page or "network", luna=args.luna)
                 return 0
             if args.action == "display-confirm":
                 if (args.json or args.nested or args.recipe or args.panel != "waybar"
