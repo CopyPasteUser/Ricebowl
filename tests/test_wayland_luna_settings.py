@@ -66,8 +66,7 @@ class WaylandLunaSettingsTests(unittest.TestCase):
             self.skipTest("GTK introspection typelib unavailable")
         if not Gtk.init_check([])[0]:
             self.skipTest("GTK display unavailable")
-        window = settings.RiceSpiceWindow(Gtk, Gdk, GLib, page="taskbar", luna=True)
-        window.show_home()
+        window = settings.RiceSpiceWindow(Gtk, Gdk, GLib, page="home", luna=True)
         self.assertEqual(window.page, "home")
         self.assertEqual(len(window.nav_buttons), len(settings.LUNA_SECTIONS))
         window.search_entry.set_text("start menu")
