@@ -16,6 +16,26 @@ class WaylandLunaSettingsTests(unittest.TestCase):
                         {name for name, _title, _help in settings.SECTIONS})
         self.assertEqual(set(keys), set(settings.LUNA_ICONS))
 
+    def test_luna_groups_cover_each_real_category_exactly_once(self):
+        grouped = [key for _name, keys in settings.LUNA_GROUPS for key in keys]
+        catalog = [key for key, _title, _description in settings.LUNA_SECTIONS]
+        self.assertEqual(len(grouped), len(set(grouped)))
+        self.assertEqual(set(grouped), set(catalog))
+
+    def test_luna_search_uses_titles_descriptions_and_keys(self):
+        self.assertEqual(settings.luna_search_matches(""), tuple(
+            key for key, _title, _desc in settings.LUNA_SECTIONS))
+        self.assertIn("audio", settings.luna_search_matches("sound"))
+        self.assertIn("displays", settings.luna_search_matches("scaling"))
+        self.assertIn("taskbar", settings.luna_search_matches("start menu"))
+        self.assertIn("network", settings.luna_search_matches("WI-FI"))
+        self.assertEqual(settings.luna_search_matches("unavailable_fake_page"), ())
+
+    def test_luna_without_page_opens_overview(self):
+        with mock.patch("macrice.de.settings.launch") as launch:
+            self.assertEqual(main(["de", "settings", "--luna"]), 0)
+            launch.assert_called_once_with(page="home", luna=True)
+
     def test_luna_settings_page_routes_to_real_on_demand_window(self):
         with mock.patch("macrice.de.settings.launch") as launch:
             self.assertEqual(main(["de", "settings", "--luna", "--page", "audio"]), 0)
@@ -31,6 +51,13 @@ class WaylandLunaSettingsTests(unittest.TestCase):
             self.assertNotEqual(main(["de", "check", "--luna"]), 0)
             self.assertNotEqual(main(["de", "check", "--page", "audio"]), 0)
             launch.assert_not_called()
+
+    def test_luna_home_is_a_real_control_panel_route(self):
+        # The selector still rejects unsupported external pages.
+        with mock.patch("macrice.de.settings._gtk_modules", side_effect=ImportError):
+            with self.assertRaises(settings.backend.SettingsError) as error:
+                settings.launch(page="home", luna=True)
+        self.assertIn("GTK3", str(error.exception))
 
     def test_invalid_pages_rejected_before_opening_gtk(self):
         with self.assertRaises(settings.backend.SettingsError):
