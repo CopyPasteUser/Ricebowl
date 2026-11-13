@@ -39,7 +39,7 @@ class NativeLunaTaskbarOptionsTest(unittest.TestCase):
     def test_invalid_types_and_schema_fail_closed(self):
         self.path.parent.mkdir()
         for data in [
-            {"version": 2, **options.DEFAULTS},
+            {"version": 3, **options.DEFAULTS},
             {"version": True, **options.DEFAULTS},
             {"version": 1, "auto_hide": 1, "quick_launch": False},
             {"version": 1, **options.DEFAULTS},

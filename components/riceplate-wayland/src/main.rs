@@ -7581,6 +7581,7 @@ mod tests {
             Some("xp-luna")).unwrap();
         let groups = [TaskGroup {
             members: vec![0], representative: 0, label: "File Manager".into(), active: true,
+            minimized: false,
         }];
         let render = |style: &PanelStyle, visual: PanelPointerVisual| {
             let width = 1366;
@@ -8249,6 +8250,7 @@ mod tests {
         let group = task_groups::TaskGroup {
             members: vec![0, 1, 2], representative: 0,
             label: "An application title with a long name".into(), active: false,
+            minimized: false,
         };
         for width in [90, 100, 124, 156] {
             let short = fitted_task_label(&group, width, &luna);
