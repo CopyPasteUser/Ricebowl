@@ -252,7 +252,43 @@ PY
     wait_window_state "active=true minimized=false"
     echo "Real taskbar pointer click minimized and restored the Wayland client"
 
-    kill "$window"
+    if [ "$mode" = "--luna" ]; then
+        # Real compositor state transitions, not mock commands: Maximize
+        # then Restore via the top row. Existing pointer/keyboard focus must
+        # survive a change in client window geometry.
+        WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click "$task_click_x" 750 1024 768
+        WAYLAND_DISPLAY=wayland-0 "$clicker" 290 652 1024 768
+        wait_window_state "maximized=true"
+        WAYLAND_DISPLAY=wayland-0 grim - >"$runtime/luna-maximized.png"
+        WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click "$task_click_x" 750 1024 768
+        WAYLAND_DISPLAY=wayland-0 "$clicker" 290 603 1024 768
+        wait_window_state "maximized=false"
+        WAYLAND_DISPLAY=wayland-0 grim - >"$runtime/luna-unmaximized.png"
+        # Close goes through zwlr_foreign_toplevel_handle_v1::close, not kill.
+        WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click "$task_click_x" 750 1024 768
+        WAYLAND_DISPLAY=wayland-0 "$clicker" 290 700 1024 768
+        out="$source_root/dist/riceplate-native-preview"
+        if [ -d "$out" ]; then
+            cp "$runtime/luna-maximized.png" "$out/luna-taskbar-window-maximized.png"
+            cp "$runtime/luna-unmaximized.png" "$out/luna-taskbar-window-unmaximized.png"
+        fi
+    else
+        kill "$window"
+    fi
+    # A foot that ignores a real Close request must fail the compositor
+    # acceptance test. The shell never fakes a Close by killing the process.
+    if [ "$mode" = "--luna" ]; then
+        count=0
+        while kill -0 "$window" 2>/dev/null && [ "$count" -lt 40 ]; do
+            sleep 0.25
+            count=$((count + 1))
+        done
+        if kill -0 "$window" 2>/dev/null; then
+            echo "Real Wayland Close action did not close foot" >&2
+            tail -n 35 "$runtime/panel.log" >&2
+            exit 1
+        fi
+    fi
     wait "$window" 2>/dev/null || :
     window=
     count=0
