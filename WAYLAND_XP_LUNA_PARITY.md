@@ -21,6 +21,8 @@ Wayland uses upstream labwc plus RicePlate. Original/licensed art only.
 
 ## Desktop shortcut keyboard selection and labwc focus policy (13 November 2026)
 
+**Experimental and not functional in the tested labwc session.** Although the implementation below is present on Draft PR #327, the native `wtype` and real `grim` screen check failed (run #43365078976, 0 changed Programs pixels). No shipped `main` behavior or user-device acceptance is claimed. The expected fix is a true icon-owned `xdg_popup`, as tracked in issue #328.
+
 labwc intentionally denies regular keyboard focus to Bottom/Background
 OnDemand surfaces to protect applications. Therefore XP Luna keeps native
 shortcut icon surfaces in Bottom; no full-screen wallpaper hit target,
