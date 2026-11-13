@@ -1,5 +1,17 @@
 # RiceBowl DE — Wayland/labwc transition
 
+### Session / portal infrastructure — strict ScreenCast gate (13 November 2026)
+
+- [ ] Separate disposable Mesa GLES2 CI test from the existing pixman
+  fallback. Require ScreenCast Start stream node IDs plus a real PipeWire
+  remote FD, reject invalid tokens/paths/stream shapes and false-success
+  fallbacks. The strict CI job must be green at the final PR SHA before
+  marking this complete (issue #304); no real frame delivery, user consent,
+  Flatpak sandbox or physical hardware acceptance is implied.
+- [ ] Real-session login/logout, lid-close wake-to-lock, multi-monitor dock
+  recovery, Flatpak/consent and physical PipeWire frames remain 1.0 gates.
+
+
 **Status (November 2026): opt-in labwc session preview implemented;
 physical acceptance outstanding.** RiceBowl 0.9.x is still an XFCE/X11
 rice manager. The separate Wayland login-session package requires explicit
