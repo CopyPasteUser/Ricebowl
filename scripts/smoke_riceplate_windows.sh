@@ -275,7 +275,7 @@ PY
     else
         kill "$window"
     fi
-    # Verify Close by the compositor's foreign-toplevel Closed event.
+    # Verify Close through the compositor foreign-toplevel Closed event.
     # A background child may briefly remain a zombie until the shell reaps
     # it, so kill -0 alone is not a reliable native window-lifecycle probe.
     if [ "$mode" = "--luna" ]; then
