@@ -150,6 +150,7 @@ jobs:
           /usr/bin/python3 -m unittest tests.test_de_session -v
           /usr/bin/python3 -m unittest tests.test_de_acceptance -v
           cargo test --locked --manifest-path components/riceplate-wayland/Cargo.toml
+          cargo clippy --locked --all-targets --manifest-path components/riceplate-wayland/Cargo.toml
           cargo build --locked --release --manifest-path components/riceplate-wayland/Cargo.toml
           cargo build --locked --release --manifest-path components/riceplate-wayland/Cargo.toml \
             --example wayland_pointer_click
