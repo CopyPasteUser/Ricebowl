@@ -549,6 +549,19 @@ class _LiveSwitch:
         if candidate.poll() is not None:
             _stop_process(candidate)
             raise LiveError("Waybar rescue exited during activation", code="component_failed")
+        # The Luna IPC listener belongs to native RicePlate. If that process
+        # crashed, a rescue bar must not inherit dead W-d/W-e/W-r bindings:
+        # labwc's own default W-d remains available through <default/>.
+        old_rc = self.rc.read_text(encoding="utf-8")
+        if old_rc != self._base_rc:
+            try:
+                _atomic_labwc_text(self.rc, self._base_rc)
+                self._reconfigure()
+            except (OSError, subprocess.SubprocessError, LiveError) as error:
+                # Preserve a usable Waybar rescue even if the compositor's
+                # reconfigure command fails. Log the incomplete hotkey reset.
+                print(f"RiceBowl: Waybar rescue shortcuts not reset: {error}",
+                      file=sys.stderr)
         self.panel = candidate
 
     def handle(self, request: dict) -> dict:
