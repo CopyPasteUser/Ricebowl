@@ -52,7 +52,7 @@ MENU_ACTIONS = frozenset(("applications", "terminal", "lock", "logout",
 # A deliberately smaller set than menu quick controls: all four work from a
 # panel without requiring a menu feedback surface or a custom command parser.
 PANEL_ACTIONS = frozenset(("applications", "terminal", "settings", "lock",
-                           "clip-history"))
+                           "clip-history", "show-desktop"))
 PANEL_CONTROLS = frozenset(("wifi-toggle", "audio-mute", "audio-up", "audio-down"))
 PANEL_ACTION_COMMANDS = {
     "applications": "fuzzel", "terminal": "foot",
@@ -1270,6 +1270,13 @@ def waybar_config(recipe: PanelRecipe, *, screen_width: int | None = None) -> tu
                     f"border-left: 1px solid {recipe.colors[1]}; margin: 8px 0; padding: 0; }}")
             elif node.kind == "action":
                 key = f"custom/rice-action-{index}"
+                if node.value == "show-desktop":
+                    # The wlr foreign-toplevel toggle is owned by native RicePlate.
+                    # Waybar has no equivalent safely authenticated action.
+                    generated_modules[key] = {"format": "Desktop (N/A)",
+                                              "tooltip": True,
+                                              "tooltip-format": "Requires native RicePlate"}
+                    return [key]
                 generated_modules[key] = {
                     "format": node.label, "tooltip": False,
                     "on-click": PANEL_ACTION_COMMANDS[str(node.value)],
