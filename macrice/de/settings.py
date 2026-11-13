@@ -383,7 +383,13 @@ class RiceSpiceWindow:
         if primary:
             button.get_style_context().add_class("ricespice-action")
         button.connect("clicked", lambda _button: callback())
-        (parent or self.content).pack_start(button, False, False, 0)
+        if self.luna and parent is None:
+            # XP Control Panel commands are compact actions, not full-width bars.
+            row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL)
+            row.pack_start(button, False, False, 0)
+            self.content.pack_start(row, False, False, 0)
+        else:
+            (parent or self.content).pack_start(button, False, False, 0)
         return button
 
     def _state(self, message: str):
