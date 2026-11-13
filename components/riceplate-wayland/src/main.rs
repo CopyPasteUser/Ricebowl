@@ -10,6 +10,7 @@ mod brightness;
 mod calendar;
 mod control_feedback;
 mod desktop_context;
+mod desktop_files;
 mod desktop_layout;
 mod desktop_selection;
 mod frame_scheduler;
@@ -483,6 +484,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }).ok()
     });
 
+    let static_icon_count = recipe.desktop_icons.len();
     let mut app = RicePlate {
         compositor,
         layer_shell,
@@ -533,6 +535,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         focused_icon: None,
         keyboard_icon_surface: None,
         desktop_selection: desktop_selection::Selection::default(),
+        desktop_files: None,
+        static_icon_count,
         desktop_type_select: desktop_selection::TypeSelect::default(),
         selection_modifiers: Modifiers::default(),
         desktop_context: None,
@@ -574,6 +578,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         frame: FrameGate::default(),
         accessibility: None,
     };
+    // User-file scan only in opt-in Luna, never in isolated design previews.
+    if app.recipe.id == "xp-luna-columns"
+        && std::env::var("RICEBOWL_DE_NESTED").as_deref() != Ok("1") {
+        match desktop_files::Model::open() {
+            Ok(model) => {
+                app.desktop_files = Some(model);
+                app.rebuild_desktop_file_icons(&qh);
+            }
+            Err(error) => eprintln!("RicePlate: Desktop directory unavailable: {error}"),
+        }
+    }
     // Only a real standalone Luna session owns the root-menu command socket.
     // Never let nested design previews steal an active user's socket.
     let desktop_listener = if app.recipe.id == "xp-luna-columns"
@@ -687,6 +702,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut audio_reconnect_after = Instant::now() + Duration::from_secs(5);
     let mut backlight = if full_session { brightness::Watcher::detect() } else { None };
     let mut next_backlight_check = Instant::now() + Duration::from_millis(800);
+    let mut next_desktop_scan = Instant::now() + Duration::from_secs(4);
     if poll_network || poll_audio {
         let (sender, receiver) = channel::channel::<StatusEvent>();
         // Zero-capacity rendezvous: repeated clicks cannot queue a burst of
@@ -794,9 +810,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         let backlight_timeout = backlight.as_ref().map(|_| next_backlight_check
             .saturating_duration_since(Instant::now()));
         let timeout = [Some(next_clock_timeout()), osd_timeout, reconnect_timeout, backlight_timeout,
-                       app.notification_state.refresh_timeout(Instant::now())]
+                       app.notification_state.refresh_timeout(Instant::now()),
+                       app.desktop_files.as_ref().map(|_| next_desktop_scan.saturating_duration_since(Instant::now()))]
             .into_iter().flatten().min().unwrap_or_else(next_clock_timeout);
         event_loop.dispatch(Some(timeout), &mut app)?;
+        if app.desktop_files.is_some() && Instant::now() >= next_desktop_scan {
+            app.refresh_desktop_files(&qh);
+            next_desktop_scan = Instant::now() + Duration::from_secs(4);
+        }
         if backlight.is_some() && Instant::now() >= next_backlight_check {
             if let Some(percent) = backlight.as_mut().and_then(brightness::Watcher::changed) {
                 app.osd_state.show_brightness(percent, Instant::now());
@@ -1008,6 +1029,8 @@ struct RicePlate {
     focused_icon: Option<usize>,
     keyboard_icon_surface: Option<wl_surface::WlSurface>,
     desktop_selection: desktop_selection::Selection,
+    desktop_files: Option<desktop_files::Model>,
+    static_icon_count: usize,
     desktop_type_select: desktop_selection::TypeSelect,
     selection_modifiers: Modifiers,
     desktop_context: Option<DesktopContextLayer>,
@@ -1094,6 +1117,80 @@ impl RicePlate {
         self.request_redraw(qh);
     }
 
+    /// User file layers are separate runtime state; never rewrite a recipe.
+    fn rebuild_desktop_file_icons(&mut self, qh: &QueueHandle<Self>) {
+        let Some(files) = self.desktop_files.as_ref() else { return };
+        let entries: Vec<_> = files.entries().iter().enumerate().map(|(index, entry)| {
+            let slot = index + self.static_icon_count;
+            recipe::DesktopIcon {
+                label: entry.label(), action: format!("desktop-file:{index}"),
+                x: 24 + ((slot / 5) as u32 * 112),
+                y: 88 + ((slot % 5) as u32 * 104),
+            }
+        }).collect();
+        self.close_desktop_context();
+        self.desktop_selection.clear();
+        self.desktop_type_select.reset();
+        self.icon_drag = None;
+        self.focused_icon = None;
+        self.keyboard_icon_surface = None;
+        self.icon_layers.retain(|layer| layer.recipe_index < self.static_icon_count);
+        self.recipe.desktop_icons.truncate(self.static_icon_count);
+        self.recipe.desktop_icons.extend(entries);
+        for index in self.static_icon_count..self.recipe.desktop_icons.len() {
+            let icon = &self.recipe.desktop_icons[index];
+            let surface = self.layer_shell.create_layer_surface(
+                qh, self.compositor.create_surface(qh), Layer::Bottom,
+                Some("riceplate-desktop-file"), None,
+            );
+            surface.set_anchor(Anchor::TOP | Anchor::LEFT);
+            surface.set_size(recipe::ICON_WIDTH, recipe::ICON_HEIGHT);
+            surface.set_margin(icon.y as i32, 0, 0, icon.x as i32);
+            surface.set_exclusive_zone(-1);
+            surface.set_keyboard_interactivity(KeyboardInteractivity::OnDemand);
+            surface.commit();
+            self.icon_layers.push(IconLayer {
+                recipe_index: index, surface, pool: None, configured: false,
+                output: None, bound_output: None, placed: Some((icon.x, icon.y)),
+            });
+        }
+        if self.primary_output_seen { self.sync_mirrors(qh); }
+        self.reflow_icons();
+        eprintln!("RicePlate: XDG Desktop shows {} bounded file entries",
+            self.recipe.desktop_icons.len() - self.static_icon_count);
+    }
+
+    fn refresh_desktop_files(&mut self, qh: &QueueHandle<Self>) {
+        let Some(files) = self.desktop_files.as_mut() else { return };
+        match files.refresh() {
+            Ok(true) => self.rebuild_desktop_file_icons(qh),
+            Ok(false) => (),
+            Err(error) => eprintln!("RicePlate: Desktop refresh retained old icons: {error}"),
+        }
+    }
+
+    fn open_desktop_file(&self, index: usize) {
+        let Some(files) = self.desktop_files.as_ref() else { return };
+        let mut command = match files.open_command(index, true) {
+            Ok(command) => command,
+            Err(error) => {
+                eprintln!("RicePlate: Desktop file unavailable: {error}");
+                return;
+            }
+        };
+        match command.spawn() {
+            Ok(_) => (),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound
+                && command.get_program() == "ricefield" => {
+                match files.gio_open_command(index).and_then(|mut cmd| cmd.spawn().map(|_| ())) {
+                    Ok(()) => (),
+                    Err(error) => eprintln!("RicePlate: Gio fallback failed: {error}"),
+                }
+            }
+            Err(error) => eprintln!("RicePlate: Desktop open failed: {error}"),
+        }
+    }
+
     fn handle_luna_desktop_request(&mut self, request: luna_desktop_ipc::Request,
                                    qh: &QueueHandle<Self>) {
         if self.recipe.id != "xp-luna-columns" { return; }
@@ -1132,17 +1229,12 @@ impl RicePlate {
             Request::NewFolder => match luna_desktop_ipc::new_folder() {
                 Ok(path) => {
                     eprintln!("RicePlate: Desktop folder created: {}", path.display());
-                    // The native desktop currently displays recipe shortcuts,
-                    // not arbitrary file icons. Open the created directory in
-                    // the real file manager instead of implying it appeared
-                    // on the static desktop.
-                    if let Err(error) = Command::new("gio").arg("open").arg(&path).spawn() {
-                        eprintln!("RicePlate: new folder created but cannot open it: {error}");
-                    }
+                    self.refresh_desktop_files(qh);
                 },
                 Err(error) => eprintln!("RicePlate: cannot create Desktop folder: {error}"),
             },
             Request::Refresh => {
+                self.refresh_desktop_files(qh);
                 self.menu_state.refresh_apps();
                 self.reflow_icons();
                 for index in 0..self.icon_layers.len() { self.redraw_icon(index); }
@@ -2262,11 +2354,12 @@ impl RicePlate {
     }
 
     fn save_icon_positions(&mut self) {
-        if !self.icon_position_dirty {
-            return;
-        }
-        if let Err(error) = icon_positions::save(&self.recipe, &self.icon_outputs) {
-            eprintln!("RicePlate: cannot persist desktop icon positions: {error}");
+        if !self.icon_position_dirty { return; }
+        let extras = self.recipe.desktop_icons.split_off(self.static_icon_count);
+        let result = icon_positions::save(&self.recipe, &self.icon_outputs);
+        self.recipe.desktop_icons.extend(extras);
+        if let Err(error) = result {
+            eprintln!("RicePlate: cannot persist static icon positions: {error}");
             return;
         }
         self.icon_position_dirty = false;
@@ -2711,6 +2804,11 @@ impl RicePlate {
     }
 
     fn activate_action(&mut self, action: &str, qh: &QueueHandle<Self>) {
+        if let Some(index) = action.strip_prefix("desktop-file:")
+            .and_then(|value| value.parse::<usize>().ok()) {
+            if self.recipe.id == "xp-luna-columns" { self.open_desktop_file(index); }
+            return;
+        }
         if action == "show-desktop" {
             if self.menu_state.visible { self.set_menu_visible(false, qh); }
             self.toggle_show_desktop(qh);
@@ -5067,6 +5165,7 @@ fn paint_icon(canvas: &mut [u8], icon: &recipe::DesktopIcon, style: &PanelStyle,
         "computer" => "PC",
         "documents" => "Docs",
         "network" => "Net",
+        other if other.starts_with("desktop-file:") => "File",
         _ => return,
     };
     // The generic default is an original, fully vector-rasterized bin.
