@@ -769,7 +769,7 @@ PY
             echo "Verified Luna right-click context Open through labwc virtual pointer"
             # Native XP type-to-select must work from a REAL keyboard focus
             # on a desktop shortcut, not just in a Rust state-model test.
-            # One click selects Recycle Bin; typing 'p' selects Programs on
+            # One click selects Recycle Bin; typing p selects Programs on
             # the same output, without launching a shortcut or stealing
             # another Wayland client's keys.
             rm -f "$runtime/trash-gio.log"
@@ -788,7 +788,7 @@ PY
                 echo "Luna typing unexpectedly opened Recycle Bin" >&2; exit 1;
             }
             /usr/bin/python3 - "$runtime/xp-luna-type-before.png" \
-                "$runtime/xp-luna-type-programs.png" <<'PY'
+                "$runtime/xp-luna-type-programs.png" <<"PY"
 from PIL import Image, ImageChops
 import sys
 with Image.open(sys.argv[1]) as before, Image.open(sys.argv[2]) as after:
