@@ -467,24 +467,32 @@ and physical hardware acceptance remain open.
 
 ### XP Luna desktop: keyboard type-to-select (13 November 2026)
 
-The native `xp-luna-columns` shortcut layer now implements XP-style, event-driven
-type-to-select **only while a real desktop shortcut owns keyboard focus**.
-A printable alphanumeric key selects the next visible label with that prefix
-on the same `wl_output`; rapid subsequent characters refine the prefix and
-repeated characters cycle matches. The search expires after 1.2 seconds,
-is limited to 32 Unicode characters, and resets on keyboard-focus changes,
-non-character actions and desktop pointer presses. Invisible shortcuts or
-another display are never selected and no arbitrary application is launched.
+In labwc, desktop shortcuts on the Bottom layer cannot acquire regular
+keyboard focus. The initial icon-focused implementation was rejected by a
+real compositor test (0 changed screenshot pixels, no keyboard callbacks).
+Rather than hijacking application input, the native `xp-luna-columns`
+desktop now offers an **explicit taskbar F3 search**: focus the native Top
+panel (click an unused taskbar area), press F3, and type letters to highlight
+shortcuts on that monitor. Enter activates the highlighted, validated action;
+Escape or losing panel focus cancels search. No exclusive keyboard grab,
+desktop-wide input surface, hidden service or timer is introduced.
 
-Deterministic Rust regressions cover matching, Unicode, timed expiration,
-repeat cycling, invalid input and output isolation. The existing isolated
-`scripts/smoke_riceplate_native.sh` uses the compositor virtual pointer to
-focus Recycle Bin, types `p` through real `wtype` keyboard events and checks
-that **Programs** visibly acquires focus in a real 1366×768 `grim` PNG.
-The unmodified source captures `xp-luna-type-before.png` and
-`xp-luna-type-programs.png` are archived by Native RicePlate CI, pending
-green CI on this exact branch. The test does not certify physical
-keyboard/Orca/IME behavior. XFCE/X11 remains unchanged.
+Typing is event-driven and uses a bounded, case-insensitive Unicode scalar
+prefix (1.2-second typing gap, maximum 32 characters, repeated-letter
+cycling); only visible shortcut layers on the originating wl_output are
+eligible. The code retains the existing icon keyboard controls for
+compositors that can focus them, but **does not claim direct icon typing
+works on labwc**.
+
+Pure Rust tests exercise the matcher. The revised
+`scripts/smoke_riceplate_native.sh` tests the real panel route with
+`wtype -k F3` then `wtype p` in isolated labwc, recording unmodified
+`xp-luna-type-before.png` and `xp-luna-type-programs.png` using
+`grim` and asserting that Programs receives a visible selection.
+The screenshots remain **pending CI success on the final head**.
+This does not certify device keyboard, other application focus, IME or
+Orca acceptance. The underlying limitation is tracked as issue #328.
+XFCE/X11 and host defaults remain unchanged.
 
 ### Native XP Luna: bounded multi-selection and keyboard access (12 November 2026)
 
