@@ -25,6 +25,71 @@ class WaylandLunaSettingsTests(unittest.TestCase):
         self.assertEqual(len(grouped), len(set(grouped)))
         self.assertEqual(set(grouped), set(catalog))
 
+    def test_xp_category_model_is_complete_and_has_no_fake_destinations(self):
+        categories = settings.LUNA_CONTROL_CATEGORIES
+        ids = [category[0] for category in categories]
+        pages = [page for category in categories for page in category[4]]
+        valid = {key for key, _title, _description in settings.LUNA_SECTIONS}
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertEqual(len(pages), len(set(pages)))
+        self.assertEqual(set(pages), valid)
+        self.assertTrue(all(category[2] in settings.LUNA_ICON_FILES
+                            for category in categories))
+        self.assertEqual(settings.luna_category_pages("hardware"), ("input",))
+        self.assertIn("audio", settings.luna_category_pages("sound"))
+        with self.assertRaises(ValueError):
+            settings.luna_category_pages("fake-shell-command")
+
+    def test_xp_control_search_indexes_visible_applet_terminology(self):
+        self.assertIn("input", settings.luna_search_matches("hardware"))
+        self.assertIn("audio", settings.luna_search_matches("speech"))
+        self.assertIn("power", settings.luna_search_matches("maintenance"))
+        self.assertNotIn("network", settings.luna_search_matches("maintenance"))
+
+    def test_luna_gtk_category_classic_and_narrow_layout(self):
+        try:
+            Gtk, Gdk, GLib = settings._gtk_modules()
+        except (ImportError, ValueError):
+            self.skipTest("GTK introspection typelib unavailable")
+        if not Gtk.init_check([])[0]:
+            self.skipTest("GTK display unavailable")
+        window = settings.RiceSpiceWindow(Gtk, Gdk, GLib, page="home", luna=True)
+        try:
+            self.assertEqual(window.luna_view, "categories")
+            self.assertEqual(len(window.luna_flow.get_children()),
+                             len(settings.LUNA_CONTROL_CATEGORIES))
+            window.show_category("sound")
+            self.assertEqual(window.page, "category")
+            self.assertEqual(len(window.luna_flow.get_children()), 2)
+            self.assertIn("Sounds", window.breadcrumb.get_text())
+            window.luna_view_switch.clicked()
+            self.assertEqual(window.page, "home")
+            self.assertEqual(window.luna_view, "classic")
+            self.assertEqual(len(window.luna_flow.get_children()),
+                             len(settings.LUNA_SECTIONS))
+            self.assertEqual(window.luna_view_switch.get_label(), "Switch to Category View")
+            from types import SimpleNamespace
+            window._luna_size_allocate(window.window, SimpleNamespace(width=720))
+            self.assertEqual(window.luna_flow.get_max_children_per_line(), 1)
+            window._luna_size_allocate(window.window, SimpleNamespace(width=1024))
+            self.assertEqual(window.luna_flow.get_max_children_per_line(), 2)
+            control = Gdk.ModifierType.CONTROL_MASK
+            self.assertTrue(window._luna_key_press(
+                window.window, SimpleNamespace(keyval=Gdk.KEY_1, state=control)))
+            self.assertEqual(window.luna_view, "categories")
+            self.assertTrue(window._luna_key_press(
+                window.window, SimpleNamespace(keyval=Gdk.KEY_2, state=control)))
+            self.assertEqual(window.luna_view, "classic")
+            window.show_page("audio")
+            self.assertTrue(window._luna_key_press(
+                window.window, SimpleNamespace(keyval=Gdk.KEY_Left,
+                                               state=Gdk.ModifierType.MOD1_MASK)))
+            self.assertEqual(window.page, "home")
+        finally:
+            GLib.timeout_add(30, lambda: (window.window.destroy(), False)[1])
+            Gtk.main()
+        self.assertTrue(window.closed)
+
     def test_luna_search_uses_titles_descriptions_and_keys(self):
         self.assertEqual(settings.luna_search_matches(""), tuple(
             key for key, _title, _desc in settings.LUNA_SECTIONS))
