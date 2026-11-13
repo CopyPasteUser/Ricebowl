@@ -6,7 +6,7 @@ Wayland uses upstream labwc plus RicePlate. Original/licensed art only.
 
 | XP behavior | X11/XFCE `winxp` | Native `xp-luna-columns` (current sprint) | Gap |
 | --- | --- | --- | --- |
-| Green Start, cobalt taskbar, active tasks and notifications | XFWM/GTK shell, real tasks/status | Native taskbar, real Quick Launch/Show Desktop, owner-private Auto-hide, live SNI icons and XP-style system context menus | Device QA, pinned application policy, taskbar locking, exact chrome |
+| Green Start, cobalt taskbar, active tasks and notifications | XFWM/GTK shell, real tasks/status | Native taskbar, real Quick Launch/Show Desktop, owner-private Auto-hide, live SNI icons, window-specific task-button context actions and XP-style system menus | Device QA, pinned application policy, taskbar locking, exact popup chrome |
 | Two-column Start, program discovery and search | Installed apps, categories, search, pinned browser/mail | Native All Programs, search, saved actions and app-recents | Pinned browser/mail defaults; category flyout |
 | My Computer, Documents, Pictures, Music | XDG/GVfs-backed locations and X11 Control Panel browser | Gio-backed real locations with safe missing-folder handling | Drive/volume explorer and path breadcrumbs |
 | Control Panel | Dedicated XP category/task UI with applets | Native Start link opens XP-inspired category navigation in RiceSpice; deep links reach real audio, network, power, date/time and taskbar pages | More exact XP category/task hierarchy and physical-device QA |
@@ -18,6 +18,26 @@ Wayland uses upstream labwc plus RicePlate. Original/licensed art only.
 | File manager / Explorer | Styled Thunar with real file operations | Gio opens the registered file manager | RiceField/Explorer structural integration |
 | Window decorations | XFWM Luna borders/buttons | labwc-managed decoration/theme support | Cannot skin all Wayland CSD windows |
 | Display/login/recovery | Existing XFCE/X11 session | Opt-in labwc native preview; package rollback in CI | Physical Mint/ThinkPad sign-off |
+
+## Native XP task-button actions (13 November 2026)
+
+On the opt-in `xp-luna-columns` panel, right-clicking a **real task button**
+or pressing Menu while it is focused opens a local context menu rather than
+the general taskbar preferences. A single window supports Restore, Minimize,
+Maximize and Close; application groups support selecting any of the first
+20 real windows, Next window, Restore all, Minimize all and Close group.
+Foreign-toplevel handles are captured by proxy identity and checked against
+the current compositor task set before dispatch; app-controlled titles are
+control-character filtered. The menu reuses the existing on-demand Wayland
+layer without a resident background worker. Non-Luna rices retain their
+original pointer behavior.
+
+The headless compositor [taskbar CI run #43402926584](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43402926584)
+validated pointer hit-testing, the visible menu, and a real Minimize/Restore
+state transition. [Original screenshots and their limits](screenshots/wayland/README.md#real-xp-luna-taskbar-window-menu--13-november-2026).
+Full XP context-menu visual fidelity, accessible global keyboard focus,
+physical-device acceptance and support for other compositor protocols
+remain open.
 
 ## Native XP notification area and Control Panel (November 2026)
 

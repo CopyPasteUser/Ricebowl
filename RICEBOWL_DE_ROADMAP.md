@@ -1895,3 +1895,24 @@ and secondary-window CLI, with ordinary Gio fallback when RiceField is
 absent. Non-Luna profiles, global MIME defaults and network/trash GVfs
 navigation remain untouched. Validate actual file manager launch, window
 focus and SMB behavior on the physical ThinkPad before release.
+
+### Native XP Luna taskbar window context actions (13 November 2026)
+
+- [x] Opt-in XP task-button right-click and keyboard Menu key open a real
+  foreign-toplevel window menu rather than launching Taskbar settings.
+- [x] Single-window Restore/Minimize/Maximize/Close and grouped-window
+  activation, navigation, restore/minimize/close commands use only compositor
+  window handles; closed windows are revalidated and labels are bounded.
+- [x] Observe minimized **and maximized** states from compositor events;
+  opening and dismissing the local popup remains event-driven and does not
+  dispatch fake StatusNotifier bus actions.
+- [x] Native labwc smoke proves actual pointer menu opening and Minimize/Restore
+  through the foreign-toplevel protocol. Verified on
+  [Native RicePlate CI #43402926584](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43402926584)
+  with original 1024×768 screenshot artifact; general
+  [Tests #43402926530](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43402926530)
+  green on that source commit.
+- [ ] Replace shared SNI-style header/footer with exact compact XP task-menu
+  geometry, fonts, and submenus, without breaking input and popup focus.
+- [ ] Verify mixed-DPI, real device keyboard/trackpad, accessibility and
+  application lifecycle on physical Wayland hardware.

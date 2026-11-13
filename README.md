@@ -38,6 +38,8 @@ The Wayland image is a headless compositor capture, not evidence of a finished
 or hardware-approved desktop. The [nine-view native Wayland gallery](screenshots/wayland/README.md)
 also shows **All Programs, the calendar, shortcut context menus, Properties,
 Help, Run and the updated labwc titlebar**, with source commit and CI provenance.
+A newer [taskbar window-menu interaction capture](screenshots/wayland/README.md#real-xp-luna-taskbar-window-menu--13-november-2026)
+is available separately from the headless Wayland CI artifacts.
 
 ## XFCE/X11 · use it now
 

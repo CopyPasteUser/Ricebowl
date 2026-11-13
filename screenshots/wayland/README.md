@@ -54,6 +54,28 @@ has already been merged; Sprint 3 continues that work in native RicePlate.
 These images show the verified Sprint 3 source commit, **not** hardware QA.
 
 
+## Real XP Luna taskbar window menu · 13 November 2026
+
+The **[Shell Fidelity PR #343](https://github.com/CopyPasteUser/Ricebowl/pull/343)**
+introduces a native context menu for *real running Wayland windows*.
+The [successful Native RicePlate CI run #43402926584](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43402926584)
+opened the menu via compositor-delivered right-click, captured its pixels
+with `grim`, clicked **Minimize**, verified the foreign-toplevel state and
+restored the same client from the taskbar. The general
+[Tests workflow #43402926530](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43402926530)
+also passed.
+
+The CI run provides the separately downloadable `luna-taskbar-context-*`
+artifact containing the **original 1024×768 PNGs**:
+`luna-taskbar-window-open.png`,
+`luna-taskbar-window-context.png`,
+`luna-taskbar-show-desktop.png`, and
+`luna-taskbar-window-restored.png`. These images are not replaced with
+mockups or falsely presented as checked-in WebPs. The task-menu screenshot
+documents **functional pointer fidelity**, not a final historical rendering:
+the reused native popup still has a blue header and paging footer, and the
+headless capture has no wallpaper. No physical GPU or device QA is implied.
+
 ## Native input interactions
 
 | Find after pointer click | Saved after context-menu pin |
