@@ -42,7 +42,7 @@ fn output_ok(name: &str) -> bool {
 fn bounded(files: &BTreeMap<String, BTreeMap<String, Point>>) -> bool {
     files.len() <= MAX_FILES
         && files.iter().all(|(key, outputs)| {
-            let (Some(dev), Some(ino)) = key.split_once('-') else { return false };
+            let Some((dev, ino)) = key.split_once('-') else { return false };
             !dev.is_empty() && !ino.is_empty() && dev.len() <= 16 && ino.len() <= 16
                 && dev.bytes().chain(ino.bytes()).all(|b| b.is_ascii_hexdigit())
                 && outputs.len() <= MAX_OUTPUTS
