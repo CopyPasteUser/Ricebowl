@@ -3519,7 +3519,11 @@ impl RicePlate {
         let Some(task) = self.tasks.iter().find(|task|
             &task.handle == handle && task.ready) else { return; };
         if task.minimized { task.handle.unset_minimized(); }
-        if let Some(seat) = self.primary_seat.as_ref() {
+        // Use the core seat registry rather than the removed single-seat
+        // shortcut. Input capabilities may move between Wayland seats.
+        if let Some(seat) = self.seat_assignments
+            .activation_seat_for(ActivationSource::Assistive)
+        {
             task.handle.activate(seat);
         }
     }
