@@ -52,7 +52,7 @@ pub fn discover() -> Vec<Document> {
 }
 
 fn read_documents(path: &Path) -> std::io::Result<Vec<Document>> {
-    let mut file = match OpenOptions::new().read(true)
+    let file = match OpenOptions::new().read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC).open(path) {
             Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound =>
