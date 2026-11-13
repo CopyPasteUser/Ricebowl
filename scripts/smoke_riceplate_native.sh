@@ -771,7 +771,7 @@ PY
             # on a desktop shortcut, not just in a Rust state-model test.
             # One click selects Recycle Bin; typing p selects Programs on
             # the same output, without launching a shortcut or stealing
-            # another Wayland client's keys.
+            # keystrokes from another Wayland client.
             rm -f "$runtime/trash-gio.log"
             sleep 0.75
             WAYLAND_DISPLAY=wayland-0 "$clicker" 68 435 1366 768
