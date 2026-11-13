@@ -633,7 +633,7 @@ PY
                     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-category-back-$geometry.png"
                     cp "$runtime/xp-luna-pointer-category-back-$geometry.png" \
                        "$source_root/dist/riceplate-native-preview/xp-luna-pointer-category-back-$geometry.png"
-                    /usr/bin/python3 - "$runtime" "$geometry" <<\PY
+                    if /usr/bin/python3 - "$runtime" "$geometry" <<\PY
 from PIL import Image, ImageChops
 from pathlib import Path
 import sys
@@ -645,6 +645,14 @@ diff = lambda a, b: ImageChops.difference(a.crop(region), b.crop(region)).getbbo
 assert diff(images[0], images[1]), "Category pointer click did not change the native menu"
 assert diff(images[1], images[2]), "Escape did not restore the XDG folder view"
 PY
+                    then
+                        :
+                    else
+                        echo "Luna keyboard focus/escape compositor trace:" >&2
+                        grep -E "RicePlate: (luna|menu trace)" \
+                            "$runtime/plate-xp-luna-columns.log" | tail -n 70 >&2 || :
+                        exit 1
+                    fi
                     WAYLAND_DISPLAY=wayland-0 "$clicker" 220 "$header_y" "$width" "$height"
                     sleep 0.35
                     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-programs-back-$geometry.png"
