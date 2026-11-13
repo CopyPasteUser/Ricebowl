@@ -184,19 +184,21 @@ LUNA_CSS = b"""
   font-family: "Liberation Sans", "Tahoma", sans-serif; font-size: 12px;
 }
 .ricespice-luna .luna-header {
-  background-image: linear-gradient(to bottom, #2864b8, #16509e 65%, #0c397b);
-  border-bottom: 1px solid #09295b; padding: 15px 22px 13px;
+  /* XP Explorer content banner, never a second window-manager caption. */
+  background: #ffffff; border-bottom: 1px solid #a9bfdc;
+  border-top: 3px solid #f2bb65; padding: 10px 18px 9px;
 }
 .ricespice-luna .luna-header-title {
-  color: #ffffff; font-size: 22px; font-weight: bold;
-  text-shadow: 0 1px #0a3977;
+  color: #174b8c; font-size: 16px; font-weight: bold;
+  text-shadow: none;
 }
 .ricespice-luna .luna-header-subtitle {
-  color: #e0efff; font-size: 11px;
+  color: #526981; font-size: 11px;
 }
 .ricespice-luna .luna-toolbar {
-  background: #e8eef8; padding: 8px 14px;
-  border-bottom: 1px solid #a1b7d5;
+  background: #f0eee8; padding: 5px 11px;
+  border-bottom: 1px solid #a4b0c0;
+  border-top: 1px solid #ffffff;
 }
 .ricespice-luna .luna-toolbar button {
   border: 1px solid #8ca7cb; border-radius: 3px;
@@ -213,18 +215,20 @@ LUNA_CSS = b"""
   padding: 6px 8px;
 }
 .ricespice-luna .luna-side-scroll {
-  background: #eef2fa; border-right: 1px solid #9aaed0;
+  background: #dce7f8; border-right: 1px solid #8199ba;
 }
 .ricespice-luna .ricespice-nav {
-  background: #eef2fa; padding: 15px 9px 18px;
+  background: #dce7f8; padding: 10px 9px 18px;
 }
 .ricespice-luna .ricespice-brand {
   color: #1b427d; font-size: 12px; font-weight: bold;
   margin: 1px 9px 11px;
 }
 .ricespice-luna .luna-nav-heading {
-  color: #61728d; font-size: 10px; font-weight: bold;
-  margin: 13px 8px 5px;
+  color: #174a91; font-size: 11px; font-weight: bold;
+  background: #c4d8f3; border-top: 1px solid #ffffff;
+  border-bottom: 1px solid #9ab5da; padding: 5px 7px;
+  margin: 12px 0 4px;
 }
 .ricespice-luna .ricespice-nav button {
   background: transparent; color: #1d417c; text-shadow: none;
@@ -238,7 +242,7 @@ LUNA_CSS = b"""
   background-image: linear-gradient(to bottom, #4a83d3, #2e63b3);
   color: #ffffff; border-color: #1a4a95; font-weight: bold;
 }
-.ricespice-luna .ricespice-content { padding: 22px 27px; background: #fffefa; }
+.ricespice-luna .ricespice-content { padding: 16px 19px; background: #ffffff; }
 .ricespice-luna .ricespice-title {
   font-size: 21px; font-weight: bold; color: #153e80;
 }
@@ -252,15 +256,15 @@ LUNA_CSS = b"""
 .ricespice-luna .ricespice-state { color: #2a4b75; }
 .ricespice-luna .luna-category-row {
   background: transparent; border: 1px solid transparent;
-  box-shadow: none; border-radius: 3px;
-  padding: 11px 8px; text-shadow: none;
+  box-shadow: none; border-radius: 0;
+  padding: 8px 7px; text-shadow: none;
 }
 .ricespice-luna .luna-category-row:hover {
   background: #eaf3ff; border-color: #bbd1ed;
 }
 .ricespice-luna .luna-control-group {
-  background: #fffefa; border: 1px solid transparent; padding: 10px 8px;
-  border-radius: 2px; box-shadow: none; text-shadow: none;
+  background: transparent; border: 1px solid transparent; padding: 8px 6px;
+  border-radius: 0; box-shadow: none; text-shadow: none;
 }
 .ricespice-luna .luna-control-group:hover {
   background: #ecf3ff; border-color: #b5cbed;
@@ -356,10 +360,10 @@ class RiceSpiceWindow:
         if luna:
             header = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
             header.get_style_context().add_class("luna-header")
-            title = Gtk.Label(label="Control Panel", xalign=0)
+            title = Gtk.Label(label="Choose a Control Panel task", xalign=0)
             title.get_style_context().add_class("luna-header-title")
             header.pack_start(title, False, False, 0)
-            subtitle = Gtk.Label(label="RiceBowl Luna  ·  System preferences", xalign=0)
+            subtitle = Gtk.Label(label="Real Linux settings · changes are applied only when confirmed", xalign=0)
             subtitle.get_style_context().add_class("luna-header-subtitle")
             header.pack_start(subtitle, False, False, 0)
             root.pack_start(header, False, False, 0)
@@ -411,7 +415,7 @@ class RiceSpiceWindow:
         else:
             body.pack_start(navigation, False, False, 0)
 
-        brand = Gtk.Label(label="BROWSE SETTINGS" if luna else "RiceSpice")
+        brand = Gtk.Label(label="Control Panel Tasks" if luna else "RiceSpice")
         brand.set_xalign(0)
         brand.get_style_context().add_class("ricespice-brand")
         navigation.pack_start(brand, False, False, 0)
