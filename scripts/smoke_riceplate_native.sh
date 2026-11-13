@@ -132,6 +132,15 @@ set -eu
 printf '%s\n' "$1" "$2" "$3" "$4" >"$RICEBOWL_CI_RICEFIELD_LOG"
 RICEFIELD
 chmod 0700 "$runtime/mock-bin/ricefield"
+# The Programs shortcut launches a fixed fuzzel argv. On the isolated
+# compositor intercept this action rather than starting an external launcher.
+cat >"$runtime/mock-bin/fuzzel" <<'FUZZEL'
+#!/bin/sh
+set -eu
+[ "$#" -eq 0 ] || exit 64
+printf '%s\n' launched >"$RICEBOWL_CI_FUZZEL_LOG"
+FUZZEL
+chmod 0700 "$runtime/mock-bin/fuzzel"
 # The disposable shim records exact native argv and execs the real GTK CLI.
 # No watcher starts and no host clipboard content is read.
 cat >"$runtime/mock-bin/ricebowl" <<"CLIP_CLI"
@@ -291,6 +300,7 @@ dbus-run-session -- sh -eu -c '
         elif [ "$label" = xp-luna-columns ]; then
             RICEBOWL_DE_TRACE_DESKTOP=1 RICEBOWL_DE_TRACE_MENU=1 PATH="$runtime/mock-bin:$PATH" \
                 RICEBOWL_CI_TRASH_LOG="$runtime/trash-gio.log" \
+                RICEBOWL_CI_FUZZEL_LOG="$runtime/fuzzel-launch.log" \
                 RICEBOWL_CI_RICEFIELD_LOG="$runtime/ricefield-argv.log" \
                 WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" \
                 >"$runtime/plate-$label.log" 2>&1 &
@@ -788,11 +798,60 @@ PY
                 echo "Type-to-select unexpectedly launched Recycle Bin" >&2
                 exit 1
             fi
+            # Enter acts on the currently highlighted Programs shortcut,
+            # not on the Recycle Bin icon that originally parented the popup.
+            WAYLAND_DISPLAY=wayland-0 wtype -k Return
+            count=0
+            while [ ! -s "$runtime/fuzzel-launch.log" ] && [ "$count" -lt 25 ]; do
+                count=$((count + 1))
+                sleep 0.1
+            done
+            test "$(cat "$runtime/fuzzel-launch.log" 2>/dev/null || :)" = launched || {
+                echo "Enter did not launch the selected Programs shortcut" >&2
+                exit 1
+            }
+            test ! -e "$runtime/trash-gio.log" || {
+                echo "Enter launched the wrong desktop shortcut" >&2
+                exit 1
+            }
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-enter-programs.png"
+            cp "$runtime/xp-luna-enter-programs.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-enter-programs.png"
+            /usr/bin/python3 - "$runtime/xp-luna-type-programs.png" \
+                "$runtime/xp-luna-enter-programs.png" <<"PY"
+from PIL import Image, ImageChops
+import sys
+with Image.open(sys.argv[1]) as opened, Image.open(sys.argv[2]) as dismissed:
+    assert opened.size == dismissed.size == (1366, 768)
+    region = (68, 435, 292, 625)
+    diff = ImageChops.difference(opened.crop(region).convert("RGB"),
+                                 dismissed.crop(region).convert("RGB"))
+    assert sum(max(pixel) > 18 for pixel in diff.getdata()) > 500, (
+        "Enter did not dismiss the Programs context popup")
+PY
+            # A second popup tests Escape without executing any other action.
+            WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click 68 435 1366 768
+            sleep 0.25
             WAYLAND_DISPLAY=wayland-0 wtype -k Escape
-            sleep 0.2
+            sleep 0.25
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-escape-dismissed.png"
+            cp "$runtime/xp-luna-escape-dismissed.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-escape-dismissed.png"
+            /usr/bin/python3 - "$runtime/xp-luna-shortcut-context.png" \
+                "$runtime/xp-luna-escape-dismissed.png" <<"PY"
+from PIL import Image, ImageChops
+import sys
+with Image.open(sys.argv[1]) as opened, Image.open(sys.argv[2]) as dismissed:
+    assert opened.size == dismissed.size == (1366, 768)
+    region = (68, 435, 292, 625)
+    diff = ImageChops.difference(opened.crop(region).convert("RGB"),
+                                 dismissed.crop(region).convert("RGB"))
+    assert sum(max(pixel) > 18 for pixel in diff.getdata()) > 500, (
+        "Escape did not dismiss native XDG popup")
+PY
             WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click 68 435 1366 768
             sleep 0.3
-            echo "Verified real Wayland keyboard selects Programs through parented XDG popup"
+            echo "Verified real Wayland focus, Programs type-select/Enter, and Escape dismissal"
             else
                 # On known-incompatible labwc, exercise real compositor
                 # popup_done and re-open to protect the pointer-only fallback.
