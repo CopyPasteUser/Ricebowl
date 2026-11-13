@@ -123,7 +123,8 @@ def _check_runtime_dir(environment: Mapping[str, str]) -> None:
 
 
 def _custom_labwc_config(recipe: object | None, runtime: str,
-                         preferences: Mapping | None = None) -> Path:
+                         preferences: Mapping | None = None, *,
+                         native_luna_hotkeys: bool = False) -> Path:
     """Build private compositor settings without touching installed labwc config."""
     from .recipes import labwc_menu
     from . import preferences as spice_prefs
@@ -140,6 +141,10 @@ def _custom_labwc_config(recipe: object | None, runtime: str,
                 _atomic_labwc_text(directory / "themerc-override", chrome)
         if preferences is not None:
             spice_prefs.configure_labwc(directory / "rc.xml", preferences)
+        if native_luna_hotkeys and getattr(recipe, "recipe_id", None) == "xp-luna-columns":
+            from . import luna_hotkeys
+            rc = directory / "rc.xml"
+            _atomic_labwc_text(rc, luna_hotkeys.render(rc.read_text(encoding="utf-8"), True))
         (directory / ".ricebowl-managed").touch(mode=0o600)
         return directory
     except BaseException:
@@ -304,7 +309,8 @@ def start(
     # profile switches must never edit the system or the user's labwc files.
     config = _custom_labwc_config(
         loaded_recipe if loaded_recipe is not None and loaded_recipe.menu is not None else None,
-        env["XDG_RUNTIME_DIR"], spice_values)
+        env["XDG_RUNTIME_DIR"], spice_values,
+        native_luna_hotkeys=(panel == "native" and not nested))
     env["RICEBOWL_DE_SESSION_CONFIG"] = str(config)
     env["RICEBOWL_DE_LIVE"] = "1"
     try:
@@ -469,6 +475,12 @@ class _LiveSwitch:
                 pass
         self.menu = Path(env["RICEBOWL_DE_SESSION_CONFIG"]) / "menu.xml"
         self.chrome = self.menu.with_name("themerc-override")
+        self.rc = self.menu.with_name("rc.xml")
+        from . import luna_hotkeys
+        # Retain all reviewed RiceSpice input preferences. Only remove our
+        # own exact three shortcuts for subsequent live-switch/rollback.
+        self._base_rc = luna_hotkeys.without_shortcuts(
+            self.rc.read_text(encoding="utf-8"))
         self.profile = (riceprofile.ProfileSession.from_environment(env)
                         if any(key.env_key in env for key in riceprofile.CLIENTS) else None)
         self.fallback = False
@@ -542,6 +554,7 @@ class _LiveSwitch:
     def handle(self, request: dict) -> dict:
         from . import live_recovery, recipes, staging
         from .window_chrome import labwc_chrome
+        from . import luna_hotkeys
         from .live import LiveError
         import re
 
@@ -601,6 +614,10 @@ class _LiveSwitch:
             old_menu = self.menu.read_text(encoding="utf-8")
             new_chrome = labwc_chrome(recipe)
             old_chrome = self.chrome.read_text(encoding="utf-8") if self.chrome.exists() else None
+            old_rc = self.rc.read_text(encoding="utf-8")
+            new_rc = luna_hotkeys.render(self._base_rc,
+                self.mode == "native" and not self.fallback and not self.nested
+                and recipe.recipe_id == "xp-luna-columns")
             old_digest = self.active_digest
             prepared_profiles = self.profile.preflight(recipe) if self.profile else {}
             selection_before = recipes._selection_snapshot() if not self.nested else None
@@ -616,6 +633,7 @@ class _LiveSwitch:
         new_wallpaper = None
         menu_attempted = False
         chrome_attempted = False
+        rc_attempted = False
         profile_original = None
         selection_attempted = False
         pending_recovery = None
@@ -637,6 +655,9 @@ class _LiveSwitch:
                 _atomic_labwc_text(self.chrome, new_chrome)
             else:
                 self.chrome.unlink(missing_ok=True)
+            if new_rc != old_rc:
+                rc_attempted = True
+                _atomic_labwc_text(self.rc, new_rc)
             self._reconfigure()
             if self.profile:
                 profile_original = self.profile.commit(prepared_profiles)
@@ -674,7 +695,12 @@ class _LiveSwitch:
                         self.chrome.unlink(missing_ok=True)
                 except OSError as restore_error:
                     recovery_errors.append(f"chrome: {restore_error}")
-            if menu_attempted or chrome_attempted:
+            if rc_attempted:
+                try:
+                    _atomic_labwc_text(self.rc, old_rc)
+                except OSError as restore_error:
+                    recovery_errors.append(f"shortcuts: {restore_error}")
+            if menu_attempted or chrome_attempted or rc_attempted:
                 try:
                     self._reconfigure()
                 except (OSError, subprocess.SubprocessError, LiveError) as restore_error:
