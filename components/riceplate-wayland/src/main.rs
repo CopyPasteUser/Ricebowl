@@ -293,7 +293,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let layer_shell = LayerShell::bind(&globals, &qh)?;
     // Optional XDG shell is used only for the opt-in Luna shortcut menu.
     // Other recipes retain the original layer-shell-only startup behavior.
-    let xdg_shell = XdgShell::bind(&globals, &qh).ok();
+    let xdg_shell = (recipe.id == "xp-luna-columns")
+        .then(|| XdgShell::bind(&globals, &qh).ok()).flatten();
     let shm = Shm::bind(&globals, &qh)?;
     let toplevel_manager: Option<ZwlrForeignToplevelManagerV1> = globals.bind(&qh, 1..=3, ()).ok();
     if toplevel_manager.is_none() {
@@ -6148,11 +6149,18 @@ impl PopupHandler for RicePlate {
             }
         }
         menu.configured = true;
+        if std::env::var_os("RICEBOWL_DE_TRACE_DESKTOP").is_some() {
+            eprintln!("RicePlate desktop popup configured size={}x{} at={:?}",
+                      config.width, config.height, config.position);
+        }
         self.redraw_desktop_context();
     }
 
     fn done(&mut self, _: &Connection, _: &QueueHandle<Self>, popup: &Popup) {
         if self.desktop_context.as_ref().is_some_and(|menu| &menu.popup == popup) {
+            if std::env::var_os("RICEBOWL_DE_TRACE_DESKTOP").is_some() {
+                eprintln!("RicePlate desktop popup dismissed by compositor");
+            }
             self.close_desktop_context();
         }
     }
