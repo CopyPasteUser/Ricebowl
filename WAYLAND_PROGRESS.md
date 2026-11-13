@@ -465,6 +465,27 @@ and physical hardware acceptance remain open.
   Real file browser startup/SMB hardware acceptance remains outstanding.
 
 
+### XP Luna desktop: keyboard type-to-select (13 November 2026)
+
+The native `xp-luna-columns` shortcut layer now implements XP-style, event-driven
+type-to-select **only while a real desktop shortcut owns keyboard focus**.
+A printable alphanumeric key selects the next visible label with that prefix
+on the same `wl_output`; rapid subsequent characters refine the prefix and
+repeated characters cycle matches. The search expires after 1.2 seconds,
+is limited to 32 Unicode characters, and resets on keyboard-focus changes,
+non-character actions and desktop pointer presses. Invisible shortcuts or
+another display are never selected and no arbitrary application is launched.
+
+Deterministic Rust regressions cover matching, Unicode, timed expiration,
+repeat cycling, invalid input and output isolation. The existing isolated
+`scripts/smoke_riceplate_native.sh` uses the compositor virtual pointer to
+focus Recycle Bin, types `p` through real `wtype` keyboard events and checks
+that **Programs** visibly acquires focus in a real 1366×768 `grim` PNG.
+The unmodified source captures `xp-luna-type-before.png` and
+`xp-luna-type-programs.png` are archived by Native RicePlate CI, pending
+green CI on this exact branch. The test does not certify physical
+keyboard/Orca/IME behavior. XFCE/X11 remains unchanged.
+
 ### Native XP Luna: bounded multi-selection and keyboard access (12 November 2026)
 
 - Opt-in `xp-luna-columns` now supports **Ctrl-click** toggling, **Shift-click**
