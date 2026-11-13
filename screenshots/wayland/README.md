@@ -7,6 +7,34 @@
 show the experimental Wayland shell in headless CI, not mockups or a signed-off
 installation on physical hardware. Click a screenshot for its full-size WebP.
 
+## Newest verified build captures · 13 November 2026
+
+The **latest merged main revision at capture time**, `bdbae75b4c3fbc1`,
+has a newer [successful Native RicePlate run #43368674306](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43368674306).
+Its downloadable `riceplate-native-preview-…` artifact contains the actual
+full-resolution PNGs for `xp-luna-columns-1366x768.png`,
+`xp-luna-parity-start.png`, `xp-luna-columns-calendar.png`,
+`xp-luna-pointer-programs-1024x768.png`,
+`xp-luna-shortcut-context.png`, and
+`xp-luna-shortcut-properties.png`. These are compositor captures rather
+than hand-painted desktop mockups.
+
+The same source revision also produced **two real GTK3 Control Panel client
+captures**, `dist/luna-settings/luna-control-panel-home.png` and
+`dist/luna-settings/luna-control-panel-taskbar.png`, in
+[Tests run #43368674304](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43368674304).
+Those files were archived **before** an unrelated failing X11/Aero libwnck
+fixture-discovery test. GTK/Xvfb screenshots are *not* native labwc captures.
+
+[XP Luna keyboard-search PR #334](https://github.com/CopyPasteUser/Ricebowl/pull/334)
+adds keyboard-first Control Panel navigation and a **third real GTK capture**,
+`luna-control-panel-search.png`. Look at the PR's Tests artifact for that new
+view. [Tests #43375407093](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43375407093)
+passed on source commit `5bdd7de7` and archived all three GTK captures.
+This verifies the on-demand GTK client in CI, not real hardware or native
+labwc keyboard focus. The six thumbnails below remain pinned to an earlier
+known-good compositor revision for reproducibility.
+
 ## XP Luna · refreshed native desktop (13 November 2026)
 
 These six newly checked-in previews are **actual labwc + native RicePlate
