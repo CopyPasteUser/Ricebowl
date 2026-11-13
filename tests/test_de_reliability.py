@@ -74,7 +74,7 @@ class ReadOnlySessionReliabilityTests(unittest.TestCase):
         self.assertNotIn(leaked, json.dumps(report))
         self.assertNotIn("PRIVATE_WIFI_DATA", json.dumps(report))
         self.assertNotIn("private-credentials", json.dumps(report))
-        self.assertEqual(len(commands), 1)
+        self.assertEqual(len(commands), 2)
         self.assertLessEqual(commands[0][1]["timeout"], 3)
 
     def test_protocol_names_in_window_titles_are_not_registry_advertisements(self):
@@ -88,6 +88,27 @@ class ReadOnlySessionReliabilityTests(unittest.TestCase):
         self.assertEqual(report["protocols"]["probe"], "observed")
         self.assertTrue(all(value is False for value in
                             report["protocols"]["required"].values()))
+
+    def test_disconnected_dbus_is_reported_without_service_mutation(self):
+        calls = []
+        def runner(args, **kwargs):
+            calls.append(args)
+            if args[0] == "dbus-send":
+                return subprocess.CompletedProcess(args, 1, "", "private bus error")
+            return subprocess.CompletedProcess(args, 0,
+                                               "interface: 'wl_compositor'\\n", "")
+        report = reliability.inspect(
+            environment=self.env, which=lambda x: x, run=runner,
+            socket_probe=lambda _: "present", samples=(),
+            recovery={"ok": True, "pending": False})
+        self.assertEqual(report["session_bus"]["probe"], "unreachable")
+        self.assertTrue(report["session_bus"]["address_declared"])
+        self.assertEqual(report["protocols"]["probe"], "observed")
+        self.assertNotIn("private bus error", json.dumps(report))
+        self.assertEqual(sum(x[0] == "dbus-send" for x in calls), 1)
+        # No user service is started, restarted or configured by a Ping.
+        self.assertTrue(all("org.freedesktop.DBus.Peer.Ping" in call
+                            for call in calls if call[0] == "dbus-send"))
 
     def test_missing_lock_and_backend_never_claim_ready(self):
         present = {"labwc", "waybar", "foot", "fuzzel", "swaylock", "riceplate-native"}
