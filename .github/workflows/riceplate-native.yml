@@ -317,6 +317,8 @@ jobs:
         run: |
           /usr/bin/python3 -m unittest tests.test_de_window_outputs -v
           timeout -k 5s 70s sh scripts/smoke_riceplate_windows.sh
+      - name: Prove XP Luna Show Desktop with real Wayland window and screenshot changes
+        run: timeout -k 5s 70s sh scripts/smoke_riceplate_windows.sh --luna
       - name: Prove legacy XWayland application uses native RicePlate taskbar
         run: timeout -k 5s 70s sh scripts/smoke_riceplate_windows.sh --xwayland
       - name: Prove bidirectional Wayland and XWayland clipboard
