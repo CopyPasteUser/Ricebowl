@@ -253,6 +253,10 @@ impl MenuState {
         // from private history becomes a launchable action.
         self.recent_apps.retain(|id|
             self.apps.iter().any(|app| app.action == *id));
+        // Keep missing desktop IDs inert; a saved entry may never launch an
+        // app absent from this XDG index, even when its ID remains on disk.
+        self.pins.retain(|id| !id.starts_with("desktop:") ||
+            self.apps.iter().any(|app| app.action == *id));
         self.last_app_refresh = Some(Instant::now());
     }
 
@@ -308,7 +312,7 @@ impl MenuState {
     fn luna_preview_apps(&self, limit: usize) -> Vec<&str> {
         if limit == 0 { return Vec::new(); }
         let mut result = Vec::with_capacity(limit.min(self.apps.len()));
-        for id in &self.recent_apps {
+        for id in self.pins.iter().chain(self.recent_apps.iter()) {
             if let Some(app) = self.apps.iter().find(|app| app.action == *id) {
                 if !result.contains(&app.action.as_str()) {
                     result.push(app.action.as_str());
@@ -488,8 +492,12 @@ impl MenuState {
                 }
                 result
             }
-            View::Saved => all().filter(|action|
-                self.pins.iter().any(|pin| pin.as_str() == *action)).collect(),
+            View::Saved => self.pins.iter().filter(|pin|
+                menu.groups.iter().any(|group| group.actions.contains(pin))
+                    || (menu.presentation == MenuPresentation::Columns
+                        && menu.palette.is_some()
+                        && self.apps.iter().any(|app| app.action == **pin)))
+                .map(String::as_str).collect(),
         }
     }
 
@@ -713,7 +721,7 @@ impl MenuState {
             View::Programs => "Type to filter installed apps; Backspace edits; Enter opens the selected application; Escape returns to the menu",
             View::Search => "Type to refine, Backspace deletes; F2 or right click saves an action",
             View::Groups => "Type to search; F2 or right click pins actions; F3 opens Saved",
-            View::Saved => "F2 or right click removes saved actions; F3 returns to menu",
+            View::Saved => "F2 removes saved actions; F4/F5 reorder; F3 returns to menu",
         };
         format!("{intro}. {detail}. {help}")
     }
@@ -854,9 +862,13 @@ impl MenuState {
 
     pub fn toggle_pin(&mut self, menu: &NativeMenu) -> bool {
         let Some(action) = self.current_action(menu).map(str::to_owned) else { return false; };
-        // A pin is a validated recipe action. Installed apps are searchable,
-        // but are not persisted in the recipe-action pin format.
-        if !menu.groups.iter().any(|group| group.actions.contains(&action)) { return false; }
+        // Desktop IDs are accepted only in the real Luna program tree or
+        // Saved view, and only while the XDG index confirms their existence.
+        let recipe_action = menu.groups.iter().any(|group| group.actions.contains(&action));
+        let luna_app = (self.program_tree || self.view == View::Saved)
+            && menu.presentation == MenuPresentation::Columns && menu.palette.is_some()
+            && self.apps.iter().any(|app| app.action == action);
+        if !recipe_action && !luna_app { return false; }
         if let Some(index) = self.pins.iter().position(|item| *item == action) {
             self.pins.remove(index);
         } else if self.pins.len() < MAX_PINS {
@@ -865,6 +877,23 @@ impl MenuState {
             return false;
         }
         self.selected = self.selected.min(self.actions(menu).len().saturating_sub(1));
+        true
+    }
+
+    /// Reorder a real Saved row. Callers persist the complete list and roll
+    /// back on storage failure; only the bounded in-memory index is moved.
+    pub fn reorder_saved_pin(&mut self, menu: &NativeMenu, delta: isize) -> bool {
+        if self.view != View::Saved || delta.abs() != 1 { return false; }
+        let actions = self.actions(menu);
+        let Some(action) = actions.get(self.selected).map(|action| (*action).to_owned())
+            else { return false; };
+        let Some(position) = self.pins.iter().position(|pin| *pin == action)
+            else { return false; };
+        let target = position as isize + delta;
+        if target < 0 || target >= self.pins.len() as isize { return false; }
+        self.pins.swap(position, target as usize);
+        self.selected = self.actions(menu).iter()
+            .position(|candidate| *candidate == action).unwrap_or(0);
         true
     }
 
@@ -2020,6 +2049,35 @@ mod tests {
         assert_eq!(state.current_action(menu), Some(Category::Office.action()));
         assert!(state.back());
         assert_eq!(state.view, View::Groups);
+    }
+
+    #[test]
+    fn luna_app_pins_are_discovery_bound_reorderable_and_keep_saved_order() {
+        let parsed = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let menu = parsed.menu.as_ref().unwrap();
+        let mut state = MenuState::default();
+        state.apps = demo_apps(3);
+        state.app_categories.insert("desktop:demo-0.desktop".into(), Category::Office);
+        state.app_categories.insert("desktop:demo-1.desktop".into(), Category::Office);
+        state.open();
+        state.show_program_tree();
+        assert!(state.enter_program_category(Category::Office.action()));
+        assert!(state.toggle_pin(menu));
+        state.select_by(menu, 1);
+        assert!(state.toggle_pin(menu));
+        assert_eq!(state.pins.len(), 2);
+        state.show_saved();
+        assert_eq!(state.actions(menu), vec!["desktop:demo-0.desktop", "desktop:demo-1.desktop"]);
+        assert!(state.reorder_saved_pin(menu, -1) == false);
+        state.selected = 0;
+        assert!(state.reorder_saved_pin(menu, 1));
+        assert_eq!(state.actions(menu), vec!["desktop:demo-1.desktop", "desktop:demo-0.desktop"]);
+        assert_eq!(state.current_action(menu), Some("desktop:demo-0.desktop"));
+        assert!(state.toggle_pin(menu));
+        assert_eq!(state.actions(menu), vec!["desktop:demo-1.desktop"]);
+        assert!(!state.toggle_pin(menu)); // no selected action beyond the one present? 
     }
 
 }
