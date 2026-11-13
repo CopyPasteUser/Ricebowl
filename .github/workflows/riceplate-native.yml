@@ -758,6 +758,18 @@ jobs:
           timeout -k 5s 160s dbus-run-session -- /usr/bin/python3 \
             -m scripts.verify_wayland_creator_handoff \
             --output-dir "$PWD/dist/riceplate-native-preview/creator-handoff"
+      - name: Preserve real compositor diagnostic images on native failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: riceplate-luna-focus-diagnostics-${{ github.sha }}
+          path: |
+            dist/riceplate-native-preview/xp-luna-icon-selected.png
+            dist/riceplate-native-preview/xp-luna-recycle-bin-click.png
+            dist/riceplate-native-preview/xp-luna-shortcut-context.png
+            dist/riceplate-native-preview/xp-luna-popup-extra-click.png
+          if-no-files-found: warn
+          retention-days: 7
       - name: Archive smoke-tested native RicePlate preview binary
         uses: actions/upload-artifact@v4
         with:
