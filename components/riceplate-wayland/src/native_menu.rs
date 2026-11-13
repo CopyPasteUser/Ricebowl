@@ -879,6 +879,14 @@ impl MenuState {
     }
 
     pub fn back(&mut self) -> bool {
+        // XP-style nested Back unwinds one level at a time: query -> folder
+        // -> All Programs -> Start. Flat menus preserve their old behavior.
+        if self.program_tree && self.view == View::Programs && !self.search.is_empty() {
+            self.search.clear();
+            self.selected = 0;
+            self.wheel_remainder = 0.0;
+            return true;
+        }
         if self.back_program_category() { return true; }
         if self.view == View::Groups { return false; }
         self.program_tree = false;
@@ -2081,6 +2089,11 @@ mod tests {
         assert!(state.enter_program_category(Category::Office.action()));
         assert_eq!(state.actions(menu), vec!["desktop:demo-0.desktop", "desktop:demo-2.desktop"]);
         assert!(!state.enter_program_category("menu-category:does-not-exist"));
+        assert!(state.search_input("2"));
+        assert_eq!(state.actions(menu), vec!["desktop:demo-2.desktop"]);
+        assert!(state.back());
+        assert_eq!(state.program_category, Some(Category::Office));
+        assert_eq!(state.actions(menu).len(), 2);
         assert!(state.search_input("2"));
         assert_eq!(state.actions(menu), vec!["desktop:demo-2.desktop"]);
         assert!(state.backspace());
