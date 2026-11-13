@@ -4505,11 +4505,6 @@ fn paint_compact_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
 /// A single persistence boundary for F2 and menu pointer pin/unpin. Never
 /// leave an in-memory favorite that failed owner-private storage validation.
 fn toggle_menu_pin(state: &mut MenuState, recipe_id: &str, menu: &recipe::NativeMenu) {
-    if state.view == native_menu::View::Programs {
-        // Pins are versioned recipe action IDs, never arbitrary desktop files.
-        state.notice = Some("App pinning unavailable");
-        return;
-    }
     let previous = state.pins.clone();
     if !state.toggle_pin(menu) {
         state.notice = Some("No action or saved list full");
@@ -4522,6 +4517,25 @@ fn toggle_menu_pin(state: &mut MenuState, recipe_id: &str, menu: &recipe::Native
         state.notice = Some("Cannot save pins");
     } else {
         state.notice = Some(if pinned { "Action pinned" } else { "Pin removed" });
+    }
+}
+
+/// Reordering has the same write/rollback contract as F2 pinning.
+fn move_saved_menu_pin(state: &mut MenuState, recipe_id: &str,
+                       menu: &recipe::NativeMenu, direction: isize) {
+    let previous = state.pins.clone();
+    let selected = state.selected;
+    if !state.reorder_saved_pin(menu, direction) {
+        state.notice = Some("Cannot move this favorite");
+        return;
+    }
+    if let Err(error) = menu_pins::save(recipe_id, menu, &state.pins) {
+        eprintln!("RicePlate: cannot persist reordered menu pins: {error}");
+        state.pins = previous;
+        state.selected = selected;
+        state.notice = Some("Cannot save pin order");
+    } else {
+        state.notice = Some("Favorites reordered");
     }
 }
 
@@ -4616,7 +4630,7 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                        }, fg, style);
     } else if state.view == native_menu::View::Saved {
         draw_rice_text(canvas, width, height, content_x, 91,
-                       &format!("Saved actions: {}", state.actions(menu).len()), fg, style);
+                       &format!("Favorites: {}", state.actions(menu).len()), fg, style);
     }
     if let Some(sections) = state.composed_sections(menu) {
         let mut right_group_seen = false;
@@ -4780,7 +4794,7 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
         let status = state.notice.unwrap_or(match state.view {
             native_menu::View::Programs => "Enter open  Esc back",
             native_menu::View::Search => "Find  F2 Pin",
-            native_menu::View::Saved => "F2 Remove  F3 Back",
+            native_menu::View::Saved => "F2 Unpin F4/F5 Move",
             native_menu::View::Groups => "F2 Pin  F3 Saved",
         });
         if state.view != native_menu::View::Groups || state.notice.is_some() {
@@ -6126,6 +6140,14 @@ impl KeyboardHandler for RicePlate {
             }
             Keysym::F3 => {
                 self.menu_state.show_saved();
+                None
+            }
+            Keysym::F4 => {
+                move_saved_menu_pin(&mut self.menu_state, &self.recipe.id, menu, -1);
+                None
+            }
+            Keysym::F5 => {
+                move_saved_menu_pin(&mut self.menu_state, &self.recipe.id, menu, 1);
                 None
             }
             Keysym::slash => {
