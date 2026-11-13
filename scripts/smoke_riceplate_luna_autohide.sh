@@ -47,7 +47,8 @@ dbus-run-session -- sh -eu -c '
     test -n "$output"
     WAYLAND_DISPLAY=wayland-0 wlr-randr --output "$output" \
         --custom-mode 1024x768@60Hz --scale 1
-    WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$runtime/luna.json" \
+    WAYLAND_DISPLAY=wayland-0 RICEBOWL_DE_TRACE_MENU=1 \
+        "$native" --recipe "$runtime/luna.json" \
         >"$runtime/plate.log" 2>&1 &
     plate=$!
     sleep 1
@@ -74,6 +75,8 @@ dbus-run-session -- sh -eu -c '
     WAYLAND_DISPLAY=wayland-0 wtype -k Escape
     sleep .45
     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/menu-closed.png"
+    echo "Luna menu and Auto-hide state trace:"
+    grep -E "menu trace|Luna auto-hide" "$runtime/plate.log" | tail -n 35 || :
     /usr/bin/python3 - "$runtime" <<PY
 from pathlib import Path
 from PIL import Image, ImageChops
