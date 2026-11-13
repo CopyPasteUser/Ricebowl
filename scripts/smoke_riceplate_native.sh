@@ -767,15 +767,16 @@ PY
             fi
             kill -0 "$plate"
             echo "Verified Luna right-click context Open through labwc virtual pointer"
-            # Native XP type-to-select must work from a REAL keyboard focus
-            # on a desktop shortcut, not just in a Rust state-model test.
-            # One click selects Recycle Bin; typing p selects Programs on
-            # the same output, without launching a shortcut or stealing
-            # keystrokes from another Wayland client.
+            # labwc deliberately denies keyboard focus to desktop Bottom
+            # layer surfaces. Intentionally focus the native TOP taskbar at
+            # an otherwise unused position and press F3 to enter shortcut
+            # search. This must not install an exclusive keyboard grab.
             rm -f "$runtime/trash-gio.log"
             sleep 0.75
-            WAYLAND_DISPLAY=wayland-0 "$clicker" 68 435 1366 768
-            sleep 0.2
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 550 748 1366 768
+            sleep 0.25
+            WAYLAND_DISPLAY=wayland-0 wtype -k F3
+            sleep 0.25
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-type-before.png"
             cp "$runtime/xp-luna-type-before.png" \
                "$source_root/dist/riceplate-native-preview/xp-luna-type-before.png"
@@ -807,7 +808,8 @@ with Image.open(sys.argv[1]) as before, Image.open(sys.argv[2]) as after:
     assert changed > 100, f"Native type-to-select did not focus Programs: {changed}"
 PY
             kill -0 "$plate"
-            echo "Verified real Wayland keyboard type-to-select with compositor PNG evidence"
+            WAYLAND_DISPLAY=wayland-0 wtype -k Escape
+            echo "Verified real labwc taskbar F3 desktop search with compositor PNG evidence"
             # The XP Explorer shortcut must prefer RiceField 1.0, with
             # exactly the documented theme/separate-window argv and the
             # fixed root path. No spurious Gio call is permitted.
