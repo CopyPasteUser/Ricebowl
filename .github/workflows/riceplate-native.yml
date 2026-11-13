@@ -322,8 +322,10 @@ jobs:
         run: |
           /usr/bin/python3 -m unittest tests.test_de_window_outputs -v
           timeout -k 5s 70s sh scripts/smoke_riceplate_windows.sh
-      - name: Prove XP Luna Show Desktop and native task context menu
-        run: timeout -k 5s 70s sh scripts/smoke_riceplate_windows.sh --luna
+      - name: Prove XP Luna Show Desktop, grouped task actions and close-during-popup
+        # Grouped-client capture adds real Wayland process start/teardown to
+        # the existing single-window and keyboard smoke, still bounded.
+        run: timeout -k 5s 110s sh scripts/smoke_riceplate_windows.sh --luna
       - name: Archive real XP Luna taskbar screenshots
         uses: actions/upload-artifact@v4
         with:
@@ -333,6 +335,10 @@ jobs:
             dist/riceplate-native-preview/luna-taskbar-show-desktop.png
             dist/riceplate-native-preview/luna-taskbar-window-restored.png
             dist/riceplate-native-preview/luna-taskbar-window-context.png
+            dist/riceplate-native-preview/luna-grouped-taskbar.png
+            dist/riceplate-native-preview/luna-grouped-window-menu.png
+            dist/riceplate-native-preview/luna-group-menu-dismissed.png
+            dist/riceplate-native-preview/luna-single-after-group-close.png
           if-no-files-found: error
           retention-days: 14
       - name: Boot native Wayland layer surface
