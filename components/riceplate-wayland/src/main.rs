@@ -2273,12 +2273,10 @@ impl RicePlate {
         // Before the very first enter, defer to the compositor's initial
         // placement to avoid redundant startup panels.
         if !self.primary_output_seen { return; }
-        let connected_outputs: Vec<_> = self.outputs.outputs()
+        let outputs: Vec<_> = self.outputs.outputs()
+            .filter(|output| self.primary_output.as_ref() != Some(output))
             .filter(|output| self.logical_output_size(output).is_some())
-            .collect();
-        let outputs: Vec<_> = connected_outputs.iter()
-            .filter(|output| self.primary_output.as_ref() != Some(*output))
-            .take(MAX_OUTPUT_PANELS).cloned().collect();
+            .take(MAX_OUTPUT_PANELS).collect();
         let old_count = self.mirrors.len();
         self.mirrors.retain(|mirror| outputs.contains(&mirror.output));
         if old_count != self.mirrors.len() {
@@ -2308,12 +2306,14 @@ impl RicePlate {
         // Desktop shortcut surfaces follow the same explicit secondary output
         // ownership as panels. No full-screen input-grabbing wallpaper layer.
         let before = self.icon_layers.len();
-        // An XDG popup must not outlive its original Bottom-layer parent
-        // when a monitor is unplugged, even if search changed its target.
+        // Tear down the popup before its original icon is removed. This
+        // includes hot-unplug AND a former secondary output becoming primary:
+        // the icon layer is replaced even when the output stays connected.
+        // Search can change the selected action, never the Wayland parent.
         if self.desktop_context.as_ref().is_some_and(|menu|
             self.icon_layers.iter().any(|icon|
                 icon.surface.wl_surface() == &menu.parent_surface
-                && icon.bound_output.as_ref().is_some_and(|output| !connected_outputs.contains(output)))) {
+                && icon.bound_output.as_ref().is_some_and(|output| !outputs.contains(output)))) {
             self.close_desktop_context();
         }
         self.icon_layers.retain(|icon| icon.bound_output.as_ref()
