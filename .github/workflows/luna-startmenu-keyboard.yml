@@ -1,0 +1,53 @@
+name: Luna Start Menu keyboard acceptance
+
+on:
+  push:
+    branches:
+      - fix/luna-startmenu-fidelity5-20261113
+    paths:
+      - '.github/workflows/luna-startmenu-keyboard.yml'
+      - 'components/riceplate-wayland/**'
+      - 'scripts/smoke_luna_startmenu_keyboard.sh'
+  pull_request:
+    branches:
+      - feat/luna-startmenu-fidelity
+    paths:
+      - '.github/workflows/luna-startmenu-keyboard.yml'
+      - 'components/riceplate-wayland/**'
+      - 'scripts/smoke_luna_startmenu_keyboard.sh'
+
+permissions:
+  contents: read
+
+jobs:
+  compositor-keyboard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - name: Install native compositor and input test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y labwc grim wlr-randr wtype dbus-x11 \
+            libxkbcommon-dev libdbus-1-dev pkg-config fonts-dejavu-core python3-pil
+      - name: Build tested native RicePlate and real pointer injector
+        run: |
+          cargo test --locked --manifest-path components/riceplate-wayland/Cargo.toml
+          cargo build --locked --release --manifest-path components/riceplate-wayland/Cargo.toml
+          cargo build --locked --release --manifest-path components/riceplate-wayland/Cargo.toml \
+            --example wayland_pointer_click
+      - name: Test actual labwc category keyboard focus and capture screen sizes
+        run: |
+          sh -n scripts/smoke_luna_startmenu_keyboard.sh
+          timeout -k 5s 110s sh scripts/smoke_luna_startmenu_keyboard.sh
+      - name: Archive unmodified compositor screenshots and scoped diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: luna-startmenu-keyboard-${{ github.sha }}
+          path: |
+            dist/luna-startmenu-keyboard/*.png
+            dist/luna-startmenu-keyboard/*.log
+          if-no-files-found: warn
+          retention-days: 7
