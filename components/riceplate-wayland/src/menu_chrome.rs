@@ -172,10 +172,23 @@ pub fn action_icon(canvas: &mut [u8], x: u32, y: u32, action: &str, selected: bo
     let ink = if selected { 0xffff_ffff } else { 0xff1a_4d84 };
     let light = if selected { 0xffca_e3ff } else { 0xff86_c2ec };
     match action {
-        "applications" | "settings" => {
+        "applications" => {
+            // Programs: a yellow XP-style folder, distinct from system setup.
             fill_rect(canvas, w, h, x, y + 3, 13, 10, 0xff9e_691d);
             fill_rect(canvas, w, h, x + 2, y + 1, 7, 3, 0xffe4_bc59);
             fill_rect(canvas, w, h, x + 1, y + 5, 11, 6, 0xffff_d268);
+        }
+        "settings" => {
+            // Control Panel: copper gear surrounding a separate blue dial.
+            // This symbol is original pixel art, not proprietary XP artwork.
+            let rim = 0xff7d_571d;
+            for (dx, dy) in [(5, 0), (6, 0), (0, 5), (0, 6),
+                             (11, 5), (11, 6), (5, 11), (6, 11)] {
+                fill_rect(canvas, w, h, x + dx, y + dy, 2, 2, rim);
+            }
+            fill_rounded_rect(canvas, w, h, x + 2, y + 2, 10, 10, 4, rim);
+            fill_rounded_rect(canvas, w, h, x + 3, y + 3, 8, 8, 3, 0xffff_cf69);
+            fill_rounded_rect(canvas, w, h, x + 5, y + 5, 4, 4, 2, 0xff46_96ce);
         }
         "documents" => {
             // Original yellow tabbed folder and pale paper sheet.
@@ -214,11 +227,19 @@ pub fn action_icon(canvas: &mut [u8], x: u32, y: u32, action: &str, selected: bo
             fill_rect(canvas, w, h, x + 3, y + 5, 5, 1, 0xff8d_e5da);
             fill_rect(canvas, w, h, x + 4, y + 11, 5, 2, ink);
         }
-        "lock" | "logout" => {
+        "lock" => {
             fill_rounded_rect(canvas, w, h, x + 2, y, 9, 9, 4, ink);
             fill_rounded_rect(canvas, w, h, x + 4, y + 2, 5, 7, 2, light);
             fill_rect(canvas, w, h, x, y + 6, 13, 7, 0xffe9_b447);
             fill_rect(canvas, w, h, x + 6, y + 8, 2, 3, ink);
+        }
+        "logout" => {
+            // Log off: distinct orange doorway with an outward white arrow.
+            fill_rect(canvas, w, h, x + 1, y + 1, 9, 12, 0xff8b_471d);
+            fill_rect(canvas, w, h, x + 3, y + 2, 6, 10, 0xffed_a14c);
+            fill_rect(canvas, w, h, x + 5, y + 4, 2, 2, 0xffff_e9a5);
+            fill_rect(canvas, w, h, x + 5, y + 7, 8, 2, 0xffff_ffff);
+            fill_rect(canvas, w, h, x + 10, y + 5, 2, 6, 0xffff_ffff);
         }
         "help" => {
             // Original blue assistance tile with a bright question-mark stem.
@@ -367,5 +388,25 @@ mod tests {
         state.open();
         assert_eq!(state.hit(&menu, 280.0, f64::from(native_menu::HEIGHT - 16)),
                    Some(native_menu::Hit::Close));
+    }
+
+    #[test]
+    fn luna_start_menu_control_panel_and_logoff_have_distinct_real_icons() {
+        let render = |action: &str| {
+            let mut pixels = vec![0_u8; (native_menu::WIDTH * native_menu::HEIGHT * 4) as usize];
+            action_icon(&mut pixels, 32, 100, action, false);
+            pixels
+        };
+        let programs = render("applications");
+        let settings = render("settings");
+        let lock = render("lock");
+        let logout = render("logout");
+        assert_ne!(programs, settings, "Control Panel must not reuse the Programs folder");
+        assert_ne!(lock, logout, "Log off must not reuse the lock glyph");
+        for pixels in [&programs, &settings, &lock, &logout] {
+            assert_eq!(at(pixels, 30, 107), 0, "glyph may not paint outside its tile");
+            assert_eq!(at(pixels, 46, 113), 0, "glyph may not paint into neighbouring text");
+            assert_ne!(at(pixels, 37, 108), 0, "glyph is visible on actual menu pixels");
+        }
     }
 }
