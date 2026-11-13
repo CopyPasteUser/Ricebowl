@@ -40,21 +40,30 @@ impl Category {
     }
     /// Only read the recognized Categories key from the main Desktop Entry.
     /// Unknown values cannot become dynamic executable menu entries.
+    /// Only the canonical main desktop group may classify an application.
+    /// Reject duplicate Categories keys or repeated main groups rather than
+    /// allowing the last untrusted value to silently change the folder.
     pub fn from_desktop_data(data: &str) -> Self {
         let mut in_entry = false;
+        let mut seen_entry = false;
+        let mut category = None;
         for line in data.lines() {
             let line = line.trim();
             if line.starts_with('[') {
                 in_entry = line == "[Desktop Entry]";
+                if in_entry {
+                    if seen_entry { return Self::Other; }
+                    seen_entry = true;
+                }
                 continue;
             }
-            if in_entry {
-                if let Some(value) = line.strip_prefix("Categories=") {
-                    return Self::from_categories(value);
-                }
-            }
+            if !in_entry || line.is_empty() || line.starts_with('#') { continue; }
+            let Some((key, value)) = line.split_once('=') else { continue; };
+            if key.trim() != "Categories" { continue; }
+            if category.is_some() { return Self::Other; }
+            category = Some(Self::from_categories(value.trim()));
         }
-        Self::Other
+        category.unwrap_or(Self::Other)
     }
     fn from_categories(value: &str) -> Self {
         let tags: Vec<_> = value.split(';').collect();
@@ -95,6 +104,18 @@ mod tests {
             "[Desktop Entry]\nCategories=UntrustedName;\n"), Category::Other);
         assert_eq!(Category::from_desktop_data("[Desktop Entry]\nName=Tool\n"),
                    Category::Other);
+        assert_eq!(Category::from_desktop_data(
+            "[Desktop Entry]\\n# Categories=Game;\\nCategories = Office;\\n"),
+            Category::Office);
+        assert_eq!(Category::from_desktop_data(
+            "[Desktop Entry]\\nCategories=Game;\\nCategories=Office;\\n"),
+            Category::Other);
+        assert_eq!(Category::from_desktop_data(
+            "[Desktop Entry]\\nCategories=Game;\\n[Desktop Entry]\\nCategories=Office;\\n"),
+            Category::Other);
+        assert_eq!(Category::from_desktop_data(
+            "[Desktop Action Launch]\\nCategories=Game;\\n[Desktop Entry]\\nCategories=Office;\\n"),
+            Category::Office);
         assert!(Category::from_action("desktop:some-app.desktop").is_none());
         for category in Category::ORDER {
             assert_eq!(Category::from_action(category.action()), Some(category));
