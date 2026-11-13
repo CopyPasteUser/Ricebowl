@@ -1134,7 +1134,7 @@ impl RicePlate {
         let entries: Vec<_> = files.entries().iter().enumerate().map(|(index, entry)| {
             let slot = index + self.static_icon_count;
             recipe::DesktopIcon {
-                label: entry.label(), action: format!("desktop-file:{index}"),
+                label: entry.label(), action: desktop_files::action_for(entry.kind, index),
                 x: 24 + ((slot / 5) as u32 * 112),
                 y: 88 + ((slot % 5) as u32 * 104),
             }
@@ -2953,8 +2953,7 @@ impl RicePlate {
     }
 
     fn activate_action(&mut self, action: &str, qh: &QueueHandle<Self>) {
-        if let Some(index) = action.strip_prefix("desktop-file:")
-            .and_then(|value| value.parse::<usize>().ok()) {
+        if let Some(index) = desktop_files::action_index(action) {
             if self.recipe.id == "xp-luna-columns" { self.open_desktop_file(index); }
             return;
         }
@@ -5362,7 +5361,8 @@ fn paint_desktop_context(canvas: &mut [u8], style: &PanelStyle,
                        if back_hovered { 0xffff_ffff } else { 0xff1d_273d }, style);
         return;
     }
-    let is_file = details.is_some_and(|(_, action)| action.starts_with("desktop-file:"));
+    let is_file = details.is_some_and(|(_, action)|
+        desktop_files::action_index(action).is_some());
     for action in DesktopContextAction::ALL {
         let y = desktop_context::row(action);
         if action == selected || hovered == Some(action) {
@@ -5403,6 +5403,8 @@ fn paint_icon(canvas: &mut [u8], icon: &recipe::DesktopIcon, style: &PanelStyle,
         "documents" => "Docs",
         "network" => "Net",
         other if other.starts_with("desktop-file:") => "File",
+        other if other.starts_with("desktop-folder:") => "Folder",
+        other if other.starts_with("desktop-link:") => "Link",
         _ => return,
     };
     // The generic default is an original, fully vector-rasterized bin.
@@ -5412,10 +5414,13 @@ fn paint_icon(canvas: &mut [u8], icon: &recipe::DesktopIcon, style: &PanelStyle,
         // Transparent 48px artwork sits in the existing, keyboard-reachable
         // 104x88 desktop icon surface. Wayland focus/label stay unchanged.
         style_art::paint_icon(canvas, width, custom.unwrap(), 28, 4);
-    } else if matches!(icon.action.as_str(), "computer" | "documents" | "network") {
-        // Dedicated original pixel-art silhouettes for fixed XP desktop places.
-        // No host icon dependency and no proprietary Windows assets.
-        match icon.action.as_str() {
+    } else if matches!(icon.action.as_str(), "computer" | "documents" | "network")
+        || icon.action.starts_with("desktop-folder:") {
+        // Native folders reuse the same original artwork as Documents.
+        let art_action = if icon.action.starts_with("desktop-folder:") {
+            "documents"
+        } else { icon.action.as_str() };
+        match art_action {
             "computer" => {
                 fill_rounded_rect(canvas, width, height, 30, 8, 44, 33, 4, 0xff4a_5870);
                 fill_rect(canvas, width, height, 34, 11, 36, 25, 0xff8d_c9e3);

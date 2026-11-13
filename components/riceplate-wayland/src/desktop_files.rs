@@ -13,6 +13,21 @@ use std::{
     process::Command,
 };
 
+/// Synthetic action IDs live only in memory, never inside a user Recipe.
+pub fn action_for(kind: Kind, index: usize) -> String {
+    let prefix = match kind {
+        Kind::File => "desktop-file:",
+        Kind::Directory => "desktop-folder:",
+        Kind::Symlink => "desktop-link:",
+    };
+    format!("{prefix}{index}")
+}
+pub fn action_index(action: &str) -> Option<usize> {
+    ["desktop-file:", "desktop-folder:", "desktop-link:"]
+        .iter().find_map(|prefix| action.strip_prefix(prefix))
+        .and_then(|number| number.parse().ok())
+}
+
 pub const MAX_ENTRIES: usize = 48;
 const MAX_SCAN: usize = 512;
 const MAX_NAME_BYTES: usize = 255;
@@ -230,6 +245,17 @@ mod tests {
         let root = std::env::temp_dir().join(format!("riceplate-desktop-{}-{n}", std::process::id()));
         fs::DirBuilder::new().mode(0o700).create(&root).unwrap();
         root
+    }
+
+    #[test]
+    fn native_actions_are_typed_and_never_interpret_path_as_command() {
+        assert_eq!(action_for(Kind::Directory, 12), "desktop-folder:12");
+        assert_eq!(action_for(Kind::Symlink, 9), "desktop-link:9");
+        assert_eq!(action_index("desktop-file:7"), Some(7));
+        assert_eq!(action_index("desktop-folder:12"), Some(12));
+        assert_eq!(action_index("desktop-link:9"), Some(9));
+        assert_eq!(action_index("desktop-file:../../tmp"), None);
+        assert_eq!(action_index("logout"), None);
     }
 
     #[test]

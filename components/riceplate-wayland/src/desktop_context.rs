@@ -141,7 +141,11 @@ pub fn details(action: &str) -> (&'static str, &'static str) {
         "trash" => ("Virtual folder", "Trash via Gio"),
         "documents" => ("User folder", "Documents via Gio"),
         action if action.starts_with("desktop-file:") =>
-            ("Desktop entry", "Open via system MIME handler"),
+            ("Local file", "Open via Gio MIME handler"),
+        action if action.starts_with("desktop-folder:") =>
+            ("Local folder", "Open via RiceField / Gio"),
+        action if action.starts_with("desktop-link:") =>
+            ("Symbolic link", "Link activation is disabled"),
         "computer" => ("Virtual folder", "Computer via Gio"),
         "network" => ("Virtual folder", "Network via Gio"),
         _ => ("Shortcut", "Supported action"),
