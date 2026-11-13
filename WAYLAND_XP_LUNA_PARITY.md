@@ -264,7 +264,7 @@ solution and a real compositor/keyboard acceptance test. The new hotkeys
 themselves must pass headless labwc CI and physical hardware QA before
 1.0 sign-off.
 
-## Sprint 4 – True XDG popup keyboard focus (13 November 2026)
+## Sprint 4 – True XDG popup keyboard focus (experimental / blocked, 13 November 2026)
 
 The XP Luna Bottom-layer desktop icon context menu is now an **actual
 xdg_popup, parented to the original icon** by SCTK's
@@ -296,3 +296,30 @@ and full CI checks on its exact head before merging. Physical ThinkPad
 keyboard, IME, screen-reader and multi-seat acceptance are outstanding.
 The older blocked experiment PR #327 must remain separate; a Rust-only
 matcher is not proof of correct compositor keyboard dispatch.
+
+
+**Verified native blocker on the deployed labwc generation:**
+- `Tests` pass (Rust 264 cases; full Python suite), native package build and
+  disposable Ubuntu install/upgrade/rollback pass.
+- Native CI [43396913933](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43396913933)
+  on labwc **0.7.1-1build1** proves the XDG child popup **renders**:
+  the real compositor PNG changes **42,258 pixels** in its 224×190 region.
+  SCTK confirms `xdg_popup.configure size=224x190 at=(44,35)`.
+- The same real `wtype p` receives **no** popup `wl_keyboard.enter`, even
+  after a deliberate extra pointer click in the bounded popup. The new
+  Programs icon still has zero changed pixels, so keyboard type-to-select
+  is **not functional**.
+- A second experiment temporarily raised only the parent icon to the Top
+  layer. It **also failed** the real labwc 0.7.1 smoke in
+  [43398014735](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43398014735),
+  so it was removed. No permanent focus grab, global compositor changes,
+  or host update were made.
+- labwc upstream introduced keyboard focus for popups of unfocused
+  layer-shell surfaces in **0.9.4**. A separate opt-in native
+  compositor-version compatibility test is needed, not an unvalidated
+  assertion that the Mint/Ubuntu 0.7.1 compositor works.
+
+**Status: this whole implementation remains Draft PR #342, NOT in main.**
+Current production main keeps the working pointer-driven desktop context
+menu unchanged. Do not advertise shortcut typing on labwc 0.7.1 as
+implemented or accepted.
