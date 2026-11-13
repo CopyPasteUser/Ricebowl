@@ -485,7 +485,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         keyboard_icon_surface: None,
         desktop_selection: desktop_selection::Selection::default(),
         desktop_type_select: desktop_selection::TypeSelect::default(),
-        panel_desktop_search: None,
         selection_modifiers: Modifiers::default(),
         desktop_context: None,
         context_generation: 0,
@@ -920,9 +919,6 @@ struct RicePlate {
     keyboard_icon_surface: Option<wl_surface::WlSurface>,
     desktop_selection: desktop_selection::Selection,
     desktop_type_select: desktop_selection::TypeSelect,
-    // Only an explicitly focused TOP taskbar may search desktop shortcuts.
-    // Bottom-layer icon surfaces cannot acquire keyboard focus in labwc.
-    panel_desktop_search: Option<wl_output::WlOutput>,
     selection_modifiers: Modifiers,
     desktop_context: Option<DesktopContextLayer>,
     // Invalidates pending AT-SPI actions when menus reopen or change views.
@@ -994,89 +990,6 @@ impl RicePlate {
     fn clear_luna_selection(&mut self) {
         if self.recipe.id != "xp-luna-columns" { return; }
         for changed in self.desktop_selection.clear_all() { self.redraw_icon(changed); }
-    }
-
-    fn cancel_panel_desktop_search(&mut self, clear_selection: bool) {
-        self.panel_desktop_search = None;
-        self.desktop_type_select.reset();
-        if clear_selection { self.clear_luna_selection(); }
-    }
-
-    fn begin_panel_desktop_search(&mut self, mirror: Option<usize>) -> bool {
-        if self.recipe.id != "xp-luna-columns" { return false; }
-        let output = mirror
-            .and_then(|index| self.mirrors.get(index).map(|panel| panel.output.clone()))
-            .or_else(|| self.primary_output.clone());
-        let Some(output) = output else { return false; };
-        let first = self.icon_layers.iter().position(|icon| icon.placed.is_some()
-            && icon.bound_output.as_ref().or(self.primary_output.as_ref())
-                .or(icon.output.as_ref()) == Some(&output));
-        let Some(index) = first else { return false; };
-        self.panel_desktop_search = Some(output);
-        self.desktop_type_select.reset();
-        // Selection is a visual cue. Keyboard focus stays on the native Top
-        // taskbar and can move to other apps normally; no exclusive grab.
-        self.select_luna_icon(index);
-        true
-    }
-
-    fn panel_desktop_search_key(&mut self, event: &KeyEvent,
-                                qh: &QueueHandle<Self>) -> bool {
-        let Some(output) = self.panel_desktop_search.as_ref() else { return false; };
-        if self.focused_panel.is_none() {
-            self.cancel_panel_desktop_search(true);
-            return false;
-        }
-        match event.keysym {
-            Keysym::Escape | Keysym::F3 => {
-                self.cancel_panel_desktop_search(true);
-                return true;
-            }
-            Keysym::Return | Keysym::KP_Enter => {
-                let action = self.desktop_selection.selected()
-                    .and_then(|index| self.icon_layers.get(index))
-                    .filter(|icon| icon.placed.is_some()
-                        && icon.bound_output.as_ref().or(self.primary_output.as_ref())
-                            .or(icon.output.as_ref()) == Some(output))
-                    .and_then(|icon| self.recipe.desktop_icons.get(icon.recipe_index))
-                    .map(|icon| icon.action.clone());
-                self.cancel_panel_desktop_search(true);
-                if let Some(action) = action { self.activate_action(&action, qh); }
-                return true;
-            }
-            Keysym::BackSpace => {
-                self.desktop_type_select.reset();
-                return true;
-            }
-            _ => {}
-        }
-        if !self.selection_modifiers.ctrl && !self.selection_modifiers.alt {
-            if let Some(text) = event.utf8.as_deref().filter(|value|
-                value.chars().count() == 1 && value.chars().all(char::is_alphanumeric)) {
-                let labels: Vec<Option<&str>> = self.icon_layers.iter().map(|icon| {
-                    (icon.placed.is_some()
-                        && icon.bound_output.as_ref().or(self.primary_output.as_ref())
-                            .or(icon.output.as_ref()) == Some(output))
-                        .then(|| self.recipe.desktop_icons.get(icon.recipe_index)
-                            .map(|entry| entry.label.as_str())).flatten()
-                }).collect();
-                let current = self.desktop_selection.selected()
-                    .filter(|index| labels.get(*index).is_some_and(Option::is_some))
-                    .or_else(|| labels.iter().position(Option::is_some));
-                if let Some(index) = current {
-                    if let Some(next) = self.desktop_type_select.feed(
-                        &labels, index, text, Instant::now()) {
-                        if std::env::var_os("RICEBOWL_DE_TRACE_DESKTOP").is_some() {
-                            eprintln!("RicePlate desktop panel-search select index={next}");
-                        }
-                        self.select_luna_icon(next);
-                    }
-                }
-                return true;
-            }
-        }
-        self.cancel_panel_desktop_search(false);
-        false
     }
 
 
@@ -1192,6 +1105,7 @@ impl RicePlate {
     }
 
     fn close_desktop_context(&mut self) {
+        self.desktop_type_select.reset();
         self.context_focused = false;
         // Drop the real, strictly bounded layer-shell surface. A hidden
         // full-output input region is never allocated or left behind.
@@ -1251,6 +1165,42 @@ impl RicePlate {
             pressed: None, can_move, can_reset,
             properties: false, back_hovered: false, back_pressed: false,
         });
+    }
+
+    /// The explicit native shortcut menu is an Overlay, so labwc can
+    /// focus it without assigning the Bottom desktop icons keyboard focus.
+    /// Never listen to keys while another client or context surface owns it.
+    fn type_select_desktop_context(&mut self, value: &str) -> bool {
+        if self.recipe.id != "xp-luna-columns"
+            || value.chars().count() != 1
+            || !value.chars().all(char::is_alphanumeric)
+        {
+            return false;
+        }
+        let Some(current) = self.desktop_context.as_ref()
+            .filter(|menu| !menu.properties).map(|menu| menu.icon_index)
+            else { return false };
+        let Some(source) = self.icon_layers.get(current) else { return false };
+        let labels: Vec<Option<&str>> = self.icon_layers.iter().map(|icon| {
+            (icon.placed.is_some() && icon.bound_output == source.bound_output)
+                .then(|| self.recipe.desktop_icons.get(icon.recipe_index)
+                    .map(|entry| entry.label.as_str())).flatten()
+        }).collect();
+        let Some(next) = self.desktop_type_select.feed(
+            &labels, current, value, Instant::now()
+        ) else { return true };
+        if next != current {
+            self.select_luna_icon(next);
+            if let Some(menu) = self.desktop_context.as_mut() {
+                menu.icon_index = next;
+                menu.selected = DesktopContextAction::Open;
+                menu.hovered = None;
+                menu.pressed = None;
+            }
+            self.context_generation = self.context_generation.wrapping_add(1);
+            self.redraw_desktop_context();
+        }
+        true
     }
 
     fn choose_desktop_context(&mut self, action: DesktopContextAction,
@@ -1971,9 +1921,6 @@ impl RicePlate {
         let groups = self.grouped_tasks();
         let count = groups.len();
         match key {
-            Keysym::F3 if self.recipe.id == "xp-luna-columns" => {
-                self.begin_panel_desktop_search(mirror);
-            }
             Keysym::Right | Keysym::Tab | Keysym::Down
             | Keysym::Left | Keysym::ISO_Left_Tab | Keysym::Up => {
                 let delta = if matches!(key, Keysym::Left | Keysym::ISO_Left_Tab | Keysym::Up) {
@@ -3109,8 +3056,6 @@ impl RicePlate {
     }
 
     fn reflow_icons(&mut self) {
-        // Output changes invalidate transient keyboard search on that output.
-        self.cancel_panel_desktop_search(false);
         // A context menu is anchored to one physical output; hotplug and
         // icon position changes invalidate its coordinates and target.
         self.close_desktop_context();
@@ -4949,12 +4894,12 @@ fn paint_luna_dialog(canvas: &mut [u8], style: &PanelStyle, state: &luna_dialog:
         }
         luna_dialog::Kind::Help => {
             for (line, text) in [
-                "Start: All Programs lists installed apps.",
-                "Start Find searches apps; Run uses no shell.",
-                "Inside Start: F2 pins; F3 opens Saved.",
-                "On taskbar: F3 finds desktop shortcuts.",
-                "Type a name; Enter opens, Esc cancels.",
-                "Double-click opens; right-click has options.",
+                "Start menu: All Programs lists installed apps.",
+                "Find searches real desktop entries and actions.",
+                "In Start: F2 pins; F3 opens Saved.",
+                "Right-click an icon; type to find icons.",
+                "Enter opens selected; Esc closes menu.",
+                "Run starts commands without a shell.",
             ].iter().enumerate() {
                 draw_rice_text(canvas, w, h, 23, 54 + line as u32 * 22,
                                text, 0xff17_315c, style);
@@ -4988,8 +4933,12 @@ fn paint_desktop_context(canvas: &mut [u8], style: &PanelStyle,
     fill_rect(canvas, w, h, 0, 0, w, h, 0xff20_3f7e);
     fill_rect(canvas, w, h, 2, 2, w - 4, h - 4, 0xfffc_faf2);
     fill_rect(canvas, w, h, 3, 3, w - 6, 29, 0xff24_5ed3);
+    let heading = if properties { "Properties" } else {
+        details.map_or("Shortcut", |(label, _)| label)
+    };
+    // Recipe labels are validated and bounded. Keep the popup header local.
     draw_rice_text(canvas, w, h, 12, 11,
-                   if properties { "Properties" } else { "Shortcut" },
+                   &heading.chars().take(25).collect::<String>(),
                    0xffff_ffff, style);
     if properties {
         // Bounded, read-only metadata for validated actions; no stat calls,
@@ -5944,7 +5893,6 @@ impl KeyboardHandler for RicePlate {
             }
         }
         if self.focused_panel.as_ref() == Some(surface) {
-            self.cancel_panel_desktop_search(true);
             self.focused_panel = None;
             self.focused_target = None;
             self.request_redraw(qh);
@@ -5959,10 +5907,9 @@ impl KeyboardHandler for RicePlate {
         _: u32,
         event: KeyEvent,
     ) {
-        if self.panel_desktop_search_key(&event, qh) { return; }
         if std::env::var_os("RICEBOWL_DE_TRACE_DESKTOP").is_some() {
-            eprintln!("RicePlate desktop key focus={:?} surface={} utf8_len={:?}",
-                self.focused_icon, self.keyboard_icon_surface.is_some(),
+            eprintln!("RicePlate desktop key context={} icon={} input_bytes={:?}",
+                self.context_focused, self.keyboard_icon_surface.is_some(),
                 event.utf8.as_deref().map(str::len));
         }
         if self.luna_dialog_focused {
@@ -6006,6 +5953,9 @@ impl KeyboardHandler for RicePlate {
             return;
         }
         if self.context_focused {
+            if let Some(value) = event.utf8.as_deref() {
+                if self.type_select_desktop_context(value) { return; }
+            }
             if self.desktop_context.as_ref().is_some_and(|menu| menu.properties) {
                 match event.keysym {
                     Keysym::Escape | Keysym::BackSpace |
@@ -6841,7 +6791,6 @@ impl PointerHandler for RicePlate {
                     continue;
                 }
                 if matches!(event.kind, PointerEventKind::Press { .. }) {
-                    self.cancel_panel_desktop_search(false);
                     self.desktop_type_select.reset();
                 }
                 match event.kind {
