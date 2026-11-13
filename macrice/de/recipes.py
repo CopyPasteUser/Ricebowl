@@ -1435,6 +1435,25 @@ def labwc_menu(recipe: PanelRecipe) -> str:
         "lock": ("Lock screen", "Execute", "ricebowl de lock"),
         "logout": ("Log out of RiceBowl", "Exit", None),
     }
+    if recipe.recipe_id == "xp-luna-columns":
+        # Labwc already handles right-click on the wallpaper. Keep this
+        # native desktop context inside the disposable session config; no
+        # fullscreen transparent input layer or global labwc menu mutation.
+        desktop = ET.SubElement(menu, "menu", {
+            "id": "rice-luna-desktop", "label": "Desktop",
+        })
+        for label, operation in (
+            ("Arrange Icons", "arrange"),
+            ("New Folder", "new-folder"),
+            ("Refresh", "refresh"),
+            ("Properties", "properties"),
+        ):
+            entry = ET.SubElement(desktop, "item", {"label": label})
+            ET.SubElement(entry, "action", {
+                "name": "Execute",
+                "command": f"riceplate-native --desktop-command {operation}",
+            })
+        ET.SubElement(menu, "separator")
     for index, group in enumerate(groups):
         # RiceSpice quick actions belong to native RicePlate's bounded worker;
         # Waybar/labwc fallback does not pretend to provide an equivalent.
