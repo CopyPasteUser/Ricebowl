@@ -141,12 +141,16 @@ class ScreenCastCapabilityTests(unittest.TestCase):
                 portal.stream_nodes(bad)
 
     def test_pipewire_remote_fd_requires_socket_and_always_closes_copy(self):
-        with socket.socketpair() as (sender, receiver):
+        sender, receiver = socket.socketpair()
+        try:
             duplicate = os.dup(sender.fileno())
             portal.verify_pipewire_socket_fd(duplicate)
             with self.assertRaises(OSError):
                 os.fstat(duplicate)  # Explicitly closed, original socket stays valid.
             self.assertTrue(receiver.fileno() >= 0)
+        finally:
+            sender.close()
+            receiver.close()
         read_fd, write_fd = os.pipe()
         try:
             duplicate = os.dup(read_fd)
