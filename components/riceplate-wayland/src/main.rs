@@ -1948,7 +1948,8 @@ impl RicePlate {
                 }
                 self.redraw_menu(qh);
             }
-            Target::MenuAction(action) => self.activate_action(&action, qh),
+            // Accessible menu actions must follow the same navigation path as pointer/keyboard.
+            Target::MenuAction(action) => self.activate_menu_action(&action, qh),
             Target::MenuSearch => {
                 self.menu_state.search_button();
                 self.redraw_menu(qh);
