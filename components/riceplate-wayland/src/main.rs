@@ -9,6 +9,7 @@ use font8x8::{UnicodeFonts, BASIC_FONTS, LATIN_FONTS, GREEK_FONTS, HIRAGANA_FONT
 mod accessibility;
 mod brightness;
 mod calendar;
+mod control_feedback;
 mod desktop_context;
 mod desktop_layout;
 mod desktop_selection;
@@ -27,6 +28,7 @@ mod panel_chrome;
 mod osd;
 mod output_watch;
 mod power;
+mod raster;
 mod recipe;
 mod style_art;
 mod ricepop;
@@ -40,6 +42,8 @@ use power::PowerStatus;
 use ricepop::{Intent as NotificationIntent, Request as NotificationRequest,
               State as NotificationState};
 use system_status::{Audio, ControlAction, SystemStatus};
+use control_feedback::ControlFeedback;
+use raster::{fill_rect, fill_rounded_rect};
 
 enum StatusEvent {
     State(SystemStatus),
@@ -1458,18 +1462,16 @@ impl RicePlate {
                     Widget::Action(index) => {
                         if let Some(action) = self.recipe.actions.get(index as usize) {
                             let control = action.control.then(|| ControlAction::from_id(&action.id)).flatten();
-                            let available = control.is_none_or(|item|
-                                item.available(&self.system_status) && self.control_pending.is_none());
-                            let name = if let Some(item) = control {
+                            let feedback = control.map(|item| ControlFeedback::snapshot(item,
+                                &self.system_status, self.control_pending, self.control_result,
+                                self.control_sender.is_some()));
+                            let name = if let Some((item, state)) = control.zip(feedback) {
                                 format!("{}, {}, {}", action.label, item.state_label(&self.system_status),
-                                    if self.control_pending == Some(item) { "applying" }
-                                    else if self.control_pending.is_some() { "busy" }
-                                    else if self.control_result == Some((item, false)) { "failed" }
-                                    else if !item.available(&self.system_status) { "unavailable" }
-                                    else { "ready" })
+                                        state.accessibility_label())
                             } else { action.label.clone() };
                             model.add(base + 30 + index as u64, base, AccessibleRole::Button,
-                                name, available.then(|| Target::PanelAction(action.id.clone())));
+                                name, feedback.is_none_or(ControlFeedback::is_actionable)
+                                    .then(|| Target::PanelAction(action.id.clone())));
                         }
                     }
                     Widget::Clock => model.add(base + 2, base, AccessibleRole::Button,
@@ -2995,18 +2997,16 @@ impl RicePlate {
 
     fn desktop_action_enabled(&self, action: &str) -> bool {
         ControlAction::from_id(action).is_none_or(|control|
-            control.available(&self.system_status) && self.control_pending.is_none()
-                && self.control_sender.is_some())
+            ControlFeedback::snapshot(control, &self.system_status,
+                self.control_pending, self.control_result, self.control_sender.is_some())
+                .is_actionable())
     }
 
     fn desktop_action_state(&self, action: &str) -> &'static str {
         let Some(control) = ControlAction::from_id(action) else { return "Press Enter or click"; };
-        if self.control_pending == Some(control) { "Applying..." }
-        else if self.control_pending.is_some() { "Busy" }
-        else if !control.available(&self.system_status) || self.control_sender.is_none() {
-            "Unavailable"
-        } else if self.control_result == Some((control, false)) { "Action failed" }
-        else { "Press Enter or click" }
+        ControlFeedback::snapshot(control, &self.system_status,
+            self.control_pending, self.control_result, self.control_sender.is_some())
+            .desktop_hint()
     }
 
     fn redraw_widget(&mut self, index: usize) {
@@ -3937,19 +3937,16 @@ fn paint_panel_pointer(canvas: &mut [u8], width: u32, height: u32,
                         continue;
                     }
                     let control = action.control.then(|| ControlAction::from_id(&action.id)).flatten();
-                    let available = control.is_none_or(|item|
-                        item.available(status) && pending.is_none());
+                    let feedback = control.map(|item|
+                        ControlFeedback::snapshot(item, status, pending, result, true));
+                    let available = feedback.is_none_or(ControlFeedback::is_actionable);
                     if available {
                         fill_rounded_rect(canvas, width, height, placed.x + 2, 3,
                             placed.width.saturating_sub(4), height.saturating_sub(6),
                             style.task_radius, style.active);
                     }
-                    let second_line = control.map(|item| {
-                        if pending == Some(item) { "Wait".to_string() }
-                        else if pending.is_some() { "Busy".to_string() }
-                        else if result == Some((item, false)) { "Failed".to_string() }
-                        else { item.state_label(status) }
-                    });
+                    let second_line = control.zip(feedback)
+                        .map(|(item, state)| state.panel_caption(item, status));
                     draw_rice_text(canvas, width, height, placed.x + style.label_padding + 4,
                         if second_line.is_some() { height.saturating_sub(20 * style.font_scale) / 2 }
                         else { height.saturating_sub(8 * style.font_scale) / 2 },
@@ -5397,61 +5394,6 @@ fn paint_desktop_widget(canvas: &mut [u8], title: &str, lines: &[String], style:
                        if style.font_scale == 1 { 43 + index as u32 * 20 }
                        else { 40 + index as u32 * 23 },
                        &clipped, style.foreground, style);
-    }
-}
-
-fn fill_rect(
-    canvas: &mut [u8],
-    width: u32,
-    height: u32,
-    x: u32,
-    y: u32,
-    w: u32,
-    h: u32,
-    color: u32,
-) {
-    for row in y..y.saturating_add(h).min(height) {
-        for column in x..x.saturating_add(w).min(width) {
-            let index = ((row * width + column) * 4) as usize;
-            canvas[index..index + 4].copy_from_slice(&color.to_le_bytes());
-        }
-    }
-}
-
-fn fill_rounded_rect(
-    canvas: &mut [u8],
-    width: u32,
-    height: u32,
-    x: u32,
-    y: u32,
-    w: u32,
-    h: u32,
-    radius: u32,
-    color: u32,
-) {
-    let r = radius.min(w / 2).min(h / 2);
-    if r == 0 {
-        fill_rect(canvas, width, height, x, y, w, h, color);
-        return;
-    }
-    let corner = (r as i64 - 1).pow(2);
-    for py in 0..h.min(height.saturating_sub(y)) {
-        for px in 0..w.min(width.saturating_sub(x)) {
-            let dx = if px < r {
-                r - 1 - px
-            } else {
-                px.saturating_sub(w - r)
-            };
-            let dy = if py < r {
-                r - 1 - py
-            } else {
-                py.saturating_sub(h - r)
-            };
-            if (dx as i64).pow(2) + (dy as i64).pow(2) <= corner {
-                let index = (((y + py) * width + x + px) * 4) as usize;
-                canvas[index..index + 4].copy_from_slice(&color.to_le_bytes());
-            }
-        }
     }
 }
 
