@@ -1,9 +1,10 @@
 //! Bounded, input-independent navigation for a real native RicePlate menu.
 //! Every row maps to a validated recipe action; labels never become commands.
 
-use std::time::{Duration, Instant};
+use std::{collections::HashMap, time::{Duration, Instant}};
 
-use crate::{installed_apps::{self, App}, recipe::{MenuContentKind, MenuPresentation, NativeMenu}};
+use crate::{installed_apps::{self, App}, menu_programs::Category,
+    recipe::{MenuContentKind, MenuPresentation, NativeMenu}};
 
 pub const WIDTH: u32 = 320;
 pub const HEIGHT: u32 = 304;
@@ -215,6 +216,10 @@ pub struct MenuState {
     pub search: String,
     pub pins: Vec<String>,
     pub apps: Vec<App>,
+    pub app_categories: HashMap<String, Category>,
+    /// Category navigation is exclusive to the opt-in Luna columns menu.
+    pub program_tree: bool,
+    pub program_category: Option<Category>,
     /// Only discovered XDG apps are displayed; the opt-in XP Luna rice may
     /// restore a bounded private history, while all other rices remain session-only.
     recent_apps: Vec<String>,
@@ -241,7 +246,9 @@ impl MenuState {
         if self.last_app_refresh.is_some_and(|last| last.elapsed() < APP_REFRESH_INTERVAL) {
             return;
         }
-        self.apps = installed_apps::discover();
+        let catalog = installed_apps::discover_catalog();
+        self.apps = catalog.apps;
+        self.app_categories = catalog.categories;
         // Prune removed/hidden entries on discovery. No unknown desktop ID
         // from private history becomes a launchable action.
         self.recent_apps.retain(|id|
@@ -250,6 +257,7 @@ impl MenuState {
     }
 
     pub fn label<'a>(&'a self, action: &'a str) -> &'a str {
+        if let Some(category) = Category::from_action(action) { return category.title(); }
         self.apps.iter().find(|app| app.action == action)
             .map_or_else(|| action_label(action), |app| app.name.as_str())
     }
@@ -344,6 +352,8 @@ impl MenuState {
         self.notice = None;
         self.footer_hover = None;
         self.view = View::Groups;
+        self.program_tree = false;
+        self.program_category = None;
         self.search.clear();
         self.wheel_remainder = 0.0;
     }
@@ -433,15 +443,27 @@ impl MenuState {
             }
             View::Programs => {
                 let query = self.search.trim();
-                if query.is_empty() {
-                    self.apps.iter().map(|app| app.action.as_str()).collect()
+                if self.program_tree && query.is_empty() && self.program_category.is_none() {
+                    Category::ORDER.into_iter().filter(|category|
+                        self.app_categories.values().any(|entry| entry == category))
+                        .map(Category::action).collect()
+                } else if query.is_empty() {
+                    self.apps.iter().filter(|app|
+                        !self.program_tree || self.program_category.is_none_or(|category|
+                            self.app_categories.get(&app.action).copied().unwrap_or(Category::Other)
+                                == category))
+                        .map(|app| app.action.as_str()).collect()
                 } else {
                     // Keep the initial catalogue alphabetic. With a filter,
                     // prefer exact/prefix app names over generic keywords;
                     // the original app order breaks equal-score ties.
                     let mut matches: Vec<_> = self.apps.iter().enumerate()
-                        .filter_map(|(index, app)| app.match_score(query)
-                            .map(|score| (score, index, app.action.as_str())))
+                        .filter_map(|(index, app)| {
+                            if self.program_tree && self.program_category.is_some_and(|category|
+                                self.app_categories.get(&app.action).copied().unwrap_or(Category::Other)
+                                    != category) { return None; }
+                            app.match_score(query).map(|score| (score, index, app.action.as_str()))
+                        })
                         .collect();
                     matches.sort_by_key(|(score, index, _)| (*score, *index));
                     matches.into_iter().map(|(_, _, action)| action).collect()
@@ -658,13 +680,19 @@ impl MenuState {
             View::Groups => "Menu".to_owned(),
             View::Programs if !self.search.is_empty() =>
                 format!("All Programs: {}", self.search),
+            View::Programs if self.program_tree => self.program_category
+                .map_or_else(|| "All Programs: folders".to_owned(), |category|
+                    format!("All Programs: {}", category.title())),
             View::Programs => "All Programs".to_owned(),
             View::Search if self.search.is_empty() => "Find".to_owned(),
             View::Search => format!("Find: {}", self.search),
             View::Saved => "Saved actions".to_owned(),
         };
         let count = self.actions(menu).len();
-        let noun = if self.view == View::Programs { "apps" } else { "actions" };
+        let noun = if self.view == View::Programs && self.program_tree
+            && self.program_category.is_none() && self.search.is_empty() {
+            "folders"
+        } else if self.view == View::Programs { "apps" } else { "actions" };
         let detail = if count == 0 {
             match self.view {
                 View::Programs if !self.search.is_empty() => "No matching apps".to_owned(),
@@ -681,6 +709,7 @@ impl MenuState {
             } else { noun })
         };
         let help = match self.view {
+            View::Programs if self.program_tree => "Enter or Right opens a folder; Left or Escape returns; type to filter installed apps; Enter launches a discovered app",
             View::Programs => "Type to filter installed apps; Backspace edits; Enter opens the selected application; Escape returns to the menu",
             View::Search => "Type to refine, Backspace deletes; F2 or right click saves an action",
             View::Groups => "Type to search; F2 or right click pins actions; F3 opens Saved",
@@ -700,11 +729,51 @@ impl MenuState {
     /// discovered on menu open; selections launch through the existing Gio
     /// desktop-entry path and never interpret desktop Exec strings here.
     pub fn show_programs(&mut self) {
+        self.program_tree = false;
+        self.program_category = None;
         self.view = View::Programs;
         self.search.clear();
         self.selected = 0;
         self.notice = None;
         self.wheel_remainder = 0.0;
+    }
+
+    /// Only populated, discovered folders appear; generic menus stay flat.
+    pub fn show_program_tree(&mut self) {
+        self.show_programs();
+        self.program_tree = true;
+    }
+
+    pub fn enter_program_category(&mut self, action: &str) -> bool {
+        if !self.program_tree || self.view != View::Programs || !self.search.is_empty() {
+            return false;
+        }
+        let Some(category) = Category::from_action(action) else { return false; };
+        if !self.app_categories.values().any(|entry| *entry == category) { return false; }
+        self.program_category = Some(category);
+        self.selected = 0;
+        self.wheel_remainder = 0.0;
+        true
+    }
+
+    pub fn back_program_category(&mut self) -> bool {
+        if !self.program_tree || self.view != View::Programs
+            || !self.search.is_empty() || self.program_category.is_none() { return false; }
+        let previous = self.program_category.take().unwrap();
+        self.selected = Category::ORDER.into_iter().filter(|category|
+            self.app_categories.values().any(|entry| entry == category))
+            .position(|category| category == previous).unwrap_or(0);
+        self.wheel_remainder = 0.0;
+        true
+    }
+
+    pub fn program_horizontal(&mut self, menu: &NativeMenu, delta: isize) {
+        if self.program_tree && self.view == View::Programs && self.search.is_empty() {
+            if delta < 0 { self.back_program_category(); }
+            else if let Some(action) = self.current_action(menu).map(str::to_owned) {
+                self.enter_program_category(&action);
+            }
+        }
     }
 
     /// A visible mouse/AT equivalent of the existing slash/Backspace/Escape
@@ -772,7 +841,10 @@ impl MenuState {
     }
 
     pub fn back(&mut self) -> bool {
+        if self.back_program_category() { return true; }
         if self.view == View::Groups { return false; }
+        self.program_tree = false;
+        self.program_category = None;
         self.view = View::Groups;
         self.search.clear();
         self.selected = 0;
@@ -1912,6 +1984,42 @@ mod tests {
         assert!(state.record_app_launch("desktop:demo-1.desktop"));
         assert!(!state.record_app_launch("desktop:removed.desktop"));
         assert_eq!(state.recent_apps()[0], "desktop:demo-1.desktop");
+    }
+
+    #[test]
+    fn luna_program_folders_contain_only_discovered_xdg_apps_and_keep_search() {
+        let recipe = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let menu = recipe.menu.as_ref().unwrap();
+        let mut state = MenuState::default();
+        state.apps = demo_apps(3);
+        state.app_categories.insert("desktop:demo-0.desktop".into(), Category::Office);
+        state.app_categories.insert("desktop:demo-1.desktop".into(), Category::Internet);
+        state.app_categories.insert("desktop:demo-2.desktop".into(), Category::Office);
+        state.open();
+        state.show_program_tree();
+        assert_eq!(state.actions(menu), vec![Category::Internet.action(), Category::Office.action()]);
+        assert_eq!(state.current_action(menu), Some(Category::Internet.action()));
+        state.program_horizontal(menu, 1);
+        assert_eq!(state.program_category, Some(Category::Internet));
+        assert_eq!(state.actions(menu), vec!["desktop:demo-1.desktop"]);
+        assert!(state.app_path(Category::Internet.action()).is_none());
+        assert!(state.back());
+        assert_eq!(state.current_action(menu), Some(Category::Internet.action()));
+        state.select_by(menu, 1);
+        assert!(state.enter_program_category(Category::Office.action()));
+        assert_eq!(state.actions(menu), vec!["desktop:demo-0.desktop", "desktop:demo-2.desktop"]);
+        assert!(!state.enter_program_category("menu-category:does-not-exist"));
+        assert!(state.search_input("2"));
+        assert_eq!(state.actions(menu), vec!["desktop:demo-2.desktop"]);
+        assert!(state.backspace());
+        assert_eq!(state.actions(menu).len(), 2);
+        state.program_horizontal(menu, -1);
+        assert_eq!(state.program_category, None);
+        assert_eq!(state.current_action(menu), Some(Category::Office.action()));
+        assert!(state.back());
+        assert_eq!(state.view, View::Groups);
     }
 
 }
