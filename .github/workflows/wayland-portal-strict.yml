@@ -1,0 +1,59 @@
+name: Strict Wayland ScreenCast (isolated GLES2)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/wayland-portal-strict.yml'
+      - 'scripts/smoke_wayland_portals.sh'
+      - 'scripts/wayland_portals_smoke_client.sh'
+      - 'scripts/wayland_portal_capture_smoke.py'
+      - 'scripts/check_wayland_portals.py'
+      - 'tests/test_wayland_portal_capture.py'
+      - 'tests/test_wayland_portal_probe.py'
+      - 'packaging/wayland/ricebowl-portals.conf'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wayland-portal-strict.yml'
+      - 'scripts/smoke_wayland_portals.sh'
+      - 'scripts/wayland_portals_smoke_client.sh'
+      - 'scripts/wayland_portal_capture_smoke.py'
+      - 'scripts/check_wayland_portals.py'
+      - 'tests/test_wayland_portal_capture.py'
+      - 'tests/test_wayland_portal_probe.py'
+      - 'packaging/wayland/ricebowl-portals.conf'
+
+permissions:
+  contents: read
+
+jobs:
+  strict-screencast-gles2:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install disposable compositor, portal and Mesa runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y labwc pipewire dbus-user-session dbus-x11 \
+            python3-gi gir1.2-gtk-3.0 libglib2.0-bin \
+            xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-wlr \
+            libegl1 libegl-mesa0 libgles2 libgl1-mesa-dri
+      - name: Validate isolated portal guard and protocol tests
+        run: |
+          sh -n scripts/smoke_wayland_portals.sh
+          sh -n scripts/wayland_portals_smoke_client.sh
+          /usr/bin/python3 -m py_compile scripts/wayland_portal_capture_smoke.py
+          /usr/bin/python3 -m unittest discover -s tests -p test_wayland_portal_capture.py -v
+          /usr/bin/python3 -m unittest discover -s tests -p test_wayland_portal_probe.py -v
+      - name: Require actual ScreenCast Start nodes and PipeWire remote FD
+        env:
+          # Headless GLES2 uses Mesa software rendering in ephemeral CI only.
+          # No modification to user/compositor/portal defaults is installed.
+          RICEBOWL_PORTAL_RENDERER: gles2
+          RICEBOWL_PORTAL_STRICT_CI: '1'
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          GALLIUM_DRIVER: llvmpipe
+          EGL_PLATFORM: surfaceless
+        run: |
+          timeout -k 5s 95s sh scripts/smoke_wayland_portals.sh
