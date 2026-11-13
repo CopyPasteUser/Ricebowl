@@ -6724,6 +6724,21 @@ impl PointerHandler for RicePlate {
         events: &[PointerEvent],
     ) {
         for event in events {
+            // A popup Enter is authoritative Wayland evidence that the
+            // pointer is no longer over the taskbar. Compositors need not
+            // deliver the previous panel Leave before transferring focus
+            // between separately managed layer-shell surfaces.
+            if self.luna_options.auto_hide
+                && matches!(event.kind, PointerEventKind::Enter { .. }
+                    | PointerEventKind::Motion { .. })
+                && (self.active_menu.as_ref() == Some(&event.surface)
+                    || self.active_calendar.as_ref() == Some(&event.surface)
+                    || self.active_tray_popup.as_ref() == Some(&event.surface)
+                    || self.luna_dialog.as_ref().is_some_and(|dialog|
+                        dialog.surface.wl_surface() == &event.surface))
+            {
+                self.panel_pointer_inside = false;
+            }
             if self.luna_dialog.as_ref().is_some_and(|dialog|
                 dialog.surface.wl_surface() == &event.surface) {
                 let mut activate = None;
