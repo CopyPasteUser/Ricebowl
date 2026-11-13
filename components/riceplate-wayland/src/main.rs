@@ -1288,19 +1288,9 @@ impl RicePlate {
     fn close_desktop_context(&mut self) {
         self.context_focused = false;
         self.desktop_type_select.reset();
-        // On labwc 0.7.x, the parent icon can be temporarily promoted to
-        // Top for a user-triggered popup. Restore the original Bottom layer
-        // immediately when the popup closes, including popup_done/hotplug.
-        // Never promote a whole desktop, use Exclusive, or steal global keys.
-        if let Some(menu) = self.desktop_context.take() {
-            let parent = menu.parent_surface.clone();
-            drop(menu);
-            if let Some(icon) = self.icon_layers.iter().find(|icon|
-                icon.surface.wl_surface() == &parent) {
-                icon.surface.set_layer(Layer::Bottom);
-                icon.surface.commit();
-            }
-        }
+        // The XDG popup belongs to the original Bottom-layer icon.
+        // Never promote a layer permanently or grab keyboard globally.
+        self.desktop_context = None;
     }
 
     fn open_desktop_context(&mut self, index: usize, pointer: (f64, f64),
@@ -1371,12 +1361,9 @@ impl RicePlate {
                 return;
             }
         };
-        // labwc 0.7.1 cannot focus a popup of an unfocused Bottom layer.
-        // Temporarily elevate only this 104x88 icon to Top for the lifetime
-        // of the real right-click popup. This is a bounded, reversible
-        // compositor-supported layer change, not an Exclusive keyboard grab.
-        self.icon_layers[index].surface.set_layer(Layer::Top);
-        self.icon_layers[index].surface.commit();
+        // The role stays parented to the real Bottom-layer shortcut.
+        // labwc 0.7.1 does not grant it keyboard focus (CI blocker);
+        // do not silently promote it or request Exclusive keyboard access.
         self.icon_layers[index].surface.get_popup(popup.xdg_popup());
         if let (Some(seat), Some(serial)) = (self.primary_seat.as_ref(), grab_serial) {
             popup.xdg_popup().grab(seat, serial);
