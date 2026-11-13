@@ -164,18 +164,40 @@ def main() -> int:
         raise RuntimeError("Missing real compositor captures")
     from PIL import Image
     hashes = set()
+    output_size = None
     for path in pngs:
         with Image.open(path) as im:
             im.load()
-            if im.size != (1024, 768):
-                raise RuntimeError(f"Unexpected headless output size: {im.size}")
+            if im.width < 800 or im.height < 600 or im.width > 4096 or im.height > 2160:
+                raise RuntimeError(f"Unsupported compositor output size: {im.size}")
+            if output_size is None:
+                output_size = im.size
+            elif im.size != output_size:
+                raise RuntimeError("Compositor output geometry changed during capture")
+            # A screenshot of an empty white page is not visual acceptance.
+            # Require actual content glyphs in the main settings pane, not
+            # merely visible toolbar/sidebar, for real settings screens.
+            if path.name in ("luna-labwc-home.png", "luna-labwc-category.png",
+                             "luna-labwc-classic.png", "luna-labwc-input.png",
+                             "luna-labwc-taskbar.png", "luna-labwc-search.png"):
+                left = max(0, (im.width - 840) // 2 + 255)
+                top = max(0, 45)
+                region = im.convert("RGB").crop((
+                    left, 192, min(im.width, left + 470),
+                    min(im.height, 580)))
+                colored = sum(1 for r, g, b in region.getdata()
+                              if min(r, g, b) < 170)
+                if colored < 100:
+                    raise RuntimeError(
+                        f"Native settings content is blank in {path.name}: "
+                        f"{colored} dark pixels")
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         if digest in hashes:
             raise RuntimeError(f"Duplicate compositor frame: {path.name}")
         hashes.add(digest)
     receipt = {
         "source": "real grim frames, native GTK Wayland client on headless labwc",
-        "output": [1024, 768],
+        "output": list(output_size),
         "frames": {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in pngs},
         "process_start_to_completion_ms": round((time.perf_counter() - start) * 1000, 2),
         "session": "isolated headless CI, NOT physical Mint hardware",
