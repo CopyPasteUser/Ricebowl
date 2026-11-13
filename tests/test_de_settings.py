@@ -165,7 +165,8 @@ class RiceSpiceSettingsTests(unittest.TestCase):
                            return_value=True) as join:
             self.assertTrue(backend.connect_secure_visible_wifi("Home", "correct-passphrase"))
             join.assert_called_once_with("Home", "correct-passphrase")
-            for invalid in ("short", "line\nbreaks", "x" * 64, None):
+            for invalid in ("short", "line\nbreaks", "x" * 64,
+                            "é" * 40, "\ud800" * 12, None):
                 with self.assertRaises(backend.SettingsError):
                     backend.connect_secure_visible_wifi("Home", invalid)
             with self.assertRaisesRegex(backend.SettingsError, "scan again"):

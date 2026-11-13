@@ -21,7 +21,7 @@ from .recipes import (ICON_ACTIONS, ICON_HEIGHT, ICON_WIDTH, MAX_DESKTOP_ICONS,
 def describe() -> dict[str, object]:
     """Describe exactly which panel and early shell primitives are implemented."""
     return {
-        "catalog_version": 13,
+        "catalog_version": 14,
         "scope": "wayland-shell-preview",
         "complete_desktop_environment": False,
         "recipe": {
@@ -277,18 +277,73 @@ def describe() -> dict[str, object]:
              "pointer_input": "transparent-for-status; bounded-for-actions",
              "bounded_count": MAX_DESKTOP_WIDGETS,
              "size": [DESKTOP_WIDGET_WIDTH, DESKTOP_WIDGET_HEIGHT],
-             "read_only": "status-only", "executes_commands_from_recipe": False,
+             "read_only": "status-components-only", "executes_commands_from_recipe": False,
              "action_bindings": sorted(PANEL_ACTIONS | PANEL_CONTROLS),
              "action_input": ["pointer", "Tab", "Shift-Tab", "Enter", "Space", "AT-SPI"],
              "responsive_hide": True, "hotplug_reflow": True,
              "accessibility_role": "status-or-button"},
             {"id": "shared-component", "since_schema": 9,
              "recipe_pointer": "/components", "max_definitions": MAX_COMPONENT_DEFINITIONS,
-             "panel": ["status", "action"], "desktop": ["status"],
+             "panel": ["status", "action"], "desktop": ["status", "action"],
              "native": "existing-Linux-provider-and-action-dispatch",
              "waybar": "panel-only-with-disabled-unverified-controls",
              "arbitrary_commands": False},
         ],
+        # A stable authoring palette: discover exact native parser properties without
+        # duplicating the Rust widget tree or permitting dynamic command execution.
+        "authoring_palette": {
+            "contract_version": 1,
+            "panel": {
+                "widget": {"since_schema": 3, "fields": ["type", "id"],
+                           "ids": sorted(WIDGETS), "native": True, "waybar": True,
+                           "accessibility": "per-widget-semantics"},
+                "group": {"since_schema": 3, "fields": ["type", "gap", "children"],
+                          "gap": [0, 32], "children": [1, MAX_LAYOUT_CHILDREN],
+                          "native": True, "waybar": "flattened",
+                          "accessibility": "structural"},
+                "gap": {"since_schema": 3, "fields": ["type", "width"],
+                        "width": [4, 64], "native": True, "waybar": True,
+                        "accessibility": "decorative"},
+                "divider": {"since_schema": 3, "fields": ["type", "width"],
+                            "width": [6, 32], "native": True, "waybar": True,
+                            "accessibility": "decorative"},
+                "label": {"since_schema": 3, "fields": ["type", "text"],
+                          "safe_ascii_max": 24, "native": True, "waybar": True,
+                          "accessibility": "static-text"},
+                "action": {"since_schema": 6, "fields": ["type", "id", "label"],
+                           "ids": sorted(PANEL_ACTIONS), "safe_ascii_max": 16,
+                           "native": True, "waybar": "allowlisted-fixed-command",
+                           "accessibility": "button-keyboard"},
+                "control": {"since_schema": 7, "fields": ["type", "id", "label"],
+                            "ids": sorted(PANEL_CONTROLS), "safe_ascii_max": 16,
+                            "native": "requires-verified-nmcli-or-wpctl",
+                            "waybar": "status-only-disabled",
+                            "accessibility": "button-when-available"},
+                "component": {"since_schema": 9, "fields": ["type", "ref"],
+                              "references": "/components",
+                              "native": "requires-verified-status-or-action-provider",
+                              "waybar": "actions-disabled-if-unverified",
+                              "accessibility": "resolved-definition-role"},
+            },
+            "desktop": {
+                "shortcut": {"since_schema": 5, "fields": ["label", "action", "x", "y"],
+                             "ids": sorted(ICON_ACTIONS), "safe_ascii_max": 12,
+                             "native": "layer-surface", "waybar": False,
+                             "accessibility": "keyboard-activatable-shortcut"},
+                "widget": {"since_schema": 8, "fields": ["id", "kind", "x", "y"],
+                           "kinds": sorted(DESKTOP_WIDGET_KINDS),
+                           "component_ref_since_schema": 9,
+                           "native": "status-or-allowlisted-action", "waybar": False,
+                           "accessibility": "status-or-button-when-available"},
+            },
+            "responsive": {"modes": ["wide", "compact"],
+                           "breakpoint_width": [480, 1440],
+                           "panel_layouts_are_independent": True,
+                           "desktop_widgets_can_hide_in_compact": True,
+                           "waybar_requires_width_specific_regeneration": True},
+            "scope": "declarative-recipe-only",
+            "arbitrary_scripts": False,
+        },
         "integrations": [
             {"id": "ricepop-notification-history", "native": "read-only-cli-bridge",
              "waybar": "mako-host", "command": "de notifications --json",
@@ -316,8 +371,8 @@ def describe() -> dict[str, object]:
             "Reserved window regions keep desktop items clear but do not place client windows; labwc owns tiling/placement",
             "Native panel handles responsive compact layout live; Waybar requires width-specific generation",
             "Composition supports bounded status/text/actions, not arbitrary widgets",
-            "Panel-only recipes; no arbitrary OS or screenshot conversion",
-            "Panel action buttons bind only four fixed IDs; no custom scripts or dynamic action parameters",
+            "Bounded desktop recipes; no arbitrary OS or screenshot conversion",
+            "Panel action buttons bind only six fixed IDs; no custom scripts or dynamic action parameters",
             "Battery indicator is read-only with minute refresh; no UPower events",
             "Network/audio indicators are non-clickable; RiceSpice offers verified controls",
             "Waybar/labwc menu omits native-only RiceSpice quick actions instead of displaying fake controls",
@@ -345,5 +400,12 @@ def validate_catalog_contract() -> None:
             or set(shell) != {"native-menu", "calendar-popup", "desktop-shortcut", "desktop-widget", "shared-component"}
             or shell["native-menu"]["actions"] != sorted(MENU_ACTIONS)
             or set(result["recipe"]["nested_layout"]["node_types"]["action"]["known_ids"]) != PANEL_ACTIONS
-            or shell["desktop-shortcut"]["actions"] != sorted(ICON_ACTIONS)):
+            or shell["desktop-shortcut"]["actions"] != sorted(ICON_ACTIONS)
+            or shell["shared-component"]["desktop"] != ["status", "action"]
+            or set(result["authoring_palette"]["panel"]) != {
+                "widget", "group", "gap", "divider", "label", "action", "control", "component"}
+            or set(result["authoring_palette"]["panel"]["control"]["ids"]) != PANEL_CONTROLS
+            or set(result["authoring_palette"]["panel"]["action"]["ids"]) != PANEL_ACTIONS
+            or set(result["authoring_palette"]["desktop"]["shortcut"]["ids"]) != ICON_ACTIONS):
+
         raise ValueError("RiceBowl component catalog is out of sync with panel recipes")

@@ -12,6 +12,8 @@ on:
       - 'scripts/smoke_wayland_session.sh'
       - 'scripts/smoke_wayland_ricepop.py'
       - 'scripts/check_wayland_panel_outputs.py'
+      - 'scripts/capture_luna_labwc.py'
+      - 'scripts/smoke_luna_settings_labwc.sh'
       - 'tests/test_de_*.py'
       - 'tests/test_wayland_creator_e2e.py'
       - 'tests/test_wayland_creator_handoff.py'
@@ -26,6 +28,8 @@ on:
       - 'scripts/smoke_wayland_session.sh'
       - 'scripts/smoke_wayland_ricepop.py'
       - 'scripts/check_wayland_panel_outputs.py'
+      - 'scripts/capture_luna_labwc.py'
+      - 'scripts/smoke_luna_settings_labwc.sh'
       - 'tests/test_de_*.py'
       - 'tests/test_wayland_creator_e2e.py'
       - 'tests/test_wayland_creator_handoff.py'
@@ -46,7 +50,8 @@ jobs:
             xwayland dbus-user-session dbus-x11 xdg-desktop-portal \
             xdg-desktop-portal-gtk xdg-desktop-portal-wlr \
             wayland-utils
-          sudo apt-get install -y grim wlr-randr python3-pil mako-notifier libnotify-bin
+          sudo apt-get install -y grim wlr-randr python3-pil python3-gi \
+            gir1.2-gtk-3.0 librsvg2-common mako-notifier libnotify-bin
       - name: Validate and test isolated session runtime
         run: |
           /usr/bin/python3 -m compileall -q macrice/de macrice/cli.py
@@ -69,3 +74,19 @@ jobs:
           timeout -k 5s 45s sh scripts/smoke_wayland_session.sh chrome
           timeout -k 5s 45s sh scripts/smoke_wayland_session.sh classic
           RICEBOWL_SMOKE_OUTPUTS=2 timeout -k 5s 60s sh scripts/smoke_wayland_session.sh classic
+      - name: Capture real Luna GTK system UI under native labwc
+        run: |
+          mkdir -p dist/luna-labwc
+          sh -n scripts/smoke_luna_settings_labwc.sh
+          /usr/bin/python3 -m py_compile scripts/capture_luna_labwc.py
+          timeout -k 5s 95s sh scripts/smoke_luna_settings_labwc.sh "$PWD/dist/luna-labwc"
+      - name: Preserve actual labwc composited Luna GTK pixels
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ricebowl-luna-system-labwc-${{ github.sha }}
+          path: |
+            dist/luna-labwc/luna-labwc-*.png
+            dist/luna-labwc/luna-labwc-receipt.json
+          if-no-files-found: warn
+          retention-days: 14

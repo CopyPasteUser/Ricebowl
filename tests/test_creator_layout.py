@@ -119,6 +119,75 @@ class CreatorLayoutTests(unittest.TestCase):
         with self.assertRaises(layout.LayoutError):
             layout.remove_layer(trimmed, "icon", 0)
 
+    def test_all_native_shortcuts_can_be_authored_without_missing_labels(self):
+        original = json.dumps(self.manifest, sort_keys=True)
+        for action in sorted(recipes.ICON_ACTIONS):
+            with self.subTest(action=action):
+                result = layout.add_layer(self.manifest, f"icon:{action}")
+                created = result["desktop"]["icons"][-1]
+                self.assertEqual(created["action"], action)
+                self.assertLessEqual(len(created["label"]), 12)
+                recipes.parse(json.dumps(result).encode())
+        self.assertEqual(json.dumps(self.manifest, sort_keys=True), original)
+
+    def test_repeated_long_shortcut_labels_stay_unique_and_schema_safe(self):
+        first = layout.add_layer(self.manifest, "icon:trash")
+        second = layout.add_layer(first, "icon:trash")
+        labels = [entry["label"] for entry in second["desktop"]["icons"]]
+        self.assertEqual(len(labels), len(set(labels)))
+        self.assertLessEqual(len(labels[-1]), 12)
+        recipes.parse(json.dumps(second).encode())
+
+    def test_compact_canvas_placement_finds_unobstructed_space(self):
+        original = json.dumps(self.manifest, sort_keys=True)
+        created = layout.add_layer(self.manifest, "text",
+                                   screen_width=640, screen_height=480)
+        widget = created["composition"]["widgets"][-1]
+        self.assertLessEqual(widget["x"] + recipes.DESKTOP_WIDGET_WIDTH, 640)
+        self.assertLessEqual(widget["y"] + recipes.DESKTOP_WIDGET_HEIGHT, 480)
+        self.assertTrue(all(
+            abs(widget["x"] - prior["x"]) >= recipes.DESKTOP_WIDGET_WIDTH
+            or abs(widget["y"] - prior["y"]) >= recipes.DESKTOP_WIDGET_HEIGHT
+            for prior in self.manifest["composition"]["widgets"]))
+        recipes.parse(json.dumps(created).encode())
+        self.assertEqual(json.dumps(self.manifest, sort_keys=True), original)
+
+    def test_new_widgets_do_not_intersect_desktop_shortcuts_at_edge(self):
+        source = json.loads(json.dumps(self.manifest))
+        source["desktop"]["icons"].append({
+            "label": "Documents", "action": "documents", "x": 24, "y": 622,
+        })
+        result = layout.add_layer(source, "text", screen_width=1366, screen_height=768)
+        widget = result["composition"]["widgets"][-1]
+        icon = source["desktop"]["icons"][-1]
+        self.assertFalse(
+            widget["x"] < icon["x"] + recipes.ICON_WIDTH
+            and icon["x"] < widget["x"] + recipes.DESKTOP_WIDGET_WIDTH
+            and widget["y"] < icon["y"] + recipes.ICON_HEIGHT
+            and icon["y"] < widget["y"] + recipes.DESKTOP_WIDGET_HEIGHT)
+        recipes.parse(json.dumps(result).encode())
+
+    def test_invalid_canvas_geometry_and_visibility_fail_closed(self):
+        for size in ((0, 480), (640, 0), (True, 480), (640, 16385)):
+            with self.subTest(size=size), self.assertRaises(layout.LayoutError):
+                layout.add_layer(self.manifest, "text",
+                                 screen_width=size[0], screen_height=size[1])
+        with self.assertRaises(layout.LayoutError):
+            layout.add_layer(self.manifest, "icon:documents",
+                             screen_width=160, screen_height=120)
+        with self.assertRaises(layout.LayoutError):
+            layout.add_layer(self.manifest, "text",
+                             screen_width=160, screen_height=120)
+        for invalid in (None, 1, "true"):
+            with self.subTest(invalid=invalid), self.assertRaises(layout.LayoutError):
+                layout.set_compact_hidden(self.manifest, 0, invalid)
+        for geometry in ((0, 768, 1, 10), (1366, 0, 1, 10),
+                         (1366, 768, 0, 10), (1366, 768, 1, float("nan"))):
+            width, height, snap, y = geometry
+            with self.subTest(geometry=geometry), self.assertRaises(layout.LayoutError):
+                layout.move_layer(self.manifest, "widget", 0, 10, y,
+                                  width, height, snap=snap)
+
 
 if __name__ == "__main__":
     unittest.main()

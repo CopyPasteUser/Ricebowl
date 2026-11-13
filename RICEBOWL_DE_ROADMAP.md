@@ -33,12 +33,13 @@ installation and is not yet a finished desktop environment.
   refusing an unsafe file. Tests and Native RicePlate CI passed on PR #319,
   merged as `ccb6d16d`. This does not imply physical session acceptance or
   that a privacy clear securely erases storage blocks.
-- [ ] Skip rewriting byte-identical, owner-private, bounded recent-app JSON,
-  preserving its inode and modification time. Changed history still takes the
-  existing atomic rename and directory-fsync path; malformed or unmanaged
-  files retain their rejection rules. The Rust regression must pass with
-  Tests and Native RicePlate CI on the final PR head before completion.
-  This is an I/O reduction by design, not a measured performance claim.
+- [x] Skip rewriting byte-identical, owner-private, bounded recent-app JSON,
+  preserving its inode and modification time. The current native Rust
+  `menu_recents.rs` implementation compares bounded canonical bytes before
+  its atomic rename and directory-fsync path, and includes the
+  `unchanged_recent_history_save_preserves_inode_and_mtime` regression.
+  Malformed or unmanaged files retain their rejection rules. This is an
+  I/O reduction by design, not a measured performance claim.
 
 ### Wayland XP Luna recipe (10 November 2026, preview sprint)
 
@@ -236,6 +237,8 @@ matching, and per-rice cosmetic redesigns. Keep the existing rices working and
 recognizable, but build missing behavior as shared primitives first. Detailed
 historical fidelity has a separate acceptance gate after the foundation;
 no per-OS fork of the native shell is permitted.
+
+**Parallel integration discipline:** The [DE 1.0 integration contract](docs/de-integration-governance.md) assigns core, desktop, system and shell ownership, records stacked PR dependencies and requires exact-head CI plus post-merge verification. This coordination document is not evidence of new runtime functionality, and does not close any 1.0 gate.
 
 ### Runtime and Creator boundary (partially implemented; 1.0 gates open)
 

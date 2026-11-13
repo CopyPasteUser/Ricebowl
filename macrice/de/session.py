@@ -114,7 +114,9 @@ def _check_runtime_dir(environment: Mapping[str, str]) -> None:
     if not directory or not os.path.isabs(directory):
         raise SessionError("XDG_RUNTIME_DIR is missing; log in through a proper user session.")
     try:
-        mode = os.stat(directory)
+        # lstat is intentional: a symlink may redirect session state to an
+        # unrelated user-owned directory and must not be accepted as a runtime.
+        mode = os.lstat(directory)
     except OSError as exc:
         raise SessionError("XDG_RUNTIME_DIR is not accessible.") from exc
     if (not stat.S_ISDIR(mode.st_mode) or mode.st_uid != os.geteuid()
@@ -339,6 +341,48 @@ def _stop_process(process: subprocess.Popen[bytes]) -> None:
         pass
 
 
+def _spawn_optional_process(
+    name: str, command: list[str], *, env: Mapping[str, str],
+    spawn: Callable[..., subprocess.Popen[bytes]],
+    background: list[subprocess.Popen[bytes]],
+) -> subprocess.Popen[bytes] | None:
+    """An optional integration must not prevent the compositor from starting."""
+    try:
+        process = spawn(command, env=dict(env), stdin=subprocess.DEVNULL)
+    except OSError as exc:
+        print(f"RiceBowl: optional {name} unavailable: {exc}", file=sys.stderr)
+        return None
+    background.append(process)
+    return process
+
+
+class _OptionalService:
+    """One bounded crash retry; no daemon, timer or unbounded restart loop."""
+
+    def __init__(self, name: str, command: list[str], *, env: Mapping[str, str],
+                 spawn: Callable[..., subprocess.Popen[bytes]],
+                 background: list[subprocess.Popen[bytes]]) -> None:
+        self.name, self.command = name, command
+        self.env, self.spawn, self.background = env, spawn, background
+        self.process = _spawn_optional_process(
+            name, command, env=env, spawn=spawn, background=background)
+        self.retried = False
+
+    def check(self) -> None:
+        if self.retried or self.process is None:
+            return
+        status = self.process.poll()
+        if status is None:
+            return
+        self.retried = True
+        if status != 0:
+            print(f"RiceBowl: optional {self.name} exited with {status}; "
+                  "attempting one restart", file=sys.stderr)
+            self.process = _spawn_optional_process(
+                self.name, self.command, env=self.env,
+                spawn=self.spawn, background=self.background)
+
+
 def _atomic_labwc_text(path: Path, content: str) -> None:
     """Replace one supervisor-owned menu/theme text file without partial writes."""
     descriptor, temporary = tempfile.mkstemp(prefix=".ricebowl-labwc-", dir=path.parent)
@@ -415,21 +459,24 @@ class _ResumeGap:
 
 
 def _wait_with_idle_guard(panel: subprocess.Popen[bytes],
-                          idle: subprocess.Popen[bytes] | None) -> tuple[int, bool]:
+                          idle: subprocess.Popen[bytes] | None,
+                          health_check: Callable[[], None] | None = None) -> tuple[int, bool]:
     """Supervise even when live RPC is unavailable or deliberately disabled.
 
     Return (panel exit status, idle watcher failed). A missing security guard
     is fatal in full sessions; never mistake its death for a panel crash that
     should trigger a Waybar rescue.
     """
-    if idle is None:
+    if idle is None and health_check is None:
         return panel.wait(), False
     while True:
-        if idle.poll() is not None:
+        if idle is not None and idle.poll() is not None:
             print("RiceBowl: idle/lock watcher exited; stopping unprotected "
                   "Wayland session", file=sys.stderr)
             _stop_process(panel)
             return 1, True
+        if health_check is not None:
+            health_check()
         try:
             return panel.wait(timeout=0.2), False
         except subprocess.TimeoutExpired:
@@ -588,11 +635,22 @@ class _LiveSwitch:
                 return {**self.status(), "changed": False}
             try:
                 recipe = recipes.load(self.active)
+                if staging._hash(self.active) != self.active_digest:
+                    raise LiveError("Active recipe changed; output refresh refused",
+                                    code="recipe_changed")
                 new_panel = self._start_panel(self.active, recipe)
-            except (recipes.RecipeError, OSError, LiveError) as exc:
+            except LiveError as exc:
+                if exc.code == "recipe_changed":
+                    raise
+                raise LiveError("Waybar output refresh could not start",
+                                code="component_failed") from exc
+            except (recipes.RecipeError, OSError) as exc:
                 raise LiveError("Waybar output refresh could not start",
                                 code="component_failed") from exc
             time.sleep(0.5)
+            if self.stopping():
+                _stop_process(new_panel)
+                raise LiveError("Session is shutting down", code="session_stopping")
             if new_panel.poll() is not None:
                 _stop_process(new_panel)
                 raise LiveError("Waybar output refresh failed; previous bar retained",
@@ -768,10 +826,18 @@ def _refresh_changed_outputs(controller: _LiveSwitch, previous: tuple[str, str] 
                              env: Mapping[str, str], which: Callable[[str], str | None]
                              ) -> tuple[str, str]:
     """Only replace the owned Waybar when a wl_output event changed its layout."""
-    from . import recipes
+    from . import recipes, staging
+    from .live import LiveError
 
     current = controller.active
-    config = _waybar_recipe_config(recipes.load(current), env, which)[0]
+    try:
+        recipe = recipes.load(current)
+        if staging._hash(current) != controller.active_digest:
+            raise LiveError("Active recipe changed; output refresh refused",
+                            code="recipe_changed")
+    except recipes.RecipeError as exc:
+        raise LiveError("Active recipe is no longer valid", code="recipe_changed") from exc
+    config = _waybar_recipe_config(recipe, env, which)[0]
     signature = (current, config)
     if signature != previous:
         controller.handle({"action": "refresh-outputs", "recipe": None,
@@ -798,6 +864,7 @@ def shell(
 
     base = resources()
     background: list[subprocess.Popen[bytes]] = []
+    optional_services: list[_OptionalService] = []
     panel: subprocess.Popen[bytes] | None = None
     live_controller: _LiveSwitch | None = None
     with ExitStack() as cleanup:
@@ -820,15 +887,34 @@ def shell(
                     output.write(content)
         wallpaper_process: subprocess.Popen[bytes] | None = None
         try:
+            # Establish full-session lock supervision before optional clients.
+            idle_process: subprocess.Popen[bytes] | None = None
+            if env.get("RICEBOWL_DE_NESTED") != "1":
+                idle = which("swayidle")
+                locker = which("swaylock")
+                if not idle or not locker:
+                    raise SessionError(
+                        "Full Wayland session requires swayidle and swaylock "
+                        "for automatic and pre-suspend screen locking.")
+                # One fixed lock path for idle, suspend and logind locks.
+                # swaylock -f confirms the compositor lock before the short
+                # best-effort IPC clear runs, avoiding plaintext before sleep.
+                lock_command = shlex.join(
+                    [sys.executable, str(project_root() / "launcher.py"), "de", "lock"])
+                idle_process = spawn(
+                    [idle, "-w", "timeout", "600", lock_command,
+                     "before-sleep", lock_command, "lock", lock_command],
+                    env=env, stdin=subprocess.DEVNULL,
+                )
+                background.append(idle_process)
+
             swaybg = which("swaybg")
             from .recipes import load, wallpaper_path
             wallpaper = wallpaper_path(load(selected or "classic"))
             if swaybg and wallpaper.is_file():
-                wallpaper_process = spawn(
-                    [swaybg, "--image", str(wallpaper), "--mode", "fill"],
-                    env=env, stdin=subprocess.DEVNULL,
-                )
-                background.append(wallpaper_process)
+                wallpaper_process = _spawn_optional_process(
+                    "wallpaper", [swaybg, "--image", str(wallpaper), "--mode", "fill"],
+                    env=env, spawn=spawn, background=background)
 
             # RicePop reuses the existing Mako notification owner. A saved
             # appearance preference affects *only* the next full Wayland
@@ -858,18 +944,22 @@ def shell(
                               file=sys.stderr)
                         mako_config = base / "mako.conf"
                         env.pop("RICEBOWL_DE_MAKO_CONFIG", None)
-                background.append(spawn([mako, "--config", str(mako_config)],
-                                        env=env, stdin=subprocess.DEVNULL))
+                service = _OptionalService(
+                    "RicePop notifications", [mako, "--config", str(mako_config)],
+                    env=env, spawn=spawn, background=background)
+                if service.process is not None:
+                    optional_services.append(service)
 
             # Orca is optional, opt-in and only supervised inside a full RiceBowl
             # session. Do not start another reader in a nested XFCE preview.
             if env.get("RICEBOWL_DE_SCREEN_READER") == "1" and env.get("RICEBOWL_DE_NESTED") != "1":
                 orca = which("orca")
                 if orca:
-                    try:
-                        background.append(spawn([orca], env=env, stdin=subprocess.DEVNULL))
-                    except OSError as error:
-                        print(f"RiceBowl: Orca could not start: {error}", file=sys.stderr)
+                    service = _OptionalService(
+                        "Orca screen reader", [orca], env=env, spawn=spawn,
+                        background=background)
+                    if service.process is not None:
+                        optional_services.append(service)
                 else:
                     print("RiceBowl: Orca screen reader requested but not installed",
                           file=sys.stderr)
@@ -878,28 +968,12 @@ def shell(
             for name in ("lxpolkit", "mate-polkit", "polkit-gnome-authentication-agent-1"):
                 agent = which(name)
                 if agent:
-                    background.append(spawn([agent], env=env, stdin=subprocess.DEVNULL))
-                    break
-
-            idle_process: subprocess.Popen[bytes] | None = None
-            if env.get("RICEBOWL_DE_NESTED") != "1":
-                idle = which("swayidle")
-                locker = which("swaylock")
-                if not idle or not locker:
-                    raise SessionError(
-                        "Full Wayland session requires swayidle and swaylock "
-                        "for automatic and pre-suspend screen locking.")
-                # One fixed lock path for idle, suspend and logind locks.
-                # swaylock -f confirms the compositor lock before the short
-                # best-effort IPC clear runs, avoiding plaintext before sleep.
-                lock_command = shlex.join(
-                    [sys.executable, str(project_root() / "launcher.py"), "de", "lock"])
-                idle_process = spawn(
-                    [idle, "-w", "timeout", "600", lock_command,
-                     "before-sleep", lock_command, "lock", lock_command],
-                    env=env, stdin=subprocess.DEVNULL,
-                )
-                background.append(idle_process)
+                    service = _OptionalService(
+                        "polkit authentication agent", [agent], env=env, spawn=spawn,
+                        background=background)
+                    if service.process is not None:
+                        optional_services.append(service)
+                        break
 
             shutting_down = False
             shutdown_signal = signal.SIGTERM
@@ -915,10 +989,16 @@ def shell(
             native_live_rescue_attempted = False
             idle_guard_failed = False
 
+            def check_optional_services() -> None:
+                if not shutting_down:
+                    for service in optional_services:
+                        service.check()
+
             def supervised_wait(process: subprocess.Popen[bytes], mode: str) -> int:
                 nonlocal live_controller, native_live_rescue_attempted, idle_guard_failed
                 if env.get("RICEBOWL_DE_LIVE") != "1":
-                    result, idle_guard_failed = _wait_with_idle_guard(process, idle_process)
+                    result, idle_guard_failed = _wait_with_idle_guard(
+                        process, idle_process, check_optional_services)
                     return result
                 from .live import LiveError, listen, serve_once
                 from .recipes import RecipeError
@@ -999,6 +1079,8 @@ def shell(
                                         print("RiceBowl: resume output refresh retained "
                                               f"previous panel: {error}", file=sys.stderr)
                             exit_code = live_controller.panel.poll()
+                            if exit_code is None:
+                                check_optional_services()
                             if exit_code is not None:
                                 if exit_code == 0:
                                     break  # Explicit clean panel exit remains a session exit.
@@ -1039,7 +1121,8 @@ def shell(
                         return live_controller.panel.wait()
                 except (LiveError, RecipeError, OSError) as error:
                     print(f"RiceBowl live switching unavailable: {error}", file=sys.stderr)
-                    result, guard_failed = _wait_with_idle_guard(process, idle_process)
+                    result, guard_failed = _wait_with_idle_guard(
+                        process, idle_process, check_optional_services)
                     idle_guard_failed = idle_guard_failed or guard_failed
                     return result
                 finally:

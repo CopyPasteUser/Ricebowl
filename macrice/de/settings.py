@@ -184,19 +184,21 @@ LUNA_CSS = b"""
   font-family: "Liberation Sans", "Tahoma", sans-serif; font-size: 12px;
 }
 .ricespice-luna .luna-header {
-  background-image: linear-gradient(to bottom, #2864b8, #16509e 65%, #0c397b);
-  border-bottom: 1px solid #09295b; padding: 15px 22px 13px;
+  /* XP Explorer content banner, never a second window-manager caption. */
+  background: #ffffff; border-bottom: 1px solid #a9bfdc;
+  border-top: 3px solid #f2bb65; padding: 10px 18px 9px;
 }
 .ricespice-luna .luna-header-title {
-  color: #ffffff; font-size: 22px; font-weight: bold;
-  text-shadow: 0 1px #0a3977;
+  color: #174b8c; font-size: 16px; font-weight: bold;
+  text-shadow: none;
 }
 .ricespice-luna .luna-header-subtitle {
-  color: #e0efff; font-size: 11px;
+  color: #526981; font-size: 11px;
 }
 .ricespice-luna .luna-toolbar {
-  background: #e8eef8; padding: 8px 14px;
-  border-bottom: 1px solid #a1b7d5;
+  background: #f0eee8; padding: 5px 11px;
+  border-bottom: 1px solid #a4b0c0;
+  border-top: 1px solid #ffffff;
 }
 .ricespice-luna .luna-toolbar button {
   border: 1px solid #8ca7cb; border-radius: 3px;
@@ -213,18 +215,20 @@ LUNA_CSS = b"""
   padding: 6px 8px;
 }
 .ricespice-luna .luna-side-scroll {
-  background: #eef2fa; border-right: 1px solid #9aaed0;
+  background: #dce7f8; border-right: 1px solid #8199ba;
 }
 .ricespice-luna .ricespice-nav {
-  background: #eef2fa; padding: 15px 9px 18px;
+  background: #dce7f8; padding: 10px 9px 18px;
 }
 .ricespice-luna .ricespice-brand {
   color: #1b427d; font-size: 12px; font-weight: bold;
   margin: 1px 9px 11px;
 }
 .ricespice-luna .luna-nav-heading {
-  color: #61728d; font-size: 10px; font-weight: bold;
-  margin: 13px 8px 5px;
+  color: #174a91; font-size: 11px; font-weight: bold;
+  background: #c4d8f3; border-top: 1px solid #ffffff;
+  border-bottom: 1px solid #9ab5da; padding: 5px 7px;
+  margin: 12px 0 4px;
 }
 .ricespice-luna .ricespice-nav button {
   background: transparent; color: #1d417c; text-shadow: none;
@@ -238,7 +242,7 @@ LUNA_CSS = b"""
   background-image: linear-gradient(to bottom, #4a83d3, #2e63b3);
   color: #ffffff; border-color: #1a4a95; font-weight: bold;
 }
-.ricespice-luna .ricespice-content { padding: 22px 27px; background: #fffefa; }
+.ricespice-luna .ricespice-content { padding: 16px 19px; background: #ffffff; }
 .ricespice-luna .ricespice-title {
   font-size: 21px; font-weight: bold; color: #153e80;
 }
@@ -252,15 +256,15 @@ LUNA_CSS = b"""
 .ricespice-luna .ricespice-state { color: #2a4b75; }
 .ricespice-luna .luna-category-row {
   background: transparent; border: 1px solid transparent;
-  box-shadow: none; border-radius: 3px;
-  padding: 11px 8px; text-shadow: none;
+  box-shadow: none; border-radius: 0;
+  padding: 8px 7px; text-shadow: none;
 }
 .ricespice-luna .luna-category-row:hover {
   background: #eaf3ff; border-color: #bbd1ed;
 }
 .ricespice-luna .luna-control-group {
-  background: #fffefa; border: 1px solid transparent; padding: 10px 8px;
-  border-radius: 2px; box-shadow: none; text-shadow: none;
+  background: transparent; border: 1px solid transparent; padding: 8px 6px;
+  border-radius: 0; box-shadow: none; text-shadow: none;
 }
 .ricespice-luna .luna-control-group:hover {
   background: #ecf3ff; border-color: #b5cbed;
@@ -297,6 +301,35 @@ LUNA_CSS = b"""
   box-shadow: inset 1px 1px #fff; padding: 7px 11px;
 }
 .ricespice-luna .ricespice-action:hover { background: #bdd5f9; }
+/* Standalone Luna dialogs are siblings of RiceSpice, not descendants of
+   its main content box. Reuse the era widgets without drawing a titlebar. */
+.luna-owned-dialog {
+  background-color: #ece9d8; color: #1d2531;
+  font-family: "Liberation Sans", "Tahoma", sans-serif; font-size: 12px;
+}
+.luna-owned-dialog button {
+  background-image: linear-gradient(to bottom, #fffefd, #e5e3d8);
+  border: 1px solid #8993a2; border-radius: 3px;
+  box-shadow: inset 1px 1px #ffffff;
+  color: #252d3b; padding: 4px 11px; text-shadow: none;
+}
+.luna-owned-dialog button:hover { border-color: #4375ae; background: #f2f8ff; }
+.luna-owned-dialog button:focus, .luna-owned-dialog entry:focus,
+.luna-owned-dialog notebook tab:focus {
+  outline: 2px solid #e9a343; outline-offset: -2px;
+}
+.luna-owned-dialog entry, .luna-owned-dialog textview {
+  background-color: #ffffff; border: 1px solid #8c9aab;
+  color: #273243;
+}
+.luna-owned-dialog notebook > header {
+  background: #ece9d8; border-bottom: 1px solid #9eaabd;
+}
+.luna-owned-dialog notebook tab {
+  padding: 5px 12px; background: #dbdacf;
+  border: 1px solid #9da6b5; border-radius: 3px 3px 0 0;
+}
+.luna-owned-dialog notebook tab:checked { background: #ffffff; color: #173f7d; }
 """
 
 
@@ -345,21 +378,38 @@ class RiceSpiceWindow:
         self._suppress_luna_search = False
         self.luna_view = "categories"
         self.luna_flow = None
+        # Bounded, view-local Explorer-style history. Routes contain only
+        # allowlisted page/category IDs and local search text; no commands.
+        self.luna_history: list[tuple[str, str]] = []
+        self.luna_history_index = -1
+        self._luna_replaying = False
+        self.luna_back = None
+        self.luna_forward = None
 
         if luna:
             header = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
             header.get_style_context().add_class("luna-header")
-            title = Gtk.Label(label="Control Panel", xalign=0)
+            title = Gtk.Label(label="Choose a Control Panel task", xalign=0)
             title.get_style_context().add_class("luna-header-title")
             header.pack_start(title, False, False, 0)
-            subtitle = Gtk.Label(label="RiceBowl Luna  ·  System preferences", xalign=0)
+            subtitle = Gtk.Label(label="Real Linux settings · changes are applied only when confirmed", xalign=0)
             subtitle.get_style_context().add_class("luna-header-subtitle")
             header.pack_start(subtitle, False, False, 0)
             root.pack_start(header, False, False, 0)
 
             toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
             toolbar.get_style_context().add_class("luna-toolbar")
-            home = Gtk.Button(label="◀  All settings")
+            self.luna_back = Gtk.Button(label="◀ Back")
+            self.luna_back.get_accessible().set_name("Back to previous Control Panel view")
+            self.luna_back.set_sensitive(False)
+            self.luna_back.connect("clicked", lambda _button: self._luna_navigate(-1))
+            toolbar.pack_start(self.luna_back, False, False, 0)
+            self.luna_forward = Gtk.Button(label="Forward ▶")
+            self.luna_forward.get_accessible().set_name("Forward to next Control Panel view")
+            self.luna_forward.set_sensitive(False)
+            self.luna_forward.connect("clicked", lambda _button: self._luna_navigate(1))
+            toolbar.pack_start(self.luna_forward, False, False, 0)
+            home = Gtk.Button(label="Home")
             home.get_accessible().set_name("Show all Control Panel settings")
             home.connect("clicked", lambda _button: self.show_home())
             toolbar.pack_start(home, False, False, 0)
@@ -394,7 +444,7 @@ class RiceSpiceWindow:
         else:
             body.pack_start(navigation, False, False, 0)
 
-        brand = Gtk.Label(label="BROWSE SETTINGS" if luna else "RiceSpice")
+        brand = Gtk.Label(label="Control Panel Tasks" if luna else "RiceSpice")
         brand.set_xalign(0)
         brand.get_style_context().add_class("ricespice-brand")
         navigation.pack_start(brand, False, False, 0)
@@ -496,6 +546,21 @@ class RiceSpiceWindow:
     def _state(self, message: str):
         self.status.set_text(message)
 
+    def _show_content(self):
+        """Finish a dynamic view with a real GTK relayout.
+
+        On a native Wayland GtkViewport the parent may already have a valid
+        allocation while newly inserted children still have GTK's sentinel
+        (-1, -1, 1, 1) allocation. Explicitly invalidate the viewport after
+        adding children, rather than painting a blank but mapped page.
+        """
+        self.content.show_all()
+        self.content.queue_resize()
+        parent = self.content.get_parent()
+        if parent is not None:
+            parent.queue_resize()
+        self.window.queue_resize()
+
     def _background(self, work: Callable[[], object], done: Callable[[object], None]):
         if self.busy or self.closed:
             return
@@ -505,7 +570,16 @@ class RiceSpiceWindow:
         self.busy = True
         serial = self.generation
         self._state("Working with system services…")
-        future = self.executor.submit(work)
+        try:
+            future = self.executor.submit(work)
+        except RuntimeError:
+            # A closing window can race a control click. Never leave the
+            # bounded worker slot or busy indicator permanently latched.
+            self.worker_slots.release()
+            self.busy = False
+            if not self.closed:
+                self._state("System request unavailable: settings window is closing")
+            return
 
         def complete(finished):
             self.worker_slots.release()
@@ -597,15 +671,74 @@ class RiceSpiceWindow:
                               else "classic")
             self.show_home()
             return True
-        if (event.state & self.Gdk.ModifierType.MOD1_MASK
-                and event.keyval == self.Gdk.KEY_Left and self.page != "home"):
-            self.show_home()
-            return True
+        if event.state & self.Gdk.ModifierType.MOD1_MASK:
+            if event.keyval == self.Gdk.KEY_Left:
+                self._luna_navigate(-1)
+                return True
+            if event.keyval == self.Gdk.KEY_Right:
+                self._luna_navigate(1)
+                return True
         if event.keyval == self.Gdk.KEY_Escape and self.search_entry.get_text():
             self.show_home()
             self.search_entry.grab_focus()
             return True
         return False
+
+    def _luna_record_route(self, kind: str, detail: str = "") -> None:
+        if not self.luna or self._luna_replaying:
+            return
+        route = (kind, detail)
+        if self.luna_history and self.luna_history[self.luna_history_index] == route:
+            return
+        # Typing a search query updates the current history entry rather than
+        # adding one entry per keystroke; Back returns to the previous screen.
+        if (kind == "search" and self.luna_history_index >= 0
+                and self.luna_history[self.luna_history_index][0] == "search"):
+            self.luna_history[self.luna_history_index] = route
+        else:
+            del self.luna_history[self.luna_history_index + 1:]
+            self.luna_history.append(route)
+            if len(self.luna_history) > 32:
+                del self.luna_history[0]
+            self.luna_history_index = len(self.luna_history) - 1
+        self._luna_update_history_buttons()
+
+    def _luna_update_history_buttons(self):
+        if self.luna_back is not None:
+            self.luna_back.set_sensitive(self.luna_history_index > 0)
+        if self.luna_forward is not None:
+            self.luna_forward.set_sensitive(
+                self.luna_history_index + 1 < len(self.luna_history))
+
+    def _luna_navigate(self, delta: int) -> None:
+        """Replay exactly a validated local view without applying settings."""
+        destination = self.luna_history_index + delta
+        if not self.luna or destination < 0 or destination >= len(self.luna_history):
+            return
+        kind, detail = self.luna_history[destination]
+        self._luna_replaying = True
+        try:
+            if kind == "home":
+                self.luna_view = detail
+                self.show_home()
+            elif kind == "category":
+                self.show_category(detail)
+            elif kind == "search":
+                self._suppress_luna_search = True
+                try:
+                    self.search_entry.set_text(detail)
+                finally:
+                    self._suppress_luna_search = False
+                self._luna_filter_sidebar(detail)
+                self.show_search_results(detail)
+            elif kind in self.nav_buttons:
+                self.show_page(kind)
+            else:
+                return
+            self.luna_history_index = destination
+        finally:
+            self._luna_replaying = False
+            self._luna_update_history_buttons()
 
     def _luna_switch_view(self, _button):
         self.luna_view = "classic" if self.luna_view == "categories" else "categories"
@@ -615,7 +748,11 @@ class RiceSpiceWindow:
         # Changing a FlowBox column count is cheap and prevents truncated XP
         # captions at 1024x768, fractional scaling and narrow window sizes.
         if self.luna_flow is not None:
-            self.luna_flow.set_max_children_per_line(1 if allocation.width < 880 else 2)
+            columns = 1 if allocation.width < 880 else 2
+            # Avoid queueing a fresh FlowBox resize from *every* size-allocate
+            # emission. This can starve rendering under headless labwc.
+            if self.luna_flow.get_max_children_per_line() != columns:
+                self.luna_flow.set_max_children_per_line(columns)
 
     def _luna_new_flow(self):
         flow = self.Gtk.FlowBox()
@@ -705,6 +842,7 @@ class RiceSpiceWindow:
         if match is None:
             return
         self._luna_clear_search()
+        self._luna_record_route("category", category)
         self._begin_view("category")
         _key, title, _icon, description, pages = match
         self.breadcrumb.set_text("Control Panel  /  " + title)
@@ -715,12 +853,13 @@ class RiceSpiceWindow:
         for key in pages:
             flow.add(self._luna_category_button(key))
         self.content.pack_start(flow, False, False, 0)
-        self.content.show_all()
+        self._show_content()
 
     def show_home(self):
         if not self.luna:
             return
         self._luna_clear_search()
+        self._luna_record_route("home", self.luna_view)
         self._begin_view("home")
         classic = self.luna_view == "classic"
         self.luna_view_switch.set_label(
@@ -742,11 +881,12 @@ class RiceSpiceWindow:
             for category in LUNA_CONTROL_CATEGORIES:
                 flow.add(self._luna_group_button(category))
         self.content.pack_start(flow, False, False, 0)
-        self.content.show_all()
+        self._show_content()
 
     def show_search_results(self, query: str):
         if not self.luna:
             return
+        self._luna_record_route("search", query)
         self._begin_view("search")
         matches = luna_search_matches(query)
         self._text("Search settings", css="ricespice-title")
@@ -760,13 +900,14 @@ class RiceSpiceWindow:
         else:
             self._text("No matching settings. Try Network, Sound, Display or Power.",
                        css="ricespice-note")
-        self.content.show_all()
+        self._show_content()
 
     def show_page(self, name: str, *, rescan: bool = False):
         if name not in self.nav_buttons:
             return
         if self.luna:
             self._luna_clear_search()
+            self._luna_record_route(name)
         self._begin_view(name)
         _key, title, description = next(section for section in self.sections
                                         if section[0] == name)
@@ -794,7 +935,7 @@ class RiceSpiceWindow:
             self._displays()
         else:
             self._external(name)
-        self.content.show_all()
+        self._show_content()
 
     def _notifications(self):
         self._text("Do Not Disturb hides incoming notification banners while retaining "
@@ -810,7 +951,7 @@ class RiceSpiceWindow:
                          lambda: self._background(
                              lambda: notifications.set_dnd(not enabled, expected=enabled),
                              lambda _result: self.show_page("notifications")), primary=True)
-            self.content.show_all()
+            self._show_content()
 
         self._background(notifications.dnd_status, present)
         self._notification_appearance()
@@ -1024,7 +1165,7 @@ class RiceSpiceWindow:
                 self._text("For EAP-TLS/client certificates and advanced VPN protocols, "
                            "install NetworkManager's connection editor.",
                            css="ricespice-note")
-            self.content.show_all()
+            self._show_content()
 
         def collect():
             def safe(work):
@@ -1271,7 +1412,7 @@ class RiceSpiceWindow:
                                 lambda _result: self.show_page("audio")),
                             parent=controls)
                         button.set_sensitive(enabled)
-            self.content.show_all()
+            self._show_content()
 
         self._background(collect, present)
 
@@ -1298,7 +1439,7 @@ class RiceSpiceWindow:
                                      lambda: backend.set_bluetooth_connection(
                                          d["address"], not d["connected"], expected=d["connected"]),
                                      lambda _result: self.show_page("bluetooth")))
-            self.content.show_all()
+            self._show_content()
 
         self._background(backend.bluetooth_snapshot, present)
 
@@ -1338,15 +1479,24 @@ class RiceSpiceWindow:
         combos = {}
         section_flag = "input_enabled" if page == "input" else "accessibility_enabled"
         for key, description, choices in options:
-            self._text(description, css="ricespice-section")
-            combo = self.Gtk.ComboBoxText()
-            combo.get_accessible().set_name(description)
-            for choice in choices:
-                title = ("On" if choice else "Off") if type(choice) is bool else str(choice)
-                combo.append(str(choice), title)
-            combo.set_active_id(str(current[key]))
-            combos[key] = (combo, choices)
-            self.content.pack_start(combo, False, False, 0)
+            if self.luna and choices == (False, True):
+                # XP-era checkboxes for Boolean options, still backed by
+                # the same validated owner-private preferences and readback.
+                check = self.Gtk.CheckButton(label=description)
+                check.get_accessible().set_name(description)
+                check.set_active(bool(current[key]))
+                combos[key] = (check, choices)
+                self.content.pack_start(check, False, False, 0)
+            else:
+                self._text(description, css="ricespice-section")
+                combo = self.Gtk.ComboBoxText()
+                combo.get_accessible().set_name(description)
+                for choice in choices:
+                    title = ("On" if choice else "Off") if type(choice) is bool else str(choice)
+                    combo.append(str(choice), title)
+                combo.set_active_id(str(current[key]))
+                combos[key] = (combo, choices)
+                self.content.pack_start(combo, False, False, 0)
         if page == "accessibility":
             self._text("Cursor themes can ignore requested sizes. Text scaling uses "
                        "GDK_DPI_SCALE and does not scale Qt, Electron or the native "
@@ -1365,8 +1515,11 @@ class RiceSpiceWindow:
             requested = dict(current)
             requested[section_flag] = True
             for key, (combo, choices) in combos.items():
-                requested[key] = next((choice for choice in choices
-                                       if str(choice) == combo.get_active_id()), None)
+                if isinstance(combo, self.Gtk.CheckButton):
+                    requested[key] = combo.get_active()
+                else:
+                    requested[key] = next((choice for choice in choices
+                                           if str(choice) == combo.get_active_id()), None)
                 if requested[key] is None:
                     self._state("Choose a supported value for each option")
                     return
@@ -1498,7 +1651,7 @@ class RiceSpiceWindow:
                 else:
                     self._text("No monitor layout has been saved.", css="ricespice-note")
             self._state(f"{len(outputs)} active monitor(s) detected")
-            self.content.show_all()
+            self._show_content()
 
         self._background(wayland_displays.inventory, present)
 
@@ -1506,7 +1659,7 @@ class RiceSpiceWindow:
         self._state("Monitor trial started. Confirm before the 18-second timeout.")
         keep_button = self._button("Keep these display settings",
                                    lambda: self._keep_display(change), primary=True)
-        self.content.show_all()
+        self._show_content()
         serial = self.generation
 
         def poll():
@@ -1655,7 +1808,7 @@ class RiceSpiceWindow:
             search.connect("changed", update)
             search.connect("activate", lambda _entry: choose(visible[0]) if visible else None)
             update()
-            self.content.show_all()
+            self._show_content()
 
         def time_snapshot():
             result = backend.timezone_snapshot()
@@ -1698,7 +1851,7 @@ class RiceSpiceWindow:
                         lambda _result: self.show_page("power"))
 
                 self._button("Apply energy profile", apply, primary=True)
-            self.content.show_all()
+            self._show_content()
 
         self._background(backend.power_snapshot, present)
         self._text("Lock the current desktop or request a system suspend.",
@@ -1715,6 +1868,8 @@ class RiceSpiceWindow:
                 transient_for=self.window, modal=True, message_type=self.Gtk.MessageType.QUESTION,
                 buttons=self.Gtk.ButtonsType.YES_NO,
                 text="Suspend this computer now?")
+            if self.luna:
+                dialog.get_style_context().add_class("luna-owned-dialog")
             response = dialog.run()
             dialog.destroy()
             if response == self.Gtk.ResponseType.YES:
@@ -1870,7 +2025,7 @@ class RiceSpiceWindow:
             else:
                 self._text("Rice Creator is not installed. Wallpaper editing is "
                            "unavailable in this session.", css="ricespice-note")
-            self.content.show_all()
+            self._show_content()
 
         try:
             present()

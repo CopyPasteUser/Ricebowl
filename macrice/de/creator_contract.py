@@ -158,6 +158,13 @@ def describe_ricepack() -> dict[str, object]:
             {"command": "de pack-recover", "required_options": [],
              "optional_options": ["--json"], "resumes_private_pending_import": True},
         ],
+        "inspect_diagnostics": {
+            "host_backends_checked": False,
+            "native_required_for_desktop_layers": "schema-v5+",
+            "embedded_assets": "verified archive paths",
+            "missing_host_dependencies": "must be checked on destination",
+            "activates_on_import": False,
+        },
         "import": "private no-overwrite, never activates",
         "failure_exit_code": 2,
         "success_exit_code": 0,
@@ -235,7 +242,7 @@ def describe_creator_api() -> dict[str, object]:
             "mode": "read-only-discovery-before-use",
             "recipe_schema_versions": list(range(1, 13)),
             "recommended_authoring_schema": 11,
-            "catalog_version": 13,
+            "catalog_version": 14,
             "features": [
                 {"id": "shared-status-action-bindings", "supported": True,
                  "since_schema": 9, "runtime": "native; Waybar actions disabled when unverifiable"},
@@ -314,7 +321,7 @@ def describe_creator_api() -> dict[str, object]:
         "next_login_selection_mutation": "creator-stage/rollback only; requires explicit invocation",
         "commands": [
             {"command": "catalog", "effect": "read-only component discovery",
-             "cli": "de catalog --json", "contract_version": 13},
+             "cli": "de catalog --json", "contract_version": 14},
             {"command": "fonts", "effect": "read-only installed importable TrueType font inventory",
              "cli": "de fonts --json", "contract_version": 1},
             {"command": "review", "effect": "validate recipe and compare semantic diffs",
