@@ -719,6 +719,39 @@ PY
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-shortcut-context.png"
             cp "$runtime/xp-luna-shortcut-context.png" \
                "$source_root/dist/riceplate-native-preview/xp-luna-shortcut-context.png"
+            # The deliberately opened Overlay menu, unlike Bottom icons,
+            # may receive keyboard focus in labwc. Type a real Wayland key
+            # to select Programs. The menu stays open for multi-key prefixes.
+            WAYLAND_DISPLAY=wayland-0 wtype -d 35 p
+            sleep 0.25
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-type-programs.png"
+            cp "$runtime/xp-luna-shortcut-context.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-type-before.png"
+            cp "$runtime/xp-luna-type-programs.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-type-programs.png"
+            /usr/bin/python3 - "$runtime/xp-luna-shortcut-context.png" \
+                "$runtime/xp-luna-type-programs.png" <<"PY"
+from PIL import Image, ImageChops
+import sys
+with Image.open(sys.argv[1]) as before, Image.open(sys.argv[2]) as after:
+    before.load()
+    after.load()
+    assert before.size == after.size == (1366, 768)
+    region = (136, 88, 240, 176)
+    diff = ImageChops.difference(before.crop(region).convert("RGB"),
+                                 after.crop(region).convert("RGB"))
+    changed = sum(1 for channels in diff.getdata() if max(channels) > 18)
+    assert changed > 100, f"Overlay context typing did not select Programs: {changed}"
+PY
+            if [ -e "$runtime/trash-gio.log" ]; then
+                echo "Luna context typing unexpectedly launched a shortcut" >&2
+                exit 1
+            fi
+            WAYLAND_DISPLAY=wayland-0 wtype -k Escape
+            sleep 0.15
+            WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click 68 435 1366 768
+            sleep 0.2
+            echo "Verified bounded Overlay typing selects a real Luna shortcut"
             # Real pointer-driven properties transition on the SAME bounded
             # output-local popup. No shortcut launch, no external settings app.
             # Properties row is the fifth row (148..175), Back is at 150..177.
@@ -767,16 +800,15 @@ PY
             fi
             kill -0 "$plate"
             echo "Verified Luna right-click context Open through labwc virtual pointer"
-            # labwc deliberately denies keyboard focus to desktop Bottom
-            # layer surfaces. Intentionally focus the native TOP taskbar at
-            # an otherwise unused position and press F3 to enter shortcut
-            # search. This must not install an exclusive keyboard grab.
+            # Native XP type-to-select must work from a REAL keyboard focus
+            # on a desktop shortcut, not just in a Rust state-model test.
+            # One click selects Recycle Bin; typing p selects Programs on
+            # the same output, without launching a shortcut or stealing
+            # keystrokes from another Wayland client.
             rm -f "$runtime/trash-gio.log"
             sleep 0.75
-            WAYLAND_DISPLAY=wayland-0 "$clicker" 550 748 1366 768
-            sleep 0.25
-            WAYLAND_DISPLAY=wayland-0 wtype -k F3
-            sleep 0.25
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 68 435 1366 768
+            sleep 0.2
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-type-before.png"
             cp "$runtime/xp-luna-type-before.png" \
                "$source_root/dist/riceplate-native-preview/xp-luna-type-before.png"
@@ -808,8 +840,7 @@ with Image.open(sys.argv[1]) as before, Image.open(sys.argv[2]) as after:
     assert changed > 100, f"Native type-to-select did not focus Programs: {changed}"
 PY
             kill -0 "$plate"
-            WAYLAND_DISPLAY=wayland-0 wtype -k Escape
-            echo "Verified real labwc taskbar F3 desktop search with compositor PNG evidence"
+            echo "Verified real Wayland keyboard type-to-select with compositor PNG evidence"
             # The XP Explorer shortcut must prefer RiceField 1.0, with
             # exactly the documented theme/separate-window argv and the
             # fixed root path. No spurious Gio call is permitted.
