@@ -7,6 +7,7 @@ use std::collections::HashMap;
 pub struct WindowState {
     pub active: bool,
     pub minimized: bool,
+    pub maximized: bool,
 }
 
 /// wlroots foreign-toplevel `state` is a native-endian array of u32 values.
@@ -16,6 +17,7 @@ pub fn decode_window_state(raw: &[u8]) -> WindowState {
     for chunk in raw.chunks_exact(4) {
         let state = u32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
         match state {
+            0 => result.maximized = true,
             1 => result.minimized = true,
             2 => result.active = true,
             _ => {}
@@ -160,9 +162,10 @@ mod tests {
     fn foreign_toplevel_states_track_activation_and_minimize_independently() {
         let encoded: Vec<u8> = [0_u32, 2, 3, 1]
             .iter().flat_map(|value| value.to_ne_bytes()).collect();
-        assert_eq!(decode_window_state(&encoded), WindowState { active: true, minimized: true });
+        assert_eq!(decode_window_state(&encoded), WindowState { active: true, minimized: true, maximized: true });
         assert_eq!(decode_window_state(&1_u32.to_ne_bytes()),
-            WindowState { active: false, minimized: true });
+            WindowState { active: false, minimized: true, maximized: false });
+        assert!(decode_window_state(&0_u32.to_ne_bytes()).maximized);
         assert_eq!(decode_window_state(&[0, 0, 0]), WindowState::default());
         assert_eq!(decode_window_state(&[]), WindowState::default());
     }

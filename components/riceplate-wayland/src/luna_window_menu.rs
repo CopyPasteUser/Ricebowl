@@ -20,6 +20,7 @@ pub struct Window<'a> {
     pub app_id: &'a str,
     pub active: bool,
     pub minimized: bool,
+    pub maximized: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,9 +84,9 @@ pub fn entries(windows: &[Window<'_>]) -> Option<(String, Vec<tray::MenuRow>)> {
     };
     let mut rows = Vec::with_capacity(MAX_WINDOW_ROWS + 5);
     if windows.len() == 1 {
-        rows.push(item(RESTORE, "Restore", first.minimized, false));
+        rows.push(item(RESTORE, "Restore", first.minimized || first.maximized, false));
         rows.push(item(MINIMIZE, "Minimize", !first.minimized, false));
-        rows.push(item(MAXIMIZE, "Maximize", true, false));
+        rows.push(item(MAXIMIZE, "Maximize", !first.maximized, false));
         rows.push(item(CLOSE, "Close", true, false));
     } else {
         for (index, window) in windows.iter().take(MAX_WINDOW_ROWS).enumerate() {
@@ -96,7 +97,8 @@ pub fn entries(windows: &[Window<'_>]) -> Option<(String, Vec<tray::MenuRow>)> {
             rows.push(item(0, "More: use Next window", false, false));
         }
         rows.push(item(SWITCH_NEXT, "Next window", true, false));
-        rows.push(item(RESTORE_ALL, "Restore all", windows.iter().any(|w| w.minimized), false));
+        rows.push(item(RESTORE_ALL, "Restore all",
+                       windows.iter().any(|w| w.minimized || w.maximized), false));
         rows.push(item(MINIMIZE_ALL, "Minimize all", windows.iter().any(|w| !w.minimized), false));
         rows.push(item(CLOSE_ALL, "Close group", true, false));
     }
@@ -121,7 +123,7 @@ pub fn right_margin(panel_width: u32, click_x: f64) -> i32 {
 mod tests {
     use super::*;
     fn w(title: &'static str, active: bool, minimized: bool) -> Window<'static> {
-        Window { title, app_id: "org.example.Editor", active, minimized }
+        Window { title, app_id: "org.example.Editor", active, minimized, maximized: false }
     }
 
     #[test]
@@ -138,6 +140,10 @@ mod tests {
         assert!(minimized[0].enabled);
         assert!(!minimized[1].enabled);
         assert!(entries(&[]).is_none());
+        let maximized = [Window { maximized: true, ..w("Full screen", true, false) }];
+        let (_, rows) = entries(&maximized).unwrap();
+        assert!(rows[0].enabled, "maximized windows must offer Restore");
+        assert!(!rows[2].enabled, "already-maximized windows cannot Maximize again");
     }
 
     #[test]

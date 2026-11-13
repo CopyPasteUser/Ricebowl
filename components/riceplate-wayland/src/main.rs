@@ -858,6 +858,7 @@ struct Task {
     app_id: String,
     active: bool,
     minimized: bool,
+    maximized: bool,
     ready: bool,
 }
 
@@ -3497,6 +3498,7 @@ impl RicePlate {
             luna_window_menu::Window {
                 title: &task.title, app_id: &task.app_id,
                 active: task.active, minimized: task.minimized,
+                maximized: task.maximized,
             }
         }).collect();
         let Some((title, rows)) = luna_window_menu::entries(&windows) else { return; };
@@ -3542,7 +3544,13 @@ impl RicePlate {
                 }
             }
             Action::Restore => {
-                if let Some(handle) = handles.first() { self.raise_luna_task(handle); }
+                if let Some(handle) = handles.first() {
+                    if let Some(task) = self.tasks.iter().find(|task|
+                        &task.handle == handle && task.ready && task.maximized) {
+                        task.handle.unset_maximized();
+                    }
+                    self.raise_luna_task(handle);
+                }
             }
             Action::Minimize | Action::Maximize | Action::Close => {
                 if let Some(handle) = handles.first() {
@@ -3565,7 +3573,10 @@ impl RicePlate {
                     let Some(task) = self.tasks.iter().find(|task|
                         &task.handle == handle && task.ready) else { continue; };
                     match action {
-                        Action::RestoreAll if task.minimized => task.handle.unset_minimized(),
+                        Action::RestoreAll => {
+                            if task.maximized { task.handle.unset_maximized(); }
+                            if task.minimized { task.handle.unset_minimized(); }
+                        },
                         Action::MinimizeAll if !task.minimized => task.handle.set_minimized(),
                         Action::CloseAll => task.handle.close(),
                         _ => {}
@@ -7544,6 +7555,7 @@ impl Dispatch<ZwlrForeignToplevelManagerV1, ()> for RicePlate {
                         app_id: String::new(),
                         active: false,
                         minimized: false,
+                        maximized: false,
                         ready: false,
                     });
                 }
@@ -7616,6 +7628,7 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for RicePlate {
                     let window_state = task_groups::decode_window_state(&states);
                     task.active = window_state.active;
                     task.minimized = window_state.minimized;
+                    task.maximized = window_state.maximized;
                 }
                 zwlr_foreign_toplevel_handle_v1::Event::Done => {
                     task.ready = true;
