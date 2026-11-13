@@ -18,6 +18,7 @@ mod luna_places;
 mod luna_dialog;
 mod luna_clock;
 mod luna_taskbar;
+mod luna_window_menu;
 mod luna_desktop_ipc;
 mod menu_chrome;
 mod menu_pins;
@@ -522,6 +523,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         active_tray_popup: None,
         tray_popup_state: tray::Popup::default(),
         tray_menu_state: tray::MenuPopup::default(),
+        task_menu_handles: Vec::new(),
+        task_popup_right: None,
         tray_popup_focused: false,
         control_sender: None,
         pointer: None,
@@ -992,6 +995,10 @@ struct RicePlate {
     active_tray_popup: Option<wl_surface::WlSurface>,
     tray_popup_state: tray::Popup,
     tray_menu_state: tray::MenuPopup,
+    // The captured foreign-toplevel proxies, never task indices (which can
+    // change when windows close while the native menu is open).
+    task_menu_handles: Vec<ZwlrForeignToplevelHandleV1>,
+    task_popup_right: Option<i32>,
     tray_popup_focused: bool,
     control_sender: Option<mpsc::SyncSender<ControlAction>>,
     pointer: Option<wl_pointer::WlPointer>,
@@ -2122,6 +2129,18 @@ impl RicePlate {
                             let action_id = action.id.clone();
                             self.activate_action(&action_id, qh);
                         }
+                    }
+                    Some(KeyboardTarget::Task(index)) if key == Keysym::Menu
+                        && self.recipe.id == "xp-luna-columns" => {
+                        let anchor = recipe::task_view(&self.recipe, width, count, offset)
+                            .and_then(|view| recipe::layout(&self.recipe, width, count)
+                                .into_iter().find(|item| item.widget == Widget::Tasks)
+                                .map(|item| f64::from(item.x) +
+                                    (index.saturating_sub(view.start) as f64 + 0.5)
+                                        * f64::from(view.cell_width)))
+                            .unwrap_or(f64::from(width / 2));
+                        let source = surface.clone();
+                        self.open_luna_task_menu(index, width, anchor, &source, qh);
                     }
                     Some(KeyboardTarget::Task(index)) if key != Keysym::Menu =>
                         self.activate_group(index),
@@ -3465,6 +3484,97 @@ impl RicePlate {
         self.tray_popup_state.visible || self.tray_menu_state.visible
     }
 
+    /// Right-clicking a task is an actual foreign-toplevel context action,
+    /// not a jump to taskbar preferences. The same popup serves keyboard Menu.
+    fn open_luna_task_menu(&mut self, group_index: usize, panel_width: u32,
+                           pointer_x: f64, source: &wl_surface::WlSurface,
+                           qh: &QueueHandle<Self>) {
+        if self.recipe.id != "xp-luna-columns" { return; }
+        let groups = self.grouped_tasks();
+        let Some(group) = groups.get(group_index) else { return; };
+        let windows: Vec<_> = group.members.iter().map(|&index| {
+            let task = &self.tasks[index];
+            luna_window_menu::Window {
+                title: &task.title, app_id: &task.app_id,
+                active: task.active, minimized: task.minimized,
+            }
+        }).collect();
+        let Some((title, rows)) = luna_window_menu::entries(&windows) else { return; };
+        let handles: Vec<_> = group.members.iter()
+            .map(|&index| self.tasks[index].handle.clone()).collect();
+        let Some(target) = self.tray_popup_target(source) else { return; };
+        let mut popup = tray::MenuPopup::default();
+        if !popup.open_local(&title, rows) { return; }
+        self.set_tray_popup_visible(false, qh);
+        self.task_menu_handles = handles;
+        self.task_popup_right = Some(luna_window_menu::right_margin(panel_width, pointer_x));
+        self.tray_menu_state = popup;
+        self.show_tray_surface_at(target, qh);
+    }
+
+    fn raise_luna_task(&self, handle: &ZwlrForeignToplevelHandleV1) {
+        let Some(task) = self.tasks.iter().find(|task|
+            &task.handle == handle && task.ready) else { return; };
+        if task.minimized { task.handle.unset_minimized(); }
+        if let Some(seat) = self.primary_seat.as_ref() {
+            task.handle.activate(seat);
+        }
+    }
+
+    fn apply_luna_task_action(&self, id: i32, handles: &[ZwlrForeignToplevelHandleV1]) {
+        use luna_window_menu::Action;
+        let Some(action) = luna_window_menu::decode(id, handles.len()) else { return; };
+        match action {
+            Action::Activate(index) => {
+                if let Some(handle) = handles.get(index) { self.raise_luna_task(handle); }
+            }
+            Action::NextWindow => {
+                let active = handles.iter().position(|handle| self.tasks.iter().any(|task|
+                    task.handle == *handle && task.ready && task.active));
+                let start = active.map_or(0, |index| (index + 1) % handles.len());
+                for delta in 0..handles.len() {
+                    let index = (start + delta) % handles.len();
+                    if self.tasks.iter().any(|task|
+                        task.handle == handles[index] && task.ready) {
+                        self.raise_luna_task(&handles[index]);
+                        break;
+                    }
+                }
+            }
+            Action::Restore => {
+                if let Some(handle) = handles.first() { self.raise_luna_task(handle); }
+            }
+            Action::Minimize | Action::Maximize | Action::Close => {
+                if let Some(handle) = handles.first() {
+                    if let Some(task) = self.tasks.iter().find(|task|
+                        &task.handle == handle && task.ready) {
+                        match action {
+                            Action::Minimize => task.handle.set_minimized(),
+                            Action::Maximize => {
+                                task.handle.set_maximized();
+                                self.raise_luna_task(handle);
+                            }
+                            Action::Close => task.handle.close(),
+                            _ => unreachable!(),
+                        }
+                    }
+                }
+            }
+            Action::RestoreAll | Action::MinimizeAll | Action::CloseAll => {
+                for handle in handles {
+                    let Some(task) = self.tasks.iter().find(|task|
+                        &task.handle == handle && task.ready) else { continue; };
+                    match action {
+                        Action::RestoreAll if task.minimized => task.handle.unset_minimized(),
+                        Action::MinimizeAll if !task.minimized => task.handle.set_minimized(),
+                        Action::CloseAll => task.handle.close(),
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
     /// Open a real native Wayland surface for XP's own status icons. The SNI
     /// host is deliberately not involved: local menu rows never emit D-Bus.
     fn open_luna_status_menu(&mut self, widget: Widget,
@@ -3582,6 +3692,8 @@ impl RicePlate {
                 }
             }
             self.tray_menu_state.close();
+            self.task_menu_handles.clear();
+            self.task_popup_right = None;
             self.tray_popup_state.close();
             self.tray_popup_focused = false;
             self.active_tray_popup = None;
@@ -3619,6 +3731,7 @@ impl RicePlate {
         if self.calendar_state.visible { self.set_calendar_visible(false, qh); }
         self.tray_popup_focused = false;
         self.active_tray_popup = Some(surface.clone());
+        let right_margin = self.task_popup_right.unwrap_or(8);
         for layer in self.tray_popup_layer.iter().chain(self.tray_popup_mirrors.iter()) {
             let active = layer.surface.wl_surface() == &surface;
             layer.surface.set_keyboard_interactivity(if active {
@@ -3626,7 +3739,7 @@ impl RicePlate {
             } else { KeyboardInteractivity::None });
             layer.surface.set_margin(
                 if self.recipe.top { self.recipe.height as i32 + 8 } else { 0 },
-                if active { 8 } else { MAX_WIDTH as i32 },
+                if active { right_margin } else { MAX_WIDTH as i32 },
                 if self.recipe.top { 0 } else { self.recipe.height as i32 + 8 }, 0,
             );
             layer.surface.commit();
@@ -3656,8 +3769,13 @@ impl RicePlate {
         let choice = self.tray_menu_state.choice(index);
         if self.tray_menu_state.is_local() {
             if let TrayMenuChoice::Click(id) = choice {
+                let handles = std::mem::take(&mut self.task_menu_handles);
                 self.set_tray_popup_visible(false, qh);
-                self.activate_luna_status_action(id, qh);
+                if handles.is_empty() {
+                    self.activate_luna_status_action(id, qh);
+                } else {
+                    self.apply_luna_task_action(id, &handles);
+                }
             }
             return;
         }
@@ -6880,11 +6998,13 @@ impl PointerHandler for RicePlate {
                                 if self.tray_menu_state.rows().get(index).is_some_and(|r|
                                     r.selectable()) && self.tray_menu_state.selected != index {
                                     self.tray_menu_state.selected = index;
-                                    if let Some(host) = self.tray_host.as_mut() {
-                                        let id = self.tray_menu_state.rows()[index].id;
-                                        if let Err(error) = host.menu_hovered(
-                                            &self.tray_menu_state.bus_name, id) {
-                                            eprintln!("RicePlate: SNI menu hover failed: {error}");
+                                    if !self.tray_menu_state.is_local() {
+                                        if let Some(host) = self.tray_host.as_mut() {
+                                            let id = self.tray_menu_state.rows()[index].id;
+                                            if let Err(error) = host.menu_hovered(
+                                                &self.tray_menu_state.bus_name, id) {
+                                                eprintln!("RicePlate: SNI menu hover failed: {error}");
+                                            }
                                         }
                                     }
                                     self.redraw_tray_popup();
@@ -7326,11 +7446,15 @@ impl PointerHandler for RicePlate {
                             && self.recipe.id == "xp-luna-columns" => {
                             self.open_luna_status_menu(Widget::Clock, &event.surface, qh);
                         }
+                        Some(Hit::Task(index)) if button == BTN_RIGHT
+                            && self.recipe.id == "xp-luna-columns" => {
+                            self.open_luna_task_menu(index, panel_width,
+                                                     event.position.0, &event.surface, qh);
+                        }
                         _ if button == BTN_RIGHT => {
                             if self.recipe.id == "xp-luna-columns" {
-                                // Right-clicking empty taskbar/task buttons opens
-                                // the existing genuine RiceSpice taskbar page.
-                                // Provider-owned tray and clock menus win above.
+                                // Empty taskband: preferences. Task buttons above
+                                // get real per-window foreign-toplevel actions.
                                 self.launch_luna_settings("taskbar");
                             }
                         },
