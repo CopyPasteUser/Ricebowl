@@ -1137,11 +1137,13 @@ impl RicePlate {
             self.icon_position_dirty = true;
         }
         let entries: Vec<_> = files.entries().iter().enumerate().map(|(index, entry)| {
-            let slot = index + self.static_icon_count;
+            // Luna's seven original shortcuts occupy the first two columns.
+            // File-backed icons start at the third column; the existing
+            // collision-aware reflow adjusts them on smaller outputs.
             recipe::DesktopIcon {
                 label: entry.label(), action: desktop_files::action_for(entry.kind, index),
-                x: 24 + ((slot / 5) as u32 * 112),
-                y: 88 + ((slot % 5) as u32 * 104),
+                x: 248 + ((index / 5) as u32 * 112),
+                y: 88 + ((index % 5) as u32 * 104),
             }
         }).collect();
         self.close_desktop_context();
