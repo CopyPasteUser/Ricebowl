@@ -173,6 +173,65 @@ class LunaSystemUXTests(unittest.TestCase):
         self.assertNotIn("Start menu", luna_help.TOPIC_DESTINATIONS)
         self.assertNotIn("No installed tool", luna_help.TOPIC_DESTINATIONS)
 
+    def test_real_gtk_help_navigation_and_related_settings_action(self):
+        try:
+            Gtk, Gdk, GLib = settings._gtk_modules()
+        except (ValueError, ImportError):
+            self.skipTest("GTK3 unavailable")
+        if not Gtk.init_check([])[0]:
+            self.skipTest("Graphical GTK session unavailable")
+        from macrice.luna_help import show_help
+
+        class Shell:
+            def __init__(self):
+                self.bar = Gtk.Window()
+                self.actions = Gtk.Window()
+                self.visited = []
+                self._luna_help_dialog = None
+            def _hide_menu(self):
+                return None
+            def _desktop_rect(self):
+                return SimpleNamespace(x=0, y=0, width=1024, height=768)
+            def _toggle_actions(self):
+                self.actions.show_all()
+            def luna_control_show_category(self, category):
+                self.visited.append(category)
+
+        def descendants(widget):
+            yield widget
+            if isinstance(widget, Gtk.Container):
+                for child in widget.get_children():
+                    yield from descendants(child)
+
+        shell = Shell()
+        dialog = show_help(shell, Gtk)
+        try:
+            buttons = [w for w in descendants(dialog) if isinstance(w, Gtk.Button)]
+            related = next(w for w in buttons if w.get_label() ==
+                           "Open related Control Panel category…")
+            back = next(w for w in buttons if w.get_label() == "◂ Back")
+            forward = next(w for w in buttons if w.get_label() == "Forward ▸")
+            self.assertFalse(related.get_sensitive())
+            listing = next(w for w in descendants(dialog) if isinstance(w, Gtk.ListBox))
+            row = next(r for r in listing.get_children()
+                       if getattr(r, "topic", None) == "Connecting to networks")
+            listing.emit("row-activated", row)
+            self.assertTrue(related.get_sensitive())
+            self.assertFalse(forward.get_sensitive())
+            related.clicked()
+            self.assertEqual(shell.visited, ["Network and Internet Connections"])
+            self.assertTrue(shell.actions.get_visible())
+            back.clicked()
+            self.assertFalse(related.get_sensitive())
+            self.assertTrue(forward.get_sensitive())
+            forward.clicked()
+            self.assertTrue(related.get_sensitive())
+        finally:
+            dialog.response(Gtk.ResponseType.CLOSE)
+            shell.actions.destroy()
+            shell.bar.destroy()
+        self.assertIsNone(shell._luna_help_dialog)
+
     def test_default_gtk_chrome_and_recipe_are_not_changed(self):
         self.assertIn(".ricespice-window", settings.CSS.decode())
         self.assertEqual(settings.LUNA_CONTROL_CATEGORIES[2][0], "sound")
