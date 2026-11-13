@@ -1853,6 +1853,8 @@ class RiceSpiceWindow:
                 transient_for=self.window, modal=True, message_type=self.Gtk.MessageType.QUESTION,
                 buttons=self.Gtk.ButtonsType.YES_NO,
                 text="Suspend this computer now?")
+            if self.luna:
+                dialog.get_style_context().add_class("luna-owned-dialog")
             response = dialog.run()
             dialog.destroy()
             if response == self.Gtk.ResponseType.YES:
