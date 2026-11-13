@@ -289,7 +289,7 @@ dbus-run-session -- sh -eu -c '
                 WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" \
                 >"$runtime/plate-$label.log" 2>&1 &
         elif [ "$label" = xp-luna-columns ]; then
-            RICEBOWL_DE_TRACE_MENU=1 PATH="$runtime/mock-bin:$PATH" \
+            RICEBOWL_DE_TRACE_DESKTOP=1 RICEBOWL_DE_TRACE_MENU=1 PATH="$runtime/mock-bin:$PATH" \
                 RICEBOWL_CI_TRASH_LOG="$runtime/trash-gio.log" \
                 RICEBOWL_CI_RICEFIELD_LOG="$runtime/ricefield-argv.log" \
                 WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" \
@@ -787,6 +787,8 @@ PY
             test ! -e "$runtime/trash-gio.log" || {
                 echo "Luna typing unexpectedly opened Recycle Bin" >&2; exit 1;
             }
+            echo "Native Luna keyboard focus diagnostics:"
+            grep "RicePlate desktop" "$runtime/plate-$label.log" | tail -n 20 || :
             /usr/bin/python3 - "$runtime/xp-luna-type-before.png" \
                 "$runtime/xp-luna-type-programs.png" <<"PY"
 from PIL import Image, ImageChops
