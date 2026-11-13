@@ -1728,7 +1728,8 @@ impl RicePlate {
             .map(|icon| (icon.label.as_str(), icon.action.as_str()));
         paint_desktop_context(canvas, &self.recipe, menu.selected,
                               menu.hovered, menu.can_move, menu.can_reset,
-                              menu.properties, details, menu.back_hovered);
+                              menu.properties, details, menu.back_hovered,
+                              menu.file_operation.as_ref());
         let surface = menu.popup.wl_surface();
         surface.damage_buffer(0, 0, desktop_context::WIDTH as i32,
                              desktop_context::HEIGHT as i32);
@@ -5242,15 +5243,44 @@ fn paint_desktop_context(canvas: &mut [u8], style: &PanelStyle,
                          selected: DesktopContextAction,
                          hovered: Option<DesktopContextAction>,
                          can_move: bool, can_reset: bool, properties: bool,
-                         details: Option<(&str, &str)>, back_hovered: bool) {
+                         details: Option<(&str, &str)>, back_hovered: bool,
+                         file_operation: Option<&desktop_context::FileOperation>) {
     let (w, h) = (desktop_context::WIDTH, desktop_context::HEIGHT);
     canvas.fill(0);
     fill_rect(canvas, w, h, 0, 0, w, h, 0xff20_3f7e);
     fill_rect(canvas, w, h, 2, 2, w - 4, h - 4, 0xfffc_faf2);
     fill_rect(canvas, w, h, 3, 3, w - 6, 29, 0xff24_5ed3);
     draw_rice_text(canvas, w, h, 12, 11,
-                   if properties { "Properties" } else { "Shortcut" },
-                   0xffff_ffff, style);
+                   if properties { "Properties" }
+                   else if file_operation.is_some() { "File action" }
+                   else { "Shortcut" }, 0xffff_ffff, style);
+    if let Some(operation) = file_operation {
+        match operation {
+            desktop_context::FileOperation::Rename(input) => {
+                draw_rice_text(canvas, w, h, 12, 48, "New name:", 0xff1d_273d, style);
+                fill_rect(canvas, w, h, 12, 68, w - 24, 28, 0xffff_ffff);
+                let chars: Vec<_> = input.value().chars().rev().take(19).collect();
+                let visible: String = chars.into_iter().rev().collect();
+                draw_rice_text(canvas, w, h, 16, 77, &visible, 0xff1d_273d, style);
+                draw_rice_text(canvas, w, h, 12, 110,
+                    input.error.unwrap_or("Enter: save name"), 0xff9b_2727, style);
+            }
+            desktop_context::FileOperation::ConfirmTrash => {
+                draw_rice_text(canvas, w, h, 12, 48,
+                    "Move file to Trash?", 0xff1d_273d, style);
+                draw_rice_text(canvas, w, h, 12, 66,
+                    "No permanent delete", 0xff1d_273d, style);
+                fill_rect(canvas, w, h, 5, 84, w - 10, 27, 0xffe5_e9f2);
+                draw_rice_text(canvas, w, h, 15, 93, "Confirm", 0xff1d_273d, style);
+            }
+        }
+        let y = desktop_context::BACK_ROW;
+        fill_rect(canvas, w, h, 5, y, w - 10, 27,
+                  if back_hovered { 0xff36_6ac9 } else { 0xffe5_e9f2 });
+        draw_rice_text(canvas, w, h, 15, y + 8, "Cancel",
+                       if back_hovered { 0xffff_ffff } else { 0xff1d_273d }, style);
+        return;
+    }
     if properties {
         // Bounded, read-only metadata for validated actions; no stat calls,
         // untrusted command strings or guessed file targets.
@@ -5268,6 +5298,7 @@ fn paint_desktop_context(canvas: &mut [u8], style: &PanelStyle,
                        if back_hovered { 0xffff_ffff } else { 0xff1d_273d }, style);
         return;
     }
+    let is_file = details.is_some_and(|(_, action)| action.starts_with("desktop-file:"));
     for action in DesktopContextAction::ALL {
         let y = desktop_context::row(action);
         if action == selected || hovered == Some(action) {
@@ -5279,7 +5310,9 @@ fn paint_desktop_context(canvas: &mut [u8], style: &PanelStyle,
         let color = if !action.enabled(can_move, can_reset) { 0xff7c_8291 }
                     else if action == selected || hovered == Some(action) { 0xffff_ffff }
                     else { 0xff1d_273d };
-        draw_rice_text(canvas, w, h, 15, y + 8, action.label(), color, style);
+        draw_rice_text(canvas, w, h, 15, y + 8,
+                       if is_file { action.label_for_file() } else { action.label() },
+                       color, style);
     }
 }
 
@@ -6235,6 +6268,41 @@ impl KeyboardHandler for RicePlate {
             return;
         }
         if self.context_focused {
+            if self.desktop_context.as_ref().is_some_and(|menu| menu.file_operation.is_some()) {
+                let mut repaint = false;
+                let mut commit_rename = false;
+                let mut confirm_trash = false;
+                if let Some(menu) = self.desktop_context.as_mut() {
+                    match menu.file_operation.as_mut() {
+                        Some(desktop_context::FileOperation::Rename(input)) => {
+                            match event.keysym {
+                                Keysym::Escape => { menu.file_operation = None; repaint = true; }
+                                Keysym::Return | Keysym::KP_Enter =>
+                                    { commit_rename = true; }
+                                Keysym::BackSpace => { repaint = input.erase(); }
+                                _ if !self.selection_modifiers.ctrl =>
+                                    if let Some(typed) = event.utf8.as_deref() {
+                                        repaint = input.insert(typed);
+                                    },
+                                _ => (),
+                            }
+                        }
+                        Some(desktop_context::FileOperation::ConfirmTrash) => {
+                            match event.keysym {
+                                Keysym::Escape => { menu.file_operation = None; repaint = true; }
+                                Keysym::Return | Keysym::KP_Enter | Keysym::space =>
+                                    { confirm_trash = true; }
+                                _ => (),
+                            }
+                        }
+                        None => (),
+                    }
+                }
+                if commit_rename { self.commit_file_rename(qh); }
+                else if confirm_trash { self.confirm_file_trash(qh); }
+                else if repaint { self.redraw_desktop_context(); }
+                return;
+            }
             if !self.selection_modifiers.ctrl {
                 if let Some(typed) = event.utf8.as_deref() {
                     if self.type_select_desktop_context(typed) { return; }
@@ -6386,6 +6454,18 @@ impl KeyboardHandler for RicePlate {
                 Keysym::space if self.selection_modifiers.ctrl
                     && self.recipe.id == "xp-luna-columns" => {
                     self.select_luna_icon_mode(index, desktop_selection::Mode::Toggle);
+                }
+                Keysym::F2 if self.recipe.id == "xp-luna-columns"
+                    && self.icon_layers[index].recipe_index >= self.static_icon_count => {
+                    self.open_desktop_context(index, (52.0, 42.0),
+                        self.keyboard_seat.clone().map(|seat| (seat, serial)), qh);
+                    self.begin_file_rename();
+                }
+                Keysym::Delete if self.recipe.id == "xp-luna-columns"
+                    && self.icon_layers[index].recipe_index >= self.static_icon_count => {
+                    self.open_desktop_context(index, (52.0, 42.0),
+                        self.keyboard_seat.clone().map(|seat| (seat, serial)), qh);
+                    self.begin_file_trash();
                 }
                 Keysym::Menu if self.recipe.id == "xp-luna-columns" => {
                     self.open_desktop_context(index, (52.0, 42.0),
@@ -8311,10 +8391,10 @@ mod tests {
         let mut before = vec![0; bytes];
         let mut selected = vec![0; bytes];
         paint_desktop_context(&mut before, &style, DesktopContextAction::Open, None,
-                              false, false, false, None, false);
+                              false, false, false, None, false, None);
         paint_desktop_context(&mut selected, &style, DesktopContextAction::AllDisplays,
                               Some(DesktopContextAction::AllDisplays),
-                              false, false, false, None, false);
+                              false, false, false, None, false, None);
         let pixel = |buffer: &[u8], x: u32, y: u32| -> u32 {
             let at = ((y * desktop_context::WIDTH + x) * 4) as usize;
             u32::from_le_bytes(buffer[at..at+4].try_into().unwrap())
@@ -8328,18 +8408,18 @@ mod tests {
         assert_ne!(before, selected);
         let mut enabled = vec![0; bytes];
         paint_desktop_context(&mut enabled, &style, DesktopContextAction::NextDisplay,
-                              None, true, false, false, None, false);
+                              None, true, false, false, None, false, None);
         assert_eq!(pixel(&enabled, 12, desktop_context::row(DesktopContextAction::NextDisplay)),
                    0xff36_6ac9);
         let mut info = vec![0; bytes];
         paint_desktop_context(&mut info, &style, DesktopContextAction::Properties,
                               None, false, false, true,
-                              Some(("Recycle Bin", "trash")), true);
+                              Some(("Recycle Bin", "trash")), true, None);
         assert_ne!(info, before);
         assert_eq!(pixel(&info, 10, desktop_context::BACK_ROW), 0xff36_6ac9);
         let mut reset = vec![0; bytes];
         paint_desktop_context(&mut reset, &style, DesktopContextAction::ResetPosition,
-                              None, false, true, false, None, false);
+                              None, false, true, false, None, false, None);
         assert_eq!(pixel(&reset, 12, desktop_context::row(DesktopContextAction::ResetPosition)),
                    0xff36_6ac9);
     }
