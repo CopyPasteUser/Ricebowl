@@ -36,14 +36,14 @@ It is not a claim that every GTK, Qt or compositor window can be themed or laid 
 
 ## Two runnable recipes
 
-- `examples/wayland/heritage-modern-v10.json`: bottom panel, classic task
+- `examples/wayland/heritage-composer-v10.json`: bottom panel, classic task
   hierarchy, centered WORKSTATION caption, audio-mute native control and a
   compact layout distinct from its wide layout.
-- `examples/wayland/orbit-studio-v10.json`: top panel, grouped launcher,
+- `examples/wayland/orbit-composer-v10.json`: top panel, grouped launcher,
   centered FOCUS MODE caption with tasks, sidebar menu, large bold typography,
   separately authored compact layout.
 
-Both examples use schema **v10** and are parsed and exported by the same native
+The two new, independent examples use schema **v10** and are parsed and exported by the same native
 recipe and RicePack paths. Waybar is only a partial fallback for native-only
 controls. Screenshots from a genuine compositor are required for visual sign-off.
 

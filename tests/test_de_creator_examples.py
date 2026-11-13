@@ -60,10 +60,6 @@ class CreatorExamplesTests(unittest.TestCase):
         self.assertEqual(classic.menu_presentation, "tabs")
         self.assertEqual(original.menu_presentation, "sidebar")
         self.assertNotEqual(classic.layout, original.layout)
-        self.assertEqual(classic.layout[1][0].value, "WORKSTATION")
-        self.assertTrue(any(node.kind == "control" and node.value == "audio-mute"
-                            for node in classic.layout[2]))
-        self.assertEqual(original.layout[1][0].children[1].value, "FOCUS MODE")
         self.assertNotEqual(classic.colors, original.colors)
         self.assertNotEqual(classic.compact, original.compact)
         self.assertNotEqual(classic.appearance, original.appearance)
@@ -91,6 +87,27 @@ class CreatorExamplesTests(unittest.TestCase):
                 self.assertIn('"wlr/taskbar"', compact)
                 self.assertNotIn('"on-click": "nmcli', wide)
                 self.assertIn("window#waybar", css)
+
+    def test_composer_rices_are_real_distinct_native_v10_structures(self):
+        heritage = recipes.parse((EXAMPLES / "heritage-composer-v10.json").read_bytes())
+        orbit = recipes.parse((EXAMPLES / "orbit-composer-v10.json").read_bytes())
+        self.assertEqual((heritage.schema_version, orbit.schema_version), (10, 10))
+        self.assertEqual(heritage.position, "bottom")
+        self.assertEqual(orbit.position, "top")
+        self.assertEqual(heritage.layout[1][0].value, "WORKSTATION")
+        self.assertTrue(any(node.kind == "control" and node.value == "audio-mute"
+                            for node in heritage.layout[2]))
+        self.assertEqual(orbit.layout[1][0].children[1].value, "FOCUS MODE")
+        self.assertNotEqual(heritage.layout, orbit.layout)
+        self.assertNotEqual(heritage.compact, orbit.compact)
+        for recipe in (heritage, orbit):
+            config, _ = recipes.waybar_config(recipe, screen_width=1366)
+            compact_config, _ = recipes.waybar_config(recipe, screen_width=640)
+            self.assertIn('"wlr/taskbar"', config)
+            self.assertIn('"wlr/taskbar"', compact_config)
+            self.assertEqual(
+                review._manifest(recipes.parse(json.dumps(review._manifest(recipe)).encode())),
+                review._manifest(recipe))
 
     def test_luna_columns_are_data_only_and_backwards_compatible(self):
         source = json.loads((EXAMPLES / "xp-luna-columns.json").read_text())

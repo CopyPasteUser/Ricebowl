@@ -3,194 +3,53 @@
   "id": "orbit-studio-v10",
   "name": "Orbit Studio (original spatial concept)",
   "components": [
-    {
-      "id": "net-status",
-      "role": "status",
-      "binding": "network",
-      "label": "Online"
-    },
-    {
-      "id": "audio-status",
-      "role": "status",
-      "binding": "audio",
-      "label": "Audio"
-    },
-    {
-      "id": "wifi-switch",
-      "role": "action",
-      "binding": "wifi-toggle",
-      "label": "Wi-Fi"
-    }
+    {"id": "net-status", "role": "status", "binding": "network", "label": "Online"},
+    {"id": "audio-status", "role": "status", "binding": "audio", "label": "Audio"},
+    {"id": "wifi-switch", "role": "action", "binding": "wifi-toggle", "label": "Wi-Fi"}
   ],
   "panel": {
-    "position": "top",
-    "height": 56,
-    "metrics": {
-      "launcher_width": 112,
-      "task_width": 200,
-      "clock_width": 104
-    },
+    "position": "top", "height": 56,
+    "metrics": {"launcher_width": 112, "task_width": 200, "clock_width": 104},
     "layout": {
       "start": [
-        {
-          "type": "group",
-          "gap": 12,
-          "children": [
-            {
-              "type": "label",
-              "text": "ORBIT STUDIO"
-            },
-            {
-              "type": "widget",
-              "id": "launcher"
-            },
-            {
-              "type": "component",
-              "ref": "wifi-switch"
-            }
-          ]
-        }
+        {"type": "group", "gap": 12, "children": [
+          {"type": "label", "text": "ORBIT STUDIO"},
+          {"type": "widget", "id": "launcher"},
+          {"type": "component", "ref": "wifi-switch"}
+        ]}
       ],
-      "center": [
-        {
-          "type": "group",
-          "gap": 12,
-          "children": [
-            {
-              "type": "gap",
-              "width": 20
-            },
-            {
-              "type": "label",
-              "text": "FOCUS MODE"
-            },
-            {
-              "type": "widget",
-              "id": "tasks"
-            }
-          ]
-        }
-      ],
-      "end": [
-        {
-          "type": "component",
-          "ref": "net-status"
-        },
-        {
-          "type": "widget",
-          "id": "clock"
-        }
-      ]
+      "center": [{"type": "group", "gap": 12, "children": [
+        {"type": "gap", "width": 20},
+        {"type": "widget", "id": "tasks"}
+      ]}],
+      "end": [{"type": "component", "ref": "net-status"},
+              {"type": "widget", "id": "clock"}]
     }
   },
-  "colors": {
-    "background": "#172e42",
-    "foreground": "#f0ebda",
-    "active": "#d8896c"
-  },
-  "menu": {
-    "title": "Orbit Studio",
-    "presentation": "sidebar",
-    "groups": [
-      {
-        "title": "Explore",
-        "actions": [
-          "applications",
-          "terminal"
-        ]
-      },
-      {
-        "title": "Session",
-        "actions": [
-          "lock",
-          "logout"
-        ]
-      }
-    ]
-  },
-  "desktop": {
-    "wallpaper": "aurora-night",
-    "icons": [
-      {
-        "label": "Explore",
-        "action": "applications",
-        "x": 612,
-        "y": 124
-      },
-      {
-        "label": "Console",
-        "action": "terminal",
-        "x": 744,
-        "y": 124
-      },
-      {
-        "label": "Secure",
-        "action": "lock",
-        "x": 612,
-        "y": 232
-      }
-    ]
-  },
-  "tokens": {
-    "label_padding": 14,
-    "task_radius": 10
-  },
-  "appearance": {
-    "font_scale": 2,
-    "font_weight": "bold",
-    "item_spacing": 12,
-    "hover": "#a05a52",
-    "focus": "#f0ebda",
-    "disabled": "#8f9a9f"
-  },
-  "responsive": {
-    "compact_max_width": 980,
-    "compact_layout": {
-      "start": [
-        {
-          "type": "widget",
-          "id": "launcher"
-        }
-      ],
-      "center": [
-        {
-          "type": "widget",
-          "id": "tasks"
-        }
-      ],
-      "end": [
-        {
-          "type": "component",
-          "ref": "audio-status"
-        }
-      ]
-    }
-  },
+  "colors": {"background": "#172e42", "foreground": "#f0ebda", "active": "#d8896c"},
+  "menu": {"title": "Orbit Studio", "presentation": "sidebar", "groups": [
+    {"title": "Explore", "actions": ["applications", "terminal"]},
+    {"title": "Session", "actions": ["lock", "logout"]}
+  ]},
+  "desktop": {"wallpaper": "aurora-night", "icons": [
+    {"label": "Explore", "action": "applications", "x": 612, "y": 124},
+    {"label": "Console", "action": "terminal", "x": 744, "y": 124},
+    {"label": "Secure", "action": "lock", "x": 612, "y": 232}
+  ]},
+  "tokens": {"label_padding": 14, "task_radius": 10},
+  "appearance": {"font_scale": 2, "font_weight": "bold", "item_spacing": 12,
+                 "hover": "#a05a52", "focus": "#f0ebda", "disabled": "#8f9a9f"},
+  "responsive": {"compact_max_width": 980, "compact_layout": {
+    "start": [{"type": "widget", "id": "launcher"}],
+    "center": [{"type": "widget", "id": "tasks"}],
+    "end": [{"type": "component", "ref": "audio-status"}]
+  }},
   "composition": {
     "widgets": [
-      {
-        "id": "desk-heading",
-        "kind": "text",
-        "text": "ORBIT STUDIO",
-        "x": 24,
-        "y": 320
-      },
-      {
-        "id": "desk-sound",
-        "kind": "component",
-        "ref": "audio-status",
-        "x": 24,
-        "y": 432
-      }
+      {"id": "desk-heading", "kind": "text", "text": "ORBIT STUDIO", "x": 24, "y": 320},
+      {"id": "desk-sound", "kind": "component", "ref": "audio-status", "x": 24, "y": 432}
     ],
-    "window_region": {
-      "x": 28,
-      "y": 10,
-      "width": 70,
-      "height": 82
-    },
-    "compact_hide_widgets": [
-      "desk-sound"
-    ]
+    "window_region": {"x": 28, "y": 10, "width": 70, "height": 82},
+    "compact_hide_widgets": ["desk-sound"]
   }
 }
