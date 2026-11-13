@@ -7,6 +7,7 @@ program exits on close and does not replace a distribution settings daemon.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 import shutil
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -64,6 +65,25 @@ LUNA_ICONS = {
     "taskbar": "preferences-desktop",
 }
 
+
+
+
+# Use RiceBowl's original Luna artwork, not host-dependent icon-theme names.
+LUNA_ICON_FILES = {
+    "appearance": "ricehub-luna-cp-appearance.svg",
+    "network": "ricehub-luna-cp-network.svg",
+    "audio": "ricehub-luna-cp-audio.svg",
+    "displays": "ricehub-luna-task-video-display.svg",
+    "input": "ricehub-luna-task-input-mouse.svg",
+    "bluetooth": "ricehub-luna-task-bluetooth.svg",
+    "power": "ricehub-luna-cp-performance.svg",
+    "timezone": "ricehub-luna-cp-regional.svg",
+    "accessibility": "ricehub-luna-cp-accessibility.svg",
+    "notifications": "ricehub-luna-task-preferences-desktop-notification.svg",
+    "taskbar": "ricehub-luna-task-preferences-system-windows.svg",
+}
+LUNA_ICON_DIR = (Path(__file__).resolve().parents[2] /
+                 "assets/icons/RiceHub-Luna-Icons/scalable/apps")
 
 
 # Luna's navigation is a separate presentation of the same service-backed pages.
@@ -317,7 +337,7 @@ class RiceSpiceWindow:
             if luna:
                 button = Gtk.ToggleButton()
                 label_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
-                glyph = Gtk.Image.new_from_icon_name(LUNA_ICONS[key], Gtk.IconSize.MENU)
+                glyph = self._luna_icon(key, 18)
                 label = Gtk.Label(label=title, xalign=0)
                 label.set_line_wrap(True)
                 label_box.pack_start(glyph, False, False, 0)
@@ -473,6 +493,20 @@ class RiceSpiceWindow:
         else:
             self.show_home()
 
+    def _luna_icon(self, key: str, pixels: int):
+        """Load bundled XP-style SVGs; fall back safely if packaging is incomplete."""
+        try:
+            from gi.repository import GdkPixbuf
+            asset = LUNA_ICON_DIR / LUNA_ICON_FILES[key]
+            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
+                str(asset), pixels, pixels, True)
+            return self.Gtk.Image.new_from_pixbuf(pixbuf)
+        except (KeyError, OSError, Exception):
+            # A missing SVG loader must not prevent opening any settings page.
+            return self.Gtk.Image.new_from_icon_name(
+                LUNA_ICONS[key], self.Gtk.IconSize.DIALOG if pixels > 24
+                else self.Gtk.IconSize.MENU)
+
     def _luna_category_button(self, key: str):
         """An accessible XP category row, never a fake setting control."""
         Gtk = self.Gtk
@@ -485,7 +519,7 @@ class RiceSpiceWindow:
         button.set_tooltip_text(description)
         button.connect("clicked", lambda _button: self.show_page(key))
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        image = Gtk.Image.new_from_icon_name(LUNA_ICONS[key], Gtk.IconSize.DIALOG)
+        image = self._luna_icon(key, 40)
         image.set_valign(Gtk.Align.START)
         row.pack_start(image, False, False, 0)
         labels = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
