@@ -56,6 +56,18 @@ pub fn decode(id: i32, window_count: usize) -> Option<Action> {
     })
 }
 
+/// A single action policy is shared by painted enablement and live dispatch:
+/// stale menus must not send repeated Maximize/Minimize or arbitrary IDs.
+pub fn single_action_enabled(action: Action, minimized: bool, maximized: bool) -> bool {
+    match action {
+        Action::Restore => minimized || maximized,
+        Action::Minimize => !minimized,
+        Action::Maximize => !maximized,
+        Action::Close => true,
+        _ => false,
+    }
+}
+
 /// Foreign-toplevel titles are application-controlled. Sanitize before
 /// truncating so leading control characters cannot consume the text budget.
 /// The popup has more room than a task button; keep distinct document names
@@ -102,11 +114,15 @@ pub fn entries(windows: &[Window<'_>]) -> Option<(String, Vec<tray::MenuRow>)> {
     };
     let mut rows = Vec::with_capacity(MAX_WINDOW_ROWS + 6);
     if windows.len() == 1 {
-        rows.push(item(RESTORE, "Restore", first.minimized || first.maximized, false));
-        rows.push(item(MINIMIZE, "Minimize", !first.minimized, false));
-        rows.push(item(MAXIMIZE, "Maximize", !first.maximized, false));
+        rows.push(item(RESTORE, "Restore",
+                       single_action_enabled(Action::Restore, first.minimized, first.maximized), false));
+        rows.push(item(MINIMIZE, "Minimize",
+                       single_action_enabled(Action::Minimize, first.minimized, first.maximized), false));
+        rows.push(item(MAXIMIZE, "Maximize",
+                       single_action_enabled(Action::Maximize, first.minimized, first.maximized), false));
         rows.push(separator());
-        rows.push(item(CLOSE, "Close", true, false));
+        rows.push(item(CLOSE, "Close",
+                       single_action_enabled(Action::Close, first.minimized, first.maximized), false));
     } else {
         for (index, window) in windows.iter().take(MAX_WINDOW_ROWS).enumerate() {
             let label = title_label(window.title, window.app_id);
@@ -277,6 +293,20 @@ mod tests {
     use super::*;
     fn w(title: &'static str, active: bool, minimized: bool) -> Window<'static> {
         Window { title, app_id: "org.example.Editor", active, minimized, maximized: false }
+    }
+
+    #[test]
+    fn live_single_window_action_policy_ignores_duplicates() {
+        use Action::*;
+        assert!(!single_action_enabled(Restore, false, false));
+        assert!(single_action_enabled(Restore, true, false));
+        assert!(single_action_enabled(Restore, false, true));
+        assert!(!single_action_enabled(Minimize, true, false));
+        assert!(single_action_enabled(Minimize, false, false));
+        assert!(!single_action_enabled(Maximize, false, true));
+        assert!(single_action_enabled(Maximize, true, false));
+        assert!(single_action_enabled(Close, true, true));
+        assert!(!single_action_enabled(CloseAll, false, false));
     }
 
     #[test]
