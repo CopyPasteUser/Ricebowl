@@ -210,6 +210,11 @@ pub fn paint(canvas: &mut [u8], popup: &tray::MenuPopup, top_panel: bool) {
             fill_rect(canvas, width, height, 9, row_y + 6, 13, 11, 0xff28_4c96);
             fill_rect(canvas, width, height, 10, row_y + 7, 11, 2, 0xff8b_c8ef);
             fill_rect(canvas, width, height, 11, row_y + 10, 9, 5, 0xfffc_fbf6);
+            if matches!(&row.kind, tray::MenuKind::Action { checked: true, .. }) {
+                // Active member is visible even when keyboard focus is on
+                // a different row in this group.
+                fill_rect(canvas, width, height, 23, row_y + 10, 4, 5, 0xff25_8f36);
+            }
         } else if row.id == CLOSE || row.id == CLOSE_ALL {
             draw_text(canvas, width, height, 12, row_y + 8, "x", 0xffab_3636);
         } else if row.id == MINIMIZE || row.id == MINIMIZE_ALL {
@@ -337,6 +342,26 @@ mod tests {
         popup.select(1);
         paint(&mut pixels, &popup, false);
         assert_ne!(before, pixels, "keyboard selection must visibly move");
+    }
+
+    #[test]
+    fn active_group_member_has_a_visual_marker_independent_of_keyboard_focus() {
+        let windows = [w("First", false, false), w("Second", true, false)];
+        let (_, checked) = entries(&windows).unwrap();
+        let mut popup = tray::MenuPopup::default();
+        assert!(popup.open_local("2 windows", checked));
+        let mut selected_frame = vec![0; (tray::POPUP_WIDTH * tray::POPUP_HEIGHT * 4) as usize];
+        paint(&mut selected_frame, &popup, true);
+        let y = PADDING + ROW_HEIGHT + 12;
+        let index = ((y * tray::POPUP_WIDTH + 25) * 4) as usize;
+        assert_eq!(&selected_frame[index..index + 4], &0xff25_8f36_u32.to_le_bytes());
+        let mut unchecked = windows;
+        unchecked[1].active = false;
+        let (_, rows) = entries(&unchecked).unwrap();
+        assert!(popup.open_local("2 windows", rows));
+        let mut idle_frame = selected_frame.clone();
+        paint(&mut idle_frame, &popup, true);
+        assert_ne!(selected_frame, idle_frame);
     }
 
     #[test]
