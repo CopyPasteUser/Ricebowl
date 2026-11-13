@@ -94,15 +94,30 @@ LUNA_GROUPS = (
     ("System & accessibility", ("power", "timezone", "notifications", "accessibility")),
 )
 
+# Search only real destinations, but index the controls that users naturally
+# look for instead of relying on long page names. Purely local, no I/O.
+LUNA_SEARCH_HINTS = {
+    "network": "wifi wlan ethernet vpn connections",
+    "audio": "volume speaker microphone recording playback",
+    "displays": "monitor resolution scale scaling",
+    "input": "mouse keyboard touchpad pointer",
+    "taskbar": "clock clock format time format 12h 24h 12-hour 24-hour tray start",
+    "power": "battery suspend energy profile lock",
+    "timezone": "clock synchronization ntp time zone",
+    "notifications": "alerts banners do not disturb",
+}
+
 
 def luna_search_matches(query: str) -> tuple[str, ...]:
-    """Filter the actual settings catalog; never synthesize unsupported actions."""
-    needle = query.strip().casefold()
-    if not needle:
+    """Match all user-entered words against real categories and supported tasks."""
+    terms = query.strip().casefold().split()
+    if not terms:
         return tuple(key for key, _title, _description in LUNA_SECTIONS)
     return tuple(
         key for key, title, description in LUNA_SECTIONS
-        if needle in " ".join((key, title, description)).casefold()
+        if all(term in " ".join((key, title, description,
+                                LUNA_SEARCH_HINTS.get(key, ""))).casefold()
+               for term in terms)
     )
 
 
