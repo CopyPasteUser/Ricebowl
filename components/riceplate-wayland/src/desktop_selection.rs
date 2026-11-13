@@ -208,7 +208,7 @@ mod tests {
         assert_eq!(search.feed(&labels, 0, "\n", now), None);
         assert_eq!(search.feed(&labels, 0, "ab", now), None);
         assert_eq!(search.feed(&labels, 0, " ", now), None);
-        assert_eq!(search.feed(&labels, 0, "D", now), Some(1));
+        assert_eq!(search.feed(&labels, 0, "M", now), Some(1));
         assert_eq!(search.feed(&[None, None], 0, "D", now), None);
         assert_eq!(search.feed(&labels, 99, "D", now), None);
         assert_eq!(search.feed(&[], 0, "D", now), None);
