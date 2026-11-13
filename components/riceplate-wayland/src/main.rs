@@ -5648,12 +5648,13 @@ impl KeyboardHandler for RicePlate {
         &mut self,
         _: &Connection,
         qh: &QueueHandle<Self>,
-        _: &wl_keyboard::WlKeyboard,
+        keyboard: &wl_keyboard::WlKeyboard,
         surface: &wl_surface::WlSurface,
         _: u32,
         _: &[u32],
         _: &[Keysym],
     ) {
+        if self.keyboard.as_ref() != Some(keyboard) { return; }
         self.luna_dialog_focused = self.luna_dialog.as_ref().is_some_and(|dialog|
             dialog.surface.wl_surface() == surface);
         self.context_focused = self.desktop_context.as_ref().is_some_and(|menu|
@@ -5716,10 +5717,11 @@ impl KeyboardHandler for RicePlate {
         &mut self,
         _: &Connection,
         qh: &QueueHandle<Self>,
-        _: &wl_keyboard::WlKeyboard,
+        keyboard: &wl_keyboard::WlKeyboard,
         surface: &wl_surface::WlSurface,
         _: u32,
     ) {
+        if self.keyboard.as_ref() != Some(keyboard) { return; }
         // Never retain Ctrl/Shift after compositor keyboard focus leaves.
         self.selection_modifiers = Modifiers::default();
         self.desktop_selection.cancel();
@@ -5764,10 +5766,11 @@ impl KeyboardHandler for RicePlate {
         &mut self,
         _: &Connection,
         qh: &QueueHandle<Self>,
-        _: &wl_keyboard::WlKeyboard,
+        keyboard: &wl_keyboard::WlKeyboard,
         _: u32,
         event: KeyEvent,
     ) {
+        if self.keyboard.as_ref() != Some(keyboard) { return; }
         if self.luna_dialog_focused {
             let mut execute = false;
             let mut repaint = false;
@@ -6201,10 +6204,11 @@ impl KeyboardHandler for RicePlate {
         &mut self,
         _: &Connection,
         _: &QueueHandle<Self>,
-        _: &wl_keyboard::WlKeyboard,
+        keyboard: &wl_keyboard::WlKeyboard,
         _: u32,
         event: KeyEvent,
     ) {
+        if self.keyboard.as_ref() != Some(keyboard) { return; }
         if matches!(event.keysym, Keysym::Left | Keysym::Right | Keysym::Up | Keysym::Down) {
             self.save_icon_positions();
         }
@@ -6214,12 +6218,13 @@ impl KeyboardHandler for RicePlate {
         &mut self,
         _: &Connection,
         _: &QueueHandle<Self>,
-        _: &wl_keyboard::WlKeyboard,
+        keyboard: &wl_keyboard::WlKeyboard,
         _: u32,
         modifiers: Modifiers,
         _: RawModifiers,
         _: u32,
     ) {
+        if self.keyboard.as_ref() != Some(keyboard) { return; }
         self.selection_modifiers = modifiers;
         // A held Ctrl/Shift modifier invalidates any pending plain double
         // click even if the focus stays on the same shortcut.
@@ -6234,9 +6239,11 @@ impl PointerHandler for RicePlate {
         &mut self,
         _: &Connection,
         qh: &QueueHandle<Self>,
-        _: &wl_pointer::WlPointer,
+        pointer: &wl_pointer::WlPointer,
         events: &[PointerEvent],
     ) {
+        // Ignore queued events from a released seat's old pointer proxy.
+        if self.pointer.as_ref() != Some(pointer) { return; }
         for event in events {
             // A popup Enter is authoritative Wayland evidence that the
             // pointer is no longer over the taskbar. Compositors need not
