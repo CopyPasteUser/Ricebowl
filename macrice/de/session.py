@@ -114,7 +114,9 @@ def _check_runtime_dir(environment: Mapping[str, str]) -> None:
     if not directory or not os.path.isabs(directory):
         raise SessionError("XDG_RUNTIME_DIR is missing; log in through a proper user session.")
     try:
-        mode = os.stat(directory)
+        # lstat is intentional: a symlink may redirect session state to an
+        # unrelated user-owned directory and must not be accepted as a runtime.
+        mode = os.lstat(directory)
     except OSError as exc:
         raise SessionError("XDG_RUNTIME_DIR is not accessible.") from exc
     if (not stat.S_ISDIR(mode.st_mode) or mode.st_uid != os.geteuid()
