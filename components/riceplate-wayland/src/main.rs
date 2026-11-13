@@ -1112,6 +1112,28 @@ impl RicePlate {
         self.desktop_context = None;
     }
 
+    /// Menu capabilities belong to the currently highlighted shortcut,
+    /// not the icon that originally opened the popup.
+    fn desktop_context_capabilities(&self, index: usize) -> (bool, bool) {
+        let Some(icon) = self.icon_layers.get(index) else { return (false, false) };
+        let recipe_index = icon.recipe_index;
+        let mut names: Vec<_> = self.icon_layers.iter()
+            .filter(|layer| layer.recipe_index == recipe_index)
+            .filter_map(|layer| {
+                let output = layer.bound_output.as_ref()
+                    .or(self.primary_output.as_ref()).or(layer.output.as_ref())?;
+                self.logical_output_size(output)?;
+                self.outputs.info(output)?.name
+            }).collect();
+        names.sort();
+        names.dedup();
+        let can_move = names.len() > 1;
+        let can_reset = self.icon_output_name(index).is_some_and(|name|
+            self.icon_outputs.can_reset_position(
+                &name, &self.recipe.desktop_icons, recipe_index));
+        (can_move, can_reset)
+    }
+
     fn open_desktop_context(&mut self, index: usize, pointer: (f64, f64),
                             qh: &QueueHandle<Self>) {
         if self.recipe.id != "xp-luna-columns" { return; }
@@ -1124,23 +1146,7 @@ impl RicePlate {
         let Some((x, y)) = desktop_context::placement(
             position, pointer, size, self.recipe.height, self.recipe.top)
             else { return };
-        let recipe_index = icon.recipe_index;
-        let mut output_names: Vec<_> = self.icon_layers.iter()
-            .filter(|layer| layer.recipe_index == recipe_index)
-            .filter_map(|layer| {
-                let output = layer.bound_output.as_ref()
-                    .or(self.primary_output.as_ref()).or(layer.output.as_ref())?;
-                self.logical_output_size(output)?;
-                self.outputs.info(output)?.name
-            }).collect();
-        output_names.sort();
-        output_names.dedup();
-        let can_move = output_names.len() > 1;
-        // Only named-output overrides can be reset safely. Never claim to
-        // restore source coordinates from an already mutated global recipe.
-        let can_reset = self.icon_output_name(index).is_some_and(|name|
-            self.icon_outputs.can_reset_position(
-                &name, &self.recipe.desktop_icons, recipe_index));
+        let (can_move, can_reset) = self.desktop_context_capabilities(index);
         self.icon_drag = None;
         self.desktop_selection.cancel();
         self.select_luna_icon(index);
@@ -1190,8 +1196,11 @@ impl RicePlate {
             &labels, current, value, Instant::now()
         ) else { return true };
         if next != current {
+            let (can_move, can_reset) = self.desktop_context_capabilities(next);
             self.select_luna_icon(next);
             if let Some(menu) = self.desktop_context.as_mut() {
+                menu.can_move = can_move;
+                menu.can_reset = can_reset;
                 menu.icon_index = next;
                 menu.selected = DesktopContextAction::Open;
                 menu.hovered = None;
