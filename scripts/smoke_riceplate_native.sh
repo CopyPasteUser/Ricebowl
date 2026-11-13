@@ -289,7 +289,7 @@ dbus-run-session -- sh -eu -c '
                 WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" \
                 >"$runtime/plate-$label.log" 2>&1 &
         elif [ "$label" = xp-luna-columns ]; then
-            RICEBOWL_DE_TRACE_MENU=1 PATH="$runtime/mock-bin:$PATH" \
+            RICEBOWL_DE_TRACE_DESKTOP=1 RICEBOWL_DE_TRACE_MENU=1 PATH="$runtime/mock-bin:$PATH" \
                 RICEBOWL_CI_TRASH_LOG="$runtime/trash-gio.log" \
                 RICEBOWL_CI_RICEFIELD_LOG="$runtime/ricefield-argv.log" \
                 WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" \
@@ -718,6 +718,52 @@ PY
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-shortcut-context.png"
             cp "$runtime/xp-luna-shortcut-context.png" \
                "$source_root/dist/riceplate-native-preview/xp-luna-shortcut-context.png"
+            # A real icon-parented xdg_popup must become keyboard focusable
+            # on deliberate right-click despite the parent Bottom layer.
+            # No click on an independent Overlay; no global keyboard grab.
+            WAYLAND_DISPLAY=wayland-0 wtype -d 35 p
+            sleep 0.3
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-type-programs.png"
+            cp "$runtime/xp-luna-shortcut-context.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-type-before.png"
+            cp "$runtime/xp-luna-type-programs.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-type-programs.png"
+            grep -q "RicePlate desktop context keyboard focused" \
+                "$runtime/plate-$label.log" || {
+                echo "Parented Luna xdg_popup never received keyboard focus" >&2
+                tail -n 65 "$runtime/plate-$label.log" >&2
+                exit 1
+            }
+            grep -q "RicePlate desktop type-select from=.* to=" \
+                "$runtime/plate-$label.log" || {
+                echo "Luna popup did not deliver type-to-select key" >&2
+                tail -n 65 "$runtime/plate-$label.log" >&2
+                exit 1
+            }
+            /usr/bin/python3 - "$runtime/xp-luna-shortcut-context.png" \
+                "$runtime/xp-luna-type-programs.png" <<"PY"
+from PIL import Image, ImageChops
+import sys
+with Image.open(sys.argv[1]) as before, Image.open(sys.argv[2]) as after:
+    before.load()
+    after.load()
+    assert before.size == after.size == (1366, 768)
+    # The actual Programs icon is at x136..240,y88..176.
+    region = (136, 88, 240, 176)
+    diff = ImageChops.difference(before.crop(region).convert("RGB"),
+                                 after.crop(region).convert("RGB"))
+    changed = sum(max(pixel) > 18 for pixel in diff.getdata())
+    assert changed > 100, f"Parented Luna typing changed only {changed} Programs pixels"
+PY
+            if [ -e "$runtime/trash-gio.log" ]; then
+                echo "Type-to-select unexpectedly launched Recycle Bin" >&2
+                exit 1
+            fi
+            WAYLAND_DISPLAY=wayland-0 wtype -k Escape
+            sleep 0.2
+            WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click 68 435 1366 768
+            sleep 0.3
+            echo "Verified real Wayland keyboard selects Programs through parented XDG popup"
             # Real pointer-driven properties transition on the SAME bounded
             # output-local popup. No shortcut launch, no external settings app.
             # Properties row is the fifth row (148..175), Back is at 150..177.
