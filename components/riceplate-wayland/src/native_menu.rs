@@ -1871,12 +1871,21 @@ mod tests {
     #[test]
     fn installed_apps_are_searchable_and_never_masquerade_as_recipe_actions() {
         let data = menu();
+        // A real temporary desktop entry is required by the activation gate.
+        // Do not rely on a hypothetical file under /usr/share/applications.
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let fixture = std::env::temp_dir().join(format!(
+            "riceplate-menu-editor-{}-{nonce}.desktop", std::process::id()));
+        std::fs::write(&fixture,
+            "[Desktop Entry]\nType=Application\nName=Example Editor\nExec=/usr/bin/true\n")
+            .unwrap();
         let mut state = MenuState::default();
         state.apps = vec![App {
             action: "desktop:org.example.Editor.desktop".into(),
             name: "Example Editor".into(),
             search_text: "example editor writing".into(),
-            path: "/usr/share/applications/org.example.Editor.desktop".into(),
+            path: fixture.clone(),
         }];
         state.open();
         state.start_search();
@@ -1884,7 +1893,12 @@ mod tests {
         for character in ["w", "r", "i"] { assert!(state.search_input(character)); }
         assert_eq!(state.current_action(&data), Some("desktop:org.example.Editor.desktop"));
         assert_eq!(state.label("desktop:org.example.Editor.desktop"), "Example Editor");
-        assert!(state.app_path("desktop:org.example.Editor.desktop").is_some());
+        assert_eq!(state.app_path("desktop:org.example.Editor.desktop"), Some(fixture.as_path()));
+        std::fs::write(&fixture,
+            "[Desktop Entry]\nType=Application\nName=Example Editor\nExec=/usr/bin/true\nHidden=true\n")
+            .unwrap();
+        assert!(state.app_path("desktop:org.example.Editor.desktop").is_none());
+        std::fs::remove_file(&fixture).unwrap();
         assert!(!state.toggle_pin(&data));
         assert!(state.pins.is_empty());
         state.back();
