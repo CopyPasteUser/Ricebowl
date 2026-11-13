@@ -71,7 +71,9 @@ dbus-run-session -- sh -eu -c '
     # Dismiss through the native Start menu keyboard Escape handler, while
     # the pointer remains off the panel. This exercises popup focus and
     # exactly the state transition that previously left Auto-hide open.
-    WAYLAND_DISPLAY=wayland-0 "$clicker" 120 375 1024 768
+    # Use the inert XP header, not an app/action row: the styled
+    # 480x456 menu begins at y=272 above the 40px taskbar.
+    WAYLAND_DISPLAY=wayland-0 "$clicker" 120 290 1024 768
     WAYLAND_DISPLAY=wayland-0 wtype -k Escape
     sleep .45
     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/menu-closed.png"
