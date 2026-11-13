@@ -71,7 +71,7 @@ dbus-run-session -- sh -eu -c '
     WAYLAND_DISPLAY=wayland-0 "$clicker" 760 450 1024 768
     sleep .45
     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/menu-closed.png"
-    /usr/bin/python3 - "$runtime" <<'"'"'PY'"'"'
+    /usr/bin/python3 - "$runtime" <<PY
 from pathlib import Path
 from PIL import Image, ImageChops
 import sys
