@@ -1308,12 +1308,19 @@ impl RicePlate {
                                       AccessibleRole::Button, label, action);
                         }
                     }
-                    Widget::Network => model.add(base + 5, base, AccessibleRole::Status,
-                        format!("Network: {}", self.system_status.network.label()), None),
-                    Widget::Audio => model.add(base + 6, base, AccessibleRole::Status,
-                        format!("Audio: {}", self.system_status.audio.label()), None),
-                    Widget::Battery => model.add(base + 7, base, AccessibleRole::Status,
-                        format!("Battery: {}", self.power.label()), None),
+                    Widget::Network | Widget::Audio | Widget::Battery => {
+                        let luna = self.recipe.id == "xp-luna-columns";
+                        let (number, label) = match placed.widget {
+                            Widget::Network => (5, format!("Network: {}",
+                                self.system_status.network.label())),
+                            Widget::Audio => (6, format!("Audio: {}",
+                                self.system_status.audio.label())),
+                            _ => (7, format!("Battery: {}", self.power.label())),
+                        };
+                        model.add(base + number, base,
+                            if luna { AccessibleRole::Button } else { AccessibleRole::Status },
+                            label, luna.then_some(Target::Status(placed.widget)));
+                    },
                     Widget::Label(index) => {
                         if let Some(label) = self.recipe.labels.get(index as usize) {
                             model.add(base + 20 + index as u64, base,
@@ -1651,6 +1658,10 @@ impl RicePlate {
                         Some(KeyboardTarget::Action(index)) => base + 30 + index as u64,
                         Some(KeyboardTarget::Task(index)) => base + 100 + index as u64,
                         Some(KeyboardTarget::Tray(index)) => base + 300 + index as u64,
+                        Some(KeyboardTarget::Status(widget)) => base + match widget {
+                            Widget::Network => 5, Widget::Audio => 6, _ => 7,
+                        },
+                        Some(KeyboardTarget::Clock) => base + 2,
                         None => base,
                     };
                 }
@@ -1682,6 +1693,10 @@ impl RicePlate {
             Target::PanelAction(action) => self.activate_action(&action, qh),
             Target::Task(index) => self.activate_group(index),
             Target::Clock => self.toggle_calendar_for_panel(None, qh),
+            Target::Status(widget) => {
+                let source = self.layer.wl_surface().clone();
+                self.open_luna_status_menu(widget, &source, qh);
+            }
             Target::DesktopIcon(index) => {
                 if let Some(icon) = self.icon_layers.get(index) {
                     if let Some(item) = self.recipe.desktop_icons.get(icon.recipe_index) {
@@ -1898,6 +1913,18 @@ impl RicePlate {
                     }
                     Some(KeyboardTarget::Task(index)) if key != Keysym::Menu =>
                         self.activate_group(index),
+                    Some(KeyboardTarget::Status(widget)) => {
+                        let source = surface.clone();
+                        self.open_luna_status_menu(widget, &source, qh);
+                    }
+                    Some(KeyboardTarget::Clock) => {
+                        if key == Keysym::Menu {
+                            let source = surface.clone();
+                            self.open_luna_status_menu(Widget::Clock, &source, qh);
+                        } else {
+                            self.toggle_calendar_for_panel(mirror, qh);
+                        }
+                    }
                     Some(KeyboardTarget::Tray(slot)) => {
                         if slot == tray::VISIBLE_ITEMS - 1 &&
                             self.tray_state.overflow_count() > 0 {
@@ -3241,7 +3268,7 @@ impl RicePlate {
             102 => self.launch_luna_settings("audio"),
             106 => self.launch_luna_settings("power"),
             107 => self.launch_luna_settings("timezone"),
-            108 => self.launch_luna_settings("appearance"),
+            108 => self.launch_luna_settings("taskbar"),
             _ => {}
         }
     }
