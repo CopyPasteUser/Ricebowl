@@ -24,6 +24,7 @@ class RiceSpiceSettingsTests(unittest.TestCase):
         })
         self.assertEqual(set(backend.EXTERNAL_PAGES), {
             "connections", "displays", "input", "accessibility", "timezone",
+            "luna_creator",
         })
 
     def test_saved_network_profiles_activate_by_uuid_without_secrets(self):
