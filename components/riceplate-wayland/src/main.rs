@@ -3546,8 +3546,10 @@ impl RicePlate {
         let Some(task) = self.tasks.iter().find(|task|
             &task.handle == handle && task.ready) else { return; };
         if task.minimized { task.handle.unset_minimized(); }
-        if let Some(seat) = self.primary_seat.as_ref() {
-            task.handle.activate(seat);
+        if !task.active || task.minimized {
+            if let Some(seat) = self.primary_seat.as_ref() {
+                task.handle.activate(seat);
+            }
         }
     }
 
@@ -3575,16 +3577,23 @@ impl RicePlate {
             Action::Restore => {
                 if let Some(handle) = handles.first() {
                     if let Some(task) = self.tasks.iter().find(|task|
-                        &task.handle == handle && task.ready && task.maximized) {
-                        task.handle.unset_maximized();
+                        &task.handle == handle && task.ready) {
+                        if luna_window_menu::single_action_enabled(
+                            action, task.minimized, task.maximized,
+                        ) {
+                            if task.maximized { task.handle.unset_maximized(); }
+                            self.raise_luna_task(handle);
+                        }
                     }
-                    self.raise_luna_task(handle);
                 }
             }
             Action::Minimize | Action::Maximize | Action::Close => {
                 if let Some(handle) = handles.first() {
                     if let Some(task) = self.tasks.iter().find(|task|
                         &task.handle == handle && task.ready) {
+                        if !luna_window_menu::single_action_enabled(
+                            action, task.minimized, task.maximized,
+                        ) { return; }
                         match action {
                             Action::Minimize => task.handle.set_minimized(),
                             Action::Maximize => {
