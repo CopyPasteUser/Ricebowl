@@ -224,7 +224,10 @@ class RiceSpiceWindow:
         self.Gtk, self.GLib = Gtk, GLib
         self.luna = luna
         self.sections = LUNA_SECTIONS if luna else SECTIONS
-        if page not in {section[0] for section in self.sections}:
+        valid_pages = {section[0] for section in self.sections}
+        if luna:
+            valid_pages.add("home")
+        if page not in valid_pages:
             raise backend.SettingsError("Unknown RiceSpice settings page")
         self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ricespice")
         self.worker_slots = threading.BoundedSemaphore(2)
