@@ -147,6 +147,23 @@ def main() -> int:
                                   "search" if name == "search" else
                                   "home" if name in ("home", "classic") else name):
                     raise RuntimeError("GTK view did not navigate to " + name)
+            if name in ("home", "input"):
+                # Preserve bounded GTK allocation diagnostics for native
+                # compositors that display sidebar but leave content blank.
+                def allocation(widget):
+                    rect = widget.get_allocation()
+                    return [rect.x, rect.y, rect.width, rect.height]
+                print("Luna native allocation", name,
+                      "root", allocation(panel.window),
+                      "content", allocation(panel.content),
+                      "mapped", panel.content.get_mapped(),
+                      "children", [
+                          {"class": type(child).__name__,
+                           "allocation": allocation(child),
+                           "mapped": child.get_mapped(),
+                           "visible": child.get_visible()}
+                          for child in panel.content.get_children()[:12]],
+                      flush=True)
             screenshot(name)
             GLib.timeout_add(90, advance, index + 1)
         except Exception as exc:
