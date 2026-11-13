@@ -41,6 +41,25 @@
           "width": 4
         },
         {
+          "type": "action",
+          "id": "applications",
+          "label": "Apps"
+        },
+        {
+          "type": "action",
+          "id": "terminal",
+          "label": "Terminal"
+        },
+        {
+          "type": "action",
+          "id": "show-desktop",
+          "label": "Desktop"
+        },
+        {
+          "type": "gap",
+          "width": 4
+        },
+        {
           "type": "widget",
           "id": "tasks"
         }
@@ -193,6 +212,25 @@
         {
           "type": "widget",
           "id": "launcher"
+        },
+        {
+          "type": "action",
+          "id": "applications",
+          "label": "Apps"
+        },
+        {
+          "type": "action",
+          "id": "terminal",
+          "label": "Terminal"
+        },
+        {
+          "type": "action",
+          "id": "show-desktop",
+          "label": "Desktop"
+        },
+        {
+          "type": "gap",
+          "width": 4
         },
         {
           "type": "widget",
