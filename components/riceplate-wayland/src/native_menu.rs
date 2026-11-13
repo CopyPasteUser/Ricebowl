@@ -293,13 +293,39 @@ impl MenuState {
         true
     }
 
+    /// Only actual discovered XDG desktop files can populate XP's quick
+    /// program shelf. Prefer familiar real browser/mail applications on a
+    /// fresh login, *after* previously launched apps. Never synthesize app
+    /// links, bypass XDG visibility or launch guessed command lines.
     fn luna_preview_apps(&self, limit: usize) -> Vec<&str> {
         if limit == 0 { return Vec::new(); }
         let mut result = Vec::with_capacity(limit.min(self.apps.len()));
         for id in &self.recent_apps {
             if let Some(app) = self.apps.iter().find(|app| app.action == *id) {
-                result.push(app.action.as_str());
-                if result.len() == limit { return result; }
+                if !result.contains(&app.action.as_str()) {
+                    result.push(app.action.as_str());
+                    if result.len() == limit { return result; }
+                }
+            }
+        }
+        const BROWSER: &[&str] = &[
+            "desktop:firefox.desktop", "desktop:org.mozilla.firefox.desktop",
+            "desktop:chromium.desktop", "desktop:chromium-browser.desktop",
+            "desktop:google-chrome.desktop", "desktop:org.gnome.Epiphany.desktop",
+        ];
+        const MAIL: &[&str] = &[
+            "desktop:thunderbird.desktop", "desktop:org.mozilla.Thunderbird.desktop",
+            "desktop:org.gnome.Evolution.desktop", "desktop:geary.desktop",
+            "desktop:org.gnome.Geary.desktop",
+        ];
+        for candidates in [BROWSER, MAIL] {
+            if let Some(app) = candidates.iter()
+                .find_map(|id| self.apps.iter().find(|app| app.action == *id))
+            {
+                if !result.contains(&app.action.as_str()) {
+                    result.push(app.action.as_str());
+                    if result.len() == limit { return result; }
+                }
             }
         }
         for app in &self.apps {
@@ -1102,6 +1128,64 @@ mod tests {
         state.search_button();
         assert_eq!(state.actions(&data).into_iter().map(str::to_owned).collect::<Vec<_>>(), original);
         assert_eq!(state.view, View::Programs);
+    }
+
+
+    #[test]
+    fn luna_preview_prefers_real_browser_and_mail_on_fresh_login() {
+        let recipe = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let menu = recipe.menu.as_ref().unwrap();
+        let mut state = MenuState::default();
+        let app = |id: &str, name: &str| App {
+            action: format!("desktop:{id}"), name: name.into(),
+            search_text: name.to_lowercase(),
+            path: format!("/usr/share/applications/{id}").into(),
+        };
+        state.apps = vec![
+            app("a-editor.desktop", "Editor"),
+            app("firefox.desktop", "Firefox"),
+            app("thunderbird.desktop", "Thunderbird"),
+            app("z-viewer.desktop", "Viewer"),
+        ];
+        state.open();
+        assert_eq!(&state.actions(menu)[2..4],
+                   &["desktop:firefox.desktop", "desktop:thunderbird.desktop"]);
+        assert!(state.record_app_launch("desktop:z-viewer.desktop"));
+        assert_eq!(&state.actions(menu)[2..4],
+                   &["desktop:z-viewer.desktop", "desktop:firefox.desktop"]);
+        assert!(state.record_app_launch("desktop:thunderbird.desktop"));
+        assert_eq!(&state.actions(menu)[2..4],
+                   &["desktop:thunderbird.desktop", "desktop:z-viewer.desktop"]);
+        state.recent_apps.clear();
+        state.apps.retain(|app| app.action != "desktop:thunderbird.desktop");
+        assert_eq!(&state.actions(menu)[2..4],
+                   &["desktop:firefox.desktop", "desktop:a-editor.desktop"]);
+        // No phantom Browser or Mail entries on systems lacking both.
+        state.apps.retain(|app| app.action != "desktop:firefox.desktop");
+        assert_eq!(&state.actions(menu)[2..4],
+                   &["desktop:a-editor.desktop", "desktop:z-viewer.desktop"]);
+    }
+
+    #[test]
+    fn luna_preview_never_uses_hidden_or_missing_default_app_ids() {
+        let mut state = MenuState::default();
+        state.apps = vec![
+            App { action: "desktop:a.desktop".into(), name: "A".into(),
+                  search_text: "a".into(), path: "/tmp/a.desktop".into() },
+            App { action: "desktop:z.desktop".into(), name: "Z".into(),
+                  search_text: "z".into(), path: "/tmp/z.desktop".into() },
+        ];
+        state.recent_apps = vec!["desktop:firefox.desktop".into(),
+                                 "desktop:missing.desktop".into(),
+                                 "desktop:z.desktop".into(),
+                                 "desktop:z.desktop".into()];
+        assert_eq!(state.luna_preview_apps(4),
+                   vec!["desktop:z.desktop", "desktop:a.desktop"]);
+        assert!(state.luna_preview_apps(0).is_empty());
+        state.apps.clear();
+        assert!(state.luna_preview_apps(2).is_empty());
     }
 
     #[test]

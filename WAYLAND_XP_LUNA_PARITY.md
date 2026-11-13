@@ -107,3 +107,15 @@ handling, IME, DPI, file-manager integration or a final visual match to XP.
 See [Wayland progress](WAYLAND_PROGRESS.md),
 [the X11 Luna benchmark](XP_LUNA_ROADMAP.md) and
 [the native CI workflow](.github/workflows/riceplate-native.yml).
+
+## Real browser and mail entries in native Luna (13 November 2026)
+
+On a fresh XP-Luna Start menu, the two limited installed-app preview slots
+prioritize **actually discovered** Firefox/Chromium and Thunderbird/Evolution
+desktop files where present. Prior user-launched programs still outrank these
+defaults; missing/uninstalled/hidden XDG entries are never fabricated, and
+remaining slots fall back to the existing alphabetical app index. All Programs,
+non-Luna rices and the private recent-history format remain unchanged.
+This is tested XDG discovery and menu ordering, **not** a hard-coded browser
+or mail app installed by RiceBowl, and not a full XP Internet/E-mail preference
+editor.

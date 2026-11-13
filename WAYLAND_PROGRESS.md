@@ -486,3 +486,13 @@ and physical hardware acceptance remain open.
   isolation, invalid indices, hotplug and double-click safety. GitHub native
   build/headless compositor CI and hardware keyboard/Orca acceptance remain
   separate release gates.
+
+### XP Luna quick launch app discovery (13 November 2026)
+
+The two limited installed-app preview slots now prefer validated, installed
+browser/mail desktop entries on a fresh login instead of arbitrary first
+alphabetical apps. Previously launched apps still take precedence, and a
+system without those programs simply falls back to its genuine installed
+apps. No software is installed, no default browser/mail setting is changed,
+and Gio continues to dispatch verified XDG desktop file paths. Rust tests
+cover non-Luna isolation, missing/hidden entries, history and fallback.
