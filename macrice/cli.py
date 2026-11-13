@@ -88,6 +88,11 @@ def parser() -> argparse.ArgumentParser:
     de.add_argument("--nested", action="store_true",
                     help="Explicitly test a separate labwc session inside an active desktop")
     de.add_argument("--recipe", help="RicePlate recipe: built-in/imported ID or an owner-private absolute JSON path")
+    de.add_argument("--page", choices=("network", "audio", "notifications", "bluetooth",
+                    "displays", "input", "accessibility", "timezone", "power",
+                    "appearance", "taskbar"), help="Open one real RiceSpice settings page")
+    de.add_argument("--luna", action="store_true",
+                    help="Use XP Luna Control Panel chrome (de settings only)")
     de.add_argument("--compare", help="Base recipe ID or owner-private absolute path for read-only de review")
     de.add_argument("--reference", type=Path, help="Reference PNG for de visual-compare")
     de.add_argument("--actual", type=Path, help="Real Wayland PNG capture for de visual-compare")
@@ -206,6 +211,8 @@ def main(argv: list[str] | None = None) -> int:
             from .riceware_cli import run as run_riceware
             return run_riceware(args)
         if args.command == "de":
+            if args.action != "settings" and (args.page is not None or args.luna):
+                raise ValueError("--page and --luna only apply to de settings")
             if args.action != "review" and args.compare is not None:
                 raise ValueError("--compare only applies to de review")
             if args.action not in ("draft-check", "draft-edit") and args.edit is not None:
@@ -403,9 +410,9 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             if args.action == "settings":
                 if args.json or args.nested or args.recipe or args.panel != "waybar":
-                    raise ValueError("de settings opens a window and takes no session options")
+                    raise ValueError("de settings accepts only --page and --luna")
                 from .de.settings import launch
-                launch()
+                launch(page=args.page or "network", luna=args.luna)
                 return 0
             if args.action == "display-confirm":
                 if (args.json or args.nested or args.recipe or args.panel != "waybar"
