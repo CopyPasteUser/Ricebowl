@@ -22,6 +22,7 @@ on:
       - 'scripts/smoke_luna_window_chrome.sh'
       - 'scripts/wayland_luna_chrome_client.sh'
       - 'scripts/smoke_riceplate_windows.sh'
+      - 'scripts/smoke_riceplate_luna_autohide.sh'
       - 'scripts/wayland_xwayland_smoke_client.sh'
       - 'scripts/smoke_wayland_clipboard.sh'
       - 'scripts/smoke_wayland_portals.sh'
@@ -84,6 +85,7 @@ on:
       - 'scripts/smoke_luna_window_chrome.sh'
       - 'scripts/wayland_luna_chrome_client.sh'
       - 'scripts/smoke_riceplate_windows.sh'
+      - 'scripts/smoke_riceplate_luna_autohide.sh'
       - 'scripts/wayland_xwayland_smoke_client.sh'
       - 'scripts/smoke_wayland_clipboard.sh'
       - 'scripts/smoke_wayland_portals.sh'
@@ -153,6 +155,7 @@ jobs:
           sh -n scripts/smoke_luna_window_chrome.sh
           sh -n scripts/wayland_luna_chrome_client.sh
           sh -n scripts/smoke_riceplate_windows.sh
+          sh -n scripts/smoke_riceplate_luna_autohide.sh
           sh -n scripts/wayland_xwayland_smoke_client.sh
           sh -n scripts/smoke_wayland_clipboard.sh
           sh -n scripts/wayland_clipboard_smoke_client.sh
@@ -319,6 +322,8 @@ jobs:
           timeout -k 5s 70s sh scripts/smoke_riceplate_windows.sh
       - name: Prove XP Luna Show Desktop with real Wayland window and screenshot changes
         run: timeout -k 5s 70s sh scripts/smoke_riceplate_windows.sh --luna
+      - name: Prove real XP Luna Auto-hide and Start popup lifecycle
+        run: timeout -k 5s 65s sh scripts/smoke_riceplate_luna_autohide.sh
       - name: Prove legacy XWayland application uses native RicePlate taskbar
         run: timeout -k 5s 70s sh scripts/smoke_riceplate_windows.sh --xwayland
       - name: Prove bidirectional Wayland and XWayland clipboard
