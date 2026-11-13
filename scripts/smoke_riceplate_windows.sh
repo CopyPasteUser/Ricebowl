@@ -17,6 +17,9 @@ test -x "$clicker"
 for executable in labwc grim foot wlr-randr dbus-run-session; do
     command -v "$executable" >/dev/null || { echo "Missing test dependency: $executable" >&2; exit 1; }
 done
+if [ "$mode" = "--luna" ]; then
+    command -v wtype >/dev/null || { echo "Missing test dependency: wtype" >&2; exit 1; }
+fi
 if [ "$mode" = "--xwayland" ]; then
     for executable in Xwayland xterm; do
         command -v "$executable" >/dev/null || { echo "Missing XWayland test dependency: $executable" >&2; exit 1; }
@@ -201,18 +204,38 @@ with Image.open(sys.argv[1]) as opened, Image.open(sys.argv[2]) as menu:
     before = opened.convert("RGB")
     after = menu.convert("RGB")
     assert before.size == after.size == (1024, 768)
-    # Menu is anchored to the task at x=240, above the 40px panel.
-    crop = (240, 480, 528, 720)
+    # Surface remains 288x240 for SNI compatibility, but the XP owner
+    # paints only the compact 132px menu above the bottom panel.
+    crop = (240, 588, 528, 720)
     delta = ImageChops.difference(before.crop(crop), after.crop(crop))
     changed = sum(1 for px in delta.getdata() if max(px) > 30)
     assert changed > 4000, f"Native task context not visible: {changed} pixels"
-print("Real compositor context menu visibly appeared above the clicked task")
+    # The original SNI top-of-surface blue header must be absent.
+    # Real compositor pixels there still belong to the underlying window.
+    above = ImageChops.difference(
+        before.crop((270, 500, 510, 530)), after.crop((270, 500, 510, 530)))
+    assert sum(1 for px in above.getdata() if max(px) > 30) < 1200, (
+        "Unexpected full-size SNI header above compact XP window menu")
+    # Disabled Restore is rendered on a light XP face, not a blue header.
+    r, g, b = after.getpixel((340, 600))[:3]
+    assert r > 170 and g > 170 and b > 165, (
+        f"XP menu body unexpectedly dark or missing: {(r, g, b)}")
+print("Real compositor shows compact XP task context without SNI header")
 PY
-        # The second local popup row is Minimize. This must reach the real
-        # foreign-toplevel handle and be observed back through the compositor.
-        WAYLAND_DISPLAY=wayland-0 "$clicker" 260 568 1024 768
+        # Compact XP geometry: 132px menu ending at y=720, 24px rows.
+        # The second row is Minimize; validate the compositor-provided click.
+        WAYLAND_DISPLAY=wayland-0 "$clicker" 290 628 1024 768
         wait_window_state "minimized=true"
         kill -0 "$window"
+        WAYLAND_DISPLAY=wayland-0 "$clicker" "$task_click_x" 750 1024 768
+        wait_window_state "active=true minimized=false"
+        # Exercise the actual layer-shell keyboard focus: with Restore
+        # disabled on a normal window, Enter selects the initial Minimize
+        # action. This is a real virtual keyboard request through labwc.
+        WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click "$task_click_x" 750 1024 768
+        sleep 0.25
+        WAYLAND_DISPLAY=wayland-0 wtype -k Return
+        wait_window_state "minimized=true"
         WAYLAND_DISPLAY=wayland-0 "$clicker" "$task_click_x" 750 1024 768
         wait_window_state "active=true minimized=false"
         out="$source_root/dist/riceplate-native-preview"
