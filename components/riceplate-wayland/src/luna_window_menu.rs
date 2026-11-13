@@ -1,7 +1,7 @@
 //! XP Luna task-button context menu policy.
 //! Only real foreign-toplevel windows are exposed. The popup is local to
 //! RicePlate and reuses its existing Wayland popup, not application SNI menus.
-use crate::{task_groups, tray};
+use crate::{draw_text, fill_rect, task_groups, tray};
 
 pub const WINDOW_BASE: i32 = 6_000;
 pub const SWITCH_NEXT: i32 = 6_100;
@@ -63,6 +63,10 @@ fn title_label(title: &str, app_id: &str) -> String {
         .filter(|ch| !ch.is_control()).collect()
 }
 
+fn separator() -> tray::MenuRow {
+    tray::MenuRow { id: 0, label: String::new(), enabled: false, kind: tray::MenuKind::Separator }
+}
+
 fn item(id: i32, label: &str, enabled: bool, checked: bool) -> tray::MenuRow {
     tray::MenuRow {
         id,
@@ -82,11 +86,12 @@ pub fn entries(windows: &[Window<'_>]) -> Option<(String, Vec<tray::MenuRow>)> {
     } else {
         format!("{} windows", windows.len())
     };
-    let mut rows = Vec::with_capacity(MAX_WINDOW_ROWS + 5);
+    let mut rows = Vec::with_capacity(MAX_WINDOW_ROWS + 6);
     if windows.len() == 1 {
         rows.push(item(RESTORE, "Restore", first.minimized || first.maximized, false));
         rows.push(item(MINIMIZE, "Minimize", !first.minimized, false));
         rows.push(item(MAXIMIZE, "Maximize", !first.maximized, false));
+        rows.push(separator());
         rows.push(item(CLOSE, "Close", true, false));
     } else {
         for (index, window) in windows.iter().take(MAX_WINDOW_ROWS).enumerate() {
@@ -96,13 +101,135 @@ pub fn entries(windows: &[Window<'_>]) -> Option<(String, Vec<tray::MenuRow>)> {
         if windows.len() > MAX_WINDOW_ROWS {
             rows.push(item(0, "More: use Next window", false, false));
         }
+        rows.push(separator());
         rows.push(item(SWITCH_NEXT, "Next window", true, false));
-        rows.push(item(RESTORE_ALL, "Restore all",
+        rows.push(item(RESTORE_ALL,
                        windows.iter().any(|w| w.minimized || w.maximized), false));
         rows.push(item(MINIMIZE_ALL, "Minimize all", windows.iter().any(|w| !w.minimized), false));
         rows.push(item(CLOSE_ALL, "Close group", true, false));
     }
     Some((title, rows))
+}
+
+// The shared SNI surface remains 288x240; only task-owned menu pixels and
+// input are compact. No extra Wayland surface, worker, or status-notifier hook.
+pub const ROW_HEIGHT: u32 = 24;
+pub const PADDING: u32 = 6;
+pub const FOOTER_HEIGHT: u32 = 25;
+const GUTTER: u32 = 31;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Bounds {
+    pub top: u32,
+    pub height: u32,
+}
+
+/// The bottom taskbar's menu hugs its upper edge; top panels grow downward.
+pub fn bounds(total: usize, first: usize, top_panel: bool) -> Bounds {
+    let visible = total.saturating_sub(first).min(tray::POPUP_ROWS) as u32;
+    let footer = if total > tray::POPUP_ROWS { FOOTER_HEIGHT } else { 0 };
+    let height = (2 * PADDING + visible * ROW_HEIGHT + footer)
+        .min(tray::POPUP_HEIGHT);
+    Bounds { top: if top_panel { 0 } else { tray::POPUP_HEIGHT - height }, height }
+}
+
+pub fn menu_hit(popup: &tray::MenuPopup, x: f64, y: f64, top_panel: bool)
+    -> Option<tray::MenuHit>
+{
+    let region = bounds(popup.rows().len(), popup.first, top_panel);
+    if !x.is_finite() || !y.is_finite() || x < 0.0 || y < f64::from(region.top)
+        || x >= f64::from(tray::POPUP_WIDTH)
+        || y >= f64::from(region.top + region.height) { return None; }
+    let local_y = y as u32 - region.top;
+    if local_y < PADDING { return None; }
+    let visible = popup.rows().len().saturating_sub(popup.first).min(tray::POPUP_ROWS);
+    let row_end = PADDING + visible as u32 * ROW_HEIGHT;
+    if local_y < row_end {
+        let index = popup.first + ((local_y - PADDING) / ROW_HEIGHT) as usize;
+        return popup.rows().get(index)
+            .filter(|row| row.selectable()).map(|_| tray::MenuHit::Row(index));
+    }
+    if popup.rows().len() > tray::POPUP_ROWS && local_y < row_end + FOOTER_HEIGHT {
+        return if x < f64::from(tray::POPUP_WIDTH / 2) {
+            (popup.first > 0).then_some(tray::MenuHit::Previous)
+        } else {
+            (popup.first + tray::POPUP_ROWS < popup.rows().len())
+                .then_some(tray::MenuHit::Next)
+        };
+    }
+    None
+}
+
+/// Compact XP-like bevel, shaded icon gutter, navy keyboard selection and
+/// explicit disabled/separator states. Outside pixels are transparent rather
+/// than a misleading, full-size SNI window with a blue title bar.
+pub fn paint(canvas: &mut [u8], popup: &tray::MenuPopup, top_panel: bool) {
+    let width = tray::POPUP_WIDTH;
+    let height = tray::POPUP_HEIGHT;
+    canvas.fill(0);
+    let rect = bounds(popup.rows().len(), popup.first, top_panel);
+    if rect.height == 0 { return; }
+    let y = rect.top;
+    // 2 px ambient shadow stays inside the fixed surface.
+    fill_rect(canvas, width, height, 2, y + 2,
+              width - 2, rect.height.saturating_sub(2), 0xff85_8790);
+    fill_rect(canvas, width, height, 0, y,
+              width - 3, rect.height.saturating_sub(3), 0xff42_4250);
+    fill_rect(canvas, width, height, 1, y + 1,
+              width - 5, rect.height.saturating_sub(5), 0xfffc_fbf6);
+    fill_rect(canvas, width, height, 2, y + 2,
+              GUTTER - 2, rect.height.saturating_sub(7), 0xffed_eae0);
+    fill_rect(canvas, width, height, 1, y + 1, width - 5, 1, 0xffff_ffff);
+    fill_rect(canvas, width, height, GUTTER, y + 2, 1,
+              rect.height.saturating_sub(7), 0xffd1_cfc7);
+    let rows = popup.rows();
+    for (offset, row) in rows.iter().enumerate().skip(popup.first).take(tray::POPUP_ROWS) {
+        let local = offset - popup.first;
+        let row_y = y + PADDING + local as u32 * ROW_HEIGHT;
+        if matches!(row.kind, tray::MenuKind::Separator) {
+            fill_rect(canvas, width, height, GUTTER + 3, row_y + ROW_HEIGHT / 2,
+                      width - GUTTER - 12, 1, 0xffbb_b9b5);
+            fill_rect(canvas, width, height, GUTTER + 3, row_y + ROW_HEIGHT / 2 + 1,
+                      width - GUTTER - 12, 1, 0xffff_ffff);
+            continue;
+        }
+        let selected = offset == popup.selected && row.selectable();
+        if selected {
+            fill_rect(canvas, width, height, GUTTER + 2, row_y + 1,
+                      width - GUTTER - 8, ROW_HEIGHT - 2, 0xff18_3a94);
+        }
+        // Small original native window icon, not an imported XP system asset.
+        if row.id >= WINDOW_BASE && row.id < SWITCH_NEXT {
+            fill_rect(canvas, width, height, 9, row_y + 6, 13, 11, 0xff28_4c96);
+            fill_rect(canvas, width, height, 10, row_y + 7, 11, 2, 0xff8b_c8ef);
+            fill_rect(canvas, width, height, 11, row_y + 10, 9, 5, 0xfffc_fbf6);
+        } else if row.id == CLOSE || row.id == CLOSE_ALL {
+            draw_text(canvas, width, height, 12, row_y + 8, "x", 0xffab_3636);
+        } else if row.id == MINIMIZE || row.id == MINIMIZE_ALL {
+            fill_rect(canvas, width, height, 11, row_y + 15, 10, 2, 0xff47_6080);
+        } else if row.id == RESTORE || row.id == MAXIMIZE ||
+                  row.id == RESTORE_ALL {
+            fill_rect(canvas, width, height, 11, row_y + 7, 11, 10, 0xff36_5184);
+            fill_rect(canvas, width, height, 12, row_y + 9, 9, 7, 0xfff7_f7ee);
+        }
+        let color = if !row.enabled { 0xff99_9894 }
+            else if selected { 0xffff_ffff } else { 0xff1c_1c1c };
+        // Titles are already bounded by task_groups::task_label, and actions
+        // are fixed English strings; never render controls from raw app text.
+        draw_text(canvas, width, height, GUTTER + 9, row_y + 8,
+                  &row.label.chars().take(30).collect::<String>(), color);
+    }
+    if rows.len() > tray::POPUP_ROWS {
+        let footer_y = y + PADDING + ROW_HEIGHT * tray::POPUP_ROWS as u32;
+        fill_rect(canvas, width, height, GUTTER + 2, footer_y,
+                  width - GUTTER - 8, 1, 0xffbb_b9b5);
+        draw_text(canvas, width, height, 40, footer_y + 9, "< Previous",
+                  if popup.first > 0 { 0xff18_3a94 } else { 0xff99_9894 });
+        draw_text(canvas, width, height, width - 89, footer_y + 9, "Next >",
+                  if popup.first + tray::POPUP_ROWS < rows.len() {
+                      0xff18_3a94
+                  } else { 0xff99_9894 });
+    }
 }
 
 /// A right-anchored layer-shell popup is positioned alongside the clicked
@@ -131,8 +258,9 @@ mod tests {
         let (title, rows) = entries(&[w("Document", true, false)]).unwrap();
         assert_eq!(title, "Document");
         assert_eq!(rows.iter().map(|row| row.id).collect::<Vec<_>>(),
-                   [RESTORE, MINIMIZE, MAXIMIZE, CLOSE]);
+                   [RESTORE, MINIMIZE, MAXIMIZE, 0, CLOSE]);
         assert!(!rows[0].enabled);
+        assert!(matches!(rows[3].kind, tray::MenuKind::Separator));
         assert!(rows[1].enabled);
         assert_eq!(decode(CLOSE, 1), Some(Action::Close));
         assert_eq!(decode(CLOSE_ALL, 1), None);
@@ -164,10 +292,62 @@ mod tests {
 
         let many = vec![w("Window", false, false); 128];
         let (_, rows) = entries(&many).unwrap();
-        assert_eq!(rows.len(), MAX_WINDOW_ROWS + 5);
-        assert!(!rows[MAX_WINDOW_ROWS].enabled);
+        assert_eq!(rows.len(), MAX_WINDOW_ROWS + 6);
+        assert!(matches!(rows[MAX_WINDOW_ROWS].kind, tray::MenuKind::Separator));
+        assert!(!rows[MAX_WINDOW_ROWS + 1].enabled);
         assert_eq!(decode(WINDOW_BASE + 21, 128), None);
         assert_eq!(decode(SWITCH_NEXT, 128), Some(Action::NextWindow));
+    }
+
+    #[test]
+    fn compact_menu_hit_testing_ignores_separators_and_blank_surface() {
+        let (_, rows) = entries(&[w("Document", true, false)]).unwrap();
+        let mut popup = tray::MenuPopup::default();
+        assert!(popup.open_local("Document", rows));
+        let b = bounds(popup.rows().len(), popup.first, false);
+        assert_eq!(b.height, 132);
+        assert_eq!(b.top, 108);
+        assert_eq!(menu_hit(&popup, 48.0, f64::from(b.top + PADDING + ROW_HEIGHT + 4), false),
+                   Some(tray::MenuHit::Row(1)));
+        assert_eq!(menu_hit(&popup, 48.0, f64::from(b.top + PADDING + ROW_HEIGHT * 3 + 3), false),
+                   None);
+        assert_eq!(menu_hit(&popup, 48.0, 70.0, false), None);
+        assert_eq!(menu_hit(&popup, f64::NAN, 130.0, false), None);
+        assert_eq!(bounds(5, 0, true).top, 0);
+    }
+
+    #[test]
+    fn compact_menu_raster_is_transparent_above_the_bottom_panel_menu() {
+        let (_, rows) = entries(&[w("Document", true, false)]).unwrap();
+        let mut popup = tray::MenuPopup::default();
+        popup.open_local("Document", rows);
+        let mut pixels = vec![0u8; (tray::POPUP_WIDTH * tray::POPUP_HEIGHT * 4) as usize];
+        paint(&mut pixels, &popup, false);
+        assert_eq!(&pixels[..4], &[0, 0, 0, 0]);
+        let position = (((tray::POPUP_HEIGHT - 12) * tray::POPUP_WIDTH + 20) * 4) as usize;
+        assert_ne!(&pixels[position..position + 4], &[0, 0, 0, 0]);
+        let before = pixels.clone();
+        popup.select(1);
+        paint(&mut pixels, &popup, false);
+        assert_ne!(before, pixels, "keyboard selection must visibly move");
+    }
+
+    #[test]
+    fn grouped_window_paging_only_hits_real_enabled_rows() {
+        let windows = vec![w("Example", false, false); 15];
+        let (_, rows) = entries(&windows).unwrap();
+        let mut popup = tray::MenuPopup::default();
+        assert!(popup.open_local("15 windows", rows));
+        let b = bounds(popup.rows().len(), popup.first, true);
+        assert_eq!(b.height, 157);
+        assert_eq!(menu_hit(&popup, 258.0, f64::from(b.top + PADDING +
+                   tray::POPUP_ROWS as u32 * ROW_HEIGHT + 9), true), Some(tray::MenuHit::Next));
+        assert_eq!(menu_hit(&popup, 24.0, f64::from(b.top + PADDING +
+                   tray::POPUP_ROWS as u32 * ROW_HEIGHT + 9), true), None);
+        popup.page(1);
+        assert_eq!(menu_hit(&popup, 24.0, f64::from(b.top + PADDING +
+                   tray::POPUP_ROWS as u32 * ROW_HEIGHT + 9), true),
+                   Some(tray::MenuHit::Previous));
     }
 
     #[test]
