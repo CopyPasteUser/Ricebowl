@@ -9,6 +9,8 @@ pub enum Target {
     Action(u8),
     Task(usize),
     Tray(usize),
+    Status(Widget),
+    Clock,
 }
 
 fn available(style: &PanelStyle, width: u32, task_count: usize,
@@ -23,6 +25,9 @@ fn available(style: &PanelStyle, width: u32, task_count: usize,
                 targets.extend((0..task_count).map(Target::Task)),
             Widget::Tray if tray_count > 0 => targets.extend(
                 (0..tray_count.min(crate::tray::VISIBLE_ITEMS)).map(Target::Tray)),
+            Widget::Network | Widget::Audio | Widget::Battery
+                if style.id == "xp-luna-columns" => targets.push(Target::Status(item.widget)),
+            Widget::Clock if style.id == "xp-luna-columns" => targets.push(Target::Clock),
             _ => {},
         }
     }
@@ -94,6 +99,23 @@ pub fn reveal(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn xp_luna_status_icons_are_keyboard_reachable_in_compact_panel() {
+        let style = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        for width in [800, 1024, 1366] {
+            let sequence = available(&style, width, 2, 0);
+            for widget in [Widget::Network, Widget::Audio, Widget::Battery] {
+                assert!(sequence.contains(&Target::Status(widget)));
+            }
+            assert!(sequence.contains(&Target::Clock));
+            assert_eq!(advance(&style, width, 2,
+                      Some(Target::Status(Widget::Battery)), 1, 0),
+                      Some(Target::Clock));
+        }
+    }
 
     #[test]
     fn native_actions_follow_panel_order_and_disappear_with_compact_layout() {

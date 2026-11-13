@@ -57,6 +57,10 @@
         },
         {
           "type": "widget",
+          "id": "battery"
+        },
+        {
+          "type": "widget",
           "id": "tray"
         },
         {
@@ -198,8 +202,20 @@
       "center": [],
       "end": [
         {
+          "type": "component",
+          "ref": "network-indicator"
+        },
+        {
+          "type": "component",
+          "ref": "volume-indicator"
+        },
+        {
           "type": "widget",
           "id": "battery"
+        },
+        {
+          "type": "widget",
+          "id": "tray"
         },
         {
           "type": "widget",

@@ -204,12 +204,28 @@ impl MenuPopup {
         true
     }
 
+    /// A local panel menu shares the SNI input/paging surface without sending
+    /// synthetic D-Bus events to application-owned StatusNotifier items.
+    pub fn open_local(&mut self, title: &str, rows: Vec<MenuRow>) -> bool {
+        if rows.is_empty() { return false; }
+        self.close();
+        self.visible = true;
+        self.title = title.chars().filter(|c| !c.is_control()).take(42).collect();
+        self.rows = rows.into_iter().take(MAX_MENU_NODES).collect();
+        self.ensure_selection(1);
+        true
+    }
+
+    pub fn is_local(&self) -> bool {
+        self.visible && self.bus_name.is_empty()
+    }
+
     pub fn close(&mut self) {
         *self = Self::default();
     }
 
     pub fn opened_ids(&self) -> Vec<i32> {
-        if !self.visible { return Vec::new(); }
+        if !self.visible || self.is_local() { return Vec::new(); }
         std::iter::once(self.root_id).chain(self.path.iter().copied()).collect()
     }
 
@@ -510,6 +526,24 @@ mod tests {
         MenuNode::Menu {
             id: 0, label: "root".into(), enabled: true, visible: true, children,
         }
+    }
+
+    #[test]
+    fn local_luna_menu_has_no_remote_bus_or_events_and_rejects_disabled_rows() {
+        let mut popup = MenuPopup::default();
+        assert!(popup.open_local("Volume Control", vec![
+            MenuRow { id: 0, label: "Unavailable".into(), enabled: false,
+                kind: MenuKind::Action { checked: false, radio: false } },
+            MenuRow { id: 105, label: "Volume up".into(), enabled: true,
+                kind: MenuKind::Action { checked: false, radio: false } },
+        ]));
+        assert!(popup.is_local());
+        assert!(popup.opened_ids().is_empty());
+        assert_eq!(popup.selected, 1);
+        assert_eq!(popup.choice(0), MenuChoice::None);
+        assert_eq!(popup.choice(1), MenuChoice::Click(105));
+        popup.close();
+        assert!(!popup.is_local());
     }
 
     #[test]

@@ -24,6 +24,7 @@ pub enum Target {
     Task(usize),
     Clock,
     Tray(usize),
+    Status(crate::recipe::Widget),
     DesktopIcon(usize),
     DesktopContextAction { icon: usize, generation: u64, action: ShortcutAction },
     DesktopContextBack { icon: usize, generation: u64 },
