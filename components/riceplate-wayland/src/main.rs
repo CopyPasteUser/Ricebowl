@@ -2396,7 +2396,7 @@ impl RicePlate {
         }
         if action == "settings" && self.recipe.id == "xp-luna-columns" {
             if self.menu_state.visible { self.set_menu_visible(false, qh); }
-            self.launch_luna_settings("appearance");
+            self.launch_luna_settings("home");
             return;
         }
         if let Some(control) = ControlAction::from_id(action) {
@@ -3250,10 +3250,14 @@ impl RicePlate {
     }
 
     fn launch_luna_settings(&self, page: &str) {
-        // This is a fixed page identifier selected from hard-coded menu rows,
-        // never a command supplied by the rice recipe or a D-Bus peer.
-        if let Err(error) = Command::new("ricebowl")
-            .args(["de", "settings", "--luna", "--page", page]).spawn() {
+        // Only hard-coded menu actions reach this path. The overview has no
+        // --page argument; notification-area shortcuts keep their deep links.
+        let mut command = Command::new("ricebowl");
+        command.args(["de", "settings", "--luna"]);
+        if page != "home" {
+            command.args(["--page", page]);
+        }
+        if let Err(error) = command.spawn() {
             eprintln!("RicePlate: cannot open Luna settings page {page}: {error}");
         }
     }
