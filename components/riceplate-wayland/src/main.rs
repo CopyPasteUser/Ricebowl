@@ -4696,10 +4696,17 @@ fn paint_luna_dialog(canvas: &mut [u8], style: &PanelStyle, state: &luna_dialog:
             draw_rice_text(canvas, w, h, 118, 104, "Open:", 0xff17_315c, style);
             fill_rect(canvas, w, h, 118, 111, 306, 32, 0xff75_879f);
             fill_rect(canvas, w, h, 120, 113, 302, 28, 0xffff_ffff);
-            let cells = (282_u32 / (8 * style.font_scale.max(1))) as usize;
-            let text: String = state.input.chars().rev().take(cells)
-                .collect::<Vec<_>>().into_iter().rev().collect();
+            // Use the same font advances as actual glyph drawing: a
+            // proportional selected font must not misplace the caret.
+            let (text, cursor_x) = state.input_view(282, |value| {
+                style.native_art.as_ref().and_then(|art| art.font.as_ref())
+                    .map_or_else(
+                        || text_pixel_width(value, style.font_scale.max(1)),
+                        |font| font.measure_text(value),
+                    )
+            });
             draw_rice_text(canvas, w, h, 128, 122, &text, 0xff10_2849, style);
+            fill_rect(canvas, w, h, 128 + cursor_x, 120, 2, 16, 0xff10_2849);
             let notice = state.notice.unwrap_or("Executes a command directly as your user.");
             draw_rice_text(canvas, w, h, 22, 163,
                            &notice.chars().take(50).collect::<String>(),
@@ -5725,6 +5732,21 @@ impl KeyboardHandler for RicePlate {
                         repaint = dialog.state.erase();
                     }
                 }
+                Keysym::Delete => {
+                    if let Some(dialog) = self.luna_dialog.as_mut() {
+                        repaint = dialog.state.delete();
+                    }
+                }
+                Keysym::Left | Keysym::Right | Keysym::Home | Keysym::End => {
+                    if let Some(dialog) = self.luna_dialog.as_mut() {
+                        repaint = dialog.state.move_cursor(match event.keysym {
+                            Keysym::Left => luna_dialog::CursorMove::Left,
+                            Keysym::Right => luna_dialog::CursorMove::Right,
+                            Keysym::Home => luna_dialog::CursorMove::Home,
+                            _ => luna_dialog::CursorMove::End,
+                        });
+                    }
+                }
                 _ => {
                     if let (Some(dialog), Some(text)) =
                         (self.luna_dialog.as_mut(), event.utf8.as_deref()) {
@@ -6119,7 +6141,8 @@ impl KeyboardHandler for RicePlate {
         // Never repeat Enter/Space: holding a key must not launch multiple apps.
         if matches!(event.keysym, Keysym::Left | Keysym::Right | Keysym::Up
             | Keysym::Down | Keysym::Tab | Keysym::ISO_Left_Tab)
-            || (self.luna_dialog_focused && event.keysym == Keysym::BackSpace) {
+            || (self.luna_dialog_focused
+                && matches!(event.keysym, Keysym::BackSpace | Keysym::Delete)) {
             self.press_key(conn, qh, keyboard, serial, event);
         }
     }

@@ -812,6 +812,28 @@ PY
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run.png"
             cp "$runtime/xp-luna-parity-run.png" \
                "$source_root/dist/riceplate-native-preview/xp-luna-parity-run.png"
+            # Real compositor-owned keyboard input, not a synthetic state or
+            # a mocked screenshot. The native Run overlay owns focus here.
+            command -v wtype >/dev/null || { echo "wtype missing" >&2; exit 1; }
+            WAYLAND_DISPLAY=wayland-0 wtype -d 35 abcd
+            sleep 0.25
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-typed.png"
+            cp "$runtime/xp-luna-parity-run-typed.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-parity-run-typed.png"
+            # Left, Backspace, and an insertion must edit in-place:
+            # "abcd" -> "abd" -> "abXd", never execute anything.
+            WAYLAND_DISPLAY=wayland-0 wtype -k Left -k BackSpace
+            WAYLAND_DISPLAY=wayland-0 wtype X
+            sleep 0.25
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-edited.png"
+            cp "$runtime/xp-luna-parity-run-edited.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-parity-run-edited.png"
+            # Home plus four Deletes must restore the actual empty input.
+            WAYLAND_DISPLAY=wayland-0 wtype -k Home -k Delete -k Delete -k Delete -k Delete
+            sleep 0.25
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-cleared.png"
+            cp "$runtime/xp-luna-parity-run-cleared.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-parity-run-cleared.png"
             # Submitting an empty command must display an error, never
             # dispatch an empty argv or perform any host operation.
             WAYLAND_DISPLAY=wayland-0 "$clicker" 759 450 1366 768
@@ -827,7 +849,7 @@ from pathlib import Path
 from PIL import Image, ImageChops
 
 folder = Path("$runtime")
-names = ["start", "help", "run", "run-empty"]
+names = ["start", "help", "run", "run-typed", "run-edited", "run-cleared", "run-empty"]
 images = {name: Image.open(folder / f"xp-luna-parity-{name}.png").convert("RGB")
           for name in names}
 assert all(img.size == (1366, 768) for img in images.values())
@@ -839,7 +861,29 @@ assert changed("start", "help") > 5000, "Help did not open a real Wayland dialog
 assert changed("start", "run") > 5000, "Run did not open a real Wayland dialog"
 assert changed("help", "run") > 1500, "Run and Help must have distinct real UI"
 assert changed("run", "run-empty") > 80, "Empty Run input must show a visible error"
-print("Validated native labwc Run/Help screenshots and empty-input error state")
+# Verify actual Wayland virtual-keyboard input changed only the bounded Run
+# text field. The typed/edited/cleared screenshots are genuine grim frames.
+text_region = (577, 359, 883, 391)
+def text_changed(a, b):
+    delta = ImageChops.difference(
+        images[a].crop(text_region), images[b].crop(text_region))
+    return sum(1 for pixel in delta.getdata() if max(pixel) > 18)
+assert text_changed("run", "run-typed") > 20, "Wayland typing did not reach native Run"
+assert text_changed("run-typed", "run-edited") > 20, (
+    "Wayland Left/Backspace/insertion did not repaint Run"
+)
+assert text_changed("run", "run-cleared") < 8, (
+    "Wayland Home/Delete failed to clear the Run input"
+)
+# Native Run paints a visible 2x16px input caret at (128,120)
+# relative to its (459,248) compositor surface. Probe actual grim PNG
+# pixels rather than accepting a model fixture or a painted mockup.
+caret = images["run"].getpixel((587, 372))
+background = images["run"].getpixel((594, 372))
+assert max(abs(a-b) for a, b in zip(caret, background)) > 75, (
+    "Native Run input caret is not visible in real labwc framebuffer"
+)
+print("Validated native labwc Run/Help screenshots, real virtual keyboard edits, caret and empty-input error")
 PY
             echo "Verified real Luna Start Help and Run dialogs at 1366x768"
         fi

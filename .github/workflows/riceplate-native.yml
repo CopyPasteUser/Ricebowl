@@ -140,7 +140,7 @@ jobs:
       - name: Install native Wayland and keyboard build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libxkbcommon-dev libdbus-1-dev pkg-config labwc grim foot xwayland xterm xclip wl-clipboard wlr-randr swaybg fonts-dejavu-core python3-pil python3-gi gir1.2-gtk-3.0 dbus-user-session dbus-x11 dpkg-dev binutils xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-wlr libglib2.0-bin pipewire
+          sudo apt-get install -y libxkbcommon-dev libdbus-1-dev pkg-config labwc grim foot xwayland xterm xclip wl-clipboard wlr-randr wtype swaybg fonts-dejavu-core python3-pil python3-gi gir1.2-gtk-3.0 dbus-user-session dbus-x11 dpkg-dev binutils xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-wlr libglib2.0-bin pipewire
       - name: Build and test native RicePlate
         run: |
           /usr/bin/python3 -m unittest tests.test_de_session -v

@@ -13,10 +13,15 @@ pub enum Kind { Run, Help }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Hit { Input, Accept, Cancel }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CursorMove { Left, Right, Home, End }
+
 #[derive(Debug)]
 pub struct State {
     pub kind: Kind,
     pub input: String,
+    /// Unicode scalar position, not a byte offset; never points into UTF-8.
+    pub cursor: usize,
     pub notice: Option<&'static str>,
     pub hover: Option<Hit>,
     pub pressed: Option<Hit>,
@@ -24,7 +29,7 @@ pub struct State {
 
 impl State {
     pub fn new(kind: Kind) -> Self {
-        Self { kind, input: String::new(), notice: None, hover: None, pressed: None }
+        Self { kind, input: String::new(), cursor: 0, notice: None, hover: None, pressed: None }
     }
 
     pub fn enter(&mut self, content: &str) -> bool {
@@ -33,16 +38,73 @@ impl State {
             || !content.chars().all(|c| !c.is_control()) {
             return false;
         }
-        self.input.push_str(content);
+        let offset = self.input.char_indices().nth(self.cursor)
+            .map_or(self.input.len(), |(byte, _)| byte);
+        self.input.insert_str(offset, content);
+        self.cursor += 1;
         self.notice = None;
         true
     }
 
+    /// Backspace removes the Unicode scalar immediately before the caret.
     pub fn erase(&mut self) -> bool {
+        if self.kind != Kind::Run || self.cursor == 0 { return false; }
+        let Some((offset, _)) = self.input.char_indices().nth(self.cursor - 1) else {
+            return false;
+        };
+        self.input.remove(offset);
+        self.cursor -= 1;
+        self.notice = None;
+        true
+    }
+
+    /// Delete removes the next scalar without changing caret position.
+    pub fn delete(&mut self) -> bool {
         if self.kind != Kind::Run { return false; }
-        let erased = self.input.pop().is_some();
-        if erased { self.notice = None; }
-        erased
+        let Some((offset, _)) = self.input.char_indices().nth(self.cursor) else {
+            return false;
+        };
+        self.input.remove(offset);
+        self.notice = None;
+        true
+    }
+
+    pub fn move_cursor(&mut self, movement: CursorMove) -> bool {
+        if self.kind != Kind::Run { return false; }
+        let previous = self.cursor;
+        let count = self.input.chars().count();
+        self.cursor = match movement {
+            CursorMove::Left => self.cursor.saturating_sub(1),
+            CursorMove::Right => self.cursor.saturating_add(1).min(count),
+            CursorMove::Home => 0,
+            CursorMove::End => count,
+        };
+        self.cursor != previous
+    }
+
+    /// Calculate the visible input and caret from the exact active font
+    /// metrics. Long input scrolls horizontally towards the caret instead
+    /// of painting across the dialog or leaving the caret off-screen.
+    pub fn input_view<F: Fn(&str) -> u32>(&self, max_width: u32, measure: F)
+        -> (String, u32)
+    {
+        let chars: Vec<char> = self.input.chars().collect();
+        let cursor = self.cursor.min(chars.len());
+        let mut start = cursor;
+        while start > 0 {
+            let candidate: String = chars[start - 1..cursor].iter().collect();
+            if measure(&candidate).saturating_add(2) > max_width { break; }
+            start -= 1;
+        }
+        let mut end = cursor;
+        while end < chars.len() {
+            let candidate: String = chars[start..end + 1].iter().collect();
+            if measure(&candidate).saturating_add(2) > max_width { break; }
+            end += 1;
+        }
+        let display: String = chars[start..end].iter().collect();
+        let prefix: String = chars[start..cursor].iter().collect();
+        (display, measure(&prefix).min(max_width.saturating_sub(1)))
     }
 
     /// A tiny argv lexer, not a shell. Only explicit user keystrokes feed
@@ -169,6 +231,55 @@ mod tests {
         assert!(!help.enter("x"));
         assert!(!help.erase());
         assert!(help.argv().is_err());
+    }
+
+    #[test]
+    fn unicode_cursor_navigation_and_midline_edits() {
+        let mut state = State::new(Kind::Run);
+        for letter in ["ä", "🧪", "b"] { assert!(state.enter(letter)); }
+        assert_eq!(state.cursor, 3);
+        assert!(state.move_cursor(CursorMove::Left));
+        assert_eq!(state.cursor, 2);
+        assert!(state.enter("Z"));
+        assert_eq!(state.input, "ä🧪Zb");
+        assert_eq!(state.cursor, 3);
+        assert!(state.erase());
+        assert_eq!(state.input, "ä🧪b");
+        assert!(state.delete());
+        assert_eq!(state.input, "ä🧪");
+        assert!(!state.delete());
+        assert!(state.move_cursor(CursorMove::Home));
+        assert!(!state.erase());
+        assert!(state.delete());
+        assert_eq!(state.input, "🧪");
+        assert!(state.move_cursor(CursorMove::End));
+        assert!(!state.move_cursor(CursorMove::Right));
+        assert!(state.erase());
+        assert!(state.input.is_empty());
+        assert_eq!(state.cursor, 0);
+        let mut help = State::new(Kind::Help);
+        assert!(!help.move_cursor(CursorMove::Right));
+        assert!(!help.delete());
+        assert_eq!(help.cursor, 0);
+    }
+
+    #[test]
+    fn horizontal_view_keeps_caret_visible_with_actual_font_metrics() {
+        let mut state = State::new(Kind::Run);
+        for c in "abcdef".chars() { assert!(state.enter(&c.to_string())); }
+        let measure = |text: &str| text.chars().count() as u32 * 8;
+        assert_eq!(state.input_view(26, measure), ("def".into(), 24));
+        assert!(state.move_cursor(CursorMove::Home));
+        assert_eq!(state.input_view(26, measure), ("abc".into(), 0));
+        assert!(state.move_cursor(CursorMove::Right));
+        assert_eq!(state.input_view(26, measure), ("abc".into(), 8));
+        assert!(state.move_cursor(CursorMove::End));
+        assert_eq!(state.input_view(10, measure), ("f".into(), 8));
+        assert_eq!(state.input_view(1, measure), ("".into(), 0));
+        // Variable-width fonts use their real measured advances instead of
+        // assuming eight fixed pixels per glyph.
+        assert_eq!(state.input_view(13, |text| text.chars().map(|c|
+            if c == 'f' { 11 } else { 7 }).sum()), ("f".into(), 11));
     }
 
     #[test]
