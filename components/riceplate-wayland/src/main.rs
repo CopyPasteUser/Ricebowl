@@ -13,6 +13,7 @@ mod desktop_context;
 mod desktop_layout;
 mod desktop_selection;
 mod frame_scheduler;
+mod input_core;
 mod icon_positions;
 mod installed_apps;
 mod luna_places;
@@ -46,6 +47,7 @@ use ricepop::{Intent as NotificationIntent, Request as NotificationRequest,
 use system_status::{Audio, ControlAction, SystemStatus};
 use control_feedback::ControlFeedback;
 use frame_scheduler::FrameGate;
+use input_core::{PanelKey, PanelPointerVisual, PointerSignal};
 use raster::{fill_rect, fill_rounded_rect};
 use overlay_renderer::{paint_calendar, paint_compact_notifications, paint_notifications};
 #[cfg(test)]
@@ -100,26 +102,6 @@ const MAX_HEIGHT: u32 = 256;
 const MAX_OUTPUT_PANELS: usize = 8;
 const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
-
-/// Purely visual pointer state. Dispatch continues to use recipe::hit and the
-/// original press-to-activate semantics; styling never creates a new action.
-#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
-struct PanelPointerVisual {
-    hovered: Option<Hit>,
-    pressed: Option<Hit>,
-}
-
-impl PanelPointerVisual {
-    fn button(self, target: Hit) -> panel_chrome::ButtonVisual {
-        if self.pressed == Some(target) && self.hovered == Some(target) {
-            panel_chrome::ButtonVisual::Pressed
-        } else if self.hovered == Some(target) {
-            panel_chrome::ButtonVisual::Hovered
-        } else {
-            panel_chrome::ButtonVisual::Normal
-        }
-    }
-}
 
 fn luna_hover_target(hit: Option<Hit>) -> Option<Hit> {
     hit.filter(|target| matches!(target, Hit::Launcher | Hit::Task(_)))
@@ -2100,12 +2082,8 @@ impl RicePlate {
         let Some((mirror, width, offset)) = self.panel_geometry(surface) else { return false; };
         let groups = self.grouped_tasks();
         let count = groups.len();
-        match key {
-            Keysym::Right | Keysym::Tab | Keysym::Down
-            | Keysym::Left | Keysym::ISO_Left_Tab | Keysym::Up => {
-                let delta = if matches!(key, Keysym::Left | Keysym::ISO_Left_Tab | Keysym::Up) {
-                    -1
-                } else { 1 };
+        match input_core::panel_key(key) {
+            Some(PanelKey::Step(delta)) => {
                 self.focused_target = task_navigation::advance(
                     &self.recipe, width, count, self.focused_target, delta,
                     self.tray_keyboard_slots(),
@@ -2120,7 +2098,7 @@ impl RicePlate {
                 }
                 self.request_redraw(qh);
             }
-            Keysym::Return | Keysym::KP_Enter | Keysym::space | Keysym::Menu => {
+            Some(PanelKey::Invoke) => {
                 match self.focused_target {
                     Some(KeyboardTarget::Launcher) if key != Keysym::Menu =>
                         self.activate_launcher(mirror, qh),
@@ -2161,11 +2139,11 @@ impl RicePlate {
                     _ => {}
                 }
             }
-            Keysym::Escape => {
+            Some(PanelKey::Dismiss) => {
                 self.focused_target = None;
                 self.request_redraw(qh);
             }
-            _ => return false,
+            None => return false,
         }
         true
     }
@@ -6757,44 +6735,25 @@ impl PointerHandler for RicePlate {
                 }
                 if panel_height < self.recipe.height { continue; }
             }
-            // Physical pointer feedback is local to this panel surface and
-            // only changes framebuffer paint state, never the click target.
-            // No polling: redraw only when target or pressed state changes.
+            // Physical feedback is per surface, while the shared recipe hit
+            // geometry stays authoritative for actual activation.
             if self.recipe.id == "xp-luna-columns" {
-                let hit = if event.position.1.is_finite()
-                    && event.position.1 >= 0.0
-                    && event.position.1 < f64::from(panel_height) {
-                    luna_hover_target(recipe::hit(event.position.0, panel_width,
-                        self.cached_task_group_count, panel_offset, &self.recipe))
-                } else { None };
-                let previous_hover = self.hovered_panel.clone();
-                let previous_pressed = self.pressed_panel.clone();
-                match event.kind {
-                    PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
-                        self.hovered_panel = hit.map(|target| (event.surface.clone(), target));
-                    }
-                    PointerEventKind::Leave { .. } => {
-                        if self.hovered_panel.as_ref().is_some_and(|(owner, _)|
-                            owner == &event.surface) {
-                            self.hovered_panel = None;
-                        }
-                        if self.pressed_panel.as_ref().is_some_and(|(owner, _)|
-                            owner == &event.surface) {
-                            self.pressed_panel = None;
-                        }
-                    }
-                    PointerEventKind::Press { button: BTN_LEFT, .. } => {
-                        self.hovered_panel = hit.map(|target| (event.surface.clone(), target));
-                        self.pressed_panel = hit.map(|target| (event.surface.clone(), target));
-                    }
-                    PointerEventKind::Release { button: BTN_LEFT, .. } => {
-                        self.pressed_panel = None;
-                        self.hovered_panel = hit.map(|target| (event.surface.clone(), target));
-                    }
-                    _ => {}
-                }
-                if previous_hover != self.hovered_panel
-                    || previous_pressed != self.pressed_panel {
+                let hit = luna_hover_target(input_core::panel_hit(
+                    &self.recipe, panel_width, panel_height, event.position,
+                    self.cached_task_group_count, panel_offset));
+                let signal = match event.kind {
+                    PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } =>
+                        Some(PointerSignal::Hover),
+                    PointerEventKind::Leave { .. } => Some(PointerSignal::Leave),
+                    PointerEventKind::Press { button: BTN_LEFT, .. } =>
+                        Some(PointerSignal::Press),
+                    PointerEventKind::Release { button: BTN_LEFT, .. } =>
+                        Some(PointerSignal::Release),
+                    _ => None,
+                };
+                if signal.is_some_and(|signal| input_core::update_feedback(
+                    &mut self.hovered_panel, &mut self.pressed_panel,
+                    &event.surface, hit, signal)) {
                     self.request_redraw(qh);
                 }
             }
@@ -6808,12 +6767,9 @@ impl PointerHandler for RicePlate {
                         self.clear_luna_selection();
                     }
                     let groups = self.grouped_tasks();
-                    match recipe::hit(
-                        event.position.0,
-                        panel_width,
-                        groups.len(),
-                        panel_offset,
-                        &self.recipe,
+                    match input_core::panel_hit(
+                        &self.recipe, panel_width, panel_height, event.position,
+                        groups.len(), panel_offset,
                     ) {
                         Some(Hit::Tray(slot)) => {
                             if slot == tray::VISIBLE_ITEMS - 1 &&
