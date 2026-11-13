@@ -57,6 +57,14 @@ class WaylandPackagePolicyTests(unittest.TestCase):
                           "xfconf-query", "lightdm.conf", "sddm.conf", "rm -rf"):
             self.assertNotIn(forbidden, launcher)
 
+    def test_headless_startup_timestamps_are_not_labelled_hardware_results(self):
+        smoke = (ROOT / "scripts/smoke_wayland_packaged_login.sh").read_text()
+        self.assertIn("time.monotonic_ns()", smoke)
+        self.assertIn("HEADLESS_SOCKET_READY_MS=", smoke)
+        self.assertIn("HEADLESS_FRAME_CAPTURE_MS=", smoke)
+        self.assertIn("HEADLESS_MEASUREMENT_SCOPE=disposable-ubuntu", smoke)
+        self.assertNotIn("HARDWARE_ACCEPTED=true", smoke)
+
     def test_release_verifier_requires_only_namespaced_payloads_and_no_maintainers(self):
         verifier = (ROOT / "scripts/verify_wayland_package_set.sh").read_text()
         self.assertIn("dpkg-deb --ctrl-tarfile", verifier)
