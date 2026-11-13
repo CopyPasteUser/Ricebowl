@@ -3,7 +3,8 @@
 //! to `gio launch` with the verified file path, without a shell.
 
 use std::{collections::{HashMap, HashSet}, env, fs,
-          os::unix::fs::PermissionsExt, path::{Path, PathBuf}};
+          io::Read, os::unix::fs::{OpenOptionsExt, PermissionsExt},
+          path::{Path, PathBuf}};
 
 use crate::menu_programs::Category;
 
@@ -21,6 +22,26 @@ pub struct App {
 }
 
 impl App {
+    /// Guard the Gio launch handoff against a desktop entry becoming hidden,
+    /// invalid, oversized or a symlink after the menu was first indexed.
+    /// Gio still owns Exec parsing/field codes; RicePlate never executes Exec.
+    pub fn verified_launch_path(&self) -> Option<&Path> {
+        let file = fs::OpenOptions::new().read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK)
+            .open(&self.path).ok()?;
+        let metadata = file.metadata().ok()?;
+        if !metadata.is_file() || metadata.len() > MAX_FILE_BYTES { return None; }
+        let mut contents = String::new();
+        file.take(MAX_FILE_BYTES + 1).read_to_string(&mut contents).ok()?;
+        if contents.len() as u64 > MAX_FILE_BYTES { return None; }
+        let locale = ["LC_ALL", "LC_MESSAGES", "LANG"].iter()
+            .find_map(|key| env::var(key).ok().filter(|value| !value.is_empty()))
+            .unwrap_or_default();
+        let desktop = env::var("XDG_CURRENT_DESKTOP").unwrap_or_default();
+        let (name, _) = parse_entry(&contents, &desktop, &locale)?;
+        (name == self.name).then_some(self.path.as_path())
+    }
+
     pub fn matches(&self, query: &str) -> bool {
         self.match_score(query).is_some()
     }
@@ -395,6 +416,34 @@ mod tests {
         assert_eq!(app.match_score("VERWALT büro"), Some(2));
         assert_eq!(app.match_score("Office dokumente"), Some(4));
         assert_eq!(app.match_score("office irrelevant"), None);
+    }
+
+    #[test]
+    fn launch_handoff_rejects_stale_hidden_symlink_and_malformed_desktop_files() {
+        use std::os::unix::fs::symlink;
+        let suffix = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let base = env::temp_dir().join(format!("riceplate-verified-launch-{}-{suffix}", std::process::id()));
+        fs::create_dir(&base).unwrap();
+        let file = base.join("safe.desktop");
+        let valid = "[Desktop Entry]\\nType=Application\\nName=Verified App\\nExec=/usr/bin/true\\n";
+        fs::write(&file, valid).unwrap();
+        let app = App { action: "desktop:safe.desktop".into(), name: "Verified App".into(),
+                        search_text: "verified app".into(), path: file.clone() };
+        assert_eq!(app.verified_launch_path(), Some(file.as_path()));
+        fs::write(&file, format!("{valid}Hidden=true\\n")).unwrap();
+        assert!(app.verified_launch_path().is_none());
+        fs::write(&file, "[Desktop Entry]\\nType=Application\\nName=Changed\\nExec=/usr/bin/true\\n").unwrap();
+        assert!(app.verified_launch_path().is_none());
+        fs::write(&file, "[Desktop Entry]\\nType=Application\\nName=Verified App\\nExec=/usr/bin/true\\n[Desktop Entry]\\n").unwrap();
+        assert!(app.verified_launch_path().is_none());
+        fs::write(&file, "x".repeat(MAX_FILE_BYTES as usize + 1)).unwrap();
+        assert!(app.verified_launch_path().is_none());
+        fs::remove_file(&file).unwrap();
+        let other = base.join("other.desktop");
+        fs::write(&other, valid).unwrap();
+        symlink(&other, &file).unwrap();
+        assert!(app.verified_launch_path().is_none());
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[test]
