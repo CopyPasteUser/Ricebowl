@@ -7195,8 +7195,8 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for RicePlate {
                 if state.trace_window_events {
                     let task = &state.tasks[index];
                     // App IDs are escaped; titles and user content are never traced.
-                    eprintln!("RicePlate window event=ready app_id={:?} active={} minimized={}",
-                        task.app_id, task.active, task.minimized);
+                    eprintln!("RicePlate window event=ready app_id={:?} active={} minimized={} maximized={}",
+                        task.app_id, task.active, task.minimized, task.maximized);
                 }
                 if state.tasks[index].active {
                     state.reveal_task(index);
