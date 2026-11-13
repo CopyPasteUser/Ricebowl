@@ -1,8 +1,9 @@
 # Creator → native RicePlate parity and QA (13 November 2026)
 
 This document tracks **implemented** capabilities, not assumed screenshot fidelity.
-The companion read-only inventory is `python3 -m macrice.de.creator_runtime_parity RECIPE`
-and uses the **same validated semantic manifest** as Creator review and staging.
+The companion read-only inventory is `ricebowl de creator-parity --recipe RECIPE --json`
+(or `python3 -m macrice.de.creator_runtime_parity RECIPE`) and uses the **same
+validated semantic manifest** as Creator review and staging.
 No new recipe schema, renderer, dynamic script runner or background daemon is added.
 
 ## Capability matrix
@@ -37,11 +38,15 @@ widget. Each row carries its JSON pointer, effective binding, label, interaction
 role, expected accessibility role, native/fallback support and state contract.
 No row may advertise arbitrary execution: only the parser's fixed IDs pass.
 Decorative and read-only nodes cannot be presented as actionable buttons.
+The report separately identifies **known keyboard-access gaps** on the
+clock/popup entry and native SNI tray; an interactive pointer target alone
+is not proof of keyboard accessibility.
 
 Five *logical* output contracts are inspected: 640×480, 1366×768,
 1920×1080, 1366×768 at 1.25 scale, and a second 1024×768 output.
 Declared shortcuts/widgets outside a logical output or overlapping the panel
-are warnings, **not proof that the compositor ultimately clips them**: RicePlate
+and overlapping icon/widget rectangles are warnings, **not proof that the compositor
+ultimately clips them**: RicePlate
 may reflow on hotplug or output resize. A real compositor capture is still
 required to confirm the final position, visible pixels and interaction targets.
 
