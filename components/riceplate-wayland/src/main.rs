@@ -7015,6 +7015,24 @@ impl PointerHandler for RicePlate {
             } else if &event.surface == self.layer.wl_surface() {
                 (self.width, self.height, self.task_offset)
             } else { continue; };
+            if self.luna_options.auto_hide && self.recipe.id == "xp-luna-columns" {
+                match event.kind {
+                    PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. }
+                        if self.panel_collapsed => {
+                        self.set_panel_collapsed(false, qh);
+                        // The 3px reveal handle contains no tappable actions.
+                        continue;
+                    }
+                    PointerEventKind::Leave { .. } if !self.panel_collapsed
+                        && !self.menu_state.visible && !self.calendar_state.visible
+                        && !self.tray_popup_open() && self.luna_dialog.is_none() => {
+                        self.set_panel_collapsed(true, qh);
+                        continue;
+                    }
+                    _ => {}
+                }
+                if panel_height < self.recipe.height { continue; }
+            }
             // Physical pointer feedback is local to this panel surface and
             // only changes framebuffer paint state, never the click target.
             // No polling: redraw only when target or pressed state changes.
@@ -7089,7 +7107,14 @@ impl PointerHandler for RicePlate {
                             && self.recipe.id == "xp-luna-columns" => {
                             self.open_luna_status_menu(Widget::Clock, &event.surface, qh);
                         }
-                        _ if button == BTN_RIGHT => {},
+                        _ if button == BTN_RIGHT => {
+                            if self.recipe.id == "xp-luna-columns" {
+                                // Right-clicking empty taskbar/task buttons opens
+                                // the existing genuine RiceSpice taskbar page.
+                                // Provider-owned tray and clock menus win above.
+                                self.launch_luna_settings("taskbar");
+                            }
+                        },
                         Some(Hit::Launcher) => {
                             if self.focused_panel.as_ref() == Some(&event.surface) {
                                 self.focused_target = Some(KeyboardTarget::Launcher);
