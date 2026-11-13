@@ -12,6 +12,7 @@ mod control_feedback;
 mod desktop_context;
 mod desktop_files;
 mod desktop_file_positions;
+mod desktop_file_watch;
 mod desktop_layout;
 mod desktop_selection;
 mod frame_scheduler;
@@ -543,6 +544,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         keyboard_icon_surface: None,
         desktop_selection: desktop_selection::Selection::default(),
         desktop_files: None,
+        desktop_fs_dirty: false,
         local_trash_full: None,
         file_positions,
         static_icon_count,
@@ -596,6 +598,36 @@ fn main() -> Result<(), Box<dyn Error>> {
                 app.rebuild_desktop_file_icons(&qh);
             }
             Err(error) => eprintln!("RicePlate: Desktop directory unavailable: {error}"),
+        }
+    }
+    // Linux inotify wakes calloop only for actual Desktop changes; the bounded
+    // four-second scan below remains a fallback for dropped watches and races.
+    if let Some(root) = app.desktop_files.as_ref().and_then(|model| model.root()) {
+        match desktop_file_watch::Watch::open(root) {
+            Ok(watcher) => {
+                let fd = watcher.try_clone_fd()?;
+                event_loop.handle().insert_source(
+                    Generic::new(fd, Interest::READ, Mode::Level),
+                    move |_, _, app: &mut RicePlate| match watcher.drain() {
+                        Ok(desktop_file_watch::Change::None) => Ok(PostAction::Continue),
+                        Ok(desktop_file_watch::Change::Refresh) => {
+                            app.desktop_fs_dirty = true;
+                            Ok(PostAction::Continue)
+                        }
+                        Ok(desktop_file_watch::Change::WatchLost) => {
+                            app.desktop_fs_dirty = true;
+                            eprintln!("RicePlate: Desktop watch lost; using bounded refresh");
+                            Ok(PostAction::Remove)
+                        }
+                        Err(error) => {
+                            app.desktop_fs_dirty = true;
+                            eprintln!("RicePlate: Desktop watch error: {error}");
+                            Ok(PostAction::Remove)
+                        }
+                    },
+                )?;
+            }
+            Err(error) => eprintln!("RicePlate: inotify unavailable, using bounded refresh: {error}"),
         }
     }
     // Only a real standalone Luna session owns the root-menu command socket.
@@ -712,6 +744,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut backlight = if full_session { brightness::Watcher::detect() } else { None };
     let mut next_backlight_check = Instant::now() + Duration::from_millis(800);
     let mut next_desktop_scan = Instant::now() + Duration::from_secs(4);
+    let mut pending_file_scan: Option<Instant> = None;
     if poll_network || poll_audio {
         let (sender, receiver) = channel::channel::<StatusEvent>();
         // Zero-capacity rendezvous: repeated clicks cannot queue a burst of
@@ -820,11 +853,24 @@ fn main() -> Result<(), Box<dyn Error>> {
             .saturating_duration_since(Instant::now()));
         let timeout = [Some(next_clock_timeout()), osd_timeout, reconnect_timeout, backlight_timeout,
                        app.notification_state.refresh_timeout(Instant::now()),
-                       live_luna.then(|| next_desktop_scan.saturating_duration_since(Instant::now()))]
+                       live_luna.then(|| next_desktop_scan.saturating_duration_since(Instant::now())),
+                       pending_file_scan.map(|due| due.saturating_duration_since(Instant::now()))]
             .into_iter().flatten().min().unwrap_or_else(next_clock_timeout);
         event_loop.dispatch(Some(timeout), &mut app)?;
-        if live_luna && Instant::now() >= next_desktop_scan {
+        if app.desktop_fs_dirty {
+            app.desktop_fs_dirty = false;
+            // First event starts a short coalescing window; event storms
+            // cannot perpetually postpone the update.
+            pending_file_scan.get_or_insert_with(|| Instant::now() + Duration::from_millis(125));
+        }
+        let now = Instant::now();
+        let periodic_scan = live_luna && now >= next_desktop_scan;
+        let event_scan = live_luna && pending_file_scan.is_some_and(|due| now >= due);
+        if periodic_scan || event_scan {
             app.refresh_desktop_files(&qh);
+            pending_file_scan = None;
+        }
+        if periodic_scan {
             app.refresh_local_trash();
             next_desktop_scan = Instant::now() + Duration::from_secs(4);
         }
@@ -1041,6 +1087,7 @@ struct RicePlate {
     keyboard_icon_surface: Option<wl_surface::WlSurface>,
     desktop_selection: desktop_selection::Selection,
     desktop_files: Option<desktop_files::Model>,
+    desktop_fs_dirty: bool,
     local_trash_full: Option<bool>,
     file_positions: desktop_file_positions::Store,
     static_icon_count: usize,

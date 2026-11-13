@@ -92,7 +92,13 @@ pub fn scan_at(root: &Path) -> io::Result<Vec<Entry>> {
         if bytes.first() == Some(&b'.') || bytes.is_empty() || bytes.len() > MAX_NAME_BYTES {
             continue;
         }
-        let meta = fs::symlink_metadata(item.path())?;
+        // Entries may vanish between read_dir and lstat (editors often
+        // atomically replace temporary files). Skip only ENOENT, not EACCES.
+        let meta = match fs::symlink_metadata(item.path()) {
+            Ok(meta) => meta,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error),
+        };
         if let Some(kind) = kind(&meta) {
             entries.push(Entry { name, path: item.path(), kind,
                                  device: meta.dev(), inode: meta.ino() });
@@ -118,6 +124,7 @@ impl Model {
     }
 
     pub fn entries(&self) -> &[Entry] { &self.entries }
+    pub fn root(&self) -> Option<&Path> { self.root.as_deref() }
 
     /// Preserve the old stable snapshot on IO failures; do not convert an
     /// inaccessible Desktop into an empty list and destroy focused surfaces.

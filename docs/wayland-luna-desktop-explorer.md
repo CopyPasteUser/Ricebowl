@@ -77,3 +77,22 @@ applications is claimed.
   return path, desktop files, XDG user paths, international text input,
   RiceField installed or absent fallback, lock/suspend/restore and all
   file-action error states. Do not claim physical results from CI.
+
+
+## Desktop filesystem event refresh (stacked follow-up)
+
+- Linux **inotify** (directory watch, nonblocking CLOEXEC fd) now feeds the
+  existing calloop event loop; no polling thread or additional daemon.
+- New, removed, renamed and closed-for-write entries trigger a bounded model
+  refresh after 125 ms, coalesced across bursts of events. The existing 4s
+  scan remains as the recovery fallback if inotify setup fails, the watch is
+  invalidated, or the kernel reports queue overflow.
+- A disappearing entry between directory enumeration and lstat is skipped
+  without destroying an otherwise valid snapshot; permission errors still
+  surface instead of being silently ignored.
+- Rust fixtures cover real create/rename/delete, non-UTF8 event names, lost
+  directory watches and invalid directory paths. Exact-head CI and real
+  labwc screenshot acceptance are still required.
+- This is **not** file URI clipboard transfer, Wayland DnD or native bulk copy;
+  those are separate protocol integrations and remain delegated to RiceField.
+  No new global MIME associations or data-destructive actions are added.
