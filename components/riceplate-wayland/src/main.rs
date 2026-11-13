@@ -34,6 +34,7 @@ mod output_watch;
 mod power;
 mod raster;
 mod recipe;
+mod shell_actions;
 mod style_art;
 mod ricepop;
 mod system_status;
@@ -2594,6 +2595,11 @@ impl RicePlate {
     }
 
     fn activate_action(&mut self, action: &str, qh: &QueueHandle<Self>) {
+        // All fixed surface actions are typed; XDG IDs have separate live lookup.
+        if !action.starts_with("desktop:") && shell_actions::ShellAction::from_id(action).is_none() {
+            eprintln!("RicePlate: unsupported shell action");
+            return;
+        }
         if action == "show-desktop" {
             if self.menu_state.visible { self.set_menu_visible(false, qh); }
             self.toggle_show_desktop(qh);

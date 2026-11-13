@@ -6,6 +6,7 @@ It grants no ability to execute actions or change a running desktop.
 
 from __future__ import annotations
 
+from .shell_contract import describe as describe_action_contract
 from .creator_contract import (describe as draft_edit_contract, describe_capture,
                                describe_creator_api, describe_render, describe_staging,
                                describe_ricepack, describe_visual_qa)
@@ -23,6 +24,7 @@ def describe() -> dict[str, object]:
     return {
         "catalog_version": 14,
         "scope": "wayland-shell-preview",
+        "action_contract": describe_action_contract(),
         "complete_desktop_environment": False,
         "recipe": {
             "schema_versions": list(range(1, 13)),
@@ -394,7 +396,9 @@ def validate_catalog_contract() -> None:
     ids = [component["id"] for component in result["components"]]
     shell = {component["id"]: component for component in result["shell_components"]}
     metrics = tuple(result["recipe"]["metrics"]["fields"])
-    if (len(ids) != len(set(ids)) or set(ids) != WIDGETS
+    if (result["action_contract"]["surfaces"]["menu"] != sorted(MENU_ACTIONS)
+            or result["action_contract"]["surfaces"]["panel"] != sorted(PANEL_ACTIONS | PANEL_CONTROLS)
+            or len(ids) != len(set(ids)) or set(ids) != WIDGETS
             or metrics != METRIC_FIELDS
             or len(shell) != len(result["shell_components"])
             or set(shell) != {"native-menu", "calendar-popup", "desktop-shortcut", "desktop-widget", "shared-component"}

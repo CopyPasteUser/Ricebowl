@@ -1,0 +1,216 @@
+{
+  "schema_version": 12,
+  "id": "test-dock-shell",
+  "name": "Test Shell B - Centered Launcher",
+  "components": [
+    {
+      "id": "network-indicator",
+      "role": "status",
+      "binding": "network",
+      "label": "Network"
+    },
+    {
+      "id": "volume-indicator",
+      "role": "status",
+      "binding": "audio",
+      "label": "Volume"
+    }
+  ],
+  "panel": {
+    "position": "bottom",
+    "height": 48,
+    "metrics": {
+      "launcher_width": 104,
+      "task_width": 136,
+      "clock_width": 88
+    },
+    "launcher": {
+      "label": "Apps",
+      "background": "#f5f0e7",
+      "foreground": "#273b4d",
+      "radius": 18
+    },
+    "layout": {
+      "start": [
+        {
+          "type": "widget",
+          "id": "clock"
+        }
+      ],
+      "center": [
+        {
+          "type": "widget",
+          "id": "launcher"
+        },
+        {
+          "type": "gap",
+          "width": 8
+        },
+        {
+          "type": "widget",
+          "id": "tasks"
+        }
+      ],
+      "end": [
+        {
+          "type": "component",
+          "ref": "network-indicator"
+        },
+        {
+          "type": "component",
+          "ref": "volume-indicator"
+        },
+        {
+          "type": "widget",
+          "id": "tray"
+        }
+      ]
+    }
+  },
+  "colors": {
+    "background": "#132733",
+    "foreground": "#f7f4eb",
+    "active": "#3c6671"
+  },
+  "menu": {
+    "title": "Dock Launcher",
+    "presentation": "sidebar",
+    "colors": {
+      "background": "#f6faf8",
+      "foreground": "#213d4a",
+      "header": "#507f85",
+      "header_foreground": "#ffffff",
+      "selection": "#bfdbe1"
+    },
+    "groups": [
+      {
+        "title": "Programs",
+        "actions": [
+          "applications",
+          "terminal"
+        ],
+        "content": [
+          {
+            "type": "apps-list",
+            "title": "All Programs",
+            "limit": 3
+          },
+          {
+            "type": "favorites",
+            "title": "Pinned",
+            "limit": 1
+          }
+        ]
+      },
+      {
+        "title": "System",
+        "actions": [
+          "settings",
+          "notifications",
+          "clip-history"
+        ],
+        "content": [
+          {
+            "type": "actions",
+            "title": "System Tools",
+            "limit": 3
+          }
+        ]
+      },
+      {
+        "title": "Session",
+        "actions": [
+          "lock",
+          "logout"
+        ],
+        "content": [
+          {
+            "type": "actions",
+            "title": "Session Tools",
+            "limit": 2
+          }
+        ]
+      }
+    ]
+  },
+  "desktop": {
+    "wallpaper": "chrome-pastel",
+    "icons": [
+      {
+        "label": "Programs",
+        "action": "applications",
+        "x": 24,
+        "y": 88
+      },
+      {
+        "label": "Terminal",
+        "action": "terminal",
+        "x": 24,
+        "y": 192
+      },
+      {
+        "label": "Lock",
+        "action": "lock",
+        "x": 24,
+        "y": 296
+      }
+    ]
+  },
+  "tokens": {
+    "label_padding": 8,
+    "task_radius": 10
+  },
+  "appearance": {
+    "font_scale": 1,
+    "font_weight": "regular",
+    "item_spacing": 6,
+    "hover": "#3a6975",
+    "focus": "#ffd584",
+    "disabled": "#7e9093"
+  },
+  "responsive": {
+    "compact_max_width": 1024,
+    "compact_layout": {
+      "start": [
+        {
+          "type": "widget",
+          "id": "launcher"
+        }
+      ],
+      "center": [
+        {
+          "type": "widget",
+          "id": "tasks"
+        }
+      ],
+      "end": [
+        {
+          "type": "widget",
+          "id": "battery"
+        },
+        {
+          "type": "widget",
+          "id": "clock"
+        }
+      ]
+    }
+  },
+  "composition": {
+    "widgets": [],
+    "window_region": {
+      "x": 22,
+      "y": 8,
+      "width": 76,
+      "height": 84
+    },
+    "compact_hide_widgets": []
+  },
+  "artwork": {
+    "font": "builtin",
+    "icons": {
+      "applications": "builtin",
+      "terminal": "builtin",
+      "lock": "builtin"
+    }
+  }
+}

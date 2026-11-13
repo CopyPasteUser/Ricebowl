@@ -11,6 +11,7 @@ use std::{
 };
 
 use serde::Deserialize;
+use crate::shell_actions::{ShellAction, Surface};
 
 pub const LAUNCHER_WIDTH: u32 = 104;
 pub const TASK_WIDTH: u32 = 164;
@@ -507,9 +508,7 @@ fn validate_components(input: Vec<ComponentInput>) -> Result<Vec<ComponentInput>
         let allowed = match item.role.as_str() {
             "status" => ["clock", "network", "audio", "battery"]
                 .contains(&item.binding.as_str()),
-            "action" => ["applications", "terminal", "settings", "lock",
-                         "clip-history", "wifi-toggle", "audio-mute", "audio-up", "audio-down"]
-                .contains(&item.binding.as_str()),
+            "action" => ShellAction::supported(&item.binding, Surface::Panel),
             _ => false,
         };
         if !(2..=24).contains(&bytes.len()) || !bytes[0].is_ascii_lowercase()
@@ -640,10 +639,7 @@ fn validate_menu(menu: &Menu, version: u32) -> Result<(), Box<dyn Error>> {
             if (matches!(action.as_str(), "run" | "help")
                 && (version < 12 || menu.presentation.as_deref() != Some("columns")
                     || menu.colors.is_none()))
-                || !["applications", "terminal", "lock", "logout",
-                 "documents", "computer", "pictures", "music", "wifi-toggle", "audio-mute", "audio-up", "audio-down",
-                 "notifications", "settings", "clip-history", "help", "run"]
-                .contains(&action.as_str())
+                || !ShellAction::supported(action, Surface::Menu)
                 || !seen.insert(action.as_str())
             {
                 return Err("Menu contains unsupported or duplicate action".into());
@@ -759,11 +755,9 @@ fn expand_layout(
         }
         LayoutNode::Action { id, label } | LayoutNode::Control { id, label } => {
             let control = matches!(node, LayoutNode::Control { .. });
-            let supported = if control {
-                ["wifi-toggle", "audio-mute", "audio-up", "audio-down"].contains(&id.as_str())
-            } else {
-                ["applications", "terminal", "settings", "lock", "clip-history", "show-desktop"].contains(&id.as_str())
-            };
+            let supported = ShellAction::from_id(id).is_some_and(|action|
+                action.supports(Surface::Panel)
+                    && (action.kind == crate::shell_actions::Kind::Control) == control);
             if version < (if control { 7 } else { 6 }) || !supported
                 || !safe_label(label, 16)
                 || !seen.insert(format!("action:{id}"))

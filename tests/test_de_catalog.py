@@ -119,10 +119,10 @@ class ComponentCatalogTests(unittest.TestCase):
 
     def test_catalog_serializes_to_json_without_private_environment_data(self):
         payload = json.dumps(catalog.describe(), sort_keys=True, ensure_ascii=False)
-        # The versioned Creator inventory now includes XP desktop computer,
-        # documents and network actions. Keep a bounded 25 KiB wire budget
-        # rather than dropping supported actions from the catalog.
-        self.assertLess(len(payload), 30_720)
+        # The v14 catalog includes the typed action inventory and the full
+        # Creator contract. Keep the wire payload bounded to 36 KiB without
+        # dropping discoverable actions or changing their semantics.
+        self.assertLess(len(payload.encode("utf-8")), 36 * 1024)
         self.assertNotIn("/home/", payload)
         self.assertNotIn("https://", payload)
         self.assertNotIn("exec:", payload)

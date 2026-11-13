@@ -1,0 +1,214 @@
+{
+  "schema_version": 12,
+  "id": "test-taskbar-shell",
+  "name": "Test Shell A - Taskbar",
+  "components": [
+    {
+      "id": "network-indicator",
+      "role": "status",
+      "binding": "network",
+      "label": "Network"
+    },
+    {
+      "id": "volume-indicator",
+      "role": "status",
+      "binding": "audio",
+      "label": "Volume"
+    }
+  ],
+  "panel": {
+    "position": "bottom",
+    "height": 40,
+    "metrics": {
+      "launcher_width": 94,
+      "task_width": 156,
+      "clock_width": 80
+    },
+    "launcher": {
+      "label": "Menu",
+      "background": "#344d65",
+      "foreground": "#ffffff",
+      "radius": 4
+    },
+    "layout": {
+      "start": [
+        {
+          "type": "widget",
+          "id": "launcher"
+        },
+        {
+          "type": "gap",
+          "width": 4
+        },
+        {
+          "type": "widget",
+          "id": "tasks"
+        }
+      ],
+      "center": [],
+      "end": [
+        {
+          "type": "component",
+          "ref": "network-indicator"
+        },
+        {
+          "type": "component",
+          "ref": "volume-indicator"
+        },
+        {
+          "type": "widget",
+          "id": "tray"
+        },
+        {
+          "type": "widget",
+          "id": "clock"
+        }
+      ]
+    }
+  },
+  "colors": {
+    "background": "#273746",
+    "foreground": "#ffffff",
+    "active": "#41647b"
+  },
+  "menu": {
+    "title": "Taskbar Programs",
+    "presentation": "tabs",
+    "colors": {
+      "background": "#f6f5ef",
+      "foreground": "#283b51",
+      "header": "#394f68",
+      "header_foreground": "#ffffff",
+      "selection": "#c8dee9"
+    },
+    "groups": [
+      {
+        "title": "Programs",
+        "actions": [
+          "applications",
+          "terminal"
+        ],
+        "content": [
+          {
+            "type": "apps-list",
+            "title": "All Programs",
+            "limit": 3
+          },
+          {
+            "type": "favorites",
+            "title": "Pinned",
+            "limit": 1
+          }
+        ]
+      },
+      {
+        "title": "System",
+        "actions": [
+          "settings",
+          "notifications",
+          "clip-history"
+        ],
+        "content": [
+          {
+            "type": "actions",
+            "title": "System Tools",
+            "limit": 3
+          }
+        ]
+      },
+      {
+        "title": "Session",
+        "actions": [
+          "lock",
+          "logout"
+        ],
+        "content": [
+          {
+            "type": "actions",
+            "title": "Session Tools",
+            "limit": 2
+          }
+        ]
+      }
+    ]
+  },
+  "desktop": {
+    "wallpaper": "classic-teal",
+    "icons": [
+      {
+        "label": "Programs",
+        "action": "applications",
+        "x": 24,
+        "y": 88
+      },
+      {
+        "label": "Terminal",
+        "action": "terminal",
+        "x": 24,
+        "y": 192
+      },
+      {
+        "label": "Lock",
+        "action": "lock",
+        "x": 24,
+        "y": 296
+      }
+    ]
+  },
+  "tokens": {
+    "label_padding": 6,
+    "task_radius": 2
+  },
+  "appearance": {
+    "font_scale": 1,
+    "font_weight": "regular",
+    "item_spacing": 4,
+    "hover": "#41647b",
+    "focus": "#f7d37a",
+    "disabled": "#79838e"
+  },
+  "responsive": {
+    "compact_max_width": 1024,
+    "compact_layout": {
+      "start": [
+        {
+          "type": "widget",
+          "id": "launcher"
+        },
+        {
+          "type": "widget",
+          "id": "tasks"
+        }
+      ],
+      "center": [],
+      "end": [
+        {
+          "type": "widget",
+          "id": "battery"
+        },
+        {
+          "type": "widget",
+          "id": "clock"
+        }
+      ]
+    }
+  },
+  "composition": {
+    "widgets": [],
+    "window_region": {
+      "x": 22,
+      "y": 8,
+      "width": 76,
+      "height": 84
+    },
+    "compact_hide_widgets": []
+  },
+  "artwork": {
+    "font": "builtin",
+    "icons": {
+      "applications": "builtin",
+      "terminal": "builtin",
+      "lock": "builtin"
+    }
+  }
+}

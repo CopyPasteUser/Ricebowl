@@ -7,6 +7,7 @@ discover the exact vocabulary before producing any draft edit data.
 from __future__ import annotations
 
 from . import recipes
+from .shell_contract import describe as describe_shell_actions
 
 EDIT_VERSION = 1
 MAX_EDIT_BYTES = 16 * 1024
@@ -466,6 +467,7 @@ def describe() -> dict[str, object]:
     """Tool-neutral JSON guidance derived from one allowlisted vocabulary."""
     return {
         "edit_version": EDIT_VERSION,
+        "shell_action_contract": describe_shell_actions(),
         "command": "de draft-edit",
         "scope": "wayland-shell-preview",
         "operation": "set",
