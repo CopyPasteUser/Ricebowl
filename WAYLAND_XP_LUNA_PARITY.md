@@ -30,9 +30,10 @@ Network, Volume, Power and Clock indicators open XP-colored, keyboard-navigable
 local menus rather than sending fake SNI events. Actions are capability-gated
 and use the existing bounded, verified system-control workers.
 
-The `ricebowl de settings --luna --page <category>` command opens an
-on-demand XP-themed Control Panel navigation backed by the existing real
-RiceSpice services. Available pages: network, audio, notifications, bluetooth,
+The `ricebowl de settings --luna` command opens a searchable XP-inspired
+Control Panel category overview with a scrollable sidebar and accessible
+category rows. Direct links via `--page <category>` continue to reach the
+same real RiceSpice service backends; generic RiceSpice remains unchanged. Available pages: network, audio, notifications, bluetooth,
 displays, input, accessibility, timezone, power, appearance and taskbar.
 `ricebowl de settings` retains its original presentation; XFCE defaults
 and other rices are untouched. Taskbar settings currently provide real links
