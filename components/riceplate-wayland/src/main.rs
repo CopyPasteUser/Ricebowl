@@ -901,6 +901,7 @@ struct LunaDialogLayer {
 
 struct DesktopContextLayer {
     popup: Popup,
+    parent_surface: wl_surface::WlSurface,
     pool: Option<SlotPool>,
     configured: bool,
     icon_index: usize,
@@ -1364,7 +1365,8 @@ impl RicePlate {
         }
         popup.wl_surface().commit();
         self.desktop_context = Some(DesktopContextLayer {
-            popup, pool: None, configured: false, icon_index: index,
+            popup, parent_surface: self.icon_layers[index].surface.wl_surface().clone(),
+            pool: None, configured: false, icon_index: index,
             selected: DesktopContextAction::Open, hovered: None,
             pressed: None, can_move, can_reset,
             properties: false, back_hovered: false, back_pressed: false,
@@ -2290,6 +2292,14 @@ impl RicePlate {
         // Desktop shortcut surfaces follow the same explicit secondary output
         // ownership as panels. No full-screen input-grabbing wallpaper layer.
         let before = self.icon_layers.len();
+        // An XDG popup must not outlive its original Bottom-layer parent
+        // when a monitor is unplugged, even if search changed its target.
+        if self.desktop_context.as_ref().is_some_and(|menu|
+            self.icon_layers.iter().any(|icon|
+                icon.surface.wl_surface() == &menu.parent_surface
+                && icon.bound_output.as_ref().is_some_and(|output| !outputs.contains(output)))) {
+            self.close_desktop_context();
+        }
         self.icon_layers.retain(|icon| icon.bound_output.as_ref()
             .is_none_or(|output| outputs.contains(output)));
         let icons_removed = before != self.icon_layers.len();
@@ -5740,6 +5750,10 @@ impl CompositorHandler for RicePlate {
 
 impl LayerShellHandler for RicePlate {
     fn closed(&mut self, _: &Connection, qh: &QueueHandle<Self>, layer: &LayerSurface) {
+        if self.desktop_context.as_ref().is_some_and(|menu|
+            &menu.parent_surface == layer.wl_surface()) {
+            self.close_desktop_context();
+        }
         if self.focused_panel.as_ref() == Some(layer.wl_surface()) {
             self.focused_panel = None;
             self.focused_target = None;
