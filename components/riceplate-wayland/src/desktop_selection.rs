@@ -6,6 +6,59 @@ use std::{collections::BTreeSet, time::{Duration, Instant}};
 pub const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(650);
 const MAX_DRIFT: f64 = 8.0;
 
+/// Event-driven XP-style type-to-select for visible shortcuts on one wl_output.
+/// There is no resident timer or global keyboard grab. The caller supplies
+/// only labels of real, currently visible icon surfaces on the focused output.
+const TYPE_TIMEOUT: Duration = Duration::from_millis(1200);
+const MAX_TYPE_CHARS: usize = 32;
+
+#[derive(Debug, Default)]
+pub struct TypeSelect {
+    prefix: String,
+    last: Option<Instant>,
+}
+
+impl TypeSelect {
+    pub fn reset(&mut self) {
+        self.prefix.clear();
+        self.last = None;
+    }
+
+    /// A fresh character searches *after* the focused icon. Extending an
+    /// existing prefix also considers that icon, so typing "pr" after
+    /// selecting "Programs" stays on it. Repeated letters cycle matches
+    /// instead of creating an impossible "pp..." prefix.
+    pub fn feed(&mut self, labels: &[Option<&str>], current: usize,
+                typed: &str, now: Instant) -> Option<usize> {
+        if typed.chars().count() != 1 || !typed.chars().all(char::is_alphanumeric)
+            || labels.is_empty() || current >= labels.len() { return None; }
+        if self.last.is_none_or(|previous| now.checked_duration_since(previous)
+            .is_none_or(|elapsed| elapsed > TYPE_TIMEOUT)) {
+            self.reset();
+        }
+        let single = typed.to_lowercase();
+        let extended = format!("{}{}", self.prefix, single);
+        let match_from = |query: &str, include_current: bool| -> Option<usize> {
+            (0..labels.len()).find_map(|step| {
+                let start = usize::from(!include_current);
+                let index = (current + start + step) % labels.len();
+                labels[index].filter(|label|
+                    label.to_lowercase().starts_with(query)).map(|_| index)
+            })
+        };
+        let extended_hit = (extended.chars().count() <= MAX_TYPE_CHARS)
+            .then(|| match_from(&extended, !self.prefix.is_empty())).flatten();
+        let (query, selected) = if let Some(index) = extended_hit {
+            (extended, index)
+        } else {
+            (single.clone(), match_from(&single, false)?)
+        };
+        self.prefix = query;
+        self.last = Some(now);
+        Some(selected)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode { Replace, Toggle, Range }
 
@@ -140,6 +193,56 @@ mod tests {
     use super::*;
 
     fn all(count: usize) -> Vec<bool> { vec![true; count] }
+
+    #[test]
+    fn type_to_select_is_output_local_case_insensitive_and_prefix_aware() {
+        let labels = [Some("My Computer"), Some("My Documents"), None,
+            Some("Programs"), Some("Pictures"), Some("Terminal")];
+        let mut search = TypeSelect::default();
+        let now = Instant::now();
+        // Invisible entries and other-output icons are excluded by caller.
+        assert_eq!(search.feed(&labels, 1, "P", now), Some(3));
+        assert_eq!(search.feed(&labels, 3, "r", now + Duration::from_millis(100)), Some(3));
+        assert_eq!(search.feed(&labels, 3, "o", now + Duration::from_millis(200)), Some(3));
+        // Independent search after timeout may find another prefix.
+        assert_eq!(search.feed(&labels, 3, "p", now + Duration::from_millis(1500)), Some(4));
+        assert_eq!(search.feed(&labels, 4, "p", now + Duration::from_millis(1600)), Some(3));
+        assert_eq!(search.feed(&labels, 3, "p", now + Duration::from_millis(1700)), Some(4));
+        search.reset();
+        assert_eq!(search.feed(&labels, 4, "t", now + Duration::from_millis(1800)), Some(5));
+    }
+
+    #[test]
+    fn type_to_select_rejects_control_multi_char_and_hidden_targets() {
+        let labels = [None, Some("Docs"), None, Some("Äpfel")];
+        let mut search = TypeSelect::default();
+        let now = Instant::now();
+        assert_eq!(search.feed(&labels, 1, "ä", now), Some(3));
+        assert_eq!(search.feed(&labels, 3, "\n", now), None);
+        assert_eq!(search.feed(&labels, 3, "xy", now), None);
+        assert_eq!(search.feed(&labels, 3, " ", now), None);
+        assert_eq!(search.feed(&labels, 3, "A", now + Duration::from_millis(20)), None);
+        assert_eq!(search.feed(&labels, 0, "D", now + Duration::from_millis(30)), Some(1));
+        assert_eq!(search.feed(&labels, 99, "D", now + Duration::from_millis(40)), None);
+        assert_eq!(search.feed(&[], 0, "D", now), None);
+        assert_eq!(search.feed(&[None, None], 0, "D", now), None);
+    }
+
+    #[test]
+    fn type_to_select_expires_and_never_builds_unbounded_prefixes() {
+        let mut search = TypeSelect::default();
+        let labels = [Some("abcdefghijklmnopqrstuvwxyz123456789")];
+        let now = Instant::now();
+        for (offset, c) in "abcdefghijklmnopqrstuvwxyz123456789".chars().enumerate() {
+            let time = now + Duration::from_millis((offset as u64) * 10);
+            // Extending beyond the bounded prefix falls back to searching
+            // a single character; it never stores or scans unbounded data.
+            let _ = search.feed(&labels, 0, &c.to_string(), time);
+            assert!(search.prefix.chars().count() <= MAX_TYPE_CHARS);
+        }
+        assert_eq!(search.feed(&labels, 0, "a", now - Duration::from_millis(1)), Some(0));
+        assert_eq!(search.prefix, "a");
+    }
 
     #[test]
     fn first_click_selects_second_activates_and_third_is_only_selection() {
