@@ -18,6 +18,7 @@ mod luna_places;
 mod luna_dialog;
 mod luna_clock;
 mod luna_taskbar;
+mod luna_desktop_ipc;
 mod menu_chrome;
 mod menu_pins;
 mod menu_recents;
@@ -149,6 +150,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         menu_recents::clear()?;
         println!("XP Luna recent applications cleared");
         return Ok(());
+    }
+    if let [flag, action] = arguments.as_slice() {
+        if flag == "--desktop-command" {
+            let request = luna_desktop_ipc::Request::parse(action)
+                .ok_or("Unknown or unsafe desktop command")?;
+            luna_desktop_ipc::send(request)?;
+            return Ok(());
+        }
     }
     if matches!(arguments.as_slice(), [arg] if arg == "--watch-outputs") {
         return output_watch::run();
@@ -554,6 +563,39 @@ fn main() -> Result<(), Box<dyn Error>> {
         needs_redraw: false,
         accessibility: None,
     };
+    // Only a real standalone Luna session owns the root-menu command socket.
+    // Never let nested design previews steal an active user's socket.
+    let desktop_listener = if app.recipe.id == "xp-luna-columns"
+        && std::env::var("RICEBOWL_DE_NESTED").as_deref() != Ok("1") {
+        match luna_desktop_ipc::bind() {
+            Ok(listener) => Some(listener),
+            Err(error) => {
+                eprintln!("RicePlate: desktop context commands unavailable: {error}");
+                None
+            }
+        }
+    } else { None };
+    if let Some(listener) = desktop_listener.as_ref() {
+        let registered = listener.try_clone()?;
+        let reader = listener.try_clone()?;
+        let desktop_qh = qh.clone();
+        event_loop.handle().insert_source(
+            Generic::new(registered, Interest::READ, Mode::Level),
+            move |_, _, app: &mut RicePlate| {
+                loop {
+                    match luna_desktop_ipc::receive(&reader) {
+                        Ok(Some(request)) => app.handle_luna_desktop_request(request, &desktop_qh),
+                        Ok(None) => break,
+                        Err(error) => {
+                            eprintln!("RicePlate: desktop context IPC closed: {error}");
+                            return Ok(PostAction::Remove);
+                        }
+                    }
+                }
+                Ok(PostAction::Continue)
+            },
+        )?;
+    }
     app.notification_state.configure_glyph_scale(
         if app.recipe.native_art.as_ref().and_then(|art| art.font.as_ref()).is_some() {
             app.recipe.font_scale
@@ -1016,6 +1058,52 @@ impl RicePlate {
             mirror.surface.commit();
         }
         self.request_redraw(qh);
+    }
+
+    fn handle_luna_desktop_request(&mut self, request: luna_desktop_ipc::Request,
+                                   qh: &QueueHandle<Self>) {
+        if self.recipe.id != "xp-luna-columns" { return; }
+        use luna_desktop_ipc::Request;
+        match request {
+            Request::Arrange => {
+                // Arrange only currently visible shortcuts on each output,
+                // preserving the recipe's original order and other displays.
+                let mut columns: std::collections::HashMap<Option<String>, usize> =
+                    std::collections::HashMap::new();
+                let snapshot: Vec<_> = self.icon_layers.iter().enumerate()
+                    .filter_map(|(index, layer)| {
+                        if layer.placed.is_none() { return None; }
+                        let output = layer.bound_output.as_ref()
+                            .or(self.primary_output.as_ref()).or(layer.output.as_ref())?;
+                        Some((index, self.icon_output_name(index),
+                              self.logical_output_size(output)?))
+                    }).collect();
+                for (index, monitor, (width, height)) in snapshot {
+                    let position = columns.entry(monitor).or_default();
+                    let rows = (height.saturating_sub(self.recipe.height + 88
+                        + recipe::ICON_HEIGHT) / 104 + 1).max(1);
+                    let cols = (width.saturating_sub(24 + recipe::ICON_WIDTH) / 112 + 1).max(1);
+                    if *position < (rows as usize).saturating_mul(cols as usize) {
+                        let x = 24 + (*position as u32 / rows) * 112;
+                        let y = 88 + (*position as u32 % rows) * 104;
+                        self.move_icon(index, (x, y));
+                    }
+                    *position += 1;
+                }
+                self.save_icon_positions();
+            }
+            Request::NewFolder => match luna_desktop_ipc::new_folder() {
+                Ok(path) => eprintln!("RicePlate: Desktop folder created: {}",path.display()),
+                Err(error) => eprintln!("RicePlate: cannot create Desktop folder: {error}"),
+            },
+            Request::Refresh => {
+                self.menu_state.refresh_apps();
+                self.reflow_icons();
+                for index in 0..self.icon_layers.len() { self.redraw_icon(index); }
+                self.request_redraw(qh);
+            }
+            Request::Properties => self.launch_luna_settings("appearance"),
+        }
     }
 
     fn luna_icon_peers(&self, index: usize) -> Vec<bool> {
