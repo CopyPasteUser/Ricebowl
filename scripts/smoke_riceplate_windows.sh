@@ -58,7 +58,15 @@ dbus-run-session -- sh -eu -c '
     compositor=$!
     plate=
     window=
+    group_first=
+    group_second=
     cleanup() {
+        for member in "$group_first" "$group_second"; do
+            if [ -n "$member" ]; then
+                kill "$member" 2>/dev/null || :
+                wait "$member" 2>/dev/null || :
+            fi
+        done
         if [ -n "$window" ]; then
             kill "$window" 2>/dev/null || :
             wait "$window" 2>/dev/null || :
@@ -309,6 +317,100 @@ PY
     WAYLAND_DISPLAY=wayland-0 grim - >"$runtime/closed.png"
     /usr/bin/python3 "$source_root/scripts/check_wayland_window_outputs.py" \
         "$runtime/before.png" "$runtime/opened.png" "$runtime/closed.png"
+    if [ "$mode" = "--luna" ]; then
+        # Exercise two genuine Wayland clients with the same app ID. The
+        # native context must be a grouped-window menu, not an SNI popup.
+        previous_ready=$(grep -Fc "event=ready app_id=\\\"$app_id\\\"" "$runtime/panel.log" || :)
+        previous_closed=$(grep -Fc "event=closed app_id=\\\"$app_id\\\"" "$runtime/panel.log" || :)
+        WAYLAND_DISPLAY=wayland-0 foot --app-id="$app_id" \
+            --title=RiceBowl-Group-Alpha /bin/sh -c "sleep 45" \
+            >"$runtime/group-first.log" 2>&1 &
+        group_first=$!
+        WAYLAND_DISPLAY=wayland-0 foot --app-id="$app_id" \
+            --title=RiceBowl-Group-Beta /bin/sh -c "sleep 45" \
+            >"$runtime/group-second.log" 2>&1 &
+        group_second=$!
+        count=0
+        while [ "$count" -lt 40 ]; do
+            ready=$(grep -Fc "event=ready app_id=\\\"$app_id\\\"" "$runtime/panel.log" || :)
+            if [ "$ready" -ge "$((previous_ready + 2))" ]; then break; fi
+            kill -0 "$group_first" && kill -0 "$group_second" || {
+                echo "Grouped Wayland test clients exited before discovery" >&2
+                exit 1
+            }
+            sleep 0.25
+            count=$((count + 1))
+        done
+        if [ "$count" -ge 40 ]; then
+            echo "Two real same-app windows were not observed" >&2
+            exit 1
+        fi
+        sleep 0.5
+        WAYLAND_DISPLAY=wayland-0 grim - >"$runtime/luna-grouped-taskbar.png"
+        WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click 240 750 1024 768
+        sleep 0.4
+        WAYLAND_DISPLAY=wayland-0 grim - >"$runtime/luna-grouped-window-menu.png"
+        # Compare actual compositor frames from the same output.
+        /usr/bin/python3 - "$runtime/luna-grouped-taskbar.png" \
+            "$runtime/luna-grouped-window-menu.png" <<PY
+import sys
+from PIL import Image, ImageChops
+with Image.open(sys.argv[1]) as before, Image.open(sys.argv[2]) as after:
+    a, b = before.convert("RGB"), after.convert("RGB")
+    assert a.size == b.size == (1024, 768)
+    rect = (240, 562, 528, 720)
+    pixels = ImageChops.difference(a.crop(rect), b.crop(rect))
+    changed = sum(1 for color in pixels.getdata() if max(color) > 30)
+    assert changed > 4000, f"Grouped context menu not painted: {changed}"
+print("Two-window native context visibly differs from closed taskbar")
+PY
+        # Close a member while the group menu is open; the exact owner
+        # proxies must be invalidated and the surface dismissed.
+        kill "$group_second" 2>/dev/null || :
+        wait "$group_second" 2>/dev/null || :
+        group_second=
+        count=0
+        while [ "$count" -lt 40 ]; do
+            closed=$(grep -Fc "event=closed app_id=\\\"$app_id\\\"" "$runtime/panel.log" || :)
+            if [ "$closed" -ge "$((previous_closed + 1))" ]; then break; fi
+            sleep 0.25
+            count=$((count + 1))
+        done
+        if [ "$count" -ge 40 ]; then
+            echo "Grouped task close did not reach the compositor" >&2
+            exit 1
+        fi
+        sleep 0.3
+        WAYLAND_DISPLAY=wayland-0 grim - >"$runtime/luna-group-menu-dismissed.png"
+        /usr/bin/python3 - "$runtime/luna-grouped-window-menu.png" \
+            "$runtime/luna-group-menu-dismissed.png" <<PY
+import sys
+from PIL import Image, ImageChops
+with Image.open(sys.argv[1]) as open_menu, Image.open(sys.argv[2]) as dismissed:
+    delta = ImageChops.difference(
+        open_menu.convert("RGB").crop((240, 562, 528, 720)),
+        dismissed.convert("RGB").crop((240, 562, 528, 720)))
+    assert sum(1 for c in delta.getdata() if max(c) > 30) > 4000, (
+        "Closing a group member left a stale native popup visible")
+print("Owner close dismisses the native grouped window menu")
+PY
+        kill -0 "$group_first" || {
+            echo "Closing group member damaged the surviving Wayland client" >&2
+            exit 1
+        }
+        WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click 240 750 1024 768
+        sleep 0.3
+        WAYLAND_DISPLAY=wayland-0 grim - >"$runtime/luna-single-after-group-close.png"
+        out="$source_root/dist/riceplate-native-preview"
+        if [ -d "$out" ]; then
+            for name in luna-grouped-taskbar luna-grouped-window-menu \
+                        luna-group-menu-dismissed luna-single-after-group-close; do
+                cp "$runtime/$name.png" "$out/$name.png"
+            done
+        fi
+        # No longer keep the popup open as the isolated compositor shuts down.
+        WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 5 5 1024 768
+    fi
     kill -0 "$plate"
     echo "Native RicePlate observed and painted a real $mode window lifecycle"
 ' sh "$source_root" "$runtime" "$native" "$clicker" "$mode"
