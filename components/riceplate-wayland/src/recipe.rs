@@ -762,7 +762,7 @@ fn expand_layout(
             let supported = if control {
                 ["wifi-toggle", "audio-mute", "audio-up", "audio-down"].contains(&id.as_str())
             } else {
-                ["applications", "terminal", "settings", "lock", "clip-history"].contains(&id.as_str())
+                ["applications", "terminal", "settings", "lock", "clip-history", "show-desktop"].contains(&id.as_str())
             };
             if version < (if control { 7 } else { 6 }) || !supported
                 || !safe_label(label, 16)
@@ -1150,6 +1150,10 @@ fn width_for(style: &PanelStyle, widget: Widget, tasks: usize) -> u32 {
         }
         Widget::Action(index) => {
             let action = &style.actions[index as usize];
+            if style.id == "xp-luna-columns" && matches!(action.id.as_str(),
+                    "applications" | "terminal" | "show-desktop") {
+                return 32; // XP quick-launch glyphs, not wide text buttons.
+            }
             (action.label.len() as u32).max(if action.control && style.font_scale > 1 { 11 } else { 0 })
                 * 8 * style.font_scale + style.label_padding * 2 + 8
         }

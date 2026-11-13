@@ -52,7 +52,7 @@ MENU_ACTIONS = frozenset(("applications", "terminal", "lock", "logout",
 # A deliberately smaller set than menu quick controls: all four work from a
 # panel without requiring a menu feedback surface or a custom command parser.
 PANEL_ACTIONS = frozenset(("applications", "terminal", "settings", "lock",
-                           "clip-history"))
+                           "clip-history", "show-desktop"))
 PANEL_CONTROLS = frozenset(("wifi-toggle", "audio-mute", "audio-up", "audio-down"))
 PANEL_ACTION_COMMANDS = {
     "applications": "fuzzel", "terminal": "foot",
@@ -1270,6 +1270,13 @@ def waybar_config(recipe: PanelRecipe, *, screen_width: int | None = None) -> tu
                     f"border-left: 1px solid {recipe.colors[1]}; margin: 8px 0; padding: 0; }}")
             elif node.kind == "action":
                 key = f"custom/rice-action-{index}"
+                if node.value == "show-desktop":
+                    # The wlr foreign-toplevel toggle is owned by native RicePlate.
+                    # Waybar has no equivalent safely authenticated action.
+                    generated_modules[key] = {"format": "Desktop (N/A)",
+                                              "tooltip": True,
+                                              "tooltip-format": "Requires native RicePlate"}
+                    return [key]
                 generated_modules[key] = {
                     "format": node.label, "tooltip": False,
                     "on-click": PANEL_ACTION_COMMANDS[str(node.value)],
@@ -1428,6 +1435,22 @@ def labwc_menu(recipe: PanelRecipe) -> str:
         "lock": ("Lock screen", "Execute", "ricebowl de lock"),
         "logout": ("Log out of RiceBowl", "Exit", None),
     }
+    if recipe.recipe_id == "xp-luna-columns":
+        # Labwc already handles right-click on the wallpaper. Keep this
+        # native desktop context inside the disposable session config; no
+        # fullscreen transparent input layer or global labwc menu mutation.
+        for label, operation in (
+            ("Arrange Icons", "arrange"),
+            ("New Folder", "new-folder"),
+            ("Refresh", "refresh"),
+            ("Properties", "properties"),
+        ):
+            entry = ET.SubElement(menu, "item", {"label": label})
+            ET.SubElement(entry, "action", {
+                "name": "Execute",
+                "command": f"riceplate-native --desktop-command {operation}",
+            })
+        ET.SubElement(menu, "separator")
     for index, group in enumerate(groups):
         # RiceSpice quick actions belong to native RicePlate's bounded worker;
         # Waybar/labwc fallback does not pretend to provide an equivalent.

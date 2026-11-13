@@ -6,7 +6,7 @@ Wayland uses upstream labwc plus RicePlate. Original/licensed art only.
 
 | XP behavior | X11/XFCE `winxp` | Native `xp-luna-columns` (current sprint) | Gap |
 | --- | --- | --- | --- |
-| Green Start, cobalt taskbar, active tasks and notifications | XFWM/GTK shell, real tasks/status | Native taskbar, live SNI app icons and overflow, interactive network/audio/battery controls with bounded XP-style context menus | Device QA, configurable quick launch/notification-area policy, exact chrome |
+| Green Start, cobalt taskbar, active tasks and notifications | XFWM/GTK shell, real tasks/status | Native taskbar, real Quick Launch/Show Desktop, owner-private Auto-hide, live SNI icons and XP-style system context menus | Device QA, pinned application policy, taskbar locking, exact chrome |
 | Two-column Start, program discovery and search | Installed apps, categories, search, pinned browser/mail | Native All Programs, search, saved actions and app-recents | Pinned browser/mail defaults; category flyout |
 | My Computer, Documents, Pictures, Music | XDG/GVfs-backed locations and X11 Control Panel browser | Gio-backed real locations with safe missing-folder handling | Drive/volume explorer and path breadcrumbs |
 | Control Panel | Dedicated XP category/task UI with applets | Native Start link opens XP-inspired category navigation in RiceSpice; deep links reach real audio, network, power, date/time and taskbar pages | More exact XP category/task hierarchy and physical-device QA |
@@ -14,7 +14,7 @@ Wayland uses upstream labwc plus RicePlate. Original/licensed art only.
 | Run | X11 Run dialog | **Native bounded Run dialog** using literal argv, no shell, with Unicode-safe caret editing (Left/Right/Home/End/Backspace/Delete) and proportional-font-aware horizontal input scrolling | No XDG app-name completion, IME integration or device keyboard QA |
 | Recent programs and Start pins | Private favorites and history | Private persisted XP program recents; validated action pins | Reorderable Start favorites, browser/mail slots |
 | Recent documents | Actual recent-file submenu | Not implemented | Recent-file provenance/privacy and file opener |
-| Desktop | XFCE-managed desktop with shortcuts | Seven native originals, double-click, draggable positions and shortcut context | Desktop background context, properties, multi-select |
+| Desktop | XFCE-managed desktop with shortcuts | Seven native shortcuts with double-click, drag/multi-select, shortcut context, and private labwc background menu with real Arrange/New Folder/Refresh/Properties actions | File-backed dynamic icons, fuller New submenu, physical input QA |
 | File manager / Explorer | Styled Thunar with real file operations | Gio opens the registered file manager | RiceField/Explorer structural integration |
 | Window decorations | XFWM Luna borders/buttons | labwc-managed decoration/theme support | Cannot skin all Wayland CSD windows |
 | Display/login/recovery | Existing XFCE/X11 session | Opt-in labwc native preview; package rollback in CI | Physical Mint/ThinkPad sign-off |
@@ -42,13 +42,15 @@ clock-format setting** saved atomically in owner-private
 `XDG_CONFIG_HOME`). RicePlate reads this preference **once at Luna startup**:
 the change takes effect at the next Luna session, never restarts the current
 panel, and does not affect the non-Luna clock. The existing system control
-links remain working; unimplemented auto-hide, per-icon hiding and locking
-are stated as limitations, not fake toggles.
+links remain working. An independent owner-private `luna-taskbar.json`
+stores real Quick Launch and Auto-hide options, applied at next Luna startup.
+Taskbar locking, drag-to-reposition and per-provider icon hiding remain
+unimplemented and are never shown as fake switches.
 
 **Open:** XP-style network/audio/power menu interaction and keyboard/AT-SPI
 focus need actual labwc/ThinkPad sign-off. Native pin reordering, show/hide per
-app icon, quick-launch preferences, auto-hide and exact historical artwork
-remain future work; no hardware completion is implied by Rust or Python tests.
+app icon, taskbar locking and exact historical artwork remain future work;
+no hardware completion is implied by Rust or Python tests.
 
 ## New native Run/Help design
 
@@ -200,3 +202,37 @@ from an unmerged revision must never be described as a current-main capture.
 
 Physical hardware input, client-side GTK/Qt titlebar styling and the separate
 labwc keyboard-focus issue are not resolved by this visual sprint.
+
+## XP Luna Desktop/Taskbar functional Sprint 1 (13 November 2026)
+
+Opt-in `xp-luna-columns` now has three genuine compact Quick Launch buttons:
+Apps, Terminal and Show Desktop. The first two dispatch their existing
+allowlisted program actions; Show Desktop requests minimize/unminimize through
+real wlr foreign-toplevel handles, and only remembers windows it actually
+minimized. The restore request is idempotent on a fast second click and never
+reopens a previously closed toplevel.
+
+Luna taskbar settings expose Quick Launch visibility and Auto-hide. The
+`luna-taskbar.json` options use a separate versioned, 0600 owner-private,
+CAS-guarded atomic file under `$XDG_CONFIG_HOME/ricebowl/`; the GTK settings
+client and native Rust renderer validate the same bounded contract at next
+login. Auto-hide adjusts layer-shell exclusive zones on the primary/mirrored
+panels and leaves a 3-pixel handle for compositor pointer reveal. Settings
+never change XFCE or the shared schema-v12 recipe file.
+
+Labwc's existing root-menu binding handles a right-click on **empty desktop
+space** without adding a full-screen input surface. Only Luna's temporary
+private labwc menu exposes four fixed commands: Arrange Icons (reorder
+the validated built-in shortcut layers), New Folder (create a uniquely named
+real subdirectory inside an existing owned XDG Desktop and open it in Gio),
+Refresh (rescan the app index and redraw icons), and Properties (open real
+RiceSpice Appearance). These are sent to the existing RicePlate session over
+a non-world-readable Unix datagram socket, with strict allowlist and no
+shell-evaluated recipe commands. No root daemon or new background worker.
+
+**Limitations:** The desktop uses fixed, recipe-defined shortcut layers,
+not a file-backed dynamic desktop: a New Folder does not yet appear as a new
+shortcut. Taskbar drag-locking is not exposed because taskbar position is
+currently recipe-managed and not freely draggable. Linux apps owning their
+own client-side window frames are outside Luna's border styling. These are
+software increments, not a physical ThinkPad or Orca acceptance certificate.

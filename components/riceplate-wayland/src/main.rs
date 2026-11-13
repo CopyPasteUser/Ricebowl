@@ -17,6 +17,8 @@ mod installed_apps;
 mod luna_places;
 mod luna_dialog;
 mod luna_clock;
+mod luna_taskbar;
+mod luna_desktop_ipc;
 mod menu_chrome;
 mod menu_pins;
 mod menu_recents;
@@ -149,6 +151,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("XP Luna recent applications cleared");
         return Ok(());
     }
+    if let [flag, action] = arguments.as_slice() {
+        if flag == "--desktop-command" {
+            let request = luna_desktop_ipc::Request::parse(action)
+                .ok_or("Unknown or unsafe desktop command")?;
+            luna_desktop_ipc::send(request)?;
+            return Ok(());
+        }
+    }
     if matches!(arguments.as_slice(), [arg] if arg == "--watch-outputs") {
         return output_watch::run();
     }
@@ -187,6 +197,28 @@ fn main() -> Result<(), Box<dyn Error>> {
     } else {
         luna_clock::ClockFormat::Hour24
     };
+    let luna_options = if recipe.id == "xp-luna-columns" {
+        luna_taskbar::load()
+    } else {
+        luna_taskbar::Options::default()
+    };
+    if recipe.id == "xp-luna-columns" && !luna_options.quick_launch {
+        // A hidden Quick Launch reserves no space or hit targets. Action
+        // indices remain stable for existing menu and Creator contracts.
+        let actions = &recipe.actions;
+        for section in &mut recipe.sections {
+            section.retain(|widget| !matches!(widget, Widget::Action(index)
+                if actions.get(*index as usize)
+                    .is_some_and(|action| luna_taskbar::is_quick_launch(&action.id))));
+        }
+        if let Some((_, sections)) = recipe.compact.as_mut() {
+            for section in sections {
+                section.retain(|widget| !matches!(widget, Widget::Action(index)
+                    if actions.get(*index as usize)
+                        .is_some_and(|action| luna_taskbar::is_quick_launch(&action.id))));
+            }
+        }
+    }
     if let Some(selection) = recipe.artwork.as_ref() {
         recipe.native_art = Some(style_art::load(selection, recipe.font_scale)?);
     }
@@ -261,6 +293,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     if toplevel_manager.is_none() {
         eprintln!("RicePlate: compositor lacks wlr-foreign-toplevel-management; taskbar disabled");
     }
+    // Honor Auto-hide from the first committed layer-shell frame; do not
+    // briefly reserve 40 pixels until the pointer happens to leave.
+    let initial_panel_height = luna_taskbar::panel_height(
+        luna_options, luna_options.auto_hide, recipe.height);
+    let initial_panel_collapsed = initial_panel_height < recipe.height;
     let layer = layer_shell.create_layer_surface(
         &qh,
         compositor.create_surface(&qh),
@@ -274,8 +311,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         Anchor::BOTTOM
     };
     layer.set_anchor(edge | Anchor::LEFT | Anchor::RIGHT);
-    layer.set_size(0, recipe.height);
-    layer.set_exclusive_zone(recipe.height as i32);
+    layer.set_size(0, initial_panel_height);
+    layer.set_exclusive_zone(initial_panel_height as i32);
     layer.set_keyboard_interactivity(KeyboardInteractivity::OnDemand);
     layer.commit();
 
@@ -516,6 +553,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         toplevel_manager,
         trace_window_events: std::env::var("RICEBOWL_DE_TRACE_WINDOWS").as_deref() == Ok("1"),
         tasks: Vec::new(),
+        show_desktop_restore: Vec::new(),
+        luna_options,
+        panel_collapsed: initial_panel_collapsed,
         task_offset: 0,
         // Refreshed when real task state is painted, not on mouse motion.
         cached_task_group_count: 0,
@@ -528,6 +568,39 @@ fn main() -> Result<(), Box<dyn Error>> {
         needs_redraw: false,
         accessibility: None,
     };
+    // Only a real standalone Luna session owns the root-menu command socket.
+    // Never let nested design previews steal an active user's socket.
+    let desktop_listener = if app.recipe.id == "xp-luna-columns"
+        && std::env::var("RICEBOWL_DE_NESTED").as_deref() != Ok("1") {
+        match luna_desktop_ipc::bind() {
+            Ok(listener) => Some(listener),
+            Err(error) => {
+                eprintln!("RicePlate: desktop context commands unavailable: {error}");
+                None
+            }
+        }
+    } else { None };
+    if let Some(listener) = desktop_listener.as_ref() {
+        let registered = listener.try_clone()?;
+        let reader = listener.try_clone()?;
+        let desktop_qh = qh.clone();
+        event_loop.handle().insert_source(
+            Generic::new(registered, Interest::READ, Mode::Level),
+            move |_, _, app: &mut RicePlate| {
+                loop {
+                    match luna_desktop_ipc::receive(&reader) {
+                        Ok(Some(request)) => app.handle_luna_desktop_request(request, &desktop_qh),
+                        Ok(None) => break,
+                        Err(error) => {
+                            eprintln!("RicePlate: desktop context IPC closed: {error}");
+                            return Ok(PostAction::Remove);
+                        }
+                    }
+                }
+                Ok(PostAction::Continue)
+            },
+        )?;
+    }
     app.notification_state.configure_glyph_scale(
         if app.recipe.native_art.as_ref().and_then(|art| art.font.as_ref()).is_some() {
             app.recipe.font_scale
@@ -952,6 +1025,10 @@ struct RicePlate {
     toplevel_manager: Option<ZwlrForeignToplevelManagerV1>,
     trace_window_events: bool,
     tasks: Vec<Task>,
+    // Only windows actually minimized by Show Desktop are restored.
+    show_desktop_restore: Vec<ZwlrForeignToplevelHandleV1>,
+    luna_options: luna_taskbar::Options,
+    panel_collapsed: bool,
     task_offset: usize,
     cached_task_group_count: usize,
     pool: Option<SlotPool>,
@@ -965,6 +1042,84 @@ struct RicePlate {
 }
 
 impl RicePlate {
+    /// Set the same panel geometry across all active outputs. The compositor
+    /// owns window work-area reflow; only the 3px reveal handle remains when
+    /// Luna auto-hide is enabled. Hidden canvases never paint interactive rows.
+    fn set_panel_collapsed(&mut self, collapsed: bool, qh: &QueueHandle<Self>) {
+        if !self.luna_options.auto_hide || self.panel_collapsed == collapsed {
+            return;
+        }
+        self.panel_collapsed = collapsed;
+        let height = luna_taskbar::panel_height(
+            self.luna_options, collapsed, self.recipe.height);
+        self.configured = false;
+        self.layer.set_size(0, height);
+        self.layer.set_exclusive_zone(height as i32);
+        self.layer.commit();
+        for mirror in &mut self.mirrors {
+            mirror.configured = false;
+            mirror.surface.set_size(0, height);
+            mirror.surface.set_exclusive_zone(height as i32);
+            mirror.surface.commit();
+        }
+        self.request_redraw(qh);
+    }
+
+    fn handle_luna_desktop_request(&mut self, request: luna_desktop_ipc::Request,
+                                   qh: &QueueHandle<Self>) {
+        if self.recipe.id != "xp-luna-columns" { return; }
+        use luna_desktop_ipc::Request;
+        match request {
+            Request::Arrange => {
+                // Arrange only currently visible shortcuts on each output,
+                // preserving the recipe's original order and other displays.
+                let mut columns: std::collections::HashMap<Option<String>, usize> =
+                    std::collections::HashMap::new();
+                let snapshot: Vec<_> = self.icon_layers.iter().enumerate()
+                    .filter_map(|(index, layer)| {
+                        if layer.placed.is_none() { return None; }
+                        let output = layer.bound_output.as_ref()
+                            .or(self.primary_output.as_ref()).or(layer.output.as_ref())?;
+                        Some((index, self.icon_output_name(index),
+                              self.logical_output_size(output)?))
+                    }).collect();
+                for (index, monitor, (width, height)) in snapshot {
+                    let position = columns.entry(monitor).or_default();
+                    let rows = (height.saturating_sub(self.recipe.height + 88
+                        + recipe::ICON_HEIGHT) / 104 + 1).max(1);
+                    let cols = (width.saturating_sub(24 + recipe::ICON_WIDTH) / 112 + 1).max(1);
+                    if *position < (rows as usize).saturating_mul(cols as usize) {
+                        let x = 24 + (*position as u32 / rows) * 112;
+                        let y = 88 + (*position as u32 % rows) * 104;
+                        self.move_icon(index, (x, y));
+                    }
+                    *position += 1;
+                }
+                self.save_icon_positions();
+            }
+            Request::NewFolder => match luna_desktop_ipc::new_folder() {
+                Ok(path) => {
+                    eprintln!("RicePlate: Desktop folder created: {}", path.display());
+                    // The native desktop currently displays recipe shortcuts,
+                    // not arbitrary file icons. Open the created directory in
+                    // the real file manager instead of implying it appeared
+                    // on the static desktop.
+                    if let Err(error) = Command::new("gio").arg("open").arg(&path).spawn() {
+                        eprintln!("RicePlate: new folder created but cannot open it: {error}");
+                    }
+                },
+                Err(error) => eprintln!("RicePlate: cannot create Desktop folder: {error}"),
+            },
+            Request::Refresh => {
+                self.menu_state.refresh_apps();
+                self.reflow_icons();
+                for index in 0..self.icon_layers.len() { self.redraw_icon(index); }
+                self.request_redraw(qh);
+            }
+            Request::Properties => self.launch_luna_settings("appearance"),
+        }
+    }
+
     fn luna_icon_peers(&self, index: usize) -> Vec<bool> {
         let Some(source) = self.icon_layers.get(index) else { return Vec::new() };
         // Restrict selection to visible icons on the same logical output.
@@ -1857,6 +2012,28 @@ impl RicePlate {
         }
     }
 
+    fn toggle_show_desktop(&mut self, qh: &QueueHandle<Self>) {
+        if !self.show_desktop_restore.is_empty() {
+            // Do not undo windows the user had already minimized, or newly
+            // opened windows. A closed foreign toplevel is ignored safely.
+            for task in &self.tasks {
+                if self.show_desktop_restore.iter().any(|handle| handle == &task.handle) {
+                    // The compositor may still be processing set_minimized
+                    // from a rapid double-toggle. Unset is idempotent and
+                    // must not depend on an asynchronous state callback.
+                    task.handle.unset_minimized();
+                }
+            }
+            self.show_desktop_restore.clear();
+        } else {
+            self.show_desktop_restore = self.tasks.iter()
+                .filter(|task| task.ready && !task.minimized)
+                .map(|task| task.handle.clone()).collect();
+            for handle in &self.show_desktop_restore { handle.set_minimized(); }
+        }
+        self.request_redraw(qh);
+    }
+
     fn activate_group(&mut self, index: usize) {
         let groups = self.grouped_tasks();
         if let Some(group) = groups.get(index) {
@@ -1995,8 +2172,10 @@ impl RicePlate {
             );
             let edge = if self.recipe.top { Anchor::TOP } else { Anchor::BOTTOM };
             surface.set_anchor(edge | Anchor::LEFT | Anchor::RIGHT);
-            surface.set_size(0, self.recipe.height);
-            surface.set_exclusive_zone(self.recipe.height as i32);
+            let height = luna_taskbar::panel_height(self.luna_options,
+                self.panel_collapsed, self.recipe.height);
+            surface.set_size(0, height);
+            surface.set_exclusive_zone(height as i32);
             surface.set_keyboard_interactivity(KeyboardInteractivity::OnDemand);
             surface.commit();
             self.mirrors.push(PanelMirror {
@@ -2388,6 +2567,11 @@ impl RicePlate {
     }
 
     fn activate_action(&mut self, action: &str, qh: &QueueHandle<Self>) {
+        if action == "show-desktop" {
+            if self.menu_state.visible { self.set_menu_visible(false, qh); }
+            self.toggle_show_desktop(qh);
+            return;
+        }
         if matches!(action, "run" | "help") {
             // The schema permits these only in the themed columns profile.
             if self.recipe.menu.as_ref().is_some_and(|menu|
@@ -3639,6 +3823,14 @@ fn paint_panel_pointer(canvas: &mut [u8], width: u32, height: u32,
     let visual = if style.id == "xp-luna-columns" {
         visual
     } else { PanelPointerVisual::default() };
+    if style.id == "xp-luna-columns" && height < style.height {
+        // The auto-hidden reveal strip deliberately has no controls and
+        // cannot run the full taskbar painter at a three-pixel height.
+        for pixel in canvas.chunks_exact_mut(4) {
+            pixel.copy_from_slice(&0xff4c_8beb_u32.to_le_bytes());
+        }
+        return;
+    }
     let layout = recipe::layout(style, width, groups.len());
     panel_chrome::background(canvas, width, height, style, &layout);
     for placed in layout {
@@ -3680,6 +3872,38 @@ fn paint_panel_pointer(canvas: &mut [u8], width: u32, height: u32,
             }
             Widget::Action(index) => {
                 if let Some(action) = style.actions.get(index as usize) {
+                    if style.id == "xp-luna-columns" && matches!(action.id.as_str(),
+                        "applications" | "terminal" | "show-desktop") {
+                        // Actual 32px input targets with original lightweight
+                        // quick-launch glyphs; no vendor artwork or dummy icon.
+                        let left = placed.x + 2;
+                        fill_rounded_rect(canvas, width, height, left, 5, 28,
+                                          height.saturating_sub(10), 3, 0xff1b_4a9f);
+                        fill_rect(canvas, width, height, left + 2, 7, 24, 1, 0xffa4_d7ff);
+                        match action.id.as_str() {
+                            "applications" => {
+                                fill_rect(canvas, width, height, left + 7, 12, 14, 12, 0xfff2_e0a3);
+                                fill_rect(canvas, width, height, left + 8, 10, 6, 4, 0xffff_f0bd);
+                                fill_rect(canvas, width, height, left + 9, 17, 11, 1, 0xffc7_913a);
+                            }
+                            "terminal" => {
+                                fill_rect(canvas, width, height, left + 6, 11, 17, 15, 0xffd3_e8fa);
+                                fill_rect(canvas, width, height, left + 8, 13, 13, 11, 0xff1e_3250);
+                                draw_text(canvas, width, height, left + 9, 15, ">", 0xffe5_faff);
+                            }
+                            _ => {
+                                fill_rect(canvas, width, height, left + 6, 12, 17, 12, 0xfff3_faff);
+                                fill_rect(canvas, width, height, left + 7, 13, 15, 8, 0xff59_a6e2);
+                                fill_rect(canvas, width, height, left + 12, 25, 6, 2, 0xffd6_e7fc);
+                                fill_rect(canvas, width, height, left + 9, 27, 12, 1, 0xffb9_cedf);
+                            }
+                        }
+                        if selected == Some(KeyboardTarget::Action(index)) {
+                            paint_focus_border(canvas, width, height, placed.x, placed.width,
+                                if style.focus != 0 { style.focus } else { style.foreground });
+                        }
+                        continue;
+                    }
                     let control = action.control.then(|| ControlAction::from_id(&action.id)).flatten();
                     let available = control.is_none_or(|item|
                         item.available(status) && pending.is_none());
@@ -6962,6 +7186,24 @@ impl PointerHandler for RicePlate {
             } else if &event.surface == self.layer.wl_surface() {
                 (self.width, self.height, self.task_offset)
             } else { continue; };
+            if self.luna_options.auto_hide && self.recipe.id == "xp-luna-columns" {
+                match event.kind {
+                    PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. }
+                        if self.panel_collapsed => {
+                        self.set_panel_collapsed(false, qh);
+                        // The 3px reveal handle contains no tappable actions.
+                        continue;
+                    }
+                    PointerEventKind::Leave { .. } if !self.panel_collapsed
+                        && !self.menu_state.visible && !self.calendar_state.visible
+                        && !self.tray_popup_open() && self.luna_dialog.is_none() => {
+                        self.set_panel_collapsed(true, qh);
+                        continue;
+                    }
+                    _ => {}
+                }
+                if panel_height < self.recipe.height { continue; }
+            }
             // Physical pointer feedback is local to this panel surface and
             // only changes framebuffer paint state, never the click target.
             // No polling: redraw only when target or pressed state changes.
@@ -7036,7 +7278,14 @@ impl PointerHandler for RicePlate {
                             && self.recipe.id == "xp-luna-columns" => {
                             self.open_luna_status_menu(Widget::Clock, &event.surface, qh);
                         }
-                        _ if button == BTN_RIGHT => {},
+                        _ if button == BTN_RIGHT => {
+                            if self.recipe.id == "xp-luna-columns" {
+                                // Right-clicking empty taskbar/task buttons opens
+                                // the existing genuine RiceSpice taskbar page.
+                                // Provider-owned tray and clock menus win above.
+                                self.launch_luna_settings("taskbar");
+                            }
+                        },
                         Some(Hit::Launcher) => {
                             if self.focused_panel.as_ref() == Some(&event.surface) {
                                 self.focused_target = Some(KeyboardTarget::Launcher);
@@ -7499,6 +7748,42 @@ mod tests {
         assert_eq!(bar_pixel(&filled, 18), style.foreground);
         assert_eq!(bar_pixel(&filled, 220), style.active);
         assert_eq!(bar_pixel(&error, 18), style.background);
+    }
+
+    #[test]
+    fn luna_quick_launch_uses_exact_real_input_slots_and_collapsed_handle_is_inert() {
+        let luna = recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let width = 1366;
+        let placed = recipe::layout(&luna, width, 2);
+        let commands: Vec<_> = placed.iter().filter_map(|item| match item.widget {
+            Widget::Action(index) =>
+                luna.actions.get(index as usize)
+                    .map(|action| (action.id.as_str(), item.x, item.width, index)),
+            _ => None,
+        }).collect();
+        assert_eq!(commands.len(), 3);
+        assert_eq!(commands.iter().map(|slot| slot.0).collect::<Vec<_>>(),
+                   vec!["applications", "terminal", "show-desktop"]);
+        for (_, x, span, index) in &commands {
+            assert_eq!(*span, 32);
+            assert_eq!(recipe::hit(f64::from(*x + 16), width, 2, 0, &luna),
+                       Some(Hit::Action(*index)));
+        }
+        let mut expanded = vec![0; (width * luna.height * 4) as usize];
+        paint_panel(&mut expanded, width, luna.height, &luna, &[], "12:00",
+                    &PowerStatus::NotPresent, &SystemStatus::default(),
+                    &tray::State::default(), 0, None, None, None);
+        let mut collapsed = vec![0; (width * luna_taskbar::HANDLE_HEIGHT * 4) as usize];
+        paint_panel(&mut collapsed, width, luna_taskbar::HANDLE_HEIGHT, &luna,
+                    &[], "12:00", &PowerStatus::NotPresent,
+                    &SystemStatus::default(), &tray::State::default(),
+                    0, None, None, None);
+        assert!(collapsed.chunks_exact(4).all(|pixel| pixel[3] == 255));
+        assert_ne!(&collapsed[..4], &expanded[..4]);
+        let classic = recipe::load("classic").unwrap();
+        assert!(!classic.actions.iter().any(|action| action.id == "show-desktop"));
     }
 
     #[test]
