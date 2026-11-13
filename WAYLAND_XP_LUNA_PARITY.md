@@ -336,8 +336,11 @@ The native SNI tray now preserves provider slot identity as existing
 StatusNotifier items change attention status: keyboard and pointer targets
 do not unexpectedly switch providers. Newly discovered icons are appended
 after existing ones, with a bounded 32-icon view and the existing real
-overflow chevron. Luna status menus continue to use their existing
-capability-gated backends.
+overflow chevron. Owner-local Luna network/audio/power/clock menus now share
+the compact, headerless XP task popup skin, hit geometry and input region,
+but retain the existing capability-gated backends. **External provider-owned
+SNI menus still use their own generic nested menu path**, not this local
+window/status skin, preserving their D-Bus submenu semantics.
 
 **Software gate, not hardware acceptance:** the isolated `labwc` smoke
 launches two actual `foot` windows with the same app ID, captures their
@@ -345,7 +348,9 @@ native group context via `grim`, terminates one while the popup is open,
 and checks that the popup is dismissed while the surviving window remains
 alive. New artifact names are `luna-grouped-taskbar.png`,
 `luna-grouped-window-menu.png`, `luna-group-menu-dismissed.png`
-and `luna-single-after-group-close.png`. These filenames describe a **CI
+`luna-single-after-group-close.png` and the additional local status capture
+`luna-clock-status-popup.png`. The latter must show the real clock menu
+without the old full-height SNI-style header. These filenames describe a **CI
 test implementation**, not a claim that a current-head screenshot artifact
 has already passed. The test only gates completion when exact-head native
 CI has run successfully.
