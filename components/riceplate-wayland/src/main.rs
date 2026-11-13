@@ -6809,8 +6809,45 @@ impl PointerHandler for RicePlate {
                 menu.popup.wl_surface() == &event.surface) {
                 let mut activate = None;
                 let mut repaint = false;
+                let mut confirm_trash = false;
                 if let Some(menu) = self.desktop_context.as_mut() {
-                    if menu.properties {
+                    if menu.file_operation.is_some() {
+                        let back = desktop_context::back_hit(
+                            event.position.0, event.position.1);
+                        let yes = matches!(menu.file_operation,
+                            Some(desktop_context::FileOperation::ConfirmTrash))
+                            && event.position.0.is_finite() && event.position.1.is_finite()
+                            && (5.0..f64::from(desktop_context::WIDTH - 5)).contains(&event.position.0)
+                            && (84.0..111.0).contains(&event.position.1);
+                        match event.kind {
+                            PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
+                                if menu.back_hovered != back { repaint = true; }
+                                menu.back_hovered = back;
+                            }
+                            PointerEventKind::Leave { .. } => {
+                                menu.back_hovered = false;
+                                menu.back_pressed = false;
+                                menu.pressed = None;
+                                repaint = true;
+                            }
+                            PointerEventKind::Press { button: BTN_LEFT, .. } => {
+                                menu.back_pressed = back;
+                                menu.pressed = yes.then_some(DesktopContextAction::AllDisplays);
+                            }
+                            PointerEventKind::Release { button: BTN_LEFT, .. } => {
+                                if menu.back_pressed && back {
+                                    menu.file_operation = None;
+                                    repaint = true;
+                                } else if menu.pressed.take() == Some(DesktopContextAction::AllDisplays)
+                                    && yes {
+                                    confirm_trash = true;
+                                }
+                                menu.back_pressed = false;
+                                menu.pressed = None;
+                            }
+                            _ => (),
+                        }
+                    } else if menu.properties {
                         let back = desktop_context::back_hit(
                             event.position.0, event.position.1);
                         match event.kind {
@@ -6872,7 +6909,9 @@ impl PointerHandler for RicePlate {
                         }
                     }
                 }
-                if let Some(action) = activate {
+                if confirm_trash {
+                    self.confirm_file_trash(qh);
+                } else if let Some(action) = activate {
                     self.choose_desktop_context(action, qh);
                 } else if repaint {
                     self.redraw_desktop_context();
@@ -8422,6 +8461,17 @@ mod tests {
                               None, false, true, false, None, false, None);
         assert_eq!(pixel(&reset, 12, desktop_context::row(DesktopContextAction::ResetPosition)),
                    0xff36_6ac9);
+        let rename = desktop_context::RenameInput::new("Grüße").unwrap();
+        let mut renaming = vec![0; bytes];
+        paint_desktop_context(&mut renaming, &style, DesktopContextAction::Open, None,
+                              true, true, false, Some(("Grüße", "desktop-file:0")),
+                              false, Some(&desktop_context::FileOperation::Rename(rename)));
+        assert_ne!(renaming, before);
+        let mut confirming = vec![0; bytes];
+        paint_desktop_context(&mut confirming, &style, DesktopContextAction::Open, None,
+                              true, true, false, Some(("Grüße", "desktop-file:0")),
+                              false, Some(&desktop_context::FileOperation::ConfirmTrash));
+        assert_ne!(confirming, renaming);
     }
 
     #[test]
