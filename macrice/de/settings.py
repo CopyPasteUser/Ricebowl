@@ -301,6 +301,35 @@ LUNA_CSS = b"""
   box-shadow: inset 1px 1px #fff; padding: 7px 11px;
 }
 .ricespice-luna .ricespice-action:hover { background: #bdd5f9; }
+/* Standalone Luna dialogs are siblings of RiceSpice, not descendants of
+   its main content box. Reuse the era widgets without drawing a titlebar. */
+.luna-owned-dialog {
+  background-color: #ece9d8; color: #1d2531;
+  font-family: "Liberation Sans", "Tahoma", sans-serif; font-size: 12px;
+}
+.luna-owned-dialog button {
+  background-image: linear-gradient(to bottom, #fffefd, #e5e3d8);
+  border: 1px solid #8993a2; border-radius: 3px;
+  box-shadow: inset 1px 1px #ffffff;
+  color: #252d3b; padding: 4px 11px; text-shadow: none;
+}
+.luna-owned-dialog button:hover { border-color: #4375ae; background: #f2f8ff; }
+.luna-owned-dialog button:focus, .luna-owned-dialog entry:focus,
+.luna-owned-dialog notebook tab:focus {
+  outline: 2px solid #e9a343; outline-offset: -2px;
+}
+.luna-owned-dialog entry, .luna-owned-dialog textview {
+  background-color: #ffffff; border: 1px solid #8c9aab;
+  color: #273243;
+}
+.luna-owned-dialog notebook > header {
+  background: #ece9d8; border-bottom: 1px solid #9eaabd;
+}
+.luna-owned-dialog notebook tab {
+  padding: 5px 12px; background: #dbdacf;
+  border: 1px solid #9da6b5; border-radius: 3px 3px 0 0;
+}
+.luna-owned-dialog notebook tab:checked { background: #ffffff; color: #173f7d; }
 """
 
 
