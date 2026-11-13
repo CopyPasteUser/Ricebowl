@@ -5,7 +5,7 @@ set -eu
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 native="$root/components/riceplate-wayland/target/release/riceplate-native"
 clicker="$root/components/riceplate-wayland/target/release/examples/wayland_pointer_click"
-for command in labwc grim dbus-run-session wlr-randr; do
+for command in labwc grim dbus-run-session wlr-randr wtype; do
     command -v "$command" >/dev/null || { echo "Missing: $command" >&2; exit 1; }
 done
 test -x "$native" && test -x "$clicker"
@@ -66,9 +66,12 @@ dbus-run-session -- sh -eu -c '
     WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 120 585 1024 768
     sleep .4
     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/menu-open.png"
-    # Outside click dismisses Start. No new panel Leave event is expected:
-    # this is the precise stale-expanded-state regression being tested.
-    WAYLAND_DISPLAY=wayland-0 "$clicker" 760 450 1024 768
+    # labwc does NOT deliver off-surface wallpaper clicks to RicePlate.
+    # Dismiss through the native Start menu keyboard Escape handler, while
+    # the pointer remains off the panel. This exercises popup focus and
+    # exactly the state transition that previously left Auto-hide open.
+    WAYLAND_DISPLAY=wayland-0 "$clicker" 120 375 1024 768
+    WAYLAND_DISPLAY=wayland-0 wtype -k Escape
     sleep .45
     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/menu-closed.png"
     /usr/bin/python3 - "$runtime" <<PY
