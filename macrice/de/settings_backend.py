@@ -349,9 +349,14 @@ def connect_secure_visible_wifi(ssid: str, password: str) -> bool:
     """Send a transient WPA-Personal passphrase through the existing stdin adapter."""
     from macrice import hardware_status
 
-    if (type(password) is not str or not 8 <= len(password) <= 63
-            or any(character in password for character in ("\r", "\n", "\x00"))):
-        raise SettingsError("WPA passphrase must be 8–63 characters without line breaks")
+    if type(password) is not str:
+        raise SettingsError("WPA passphrase must be 8–63 UTF-8 bytes without line breaks")
+    try:
+        size = len(password.encode("utf-8"))
+    except UnicodeEncodeError as exc:
+        raise SettingsError("WPA passphrase contains invalid Unicode") from exc
+    if not 8 <= size <= 63 or any(char in password for char in ("\r", "\n", "\x00")):
+        raise SettingsError("WPA passphrase must be 8–63 UTF-8 bytes without line breaks")
     network = _visible_wifi(ssid)
     security = network["security"].upper()
     if "WPA" not in security or "802.1X" in security or "EAP" in security:
