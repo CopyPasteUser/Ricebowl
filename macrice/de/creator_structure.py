@@ -116,15 +116,19 @@ def _parent(nodes: list[dict[str, Any]], path: tuple[int, ...]
 
 def edit_layout(manifest: dict[str, Any], section: str, path: tuple[int, ...],
                 action: str, *, node: dict[str, Any] | None = None,
-                compact: bool = False) -> list[dict[str, Any]]:
+                compact: bool = False,
+                target_index: int | None = None) -> list[dict[str, Any]]:
     """Edit group children and leaves, including reversible grouping/ungrouping.
 
     `path=()` targets the lane for `add`; otherwise indices identify a node,
     traversing group children at every level. Never accepts JSON pointer text
     or arbitrary code; the runtime parser validates the entire resulting rice.
     """
-    if section not in recipes.SECTIONS or type(path) is not tuple:
-        raise StructureError("Unknown panel lane or element address")
+    if (section not in recipes.SECTIONS or type(path) is not tuple
+            or type(compact) is not bool):
+        raise StructureError("Unknown panel lane, responsive mode or element address")
+    if action != "add" and target_index is not None:
+        raise StructureError("Insertion position applies only when adding an element")
     if manifest.get("schema_version", 0) < 10:
         raise StructureError("Visual structure editor needs a schema-v10 draft")
     proposal = copy.deepcopy(manifest)
@@ -142,7 +146,11 @@ def edit_layout(manifest: dict[str, Any], section: str, path: tuple[int, ...],
             target = group["children"]
         else:
             target = roots
-        target.append(copy.deepcopy(node))
+        if target_index is None:
+            target_index = len(target)
+        if type(target_index) is not int or not 0 <= target_index <= len(target):
+            raise StructureError("Insertion position is outside the selected container")
+        target.insert(target_index, copy.deepcopy(node))
     else:
         parent, index = _parent(roots, path)
         current = parent[index]
@@ -154,6 +162,10 @@ def edit_layout(manifest: dict[str, Any], section: str, path: tuple[int, ...],
             if current.get("type") == "group":
                 raise StructureError("Ungroup its children before removing a group")
             parent.pop(index)
+        elif action == "duplicate":
+            # The full parser refuses clones of single-instance widgets/actions;
+            # reusable static labels, gaps and decorative groups remain valid.
+            parent.insert(index + 1, copy.deepcopy(current))
         elif action == "up" or action == "down":
             target = index + (-1 if action == "up" else 1)
             if not 0 <= target < len(parent):

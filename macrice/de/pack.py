@@ -485,9 +485,24 @@ def _validate_archive(source: Path | bytes) -> tuple[dict[str, Any], bytes, byte
 
 def inspect_pack(source: Path) -> dict[str, Any]:
     """Verify all archive entries, fingerprints and the real recipe schema."""
-    metadata, _, _, _, _ = _validate_archive(source)
+    metadata, payload, wallpaper, visual, _ = _validate_archive(source)
+    recipe = recipes.parse(payload)
+    embedded = (["assets/wallpaper.png"] if wallpaper is not None else [])
+    embedded.extend(sorted(visual))
+    # A valid archive does not prove that labwc, audio/network providers, or
+    # native RicePlate are installed on the destination machine.
+    compatibility = {
+        "recipe_schema_version": recipe.schema_version,
+        "host_backends_checked": False,
+        "native_required_for_desktop_layers": recipe.schema_version >= 5,
+        "embedded_assets": embedded,
+        "assets_integrity_verified": True,
+        "arbitrary_scripts_allowed": False,
+        "activates_on_import": False,
+    }
     return {"pack_version": metadata["format_version"], "ok": True, "valid": True,
-            "imported": False, "applied": False, "manifest": metadata}
+            "imported": False, "applied": False, "manifest": metadata,
+            "compatibility": compatibility}
 
 
 def _preflight_import(metadata: dict[str, Any], payload: bytes,
