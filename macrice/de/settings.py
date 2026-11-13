@@ -34,6 +34,37 @@ SECTIONS = (
 )
 
 
+# Same native Linux backends, but Luna's familiar Control Panel category
+# organization and layout. No XFCE configuration is changed from this view.
+LUNA_SECTIONS = (
+    ("appearance", "Appearance and Themes", "Choose the RiceBowl appearance for next login"),
+    ("network", "Network and Internet Connections", "Real Wi-Fi radio and saved connections"),
+    ("audio", "Sounds and Audio Devices", "Real output, input and player controls"),
+    ("displays", "Display", "Wayland displays, scaling and safe rollback"),
+    ("input", "Mouse and Keyboard", "Input settings for the next RiceBowl login"),
+    ("bluetooth", "Bluetooth Devices", "Real adapter and paired devices"),
+    ("power", "Performance and Maintenance", "Power profiles and session controls"),
+    ("timezone", "Date, Time and Regional Options", "Time zone and time synchronization"),
+    ("accessibility", "Accessibility Options", "Assistive preferences for next login"),
+    ("notifications", "Notifications", "RicePop history and banner preferences"),
+    ("taskbar", "Taskbar and Start Menu", "XP panel actions and notification area"),
+)
+
+LUNA_ICONS = {
+    "appearance": "preferences-desktop-theme",
+    "network": "network-workgroup",
+    "audio": "audio-card",
+    "displays": "video-display",
+    "input": "input-mouse",
+    "bluetooth": "bluetooth",
+    "power": "preferences-system-power",
+    "timezone": "preferences-system-time",
+    "accessibility": "preferences-desktop-accessibility",
+    "notifications": "preferences-desktop-notification",
+    "taskbar": "preferences-desktop",
+}
+
+
 def _gtk_modules():
     import gi
 
@@ -62,10 +93,53 @@ CSS = b"""
 .ricespice-state { padding: 13px 0 4px; color: #244c6e; }
 """
 
+# Applied only to XP Luna. Other rices retain their existing appearance.
+LUNA_CSS = b"""
+.ricespice-luna.ricespice-window {
+  background: #ece9d8; color: #202020;
+  font-family: "Tahoma", "Liberation Sans", sans-serif; font-size: 12px;
+}
+.ricespice-luna .ricespice-nav {
+  background: #f4f5fa; padding: 10px 6px;
+  border-right: 2px solid #7d9cc1;
+}
+.ricespice-luna .ricespice-brand {
+  color: #174c91; font-size: 19px; font-weight: 700; margin: 8px 10px 16px;
+}
+.ricespice-luna .ricespice-nav button {
+  background: transparent; color: #174c91; text-shadow: none;
+  border: 1px solid transparent; border-radius: 1px;
+  box-shadow: none; padding: 7px 8px; font-weight: 400;
+}
+.ricespice-luna .ricespice-nav button:hover {
+  background: #dceafa; border-color: #90b2dc;
+}
+.ricespice-luna .ricespice-nav button:checked {
+  background: #316ac5; color: #ffffff; border-color: #174c91; font-weight: 700;
+}
+.ricespice-luna .ricespice-content { padding: 23px 26px; }
+.ricespice-luna .ricespice-title { font-size: 20px; color: #164a91; }
+.ricespice-luna .ricespice-desc { color: #515151; }
+.ricespice-luna .ricespice-section { color: #164a91; font-weight: 700; }
+.ricespice-luna .ricespice-note { color: #595959; }
+.ricespice-luna .ricespice-state { color: #245084; }
+.ricespice-luna .ricespice-action {
+  background: #d4e4fb; color: #153b72; text-shadow: none;
+  border: 1px solid #7b9ac7; border-radius: 2px;
+  box-shadow: inset 1px 1px #fff, inset -1px -1px #9faec6; padding: 7px 11px;
+}
+.ricespice-luna .ricespice-action:hover { background: #bed7fb; }
+"""
+
 
 class RiceSpiceWindow:
-    def __init__(self, Gtk, Gdk, GLib):
+    def __init__(self, Gtk, Gdk, GLib, *, page: str = "network",
+                 luna: bool = False):
         self.Gtk, self.GLib = Gtk, GLib
+        self.luna = luna
+        self.sections = LUNA_SECTIONS if luna else SECTIONS
+        if page not in {section[0] for section in self.sections}:
+            raise backend.SettingsError("Unknown RiceSpice settings page")
         self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ricespice")
         self.worker_slots = threading.BoundedSemaphore(2)
         self.generation = 0
@@ -74,30 +148,43 @@ class RiceSpiceWindow:
         self.page = "network"
         self._selecting_nav = False
         provider = Gtk.CssProvider()
-        provider.load_from_data(CSS)
+        provider.load_from_data(CSS + LUNA_CSS)
         if Gdk.Screen.get_default() is not None:
             Gtk.StyleContext.add_provider_for_screen(
                 Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
-        self.window = Gtk.Window(title="RiceSpice · System settings")
-        self.window.set_default_size(810, 580)
+        self.window = Gtk.Window(title=("Control Panel · RiceBowl Luna" if luna
+                                        else "RiceSpice · System settings"))
+        self.window.set_default_size(850 if luna else 810, 600 if luna else 580)
         self.window.set_size_request(570, 400)
         self.window.get_style_context().add_class("ricespice-window")
+        if luna:
+            self.window.get_style_context().add_class("ricespice-luna")
         self.window.connect("destroy", self._close)
         root = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         self.window.add(root)
         navigation = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
-        navigation.set_size_request(215, -1)
+        navigation.set_size_request(264 if luna else 215, -1)
         navigation.get_style_context().add_class("ricespice-nav")
         root.pack_start(navigation, False, False, 0)
-        brand = Gtk.Label(label="RiceSpice")
+        brand = Gtk.Label(label="Control Panel" if luna else "RiceSpice")
         brand.set_xalign(0)
         brand.get_style_context().add_class("ricespice-brand")
         navigation.pack_start(brand, False, False, 0)
         self.nav_buttons = {}
-        for key, title, _description in SECTIONS:
-            button = Gtk.ToggleButton(label=title)
-            button.get_child().set_xalign(0)
+        for key, title, _description in self.sections:
+            if luna:
+                button = Gtk.ToggleButton()
+                label_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
+                glyph = Gtk.Image.new_from_icon_name(LUNA_ICONS[key], Gtk.IconSize.MENU)
+                text = Gtk.Label(label=title, xalign=0)
+                text.set_line_wrap(True)
+                label_box.pack_start(glyph, False, False, 0)
+                label_box.pack_start(text, True, True, 0)
+                button.add(label_box)
+            else:
+                button = Gtk.ToggleButton(label=title)
+                button.get_child().set_xalign(0)
             button.get_accessible().set_name(f"RiceSpice {title} settings")
             button.connect("clicked", lambda _button, name=key:
                            None if self._selecting_nav else self.show_page(name))
@@ -110,7 +197,7 @@ class RiceSpiceWindow:
         self.content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=13)
         self.content.get_style_context().add_class("ricespice-content")
         viewport.add(self.content)
-        self.show_page("network")
+        self.show_page(page)
         self.window.show_all()
 
     def _close(self, _window):
@@ -186,7 +273,8 @@ class RiceSpiceWindow:
             self._selecting_nav = False
         for widget in tuple(self.content.get_children()):
             widget.destroy()
-        _key, title, description = next(section for section in SECTIONS if section[0] == name)
+        _key, title, description = next(section for section in self.sections
+                                        if section[0] == name)
         self._text(title, css="ricespice-title")
         self._text(description, css="ricespice-desc")
         self.status = self._label("", css="ricespice-state")
@@ -205,6 +293,8 @@ class RiceSpiceWindow:
             self._timezone()
         elif name == "appearance":
             self._appearance()
+        elif name == "taskbar":
+            self._taskbar()
         elif name in ("input", "accessibility"):
             self._preferences(name)
         elif name == "displays":
@@ -1140,6 +1230,29 @@ class RiceSpiceWindow:
 
         self._button("Suspend computer…", confirm)
 
+    def _taskbar(self):
+        """Actual settings destinations; never pretend XP shell flags are live."""
+        self._text("The XP taskbar displays real running applications, the "
+                   "StatusNotifier app tray, and live NetworkManager, audio, "
+                   "power and clock status.", css="ricespice-note")
+        self._text("Notification area", css="ricespice-section")
+        for title, page in (
+            ("Customize notification alerts...", "notifications"),
+            ("Network connections...", "network"),
+            ("Volume and audio devices...", "audio"),
+            ("Power options...", "power"),
+            ("Adjust date and time...", "timezone"),
+        ):
+            self._button(title, lambda destination=page: self.show_page(destination))
+        self._text("Start Menu", css="ricespice-section")
+        self._button("Change desktop appearance...", lambda: self.show_page("appearance"))
+        self._text("Start favorites and recent programs are managed inside "
+                   "the native Start menu. Per-icon hiding, taskbar locking and "
+                   "auto-hide are not currently available on the native panel.",
+                   css="ricespice-note")
+        self._state("Native Luna taskbar · installed app icons remain available "
+                    "through the tray overflow menu")
+
     def _appearance(self):
         self._text("Changes here apply at the next RiceBowl Wayland login, not immediately.",
                    css="ricespice-note")
@@ -1176,7 +1289,9 @@ class RiceSpiceWindow:
             self._state(f"Rice selection unavailable: {exc}")
 
 
-def launch() -> None:
+def launch(*, page: str = "network", luna: bool = False) -> None:
+    if page not in {section[0] for section in (LUNA_SECTIONS if luna else SECTIONS)}:
+        raise backend.SettingsError("This settings page is unavailable")
     try:
         Gtk, Gdk, GLib = _gtk_modules()
     except (ImportError, ValueError) as exc:
@@ -1184,7 +1299,7 @@ def launch() -> None:
     ok, _arguments = Gtk.init_check([])
     if not ok:
         raise backend.SettingsError("A working graphical display is required for RiceSpice")
-    RiceSpiceWindow(Gtk, Gdk, GLib)
+    RiceSpiceWindow(Gtk, Gdk, GLib, page=page, luna=luna)
     Gtk.main()
 
 

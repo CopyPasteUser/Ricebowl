@@ -228,6 +228,15 @@ pub fn status_icon(canvas: &mut [u8], width: u32, height: u32,
             fill_rect(canvas, width, height, left + 11, top + 5, 1, 7, 0xfff2_ffff);
             fill_rect(canvas, width, height, left + 13, top + 3, 1, 11, 0xff9b_e9ff);
         }
+        Widget::Battery => {
+            // Original 16px silver battery silhouette with green charge fill.
+            fill_rect(canvas, width, height, left + 2, top + 4, 13, 10, outline);
+            fill_rect(canvas, width, height, left + 3, top + 5, 11, 8, shine);
+            fill_rect(canvas, width, height, left + 5, top + 7, 7, 4,
+                      if unavailable { 0xffa4_b1be } else { 0xff69_bf44 });
+            fill_rect(canvas, width, height, left + 15, top + 7, 2, 4, outline);
+            fill_rect(canvas, width, height, left + 3, top + 5, 11, 1, 0xff9e_c6e1);
+        }
         _ => return,
     }
     if unavailable {
@@ -284,6 +293,19 @@ mod tests {
         background(&mut pixels, 400, 36, &style, &[]);
         assert!(pixels.chunks_exact(4).all(|pixel|
             pixel == style.background.to_le_bytes().as_slice()));
+    }
+
+    #[test]
+    fn battery_status_glyph_is_bounded_and_reflects_absence() {
+        let (width, height) = (80, 40);
+        let mut available = vec![0_u8; (width * height * 4) as usize];
+        let mut absent = available.clone();
+        status_icon(&mut available, width, height, 0, 28, Widget::Battery, false);
+        status_icon(&mut absent, width, height, 0, 28, Widget::Battery, true);
+        assert_ne!(available, absent);
+        assert!(available.iter().any(|byte| *byte != 0));
+        assert!(available.chunks_exact(4).skip((width * 2) as usize)
+            .any(|pixel| pixel != [0, 0, 0, 0]));
     }
 
     #[test]
