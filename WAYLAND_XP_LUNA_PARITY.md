@@ -141,3 +141,28 @@ non-Luna rices and the private recent-history format remain unchanged.
 This is tested XDG discovery and menu ordering, **not** a hard-coded browser
 or mail app installed by RiceBowl, and not a full XP Internet/E-mail preference
 editor.
+
+## Native XP Luna fidelity: layered taskbar and Start-menu hierarchy
+
+The opt-in `xp-luna-columns` renderer uses a brighter cobalt rim, a darker
+taskbar underside, a real status-area boundary, and distinct raised/recessed
+task-button states. The Start button gains an additional bounded green bevel.
+The original RiceBowl user tile now has a more substantial recessed frame;
+the two menu columns have independent ivory / pale-blue faces and a beveled
+session footer. Enlarged (400×380 or 480×456) menus smooth the *same*
+320×304 logical canvas; no pointer/action geometry is inferred from pixels.
+
+The first XP-like **functional** menu reorganization shows the two actually
+discovered/persisted-recent program previews at the top left, the real Terminal
+action in the center, and the real All Programs action just above the footer.
+These are shared `MenuTile` hit targets, not inactive imitation rows. Mouse,
+keyboard, AT summaries, and virtual-pointer labwc smoke use the same order.
+The fallback recipe without a Luna palette, all other rices and compact menu
+layout retain their previous behavior. Unknown XDG apps receive an original
+generic application-window symbol, never a pretend vendor icon.
+
+The [native CI workflow](.github/workflows/riceplate-native.yml) exercises
+the moved All Programs pointer target and full-resolution labwc/grim captures
+at 1024×768, 1366×768, 1920×1080 and 125% output scale. Visual correctness on
+headless pixman is *not* a physical Mint/ThinkPad 1:1 XP acceptance, and this
+pass does not claim an original Microsoft theme.

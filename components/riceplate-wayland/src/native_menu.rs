@@ -480,6 +480,44 @@ impl MenuState {
         let mut index = 0;
         let mut top = COLUMNS_TOP;
         let left_width = COLUMNS_SPLIT - COLUMNS_LEFT - 8;
+        // The XP Luna presentation is an actual two-column Start menu, not
+        // a conventional section list. Keep frequent installed applications
+        // at the top, the terminal in the central program area, and the real
+        // All Programs action directly above the footer. Crucially these are
+        // the SAME MenuTile bounds consumed by pointer, keyboard and AT.
+        let luna_start = menu.palette.is_some() && sources.len() == 2
+            && sources[0].kind == MenuContentKind::Actions
+            && sources[1].kind == MenuContentKind::AppsList
+            && programs.actions.iter().map(String::as_str)
+                .eq(["applications", "terminal"]);
+        if luna_start {
+            let preview = self.luna_preview_apps(sources[1].limit);
+            let mut items = Vec::with_capacity(preview.len());
+            for (row, action) in preview.into_iter().enumerate() {
+                items.push(MenuTile {
+                    action, index, x: COLUMNS_LEFT, y: 58 + row as u32 * 30,
+                    width: left_width, height: 30, grid: false,
+                });
+                index += 1;
+            }
+            result.push(MenuSection {
+                title: &sources[1].title, x: COLUMNS_LEFT,
+                kind: MenuContentKind::AppsList, top: 42, items,
+            });
+            let mut items = Vec::with_capacity(2);
+            for (action, y, h) in [("terminal", 142_u32, 30_u32),
+                                   ("applications", 242, 28)] {
+                items.push(MenuTile {
+                    action, index, x: COLUMNS_LEFT, y,
+                    width: left_width, height: h, grid: false,
+                });
+                index += 1;
+            }
+            result.push(MenuSection {
+                title: &sources[0].title, x: COLUMNS_LEFT,
+                kind: MenuContentKind::Actions, top: 128, items,
+            });
+        } else {
         for source in sources {
             let actions: Vec<&str> = match source.kind {
                 MenuContentKind::Actions => programs.actions.iter().map(String::as_str)
@@ -511,6 +549,7 @@ impl MenuState {
                                       kind: source.kind, top, items });
             let rows = if grid { source.limit.div_ceil(2) } else { source.limit };
             top += CONTENT_HEADER_HEIGHT + rows as u32 * row_height;
+        }
         }
 
         let right_count = menu.groups.iter().skip(1)
@@ -1018,11 +1057,46 @@ mod tests {
         let legacy_sections = state.composed_sections(classic).unwrap();
         assert_eq!(legacy_sections[2].items[0].y, COLUMNS_TOP + CONTENT_HEADER_HEIGHT);
         assert_eq!(legacy_sections[2].items[0].height, CONTENT_LIST_HEIGHT);
-        // Fixed left-column All Programs remains the first real action.
-        assert_eq!(state.hit(menu, 20.0, 116.0), Some(Hit::Action(0)));
+        // The bottom All Programs row is a real hit target, not painted
+        // decoration. The first preview row is keyboard index zero.
+        assert_eq!(state.hit(menu, 20.0, 255.0), Some(Hit::Action(3)));
+        assert_eq!(state.actions(menu)[3], "applications");
+        assert_eq!(state.hit(menu, 20.0, 70.0), Some(Hit::Action(0)));
+        assert!(state.actions(menu)[0].starts_with("desktop:"));
         state.selected = 0;
         state.horizontal_by(menu, 1);
         assert!(state.selected >= 4 && state.selected <= 9);
+    }
+
+    #[test]
+    fn luna_program_column_is_ordered_and_hit_tested_like_xp() {
+        let style = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let menu = style.menu.as_ref().unwrap();
+        let mut state = MenuState::default();
+        state.apps = demo_apps(2);
+        state.open();
+        let sections = state.composed_sections(menu).unwrap();
+        let left: Vec<_> = sections.iter().filter(|section| section.x < COLUMNS_SPLIT)
+            .flat_map(|section| &section.items).collect();
+        assert_eq!(left.len(), 4);
+        assert_eq!(left.iter().map(|tile| tile.index).collect::<Vec<_>>(),
+                   vec![0, 1, 2, 3]);
+        assert!(left[0].action.starts_with("desktop:"));
+        assert_eq!(left[2].action, "terminal");
+        assert_eq!(left[3].action, "applications");
+        assert!(left.windows(2).all(|pair| pair[0].y < pair[1].y));
+        assert!(left.iter().all(|tile| tile.y >= 38 &&
+            tile.y + tile.height <= LUNA_FOOTER_Y));
+        assert_eq!(state.hit(menu, 60.0, 255.0), Some(Hit::Action(3)));
+        assert_eq!(state.hit(menu, 60.0, 150.0), Some(Hit::Action(2)));
+        assert_eq!(state.hit(menu, 60.0, 222.0), None);
+        // Keyboard and pointer order must remain consistent after the move.
+        state.selected = 2;
+        assert_eq!(state.current_action(menu), Some("terminal"));
+        state.select_by(menu, 1);
+        assert_eq!(state.current_action(menu), Some("applications"));
     }
 
     #[test]
@@ -1041,7 +1115,8 @@ mod tests {
         let plain_menu = plain.menu.as_mut().unwrap();
         plain_menu.palette = None;
         assert_eq!(state.visible_label(plain_menu, "applications", false), "Applications");
-        assert_eq!(state.hit(menu, 20.0, 116.0), Some(Hit::Action(0)));
+        assert_eq!(state.hit(menu, 20.0, 255.0), Some(Hit::Action(3)));
+        assert_eq!(state.actions(menu)[3], "applications");
 
         state.show_programs();
         assert_eq!(state.view, View::Programs);
@@ -1059,7 +1134,8 @@ mod tests {
         assert!(state.pins.is_empty());
         state.search_button();
         assert_eq!(state.view, View::Groups);
-        assert_eq!(state.current_action(menu), Some("applications"));
+        // Returning from All Programs selects the first real preview app.
+        assert_eq!(state.current_action(menu), Some("desktop:demo-0.desktop"));
 
         state.show_programs();
         assert!(state.search_input("8"));
@@ -1150,21 +1226,21 @@ mod tests {
             app("z-viewer.desktop", "Viewer"),
         ];
         state.open();
-        assert_eq!(&state.actions(menu)[2..4],
+        assert_eq!(&state.actions(menu)[..2],
                    &["desktop:firefox.desktop", "desktop:thunderbird.desktop"]);
         assert!(state.record_app_launch("desktop:z-viewer.desktop"));
-        assert_eq!(&state.actions(menu)[2..4],
+        assert_eq!(&state.actions(menu)[..2],
                    &["desktop:z-viewer.desktop", "desktop:firefox.desktop"]);
         assert!(state.record_app_launch("desktop:thunderbird.desktop"));
-        assert_eq!(&state.actions(menu)[2..4],
+        assert_eq!(&state.actions(menu)[..2],
                    &["desktop:thunderbird.desktop", "desktop:z-viewer.desktop"]);
         state.recent_apps.clear();
         state.apps.retain(|app| app.action != "desktop:thunderbird.desktop");
-        assert_eq!(&state.actions(menu)[2..4],
+        assert_eq!(&state.actions(menu)[..2],
                    &["desktop:firefox.desktop", "desktop:a-editor.desktop"]);
         // No phantom Browser or Mail entries on systems lacking both.
         state.apps.retain(|app| app.action != "desktop:firefox.desktop");
-        assert_eq!(&state.actions(menu)[2..4],
+        assert_eq!(&state.actions(menu)[..2],
                    &["desktop:a-editor.desktop", "desktop:z-viewer.desktop"]);
     }
 
@@ -1197,18 +1273,18 @@ mod tests {
         let mut state = MenuState::default();
         state.apps = demo_apps(12);
         state.open();
-        assert_eq!(&state.actions(menu)[2..4],
+        assert_eq!(&state.actions(menu)[..2],
                    &["desktop:demo-0.desktop", "desktop:demo-1.desktop"]);
         assert!(!state.record_app_launch("terminal"));
         assert!(!state.record_app_launch("desktop:unindexed.desktop"));
         assert!(state.record_app_launch("desktop:demo-9.desktop"));
         assert!(state.record_app_launch("desktop:demo-4.desktop"));
         assert!(state.record_app_launch("desktop:demo-9.desktop"));
-        assert_eq!(&state.actions(menu)[2..4],
+        assert_eq!(&state.actions(menu)[..2],
                    &["desktop:demo-9.desktop", "desktop:demo-4.desktop"]);
         assert_eq!(state.recent_apps.len(), 2);
         state.open();
-        assert_eq!(&state.actions(menu)[2..4],
+        assert_eq!(&state.actions(menu)[..2],
                    &["desktop:demo-9.desktop", "desktop:demo-4.desktop"]);
 
         // The unfiltered All Programs index and non-Luna columns remain
@@ -1222,6 +1298,8 @@ mod tests {
             Some("xp-luna-columns")).unwrap();
         let other_menu = other.menu.as_mut().unwrap();
         other_menu.palette = None;
+        // Palette-free columns retain their historical action-first order;
+        // only opt-in Luna moves discovered app previews to the top.
         assert_eq!(&state.actions(other_menu)[2..4],
                    &["desktop:demo-0.desktop", "desktop:demo-1.desktop"]);
 
@@ -1410,11 +1488,12 @@ mod tests {
         state.open();
         // No installed-app fixtures: all real fixed actions remain present.
         assert_eq!(state.actions(menu), vec![
-            "applications", "terminal", "documents", "computer",
+            "terminal", "applications", "documents", "computer",
             "pictures", "music", "settings", "notifications", "help", "run",
             "lock", "logout"
         ]);
-        assert_eq!(state.hit(menu, 20.0, 116.0), Some(Hit::Action(0)));
+        assert_eq!(state.hit(menu, 20.0, 155.0), Some(Hit::Action(0)));
+        assert_eq!(state.hit(menu, 20.0, 255.0), Some(Hit::Action(1)));
         assert_eq!(state.hit(menu, 200.0, 80.0), Some(Hit::Action(2)));
         assert_eq!(state.hit(menu, 200.0, 116.0), Some(Hit::Action(4)));
         assert_eq!(state.hit(menu, 200.0, 189.0), Some(Hit::Action(8))); // Help
@@ -1426,9 +1505,9 @@ mod tests {
         assert_eq!(state.hit(menu, 275.0, 290.0), Some(Hit::Close));
 
         state.horizontal_by(menu, 1);
-        assert_eq!(state.current_action(menu), Some("pictures"));
+        assert_eq!(state.current_action(menu), Some("settings"));
         state.horizontal_by(menu, -1);
-        assert_eq!(state.current_action(menu), Some("applications"));
+        assert_eq!(state.current_action(menu), Some("terminal"));
         state.select_group(menu, 2);
         assert_eq!(state.current_action(menu), Some("lock"));
         state.start_search();

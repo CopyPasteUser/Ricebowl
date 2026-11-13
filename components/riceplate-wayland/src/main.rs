@@ -2557,7 +2557,15 @@ impl RicePlate {
             } else {
                 paint_menu(&mut original, menu, &self.recipe, &self.menu_state);
             }
-            fit_menu_pixels(&original, canvas, layer.size);
+            if self.recipe.id == "xp-luna-columns" && !self.notification_state.open
+                && layer.size.0 > native_menu::WIDTH && layer.size.1 > native_menu::HEIGHT {
+                // Historical 320px menu logic stays authoritative for input,
+                // but enlarged Luna menus no longer use chunky nearest-neighbor
+                // stretching of proportional glyphs and thin 1px borders.
+                fit_luna_menu_pixels(&original, canvas, layer.size);
+            } else {
+                fit_menu_pixels(&original, canvas, layer.size);
+            }
         }
         surface.damage_buffer(0, 0, width as i32, height as i32);
         if let Err(error) = buffer.attach_to(surface) {
@@ -3640,6 +3648,11 @@ fn paint_panel_pointer(canvas: &mut [u8], width: u32, height: u32,
                     panel_chrome::launcher_visual(canvas, width, height, placed.x,
                                                   placed.width, launcher,
                                                   visual.button(Hit::Launcher));
+                    if style.id == "xp-luna-columns" {
+                        panel_chrome::luna_launcher_finish(
+                            canvas, width, height, placed.x, placed.width,
+                            visual.button(Hit::Launcher));
+                    }
                 } else {
                     fill_rect(canvas, width, height, placed.x, 0, placed.width, height,
                               style.active);
@@ -4051,6 +4064,41 @@ fn fit_menu_pixels(original: &[u8], canvas: &mut [u8], size: (u32, u32)) {
     }
 }
 
+/// Smooth only the *upscaled* Luna menu image. Input coordinates, actions,
+/// logical layout and small-output pixel-exact behavior are unchanged. In
+/// particular, no extra surface, font atlas or per-frame image cache exists.
+fn fit_luna_menu_pixels(original: &[u8], canvas: &mut [u8], size: (u32, u32)) {
+    let (width, height) = size;
+    debug_assert!(width > native_menu::WIDTH && height > native_menu::HEIGHT);
+    let sw = native_menu::WIDTH;
+    let sh = native_menu::HEIGHT;
+    for y in 0..height {
+        let fy = (f64::from(y) + 0.5) * f64::from(sh) / f64::from(height) - 0.5;
+        let y0 = fy.floor().clamp(0.0, f64::from(sh - 1)) as u32;
+        let y1 = (y0 + 1).min(sh - 1);
+        let ty = (fy - f64::from(y0)).clamp(0.0, 1.0);
+        for x in 0..width {
+            let fx = (f64::from(x) + 0.5) * f64::from(sw) / f64::from(width) - 0.5;
+            let x0 = fx.floor().clamp(0.0, f64::from(sw - 1)) as u32;
+            let x1 = (x0 + 1).min(sw - 1);
+            let tx = (fx - f64::from(x0)).clamp(0.0, 1.0);
+            let p00 = ((y0 * sw + x0) * 4) as usize;
+            let p10 = ((y0 * sw + x1) * 4) as usize;
+            let p01 = ((y1 * sw + x0) * 4) as usize;
+            let p11 = ((y1 * sw + x1) * 4) as usize;
+            let dst = ((y * width + x) * 4) as usize;
+            for channel in 0..4 {
+                let upper = f64::from(original[p00 + channel]) * (1.0 - tx)
+                    + f64::from(original[p10 + channel]) * tx;
+                let lower = f64::from(original[p01 + channel]) * (1.0 - tx)
+                    + f64::from(original[p11 + channel]) * tx;
+                canvas[dst + channel] =
+                    (upper * (1.0 - ty) + lower * ty).round() as u8;
+            }
+        }
+    }
+}
+
 /// The header controls are part of RicePlate's shared menu primitive. Their
 /// rects come from native_menu, so the compact painter, pointer and AT expose
 /// the same real actions across recipes without theme-specific hit regions.
@@ -4256,6 +4304,7 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
         // system/session commands on a pale-blue right-hand shelf.
         if luna_columns {
             menu_chrome::shelf(canvas, menu.palette.unwrap());
+            menu_chrome::left_all_programs_rule(canvas);
         } else {
             fill_rect(canvas, width, height, native_menu::COLUMNS_SPLIT, 38,
                       width - native_menu::COLUMNS_SPLIT, height - 66, selection);
@@ -4315,8 +4364,13 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                 }
                 right_group_seen = true;
             }
-            draw_rice_text(canvas, width, height, section.x + 2, section.top + 3,
-                           section.title, fg, style);
+            // XP's frequent-program pane has no stacked section headings:
+            // the white list begins directly below the account banner.
+            // Other recipes and the blue system shelf retain their labels.
+            if !(luna_columns && columns && section.x < native_menu::COLUMNS_SPLIT) {
+                draw_rice_text(canvas, width, height, section.x + 2, section.top + 3,
+                               section.title, fg, style);
+            }
             if section.items.is_empty() {
                 let empty = match section.kind {
                     recipe::MenuContentKind::Favorites => "No favorites yet",
@@ -4452,11 +4506,13 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
             native_menu::View::Saved => "F2 Remove  F3 Back",
             native_menu::View::Groups => "F2 Pin  F3 Saved",
         });
-        let available_chars = (native_menu::COLUMNS_SPLIT.saturating_sub(20)
-            / (8 * style.font_scale.max(1))) as usize;
-        draw_rice_text(canvas, width, height, 12, 47,
-                       &status.chars().take(available_chars).collect::<String>(),
-                       fg, style);
+        if state.view != native_menu::View::Groups || state.notice.is_some() {
+            let available_chars = (native_menu::COLUMNS_SPLIT.saturating_sub(20)
+                / (8 * style.font_scale.max(1))) as usize;
+            draw_rice_text(canvas, width, height, 12, 47,
+                           &status.chars().take(available_chars).collect::<String>(),
+                           fg, style);
+        }
         // Keep the genuine range indicator visible on long search pages.
         if let Some((start, end, total)) = state.page_status(menu, native_menu::VISIBLE_ACTIONS) {
             caption(190, &format!("{start}-{end}/{total}"), header_fg, canvas);
@@ -7158,6 +7214,32 @@ mod tests {
     }
 
     #[test]
+    fn enlarged_luna_menu_interpolates_glyph_edges_without_changing_input_space() {
+        let (sw, sh) = (native_menu::WIDTH, native_menu::HEIGHT);
+        let mut original = vec![0_u8; (sw * sh * 4) as usize];
+        for y in 0..sh {
+            for x in 0..sw {
+                let pos = ((y * sw + x) * 4) as usize;
+                let light = if x < sw / 2 { 0 } else { 255 };
+                original[pos..pos + 4].copy_from_slice(&[light, light, light, 255]);
+            }
+        }
+        let size = (400, 380);
+        let mut smooth = vec![0; (size.0 * size.1 * 4) as usize];
+        let mut stepped = smooth.clone();
+        fit_luna_menu_pixels(&original, &mut smooth, size);
+        fit_menu_pixels(&original, &mut stepped, size);
+        assert_ne!(smooth, stepped);
+        assert!(smooth.chunks_exact(4).all(|pixel| pixel[3] == 255));
+        // Interpolated edge values are new only at actual source transitions.
+        assert!(smooth.chunks_exact(4).any(|pixel| pixel[0] > 0 && pixel[0] < 255));
+        assert_eq!(&smooth[0..4], &[0, 0, 0, 255]);
+        assert_eq!(&smooth[smooth.len() - 4..], &[255, 255, 255, 255]);
+        let center = native_menu::input_coords((200.0, 190.0), size);
+        assert_eq!(center, (160.0, 152.0));
+    }
+
+    #[test]
     fn compact_native_menu_paints_readable_rows_at_output_resolution() {
         let source = include_str!("../../../tests/fixtures/riceplate-desktop-v5.json");
         let style = recipe::parse(source, Some("mockup-desktop")).unwrap();
@@ -7590,17 +7672,17 @@ mod tests {
             u32::from_le_bytes(buffer[offset..offset+4].try_into().unwrap())
         };
         let palette = menu.palette.unwrap();
-        assert_eq!(pixel(&canvas, 120, 70), palette.background);
+        assert_ne!(pixel(&canvas, 120, 70), pixel(&canvas, 260, 70));
         assert_ne!(pixel(&canvas, 260, 70), palette.background);
         assert_ne!(pixel(&canvas, 260, 70), pixel(&canvas, 260, 240));
         assert_ne!(pixel(&canvas, native_menu::COLUMNS_SPLIT, 70), palette.header);
         assert_ne!(pixel(&canvas, 260, height - 10), palette.header);
-        assert_eq!(pixel(&canvas, 12, 110), palette.header); // current left action
+        assert_eq!(pixel(&canvas, 12, 150), palette.header); // current Terminal row
 
         state.select_group(menu, 1);
         paint_menu(&mut canvas, menu, &style, &state);
         assert_eq!(pixel(&canvas, 176, 80), palette.header); // current right action
-        assert_eq!(pixel(&canvas, 12, 110), palette.background);
+        assert_ne!(pixel(&canvas, 12, 150), palette.header);
     }
 
     #[test]

@@ -16,41 +16,62 @@ fn blend(base: u32, tint: u32, amount: u32) -> u32 {
 
 pub fn header(canvas: &mut [u8], palette: MenuPalette) {
     let (w, h) = (native_menu::WIDTH, native_menu::HEIGHT);
-    // Luna's blue bevel needs a top-lit band, not a single flat rectangle.
+    // The first 38 logical pixels remain one hit-free title band. A bright
+    // rounded-edge-style reflection over cobalt, followed by a dark bottom
+    // lip, gives Luna its original visual depth without importing XP assets.
     for y in 0..38 {
-        let color = if y < 19 {
-            blend(palette.header, 0xff74_b5fa, 94 - y * 3)
-        } else {
-            blend(palette.header, 0xff00_1c63, (y - 19) * 4)
-        };
-        fill_rect(canvas, w, h, 0, y, w, 1, color);
+        let tone = if y == 0 { 0xffa4_d3ff }
+            else if y < 5 {
+                blend(palette.header, 0xffa3_d5ff, 144 - y * 13)
+            } else if y < 20 {
+                blend(palette.header, 0xff52_a2f0, 84 - (y - 5) * 3)
+            } else {
+                blend(palette.header, 0xff00_205f, (y - 20) * 6)
+            };
+        fill_rect(canvas, w, h, 0, y, w, 1, tone);
     }
-    fill_rect(canvas, w, h, 0, 0, w, 1, 0xff9b_c5ff);
-    fill_rect(canvas, w, h, 0, 37, w, 1, 0xffff_cf74);
+    fill_rect(canvas, w, h, 0, 36, w, 1, 0xff08_357b);
+    fill_rect(canvas, w, h, 0, 37, w, 1, 0xffff_c368);
 
-    // A deliberately original RiceBowl user tile, in the same visual place
-    // as the classic account picture. It does not impersonate a real user.
-    fill_rounded_rect(canvas, w, h, 7, 4, 29, 30, 5, 0xffff_e7a1);
-    fill_rounded_rect(canvas, w, h, 9, 6, 25, 26, 4, 0xffec_f5ff);
-    fill_rounded_rect(canvas, w, h, 11, 8, 21, 22, 3, 0xff5d_b9f6);
-    fill_rounded_rect(canvas, w, h, 14, 20, 16, 7, 3, 0xff4a_8f39);
-    fill_rounded_rect(canvas, w, h, 20, 12, 6, 6, 3, 0xffff_e3a5);
+    // Original RiceBowl account artwork in the familiar XP identity square,
+    // including a recessed navy rim, pale-gold bevel and inset glossy portrait.
+    fill_rounded_rect(canvas, w, h, 6, 3, 32, 32, 5, 0xff0b_387a);
+    fill_rounded_rect(canvas, w, h, 7, 4, 30, 30, 4, 0xffff_d88e);
+    fill_rounded_rect(canvas, w, h, 9, 6, 26, 26, 3, 0xffee_f7ff);
+    fill_rounded_rect(canvas, w, h, 11, 8, 22, 22, 2, 0xff63_b6ef);
+    fill_rect(canvas, w, h, 13, 9, 18, 1, 0xffc6_efff);
+    fill_rounded_rect(canvas, w, h, 14, 20, 16, 7, 3, 0xff48_963b);
+    fill_rounded_rect(canvas, w, h, 20, 12, 6, 6, 3, 0xffff_e4a2);
 }
 
 pub fn shelf(canvas: &mut [u8], palette: MenuPalette) {
     let (w, h) = (native_menu::WIDTH, native_menu::HEIGHT);
     let split = native_menu::COLUMNS_SPLIT;
+    // Ivory program pane alongside XP's blue system shelf. Both shades stay
+    // legible under the actual selected-row highlight and react to recipe
+    // colors; the divider is visual, never a new pointer target.
     for y in 38..h - 28 {
-        // Narrow, bounded gradient. The left pane is ivory; the right is the
-        // recognisable pale-blue system shelf with an azure edge.
-        let tone = blend(palette.selection, 0xffff_ffff,
-                         9 + 24 * (y - 38) / (h - 66));
-        fill_rect(canvas, w, h, split, y, w - split, 1, tone);
+        let progress = (y - 38) * 255 / (h - 66);
+        let warm = blend(palette.background, 0xfff0_e9d9, progress / 13);
+        fill_rect(canvas, w, h, 0, y, split, 1, warm);
+        let blue = blend(palette.selection, 0xffff_ffff,
+                         5 + 43 * progress / 255);
+        fill_rect(canvas, w, h, split, y, w - split, 1, blue);
     }
-    fill_rect(canvas, w, h, split, 38, 1, h - 66,
-              blend(palette.header, 0xffff_ffff, 75));
-    fill_rect(canvas, w, h, split + 1, 38, 1, h - 66, 0xfff2_f8ff);
-    fill_rect(canvas, w, h, w - 1, 38, 1, h - 66, 0xff83_a8df);
+    fill_rect(canvas, w, h, 0, 38, split, 1, 0xffff_ffff);
+    fill_rect(canvas, w, h, split, 38, w - split, 1, 0xff96_b5e7);
+    fill_rect(canvas, w, h, split, 39, 1, h - 67, 0xff71_96d0);
+    fill_rect(canvas, w, h, split + 1, 39, 1, h - 67, 0xfff4_faff);
+    fill_rect(canvas, w, h, w - 1, 38, 1, h - 66, 0xff86_a7d5);
+}
+
+/// Horizontal separator above the *real* All Programs tile. The tile's
+/// geometry is defined exclusively in native_menu; this line is inert art.
+pub fn left_all_programs_rule(canvas: &mut [u8]) {
+    let (w, h) = (native_menu::WIDTH, native_menu::HEIGHT);
+    let span = native_menu::COLUMNS_SPLIT.saturating_sub(20);
+    fill_rect(canvas, w, h, 10, 232, span, 1, 0xffbd_bab0);
+    fill_rect(canvas, w, h, 10, 233, span, 1, 0xffff_ffff);
 }
 
 /// Original bevelled footer buttons, using shared native_menu hit rectangles.
@@ -88,10 +109,18 @@ pub fn footer(canvas: &mut [u8], palette: MenuPalette,
               hovered: Option<native_menu::Hit>, logout_enabled: bool) {
     let (w, h) = (native_menu::WIDTH, native_menu::HEIGHT);
     for y in h - 28..h {
-        let shade = blend(palette.header, 0xff00_174e, 20 + (y - (h - 28)) * 3);
+        let local = y - (h - 28);
+        let shade = if local < 3 {
+            blend(palette.header, 0xffa3_cfff, 115 - local * 20)
+        } else if local < 17 {
+            blend(palette.header, 0xff2e_73d1, 46)
+        } else {
+            blend(palette.header, 0xff00_174e, 40 + (local - 17) * 5)
+        };
         fill_rect(canvas, w, h, 0, y, w, 1, shade);
     }
-    fill_rect(canvas, w, h, 0, h - 28, w, 1, 0xff86_b4f3);
+    fill_rect(canvas, w, h, 0, h - 28, w, 1, 0xffac_d5ff);
+    fill_rect(canvas, w, h, 0, h - 1, w, 1, 0xff0b_317a);
     let lock = native_menu::LUNA_LOCK_RECT;
     let logout = native_menu::LUNA_LOGOUT_RECT;
     let close = native_menu::LUNA_CLOSE_RECT;
@@ -211,6 +240,21 @@ pub fn action_icon(canvas: &mut [u8], x: u32, y: u32, action: &str, selected: bo
             fill_rect(canvas, w, h, x, y + 9, 13, 2, ink);
             fill_rect(canvas, w, h, x + 5, y + 11, 3, 2, 0xffba_7826);
         }
+        app if app.starts_with("desktop:") => {
+            // Missing vendor icon artwork is not replaced with a fake app
+            // logo. An original framed application-window symbol communicates
+            // an installed XDG program without relying on host icon paths.
+            let tint = match app.bytes().fold(0_u8, |acc, b| acc.wrapping_add(b)) % 3 {
+                0 => 0xff59_9ad5,
+                1 => 0xff64_a755,
+                _ => 0xffba_8a42,
+            };
+            fill_rect(canvas, w, h, x, y + 1, 14, 13, ink);
+            fill_rect(canvas, w, h, x + 1, y + 2, 12, 11, 0xfff5_f9fd);
+            fill_rect(canvas, w, h, x + 2, y + 3, 10, 3, tint);
+            fill_rect(canvas, w, h, x + 3, y + 8, 7, 1, 0xff70_9ec7);
+            fill_rect(canvas, w, h, x + 3, y + 10, 5, 1, 0xffa5_bac8);
+        }
         _ => fill_rounded_rect(canvas, w, h, x + 3, y + 3, 7, 7, 3, light),
     }
 }
@@ -226,6 +270,27 @@ mod tests {
     }
 
     #[test]
+    fn luna_chrome_has_distinct_header_programs_and_system_panes() {
+        let style = recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let palette = style.menu.unwrap().palette.unwrap();
+        let mut pixels = vec![0; (native_menu::WIDTH * native_menu::HEIGHT * 4) as usize];
+        header(&mut pixels, palette);
+        shelf(&mut pixels, palette);
+        footer(&mut pixels, palette, None, false);
+        assert_ne!(at(&pixels, 100, 0), at(&pixels, 100, 20));
+        assert_ne!(at(&pixels, 100, 20), at(&pixels, 100, 36));
+        assert_ne!(at(&pixels, 50, 150), at(&pixels, 250, 150));
+        assert_ne!(at(&pixels, 250, 48), at(&pixels, 250, 250));
+        assert_ne!(at(&pixels, 100, 289), at(&pixels, 100, 303));
+        // At no point does a visual edge introduce transparency into the menu.
+        for &(x, y) in &[(10, 10), (50, 150), (250, 150), (319, 200), (200, 303)] {
+            assert_eq!(at(&pixels, x, y) >> 24, 0xff);
+        }
+    }
+
+    #[test]
     fn green_all_programs_arrow_and_right_shelf_separator_have_bounded_pixels() {
         let mut pixels = vec![0; (native_menu::WIDTH * native_menu::HEIGHT * 4) as usize];
         all_programs_chevron(&mut pixels, 130, 115, false);
@@ -238,6 +303,19 @@ mod tests {
         assert_ne!(at(&pixels, native_menu::COLUMNS_SPLIT + 9, 218), 0);
         assert_eq!(at(&pixels, 10, 218), 0); // No left pane bleed.
         assert_eq!(at(&pixels, 10, 275), 0); // Footer remains unmodified.
+    }
+
+    #[test]
+    fn luna_bottom_program_separator_and_generic_xdg_icons_are_real_pixels() {
+        let mut pixels = vec![0; (native_menu::WIDTH * native_menu::HEIGHT * 4) as usize];
+        left_all_programs_rule(&mut pixels);
+        assert_ne!(at(&pixels, 20, 232), 0);
+        assert_eq!(at(&pixels, 200, 232), 0);
+        let before = pixels.clone();
+        action_icon(&mut pixels, 14, 80, "desktop:firefox.desktop", false);
+        assert_ne!(pixels, before);
+        assert_ne!(at(&pixels, 14, 81), 0);
+        assert_eq!(at(&pixels, 14, 100), 0);
     }
 
     #[test]
