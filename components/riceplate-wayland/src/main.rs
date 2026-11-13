@@ -3527,6 +3527,10 @@ impl RicePlate {
         self.task_popup_right = Some(luna_window_menu::right_margin(panel_width, pointer_x));
         self.tray_menu_state = popup;
         self.show_tray_surface_at(target, qh);
+        if self.trace_window_events {
+            // Count only; avoid recording application-controlled window titles.
+            eprintln!("RicePlate task menu event=opened members={}", windows.len());
+        }
     }
 
     /// A group is captured by exact compositor handles at popup open time.
@@ -7188,6 +7192,9 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for RicePlate {
                 // the owner-local popup instead of risking a stale handle or
                 // an action targeting a different group member.
                 if state.task_menu_handles.iter().any(|handle| handle == proxy) {
+                    if state.trace_window_events {
+                        eprintln!("RicePlate task menu event=owner-closed");
+                    }
                     state.set_tray_popup_visible(false, qh);
                 }
                 if state.trace_window_events {
