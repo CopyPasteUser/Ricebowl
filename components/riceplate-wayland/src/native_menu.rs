@@ -314,7 +314,8 @@ impl MenuState {
     }
 
     pub fn app_path(&self, action: &str) -> Option<&std::path::Path> {
-        self.apps.iter().find(|app| app.action == action).map(|app| app.path.as_path())
+        self.apps.iter().find(|app| app.action == action)
+            .and_then(App::verified_launch_path)
     }
 
     /// Promote a successfully dispatched desktop application in Luna's
