@@ -65,6 +65,15 @@ pub fn shelf(canvas: &mut [u8], palette: MenuPalette) {
     fill_rect(canvas, w, h, w - 1, 38, 1, h - 66, 0xff86_a7d5);
 }
 
+/// Horizontal separator above the *real* All Programs tile. The tile's
+/// geometry is defined exclusively in native_menu; this line is inert art.
+pub fn left_all_programs_rule(canvas: &mut [u8]) {
+    let (w, h) = (native_menu::WIDTH, native_menu::HEIGHT);
+    let span = native_menu::COLUMNS_SPLIT.saturating_sub(20);
+    fill_rect(canvas, w, h, 10, 232, span, 1, 0xffbd_bab0);
+    fill_rect(canvas, w, h, 10, 233, span, 1, 0xffff_ffff);
+}
+
 /// Original bevelled footer buttons, using shared native_menu hit rectangles.
 /// Lock and Log off are actual session actions; Log off looks disabled when the
 /// compositor's supervised logout is unavailable (e.g. Creator preview).
@@ -231,6 +240,21 @@ pub fn action_icon(canvas: &mut [u8], x: u32, y: u32, action: &str, selected: bo
             fill_rect(canvas, w, h, x, y + 9, 13, 2, ink);
             fill_rect(canvas, w, h, x + 5, y + 11, 3, 2, 0xffba_7826);
         }
+        app if app.starts_with("desktop:") => {
+            // Missing vendor icon artwork is not replaced with a fake app
+            // logo. An original framed application-window symbol communicates
+            // an installed XDG program without relying on host icon paths.
+            let tint = match app.bytes().fold(0_u8, |acc, b| acc.wrapping_add(b)) % 3 {
+                0 => 0xff59_9ad5,
+                1 => 0xff64_a755,
+                _ => 0xffba_8a42,
+            };
+            fill_rect(canvas, w, h, x, y + 1, 14, 13, ink);
+            fill_rect(canvas, w, h, x + 1, y + 2, 12, 11, 0xfff5_f9fd);
+            fill_rect(canvas, w, h, x + 2, y + 3, 10, 3, tint);
+            fill_rect(canvas, w, h, x + 3, y + 8, 7, 1, 0xff70_9ec7);
+            fill_rect(canvas, w, h, x + 3, y + 10, 5, 1, 0xffa5_bac8);
+        }
         _ => fill_rounded_rect(canvas, w, h, x + 3, y + 3, 7, 7, 3, light),
     }
 }
@@ -279,6 +303,19 @@ mod tests {
         assert_ne!(at(&pixels, native_menu::COLUMNS_SPLIT + 9, 218), 0);
         assert_eq!(at(&pixels, 10, 218), 0); // No left pane bleed.
         assert_eq!(at(&pixels, 10, 275), 0); // Footer remains unmodified.
+    }
+
+    #[test]
+    fn luna_bottom_program_separator_and_generic_xdg_icons_are_real_pixels() {
+        let mut pixels = vec![0; (native_menu::WIDTH * native_menu::HEIGHT * 4) as usize];
+        left_all_programs_rule(&mut pixels);
+        assert_ne!(at(&pixels, 20, 232), 0);
+        assert_eq!(at(&pixels, 200, 232), 0);
+        let before = pixels.clone();
+        action_icon(&mut pixels, 14, 80, "desktop:firefox.desktop", false);
+        assert_ne!(pixels, before);
+        assert_ne!(at(&pixels, 14, 81), 0);
+        assert_eq!(at(&pixels, 14, 100), 0);
     }
 
     #[test]
