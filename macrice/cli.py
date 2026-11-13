@@ -72,7 +72,7 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("session-sync", help="Reconcile active rice after XFCE autostart")
     de = commands.add_parser("de", help="Inspect experimental RiceBowl Wayland desktop prerequisites")
     de.add_argument("action", choices=(
-        "check", "acceptance", "start", "shell", "catalog", "fonts", "creator-api", "creator-history", "creator-schema", "creator-snapshot", "creator-recovery", "creator-recover", "review", "creator-parity", "draft-check", "draft-edit", "visual-compare",
+        "check", "acceptance", "reliability", "start", "shell", "catalog", "fonts", "creator-api", "creator-history", "creator-schema", "creator-snapshot", "creator-recovery", "creator-recover", "review", "creator-parity", "draft-check", "draft-edit", "visual-compare",
         "visual-baseline",
         "capture", "shot", "clip", "lock", "render", "render-matrix", "render-matrix-inspect",
         "creator-status", "creator-stage", "creator-rollback",
@@ -272,6 +272,29 @@ def main(argv: list[str] | None = None) -> int:
                                     "draft-edit", "capture", "shot", "render", "render-matrix", "pack-export",
                                     "visual-baseline") and args.output):
                 raise ValueError("--output is not supported by this de command")
+            if args.action == "reliability":
+                if args.nested or args.recipe or args.panel != "waybar":
+                    raise ValueError("de reliability accepts only --json")
+                from .de.reliability import inspect as inspect_reliability
+                report = inspect_reliability()
+                if args.json:
+                    print(json.dumps(report, indent=2))
+                else:
+                    session = report["session"]
+                    print("RiceBowl Wayland reliability snapshot (read-only)")
+                    print(f"Session: {session['type']} | panel: {session['panel']} | "
+                          f"socket: {session['socket']}")
+                    print("Required binaries missing: " +
+                          (", ".join(report["required_missing"]) or "none detected"))
+                    print("Wayland protocol discovery: " + report["protocols"]["probe"])
+                    print("Recovery journal: " + report["recovery"]["state"])
+                    if report["processes"] is not None:
+                        for name, info in report["processes"].items():
+                            print(f"  {name}: {info['count']} same-UID process(es) "
+                                  f"PSS={info['pss_kib']} KiB")
+                    print("Hardware accepted: NO; process names are not session attribution.")
+                return 0
+
             if args.action == "acceptance":
                 if args.nested or args.recipe or args.panel != "waybar":
                     raise ValueError("de acceptance accepts only --json")
