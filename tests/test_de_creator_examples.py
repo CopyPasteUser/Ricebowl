@@ -48,10 +48,6 @@ class CreatorExamplesTests(unittest.TestCase):
         self.assertEqual(original.position, "top")
         self.assertNotEqual(classic.wallpaper, original.wallpaper)
         self.assertNotEqual(classic.layout, original.layout)
-        self.assertEqual(classic.layout[1][0].value, "WORKSTATION")
-        self.assertTrue(any(node.kind == "control" and node.value == "audio-mute"
-                            for node in classic.layout[2]))
-        self.assertEqual(original.layout[1][0].children[1].value, "FOCUS MODE")
         self.assertNotEqual(classic.colors, original.colors)
         self.assertNotEqual(classic.compact, original.compact)
 
@@ -64,6 +60,10 @@ class CreatorExamplesTests(unittest.TestCase):
         self.assertEqual(classic.menu_presentation, "tabs")
         self.assertEqual(original.menu_presentation, "sidebar")
         self.assertNotEqual(classic.layout, original.layout)
+        self.assertEqual(classic.layout[1][0].value, "WORKSTATION")
+        self.assertTrue(any(node.kind == "control" and node.value == "audio-mute"
+                            for node in classic.layout[2]))
+        self.assertEqual(original.layout[1][0].children[1].value, "FOCUS MODE")
         self.assertNotEqual(classic.colors, original.colors)
         self.assertNotEqual(classic.compact, original.compact)
         self.assertNotEqual(classic.appearance, original.appearance)
