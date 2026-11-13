@@ -425,16 +425,16 @@ mod tests {
         let base = env::temp_dir().join(format!("riceplate-verified-launch-{}-{suffix}", std::process::id()));
         fs::create_dir(&base).unwrap();
         let file = base.join("safe.desktop");
-        let valid = "[Desktop Entry]\\nType=Application\\nName=Verified App\\nExec=/usr/bin/true\\n";
+        let valid = "[Desktop Entry]\nType=Application\nName=Verified App\nExec=/usr/bin/true\n";
         fs::write(&file, valid).unwrap();
         let app = App { action: "desktop:safe.desktop".into(), name: "Verified App".into(),
                         search_text: "verified app".into(), path: file.clone() };
         assert_eq!(app.verified_launch_path(), Some(file.as_path()));
-        fs::write(&file, format!("{valid}Hidden=true\\n")).unwrap();
+        fs::write(&file, format!("{valid}Hidden=true\n")).unwrap();
         assert!(app.verified_launch_path().is_none());
-        fs::write(&file, "[Desktop Entry]\\nType=Application\\nName=Changed\\nExec=/usr/bin/true\\n").unwrap();
+        fs::write(&file, "[Desktop Entry]\nType=Application\nName=Changed\nExec=/usr/bin/true\n").unwrap();
         assert!(app.verified_launch_path().is_none());
-        fs::write(&file, "[Desktop Entry]\\nType=Application\\nName=Verified App\\nExec=/usr/bin/true\\n[Desktop Entry]\\n").unwrap();
+        fs::write(&file, "[Desktop Entry]\nType=Application\nName=Verified App\nExec=/usr/bin/true\n[Desktop Entry]\n").unwrap();
         assert!(app.verified_launch_path().is_none());
         fs::write(&file, "x".repeat(MAX_FILE_BYTES as usize + 1)).unwrap();
         assert!(app.verified_launch_path().is_none());
