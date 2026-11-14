@@ -782,6 +782,12 @@ PY
                 cat "$runtime/luna-shortcut-escape-wtype.log" >&2
                 exit 1
             }
+            grep -Fq "RicePlate: Luna shortcut keyboard focus canceled by Escape" \
+                "$runtime/plate-$label.log" || {
+                echo "Escape never reached a compositor-confirmed shortcut focus" >&2
+                tail -n 45 "$runtime/plate-$label.log" >&2
+                exit 1
+            }
             sleep 0.25
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/luna-shortcut-escaped.png"
             WAYLAND_DISPLAY=wayland-0 wtype -d 120 -k F13 p
