@@ -1019,6 +1019,16 @@ struct FileContextLayer {
     notice: Option<&'static str>,
 }
 
+#[derive(Clone)]
+struct FileContextVisual {
+    kind: desktop_layout::inventory::Kind,
+    selected: desktop_file_menu::Item,
+    hovered: Option<desktop_file_menu::Item>,
+    properties: Option<desktop_layout::actions::Properties>,
+    back_hovered: bool,
+    notice: Option<&'static str>,
+}
+
 struct DesktopContextLayer {
     surface: LayerSurface,
     pool: Option<SlotPool>,
@@ -1732,6 +1742,12 @@ impl RicePlate {
     fn redraw_file_context(&mut self) {
         let Some(menu) = self.file_context.as_mut() else { return };
         if !menu.configured { return; }
+        // Snapshot paint-only fields before mutably borrowing the SHM pool.
+        let view = FileContextVisual {
+            kind: menu.kind, selected: menu.selected, hovered: menu.hovered,
+            properties: menu.properties.clone(), back_hovered: menu.back_hovered,
+            notice: menu.notice,
+        };
         let Some(pool) = menu.pool.as_mut() else { return };
         let (w, h) = (desktop_file_menu::WIDTH, desktop_file_menu::HEIGHT);
         let (buffer, canvas) = match pool.create_buffer(
@@ -1743,7 +1759,7 @@ impl RicePlate {
                 return;
             }
         };
-        paint_file_context(canvas, &self.recipe, menu);
+        paint_file_context(canvas, &self.recipe, &view);
         let surface = menu.surface.wl_surface();
         surface.damage_buffer(0, 0, w as i32, h as i32);
         if let Err(error) = buffer.attach_to(surface) {
@@ -5679,7 +5695,7 @@ fn paint_luna_dialog(canvas: &mut [u8], style: &PanelStyle, state: &luna_dialog:
 }
 
 fn paint_file_context(canvas: &mut [u8], style: &PanelStyle,
-                      menu: &FileContextLayer) {
+                      menu: &FileContextVisual) {
     let (w, h) = (desktop_file_menu::WIDTH, desktop_file_menu::HEIGHT);
     canvas.fill(0);
     fill_rect(canvas, w, h, 0, 0, w, h, 0xff20_3f7e);
