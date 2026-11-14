@@ -1525,7 +1525,7 @@ PY
     # Start on the actual logged native surface for the second created folder.
     # The compositor must dispatch Press/Motion/Release with an implicit grab,
     # not a synthetic FilePositions::set directly from the test harness.
-    folder_position=$(sed -n "s/.*XDG mapped x=\\([0-9][0-9]*\\) y=\\([0-9][0-9]*\\) kind=Directory.*/\\1 \\2/p" \\
+    folder_position=$(sed -n "s/.*XDG mapped x=\([0-9][0-9]*\) y=\([0-9][0-9]*\) kind=Directory.*/\1 \2/p" \
         "$runtime/file-plate.log" | tail -n 1)
     test -n "$folder_position" || {
         echo "No XDG Directory surface for real drag acceptance" >&2
@@ -1543,7 +1543,7 @@ PY
     WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 1100 450 1366 768
     sleep 0.15
     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xdg-before-drag.png"
-    WAYLAND_DISPLAY=wayland-0 "$clicker" --drag-to "$end_x" "$end_y" \\
+    WAYLAND_DISPLAY=wayland-0 "$clicker" --drag-to "$end_x" "$end_y" \
         "$start_x" "$start_y" 1366 768
     sleep 0.45
     grep -Fq "RicePlate: XDG file icon drop committed" "$runtime/file-plate.log" || {
