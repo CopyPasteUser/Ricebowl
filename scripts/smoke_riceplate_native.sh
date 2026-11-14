@@ -838,7 +838,8 @@ PY
             # Undo the inserted glyph and return to the original end caret
             # before the pre-existing keyboard-editing regression.
             WAYLAND_DISPLAY=wayland-0 wtype -d 85 -k F13 -k BackSpace -k End
-            sleep 0.2
+            # Allow the last asynchronous wl_surface damage/commit to display.
+            sleep 0.55
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-pointer-restored.png"
             cp "$runtime/xp-luna-parity-run-pointer-restored.png" \
                "$source_root/dist/riceplate-native-preview/xp-luna-parity-run-pointer-restored.png"
