@@ -56,6 +56,24 @@ jobs:
             exit 1
           }
           echo "PORTAL_PIXMAN_REPEAT_OK: two isolated runs without runtime leftovers"
+      - name: Crash labwc before socket creation and verify runtime recovery
+        run: |
+          set -eu
+          fake_bin=$(mktemp -d)
+          trap 'rm -rf -- "$fake_bin"' EXIT
+          printf '#!/bin/sh\\nexit 17\\n' >"$fake_bin/labwc"
+          chmod 0700 "$fake_bin/labwc"
+          before=$(find /tmp -maxdepth 1 -type d -name 'ricebowl-portals.*' -print | sort)
+          if PATH="$fake_bin:$PATH" timeout -k 5s 30s sh scripts/smoke_wayland_portals.sh; then
+            echo "PORTAL_CRASH_FAIL: compositor crash was accepted as success" >&2
+            exit 1
+          fi
+          after=$(find /tmp -maxdepth 1 -type d -name 'ricebowl-portals.*' -print | sort)
+          [ "$before" = "$after" ] || {
+            echo "PORTAL_CRASH_FAIL: runtime survived compositor exit" >&2
+            exit 1
+          }
+          echo "PORTAL_CRASH_CLEANUP_OK: failed compositor left no private runtime"
 
   portal-strict-frame:
     runs-on: ubuntu-24.04
