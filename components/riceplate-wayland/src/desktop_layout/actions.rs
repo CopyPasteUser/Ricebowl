@@ -575,6 +575,35 @@ mod tests {
 
 
     #[test]
+    fn spawn_fallback_only_for_missing_ricefield_and_reap_is_caller_owned() {
+        let plan = LaunchPlan {
+            preferred: command(Backend::RiceField, "/__ricebowl_nonexistent_binary__",
+                               vec![]),
+            fallback: Some(command(Backend::Gio, "/bin/true", vec![])),
+        };
+        let (backend, mut child) = plan.spawn().unwrap();
+        assert_eq!(backend, Backend::Gio);
+        assert!(child.wait().unwrap().success());
+
+        // A process that starts but exits unsuccessfully does not cause an
+        // automatic second launch (nor a duplicate GUI action).
+        let plan = LaunchPlan {
+            preferred: command(Backend::RiceField, "/bin/false", vec![]),
+            fallback: Some(command(Backend::Gio, "/bin/true", vec![])),
+        };
+        let (backend, mut child) = plan.spawn().unwrap();
+        assert_eq!(backend, Backend::RiceField);
+        assert!(!child.wait().unwrap().success());
+
+        // A permission/exec-format failure is not silently masked by Gio.
+        let unavailable = LaunchPlan {
+            preferred: command(Backend::Gio, "/__ricebowl_nonexistent_binary__", vec![]),
+            fallback: None,
+        };
+        assert!(unavailable.spawn().is_err());
+    }
+
+    #[test]
     fn occupied_symlink_name_cannot_be_overwritten_or_followed() {
         let f = Fixture::new();
         fs::write(f.0.join("source"), b"SOURCE").unwrap();
