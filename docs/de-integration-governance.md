@@ -59,17 +59,24 @@ small and reviewed by integration, while behavior lives in owned modules.
 main @ 559f800ead46ff60c6551624734d4bbe47ddf667
 ├── #366 Run caret + modal keyboard handover
 │   fix/luna-run-pointer-caret-20261114 [DRAFT, Native FAIL on prior head;
-│   latest head 153660159ed65cdd352b316b30ec23dd12814fb0 pending CI]
-├── Core — sprint/de-core-focus-20261114 [planned; branch not present at preflight]
+│   newer head 664d593cdd564c8696c11947b5ce1a4098e94b69 pending CI]
+├── #367 Core — sprint/de-core-focus-20261114 [DRAFT, API not wired;
+│   head 7ca329ea6de53e575c9acf08b1c0468a19864a37; CI pending]
 ├── Desktop — sprint/de-desktop-files-20261114 [planned; branch not present]
-└── System — sprint/de-system-portals-20261114 [planned; branch not present]
+└── #368 System — sprint/de-system-portals-20261114 [DRAFT;
+    head 691c98c2a19f906f42b345224a1cbdddaf6f4d2f; strict CI pending]
 ```
 
-Exactly one PR was open at the preflight: **#366**. The older #342, #343,
+Exactly one PR was open at the initial preflight: **#366**. Later the same
+morning, #367 (Core), #368 (System) and #369 (Integration docs, this change)
+opened as separate Draft PRs. The older #342, #343,
 #349, #352, #353, #355, #356, #357 and #361 PRs were **closed, not merged**.
 Do not represent them as active stacks or reopen/rebase them automatically.
 Core focus issue #328 and strict portal issue #304 remain open. The new sprint
-branches above are assigned work scopes, **not** evidence of current implementation.
+Desktop remains a planned branch, not proof of implementation. Core #367
+implements a staged seat/focus API without real compositor wiring; System
+#368 implements strict portal capture acceptance with a known GPU-runner
+prerequisite, not a proven green ScreenCast run.
 
 PR #366 owns its four original paths: `WAYLAND_XP_LUNA_PARITY.md`,
 `components/riceplate-wayland/src/luna_dialog.rs`, shared
