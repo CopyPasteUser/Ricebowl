@@ -90,7 +90,7 @@ fn ricefield(target: &Path) -> LaunchCommand {
 
 fn valid_name(name: &OsStr) -> Result<CString, ActionError> {
     let raw = name.as_bytes();
-    if raw.is_empty() || raw.len() > 255 || matches!(raw, b"." | b"..")
+    if raw.is_empty() || raw.len() > 255 || raw == b"." || raw == b".."
         || raw.contains(&b'/') || raw.contains(&0)
         || raw.iter().any(|byte| *byte < 0x20 || *byte == 0x7f) {
         return Err(ActionError::InvalidName);
