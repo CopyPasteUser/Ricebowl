@@ -49,72 +49,84 @@ small and reviewed by integration, while behavior lives in owned modules.
 4. Never silently cherry-pick/duplicate unmerged private branch behavior.
 5. Rebase/retarget only after the parent lands and rerun CI for the new head.
 
-## Live integration dependency graph (snapshot: 2026-11-14)
+## Live integration dependency graph (snapshot: 2026-11-14; check current refs)
 
-> This snapshot reflects GitHub refs checked on 14 November 2026, not the
-> previous 13 November PR stack. [Issue #360](https://github.com/CopyPasteUser/Ricebowl/issues/360)
-> is the coordination log; check it and live refs before each mutation.
+> Verified against GitHub on 14 November, after the original review; this
+> is an *evidence snapshot*, not an atomic branch lock. [Issue #360](https://github.com/CopyPasteUser/Ricebowl/issues/360)
+> tracks subsequent handoffs. All feature PRs listed here remain Draft.
 
 ```text
-main @ 559f800ead46ff60c6551624734d4bbe47ddf667
-├── #366 Run caret + modal keyboard handover
-│   fix/luna-run-pointer-caret-20261114 [DRAFT, Native FAIL on prior head;
-│   newer head 664d593cdd564c8696c11947b5ce1a4098e94b69 pending CI]
-├── #367 Core — sprint/de-core-focus-20261114 [DRAFT, API not wired;
-│   head 7ca329ea6de53e575c9acf08b1c0468a19864a37; CI pending]
-├── Desktop — sprint/de-desktop-files-20261114 [planned; branch not present]
-└── #368 System — sprint/de-system-portals-20261114 [DRAFT;
-    head 691c98c2a19f906f42b345224a1cbdddaf6f4d2f; strict CI pending]
+main @ 559f800ead46ff60c6551624734d4bbe47ddf667 [unchanged at snapshot]
+├── #366 Run keyboard/pointer fix — integration-owned
+│   fix/luna-run-pointer-caret-20261114 @ 12eb4193f1d08d13de05e085bebd7c3d6bf9b08a
+│   Tests PASS 43582896633; full Native PASS 43582896711
+├── #367 Core lease/seat — FROZEN source
+│   sprint/de-core-focus-20261114 @ 8947a569612c8258ddeb6949ad8e74ee42a43798
+│   Tests PASS 43579110004; Native PASS 43579109980
+├── #370 Desktop inventory/inotify — FROZEN source
+│   sprint/de-desktop-files-20261114 @ e588c2edc337c30e2f23dcfb9ab755ced88724a1
+│   Tests PASS 43580321303; Native PASS 43580321268
+├── #368 System strict portals — EXCLUSIVELY SYSTEM-OWNED
+│   sprint/de-system-portals-20261114 @ b528f411d27f7b1c10c99235f769c6d12e9bfaed
+│   Tests/Native/Strict FAILED; DRM-backed frame acceptance not passed
+├── #369 Integration governance documentation
+│   integration/de-governance-snapshot-20261114 [this PR; docs only]
+└── #371 Integration runtime assembly — separate candidate, NOT READY
+    integration/de-runtime-assembly-20261114
+    exact module inputs: #367 @ 8947a569612c and #370 @ e588c2edc337
+    main.rs file surfaces + calloop wiring under integration ownership;
+    first new native build FAILED E0502; follow-up head awaiting checks
 ```
 
-Exactly one PR was open at the initial preflight: **#366**. Later the same
-morning, #367 (Core), #368 (System) and #369 (Integration docs, this change)
-opened as separate Draft PRs. The older #342, #343,
-#349, #352, #353, #355, #356, #357 and #361 PRs were **closed, not merged**.
-Do not represent them as active stacks or reopen/rebase them automatically.
-Core focus issue #328 and strict portal issue #304 remain open. The new sprint
-Desktop remains a planned branch, not proof of implementation. Core #367
-implements a staged seat/focus API without real compositor wiring; System
-#368 implements strict portal capture acceptance with a known GPU-runner
-prerequisite, not a proven green ScreenCast run.
+Original feature PRs #367/#370 are frozen and must never be rewritten by
+integration. Seven exact file blobs from those heads were assembled in the
+initial commit of #371 (`de6f2c239b720d28b3ae51855b1e0e0fd6a67ab1`),
+without touching either source branch. A green modular CI is **not**
+evidence of an interactive desktop: #371 must prove real XDG layer surfaces,
+file actions, inotify, temporary compositor focus and return to normal
+Wayland/XWayland clients via headless labwc with real input and `grim`.
 
-PR #366 owns its four original paths: `WAYLAND_XP_LUNA_PARITY.md`,
-`components/riceplate-wayland/src/luna_dialog.rs`, shared
-`components/riceplate-wayland/src/main.rs` and
-`scripts/smoke_riceplate_native.sh`. On `2c63c8f6`, exact-head
-[Tests](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43577923669)
-passed but [Native](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43577923661)
-failed: the real virtual keyboard delivered `Z` after the pointer click,
-then the screenshot restoration comparison found 130 changed pixels against
-its <8-pixel acceptance bound. This does **not** prove a compositor focus
-regression; earlier heads had separate focus acquisition failures. Subsequent
-commits `78cb5a888044` and `153660159ed6` changed shared files during
-the review preflight. The integration lane aborted its own proposed write
-instead of racing the head, and requested exclusive handoff in #366.
+**#366 root cause established with real captures:** earlier `grim` Run
+restoration compared the same text/caret (`chars=4, caret=4`) with and
+without the compositor-drawn mouse pointer over the field. Captured crop
+`bbox=(21,12,37,32)` accounts for the 130 changed pixels. The fix moves
+the **real** pointer into neutral dialog space after actual caret placement,
+without changing the original pixel assertions or bypassing `wtype`.
+[Native exact-head PASS](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43582896711),
+[Tests PASS](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43582896633).
+This is headless software acceptance, not physical Mint/IME/Orca QA.
 
-### Current merge order and blockers
+**#371 current status at this snapshot:** the first integration patch wired
+file surfaces and callback/reactor paths but [Native](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43583190211)
+failed Rust E0502 from an immutable snapshot borrow overlapping redraw.
+A follow-up commit narrowed the borrowing region before running full CI
+again. No claim of passing native runtime acceptance until a later exact-head
+run succeeds. Keyboard FocusLease and file-context UI are distinct pending
+integration gates, as are dual-output/hotplug and real external-file tests.
 
-1. **PR #366:** wait for the *new* exact head, inspect complete diff,
-   running Native + Tests results and real pointer, keyboard, restoration
-   evidence. Do not equate `mergeable` with approved and do not merge while
-   Draft or a relevant gate is red.
-2. **Core:** a new owner-scoped PR for actual seat/keyboard focus and window
-   lifecycle behavior. Require compositor focus return-to-client evidence,
-   not just a Rust algorithm or wallpaper pixels. A shared `main.rs` caller
-   requires an explicit single-file integration lease.
-3. **Desktop:** an independently testable file inventory may land before
-   focus UI only if no implicit focus dependency is hidden. Desktop keyboard
-   UI, file actions and RiceField handoff must await the accepted Core API.
-4. **System:** safe isolated portal/session changes may land independently,
-   only with strict ScreenCast fail-closed behavior and relevant session
-   workflow coverage. No host-wide or XFCE state changes.
-5. **Every candidate:** check base and head anew; review owner boundaries,
-   full diff, exact-head CI, unresolved threads, and any automation overlap;
-   merge only with `expected_head_sha`. Reverify every new `main` commit
-   before another merge.
+### Ownership and controlled sequence
 
-A new PR that touches the same shared path as another active PR must be
-re-scoped or serialized. Handoff comments cannot act as an atomic lock.
+- **Integration owns only** `main.rs`, `luna_dialog.rs`,
+  `scripts/smoke_riceplate_native.sh`, shared CI, this governance
+  document, guarded merges and isolated assembly branches. Core/Desktop
+  maintain their own modules on new stacked branches; System alone owns #368.
+- #366 may be considered for a guarded merge only after exact final head,
+  relevant CI, Clippy/build and review requirements are independently
+  satisfied; recheck head immediately before mutation, then verify new
+  `main` push workflows before the next merge.
+- #371 is a combined candidate that must pass end-to-end checks **as a
+  whole**; do not merge disjoint unit-green #367/#370 and claim a file
+  desktop is finished. Retime/rebase new stacked Core/Desktop branches only
+  after their accepted parent integration.
+- #368 remains isolated and **unmergeable** without an actually delivered
+  PipeWire frame in strict mode on a compatible runner. Hosted pixman
+  isolation response=2 does not count as success.
+- All PRs need exact head/base SHAs, complete file scope, review resolution,
+  rollback and a hardware-unverified marker. A GitHub comment is not a
+  transactionally enforced lock.
+
+Older #342/#343/#349/#352/#353/#355/#356/#357/#361 are closed, not merged:
+they are not current parents and must not be revived implicitly.
 
 ## Mandatory PR pre-merge checklist
 
@@ -164,17 +176,17 @@ real-device list in `RELEASE_1_0_GATES.md` stays open until independently
 performed and recorded. The 1.0 sign-off JSON must not be marked approved
 on CI evidence alone.
 
-## Immediate coordination risk: scheduled automation
+## Concurrent writers and scheduled automation
 
-An existing enabled automation titled **RiceBowl Wayland weiterentwickeln**
-also scans `main`, comments on PRs and may create/merge feature branches.
-Its latest verified run occurred on 2026-11-14; its saved instructions
-still permit opening branches **and merging PRs**, conflicting with this
-contract's sole merge authority. The integration lane documented the risk in
-issue #360 and did **not** alter the automation. Before concurrent writes,
-the owner/operator must restrict the automation to an explicitly disjoint
-lane with no `main` merges or pause its GitHub writes. A written governance
-rule alone cannot enforce the lock.
+At the 14 November preflight, task automation **RiceBowl Wayland
+weiterentwickeln** (`Automation_ef9aa6256c388191b92abae017fad985`) was
+verified **disabled**. The older XP Luna and RiceBowl Roadmap automation tasks
+were also disabled. This resolves the previously documented *scheduled*
+merge-writer overlap; it does not prevent other live development chats
+from pushing to their own branches. A file lease requires fresh head/base
+checks before every write, and only Integration merges to `main`.
+Other active automations target separate repositories and are not treated
+as RiceBowl merge approval.
 
 ## Reporting format
 
