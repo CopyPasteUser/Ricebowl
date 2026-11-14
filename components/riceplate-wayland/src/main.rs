@@ -4810,6 +4810,16 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
     }
 }
 
+// Keep Run text hit-testing pixel-aligned with its actual painter, including
+// the selected private proportional font rather than assuming 8px cells.
+fn luna_dialog_text_width(style: &PanelStyle, text: &str) -> u32 {
+    style.native_art.as_ref().and_then(|art| art.font.as_ref())
+        .map_or_else(
+            || text_pixel_width(text, style.font_scale.max(1)),
+            |font| font.measure_text(text),
+        )
+}
+
 fn paint_luna_dialog(canvas: &mut [u8], style: &PanelStyle, state: &luna_dialog::State) {
     let (w, h) = (luna_dialog::WIDTH, luna_dialog::HEIGHT);
     canvas.fill(0);
@@ -4835,13 +4845,8 @@ fn paint_luna_dialog(canvas: &mut [u8], style: &PanelStyle, state: &luna_dialog:
             fill_rect(canvas, w, h, 120, 113, 302, 28, 0xffff_ffff);
             // Use the same font advances as actual glyph drawing: a
             // proportional selected font must not misplace the caret.
-            let (text, cursor_x) = state.input_view(282, |value| {
-                style.native_art.as_ref().and_then(|art| art.font.as_ref())
-                    .map_or_else(
-                        || text_pixel_width(value, style.font_scale.max(1)),
-                        |font| font.measure_text(value),
-                    )
-            });
+            let (text, cursor_x) = state.input_view(282, |value|
+                luna_dialog_text_width(style, value));
             draw_rice_text(canvas, w, h, 128, 122, &text, 0xff10_2849, style);
             fill_rect(canvas, w, h, 128 + cursor_x, 120, 2, 16, 0xff10_2849);
             let notice = state.notice.unwrap_or("Executes a command directly as your user.");
@@ -6292,8 +6297,17 @@ impl PointerHandler for RicePlate {
                 match activate {
                     Some(luna_dialog::Hit::Accept) => self.execute_luna_dialog(),
                     Some(luna_dialog::Hit::Cancel) => self.close_luna_dialog(),
-                    Some(luna_dialog::Hit::Input) | None =>
-                        if repaint { self.redraw_luna_dialog(); },
+                    Some(luna_dialog::Hit::Input) => {
+                        // The cursor follows the real painted glyph advances.
+                        // Only a completed click in the text field moves it;
+                        // no synthetic key event or compositor focus grab.
+                        let style = &self.recipe;
+                        let moved = self.luna_dialog.as_mut().is_some_and(|dialog|
+                            dialog.state.place_cursor_at(event.position.0 - 128.0, 282,
+                                |text| luna_dialog_text_width(style, text)));
+                        if moved || repaint { self.redraw_luna_dialog(); }
+                    }
+                    None => if repaint { self.redraw_luna_dialog(); },
                 }
                 continue;
             }
