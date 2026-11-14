@@ -512,6 +512,23 @@ mod tests {
     }
 
     #[test]
+    fn standalone_focus_smoke_is_valid_posix_shell() {
+        // Syntax-only: actual labwc compositor evidence remains a separate
+        // acceptance step, and must never be inferred from this test.
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../scripts/smoke_riceplate_desktop_focus.sh",
+        );
+        let result = std::process::Command::new("sh")
+            .arg("-n")
+            .arg(path)
+            .output()
+            .expect("POSIX shell is required by the Linux desktop test suite");
+        assert!(result.status.success(), "focus smoke syntax: {}",
+            String::from_utf8_lossy(&result.stderr));
+    }
+
+    #[test]
     fn panel_keys_have_identical_meaning_across_recipes() {
         assert_eq!(panel_key(Keysym::Tab), Some(PanelKey::Step(1)));
         assert_eq!(panel_key(Keysym::ISO_Left_Tab), Some(PanelKey::Step(-1)));
