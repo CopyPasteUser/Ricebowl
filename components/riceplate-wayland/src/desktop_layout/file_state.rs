@@ -35,6 +35,9 @@ fn successor(before: &Snapshot, after: &Snapshot, old: &Key) -> Option<Key> {
     matching.next().is_none().then(|| candidate.key.clone())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChooseMode { Replace, Toggle, Range }
+
 #[derive(Debug, Default)]
 pub struct FileSelection {
     selected: BTreeSet<Key>,
@@ -54,6 +57,27 @@ impl FileSelection {
             self.selected.insert(key.clone());
         }
         self.anchor = Some(key.clone());
+    }
+
+    /// Mouse and keyboard use the same policy. A stale key, including one
+    /// removed between selection and event handling, cannot be selected.
+    pub fn choose(&mut self, key: &Key, mode: ChooseMode, visible: &[Entry]) -> bool {
+        let Some(index) = visible.iter().position(|entry| &entry.key == key) else {
+            return false;
+        };
+        match mode {
+            ChooseMode::Replace => self.select(key, false),
+            ChooseMode::Toggle => self.select(key, true),
+            ChooseMode::Range => {
+                let start = self.anchor.as_ref()
+                    .and_then(|anchor| visible.iter().position(|item| &item.key == anchor))
+                    .unwrap_or(index);
+                self.selected = visible[start.min(index)..=start.max(index)]
+                    .iter().map(|entry| entry.key.clone()).collect();
+                self.anchor = visible.get(start).map(|entry| entry.key.clone());
+            }
+        }
+        true
     }
 
     pub fn select_all(&mut self, visible: &[Entry]) {
@@ -130,7 +154,7 @@ impl FilePositions {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "Too many file positions"));
         }
         let unique_outputs: BTreeSet<_> = self.records.values().map(|r| &r.output).collect();
-        if !unique_outputs.contains(&output.to_owned()) && unique_outputs.len() >= MAX_OUTPUTS {
+        if !self.records.values().any(|r| r.output == output) && unique_outputs.len() >= MAX_OUTPUTS {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "Too many displays"));
         }
         self.records.insert(digest, Position {
@@ -326,4 +350,24 @@ mod tests {
         assert!(positions.save_at(&data).is_err());
         assert_eq!(fs::read(&target).unwrap(), b"KEEP");
     }
+ 
+    #[test]
+    fn bounded_range_selection_rejects_stale_entries_and_does_not_cross_visible_set() {
+        let f = Fixture::new();
+        for name in ["a", "b", "c", "d"] { fs::write(f.0.join(name), b"x").unwrap(); }
+        let snap = scan(&f.0).unwrap();
+        let mut state = FileSelection::default();
+        assert!(state.choose(&snap.entries[0].key, ChooseMode::Replace, &snap.entries));
+        assert!(state.choose(&snap.entries[2].key, ChooseMode::Range, &snap.entries));
+        assert_eq!(state.count(), 3);
+        assert!(state.choose(&snap.entries[1].key, ChooseMode::Toggle, &snap.entries));
+        assert_eq!(state.count(), 2);
+        fs::remove_file(f.0.join("c")).unwrap();
+        let after = scan(&f.0).unwrap();
+        state.retain_after_refresh(&snap, &after);
+        assert_eq!(state.count(), 1);
+        assert!(!state.choose(&snap.entries[2].key, ChooseMode::Replace, &after));
+        assert_eq!(state.count(), 1);
+    }
+
 }
