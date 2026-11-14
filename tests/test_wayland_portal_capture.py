@@ -421,5 +421,89 @@ class RequestProtocolTests(unittest.TestCase):
         self.assertEqual(fake.unsubscribed, 5)
 
 
+@unittest.skipUnless(importlib.util.find_spec("gi"), "PyGObject not available")
+class PortalSessionLifecycleTests(unittest.TestCase):
+    """Exercise the real orchestration path with deterministic D-Bus replies."""
+
+    def _run(self, failure, *, strict=True, remote_fd=None):
+        from gi.repository import Gio
+
+        class Connection:
+            closed = []
+
+            def call_sync(self, _dest, path, _interface, method, *_args):
+                if method == "Close":
+                    self.closed.append(path)
+                    return None
+                raise AssertionError("Unexpected raw D-Bus call: " + method)
+
+        conn = Connection()
+        session = portal.DESKTOP_PATH + "/session/1_99/fixture"
+
+        def reply(_conn, _iface, method, *_args, **_kwargs):
+            if method == "Screenshot":
+                return {"uri": "file:///tmp/fixture.png"}
+            if method == "CreateSession":
+                return {"session_handle": session}
+            if method == "SelectSources":
+                if failure == "SelectSources":
+                    raise portal.PortalRejected(method, 2)
+                return {}
+            if method == "Start":
+                if failure == "Start":
+                    raise portal.PortalRejected(method, 2)
+                return {"streams": [(7, {})]}
+            raise AssertionError(method)
+
+        env = {
+            "RICEBOWL_PORTAL_STRICT_CI": "1" if strict else "0",
+            "WLR_RENDERER": "gles2" if strict else "pixman",
+        }
+        with patch.dict(os.environ, env), \
+             patch.object(portal, "require_private_headless_session"), \
+             patch.object(portal, "verify_png", return_value=(1, 1, 123)), \
+             patch.object(portal, "request", side_effect=reply), \
+             patch.object(Gio, "bus_get_sync", return_value=conn):
+            if remote_fd is not None:
+                with patch.object(portal, "verify_pipewire_remote",
+                                  return_value=remote_fd), \
+                     patch.object(portal, "verify_delivered_frame",
+                                  side_effect=RuntimeError("no frame")):
+                    with self.assertRaisesRegex(RuntimeError, "no frame"):
+                        portal.run()
+            elif strict:
+                with self.assertRaises(portal.PortalRejected):
+                    portal.run()
+            else:
+                portal.run()
+        self.assertEqual(conn.closed, [session])
+
+    def test_select_sources_denial_closes_session(self):
+        self._run("SelectSources")
+
+    def test_start_denial_closes_session(self):
+        self._run("Start")
+
+    def test_pixman_response_two_is_limited_but_session_closes(self):
+        self._run("Start", strict=False)
+
+    def test_frame_probe_failure_closes_remote_fd_and_session(self):
+        with ExitStack() as stack:
+            left, right = socket.socketpair()
+            stack.enter_context(left)
+            stack.enter_context(right)
+            fd = os.dup(left.fileno())
+            try:
+                self._run(None, remote_fd=fd)
+                with self.assertRaises(OSError):
+                    os.fstat(fd)
+            finally:
+                # If a regression left fd open, close it before failing the test.
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+
+
 if __name__ == "__main__":
     unittest.main()
