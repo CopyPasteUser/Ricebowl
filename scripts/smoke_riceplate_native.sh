@@ -1463,6 +1463,65 @@ PY
     sleep 0.65
     grep -Fq "XDG inventory refreshed entries=4" "$runtime/file-plate.log"
     test ! -e "$runtime/full-ricefield.log"
+    # Send the actual Luna background-menu command through the private IPC
+    # socket, not a direct Rust model call. The folder must be painted and
+    # selected by the live native file desktop without launching RiceField.
+    WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 1100 450 1366 768
+    sleep 0.15
+    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xdg-before-new-folder.png"
+    HOME="$runtime/file-home" XDG_CONFIG_HOME="$runtime/file-config" \
+        PATH="$runtime/mock-bin:$PATH" \
+        "$native" --desktop-command new-folder
+    count=0
+    while ! grep -Fq "RicePlate: XDG created folder selected on native desktop" \
+        "$runtime/file-plate.log" && [ "$count" -lt 40 ]; do
+        count=$((count + 1))
+        sleep 0.1
+    done
+    test -d "$runtime/file-home/Desktop/New Folder" || {
+        echo "Native Luna new-folder IPC did not create the Desktop folder" >&2
+        tail -n 45 "$runtime/file-plate.log" >&2
+        exit 1
+    }
+    grep -Fq "RicePlate: XDG created folder selected on native desktop" \
+        "$runtime/file-plate.log" || {
+        echo "New folder did not become a selected native Desktop icon" >&2
+        tail -n 45 "$runtime/file-plate.log" >&2
+        exit 1
+    }
+    test ! -e "$runtime/full-ricefield.log" || {
+        echo "Native new-folder unexpectedly opened a second file manager" >&2
+        exit 1
+    }
+    sleep 0.25
+    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xdg-native-new-folder.png"
+    /usr/bin/python3 - "$runtime/xdg-before-new-folder.png" \
+        "$runtime/xdg-native-new-folder.png" <<"PY"
+from PIL import Image, ImageChops
+import sys
+with Image.open(sys.argv[1]) as a, Image.open(sys.argv[2]) as b:
+    assert a.size == b.size == (1366, 768)
+    diff = ImageChops.difference(
+        a.convert("RGB").crop((0, 0, 900, 700)),
+        b.convert("RGB").crop((0, 0, 900, 700)),
+    )
+    changed = sum(max(pixel) > 20 for pixel in diff.getdata())
+    assert changed > 80, f"Native New Folder did not visibly paint: {changed}"
+PY
+    # A second command must use the collision-safe next name, and still
+    # avoid opening RiceField or clobbering the first folder.
+    HOME="$runtime/file-home" XDG_CONFIG_HOME="$runtime/file-config" \
+        PATH="$runtime/mock-bin:$PATH" \
+        "$native" --desktop-command new-folder
+    count=0
+    while [ ! -d "$runtime/file-home/Desktop/New Folder (2)" ] && [ "$count" -lt 40 ]; do
+        count=$((count + 1))
+        sleep 0.1
+    done
+    test -d "$runtime/file-home/Desktop/New Folder (2)"
+    test -d "$runtime/file-home/Desktop/New Folder"
+    test ! -e "$runtime/full-ricefield.log"
+    echo "Verified real Luna new-folder IPC, visible selected XDG icon, collision-safe repeat and no RiceField launch"
     echo "Verified genuine file context, read-only properties, Wayland rename, Trash Cancel and confirmed Gio argv"
     echo "Verified live XDG file layers, compositor double-click, external create/rename/delete and inert .desktop/symlink inventory"
     kill "$plate"
