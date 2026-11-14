@@ -331,11 +331,11 @@ mod tests {
         assert!(state.enter("Z"));
         assert_eq!(state.input, "a界Zbc");
         assert!(state.move_cursor(CursorMove::Home));
-        assert!(state.place_cursor_at(3.0, 80, width));
-        assert_eq!(state.cursor, 0);
+        assert!(state.place_cursor_at(5.0, 80, width));
+        assert_eq!(state.cursor, 1);
         assert!(!state.place_cursor_at(f64::NAN, 80, width));
         assert!(!state.place_cursor_at(f64::INFINITY, 80, width));
-        assert_eq!(state.cursor, 0);
+        assert_eq!(state.cursor, 1);
         assert!(!state.place_cursor_at(8.0, 0, width));
         let mut help = State::new(Kind::Help);
         assert!(!help.place_cursor_at(12.0, 80, width));
