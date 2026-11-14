@@ -534,6 +534,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         file_selection: desktop_layout::file_state::FileSelection::default(),
         file_watcher,
         file_pressed: None,
+        file_drag: None,
         file_last_click: None,
         file_launches: Vec::new(),
         file_last_reap: Instant::now(),
@@ -1007,6 +1008,18 @@ struct IconDrag {
     original_positions: icon_positions::OutputPositions,
 }
 
+/// An actual XDG file-icon move changes only presentation coordinates, never
+/// filesystem paths. A snapshot is retained until the pointer releases so
+/// hotplug, seat loss, save errors and invalid targets can restore the layout.
+struct FileIconDrag {
+    key: desktop_layout::inventory::Key,
+    source_output: wl_output::WlOutput,
+    anchor: (f64, f64),
+    started: (u32, u32),
+    moved: bool,
+    original_positions: desktop_layout::file_state::FilePositions,
+}
+
 struct LunaDialogLayer {
     surface: LayerSurface,
     pool: Option<SlotPool>,
@@ -1114,6 +1127,7 @@ struct RicePlate {
     file_selection: desktop_layout::file_state::FileSelection,
     file_watcher: Option<desktop_layout::watcher::Watcher>,
     file_pressed: Option<desktop_layout::inventory::Key>,
+    file_drag: Option<FileIconDrag>,
     file_last_click: Option<(desktop_layout::inventory::Key, Instant, (f64, f64))>,
     file_launches: Vec<std::process::Child>,
     file_last_reap: Instant,
@@ -1610,6 +1624,94 @@ impl RicePlate {
         }
     }
 
+    fn restore_file_drag(&mut self, qh: &QueueHandle<Self>) {
+        if let Some(drag) = self.file_drag.take() {
+            self.file_positions = drag.original_positions;
+            self.sync_file_layers(qh);
+            self.reflow_file_layers();
+        }
+        self.file_pressed = None;
+        self.file_last_click = None;
+    }
+
+    /// Persist only a fully completed pointer gesture. Never write file
+    /// positions on every motion or accept a non-private state file occupant.
+    /// A failed disk commit restores the previous in-memory coordinates.
+    fn persist_file_drag(&mut self, before: &desktop_layout::file_state::FilePositions,
+                         qh: &QueueHandle<Self>) {
+        let result = desktop_layout::file_state::FilePositions::default_path()
+            .and_then(|path| match path {
+                Some(path) => {
+                    desktop_layout::file_state::FilePositions::prepare_storage(&path)?;
+                    self.file_positions.save_at(&path)
+                }
+                None => Ok(()), // Explicit ephemeral nested preview.
+            });
+        if let Err(error) = result {
+            eprintln!("RicePlate: XDG position save refused, restoring previous layout: {error}");
+            self.file_positions = before.clone();
+            self.sync_file_layers(qh);
+            self.reflow_file_layers();
+        }
+    }
+
+    /// A cross-output drop may only target an advertised, actually managed
+    /// display. The icon is never moved between filesystem directories.
+    fn transfer_file_drag(&mut self, drag: &FileIconDrag, pointer: (f64, f64),
+                          qh: &QueueHandle<Self>) -> bool {
+        let Some(source) = self.file_layers.iter().find(|layer|
+            layer.entry.key == drag.key
+                && layer.bound_output.as_ref().or(self.primary_output.as_ref())
+                    .or(layer.output.as_ref()) == Some(&drag.source_output))
+            else { return false };
+        let Some(current) = source.placed else { return false };
+        let Some(info) = self.outputs.info(&drag.source_output) else { return false };
+        let (Some(source_origin), Some(source_name)) =
+            (info.logical_position, info.name.as_ref()) else { return false };
+        let managed: Vec<_> = self.outputs.outputs()
+            .filter(|output| self.logical_output_size(output).is_some())
+            .filter(|output| self.primary_output.as_ref() != Some(output))
+            .take(MAX_OUTPUT_PANELS)
+            .chain(self.primary_output.iter().cloned())
+            .collect();
+        let target = managed.iter().find_map(|output| {
+            if output == &drag.source_output { return None; }
+            let info = self.outputs.info(output)?;
+            let name = info.name.as_ref()?;
+            if name == source_name { return None; }
+            let coords = desktop_layout::cross_output_drop(
+                source_origin, current, pointer, drag.anchor,
+                info.logical_position?, self.logical_output_size(output)?,
+            )?;
+            Some((output.clone(), name.clone(), coords))
+        });
+        let Some((output, name, coords)) = target else { return false };
+        let mut next = drag.original_positions.clone();
+        if let Err(error) = next.set(&drag.key, &name,
+            icon_positions::Coordinates { x: coords.0, y: coords.1 }) {
+            eprintln!("RicePlate: XDG cross-output drop refused: {error}");
+            return false;
+        }
+        self.file_positions = next;
+        self.sync_file_layers(qh);
+        self.reflow_file_layers();
+        let visible = self.file_layers.iter().any(|layer|
+            layer.entry.key == drag.key && layer.placed.is_some()
+                && layer.bound_output.as_ref().or(self.primary_output.as_ref())
+                    .or(layer.output.as_ref()) == Some(&output));
+        if !visible {
+            self.file_positions = drag.original_positions.clone();
+            self.sync_file_layers(qh);
+            self.reflow_file_layers();
+            eprintln!("RicePlate: XDG drop target has no usable icon cell");
+            return false;
+        }
+        if std::env::var("RICEBOWL_DE_TRACE_FILES").as_deref() == Ok("1") {
+            eprintln!("RicePlate: XDG icon moved to another display");
+        }
+        true
+    }
+
     fn refresh_file_desktop(&mut self, qh: &QueueHandle<Self>) {
         let Some(directory) = self.file_desktop.as_ref() else { return };
         let next = match desktop_layout::inventory::scan(directory) {
@@ -1619,6 +1721,9 @@ impl RicePlate {
                 return;
             }
         };
+        // An inotify refresh can invalidate the drag's inode or geometry.
+        // Discard transient pointer positions, then reconcile real file IDs.
+        self.restore_file_drag(qh);
         if let Some(before) = self.file_snapshot.take() {
             self.file_selection.retain_after_refresh(&before, &next);
             self.file_positions.reconcile(&before, &next);
@@ -6705,8 +6810,7 @@ impl OutputHandler for RicePlate {
         for icon in &mut self.file_layers {
             if icon.output.as_ref() == Some(&output) { icon.output = None; }
         }
-        self.file_pressed = None;
-        self.file_last_click = None;
+        self.restore_file_drag(qh);
         self.reflow_icons();
         self.sync_mirrors(qh);
     }
@@ -6765,6 +6869,7 @@ impl SeatHandler for RicePlate {
                 pointer.release();
             }
             self.icon_drag = None;
+            self.restore_file_drag(qh);
             self.desktop_selection.cancel();
             self.save_icon_positions();
         } else if capability == Capability::Keyboard
@@ -7979,6 +8084,18 @@ impl PointerHandler for RicePlate {
                             self.file_selection.choose(&key, mode, &snapshot.entries);
                             for i in 0..self.file_layers.len() { self.redraw_file_icon(i); }
                         }
+                        self.file_drag = if mode == desktop_layout::file_state::ChooseMode::Replace {
+                            self.file_layers[index].placed.and_then(|started| {
+                                let output = self.file_layers[index].bound_output.as_ref()
+                                    .or(self.primary_output.as_ref())
+                                    .or(self.file_layers[index].output.as_ref())?.clone();
+                                Some(FileIconDrag {
+                                    key: key.clone(), source_output: output,
+                                    anchor: event.position, started, moved: false,
+                                    original_positions: self.file_positions.clone(),
+                                })
+                            })
+                        } else { None };
                         self.file_pressed = Some(key);
                     }
                     PointerEventKind::Press { button: BTN_RIGHT, .. } => {
@@ -7991,10 +8108,53 @@ impl PointerHandler for RicePlate {
                         // A real file has a separate, typed context menu; never
                         // route it through the virtual-shortcut action table.
                         self.open_file_context(index, event.position, qh);
+                        self.file_drag = None;
                         self.file_pressed = None;
                         self.file_last_click = None;
                     }
+                    PointerEventKind::Motion { .. } => {
+                        let Some(drag) = self.file_drag.as_mut().filter(|drag| drag.key == key)
+                            else { continue; };
+                        let Some(current) = self.file_layers[index].placed else { continue };
+                        let desired = desktop_layout::dragged_to(
+                            current, drag.anchor, event.position);
+                        if desired.0.abs_diff(drag.started.0)
+                            + desired.1.abs_diff(drag.started.1) >= 6 {
+                            drag.moved = true;
+                        }
+                        if drag.moved && desired != current {
+                            let output = self.file_layers[index].bound_output.as_ref()
+                                .or(self.primary_output.as_ref())
+                                .or(self.file_layers[index].output.as_ref())
+                                .and_then(|output| self.outputs.info(output))
+                                .and_then(|info| info.name);
+                            let result = output.ok_or(std::io::ErrorKind::InvalidInput.into())
+                                .and_then(|name: String| self.file_positions.set(
+                                    &key, &name, icon_positions::Coordinates {
+                                        x: desired.0, y: desired.1,
+                                    }));
+                            match result {
+                                Ok(()) => self.reflow_file_layers(),
+                                Err(error) => {
+                                    eprintln!("RicePlate: XDG file move refused: {error}");
+                                    self.restore_file_drag(qh);
+                                }
+                            }
+                        }
+                    }
                     PointerEventKind::Release { button: BTN_LEFT, .. } => {
+                        if let Some(drag) = self.file_drag.take().filter(|drag| drag.key == key) {
+                            if drag.moved {
+                                self.file_pressed = None;
+                                self.file_last_click = None;
+                                self.transfer_file_drag(&drag, event.position, qh);
+                                self.persist_file_drag(&drag.original_positions, qh);
+                                if std::env::var("RICEBOWL_DE_TRACE_FILES").as_deref() == Ok("1") {
+                                    eprintln!("RicePlate: XDG file icon drop committed");
+                                }
+                                continue;
+                            }
+                        }
                         if self.file_pressed.take().as_ref() == Some(&key) {
                             let now = Instant::now();
                             let activate = self.file_last_click.as_ref().is_some_and(
