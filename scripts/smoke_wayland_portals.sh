@@ -18,6 +18,14 @@ if [ "$backend" = generic ] && [ "$strict" != 1 ]; then
     echo "PORTAL_SETUP_FAIL: generic backend reserved for strict isolated CI" >&2
     exit 2
 fi
+if [ "$strict" = 1 ]; then
+    # Both strict backends must have a private session manager. A PipeWire
+    # socket alone cannot establish an authorized producer-consumer link.
+    command -v wireplumber >/dev/null 2>&1 || {
+        echo "PORTAL_SETUP_FAIL: private WirePlumber is unavailable" >&2
+        exit 2
+    }
+fi
 if [ "$strict" = 1 ] && [ "$backend" = generic ]; then
     [ "$renderer" = pixman ] || {
         echo "PORTAL_STRICT_BLOCKED: generic SHM backend requires pixman" >&2
@@ -206,10 +214,9 @@ dbus-run-session -- sh -eu -c '
         sed -n "1,50p" "$runtime/pipewire.log" >&2
         exit 1
     fi
-    if [ "$RICEBOWL_PORTAL_BACKEND" = generic ]; then
-        # The bare PipeWire core cannot policy-link a portal source with a
-        # GStreamer client; without a private session manager the producer
-        # loops indefinitely with "No buffer available from PipeWire stream".
+    if [ "$RICEBOWL_PORTAL_STRICT_CI" = 1 ]; then
+        # Both strict capture paths use a private PipeWire session manager,
+        # never the user's services. A bare core is not a stream policy.
         wireplumber >"$runtime/wireplumber.log" 2>&1 &
         wireplumber_pid=$!
         sleep 1
@@ -254,9 +261,11 @@ dbus-run-session -- sh -eu -c '
             sed -n "1,70p" "$runtime/generic.log" >&2
             exit 1
         fi
-        # A real animated Wayland surface keeps producing compositor damage.
-        # A static empty headless output can return Stream Start without a
-        # single PipeWire buffer; never manufacture video in the receiver.
+    fi
+    if [ "$RICEBOWL_PORTAL_STRICT_CI" = 1 ]; then
+        # Both genuine capture backends need surface damage. A static empty
+        # headless output may advertise a stream but never deliver a frame.
+        # This is an ordinary animated Wayland GTK window, never fake video.
         GDK_BACKEND=wayland /usr/bin/python3 "$root/scripts/wayland_portal_frame_painter.py" \
             >"$runtime/painter.log" 2>&1 &
         painter_pid=$!
