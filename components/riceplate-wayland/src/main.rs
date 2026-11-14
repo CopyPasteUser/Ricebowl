@@ -1279,38 +1279,40 @@ fn register_file_watch(
 
 impl RicePlate {
     fn close_desktop_keyboard_focus(&mut self) {
-        if self.desktop_keyboard_focus_layer.is_some()
-            && std::env::var("RICEBOWL_DE_TRACE_FOCUS").as_deref() == Ok("1") {
-            eprintln!("RicePlate: XDG file keyboard focus released");
+        if let Some(layer) = self.desktop_keyboard_focus_layer.as_ref() {
+            if std::env::var("RICEBOWL_DE_TRACE_FOCUS").as_deref() == Ok("1") {
+                match layer.target {
+                    DesktopFocusTarget::File(_) =>
+                        eprintln!("RicePlate: XDG file keyboard focus released"),
+                    DesktopFocusTarget::Shortcut(_) =>
+                        eprintln!("RicePlate: Luna shortcut keyboard focus released"),
+                }
+            }
         }
         self.desktop_keyboard_focus_lease.cancel();
-        // Dropping the compositor-owned overlay releases its scoped keyboard
-        // interactivity immediately. A pending virtual keyboard cannot retain
-        // a global focus grab after Escape, Leave, output loss or timeout.
+        // The compositor drops this 8px Exclusive surface on dismissal; no
+        // background input-grab layer survives an app transition or timeout.
         self.desktop_keyboard_focus_layer = None;
     }
 
-    fn open_file_keyboard_focus(&mut self, index: usize, qh: &QueueHandle<Self>) {
-        // A virtual-keyboard client may be a different wl_seat. Do not
-        // borrow its identity to legitimize this pointer gesture.
+    fn begin_desktop_keyboard_focus(&mut self, position: (u32, u32),
+        output: wl_output::WlOutput, target: DesktopFocusTarget, qh: &QueueHandle<Self>) {
+        // Only a pointer gesture from the actual owning seat can request
+        // focus. A separate virtual keyboard is never allowed to synthesize
+        // pointer authority; it must wait for wl_keyboard.enter on this seat.
         let seat = match self.seat_assignments.focus_seat_for_pointer_gesture() {
             Ok(seat) => seat.clone(),
             Err(reason) => {
                 if std::env::var("RICEBOWL_DE_TRACE_FOCUS").as_deref() == Ok("1") {
-                    eprintln!("RicePlate: XDG file focus refused: {reason:?}");
+                    eprintln!("RicePlate: desktop focus refused: {reason:?}");
                 }
                 return;
             }
         };
-        let Some(file) = self.file_layers.get(index) else { return };
-        let Some((file_x, file_y)) = file.placed else { return };
-        let entry = file.entry.key.clone();
-        let Some(output) = file.bound_output.as_ref().or(self.primary_output.as_ref())
-            .or(file.output.as_ref()).cloned() else { return };
-        let Some((width, height)) = self.logical_output_size(&output) else { return };
-        // A tiny adjacent corner indicator, not a desktop-covering input hitbox.
-        let x = file_x.saturating_add(recipe::ICON_WIDTH + 4).min(width.saturating_sub(8));
-        let y = file_y.min(height.saturating_sub(8));
+        let Some((width, height)) = self.logical_output_size(&output) else { return; };
+        let x = position.0.saturating_add(recipe::ICON_WIDTH + 4)
+            .min(width.saturating_sub(8));
+        let y = position.1.min(height.saturating_sub(8));
         self.close_desktop_keyboard_focus();
         let surface = self.layer_shell.create_layer_surface(
             qh, self.compositor.create_surface(qh), Layer::Overlay,
@@ -1319,24 +1321,48 @@ impl RicePlate {
         surface.set_size(8, 8);
         surface.set_margin(y as i32, 0, 0, x as i32);
         surface.set_exclusive_zone(-1);
-        // Use the compositor's normal bounded input region on this 8px
-        // surface. An empty region may make labwc treat it as unfocusable;
-        // the surface does not intercept any click on the actual file icon.
-        // Exclusive only for this short-lived bounded surface, never the
-        // original Bottom desktop icon or an always-on keyboard owner.
+        // Exclusive is used ONLY while this adjacent 8x8 target exists;
+        // original Bottom icon layers remain OnDemand/None. No full-screen
+        // keyboard or pointer grab. A regular app activation drops it.
         surface.set_keyboard_interactivity(KeyboardInteractivity::Exclusive);
-        let wl_surface = surface.wl_surface().clone();
         self.desktop_keyboard_focus_lease.request(
-            input_core::DesktopFocusIntent::PointerSelection, seat, output, wl_surface);
+            input_core::DesktopFocusIntent::PointerSelection,
+            seat, output, surface.wl_surface().clone());
+        let source = match target {
+            DesktopFocusTarget::File(_) => "XDG file",
+            DesktopFocusTarget::Shortcut(_) => "Luna shortcut",
+        };
         self.desktop_keyboard_focus_layer = Some(DesktopKeyboardFocusLayer {
-            surface, pool: None, configured: false, target: DesktopFocusTarget::File(entry),
+            surface, pool: None, configured: false, target,
             expires: Instant::now() + Duration::from_secs(5),
             typed: String::new(), last_typed: Instant::now(),
         });
         self.desktop_keyboard_focus_layer.as_ref().unwrap().surface.commit();
         if std::env::var("RICEBOWL_DE_TRACE_FOCUS").as_deref() == Ok("1") {
-            eprintln!("RicePlate: XDG file focus surface requested x={x} y={y}");
+            eprintln!("RicePlate: {source} focus surface requested x={x} y={y}");
         }
+    }
+
+    fn open_file_keyboard_focus(&mut self, index: usize, qh: &QueueHandle<Self>) {
+        let Some(layer) = self.file_layers.get(index) else { return; };
+        let Some(position) = layer.placed else { return; };
+        let key = layer.entry.key.clone();
+        let Some(output) = layer.bound_output.as_ref()
+            .or(self.primary_output.as_ref()).or(layer.output.as_ref()).cloned()
+            else { return; };
+        self.begin_desktop_keyboard_focus(position, output, DesktopFocusTarget::File(key), qh);
+    }
+
+    fn open_shortcut_keyboard_focus(&mut self, index: usize, qh: &QueueHandle<Self>) {
+        if self.recipe.id != "xp-luna-columns" { return; }
+        let Some(layer) = self.icon_layers.get(index) else { return; };
+        let Some(position) = layer.placed else { return; };
+        let target = layer.surface.wl_surface().clone();
+        let Some(output) = layer.bound_output.as_ref()
+            .or(self.primary_output.as_ref()).or(layer.output.as_ref()).cloned()
+            else { return; };
+        self.begin_desktop_keyboard_focus(position, output,
+            DesktopFocusTarget::Shortcut(target), qh);
     }
 
     fn redraw_desktop_keyboard_focus(&mut self) {
