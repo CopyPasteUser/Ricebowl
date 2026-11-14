@@ -866,6 +866,8 @@ PY
             WAYLAND_DISPLAY=wayland-0 "$clicker" 843 450 1366 768
             sleep 0.25
             kill -0 "$plate"
+            echo "Luna native Run focus and redacted edit trace:"
+            grep -E "RicePlate: Luna Run( edit|/Help keyboard)" "$runtime/plate-$label.log" | tail -n 45 || :
             # Check observed edit states, not raw keystrokes or command text:
             # the diagnostic log deliberately contains no input characters.
             grep -Fq "RicePlate: Luna Run edit chars=4 caret=4" "$runtime/plate-$label.log" || {
@@ -876,8 +878,6 @@ PY
                 echo "Native Run did not insert after pointer caret placement" >&2
                 exit 1
             }
-            echo "Luna native Run focus and redacted edit trace:"
-            grep -E "RicePlate: Luna Run( edit|/Help keyboard)" "$runtime/plate-$label.log" | tail -n 24 || :
             /usr/bin/python3 - "$runtime" <<PY
 from pathlib import Path
 from PIL import Image, ImageChops
