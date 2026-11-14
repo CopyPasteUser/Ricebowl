@@ -201,8 +201,15 @@ fn main() -> Result<(), Box<dyn Error>> {
             if !(3..=65_535).contains(&fd) {
                 return Err("Native frame pipe descriptor out of range".into());
             }
-            // SAFETY: pass_fds in the session supervisor transfers an owned
-            // descriptor into this child. Only this child closes the handle.
+            // A numeric environment variable does not prove the descriptor
+            // exists. Validate it before the unsafe ownership conversion.
+            // For a production activation only our own supervisor supplies
+            // the inherited FD through Popen(pass_fds=...).
+            if unsafe { libc::fcntl(fd, libc::F_GETFD) } == -1 {
+                return Err("Native frame pipe descriptor is not open".into());
+            }
+            // SAFETY: after F_GETFD, the private session supervisor has
+            // transferred ownership of this live descriptor to the child.
             Some(std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) }))
         }
         Err(std::env::VarError::NotPresent) => None,
