@@ -7383,6 +7383,71 @@ impl PointerHandler for RicePlate {
                 }
                 continue;
             }
+            if self.file_context.as_ref().is_some_and(|menu|
+                menu.surface.wl_surface() == &event.surface) {
+                let mut invoke = None;
+                let mut repaint = false;
+                if let Some(menu) = self.file_context.as_mut() {
+                    if menu.properties.is_some() {
+                        let back = desktop_file_menu::back_hit(
+                            event.position.0, event.position.1);
+                        match event.kind {
+                            PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
+                                if menu.back_hovered != back {
+                                    menu.back_hovered = back;
+                                    repaint = true;
+                                }
+                            }
+                            PointerEventKind::Leave { .. } => {
+                                menu.back_hovered = false;
+                                menu.back_pressed = false;
+                                repaint = true;
+                            }
+                            PointerEventKind::Press { button: BTN_LEFT, .. } =>
+                                menu.back_pressed = back,
+                            PointerEventKind::Release { button: BTN_LEFT, .. } => {
+                                if menu.back_pressed && back {
+                                    menu.properties = None;
+                                    menu.back_hovered = false;
+                                    repaint = true;
+                                }
+                                menu.back_pressed = false;
+                            }
+                            _ => {}
+                        }
+                    } else {
+                        let hit = desktop_file_menu::hit(
+                            event.position.0, event.position.1, menu.kind);
+                        match event.kind {
+                            PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
+                                if menu.hovered != hit {
+                                    menu.hovered = hit;
+                                    repaint = true;
+                                }
+                            }
+                            PointerEventKind::Leave { .. } => {
+                                menu.hovered = None;
+                                menu.pressed = None;
+                                repaint = true;
+                            }
+                            PointerEventKind::Press { button: BTN_LEFT, .. } => {
+                                menu.pressed = hit;
+                                if let Some(item) = hit { menu.selected = item; }
+                                repaint = true;
+                            }
+                            PointerEventKind::Release { button: BTN_LEFT, .. } => {
+                                if menu.pressed.take().is_some_and(|pressed| Some(pressed) == hit) {
+                                    invoke = hit;
+                                } else { repaint = true; }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                if let Some(item) = invoke { self.choose_file_context(item, qh); }
+                else if repaint { self.redraw_file_context(); }
+                continue;
+            }
             if self.desktop_context.as_ref().is_some_and(|menu|
                 menu.surface.wl_surface() == &event.surface) {
                 let mut activate = None;
