@@ -209,6 +209,16 @@ fn verified_path(snapshot: &Snapshot, desktop: &Path, entry: &Entry,
     if pinned.source_metadata.uid() != unsafe { libc::geteuid() } {
         return Err(ActionError::Disabled("Entry belongs to another user"));
     }
+    // An O_PATH descriptor only proves existence and identity. Check the
+    // *effective* caller can actually read/open the file, instead of showing
+    // a fake successful Open intent for owner-owned mode 000 data.
+    let name = valid_name(&entry.key.name)?;
+    let access = libc::R_OK | if entry.kind == Kind::Directory { libc::X_OK } else { 0 };
+    let allowed = unsafe {
+        libc::faccessat(pinned.root.as_raw_fd(), name.as_ptr(), access,
+                        libc::AT_EACCESS | libc::AT_SYMLINK_NOFOLLOW)
+    };
+    if allowed != 0 { return Err(ActionError::Io(io::Error::last_os_error())); }
     Ok(desktop.join(&entry.key.name))
 }
 
@@ -645,6 +655,23 @@ mod tests {
         assert!(f.0.join("destination").symlink_metadata().unwrap().file_type().is_symlink());
         assert_eq!(fs::read(&protected).unwrap(), b"KEEP");
         assert_eq!(fs::read(f.0.join("source")).unwrap(), b"SOURCE");
+    }
+
+    #[test]
+    fn unreadable_owner_file_is_not_reported_openable() {
+        use std::os::unix::fs::PermissionsExt;
+        if unsafe { libc::geteuid() } == 0 { return; }
+        let f = Fixture::new();
+        let path = f.0.join("private");
+        fs::write(&path, b"SECRET").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
+        let snap = f.snap();
+        let item = f.entry(&snap, "private");
+        let result = prepare_open(&snap, &f.0, item, OpenMode::Default);
+        assert!(matches!(result, Err(ActionError::Io(_))));
+        assert!(properties(&snap, &f.0, item).is_ok(),
+                "no-follow stat should still allow viewing metadata");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
     }
 
     #[test]
