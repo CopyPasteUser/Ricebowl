@@ -219,7 +219,16 @@ pub fn file_open_intent(
         return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied,
                                        "Desktop entry is not an executable file target"));
     }
-    let path = snapshot.current_path(desktop, entry)?;
+    // Reuse the descriptor-bound action validator; no second filesystem
+    // security policy is permitted in the context-menu renderer.
+    let mode = if explorer {
+        crate::desktop_layout::actions::OpenMode::Explorer
+    } else {
+        crate::desktop_layout::actions::OpenMode::Default
+    };
+    let _plan = crate::desktop_layout::actions::prepare_open(snapshot, desktop, entry, mode)
+        .map_err(crate::desktop_layout::actions::ActionError::into_io)?;
+    let path = desktop.join(&entry.key.name);
     if explorer || entry.kind == Kind::Directory {
         let destination = if entry.kind == Kind::Directory {
             path
