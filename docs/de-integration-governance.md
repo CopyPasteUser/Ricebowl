@@ -49,55 +49,65 @@ small and reviewed by integration, while behavior lives in owned modules.
 4. Never silently cherry-pick/duplicate unmerged private branch behavior.
 5. Rebase/retarget only after the parent lands and rerun CI for the new head.
 
-## Live integration dependency graph (snapshot: 2026-11-13)
+## Live integration dependency graph (snapshot: 2026-11-14)
+
+> This snapshot reflects GitHub refs checked on 14 November 2026, not the
+> previous 13 November PR stack. [Issue #360](https://github.com/CopyPasteUser/Ricebowl/issues/360)
+> is the coordination log; check it and live refs before each mutation.
 
 ```text
-main (verified baseline c9373bd2)
-├── #359 seat-owned input / Show Desktop (Draft; shared main.rs)
-├── #342 desktop focus (Draft, native compositor focus gate FAIL)
-│   └── #355 XDG Desktop/RiceField (Draft, native gate FAIL)
-│       └── #356 inotify desktop refresh (Draft; stacked on #355)
-├── #343 window actions (Draft, CI FAIL)
-│   └── #352 taskbar follow-up (Draft, CI PASS on own head; parent FAIL)
-├── #349 Start/All Programs (Draft, CI FAIL)
-│   └── #353 Start menu follow-up (Draft, native keyboard FAIL)
-├── #357 strict GLES2/PipeWire portal CI (Draft, new system lane)
-├── #354 Control Panel/System UX (Draft, Tests + Wayland PASS;
-│    native capture covered by Wayland workflow; review still required)
-├── #337 recents roadmap (Draft, branch diverged; scope must be cleaned)
-└── #358 integration contract (Draft; docs only)
+main @ 559f800ead46ff60c6551624734d4bbe47ddf667
+├── #366 Run caret + modal keyboard handover
+│   fix/luna-run-pointer-caret-20261114 [DRAFT, Native FAIL on prior head;
+│   latest head 153660159ed65cdd352b316b30ec23dd12814fb0 pending CI]
+├── Core — sprint/de-core-focus-20261114 [planned; branch not present at preflight]
+├── Desktop — sprint/de-desktop-files-20261114 [planned; branch not present]
+└── System — sprint/de-system-portals-20261114 [planned; branch not present]
 ```
 
-See [issue #360](https://github.com/CopyPasteUser/Ricebowl/issues/360) for live cross-lane handoffs and CI triage. This graph must be refreshed whenever a concurrent agent opens a new PR.
+Exactly one PR was open at the preflight: **#366**. The older #342, #343,
+#349, #352, #353, #355, #356, #357 and #361 PRs were **closed, not merged**.
+Do not represent them as active stacks or reopen/rebase them automatically.
+Core focus issue #328 and strict portal issue #304 remain open. The new sprint
+branches above are assigned work scopes, **not** evidence of current implementation.
 
-The graph describes actual *PR base branches* as observed on this date, not
-permanent ownership. Every entry is conditional on current refs and checks.
-`mergeable=true` does **not** mean release-ready; draft, failing, stale,
-missing or incorrectly scoped checks are independent blockers.
+PR #366 owns its four original paths: `WAYLAND_XP_LUNA_PARITY.md`,
+`components/riceplate-wayland/src/luna_dialog.rs`, shared
+`components/riceplate-wayland/src/main.rs` and
+`scripts/smoke_riceplate_native.sh`. On `2c63c8f6`, exact-head
+[Tests](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43577923669)
+passed but [Native](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43577923661)
+failed: the real virtual keyboard delivered `Z` after the pointer click,
+then the screenshot restoration comparison found 130 changed pixels against
+its <8-pixel acceptance bound. This does **not** prove a compositor focus
+regression; earlier heads had separate focus acquisition failures. Subsequent
+commits `78cb5a888044` and `153660159ed6` changed shared files during
+the review preflight. The integration lane aborted its own proposed write
+instead of racing the head, and requested exclusive handoff in #366.
 
-### Merge order and explicit blocking conditions
+### Current merge order and blockers
 
-1. **Core gate:** #342 must pass a real labwc keyboard focus/return-to-client
-   proof on a supported compositor, not just a Rust unit test or popup pixels.
-   Legacy compositor limitations must be clearly classified and supported via
-   an honest fallback or explicit minimum-version requirement.
-2. **Window gate:** #343 must pass exact-head Rust/Clippy, Python,
-   native compositor and Wayland session tests. Then rebase/retarget #352,
-   revalidate and integrate.
-3. **Desktop gate:** only after #342 is integrated, retarget #355 onto updated
-   `main`; verify file interaction/focus, read-only/denied paths, output
-   unplug, cleanup and native compositor tests.
-4. **Menu gate:** fix #349's failed Tests/Native workflows and #353 keyboard
-   Escape behavior; integrate parent before follow-up.
-5. **Independent UI:** #354 may undergo review independently; functional DE
-   integration takes precedence over visual fidelity. Do not merge merely
-   because two workflows are green.
-6. **Docs cleanup:** #337 is not automatically safe because its title says
-   `docs`; compare the full PR against the current `main` and isolate
-   only the intended roadmap change before integration.
+1. **PR #366:** wait for the *new* exact head, inspect complete diff,
+   running Native + Tests results and real pointer, keyboard, restoration
+   evidence. Do not equate `mergeable` with approved and do not merge while
+   Draft or a relevant gate is red.
+2. **Core:** a new owner-scoped PR for actual seat/keyboard focus and window
+   lifecycle behavior. Require compositor focus return-to-client evidence,
+   not just a Rust algorithm or wallpaper pixels. A shared `main.rs` caller
+   requires an explicit single-file integration lease.
+3. **Desktop:** an independently testable file inventory may land before
+   focus UI only if no implicit focus dependency is hidden. Desktop keyboard
+   UI, file actions and RiceField handoff must await the accepted Core API.
+4. **System:** safe isolated portal/session changes may land independently,
+   only with strict ScreenCast fail-closed behavior and relevant session
+   workflow coverage. No host-wide or XFCE state changes.
+5. **Every candidate:** check base and head anew; review owner boundaries,
+   full diff, exact-head CI, unresolved threads, and any automation overlap;
+   merge only with `expected_head_sha`. Reverify every new `main` commit
+   before another merge.
 
-Do not merge any of these just to shorten the queue. Preserve a passing
-`main` until a candidate meets its own acceptance contract.
+A new PR that touches the same shared path as another active PR must be
+re-scoped or serialized. Handoff comments cannot act as an atomic lock.
 
 ## Mandatory PR pre-merge checklist
 
@@ -151,12 +161,13 @@ on CI evidence alone.
 
 An existing enabled automation titled **RiceBowl Wayland weiterentwickeln**
 also scans `main`, comments on PRs and may create/merge feature branches.
-Its last confirmed run on 2026-11-13 performed PR #342 CI triage. The
-integration lane must inspect automation-originated PRs and avoid parallel
-writes to its active branches; only the owner/operator may change the
-automation schedule or instructions. Before long parallel sprints, either
-give that automation a disjoint ownership lane or explicitly suspend its
-repository writes. A written governance rule alone cannot enforce the lock.
+Its latest verified run occurred on 2026-11-14; its saved instructions
+still permit opening branches **and merging PRs**, conflicting with this
+contract's sole merge authority. The integration lane documented the risk in
+issue #360 and did **not** alter the automation. Before concurrent writes,
+the owner/operator must restrict the automation to an explicitly disjoint
+lane with no `main` merges or pause its GitHub writes. A written governance
+rule alone cannot enforce the lock.
 
 ## Reporting format
 
