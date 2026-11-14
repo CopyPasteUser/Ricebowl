@@ -164,6 +164,14 @@ impl Watcher {
     }
 }
 
+impl Drop for Watcher {
+    fn drop(&mut self) {
+        // Explicitly remove the kernel watch before OwnedFd closes. A reactor
+        // must also deregister the borrowed fd before dropping this instance.
+        let _ = unsafe { libc::inotify_rm_watch(self.fd.as_raw_fd(), self.watch) };
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -206,7 +214,8 @@ mod tests {
     fn live_create_rename_delete_and_owned_fd_cleanup() {
         let f = Fixture::new();
         let mut w = Watcher::new(&f.0).unwrap();
-        let fd = w.fd();
+        let fd = unsafe { libc::dup(w.fd()) };
+        assert!(fd >= 0);
         let t = Instant::now();
         fs::write(f.0.join("one"), b"data").unwrap();
         fs::rename(f.0.join("one"), f.0.join("two")).unwrap();
@@ -215,7 +224,18 @@ mod tests {
         assert_eq!(w.take_due(t + COALESCE), Some(Refresh::Rescan));
         assert!(!w.invalidated());
         drop(w);
-        assert_eq!(unsafe { libc::fcntl(fd, libc::F_GETFD) }, -1);
+        // A raw fd number can be recycled by concurrently executing Rust
+        // tests; fcntl(original_fd) == EBADF is not a valid lifetime test.
+        // A duplicated inotify instance instead observes our explicit
+        // watch removal as IN_IGNORED, then closes its own descriptor.
+        let mut notice = [0_u8; 256];
+        let len = unsafe { libc::read(fd, notice.as_mut_ptr().cast(), notice.len()) };
+        let _ = unsafe { libc::close(fd) };
+        assert!(len >= mem::size_of::<libc::inotify_event>() as isize);
+        let event: libc::inotify_event = unsafe {
+            std::ptr::read_unaligned(notice.as_ptr().cast())
+        };
+        assert_ne!(event.mask & libc::IN_IGNORED, 0);
     }
 
     #[test]
