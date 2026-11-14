@@ -253,7 +253,7 @@ impl FilePositions {
             Err(error) if error.kind() == io::ErrorKind::NotFound => None,
             Err(error) => return Err(error),
         };
-        if let Some(mut existing) = current {
+        if let Some(existing) = current {
             let meta = existing.metadata()?;
             if !meta.is_file() || meta.uid() != unsafe { libc::geteuid() }
                 || meta.mode() & 0o077 != 0 || meta.nlink() != 1
