@@ -41,6 +41,26 @@ class LunaPanelPreferencesTests(unittest.TestCase):
         self.assertEqual(luna.load(), {"clock_format": "12h"})
         self.assertEqual(luna.save(baseline, expected=luna.load()), baseline)
 
+
+    def test_noop_save_preserves_existing_file_and_cas(self):
+        selected = {"clock_format": "12h"}
+        luna.save(selected, expected=luna.load())
+        before = self.path.stat()
+        with mock.patch.object(luna.tempfile, "mkstemp",
+                               side_effect=AssertionError("unexpected rewrite")):
+            self.assertEqual(luna.save(selected, expected=selected), selected)
+        after = self.path.stat()
+        self.assertEqual((before.st_ino, before.st_mtime_ns),
+                         (after.st_ino, after.st_mtime_ns))
+        with self.assertRaisesRegex(luna.LunaPanelError, "changed elsewhere"):
+            luna.save(selected, expected=luna.DEFAULTS)
+        self.assertEqual(luna.load(), selected)
+
+    def test_unchanged_default_does_not_create_preferences_file(self):
+        self.assertEqual(luna.save(luna.DEFAULTS, expected=luna.DEFAULTS),
+                         luna.DEFAULTS)
+        self.assertFalse(self.path.exists())
+
     def test_unknown_versions_values_and_fields_are_rejected(self):
         self.path.parent.mkdir()
         for invalid in (
