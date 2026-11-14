@@ -179,7 +179,7 @@ class ScreenCastCapabilityTests(unittest.TestCase):
                     self.assertEqual(run.call_args.kwargs["timeout"], 18)
                 with patch.object(portal.subprocess, "run", return_value=type(
                     "Result", (), {"returncode": 0,
-                                   "stdout": "PORTAL_FRAME_OK: node=12 bytes=4096",
+                                   "stdout": "PORTAL_FRAME_OK: node=12 bytes=4096 caps=video/x-raw,format=RGB",
                                    "stderr": ""})()):
                     self.assertIn("PORTAL_FRAME_OK:", portal.verify_delivered_frame(fd, 12))
                 self.assertTrue(os.fstat(fd).st_mode)
@@ -187,7 +187,41 @@ class ScreenCastCapabilityTests(unittest.TestCase):
                 os.close(fd)
             self.assertGreaterEqual(right.fileno(), 0)
 
+    def test_frame_receipt_rejects_wrong_node_zero_length_and_forged_output(self):
+        with socket.socketpair() as (a, b):
+            for result in (
+                {"returncode": 0, "stdout": "PORTAL_FRAME_OK: node=13 bytes=123 caps=video/x-raw", "stderr": ""},
+                {"returncode": 0, "stdout": "PORTAL_FRAME_OK: node=12 bytes=0 caps=video/x-raw", "stderr": ""},
+                {"returncode": 0, "stdout": "PORTAL_FRAME_OK: sample delivered", "stderr": ""},
+                {"returncode": 0, "stdout": "PORTAL_FRAME_OK: node=12 bytes=123 caps=audio/x-raw", "stderr": ""},
+                {"returncode": 1, "stdout": "PORTAL_FRAME_OK: node=12 bytes=123 caps=video/x-raw", "stderr": "crash"},
+            ):
+                with self.subTest(result=result), patch.object(
+                        portal.subprocess, "run", return_value=type(
+                            "Result", (), result)()):
+                    with self.assertRaises(RuntimeError):
+                        portal.verify_delivered_frame(a.fileno(), 12)
+            with patch.object(portal.subprocess, "run",
+                              side_effect=portal.subprocess.TimeoutExpired("probe", 2)):
+                with self.assertRaises(portal.subprocess.TimeoutExpired):
+                    portal.verify_delivered_frame(a.fileno(), 12, timeout=2)
+            self.assertGreaterEqual(b.fileno(), 0)
+
     def test_timeout_and_cancel_statuses_are_machine_readable(self):
+        denied = portal.PortalRejected("Start", 2)
+        self.assertEqual((denied.method, denied.code), ("Start", 2))
+        self.assertIn("Start", str(denied))
+        for method, code, expected in (
+            ("Start", 2, "session_start_failed"),
+            ("SelectSources", 2, "request_denied_or_failed"),
+            ("CreateSession", 2, "request_denied_or_failed"),
+            ("Screenshot", 2, "request_denied_or_failed"),
+            ("Start", 1, "request_cancelled"),
+            ("SelectSources", 1, "request_cancelled"),
+        ):
+            with self.subTest(method=method, code=code):
+                self.assertEqual(portal.classify_failure(
+                    portal.PortalRejected(method, code)), expected)
         self.assertEqual(portal.classify_failure(TimeoutError("late")), "request_timeout")
         self.assertEqual(portal.classify_failure(portal.PortalRejected("Start", 1)),
                          "request_cancelled")
@@ -219,6 +253,71 @@ class ScreenCastCapabilityTests(unittest.TestCase):
 
 @unittest.skipUnless(importlib.util.find_spec("gi"), "PyGObject not available")
 class RequestProtocolTests(unittest.TestCase):
+    def test_request_timeout_attempts_close_and_unsubscribes(self):
+        from gi.repository import GLib
+
+        class NoResponse:
+            def get_unique_name(self):
+                return ":1.42"
+
+            def signal_subscribe(self, _dest, _iface, _signal, path,
+                                 _arg0, _flags, _callback):
+                self.path = path
+                return 91
+
+            def call_sync(self, _dest, path, _iface, method, *_args):
+                if method == "Close":
+                    self.closed = path
+                    return None
+                return GLib.Variant("(o)", (self.path,))
+
+            def signal_unsubscribe(self, ident):
+                self.unsubscribed = ident
+
+        conn = NoResponse()
+        # Queue the timeout to the main loop; never delay the unit test.
+        with patch.object(GLib, "timeout_add_seconds",
+                          side_effect=lambda _seconds, cb: GLib.idle_add(cb)):
+            with self.assertRaisesRegex(TimeoutError, "Screenshot"):
+                portal.request(conn, portal.SCREENSHOT, "Screenshot",
+                               "(sa{sv})", ("",), timeout_seconds=1)
+        self.assertEqual(conn.closed, conn.path)
+        self.assertEqual(conn.unsubscribed, 91)
+
+    def test_create_session_rejects_wrong_session_token(self):
+        from gi.repository import GLib
+
+        class IncorrectSession:
+            def get_unique_name(self):
+                return ":1.42"
+
+            def signal_subscribe(self, _dest, _iface, _signal, path,
+                                 _arg0, _flags, callback):
+                self.path, self.callback = path, callback
+                return 92
+
+            def call_sync(self, _dest, path, _iface, method, *_args):
+                if method == "Close":
+                    self.closed = path
+                    return None
+                self.callback(self, ":1.7", self.path, portal.REQUEST,
+                              "Response", GLib.Variant("(ua{sv})", (0, {
+                                  "session_handle": GLib.Variant(
+                                      "o", portal.DESKTOP_PATH +
+                                      "/session/1_42/incorrect")
+                              })))
+                return GLib.Variant("(o)", (self.path,))
+
+            def signal_unsubscribe(self, ident):
+                self.unsubscribed = ident
+
+        conn = IncorrectSession()
+        with self.assertRaisesRegex(RuntimeError, "mismatched session"):
+            portal.request(conn, portal.SCREENCAST, "CreateSession",
+                           "(a{sv})", ())
+        self.assertEqual(conn.closed, conn.path)
+        self.assertEqual(conn.unsubscribed, 92)
+
     def test_response_signal_receives_six_gio_callback_arguments(self):
         from gi.repository import GLib
 

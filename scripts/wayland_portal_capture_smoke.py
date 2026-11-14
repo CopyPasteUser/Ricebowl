@@ -8,6 +8,7 @@ wrapper. A returned ScreenCast node and remote FD do not prove frame delivery.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import secrets
 import stat
@@ -233,7 +234,7 @@ def verify_png(uri: str) -> tuple[int, int, int]:
 
 def request(connection, interface: str, method: str, signature: str,
             values: tuple, *, timeout_seconds: int = 12, extra_options=None):
-    """Subscribe to the predictable Request path *before* invoking a method."""
+    """Subscribe before the call; close abandoned portal requests fail-closed."""
     from gi.repository import Gio, GLib
 
     token = "rb_" + secrets.token_hex(12)
@@ -241,15 +242,18 @@ def request(connection, interface: str, method: str, signature: str,
     expected = f"{DESKTOP_PATH}/request/{sender}/{token}"
     options = {"handle_token": GLib.Variant("s", token)}
     options.update(extra_options or {})
+    session_token = None
     if method == "CreateSession":
-        options["session_handle_token"] = GLib.Variant(
-            "s", "rb_session_" + secrets.token_hex(12))
+        session_token = "rb_session_" + secrets.token_hex(12)
+        options["session_handle_token"] = GLib.Variant("s", session_token)
     parameters = GLib.Variant(signature, (*values, options))
     outcome = []
     loop = GLib.MainLoop()
+    completed = False
 
     def received(_bus, _sender, _path, _interface, _signal, parameters):
-        outcome.append(parameters.unpack())
+        if not outcome:
+            outcome.append(parameters.unpack())
         if loop.is_running():
             loop.quit()
 
@@ -284,9 +288,24 @@ def request(connection, interface: str, method: str, signature: str,
         response, results = outcome[0]
         if response != 0:
             raise PortalRejected(method, response)
+        if session_token is not None:
+            expected_session = f"{DESKTOP_PATH}/session/{sender}/{session_token}"
+            if results.get("session_handle") != expected_session:
+                raise RuntimeError("CreateSession returned a mismatched session handle")
+        completed = True
         return results
     finally:
+        if not completed:
+            # The remote request may still be running after a timeout or
+            # exception. Close it before leaving the private session.
+            try:
+                connection.call_sync(
+                    DESKTOP, expected, REQUEST, "Close",
+                    None, None, Gio.DBusCallFlags.NONE, 2000, None)
+            except Exception:
+                pass  # The request may already have vanished.
         connection.signal_unsubscribe(subscription)
+
 
 
 def verify_pipewire_remote(connection, session: str) -> int:
@@ -305,28 +324,41 @@ def verify_pipewire_remote(connection, session: str) -> int:
             or type(handle[0]) is not int):
         raise RuntimeError("OpenPipeWireRemote returned an invalid FD handle")
     fd = descriptors.get(handle[0])
+    if type(fd) is not int or fd < 0:
+        raise RuntimeError("OpenPipeWireRemote returned an invalid FD")
     try:
         if not stat.S_ISSOCK(os.fstat(fd).st_mode):
             raise RuntimeError("OpenPipeWireRemote FD is not a socket")
     except BaseException:
-        os.close(fd)
+        try:
+            os.close(fd)
+        except OSError:
+            pass
         raise
     return fd
 
 
 def verify_delivered_frame(fd: int, node: int, *, timeout: int = 18) -> str:
-    """Read a real Gst.Sample in a child; inherited FD dies on timeout/crash."""
+    """Accept a successful, node-matched nonempty Gst.Sample receipt only."""
     result = subprocess.run(
         [sys.executable, str(Path(__file__).resolve()),
          "--frame-probe", str(fd), str(node)],
         pass_fds=(fd,), capture_output=True, text=True,
         timeout=timeout, check=False)
-    receipt = next((line for line in result.stdout.splitlines()
-                    if line.startswith("PORTAL_FRAME_OK:")), None)
-    if result.returncode != 0 or receipt is None:
+    if result.returncode != 0:
         raise RuntimeError("PipeWire frame probe failed: " +
                            (result.stderr or result.stdout).strip()[:700])
-    return receipt
+    receipts = [line for line in result.stdout.splitlines()
+                if line.startswith("PORTAL_FRAME_OK:")]
+    if len(receipts) != 1:
+        raise RuntimeError("PipeWire frame probe returned no unique frame receipt")
+    match = re.fullmatch(
+        r"PORTAL_FRAME_OK: node=(\\d+) bytes=(\\d+) caps=(video/x-raw(?:[,(].*)?)",
+        receipts[0])
+    if not match or int(match[1]) != node or int(match[2]) <= 0:
+        raise RuntimeError("PipeWire frame probe returned an invalid frame receipt")
+    return receipts[0]
+
 
 
 def frame_probe(fd: int, node: int) -> None:
