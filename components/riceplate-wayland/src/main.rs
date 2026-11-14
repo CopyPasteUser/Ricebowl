@@ -5660,6 +5660,9 @@ impl KeyboardHandler for RicePlate {
         if self.keyboard.as_ref() != Some(keyboard) { return; }
         self.luna_dialog_focused = self.luna_dialog.as_ref().is_some_and(|dialog|
             dialog.surface.wl_surface() == surface);
+        if self.luna_dialog_focused && std::env::var_os("RICEBOWL_DE_TRACE_MENU").is_some() {
+            eprintln!("RicePlate: Luna Run/Help keyboard enter");
+        }
         self.context_focused = self.desktop_context.as_ref().is_some_and(|menu|
             menu.surface.wl_surface() == surface);
         self.menu_focused = self.menu_state.visible
@@ -5730,6 +5733,9 @@ impl KeyboardHandler for RicePlate {
         self.desktop_selection.cancel();
         if self.luna_dialog.as_ref().is_some_and(|dialog|
             dialog.surface.wl_surface() == surface) && self.luna_dialog_focused {
+            if std::env::var_os("RICEBOWL_DE_TRACE_MENU").is_some() {
+                eprintln!("RicePlate: Luna Run/Help keyboard leave -> dismiss");
+            }
             self.close_luna_dialog();
         }
         if self.desktop_context.as_ref().is_some_and(|menu|
@@ -5775,6 +5781,10 @@ impl KeyboardHandler for RicePlate {
     ) {
         if self.keyboard.as_ref() != Some(keyboard) { return; }
         if self.luna_dialog_focused {
+            if std::env::var_os("RICEBOWL_DE_TRACE_MENU").is_some() {
+                eprintln!("RicePlate: Luna Run/Help key {:?} utf8={:?}",
+                          event.keysym, event.utf8);
+            }
             let mut execute = false;
             let mut repaint = false;
             match event.keysym {
