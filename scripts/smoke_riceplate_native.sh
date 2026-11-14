@@ -949,6 +949,112 @@ PY
             wallpaper=
         fi
     done
+    # Exercise real XDG file surfaces in a full isolated session. All earlier
+    # recipe screenshots run nested and must remain isolated from host files.
+    output=$(WAYLAND_DISPLAY=wayland-0 wlr-randr | sed -n "1s/[[:space:]].*//p")
+    test -n "$output"
+    WAYLAND_DISPLAY=wayland-0 wlr-randr --output "$output" \
+        --custom-mode 1366x768@60Hz --scale 1
+    mkdir -m 0700 "$runtime/file-home" "$runtime/file-home/Desktop" "$runtime/file-config"
+    printf "%s\n" "XDG_DESKTOP_DIR=\"\$HOME/Desktop\"" \
+        > "$runtime/file-config/user-dirs.dirs"
+    printf "%s\n" "RiceBowl native XDG file acceptance" \
+        > "$runtime/file-home/Desktop/00-note.txt"
+    # A .desktop file and a symlink must be visible, but never executables.
+    printf "%s\n" "[Desktop Entry]" "Type=Application" "Name=Unsafe test" \
+        "Exec=/usr/bin/false" > "$runtime/file-home/Desktop/01-app.desktop"
+    ln -s /etc/passwd "$runtime/file-home/Desktop/02-outside-link"
+    HOME="$runtime/file-home" XDG_CONFIG_HOME="$runtime/file-config" \
+        RICEBOWL_DE_NESTED=0 RICEBOWL_DE_TRACE_FILES=1 \
+        PATH="$runtime/mock-bin:$PATH" \
+        RICEBOWL_CI_TRASH_LOG="$runtime/full-gio.log" \
+        RICEBOWL_CI_RICEFIELD_LOG="$runtime/full-ricefield.log" \
+        WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$runtime/xp-luna-columns.json" \
+        > "$runtime/file-plate.log" 2>&1 &
+    plate=$!
+    sleep 1.3
+    kill -0 "$plate"
+    grep -Fq "RicePlate: XDG mapped" "$runtime/file-plate.log" || {
+        echo "Full native session never mapped a real XDG Desktop file layer" >&2
+        sed -n "1,75p" "$runtime/file-plate.log" >&2
+        exit 1
+    }
+    # Stable compositor pointer outside the screenshot crop; all icon
+    # differences must come from actual file/surface changes.
+    WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 1100 450 1366 768
+    sleep 0.2
+    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xdg-before.png"
+    # A file created by a different process must trigger calloop/inotify
+    # without a fake reload, polling request or direct State mutation.
+    printf "%s\n" "Externally created from test shell" \
+        > "$runtime/file-home/Desktop/03-new.txt"
+    sleep 0.7
+    kill -0 "$plate"
+    grep -Fq "RicePlate: XDG inventory refreshed entries=4" "$runtime/file-plate.log" || {
+        echo "Native XDG Desktop did not react to external create/inotify" >&2
+        tail -n 35 "$runtime/file-plate.log" >&2
+        exit 1
+    }
+    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xdg-created.png"
+    /usr/bin/python3 - "$runtime/xdg-before.png" "$runtime/xdg-created.png" <<"PY"
+from PIL import Image, ImageChops
+import sys
+with Image.open(sys.argv[1]) as first, Image.open(sys.argv[2]) as next_frame:
+    assert first.size == next_frame.size == (1366, 768)
+    roi = (0, 0, 900, 700)
+    diff = ImageChops.difference(first.convert("RGB").crop(roi),
+                                 next_frame.convert("RGB").crop(roi))
+    changed = sum(any(c > 20 for c in px) for px in diff.getdata())
+    print("Native XDG file creation framebuffer changed pixels:", changed, flush=True)
+    assert changed > 60, "External XDG file creation produced no compositor-visible icon"
+PY
+    # The initial regular file occupies a logged position. Do not hardcode a
+    # fake click or bypass compositor hit-testing for the file-open action.
+    position=$(sed -n "s/.*XDG mapped x=\([0-9][0-9]*\) y=\([0-9][0-9]*\) kind=File.*/\1 \2/p" \
+        "$runtime/file-plate.log" | head -n 1)
+    test -n "$position" || { echo "No real regular file position" >&2; exit 1; }
+    set -- $position
+    cx=$(($1 + 52))
+    cy=$(($2 + 45))
+    test ! -e "$runtime/full-gio.log"
+    WAYLAND_DISPLAY=wayland-0 "$clicker" "$cx" "$cy" 1366 768
+    sleep 0.1
+    test ! -e "$runtime/full-gio.log" || {
+        echo "Native file single click unexpectedly launched an application" >&2
+        exit 1
+    }
+    WAYLAND_DISPLAY=wayland-0 "$clicker" "$cx" "$cy" 1366 768
+    count=0
+    while [ ! -s "$runtime/full-gio.log" ] && [ "$count" -lt 25 ]; do
+        count=$((count + 1))
+        sleep 0.1
+    done
+    expected_gio=$(printf "open\n%s" "$runtime/file-home/Desktop/00-note.txt")
+    test "$(cat "$runtime/full-gio.log" 2>/dev/null || :)" = "$expected_gio" || {
+        echo "Real XDG double-click did not open the original regular file" >&2
+        exit 1
+    }
+    rm -f "$runtime/full-gio.log"
+    # Rename and removal are external writes; the live watcher must notice
+    # both, clean up the old surface, and preserve the existing panel.
+    mv "$runtime/file-home/Desktop/00-note.txt" \
+       "$runtime/file-home/Desktop/00-renamed.txt"
+    sleep 0.65
+    grep -Fq "RicePlate: XDG inventory refreshed entries=4" "$runtime/file-plate.log"
+    rm "$runtime/file-home/Desktop/03-new.txt"
+    sleep 0.65
+    grep -Fq "RicePlate: XDG inventory refreshed entries=3" "$runtime/file-plate.log" || {
+        echo "Native XDG Desktop did not refresh after external deletion" >&2
+        exit 1
+    }
+    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xdg-deleted.png"
+    kill -0 "$plate"
+    test ! -e "$runtime/full-gio.log"
+    test ! -e "$runtime/full-ricefield.log"
+    echo "Verified live XDG file layers, compositor double-click, external create/rename/delete and inert .desktop/symlink inventory"
+    kill "$plate"
+    wait "$plate" 2>/dev/null || :
+    plate=
     # We own this exact CI compositor PID. On labwc 0.7.1 the --exit client
     # command is not a reliable external teardown mechanism in a headless job.
     kill -TERM "$compositor"
