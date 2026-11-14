@@ -8517,6 +8517,15 @@ impl Dispatch<ZwlrForeignToplevelManagerV1, ()> for RicePlate {
     ) {
         match event {
             zwlr_foreign_toplevel_manager_v1::Event::Toplevel { toplevel } => {
+                // A newly created ordinary application must not be starved by
+                // the 8px Exclusive desktop keyboard lease. Waiting for that
+                // window to become active is circular: the lease can prevent
+                // the compositor from granting its first keyboard focus.
+                // Retire the lease on this actual compositor new-toplevel
+                // event; the app still needs its own normal focus negotiation.
+                if state.desktop_keyboard_focus_layer.is_some() {
+                    state.close_desktop_keyboard_focus();
+                }
                 if state.tasks.len() >= recipe::MAX_TRACKED_TASKS {
                     toplevel.destroy();
                 } else {
