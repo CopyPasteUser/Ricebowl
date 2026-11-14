@@ -25,14 +25,24 @@ fn identity(k: &Key) -> (u64, u64) { (k.device, k.inode) }
 /// Only transfer selection and coordinates across a rename when a device/inode
 /// pair occurs exactly once in both snapshots (never conflate hardlinks).
 fn successor(before: &Snapshot, after: &Snapshot, old: &Key) -> Option<Key> {
-    if after.entries.iter().any(|e| &e.key == old) { return Some(old.clone()); }
+    let previous = before.entries.iter().find(|e| &e.key == old)?;
+    let same_generation = |candidate: &Entry| match (previous.birth, candidate.birth) {
+        (Some(a), Some(b)) => a == b,
+        // ctime changes on normal rename/write, so fail closed when a
+        // filesystem cannot prove stable birthtime.
+        _ => previous.stamp == candidate.stamp,
+    };
+    if let Some(exact) = after.entries.iter().find(|e| &e.key == old) {
+        return same_generation(exact).then(|| old.clone());
+    }
     let id = identity(old);
     if before.entries.iter().filter(|e| identity(&e.key) == id).count() != 1 {
         return None;
     }
     let mut matching = after.entries.iter().filter(|e| identity(&e.key) == id);
     let candidate = matching.next()?;
-    matching.next().is_none().then(|| candidate.key.clone())
+    (matching.next().is_none() && same_generation(candidate))
+        .then(|| candidate.key.clone())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -310,9 +320,16 @@ mod tests {
         let changed = scan(&f.0).unwrap();
         selection.retain_after_refresh(&old, &changed);
         positions.reconcile(&old, &changed);
-        assert!(selection.contains(&changed.entries[0].key));
-        assert_eq!(positions.coordinates(&changed.entries[0].key, "eDP-1"),
-                   Some(Coordinates { x: 300, y: 120 }));
+        let stable_birth = old.entries[0].birth.is_some()
+            && old.entries[0].birth == changed.entries[0].birth;
+        if stable_birth {
+            assert!(selection.contains(&changed.entries[0].key));
+            assert_eq!(positions.coordinates(&changed.entries[0].key, "eDP-1"),
+                       Some(Coordinates { x: 300, y: 120 }));
+        } else {
+            assert_eq!(selection.count(), 0, "without birthtime no unverified rename transfer");
+            assert_eq!(positions.record_count(), 0);
+        }
         fs::remove_file(f.0.join("b")).unwrap();
         let gone = scan(&f.0).unwrap();
         assert_eq!(gone.status, Status::Available);
