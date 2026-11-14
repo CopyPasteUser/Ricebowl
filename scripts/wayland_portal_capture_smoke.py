@@ -153,25 +153,71 @@ def screenshot_file(uri: str) -> Path:
 
 
 def verify_png(uri: str) -> tuple[int, int, int]:
-    """Inspect a bounded PNG header, without following symlinks or loading pixels."""
-    path = screenshot_file(uri)
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    """Require a complete, CRC-valid PNG with a bounded DEFLATE image."""
+    import zlib
+
+    fd = os.open(screenshot_file(uri), os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
     try:
-        details = os.fstat(fd)
-        if not stat.S_ISREG(details.st_mode):
+        metadata = os.fstat(fd)
+        if not stat.S_ISREG(metadata.st_mode):
             raise ValueError("Screenshot portal URI is not a regular file")
-        size = details.st_size
-        header = os.read(fd, 24)
+        if not 57 <= metadata.st_size <= 64 * 1024 * 1024:
+            raise ValueError("Screenshot portal PNG outside bounded size")
+        with os.fdopen(os.dup(fd), "rb") as image:
+            raw = image.read(metadata.st_size + 1)
     finally:
         os.close(fd)
-    if (size < 33 or header[:8] != PNG_SIGNATURE
-            or header[8:12] != b"\x00\x00\x00\x0d"
-            or header[12:16] != b"IHDR" or len(header) != 24):
+    if len(raw) != metadata.st_size or not raw.startswith(PNG_SIGNATURE):
         raise ValueError("Screenshot portal returned an invalid PNG")
-    width, height = struct.unpack(">II", header[16:24])
-    if not (0 < width <= 32768 and 0 < height <= 32768):
-        raise ValueError("Screenshot portal returned invalid dimensions")
-    return width, height, size
+    offset = len(PNG_SIGNATURE)
+    count = 0
+    seen_idat = seen_iend = False
+    width = height = 0
+    decoder = zlib.decompressobj()
+    decoded = 0
+    while offset < len(raw):
+        if offset + 12 > len(raw):
+            raise ValueError("Screenshot PNG truncated chunk")
+        length = struct.unpack_from(">I", raw, offset)[0]
+        kind = raw[offset + 4:offset + 8]
+        offset += 8
+        if length > 64 * 1024 * 1024 or offset + length + 4 > len(raw):
+            raise ValueError("Screenshot PNG oversized or truncated chunk")
+        data = raw[offset:offset + length]
+        crc = struct.unpack_from(">I", raw, offset + length)[0]
+        if zlib.crc32(kind + data) & 0xffffffff != crc:
+            raise ValueError("Screenshot PNG CRC mismatch")
+        offset += length + 4
+        count += 1
+        if count == 1:
+            if kind != b"IHDR" or length != 13:
+                raise ValueError("Screenshot PNG missing IHDR")
+            width, height, depth, color, compression, filtering, interlace = (
+                struct.unpack(">IIBBBBB", data))
+            depths = {0: (1, 2, 4, 8, 16), 2: (8, 16),
+                      3: (1, 2, 4, 8), 4: (8, 16), 6: (8, 16)}
+            if (not 0 < width <= 32768 or not 0 < height <= 32768
+                    or width * height > 32 * 1024 * 1024
+                    or depth not in depths.get(color, ())
+                    or compression != 0 or filtering != 0 or interlace not in (0, 1)):
+                raise ValueError("Screenshot portal returned invalid PNG dimensions/format")
+        elif kind == b"IHDR":
+            raise ValueError("Screenshot PNG duplicate IHDR")
+        elif kind == b"IDAT":
+            seen_idat = True
+            decoded += len(decoder.decompress(
+                data, 128 * 1024 * 1024 - decoded + 1))
+            if decoded > 128 * 1024 * 1024:
+                raise ValueError("Screenshot PNG decompression exceeds limit")
+        elif kind == b"IEND":
+            if length or not seen_idat or offset != len(raw):
+                raise ValueError("Screenshot PNG invalid IEND")
+            seen_iend = True
+            break
+    if not (seen_idat and seen_iend and decoder.eof and decoded > 0):
+        raise ValueError("Screenshot PNG has no complete compressed image")
+    return width, height, len(raw)
+
 
 
 def request(connection, interface: str, method: str, signature: str,

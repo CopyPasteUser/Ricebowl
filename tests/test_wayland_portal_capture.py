@@ -4,6 +4,7 @@ from contextlib import ExitStack
 import os
 import socket
 import struct
+import zlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,6 +14,18 @@ SCRIPT = Path(__file__).resolve().parents[1] / "scripts/wayland_portal_capture_s
 spec = importlib.util.spec_from_file_location("ricebowl_portal_capture", SCRIPT)
 portal = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(portal)
+
+
+def sample_png(width: int, height: int) -> bytes:
+    """Construct a valid PNG fixture without optional image libraries."""
+    def chunk(kind, data):
+        crc = zlib.crc32(kind + data) & 0xffffffff
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", crc)
+    pixels = (b"\x00" + b"\x42\x68\x93\xff" * width) * height
+    return (portal.PNG_SIGNATURE
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(pixels))
+            + chunk(b"IEND", b""))
 
 
 class CaptureGuardTests(unittest.TestCase):
@@ -98,9 +111,9 @@ class ScreenshotValidationTests(unittest.TestCase):
     def test_png_header_dimensions_and_truncated_data(self):
         with tempfile.TemporaryDirectory() as path:
             image = Path(path) / "screenshot.png"
-            image.write_bytes(portal.PNG_SIGNATURE + b"\x00\x00\x00\x0dIHDR"
-                              + struct.pack(">II", 1920, 1080) + b"\x00" * 9)
-            self.assertEqual(portal.verify_png(image.as_uri()), (1920, 1080, 33))
+            data = sample_png(2, 2)
+            image.write_bytes(data)
+            self.assertEqual(portal.verify_png(image.as_uri()), (2, 2, len(data)))
             image.write_bytes(b"not PNG")
             with self.assertRaisesRegex(ValueError, "PNG"):
                 portal.verify_png(image.as_uri())
@@ -108,14 +121,27 @@ class ScreenshotValidationTests(unittest.TestCase):
     def test_rejects_symlink_and_invalid_dimensions(self):
         with tempfile.TemporaryDirectory() as path:
             image = Path(path) / "image.png"
-            image.write_bytes(portal.PNG_SIGNATURE + b"\x00\x00\x00\x0dIHDR"
-                              + struct.pack(">II", 0, 42) + b"\x00" * 9)
+            image.write_bytes(sample_png(0, 1))
             with self.assertRaisesRegex(ValueError, "dimensions"):
                 portal.verify_png(image.as_uri())
             link = Path(path) / "symlink.png"
             link.symlink_to(image)
             with self.assertRaises(OSError):
                 portal.verify_png(link.as_uri())
+
+    def test_rejects_bad_crc_and_truncated_png(self):
+        with tempfile.TemporaryDirectory() as path:
+            image = Path(path) / "frame.png"
+            original = sample_png(1, 1)
+            broken = bytearray(original)
+            broken[32] ^= 1
+            image.write_bytes(broken)
+            with self.assertRaisesRegex(ValueError, "CRC"):
+                portal.verify_png(image.as_uri())
+            for data in (original[:-8], original[:33]):
+                image.write_bytes(data)
+                with self.assertRaisesRegex(ValueError, "PNG"):
+                    portal.verify_png(image.as_uri())
 
 
 class ScreenCastCapabilityTests(unittest.TestCase):
