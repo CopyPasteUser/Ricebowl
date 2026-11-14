@@ -10,6 +10,7 @@ mod brightness;
 mod calendar;
 mod control_feedback;
 mod desktop_context;
+mod desktop_file_menu;
 mod desktop_layout;
 mod desktop_selection;
 mod frame_scheduler;
@@ -536,6 +537,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         file_launches: Vec::new(),
         file_last_reap: Instant::now(),
         file_keyboard_focus_layer: None,
+        file_context: None,
+        file_context_focused: false,
+        file_dialog_target: None,
         file_keyboard_focus_lease: input_core::DesktopFocusLease::default(),
         widget_layers,
         menu_layer,
@@ -1000,6 +1004,21 @@ struct LunaDialogLayer {
     state: luna_dialog::State,
 }
 
+struct FileContextLayer {
+    surface: LayerSurface,
+    pool: Option<SlotPool>,
+    configured: bool,
+    entry: desktop_layout::inventory::Key,
+    kind: desktop_layout::inventory::Kind,
+    selected: desktop_file_menu::Item,
+    hovered: Option<desktop_file_menu::Item>,
+    pressed: Option<desktop_file_menu::Item>,
+    properties: Option<desktop_layout::actions::Properties>,
+    back_hovered: bool,
+    back_pressed: bool,
+    notice: Option<&'static str>,
+}
+
 struct DesktopContextLayer {
     surface: LayerSurface,
     pool: Option<SlotPool>,
@@ -1079,6 +1098,9 @@ struct RicePlate {
     file_launches: Vec<std::process::Child>,
     file_last_reap: Instant,
     file_keyboard_focus_layer: Option<FileKeyboardFocusLayer>,
+    file_context: Option<FileContextLayer>,
+    file_context_focused: bool,
+    file_dialog_target: Option<desktop_layout::inventory::Key>,
     file_keyboard_focus_lease:
         input_core::DesktopFocusLease<wl_seat::WlSeat, wl_output::WlOutput, wl_surface::WlSurface>,
     widget_layers: Vec<DesktopWidgetLayer>,
@@ -1446,6 +1468,11 @@ impl RicePlate {
         self.file_snapshot = Some(next);
         self.file_pressed = None;
         self.file_last_click = None;
+        if self.file_context.as_ref().is_some_and(|menu|
+            !self.file_snapshot.as_ref().is_some_and(|s|
+                s.entries.iter().any(|e| e.key == menu.entry))) {
+            self.close_file_context();
+        }
         self.sync_file_layers(qh);
         self.reflow_file_layers();
     }
@@ -1555,7 +1582,7 @@ impl RicePlate {
     fn maybe_collapse_luna_panel(&mut self, qh: &QueueHandle<Self>) {
         let popup_open = self.menu_state.visible || self.calendar_state.visible
             || self.tray_popup_open() || self.luna_dialog.is_some()
-            || self.desktop_context.is_some();
+            || self.desktop_context.is_some() || self.file_context.is_some();
         if std::env::var_os("RICEBOWL_DE_TRACE_MENU").is_some()
             && self.recipe.id == "xp-luna-columns" {
             eprintln!("RicePlate: Luna auto-hide pointer_inside={} popup_open={} collapsed={}",
@@ -1691,6 +1718,7 @@ impl RicePlate {
         // fullscreen input grab, background worker or hidden popup survives.
         self.luna_dialog = None;
         self.luna_dialog_focused = false;
+        self.file_dialog_target = None;
     }
 
     fn open_luna_dialog(&mut self, kind: luna_dialog::Kind,
@@ -1720,6 +1748,7 @@ impl RicePlate {
         };
         self.set_menu_visible(false, qh);
         self.close_desktop_context();
+        self.close_file_context();
         self.close_luna_dialog();
         let surface = self.layer_shell.create_layer_surface(
             qh, self.compositor.create_surface(qh), Layer::Overlay,
@@ -1839,6 +1868,7 @@ impl RicePlate {
         if self.calendar_state.visible { self.set_calendar_visible(false, qh); }
         if self.tray_popup_open() { self.set_tray_popup_visible(false, qh); }
         self.close_desktop_context();
+        self.close_file_context();
         self.context_generation = self.context_generation.wrapping_add(1);
         let surface = self.layer_shell.create_layer_surface(
             qh, self.compositor.create_surface(qh), Layer::Overlay,
@@ -5744,6 +5774,9 @@ impl LayerShellHandler for RicePlate {
         } else if self.desktop_context.as_ref().is_some_and(|menu|
             menu.surface.wl_surface() == layer.wl_surface()) {
             self.close_desktop_context();
+        } else if self.file_context.as_ref().is_some_and(|menu|
+            menu.surface.wl_surface() == layer.wl_surface()) {
+            self.close_file_context();
         } else if layer.wl_surface() == self.layer.wl_surface() {
             self.closed = true;
         } else if let Some(index) = self.mirrors.iter().position(|mirror|
@@ -6309,6 +6342,8 @@ impl KeyboardHandler for RicePlate {
         }
         self.context_focused = self.desktop_context.as_ref().is_some_and(|menu|
             menu.surface.wl_surface() == surface);
+        self.file_context_focused = self.file_context.as_ref().is_some_and(|menu|
+            menu.surface.wl_surface() == surface);
         self.menu_focused = self.menu_state.visible
             && self.active_menu.as_ref() == Some(surface);
         self.calendar_focused = self.calendar_state.visible
@@ -6396,6 +6431,10 @@ impl KeyboardHandler for RicePlate {
         if self.desktop_context.as_ref().is_some_and(|menu|
             menu.surface.wl_surface() == surface) && self.context_focused {
             self.close_desktop_context();
+        }
+        if self.file_context.as_ref().is_some_and(|menu|
+            menu.surface.wl_surface() == surface) && self.file_context_focused {
+            self.close_file_context();
         }
         if self.active_menu.as_ref() == Some(surface) && self.menu_focused {
             self.set_menu_visible(false, qh);
@@ -7321,6 +7360,7 @@ impl PointerHandler for RicePlate {
                     PointerEventKind::Press { button: BTN_LEFT, .. } => {
                         self.close_file_keyboard_focus();
                         self.close_desktop_context();
+                        self.close_file_context();
                         let mode = if self.selection_modifiers.ctrl {
                             desktop_layout::file_state::ChooseMode::Toggle
                         } else if self.selection_modifiers.shift {
@@ -7339,8 +7379,9 @@ impl PointerHandler for RicePlate {
                                 desktop_layout::file_state::ChooseMode::Replace, &snapshot.entries);
                             for i in 0..self.file_layers.len() { self.redraw_file_icon(i); }
                         }
-                        // File-context UI is a distinct integration gate.
-                        // Never send file keys into the virtual-shortcut menu.
+                        // A real file has a separate, typed context menu; never
+                        // route it through the virtual-shortcut action table.
+                        self.open_file_context(index, event.position, qh);
                         self.file_pressed = None;
                         self.file_last_click = None;
                     }
