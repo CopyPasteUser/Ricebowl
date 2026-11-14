@@ -99,6 +99,10 @@ dbus-run-session -- sh -eu -c '
         fi
     }
     trap cleanup_children EXIT
+    # Bind the private bus identity to the private runtime before clients start.
+    # This prevents an accidentally inherited live user bus from being accepted.
+    printf "%s\\n" "$DBUS_SESSION_BUS_ADDRESS" >"$runtime/.ricebowl-portal-dbus"
+    chmod 0600 "$runtime/.ricebowl-portal-dbus"
     # xdg-desktop-portal-wlr fails its D-Bus activation if there is no real
     # PipeWire core in this isolated user runtime. Start a private instance,
     # not the runner/user default session service.
@@ -120,8 +124,10 @@ dbus-run-session -- sh -eu -c '
         >"$runtime/labwc.log" 2>&1 &
     compositor=$!
     attempt=0
+    max_attempts=260
+    if [ "$RICEBOWL_PORTAL_STRICT_CI" = 1 ]; then max_attempts=400; fi
     while [ ! -f "$runtime/portals-ok" ] && [ ! -f "$runtime/portals-failed" ] \
-          && [ "$attempt" -lt 260 ]; do
+          && [ "$attempt" -lt "$max_attempts" ]; do
         kill -0 "$compositor" 2>/dev/null || break
         attempt=$((attempt + 1))
         sleep 0.25

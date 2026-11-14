@@ -116,16 +116,27 @@ def require_private_headless_session(env: dict[str, str]) -> Path:
         raise RuntimeError("Private portal marker must be an owner-controlled file")
     if env.get("PIPEWIRE_RUNTIME_DIR") != str(runtime):
         raise RuntimeError("PipeWire must use the private runtime")
-    if not env.get("DBUS_SESSION_BUS_ADDRESS", "").startswith("unix:"):
-        raise RuntimeError("Expected an isolated Unix D-Bus session")
+    bus = env.get("DBUS_SESSION_BUS_ADDRESS", "")
+    if not bus.startswith("unix:path="):
+        raise RuntimeError("Expected a private Unix-path D-Bus session")
+    bus_marker = runtime / ".ricebowl-portal-dbus"
+    if bus_marker.is_symlink() or not bus_marker.is_file():
+        raise RuntimeError("Missing private D-Bus identity marker")
+    bus_stat = bus_marker.stat()
+    if (bus_stat.st_uid != os.geteuid()
+            or stat.S_IMODE(bus_stat.st_mode) != 0o600
+            or bus_stat.st_nlink != 1
+            or bus_marker.read_text(encoding="utf-8").rstrip("\\n") != bus):
+        raise RuntimeError("Private D-Bus identity does not match runtime")
     display = env.get("WAYLAND_DISPLAY", "")
     if not display or "/" in display or display in (".", ".."):
         raise RuntimeError("Expected a relative compositor Wayland socket name")
     display_path = runtime / display
-    if not display_path.is_socket():
-        raise RuntimeError("Headless compositor socket is absent")
-    if not (runtime / "pipewire-0").is_socket():
-        raise RuntimeError("Private PipeWire socket is absent")
+    if display_path.is_symlink() or not display_path.is_socket():
+        raise RuntimeError("Headless compositor socket is absent or symlinked")
+    pipewire_path = runtime / "pipewire-0"
+    if pipewire_path.is_symlink() or not pipewire_path.is_socket():
+        raise RuntimeError("Private PipeWire socket is absent or symlinked")
     strict_ci_mode(env)
     return runtime
 
@@ -253,11 +264,12 @@ def verify_delivered_frame(fd: int, node: int, *, timeout: int = 18) -> str:
          "--frame-probe", str(fd), str(node)],
         pass_fds=(fd,), capture_output=True, text=True,
         timeout=timeout, check=False)
-    if result.returncode != 0 or "PORTAL_FRAME_OK:" not in result.stdout:
+    receipt = next((line for line in result.stdout.splitlines()
+                    if line.startswith("PORTAL_FRAME_OK:")), None)
+    if result.returncode != 0 or receipt is None:
         raise RuntimeError("PipeWire frame probe failed: " +
                            (result.stderr or result.stdout).strip()[:700])
-    return next(line for line in result.stdout.splitlines()
-                if line.startswith("PORTAL_FRAME_OK:"))
+    return receipt
 
 
 def frame_probe(fd: int, node: int) -> None:
