@@ -214,5 +214,94 @@ dbus-run-session -- sh -eu -c '
     cp "$runtime/second-icons.png" "$captures/second-icons.png"
     cp "$runtime/icons-after-off.png" "$captures/icons-after-off.png"
     cp "$runtime/icons-after-on.png" "$captures/icons-after-on.png"
+    # The ordinary preview is nested and cannot write XDG Desktop state.
+    # Restart only this disposable two-headless-output compositor with a
+    # real isolated HOME to test XDG file-icon handoff and unplug fallback.
+    kill "$plate" 2>/dev/null || :
+    wait "$plate" 2>/dev/null || :
+    plate=
+    wlr-randr --output "$first" --custom-mode 800x600@60Hz --scale 1 --pos 0,0
+    wlr-randr --output "$second" --custom-mode 800x600@60Hz --scale 1 --pos 800,0
+    mkdir -m 0700 "$runtime/file-home" "$runtime/file-home/Desktop" "$runtime/file-config"
+    printf "%s\n" "XDG_DESKTOP_DIR=\"\$HOME/Desktop\"" >"$runtime/file-config/user-dirs.dirs"
+    printf "%s\n" "Native multioutput file icon" >"$runtime/file-home/Desktop/00-cross.txt"
+    cp "$source_root/examples/wayland/xp-luna-columns.json" "$runtime/file-rice.json"
+    chmod 0600 "$runtime/file-rice.json"
+    HOME="$runtime/file-home" XDG_CONFIG_HOME="$runtime/file-config" \
+        RICEBOWL_DE_NESTED=0 RICEBOWL_DE_TRACE_FILES=1 \
+        "$native" --recipe "$runtime/file-rice.json" >"$runtime/file-plate.log" 2>&1 &
+    plate=$!
+    sleep 1.5
+    kill -0 "$plate"
+    position=$(sed -n "s/.*XDG mapped x=\([0-9][0-9]*\) y=\([0-9][0-9]*\) kind=File.*/\1 \2/p" \
+        "$runtime/file-plate.log" | head -n 1)
+    test -n "$position" || {
+        echo "Two-output native file icon was not mapped" >&2
+        tail -n 50 "$runtime/file-plate.log" >&2
+        exit 1
+    }
+    set -- $position
+    start_x=$(($1 + 52))
+    start_y=$(($2 + 43))
+    test "$start_x" -lt 800
+    test "$start_y" -lt 600
+    clicker="$source_root/components/riceplate-wayland/target/release/examples/wayland_pointer_click"
+    grim -o "$first" "$runtime/file-first-before.png"
+    grim -o "$second" "$runtime/file-second-before.png"
+    # Width is the real composed output layout, not an invented per-output
+    # coordinate space. Press on primary, move across x=800 and release.
+    "$clicker" --drag-to 920 250 "$start_x" "$start_y" 1600 600
+    sleep 0.8
+    grep -Fq "RicePlate: XDG icon moved to another display" "$runtime/file-plate.log" || {
+        echo "Real Wayland cross-output XDG file drag failed" >&2
+        tail -n 65 "$runtime/file-plate.log" >&2
+        exit 1
+    }
+    position_file="$runtime/file-config/ricebowl/native-file-positions.json"
+    /usr/bin/python3 - "$position_file" "$second" << "PY"
+import json
+from pathlib import Path
+import sys
+state = json.loads(Path(sys.argv[1]).read_text())
+assert state["schema_version"] == 1
+assert any(value["output"] == sys.argv[2]
+           for value in state["records"].values()), state
+PY
+    test -f "$runtime/file-home/Desktop/00-cross.txt"
+    grim -o "$first" "$runtime/file-first-after-transfer.png"
+    grim -o "$second" "$runtime/file-second-after-transfer.png"
+    /usr/bin/python3 - "$runtime/file-second-before.png" \
+        "$runtime/file-second-after-transfer.png" << "PY"
+from PIL import Image, ImageChops
+import sys
+with Image.open(sys.argv[1]) as before, Image.open(sys.argv[2]) as after:
+    assert before.size == after.size == (800, 600)
+    diff = ImageChops.difference(before.convert("RGB"), after.convert("RGB"))
+    assert sum(max(pixel) > 20 for pixel in diff.getdata()) > 100, \
+        "No compositor-visible file icon on the second output"
+PY
+    # Disconnecting the assigned monitor must temporarily show its file on
+    # the primary without rewriting the saved second-output assignment.
+    wlr-randr --output "$second" --off
+    sleep 0.8
+    kill -0 "$plate"
+    grim -o "$first" "$runtime/file-fallback-primary.png"
+    wlr-randr --output "$second" --on
+    sleep 0.8
+    kill -0 "$plate"
+    grim -o "$second" "$runtime/file-restored-secondary.png"
+    /usr/bin/python3 - "$position_file" "$second" << "PY"
+import json
+from pathlib import Path
+import sys
+state = json.loads(Path(sys.argv[1]).read_text())
+assert any(value["output"] == sys.argv[2] for value in state["records"].values())
+PY
+    cp "$runtime/file-first-before.png" "$captures/file-first-before.png"
+    cp "$runtime/file-second-before.png" "$captures/file-second-before.png"
+    cp "$runtime/file-second-after-transfer.png" "$captures/file-second-after-transfer.png"
+    cp "$runtime/file-fallback-primary.png" "$captures/file-fallback-primary.png"
+    cp "$runtime/file-restored-secondary.png" "$captures/file-restored-secondary.png"
+    echo "Verified real two-output XDG file drop, persisted target assignment and unplug/restore in labwc"
     echo "Native RicePlate painted two outputs, output-bound menus/calendars/icons and survived hotplug"
 ' sh "$source_root" "$runtime" "$native"
