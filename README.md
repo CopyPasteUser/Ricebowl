@@ -39,6 +39,12 @@ or hardware-approved desktop. The [nine-view native Wayland gallery](screenshots
 also shows **All Programs, the calendar, shortcut context menus, Properties,
 Help, Run and the updated labwc titlebar**, with source commit and CI provenance.
 
+### New: live Wayland file desktop
+
+[![Real native XP Luna XDG desktop after an external file appeared through inotify](screenshots/wayland/luna-file-desktop-live-20261114.webp)](screenshots/wayland/README.md)
+
+The [new four-frame native file-desktop gallery](screenshots/wayland/README.md#xp-luna--live-xdg-file-desktop-14-november-2026) demonstrates real, compositor-rendered XDG files, selection, and an added folder on the **experimental** XP Luna desktop. It was captured from a successful headless labwc CI run, not a mockup or physical-hardware sign-off. Folder-opening is tested through an isolated RiceField argv shim; no RiceField GUI is pictured.
+
 ## XFCE/X11 · use it now
 
 Choose from **Windows 98, XP Luna, Windows 7 Aero, Windows 10, ChromeOS,
