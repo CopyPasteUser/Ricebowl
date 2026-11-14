@@ -467,8 +467,13 @@ def frame_probe(fd: int, node: int, serial: int | None = None) -> None:
         os.environ.setdefault("GST_DEBUG", "pipewiresrc:6,pipewire:6,*:2")
     Gst.init(None)
     print("PORTAL_PROBE_STAGE: gst_initialized", file=sys.stderr, flush=True)
+    # The fixed CPU BGRx constraint is only for the pinned software CI
+    # capture backend. Never constrain the production wlr/GLES2 stream.
+    cpu_caps = ("video/x-raw,format=BGRx ! "
+                if os.environ.get("RICEBOWL_PORTAL_BACKEND") == "generic" else "")
     pipeline = Gst.parse_launch(
-        "pipewiresrc name=remote-src ! video/x-raw,format=BGRx ! queue ! appsink name=frame-sink "
+        "pipewiresrc name=remote-src ! " + cpu_caps +
+        "queue ! appsink name=frame-sink "
         "sync=false async=false max-buffers=1 drop=true")
     src = pipeline.get_by_name("remote-src")
     sink = pipeline.get_by_name("frame-sink")
