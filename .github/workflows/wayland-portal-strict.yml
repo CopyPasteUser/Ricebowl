@@ -61,7 +61,7 @@ jobs:
           set -eu
           fake_bin=$(mktemp -d)
           trap 'rm -rf -- "$fake_bin"' EXIT
-          printf '#!/bin/sh\\nexit 17\\n' >"$fake_bin/labwc"
+          printf '%s\n' '#!/bin/sh' 'exit 17' >"$fake_bin/labwc"
           chmod 0700 "$fake_bin/labwc"
           before=$(find /tmp -maxdepth 1 -type d -name 'ricebowl-portals.*' -print | sort)
           if PATH="$fake_bin:$PATH" timeout -k 5s 30s sh scripts/smoke_wayland_portals.sh; then
