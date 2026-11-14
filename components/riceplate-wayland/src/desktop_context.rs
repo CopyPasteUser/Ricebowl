@@ -166,3 +166,112 @@ mod tests {
         assert_eq!(placement((0, 0), (-1.0, 0.0), (1366, 768), 40, false), None);
     }
 }
+
+
+/// File-backed desktop actions are not recipe commands. This typed policy is
+/// separate from the original seven virtual shortcuts and does not invoke a
+/// process or mutate user files. The integration lane owns the UI/confirmation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FileAction { Open, OpenInExplorer, Rename, MoveToTrash, Properties }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FilePermission { Disabled, Ready, UserEdit, ExplicitConfirmation }
+
+#[allow(dead_code)]
+pub fn file_permission(action: FileAction, kind: crate::desktop_layout::inventory::Kind)
+                       -> FilePermission {
+    use crate::desktop_layout::inventory::Kind;
+    use FileAction::*;
+    use FilePermission::*;
+    match (action, kind) {
+        (Properties, _) => Ready,
+        (_, Kind::DesktopFile | Kind::Symlink) => Disabled,
+        (Open | OpenInExplorer, Kind::File | Kind::Directory) => Ready,
+        (Rename, Kind::File | Kind::Directory) => UserEdit,
+        (MoveToTrash, Kind::File | Kind::Directory) => ExplicitConfirmation,
+    }
+}
+
+/// Activation describes a verified file intent, not an executable command.
+/// The returned pathname is advisory; the caller must revalidate right before
+/// Gio/RiceField handoff, especially if another process can change the Desktop.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FileOpenIntent {
+    DefaultApplication(std::path::PathBuf),
+    DirectoryInRiceField(std::path::PathBuf),
+}
+
+#[allow(dead_code)]
+pub fn file_open_intent(
+    snapshot: &crate::desktop_layout::inventory::Snapshot,
+    desktop: &std::path::Path,
+    entry: &crate::desktop_layout::inventory::Entry,
+    explorer: bool,
+) -> std::io::Result<FileOpenIntent> {
+    use crate::desktop_layout::inventory::Kind;
+    let action = if explorer { FileAction::OpenInExplorer } else { FileAction::Open };
+    if file_permission(action, entry.kind) != FilePermission::Ready {
+        return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied,
+                                       "Desktop entry is not an executable file target"));
+    }
+    let path = snapshot.current_path(desktop, entry)?;
+    if explorer || entry.kind == Kind::Directory {
+        let destination = if entry.kind == Kind::Directory {
+            path
+        } else {
+            path.parent().ok_or(std::io::ErrorKind::InvalidInput)?.to_path_buf()
+        };
+        Ok(FileOpenIntent::DirectoryInRiceField(destination))
+    } else {
+        Ok(FileOpenIntent::DefaultApplication(path))
+    }
+}
+
+#[cfg(test)]
+mod file_action_tests {
+    use super::*;
+    use crate::desktop_layout::inventory::{scan, Kind};
+    use std::{env, fs, os::unix::fs::symlink,
+              time::{SystemTime, UNIX_EPOCH}};
+
+    #[test]
+    fn typed_context_is_not_arbitrary_exec_or_destructive_without_confirmation() {
+        assert_eq!(file_permission(FileAction::Open, Kind::File), FilePermission::Ready);
+        assert_eq!(file_permission(FileAction::Open, Kind::Directory), FilePermission::Ready);
+        assert_eq!(file_permission(FileAction::Rename, Kind::Directory), FilePermission::UserEdit);
+        assert_eq!(file_permission(FileAction::MoveToTrash, Kind::File),
+                   FilePermission::ExplicitConfirmation);
+        for kind in [Kind::DesktopFile, Kind::Symlink] {
+            assert_eq!(file_permission(FileAction::Open, kind), FilePermission::Disabled);
+            assert_eq!(file_permission(FileAction::OpenInExplorer, kind), FilePermission::Disabled);
+            assert_eq!(file_permission(FileAction::Properties, kind), FilePermission::Ready);
+        }
+    }
+
+    #[test]
+    fn file_and_folder_intents_are_validated_and_stale_items_are_revoked() {
+        let n = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let dir = env::temp_dir().join(format!("ricebowl-file-actions-{}-{n}", std::process::id()));
+        fs::create_dir(&dir).unwrap();
+        fs::write(dir.join("notes.txt"), b"text").unwrap();
+        fs::create_dir(dir.join("Folder")).unwrap();
+        fs::write(dir.join("untrusted.desktop"), b"Exec=sh -c bad").unwrap();
+        symlink("notes.txt", dir.join("link")).unwrap();
+        let snap = scan(&dir).unwrap();
+        let file = snap.entries.iter().find(|e| e.label == "notes.txt").unwrap();
+        let folder = snap.entries.iter().find(|e| e.label == "Folder").unwrap();
+        let desktop = snap.entries.iter().find(|e| e.kind == Kind::DesktopFile).unwrap();
+        let link = snap.entries.iter().find(|e| e.kind == Kind::Symlink).unwrap();
+        assert_eq!(file_open_intent(&snap, &dir, file, false).unwrap(),
+                   FileOpenIntent::DefaultApplication(dir.join("notes.txt")));
+        assert_eq!(file_open_intent(&snap, &dir, file, true).unwrap(),
+                   FileOpenIntent::DirectoryInRiceField(dir.clone()));
+        assert_eq!(file_open_intent(&snap, &dir, folder, false).unwrap(),
+                   FileOpenIntent::DirectoryInRiceField(dir.join("Folder")));
+        assert!(file_open_intent(&snap, &dir, desktop, false).is_err());
+        assert!(file_open_intent(&snap, &dir, link, false).is_err());
+        fs::remove_file(dir.join("notes.txt")).unwrap();
+        assert!(file_open_intent(&snap, &dir, file, false).is_err());
+        fs::remove_dir_all(dir).unwrap();
+    }
+}
