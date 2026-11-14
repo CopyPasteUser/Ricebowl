@@ -1813,9 +1813,17 @@ The current session supervisor handles the request over an owner-private Unix
 socket below `XDG_RUNTIME_DIR`, named for the current `WAYLAND_DISPLAY`.
 Only installed IDs are accepted; absolute file paths and recipe commands are
 not. The transaction preflights the recipe and wallpaper, starts a replacement
-panel and swaybg, checks that they survive initial startup, reloads the
-**private** labwc root menu, persists the next-login choice under the existing
-selection lock, then stops the previous panel/background. In a **nested preview**
+panel and swaybg, then checks replacement readiness **before**
+reconfiguring the private labwc root menu, window chrome, hotkeys and optional
+RiceField/Taskotto profiles or persisting the next-login selection. For native
+RicePlate, readiness means an exact `RICEPLATE_READY_V1` acknowledgement on a
+one-shot inherited private pipe *after* its initial compositor
+`wl_surface.frame` callback. Merely surviving startup, parsing the recipe or
+drawing to an offscreen buffer is insufficient; crashes, missing frames,
+wrong replies and a bounded six-second timeout leave the earlier rice active.
+Waybar fallback keeps an explicit process-liveness-only gate, not a fabricated
+native compositor-frame acknowledgement. Once the transaction commits, the
+old panel and background are stopped. In a **nested preview**
 the live change stays temporary and does not persist the next-login choice.
 A failure before commit retains the old components and restores the old menu. `restore` offers
 one previous live rice; a restarted session can also use a hash-pinned previous
