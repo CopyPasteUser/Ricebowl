@@ -115,6 +115,9 @@ mod tests {
         assert_eq!(s.activation_seat_for(ActivationSource::Assistive), Some(&"seat-b"));
         assert!(!s.release_keyboard(&"seat-a"));
         assert!(s.release_pointer(&"seat-b"));
+        // Capability loss does not mean the still-advertised seat vanished.
+        assert_eq!(s.activation_seat_for(ActivationSource::Assistive), Some(&"seat-b"));
+        s.forget_seat(&"seat-b");
         assert_eq!(s.activation_seat_for(ActivationSource::Assistive), None);
     }
 
