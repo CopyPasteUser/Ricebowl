@@ -1415,6 +1415,11 @@ impl RicePlate {
         let connected: Vec<String> = self.outputs.outputs()
             .filter_map(|o| self.outputs.info(&o).and_then(|info| info.name))
             .collect();
+        // Each display layout is shared by all file surfaces on that output.
+        // Without this cache 96 files trigger 96 full bounded-placement scans
+        // on every inotify event and output resize, a needless UI CPU spike.
+        let mut layouts = std::collections::HashMap::<
+            (String, bool), Vec<Option<(u32, u32)>>>::new();
         for index in 0..self.file_layers.len() {
             let layer = &self.file_layers[index];
             let output = layer.bound_output.as_ref()
@@ -1423,13 +1428,17 @@ impl RicePlate {
                 else { continue };
             let Some(name) = output.and_then(|o| self.outputs.info(o))
                 .and_then(|info| info.name) else { continue };
-            let static_cells: Vec<_> = self.icon_layers.iter()
-                .filter(|icon| icon.bound_output == layer.bound_output)
-                .map(|icon| icon.placed).collect();
-            let placements = desktop_layout::place_files(
-                &entries, &self.file_positions, &name,
-                layer.bound_output.is_none(), &connected, &static_cells,
-                width, height, self.recipe.top, self.recipe.height);
+            let is_primary = layer.bound_output.is_none();
+            let cache_key = (name.clone(), is_primary);
+            let placements = layouts.entry(cache_key).or_insert_with(|| {
+                let static_cells: Vec<_> = self.icon_layers.iter()
+                    .filter(|icon| icon.bound_output == layer.bound_output)
+                    .map(|icon| icon.placed).collect();
+                desktop_layout::place_files(
+                    &entries, &self.file_positions, &name, is_primary,
+                    &connected, &static_cells, width, height,
+                    self.recipe.top, self.recipe.height)
+            });
             let placement = entries.iter()
                 .position(|e| e.key == layer.entry.key)
                 .and_then(|i| placements.get(i).copied().flatten());
