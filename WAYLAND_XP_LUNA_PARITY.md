@@ -203,6 +203,27 @@ from an unmerged revision must never be described as a current-main capture.
 Physical hardware input, client-side GTK/Qt titlebar styling and the separate
 labwc keyboard-focus issue are not resolved by this visual sprint.
 
+## XP Luna Desktop: real New Folder / Explorer hand-off (14 November 2026)
+
+The native desktop's **New Folder** context action still creates a real,
+uniquely named directory in the user's validated XDG Desktop location. It now
+opens that directory in the existing XP-themed RiceField separate-window
+mode when installed, with the same explicit Gio fallback used by other local
+Luna locations. Virtual GVfs locations and global defaults stay unchanged.
+
+The directory is held open with `O_DIRECTORY|O_NOFOLLOW`, and creation uses
+`mkdirat` relative to that checked descriptor with owner-only permissions.
+It skips existing file/directory/symlink name collisions without following
+them, and does not open a pathname if the Desktop directory is replaced while
+creation is underway. Tests cover the actual fixed argv, missing/relative/
+symlinked targets, name collisions and a symlinked Desktop directory.
+
+**Scope limit:** the compositor still renders recipe-defined shortcut
+surfaces, not discovered filesystem files. Creating a folder opens it in the
+file manager; it does not add a live Desktop icon. Dynamic icon inventory,
+inotify refresh, file context actions and physical labwc acceptance remain
+separate integration gates. No XFCE/X11 or non-Luna session is modified.
+
 ## XP Luna Desktop/Taskbar functional Sprint 1 (13 November 2026)
 
 Opt-in `xp-luna-columns` now has three genuine compact Quick Launch buttons:
