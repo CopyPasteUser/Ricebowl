@@ -289,11 +289,12 @@ dbus-run-session -- sh -eu -c '
                 WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" \
                 >"$runtime/plate-$label.log" 2>&1 &
         elif [ "$label" = xp-luna-columns ]; then
-            RICEBOWL_DE_TRACE_FOCUS=1 RICEBOWL_DE_TRACE_MENU=1 PATH="$runtime/mock-bin:$PATH" \
+            RICEBOWL_DE_SHELL_CHILD=1 RICEBOWL_DE_READY_FD=3 \
+                RICEBOWL_DE_TRACE_FOCUS=1 RICEBOWL_DE_TRACE_MENU=1 PATH="$runtime/mock-bin:$PATH" \
                 RICEBOWL_CI_TRASH_LOG="$runtime/trash-gio.log" \
                 RICEBOWL_CI_RICEFIELD_LOG="$runtime/ricefield-argv.log" \
                 WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" \
-                >"$runtime/plate-$label.log" 2>&1 &
+                3>"$runtime/frame-$label.ready" >"$runtime/plate-$label.log" 2>&1 &
         elif [ "$label" = classic ] || [ "$label" = chrome ]; then
             # The owner supervisor passes a descriptor, not a writable
             # untrusted path. Verify two structurally distinct recipes each
@@ -306,7 +307,8 @@ dbus-run-session -- sh -eu -c '
         fi
         plate=$!
         sleep 1
-        if [ "$label" = classic ] || [ "$label" = chrome ]; then
+        if [ "$label" = classic ] || [ "$label" = chrome ] \
+            || [ "$label" = xp-luna-columns ]; then
             count=0
             until [ "$(cat "$runtime/frame-$label.ready")" = RICEPLATE_READY_V1 ] \
                 || [ "$count" -ge 25 ]; do
