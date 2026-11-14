@@ -1343,7 +1343,8 @@ impl RicePlate {
         layer.surface.commit();
     }
 
-    fn dispatch_file_keyboard_focus(&mut self, event: &KeyEvent) -> bool {
+    fn dispatch_file_keyboard_focus(&mut self, event: &KeyEvent,
+                                    qh: &QueueHandle<Self>) -> bool {
         let Some(layer) = self.file_keyboard_focus_layer.as_ref() else { return false };
         let Some(seat) = self.seat_assignments.keyboard_owner() else { return false };
         if !self.file_keyboard_focus_lease.can_dispatch(seat, layer.surface.wl_surface()) {
@@ -1352,6 +1353,28 @@ impl RicePlate {
         let selected = layer.entry.clone();
         match event.keysym {
             Keysym::Escape => self.close_file_keyboard_focus(),
+            Keysym::F2 => {
+                self.close_file_keyboard_focus();
+                self.open_file_modal(&selected, luna_dialog::Kind::FileRename, qh);
+            }
+            Keysym::Delete => {
+                self.close_file_keyboard_focus();
+                self.open_file_modal(&selected, luna_dialog::Kind::FileTrash, qh);
+            }
+            Keysym::Menu => {
+                self.close_file_keyboard_focus();
+                if let Some(index) = self.file_layers.iter().position(|item|
+                    item.entry.key == selected && item.placed.is_some()) {
+                    self.open_file_context(index, (52.0, 42.0), qh);
+                }
+            }
+            Keysym::F10 if self.selection_modifiers.shift => {
+                self.close_file_keyboard_focus();
+                if let Some(index) = self.file_layers.iter().position(|item|
+                    item.entry.key == selected && item.placed.is_some()) {
+                    self.open_file_context(index, (52.0, 42.0), qh);
+                }
+            }
             Keysym::Return | Keysym::KP_Enter => {
                 self.close_file_keyboard_focus();
                 self.activate_file_icon(&selected);
@@ -6774,7 +6797,7 @@ impl KeyboardHandler for RicePlate {
         event: KeyEvent,
     ) {
         if self.keyboard.as_ref() != Some(keyboard) { return; }
-        if self.dispatch_file_keyboard_focus(&event) { return; }
+        if self.dispatch_file_keyboard_focus(&event, qh) { return; }
         if self.luna_dialog_focused {
             // Do not log keysyms or UTF-8 from the Run dialog: they can
             // contain sensitive commands. Test diagnostics report only
@@ -6824,6 +6847,43 @@ impl KeyboardHandler for RicePlate {
                               dialog.state.input.chars().count(), dialog.state.cursor);
                 }
             }
+            return;
+        }
+        if self.file_context_focused {
+            let mut invoke = None;
+            let mut redraw = false;
+            if let Some(menu) = self.file_context.as_mut() {
+                if menu.properties.is_some() {
+                    match event.keysym {
+                        Keysym::Escape | Keysym::BackSpace | Keysym::Return |
+                        Keysym::KP_Enter | Keysym::space => {
+                            menu.properties = None;
+                            menu.back_hovered = false;
+                            menu.back_pressed = false;
+                            redraw = true;
+                        }
+                        _ => {}
+                    }
+                } else {
+                    match event.keysym {
+                        Keysym::Escape => { self.close_file_context(); return; }
+                        Keysym::Up | Keysym::ISO_Left_Tab |
+                        Keysym::Down | Keysym::Tab => {
+                            let delta = if matches!(event.keysym, Keysym::Up | Keysym::ISO_Left_Tab) {
+                                -1
+                            } else { 1 };
+                            menu.selected = desktop_file_menu::navigate(
+                                menu.selected, delta, menu.kind);
+                            redraw = true;
+                        }
+                        Keysym::Return | Keysym::KP_Enter | Keysym::space =>
+                            invoke = Some(menu.selected),
+                        _ => {}
+                    }
+                }
+            }
+            if let Some(item) = invoke { self.choose_file_context(item, qh); }
+            else if redraw { self.redraw_file_context(); }
             return;
         }
         if self.context_focused {
