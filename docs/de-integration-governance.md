@@ -53,29 +53,30 @@ small and reviewed by integration, while behavior lives in owned modules.
 
 > Verified against GitHub on 14 November, after the original review; this
 > is an *evidence snapshot*, not an atomic branch lock. [Issue #360](https://github.com/CopyPasteUser/Ricebowl/issues/360)
-> tracks subsequent handoffs. All feature PRs listed here remain Draft.
+> tracks subsequent handoffs. #367/#370 are now CLOSED, not merged; #366,
+> #368 and #371 remain Draft. Frozen code blobs are valid even when PRs close.
 
 ```text
 main @ 559f800ead46ff60c6551624734d4bbe47ddf667 [unchanged at snapshot]
 ├── #366 Run keyboard/pointer fix — integration-owned
-│   fix/luna-run-pointer-caret-20261114 @ 12eb4193f1d08d13de05e085bebd7c3d6bf9b08a
-│   Tests PASS 43582896633; full Native PASS 43582896711
-├── #367 Core lease/seat — FROZEN source
+│   fix/luna-run-pointer-caret-20261114 @ bb16551fed7c318968867bc31ce5e46fce3fe975
+│   previous head 12eb4193 Tests/Native PASS; newest head Clippy CI pending
+├── #367 Core lease/seat — CLOSED UNMERGED; FROZEN source
 │   sprint/de-core-focus-20261114 @ 8947a569612c8258ddeb6949ad8e74ee42a43798
 │   Tests PASS 43579110004; Native PASS 43579109980
-├── #370 Desktop inventory/inotify — FROZEN source
+├── #370 Desktop inventory/inotify — CLOSED UNMERGED; FROZEN source
 │   sprint/de-desktop-files-20261114 @ e588c2edc337c30e2f23dcfb9ab755ced88724a1
 │   Tests PASS 43580321303; Native PASS 43580321268
 ├── #368 System strict portals — EXCLUSIVELY SYSTEM-OWNED
-│   sprint/de-system-portals-20261114 @ b528f411d27f7b1c10c99235f769c6d12e9bfaed
+│   sprint/de-system-portals-20261114 @ 52713f797d2aec6c47f490a7e9f7d3d654cb8d36
 │   Tests/Native/Strict FAILED; DRM-backed frame acceptance not passed
 ├── #369 Integration governance documentation
 │   integration/de-governance-snapshot-20261114 [this PR; docs only]
 └── #371 Integration runtime assembly — separate candidate, NOT READY
-    integration/de-runtime-assembly-20261114
+    integration/de-runtime-assembly-20261114 @ 23fd50d266d906263e9378776dd0f75edb3d9fc0
     exact module inputs: #367 @ 8947a569612c and #370 @ e588c2edc337
-    main.rs file surfaces + calloop wiring under integration ownership;
-    first new native build FAILED E0502; follow-up head awaiting checks
+    main.rs file surfaces, inotify + temporary Core focus overlay;
+    first new native build FAILED E0502, later E2E focus FAIL; newest CI pending
 ```
 
 Original feature PRs #367/#370 are frozen and must never be rewritten by
@@ -99,10 +100,15 @@ This is headless software acceptance, not physical Mint/IME/Orca QA.
 **#371 current status at this snapshot:** the first integration patch wired
 file surfaces and callback/reactor paths but [Native](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43583190211)
 failed Rust E0502 from an immutable snapshot borrow overlapping redraw.
-A follow-up commit narrowed the borrowing region before running full CI
-again. No claim of passing native runtime acceptance until a later exact-head
-run succeeds. Keyboard FocusLease and file-context UI are distinct pending
-integration gates, as are dual-output/hotplug and real external-file tests.
+The borrow regression was fixed; intermediate combined Native CI subsequently
+ran real headless labwc. External XDG file creation triggered a genuine
+4,848-pixel framebuffer change, and the regular file double-click operated,
+but [Native](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43584560681)
+FAILED because the temporary keyboard focus had no compositor-confirmed
+`wl_keyboard.enter`. A later patch changed the focus overlay's input-region
+policy and added redacted seat diagnostics; its exact-head CI is pending.
+The context UI, robust focus return to regular applications, file drag/move,
+dual-output/hotplug and hardware/IME acceptance remain open.
 
 ### Ownership and controlled sequence
 
