@@ -121,6 +121,14 @@ class LiveRiceTests(unittest.TestCase):
         self.assertEqual(len(seen), 2)
         self.assertIsNone(live_recovery.read())
 
+    def test_native_missing_readiness_channel_is_never_treated_as_waybar(self):
+        self.controller._frame_readiness = True
+        with self.assertRaises(live.LiveError) as caught:
+            self.controller._await_panel_frame(FakeProcess())
+        self.assertEqual(caught.exception.code, "component_failed")
+        self.assertEqual(self.controller.active, "classic")
+        self.assertFalse(self.initial_panel.terminated)
+
     def test_liveness_without_compositor_frame_cannot_replace_the_active_rice(self):
         original_panel = self.controller.panel
         original_wallpaper = self.controller.wallpaper
