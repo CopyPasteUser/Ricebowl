@@ -1201,6 +1201,10 @@ fn register_file_watch(
 
 impl RicePlate {
     fn close_file_keyboard_focus(&mut self) {
+        if self.file_keyboard_focus_layer.is_some()
+            && std::env::var("RICEBOWL_DE_TRACE_FOCUS").as_deref() == Ok("1") {
+            eprintln!("RicePlate: XDG file keyboard focus released");
+        }
         self.file_keyboard_focus_lease.cancel();
         // Dropping the compositor-owned overlay releases its scoped keyboard
         // interactivity immediately. A pending virtual keyboard cannot retain
