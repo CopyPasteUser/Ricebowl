@@ -5,6 +5,13 @@ use crate::recipe::{DesktopComposition, DesktopIcon, WindowRegion,
                     DESKTOP_WIDGET_HEIGHT, DESKTOP_WIDGET_WIDTH, ICON_HEIGHT, ICON_WIDTH};
 
 const GAP: u32 = 8;
+
+// Independent filesystem model, watch lifecycle and file-icon state. The
+// compositor/seat glue is intentionally owned by the integration lane.
+pub mod inventory;
+pub mod watcher;
+pub mod file_state;
+
 pub const MAX_SAVED_POSITION: u32 = 16_384;
 
 /// Cycle a keyboard selection through visible icon surfaces only. A hidden
@@ -395,5 +402,127 @@ mod tests {
                                      (20.0, 10.0), (1920, 0), (1280, 1024)), None);
         assert_eq!(cross_output_drop((0, 0), (1800, 220), (200.0, 10.0),
                                      (20.0, 10.0), (1920, 0), (40, 30)), None);
+    }
+}
+
+
+/// File-backed Desktop icon placement. The static recipe surfaces remain
+/// independent; their occupied cells are passed in as reserved rectangles.
+/// Coordinates are logical/output-local and no file I/O occurs during layout.
+///
+/// This deliberately uses a bounded first-fit scan rather than the recipe
+/// nearest-candidate search: bursts of newly created files must not stall a
+/// Wayland frame on small or very large logical outputs.
+#[allow(dead_code)]
+pub fn place_files(
+    entries: &[inventory::Entry], saved: &file_state::FilePositions,
+    output_name: &str, is_primary: bool, connected: &[String],
+    static_positions: &[Option<(u32, u32)>],
+    width: u32, height: u32, panel_top: bool, panel_height: u32,
+) -> Vec<Option<(u32, u32)>> {
+    let mut result = vec![None; entries.len()];
+    let upper = if panel_top { panel_height.saturating_add(GAP) } else { GAP };
+    let lower = if panel_top { GAP } else { panel_height.saturating_add(GAP) };
+    let Some(max_x) = width.checked_sub(ICON_WIDTH.saturating_add(GAP)) else { return result };
+    let Some(max_y) = height.checked_sub(ICON_HEIGHT.saturating_add(lower)) else { return result };
+    if upper > max_y { return result; }
+    let step_x = ICON_WIDTH.saturating_add(GAP);
+    let step_y = ICON_HEIGHT.saturating_add(GAP);
+    let mut occupied: Vec<Rect> = static_positions.iter().flatten()
+        .map(|&(x, y)| Rect { x, y, w: ICON_WIDTH, h: ICON_HEIGHT }).collect();
+    // Cap both dimensions even if the compositor reports absurd geometry.
+    let max_x = max_x.min(MAX_SAVED_POSITION);
+    let max_y = max_y.min(MAX_SAVED_POSITION);
+    for (index, entry) in entries.iter().take(inventory::MAX_VISIBLE).enumerate() {
+        if !saved.visible_on(&entry.key, output_name, is_primary, connected) { continue; }
+        let is_free = |x: u32, y: u32, occupied: &[Rect]| {
+            let rect = Rect { x, y, w: ICON_WIDTH, h: ICON_HEIGHT };
+            occupied.iter().all(|other| !rect.intersects(*other))
+        };
+        let remembered = saved.coordinates(&entry.key, output_name)
+            .map(|p| (p.x.min(max_x), p.y.clamp(upper, max_y)))
+            .filter(|&(x, y)| is_free(x, y, &occupied));
+        let mut chosen = remembered;
+        if chosen.is_none() {
+            let mut x = GAP;
+            'columns: while x <= max_x {
+                let mut y = upper;
+                while y <= max_y {
+                    if is_free(x, y, &occupied) {
+                        chosen = Some((x, y));
+                        break 'columns;
+                    }
+                    let next = y.saturating_add(step_y);
+                    if next <= y { break; }
+                    y = next;
+                }
+                let next = x.saturating_add(step_x);
+                if next <= x { break; }
+                x = next;
+            }
+        }
+        if let Some((x, y)) = chosen {
+            result[index] = Some((x, y));
+            occupied.push(Rect { x, y, w: ICON_WIDTH, h: ICON_HEIGHT });
+        }
+    }
+    result
+}
+
+#[cfg(test)]
+mod desktop_file_layout_tests {
+    use super::*;
+    use std::ffi::OsString;
+
+    fn files(count: usize) -> Vec<inventory::Entry> {
+        (0..count).map(|n| inventory::Entry {
+            key: inventory::Key {
+                device: 1, inode: n as u64 + 1000, name: OsString::from(format!("file-{n}")),
+            },
+            kind: inventory::Kind::File,
+            label: format!("File {n}"),
+            stamp: inventory::Stamp::default(),
+            birth: None,
+        }).collect()
+    }
+
+    #[test]
+    fn zero_one_hundred_and_excess_entries_are_bounded() {
+        let outputs = ["eDP-1".to_string()];
+        for count in [0, 1, 100, 1000] {
+            let entries = files(count);
+            let placed = place_files(&entries, &file_state::FilePositions::default(),
+                                     "eDP-1", true, &outputs, &[],
+                                     1024, 768, true, 40);
+            assert_eq!(placed.len(), count);
+            assert!(placed.iter().skip(inventory::MAX_VISIBLE).all(Option::is_none));
+            let positions: Vec<_> = placed.iter().flatten().collect();
+            assert!(positions.iter().all(|&&(x, y)|
+                x + ICON_WIDTH <= 1024 && y >= 48 && y + ICON_HEIGHT <= 760));
+            for (i, &&(x, y)) in positions.iter().enumerate() {
+                assert!(positions.iter().skip(i + 1).all(|&&(ox, oy)|
+                    x.abs_diff(ox) >= ICON_WIDTH || y.abs_diff(oy) >= ICON_HEIGHT));
+            }
+        }
+    }
+
+    #[test]
+    fn saved_coordinates_static_icons_and_output_hotplug_are_respected() {
+        let entries = files(2);
+        let mut saved = file_state::FilePositions::default();
+        saved.set(&entries[0].key, "HDMI-A-1",
+                  crate::icon_positions::Coordinates { x: 250, y: 300 }).unwrap();
+        let both = ["eDP-1".into(), "HDMI-A-1".into()];
+        let primary = place_files(&entries, &saved, "eDP-1", true, &both,
+                                  &[Some((8, 48))], 1280, 800, true, 40);
+        assert_eq!(primary[0], None);
+        assert!(primary[1].is_some_and(|pos| pos != (8, 48)));
+        let external = place_files(&entries, &saved, "HDMI-A-1", false, &both,
+                                   &[], 1280, 800, true, 40);
+        assert_eq!(external[0], Some((250, 300)));
+        assert_eq!(external[1], None);
+        let disconnected = place_files(&entries, &saved, "eDP-1", true,
+                                       &["eDP-1".into()], &[], 1280, 800, true, 40);
+        assert!(disconnected[0].is_some());
     }
 }
