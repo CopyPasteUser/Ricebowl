@@ -5,6 +5,25 @@ physical acceptance outstanding.** RiceBowl 0.9.x is still an XFCE/X11
 rice manager. The separate Wayland login-session package requires explicit
 installation and is not yet a finished desktop environment.
 
+### Shared native Rice engine / compositor-frame transaction gate (14 November 2026)
+
+- The existing single recipe schema, shared system backends and owner-private
+  native supervisor already implement reviewed live apply/restore across
+  RicePlate, wallpaper, private labwc menu/chrome/hotkeys and optional
+  RiceField/Taskotto profiles. Do **not** build per-rice copies of those services.
+- Replace the old 500-ms *process-alive* criterion for native RicePlate with
+  one inherited, bounded FD handshake. Only a genuine first primary
+  `wl_surface.frame` callback sends `RICEPLATE_READY_V1`; timeout, EOF,
+  malformed acknowledgement or compositor crash preserve the previous rice.
+  The Waybar fallback remains an explicitly weaker liveness-only contract.
+- CI requires real headless labwc frame acknowledgements from Classic,
+  Chrome and the structurally distinct XP Luna recipe, plus isolated
+  Classic → Chrome → Luna → Chrome live-switch/restore screenshot comparison.
+  Failure-injection tests retain existing Creator error and rollback contracts.
+- This does **not** constitute atomic visual synchronization across unrelated
+  third-party clients, full hardware/IME/Orca acceptance, or a stable 1.0
+  release. Keep the original XFCE login and session recovery unchanged.
+
 ### Screenshot evidence integrity (12 November 2026, pending CI)
 
 - [ ] Require complete PNG decoding before the classic panel pixel probe; add synthetic complete/truncated/wrong-color/invalid-geometry unit cases. Local focused tests pass, but the native labwc compositor screenshot matrix and full CI remain mandatory before this is marked complete. The synthetic unit fixtures are **not** real desktop screenshots.
