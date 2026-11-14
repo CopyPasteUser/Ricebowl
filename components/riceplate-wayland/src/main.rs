@@ -1,7 +1,7 @@
 //! Native RicePlate experiment: an input-capable, idle event-driven layer surface.
 //! No session takeover: launch only inside an already running Wayland session.
 
-use std::{error::Error, os::fd::{AsFd, FromRawFd, OwnedFd}, process::Command, sync::mpsc, time::{Duration, Instant}};
+use std::{error::Error, io::Write, os::fd::{AsFd, FromRawFd, OwnedFd}, process::Command, sync::mpsc, time::{Duration, Instant}};
 
 use chrono::{Local, Timelike};
 use accesskit::{ActionRequest, Role as AccessibleRole};
@@ -189,6 +189,25 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     };
     let mut recipe = recipe::load(recipe_name)?;
+    // An inherited write-only pipe is the sole native shell readiness
+    // channel. A compositor frame callback (not a timer or process poll)
+    // authorizes the parent supervisor to commit the entire new rice.
+    let ready_fd = match std::env::var("RICEBOWL_DE_READY_FD") {
+        Ok(raw) => {
+            if std::env::var("RICEBOWL_DE_SHELL_CHILD").as_deref() != Ok("1") {
+                return Err("Native frame acknowledgement requires a RiceBowl-owned session".into());
+            }
+            let fd: i32 = raw.parse().map_err(|_| "Invalid native frame pipe descriptor")?;
+            if !(3..=65_535).contains(&fd) {
+                return Err("Native frame pipe descriptor out of range".into());
+            }
+            // SAFETY: pass_fds in the session supervisor transfers an owned
+            // descriptor into this child. Only this child closes the handle.
+            Some(std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) }))
+        }
+        Err(std::env::VarError::NotPresent) => None,
+        Err(_) => return Err("Invalid native frame descriptor environment".into()),
+    };
     // Reading the owner-private setting is optional and confined to Luna.
     // Other rices always retain the exact existing 24-hour clock behavior.
     let clock_format = if recipe.id == "xp-luna-columns" {
@@ -604,6 +623,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         toplevel_manager,
         trace_window_events: std::env::var("RICEBOWL_DE_TRACE_WINDOWS").as_deref() == Ok("1"),
         trace_frames: std::env::var("RICEBOWL_DE_TRACE_FRAMES").as_deref() == Ok("1"),
+        ready_fd,
         tasks: Vec::new(),
         show_desktop: window_lifecycle::ShowDesktop::default(),
         luna_options,
@@ -1201,6 +1221,7 @@ struct RicePlate {
     toplevel_manager: Option<ZwlrForeignToplevelManagerV1>,
     trace_window_events: bool,
     trace_frames: bool,
+    ready_fd: Option<std::fs::File>,
     tasks: Vec<Task>,
     // Only windows actually minimized by Show Desktop are restored.
     show_desktop: window_lifecycle::ShowDesktop<ZwlrForeignToplevelHandleV1>,
@@ -6276,6 +6297,16 @@ impl CompositorHandler for RicePlate {
                 }
             }
             return;
+        }
+        // This callback follows an attached SHM buffer that was accepted by
+        // labwc. Report readiness *once* per process, never just because the
+        // recipe parser succeeded or the process remained alive.
+        if let Some(mut ready) = self.ready_fd.take() {
+            if let Err(error) = ready.write_all(b"RICEPLATE_READY_V1\n") {
+                eprintln!("RicePlate: native frame readiness write failed: {error}");
+                self.closed = true;
+                return;
+            }
         }
         if self.frame.frame_ready() { self.redraw(qh); }
     }
