@@ -1,13 +1,44 @@
 #!/bin/sh
 # Disposable labwc + private D-Bus acceptance. Never uses the live desktop.
 set -eu
+# Strict mode must not degrade to the usual pixman capability smoke.
+renderer=${RICEBOWL_PORTAL_RENDERER:-pixman}
+strict=${RICEBOWL_PORTAL_STRICT_CI:-0}
+case "$renderer" in pixman|gles2) ;; *)
+    echo "PORTAL_SETUP_FAIL: unsupported renderer: $renderer" >&2; exit 2 ;;
+esac
+case "$strict" in 0|1) ;; *)
+    echo "PORTAL_SETUP_FAIL: strict flag must be 0 or 1" >&2; exit 2 ;;
+esac
+if [ "$strict" = 1 ]; then
+    [ "$renderer" = gles2 ] || {
+        echo "PORTAL_STRICT_BLOCKED: renderer must be gles2 (no pixman fallback)" >&2
+        exit 3
+    }
+    # wlroots 0.17 needs a DRM render FD even with Mesa llvmpipe.
+    # Never create devices or load host kernel modules in this script.
+    render_node=
+    for node in /dev/dri/renderD*; do
+        if [ -c "$node" ] && [ -r "$node" ] && [ -w "$node" ]; then
+            render_node=$node
+            break
+        fi
+    done
+    [ -n "$render_node" ] || {
+        echo "PORTAL_STRICT_BLOCKED: no accessible DRM render node (/dev/dri/renderD*); isolated GLES2 cannot start" >&2
+        exit 3
+    }
+    export WLR_RENDER_DRM_DEVICE="$render_node"
+    export WLR_RENDERER_ALLOW_SOFTWARE=1
+    echo "PORTAL_STRICT_PREREQ_OK: DRM render node available: $render_node"
+fi
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 for binary in labwc pipewire dbus-run-session dbus-update-activation-environment gdbus timeout; do
     command -v "$binary" >/dev/null 2>&1 || {
         echo "Portal smoke missing dependency: $binary" >&2; exit 1;
     }
 done
-runtime=$(mktemp -d)
+runtime=$(mktemp -d /tmp/ricebowl-portals.XXXXXXXX)
 chmod 0700 "$runtime"
 cleanup() {
     # The document portal may mount its own FUSE directory asynchronously.
@@ -21,6 +52,9 @@ cleanup() {
     rm -rf -- "$runtime" 2>/dev/null || :
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
 mkdir -m 0700 "$runtime/config"
 mkdir -m 0700 "$runtime/config/xdg-desktop-portal"
 cp "$root/packaging/wayland/ricebowl-portals.conf" \
@@ -41,7 +75,8 @@ export XDG_SESSION_DESKTOP=ricebowl
 export XDG_SESSION_TYPE=wayland
 export WLR_BACKENDS=headless
 export WLR_HEADLESS_OUTPUTS=1
-export WLR_RENDERER=pixman
+export WLR_RENDERER="$renderer"
+export RICEBOWL_PORTAL_STRICT_CI="$strict"
 export LABWC_UPDATE_ACTIVATION_ENV=0
 export RICEBOWL_DE_NESTED=1
 export RICEBOWL_PORTAL_CAPTURE_CI=1
@@ -100,5 +135,18 @@ dbus-run-session -- sh -eu -c '
         done
         exit 1
     fi
-    echo "RiceBowl portal interfaces and capture requests passed in isolated labwc"
+    if [ "$RICEBOWL_PORTAL_STRICT_CI" = 1 ]; then
+        # Independent shell gate: the client must prove it sampled a frame.
+        grep -q "^PORTAL_FRAME_OK:" "$runtime/client.log" || {
+            echo "PORTAL_STRICT_FAIL: actual video frame was not verified" >&2
+            sed -n "1,110p" "$runtime/client.log" >&2
+            exit 1
+        }
+        grep -q "^PORTAL_STRICT_OK:" "$runtime/client.log" || {
+            echo "PORTAL_STRICT_FAIL: missing strict acceptance receipt" >&2
+            exit 1
+        }
+    fi
+    sed -n "1,100p" "$runtime/client.log"
+    echo "RiceBowl isolated portal smoke completed (renderer=$WLR_RENDERER, strict=$RICEBOWL_PORTAL_STRICT_CI)"
 ' sh "$root" "$runtime"

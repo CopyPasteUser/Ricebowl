@@ -1,6 +1,7 @@
 """Offline safeguards for the opt-in, headless-only portal capture smoke."""
 import importlib.util
 import os
+import socket
 import struct
 import tempfile
 import unittest
@@ -49,6 +50,22 @@ class CaptureGuardTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "marker"):
                     portal.require_private_headless_session(env)
                 (runtime / ".ricebowl-portal-ci").touch()
+                marker = runtime / ".ricebowl-portal-ci"
+                marker.rename(runtime / "original-marker")
+                marker.symlink_to(runtime / "original-marker")
+                with self.assertRaisesRegex(RuntimeError, "marker"):
+                    portal.require_private_headless_session(env)
+                marker.unlink()
+                marker.touch()
+                alias = runtime.parent / (runtime.name + "-alias")
+                alias.symlink_to(runtime)
+                try:
+                    with self.assertRaisesRegex(RuntimeError, "symlink"):
+                        portal.require_private_headless_session({
+                            **env, "XDG_RUNTIME_DIR": str(alias),
+                            "PIPEWIRE_RUNTIME_DIR": str(alias)})
+                finally:
+                    alias.unlink()
                 runtime.chmod(0o755)
                 with self.assertRaisesRegex(RuntimeError, "0700"):
                     portal.require_private_headless_session(env)
@@ -91,6 +108,54 @@ class ScreenshotValidationTests(unittest.TestCase):
 
 
 class ScreenCastCapabilityTests(unittest.TestCase):
+    def test_strict_renderer_and_pixman_fallback_never_mix(self):
+        self.assertFalse(portal.strict_ci_mode({}))
+        self.assertTrue(portal.strict_ci_mode({
+            "RICEBOWL_PORTAL_STRICT_CI": "1", "WLR_RENDERER": "gles2"}))
+        for env in ({"RICEBOWL_PORTAL_STRICT_CI": "1", "WLR_RENDERER": "pixman"},
+                    {"RICEBOWL_PORTAL_STRICT_CI": "invalid"}):
+            with self.assertRaises(RuntimeError):
+                portal.strict_ci_mode(env)
+
+    def test_stream_nodes_must_be_unique_bounded_unsigned_and_well_formed(self):
+        self.assertEqual(portal.stream_nodes([(12, {}), (55, {"size": (2, 2)})]),
+                         (12, 55))
+        for invalid in (None, [], [(0, {})], [(True, {})], [(-1, {})],
+                        [(4294967296, {})], [(3, None)], [(1, {}), (1, {})],
+                        [(2, 3, {})], "3", [(i, {}) for i in range(17)]):
+            with self.subTest(invalid=invalid), self.assertRaises(RuntimeError):
+                portal.stream_nodes(invalid)
+
+    def test_fd_lifetime_and_frame_failure_never_claim_success(self):
+        with socket.socketpair() as (left, right):
+            fd = os.dup(left.fileno())
+            try:
+                with patch.object(portal.subprocess, "run", return_value=type(
+                    "Result", (), {"returncode": 1, "stdout": "",
+                                   "stderr": "no sample"})()) as run:
+                    with self.assertRaisesRegex(RuntimeError, "no sample"):
+                        portal.verify_delivered_frame(fd, 12)
+                    self.assertEqual(run.call_args.kwargs["pass_fds"], (fd,))
+                    self.assertEqual(run.call_args.kwargs["timeout"], 18)
+                with patch.object(portal.subprocess, "run", return_value=type(
+                    "Result", (), {"returncode": 0,
+                                   "stdout": "PORTAL_FRAME_OK: node=12 bytes=4096",
+                                   "stderr": ""})()):
+                    self.assertIn("PORTAL_FRAME_OK:", portal.verify_delivered_frame(fd, 12))
+                self.assertTrue(os.fstat(fd).st_mode)
+            finally:
+                os.close(fd)
+            self.assertGreaterEqual(right.fileno(), 0)
+
+    def test_timeout_and_cancel_statuses_are_machine_readable(self):
+        self.assertEqual(portal.classify_failure(TimeoutError("late")), "request_timeout")
+        self.assertEqual(portal.classify_failure(portal.PortalRejected("Start", 1)),
+                         "request_cancelled")
+        self.assertEqual(portal.classify_failure(portal.PortalRejected("Start", 2)),
+                         "request_denied_or_failed")
+        self.assertEqual(portal.classify_failure(RuntimeError("No DRM render node")),
+                         "renderer_unavailable")
+
     def test_only_ci_pixman_headless_start_failure_is_non_blocking(self):
         env = {"RICEBOWL_PORTAL_CAPTURE_CI": "1", "WLR_BACKENDS": "headless",
                "WLR_RENDERER": "pixman"}

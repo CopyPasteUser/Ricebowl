@@ -8,6 +8,7 @@ wrapper. A returned ScreenCast node and remote FD do not prove frame delivery.
 from __future__ import annotations
 
 import os
+import subprocess
 import secrets
 import stat
 import struct
@@ -30,9 +31,53 @@ class PortalRejected(RuntimeError):
         self.code = code
 
 
+def strict_ci_mode(env: dict[str, str]) -> bool:
+    flag = env.get("RICEBOWL_PORTAL_STRICT_CI", "0")
+    if flag not in ("0", "1"):
+        raise RuntimeError("RICEBOWL_PORTAL_STRICT_CI must be 0 or 1")
+    if flag == "1" and env.get("WLR_RENDERER") != "gles2":
+        raise RuntimeError("Strict ScreenCast requires the GLES2 renderer")
+    return flag == "1"
+
+
+def stream_nodes(streams: object) -> tuple[int, ...]:
+    """Only well-formed, unique, positive PipeWire node IDs count as Start."""
+    if not isinstance(streams, (tuple, list)) or not 1 <= len(streams) <= 16:
+        raise RuntimeError("ScreenCast Start missing bounded stream nodes")
+    nodes = []
+    for stream in streams:
+        if (not isinstance(stream, (list, tuple)) or len(stream) != 2
+                or type(stream[0]) is not int or not 0 < stream[0] <= 0xffffffff
+                or not isinstance(stream[1], dict)):
+            raise RuntimeError("ScreenCast Start returned invalid stream shape")
+        nodes.append(stream[0])
+    if len(set(nodes)) != len(nodes):
+        raise RuntimeError("ScreenCast Start returned duplicate node IDs")
+    return tuple(nodes)
+
+
+def classify_failure(exc: Exception) -> str:
+    """Stable machine-readable failure families; never equate reply to frames."""
+    if isinstance(exc, PortalRejected):
+        return "request_cancelled" if exc.code == 1 else "request_denied_or_failed"
+    if isinstance(exc, (TimeoutError, subprocess.TimeoutExpired)):
+        return "request_timeout"
+    message = str(exc).lower()
+    if "render" in message or "drm" in message or "egl" in message:
+        return "renderer_unavailable"
+    if "pipewire" in message or "gst" in message or "stream" in message or "frame" in message:
+        return "pipewire_or_stream_failed"
+    if "serviceunknown" in message or "dbus" in message or "d-bus" in message:
+        return "portal_unavailable"
+    if "session" in message:
+        return "session_failed"
+    return "protocol_or_runtime_error"
+
+
 def unsupported_pixman_start(response: PortalRejected, env: dict[str, str]) -> bool:
     """Only the isolated pixman CI lane may report an untested ScreenCast FD."""
-    return (response.code == 2 and env.get("RICEBOWL_PORTAL_CAPTURE_CI") == "1"
+    return (not strict_ci_mode(env) and response.code == 2
+            and env.get("RICEBOWL_PORTAL_CAPTURE_CI") == "1"
             and env.get("WLR_BACKENDS") == "headless"
             and env.get("WLR_RENDERER") == "pixman")
 
@@ -51,11 +96,24 @@ def require_private_headless_session(env: dict[str, str]) -> Path:
     runtime_text = env.get("XDG_RUNTIME_DIR", "")
     if not runtime_text or not Path(runtime_text).is_absolute():
         raise RuntimeError("Missing absolute isolated XDG_RUNTIME_DIR")
-    runtime = Path(runtime_text).resolve(strict=True)
-    if not (runtime / ".ricebowl-portal-ci").is_file():
+    source = Path(runtime_text)
+    if source.is_symlink():
+        raise RuntimeError("Private portal runtime must not be a symlink")
+    runtime = source.resolve(strict=True)
+    if runtime != source.absolute():
+        raise RuntimeError("Private portal runtime must not traverse symlinks")
+    runtime_stat = runtime.stat()
+    if (not stat.S_ISDIR(runtime_stat.st_mode)
+            or runtime_stat.st_uid != os.geteuid()
+            or stat.S_IMODE(runtime_stat.st_mode) != 0o700):
+        raise RuntimeError("Private portal runtime must be owner-private mode 0700")
+    marker = runtime / ".ricebowl-portal-ci"
+    if marker.is_symlink() or not marker.is_file():
         raise RuntimeError("Missing private portal smoke marker")
-    if stat.S_IMODE(runtime.stat().st_mode) != 0o700:
-        raise RuntimeError("Private portal runtime must have mode 0700")
+    marker_stat = marker.stat()
+    if (not stat.S_ISREG(marker_stat.st_mode)
+            or marker_stat.st_uid != os.geteuid() or marker_stat.st_nlink != 1):
+        raise RuntimeError("Private portal marker must be an owner-controlled file")
     if env.get("PIPEWIRE_RUNTIME_DIR") != str(runtime):
         raise RuntimeError("PipeWire must use the private runtime")
     if not env.get("DBUS_SESSION_BUS_ADDRESS", "").startswith("unix:"):
@@ -66,6 +124,9 @@ def require_private_headless_session(env: dict[str, str]) -> Path:
     display_path = runtime / display
     if not display_path.is_socket():
         raise RuntimeError("Headless compositor socket is absent")
+    if not (runtime / "pipewire-0").is_socket():
+        raise RuntimeError("Private PipeWire socket is absent")
+    strict_ci_mode(env)
     return runtime
 
 
@@ -160,7 +221,8 @@ def request(connection, interface: str, method: str, signature: str,
         connection.signal_unsubscribe(subscription)
 
 
-def verify_pipewire_remote(connection, session: str) -> None:
+def verify_pipewire_remote(connection, session: str) -> int:
+    """Return a caller-owned validated socket FD from the portal's FD list."""
     from gi.repository import Gio, GLib
 
     reply, descriptors = connection.call_with_unix_fd_list_sync(
@@ -169,17 +231,79 @@ def verify_pipewire_remote(connection, session: str) -> None:
         GLib.VariantType.new("(h)"), Gio.DBusCallFlags.NONE,
         12000, None, None)
     if descriptors is None:
-        raise RuntimeError("OpenPipeWireRemote did not return a Unix FD list")
-    fd = descriptors.get(reply.unpack()[0])
+        raise RuntimeError("OpenPipeWireRemote returned no Unix FD list")
+    handle = reply.unpack()
+    if (not isinstance(handle, tuple) or len(handle) != 1
+            or type(handle[0]) is not int):
+        raise RuntimeError("OpenPipeWireRemote returned an invalid FD handle")
+    fd = descriptors.get(handle[0])
     try:
         if not stat.S_ISSOCK(os.fstat(fd).st_mode):
-            raise RuntimeError("PipeWire remote FD is not a socket")
-    finally:
+            raise RuntimeError("OpenPipeWireRemote FD is not a socket")
+    except BaseException:
         os.close(fd)
+        raise
+    return fd
+
+
+def verify_delivered_frame(fd: int, node: int, *, timeout: int = 18) -> str:
+    """Read a real Gst.Sample in a child; inherited FD dies on timeout/crash."""
+    result = subprocess.run(
+        [sys.executable, str(Path(__file__).resolve()),
+         "--frame-probe", str(fd), str(node)],
+        pass_fds=(fd,), capture_output=True, text=True,
+        timeout=timeout, check=False)
+    if result.returncode != 0 or "PORTAL_FRAME_OK:" not in result.stdout:
+        raise RuntimeError("PipeWire frame probe failed: " +
+                           (result.stderr or result.stdout).strip()[:700])
+    return next(line for line in result.stdout.splitlines()
+                if line.startswith("PORTAL_FRAME_OK:"))
+
+
+def frame_probe(fd: int, node: int) -> None:
+    """Child-only GStreamer receiver: a D-Bus FD without a buffer fails."""
+    require_private_headless_session(dict(os.environ))
+    if fd < 3 or node <= 0 or node > 0xffffffff:
+        raise RuntimeError("Invalid PipeWire node or inherited FD")
+    if not stat.S_ISSOCK(os.fstat(fd).st_mode):
+        raise RuntimeError("Inherited PipeWire remote FD is not a socket")
+    import gi
+    gi.require_version("Gst", "1.0")
+    from gi.repository import Gst
+    Gst.init(None)
+    pipeline = Gst.parse_launch(
+        "pipewiresrc name=remote-src ! appsink name=frame-sink "
+        "sync=false max-buffers=1 drop=true")
+    src = pipeline.get_by_name("remote-src")
+    sink = pipeline.get_by_name("frame-sink")
+    if src is None or sink is None:
+        raise RuntimeError("GStreamer PipeWire source/appsink plugin unavailable")
+    src.set_property("fd", fd)
+    src.set_property("path", str(node))
+    try:
+        if pipeline.set_state(Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE:
+            raise RuntimeError("PipeWire receiver failed to start")
+        sample = sink.emit("try-pull-sample", 12 * Gst.SECOND)
+        if sample is None:
+            message = pipeline.get_bus().timed_pop_filtered(0, Gst.MessageType.ERROR)
+            detail = message.parse_error()[0].message if message else "no frames within deadline"
+            raise TimeoutError("PipeWire stream delivered no sample: " + detail)
+        buffer = sample.get_buffer()
+        caps = sample.get_caps()
+        if (buffer is None or buffer.get_size() <= 0 or caps is None
+                or not caps.to_string().startswith("video/x-raw")):
+            raise RuntimeError("PipeWire stream did not deliver a nonempty video frame")
+        print(f"PORTAL_FRAME_OK: node={node} bytes={buffer.get_size()} "
+              f"caps={caps.to_string()}", flush=True)
+    finally:
+        pipeline.set_state(Gst.State.NULL)
+
 
 
 def run() -> None:
-    require_private_headless_session(dict(os.environ))
+    env = dict(os.environ)
+    require_private_headless_session(env)
+    strict = strict_ci_mode(env)
     import gi
 
     gi.require_version("Gio", "2.0")
@@ -208,7 +332,7 @@ def run() -> None:
         try:
             started = request(connection, SCREENCAST, "Start", "(osa{sv})", (session, ""))
         except PortalRejected as rejected:
-            if not unsupported_pixman_start(rejected, dict(os.environ)):
+            if not unsupported_pixman_start(rejected, env):
                 raise
             pixman_rejected = True
             print("PORTAL_CAPTURE_LIMIT: ScreenCast Start returned response=2 on "
@@ -216,12 +340,18 @@ def run() -> None:
                   "Real GPU acceptance still required.", flush=True)
             return
         print("PORTAL_CAPTURE_STAGE: Start responded", flush=True)
-        streams = started.get("streams")
-        if not streams or not all(isinstance(stream[0], int) and stream[0] > 0
-                                  for stream in streams):
-            raise RuntimeError("ScreenCast Start did not return PipeWire stream nodes")
-        verify_pipewire_remote(connection, session)
-        print(f"PORTAL_CAPTURE_OK: screencast {len(streams)} node(s), PipeWire FD", flush=True)
+        nodes = stream_nodes(started.get("streams"))
+        remote_fd = verify_pipewire_remote(connection, session)
+        try:
+            print(f"PORTAL_FD_OK: {len(nodes)} ScreenCast node(s), socket FD={remote_fd}",
+                  flush=True)
+            if strict:
+                # Do not count D-Bus Start/FD as delivered video.
+                print(verify_delivered_frame(remote_fd, nodes[0]), flush=True)
+                print("PORTAL_STRICT_OK: GLES2 Stream, remote FD and video sample verified",
+                      flush=True)
+        finally:
+            os.close(remote_fd)
     except Exception as exc:
         original_failure = exc
         raise
@@ -229,7 +359,7 @@ def run() -> None:
         try:
             connection.call_sync(DESKTOP, session, SESSION, "Close",
                                  None, None, Gio.DBusCallFlags.NONE, 5000, None)
-        except GLib.Error as cleanup_error:
+        except Exception as cleanup_error:
             if original_failure is None and not pixman_rejected:
                 raise
             print(f"PORTAL_CLEANUP_WARN: {cleanup_error}", file=sys.stderr)
@@ -238,7 +368,13 @@ def run() -> None:
 
 if __name__ == "__main__":
     try:
-        run()
-    except (OSError, ValueError, RuntimeError, TimeoutError) as exc:
-        print(f"PORTAL_CAPTURE_FAIL: {exc}", file=sys.stderr)
+        if len(sys.argv) == 4 and sys.argv[1] == "--frame-probe":
+            frame_probe(int(sys.argv[2]), int(sys.argv[3]))
+        elif len(sys.argv) == 1:
+            run()
+        else:
+            raise RuntimeError("Unexpected portal capture arguments")
+    except Exception as exc:
+        print(f"PORTAL_CAPTURE_FAIL: category={classify_failure(exc)} "
+              f"detail={exc}", file=sys.stderr)
         raise SystemExit(1) from None
