@@ -93,7 +93,7 @@ dbus-run-session -- sh -eu -c '
         # Client owns a distinct session/process group; terminate it and
         # all of its timeout/Python descendants on compositor failures.
         if [ -n "$client" ]; then
-            kill -TERM -- "-$client" 2>/dev/null || :
+            kill -TERM "-$client" 2>/dev/null || :
             wait "$client" 2>/dev/null || :
         fi
         if [ -n "$compositor" ]; then
