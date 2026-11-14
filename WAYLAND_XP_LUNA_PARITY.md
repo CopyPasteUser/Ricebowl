@@ -96,6 +96,22 @@ font's measured advances; the existing 192-character/16-argument and no-shell
 execution restrictions are unchanged. This is Unicode scalar-safe editing,
 not full grapheme-cluster editing or IME composition.
 
+A completed pointer click inside the Run text field now places the caret
+at the nearest visible Unicode scalar boundary using the same bitmap or
+selected private-font advances as painting. This honors horizontally scrolled
+text, rejects non-finite coordinates and cannot itself execute a command.
+Run and Help remain explicit modal dialogs: losing a keyboard seat temporarily
+(for example when a virtual keyboard disconnects) no longer destroys the
+dialog and its unsent input. Escape, Cancel, successful Run, compositor close
+and session teardown still dismiss it. This does not claim IME, accessibility
+or physical-device acceptance.
+
+Native CI must demonstrate actual labwc pointer click, visible caret
+movement, subsequent keyboard insertion, reversible edits and full frame
+restoration using unmodified grim frames. Rust regression tests cover Unicode
+and proportional font positions; neither mocked input nor a screenshot-only
+mockup counts as acceptance for this change.
+
 The headless-labwc Run smoke now injects **real Wayland virtual-keyboard
 events** through `wtype` (available in Ubuntu 24.04) and archives the original
 unmodified compositor PNGs: `xp-luna-parity-run-typed.png`,
@@ -106,7 +122,7 @@ diffs on the real input rectangle and a separate caret-pixel assertion
 reject a fake or inert native editor. The Rust tests additionally cover
 multibyte input and actual proportional-font width calculations.
 
-**Evidence status: pending green Native RicePlate CI on the exact PR head.**
+**Evidence scope:** the keyboard-editing gate shipped with the earlier Run sprint; this pointer/focus follow-up requires fresh green Native RicePlate CI on its exact PR head.
 These screenshots are compositor-generated CI captures, not physical device,
 IME, screen-reader, or pixel-fidelity certification.
 
