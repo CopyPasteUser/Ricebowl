@@ -1624,6 +1624,7 @@ PY
     test -n "$file_position"
     set -- $file_position
     focus_confirmations_before=$(grep -Fc "RicePlate: compositor confirmed XDG file keyboard focus" "$runtime/file-plate.log" || :)
+    focus_releases_before=$(grep -Fc "RicePlate: XDG file keyboard focus released" "$runtime/file-plate.log" || :)
     # F13 is inert in the desktop and terminal; real Wayland event processing
     # takes place while this single wtype device stays connected. Type only
     # after foot has been mapped and deliberately activated by a pointer click.
@@ -1689,8 +1690,10 @@ RECEIVER
         cat "$runtime/focus-wtype.log" >&2
         exit 1
     }
-    grep -Fq "RicePlate: XDG file keyboard focus released" "$runtime/file-plate.log" || {
-        echo "Desktop exclusive keyboard surface was not revoked on app activation" >&2
+    focus_releases_after=$(grep -Fc "RicePlate: XDG file keyboard focus released" "$runtime/file-plate.log" || :)
+    test "$focus_releases_after" -gt "$focus_releases_before" || {
+        echo "Compositor never revoked the fresh desktop keyboard lease on external app activation" >&2
+        tail -n 50 "$runtime/file-plate.log" >&2
         exit 1
     }
     echo "Verified keyboard input returned to an actual Wayland client after desktop icon focus"
