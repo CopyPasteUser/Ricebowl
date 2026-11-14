@@ -1216,7 +1216,12 @@ impl RicePlate {
         // A virtual-keyboard client may be a different wl_seat. Do not
         // borrow its identity to legitimize this pointer gesture.
         let Some(seat) = self.seat_assignments.keyboard_seat_for_pointer_gesture().cloned()
-            else { return };
+            else {
+                if std::env::var("RICEBOWL_DE_TRACE_FOCUS").as_deref() == Ok("1") {
+                    eprintln!("RicePlate: XDG file focus refused: pointer and keyboard seats differ");
+                }
+                return
+            };
         let Some(file) = self.file_layers.get(index) else { return };
         let Some((file_x, file_y)) = file.placed else { return };
         let entry = file.entry.key.clone();
@@ -1227,10 +1232,6 @@ impl RicePlate {
         let x = file_x.saturating_add(recipe::ICON_WIDTH + 4).min(width.saturating_sub(8));
         let y = file_y.min(height.saturating_sub(8));
         self.close_file_keyboard_focus();
-        let Ok(empty_input) = Region::new(&self.compositor) else {
-            eprintln!("RicePlate: cannot create pointer-transparent desktop focus region");
-            return;
-        };
         let surface = self.layer_shell.create_layer_surface(
             qh, self.compositor.create_surface(qh), Layer::Overlay,
             Some("riceplate-desktop-keyboard-focus"), Some(&output));
@@ -1238,7 +1239,9 @@ impl RicePlate {
         surface.set_size(8, 8);
         surface.set_margin(y as i32, 0, 0, x as i32);
         surface.set_exclusive_zone(-1);
-        surface.wl_surface().set_input_region(Some(empty_input.wl_region()));
+        // Use the compositor's normal bounded input region on this 8px
+        // surface. An empty region may make labwc treat it as unfocusable;
+        // the surface does not intercept any click on the actual file icon.
         // Exclusive only for this short-lived bounded surface, never the
         // original Bottom desktop icon or an always-on keyboard owner.
         surface.set_keyboard_interactivity(KeyboardInteractivity::Exclusive);
@@ -1251,6 +1254,9 @@ impl RicePlate {
             typed: String::new(), last_typed: Instant::now(),
         });
         self.file_keyboard_focus_layer.as_ref().unwrap().surface.commit();
+        if std::env::var("RICEBOWL_DE_TRACE_FOCUS").as_deref() == Ok("1") {
+            eprintln!("RicePlate: XDG file focus surface requested x={x} y={y}");
+        }
     }
 
     fn redraw_file_keyboard_focus(&mut self) {
@@ -6235,6 +6241,12 @@ impl KeyboardHandler for RicePlate {
     ) {
         if self.keyboard.as_ref() != Some(keyboard) { return; }
         if let Some(seat) = self.seat_assignments.keyboard_owner().cloned() {
+            if self.file_keyboard_focus_layer.is_some()
+                && self.file_keyboard_focus_layer.as_ref().is_some_and(|layer|
+                    layer.surface.wl_surface() != surface)
+                && std::env::var("RICEBOWL_DE_TRACE_FOCUS").as_deref() == Ok("1") {
+                eprintln!("RicePlate: XDG focus lease observed keyboard enter elsewhere");
+            }
             if self.file_keyboard_focus_lease.compositor_enter(&seat, surface) {
                 if std::env::var("RICEBOWL_DE_TRACE_FOCUS").as_deref() == Ok("1") {
                     eprintln!("RicePlate: compositor confirmed XDG file keyboard focus");
