@@ -323,7 +323,10 @@ def verify_pipewire_remote(connection, session: str) -> int:
     if (not isinstance(handle, tuple) or len(handle) != 1
             or type(handle[0]) is not int):
         raise RuntimeError("OpenPipeWireRemote returned an invalid FD handle")
-    fd = descriptors.get(handle[0])
+    try:
+        fd = descriptors.get(handle[0])
+    except Exception as exc:
+        raise RuntimeError("OpenPipeWireRemote returned an invalid FD index") from exc
     if type(fd) is not int or fd < 0:
         raise RuntimeError("OpenPipeWireRemote returned an invalid FD")
     try:

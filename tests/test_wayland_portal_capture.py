@@ -321,6 +321,76 @@ class RequestProtocolTests(unittest.TestCase):
         self.assertEqual(conn.closed, conn.path)
         self.assertEqual(conn.unsubscribed, 92)
 
+    def test_request_handle_mismatch_closes_expected_handle(self):
+        from gi.repository import GLib
+
+        class WrongHandle:
+            def get_unique_name(self):
+                return ":1.11"
+
+            def signal_subscribe(self, _dest, _iface, _signal, path,
+                                 _arg0, _flags, _callback):
+                self.expected = path
+                return 49
+
+            def call_sync(self, _dest, path, _iface, method, *_args):
+                if method == "Close":
+                    self.closed = path
+                    return None
+                return GLib.Variant("(o)", (portal.DESKTOP_PATH + "/request/untrusted",))
+
+            def signal_unsubscribe(self, ident):
+                self.unsubscribed = ident
+
+        conn = WrongHandle()
+        with self.assertRaisesRegex(RuntimeError, "Unexpected portal request handle"):
+            portal.request(conn, portal.SCREENSHOT, "Screenshot", "(sa{sv})", ("",))
+        self.assertEqual(conn.closed, conn.expected)
+        self.assertEqual(conn.unsubscribed, 49)
+
+    def test_pipewire_fd_list_requires_socket_and_closes_bad_duplicate(self):
+        from gi.repository import Gio, GLib
+
+        class FakeConnection:
+            def __init__(self, handle, descriptors):
+                self.handle = handle
+                self.descriptors = descriptors
+
+            def call_with_unix_fd_list_sync(self, *_args):
+                return GLib.Variant("(h)", (self.handle,)), self.descriptors
+
+        with ExitStack() as stack:
+            left, right = socket.socketpair()
+            stack.enter_context(left)
+            stack.enter_context(right)
+            descriptors = Gio.UnixFDList.new()
+            self.assertEqual(descriptors.append(left.fileno()), 0)
+            fd = portal.verify_pipewire_remote(
+                FakeConnection(0, descriptors), "/org/freedesktop/portal/desktop/session/x")
+            try:
+                self.assertTrue(os.fstat(fd).st_mode)
+                self.assertNotEqual(fd, left.fileno())
+            finally:
+                os.close(fd)
+            with self.assertRaises(Exception):
+                portal.verify_pipewire_remote(
+                    FakeConnection(99, descriptors), "/org/freedesktop/portal/desktop/session/x")
+            with self.assertRaisesRegex(RuntimeError, "no Unix FD list"):
+                portal.verify_pipewire_remote(
+                    FakeConnection(0, None), "/org/freedesktop/portal/desktop/session/x")
+
+        read_fd, write_fd = os.pipe()
+        try:
+            descriptors = Gio.UnixFDList.new()
+            descriptors.append(read_fd)
+            with self.assertRaisesRegex(RuntimeError, "not a socket"):
+                portal.verify_pipewire_remote(
+                    FakeConnection(0, descriptors),
+                    "/org/freedesktop/portal/desktop/session/x")
+        finally:
+            os.close(read_fd)
+            os.close(write_fd)
+
     def test_response_signal_receives_six_gio_callback_arguments(self):
         from gi.repository import GLib
 
