@@ -1232,6 +1232,10 @@ impl RicePlate {
             self.file_selection.retain_after_refresh(&before, &next);
             self.file_positions.reconcile(&before, &next);
         }
+        if std::env::var("RICEBOWL_DE_TRACE_FILES").as_deref() == Ok("1") {
+            eprintln!("RicePlate: XDG inventory refreshed entries={} status={:?}",
+                      next.entries.len(), next.status);
+        }
         self.file_snapshot = Some(next);
         self.file_pressed = None;
         self.file_last_click = None;
@@ -1266,6 +1270,9 @@ impl RicePlate {
             if placement == layer.placed { continue; }
             layer.placed = placement;
             if let Some((x, y)) = placement {
+                if std::env::var("RICEBOWL_DE_TRACE_FILES").as_deref() == Ok("1") {
+                    eprintln!("RicePlate: XDG mapped x={x} y={y} kind={:?}", layer.entry.kind);
+                }
                 layer.surface.set_margin(y as i32, 0, 0, x as i32);
             } else {
                 layer.surface.set_margin(
