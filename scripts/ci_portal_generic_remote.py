@@ -71,17 +71,36 @@ def patch_source(source: str) -> str:
     return source[:begin] + REPLACEMENT + source[end:]
 
 
+# The pinned backend has no add_buffer handler and may not advertise that it
+# allocates buffers. PipeWire's ALLOC_BUFFERS flag means the *application*
+# must allocate data in an add_buffer callback; that callback is absent.
+STREAM_FLAGS = "StreamFlags::MAP_BUFFERS | StreamFlags::ALLOC_BUFFERS | StreamFlags::DRIVER"
+
+
+def patch_stream_buffers(source: str) -> str:
+    if source.count(STREAM_FLAGS) != 1 or "pub fn queue_frame(" not in source:
+        raise ValueError("unsupported pinned upstream buffer allocation layout")
+    return source.replace(STREAM_FLAGS, "StreamFlags::MAP_BUFFERS | StreamFlags::DRIVER")
+
+
 def main() -> int:
     if os.environ.get("GITHUB_ACTIONS") != "true":
         raise RuntimeError("CI fixture must never modify a developer or production install")
-    if len(sys.argv) != 2:
-        raise SystemExit("usage: ci_portal_generic_remote.py .ci-generic-portal/src/pipewire/mod.rs")
-    path = Path(sys.argv[1]).resolve()
-    if not str(path).endswith("/.ci-generic-portal/src/pipewire/mod.rs") or not path.is_file():
-        raise RuntimeError("source must be the pinned disposable CI checkout")
-    original = path.read_text(encoding="utf-8")
-    path.write_text(patch_source(original), encoding="utf-8")
-    print("PORTAL_CI_PATCH_OK: private test PipeWire remote; no production permissions claim")
+    if len(sys.argv) != 3:
+        raise SystemExit("usage: ci_portal_generic_remote.py .ci-generic-portal/src/pipewire/mod.rs .ci-generic-portal/src/pipewire/stream.rs")
+    remote_path, stream_path = (Path(arg).resolve() for arg in sys.argv[1:])
+    if not str(remote_path).endswith("/.ci-generic-portal/src/pipewire/mod.rs"):
+        raise RuntimeError("remote source must be the disposable CI checkout")
+    if stream_path != remote_path.parent / "stream.rs":
+        raise RuntimeError("stream source must share the pinned CI checkout")
+    if not remote_path.is_file() or not stream_path.is_file():
+        raise RuntimeError("missing pinned CI source file")
+    # Validate BOTH functions before writing either; abort on upstream drift.
+    remote_source = patch_source(remote_path.read_text(encoding="utf-8"))
+    stream_source = patch_stream_buffers(stream_path.read_text(encoding="utf-8"))
+    remote_path.write_text(remote_source, encoding="utf-8")
+    stream_path.write_text(stream_source, encoding="utf-8")
+    print("PORTAL_CI_PATCH_OK: isolated FD and PipeWire buffer flags; not for production")
     return 0
 
 

@@ -484,6 +484,11 @@ def frame_probe(fd: int, node: int, serial: int | None = None) -> None:
         # It still consumes the actual OpenPipeWireRemote FD and a real sample.
         src.set_property("autoconnect", False)
         src.set_property("path", str(node))
+        # Deterministic name identifies ONLY this CI consumer to the private
+        # linker; it cannot accidentally link audio or a different source.
+        properties = Gst.Structure.new_empty("properties")
+        properties.set_value("node.name", "ricebowl-ci-consumer")
+        src.set_property("stream-properties", properties)
         print(f"PORTAL_PROBE_STAGE: direct_node={node} serial={serial} autoconnect=false",
               file=sys.stderr, flush=True)
     else:

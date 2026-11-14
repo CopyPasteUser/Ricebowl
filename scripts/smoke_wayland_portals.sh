@@ -23,6 +23,12 @@ if [ "$strict" = 1 ] && [ "$backend" = generic ]; then
         echo "PORTAL_STRICT_BLOCKED: generic SHM backend requires pixman" >&2
         exit 3
     }
+    for dep in wireplumber pw-dump pw-link; do
+        command -v "$dep" >/dev/null 2>&1 || {
+            echo "PORTAL_SETUP_FAIL: missing private PipeWire tool: $dep" >&2
+            exit 2
+        }
+    done
     command -v wireplumber >/dev/null 2>&1 || {
         echo "PORTAL_SETUP_FAIL: missing private PipeWire session manager: wireplumber" >&2
         exit 2
@@ -146,12 +152,17 @@ dbus-run-session -- sh -eu -c '
     wireplumber_pid=
     generic_pid=
     painter_pid=
+    linker_pid=
     cleanup_children() {
         # Client owns a distinct session/process group; terminate it and
         # all of its timeout/Python descendants on compositor failures.
         if [ -n "$client" ]; then
             kill -TERM "-$client" 2>/dev/null || :
             wait "$client" 2>/dev/null || :
+        fi
+        if [ -n "$linker_pid" ]; then
+            kill "$linker_pid" 2>/dev/null || :
+            wait "$linker_pid" 2>/dev/null || :
         fi
         if [ -n "$painter_pid" ]; then
             kill "$painter_pid" 2>/dev/null || :
@@ -256,6 +267,10 @@ dbus-run-session -- sh -eu -c '
             exit 1
         fi
     fi
+    if [ "$RICEBOWL_PORTAL_BACKEND" = generic ]; then
+        /usr/bin/python3 "$root/scripts/ci_portal_pipewire_link.py" >"$runtime/linker.log" 2>&1 &
+        linker_pid=$!
+    fi
     setsid sh "$root/scripts/wayland_portals_smoke_client.sh" "$root" "$runtime" \
         >"$runtime/client.log" 2>&1 &
     client=$!
@@ -270,7 +285,7 @@ dbus-run-session -- sh -eu -c '
     done
     if [ ! -f "$runtime/portals-ok" ] || [ -f "$runtime/portals-failed" ]; then
         echo "Portal runtime acceptance did not complete" >&2
-        for log in client.log labwc.log pipewire.log wireplumber.log painter.log generic.log; do
+        for log in client.log linker.log labwc.log pipewire.log wireplumber.log painter.log generic.log; do
             if [ -f "$runtime/$log" ]; then
                 tail -n 100 "$runtime/$log" >&2
             fi

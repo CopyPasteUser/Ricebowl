@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from ci_portal_generic_remote import END, START, REQUIRES, patch_source
+from ci_portal_generic_remote import END, START, REQUIRES, patch_source, patch_stream_buffers, STREAM_FLAGS
 
 
 class PrivateRemotePatchTests(unittest.TestCase):
@@ -21,6 +21,15 @@ class PrivateRemotePatchTests(unittest.TestCase):
         self.assertIn('.ricebowl-portal-ci', patched)
         self.assertIn('mode() & 0o077', patched)
         self.assertNotIn('UnixStream::pair()', patched)
+
+    def test_buffer_flag_patch_requires_exact_pinned_upstream(self):
+        original = "start pub fn queue_frame(\n" + STREAM_FLAGS + "\nfinish"
+        result = patch_stream_buffers(original)
+        self.assertIn("StreamFlags::MAP_BUFFERS | StreamFlags::DRIVER", result)
+        self.assertNotIn("StreamFlags::ALLOC_BUFFERS", result)
+        for invalid in ("missing", STREAM_FLAGS, original + STREAM_FLAGS):
+            with self.subTest(source=invalid[:30]), self.assertRaises(ValueError):
+                patch_stream_buffers(invalid)
 
     def test_rejects_unexpected_or_multiply_defined_source(self):
         for source in (

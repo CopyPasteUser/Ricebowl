@@ -188,3 +188,22 @@ using **the portal-provided PipeWire FD**. It does not route through a
 second PipeWire connection or generate synthetic data. A nonempty GStreamer
 video sample remains mandatory; a direct-node connection without a sample
 still fails strict CI.
+
+### CI-only explicit PipeWire video link and allocator correction
+
+The pinned generic portal uses the PipeWire `ALLOC_BUFFERS` stream flag
+but does not implement the required `add_buffer` allocation callback.
+This flag is therefore removed from the **disposable CI build only** after
+an exact pinned-source guard; `MAP_BUFFERS` and the live-stream driver
+remain enabled.
+
+Hosted headless WirePlumber does not reliably create a video link between
+the generic portal's `Video/Source` and the GStreamer consumer. In the
+isolated runner only, a bounded, fail-closed watcher queries the private
+PipeWire registry and links exactly one validated `xdp-capture-*` video
+source output to one named `ricebowl-ci-consumer` input via `pw-link`.
+It cannot select arbitrary audio nodes or operate outside the private
+CI runtime. The consumer still uses the portal's real FD and must read an
+actual nonempty `video/x-raw` sample. This is transport acceptance,
+**not** automatic real-user WirePlumber policy, consent, or sandbox
+verification; those remain separate production acceptance gates.
