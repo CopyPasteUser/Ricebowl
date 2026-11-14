@@ -1614,7 +1614,7 @@ RECEIVER
         cat "$runtime/focus-app.log" >&2
         exit 1
     }
-    WAYLAND_DISPLAY=wayland-0 wtype -d 100 -k F13 ricebowl-focus-ok -k Return
+    WAYLAND_DISPLAY=wayland-0 wtype -d 100 ricebowl-focus-ok -k Return
     count=0
     while [ ! -s "$runtime/focus-input.log" ] && [ "$count" -lt 30 ]; do
         count=$((count + 1))
