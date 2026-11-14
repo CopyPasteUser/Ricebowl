@@ -66,3 +66,28 @@ runtime. Any failure prints bounded client/labwc/PipeWire diagnostics.
   
 Hardware login/logout, Flatpak consent, long-running streams and
 multi-output remain **OPEN**. Do not close #304 based on unit tests alone.
+
+## Regression and CI matrix (14 November 2026)
+
+The screenshot implementation for Ubuntu 24.04's `xdg-desktop-portal-wlr`
+requires the `grim` executable. The dedicated portal workflow now installs
+and preflights it in both pixman and GLES2 jobs. Previously a missing screenshot
+helper surfaced as a generic response=2 rather than a missing binary; do not
+treat that denial as a pixman limitation.
+
+The parent portal smoke **owns and reaps** the PipeWire core, labwc and an
+isolated `setsid`-managed client process group. It does not depend on
+compositor startup grandchildren surviving compositor failure. The crash CI
+injects a stub labwc that deliberately exits before opening its Wayland socket;
+the test asserts a unique crash marker and verifies the private runtime was
+removed. This is *early compositor crash recovery*, not proof of recovery
+during an already-running video stream.
+
+Normal Python tests cover request handle/token mismatches, D-Bus timeout
+cleanup, request denials, FD index/socket verification, false frame receipts
+and failure-path session cleanup. Actual frame transport remains separately
+required from a DRM-capable runner. `PORTAL_STRICT_OK` never denotes a
+successful D-Bus Start response alone.
+
+CI snapshot and exact-head evidence are tracked in Issue #360; do not treat
+older green runs as acceptance of a newer PR head.

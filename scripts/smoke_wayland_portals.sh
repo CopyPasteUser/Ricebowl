@@ -33,9 +33,9 @@ if [ "$strict" = 1 ]; then
     echo "PORTAL_STRICT_PREREQ_OK: DRM render node available: $render_node"
 fi
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
-for binary in labwc pipewire dbus-run-session dbus-update-activation-environment gdbus timeout setsid; do
+for binary in labwc pipewire dbus-run-session dbus-update-activation-environment gdbus timeout setsid grim; do
     command -v "$binary" >/dev/null 2>&1 || {
-        echo "Portal smoke missing dependency: $binary" >&2; exit 1;
+        echo "PORTAL_SETUP_FAIL: missing dependency: $binary" >&2; exit 1;
     }
 done
 runtime=$(mktemp -d /tmp/ricebowl-portals.XXXXXXXX)

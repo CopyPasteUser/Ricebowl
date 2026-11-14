@@ -61,11 +61,17 @@ jobs:
           set -eu
           fake_bin=$(mktemp -d)
           trap 'rm -rf -- "$fake_bin"' EXIT
-          printf '%s\n' '#!/bin/sh' 'exit 17' >"$fake_bin/labwc"
+          printf '%s\n' '#!/bin/sh' 'echo PORTAL_TEST_COMPOSITOR_CRASH >&2' 'exit 17' >"$fake_bin/labwc"
           chmod 0700 "$fake_bin/labwc"
           before=$(find /tmp -maxdepth 1 -type d -name 'ricebowl-portals.*' -print | sort)
-          if PATH="$fake_bin:$PATH" timeout -k 5s 30s sh scripts/smoke_wayland_portals.sh; then
+          if PATH="$fake_bin:$PATH" timeout -k 5s 30s sh scripts/smoke_wayland_portals.sh >"$fake_bin/crash.log" 2>&1; then
             echo "PORTAL_CRASH_FAIL: compositor crash was accepted as success" >&2
+            exit 1
+          fi
+          if ! grep -q 'PORTAL_TEST_COMPOSITOR_CRASH' "$fake_bin/crash.log" || \
+             ! grep -q 'PORTAL_SETUP_FAIL: labwc never created' "$fake_bin/crash.log"; then
+            echo "PORTAL_CRASH_FAIL: test did not reach intended compositor failure" >&2
+            sed -n '1,75p' "$fake_bin/crash.log" >&2
             exit 1
           fi
           after=$(find /tmp -maxdepth 1 -type d -name 'ricebowl-portals.*' -print | sort)
