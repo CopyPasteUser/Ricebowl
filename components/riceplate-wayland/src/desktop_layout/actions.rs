@@ -466,6 +466,27 @@ mod tests {
     }
 
     #[test]
+    fn missing_ricefield_uses_exactly_the_gio_fallback() {
+        // No executable shell, no synthetic success receipt: a real ENOENT
+        // on the primary executable must spawn and reap the Gio-style child.
+        let plan = LaunchPlan {
+            preferred: LaunchCommand {
+                backend: Backend::RiceField,
+                program: "/proc/self/__ricebowl_nonexistent_ricefield__",
+                arguments: Vec::new(),
+            },
+            fallback: Some(LaunchCommand {
+                backend: Backend::Gio,
+                program: "true",
+                arguments: Vec::new(),
+            }),
+        };
+        let (backend, mut child) = plan.spawn().expect("ENOENT fallback");
+        assert_eq!(backend, Backend::Gio);
+        assert!(child.wait().expect("reap fallback child").success());
+    }
+
+    #[test]
     fn rename_no_replace_conflict_and_unicode_directory() {
         let f = Fixture::new();
         fs::write(f.0.join("a"), b"original").unwrap();
