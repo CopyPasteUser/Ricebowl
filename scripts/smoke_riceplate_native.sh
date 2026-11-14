@@ -1035,11 +1035,26 @@ PY
         exit 1
     }
     rm -f "$runtime/full-gio.log"
-    # Focus request must be confirmed by a genuine wl_keyboard.enter. One
-    # ephemeral wtype client drives Type-to-Select and Enter, not state APIs.
+    # Headless labwc has no permanent physical keyboard. Keep a real
+    # virtual keyboard connected *through* the pointer selection, otherwise
+    # wtype creates the only keyboard seat after the focus lease request and
+    # the fail-closed same-seat policy correctly rejects it. Never fabricate
+    # keyboard.enter or bypass seat routing in the production runtime.
+    WAYLAND_DISPLAY=wayland-0 wtype -d 650 -k F13 0 -k Return \
+        > "$runtime/xdg-wtype.log" 2>&1 &
+    xdg_typer=$!
+    sleep 0.20
+    kill -0 "$xdg_typer" || {
+        echo "Headless XDG virtual keyboard exited before pointer focus request" >&2
+        cat "$runtime/xdg-wtype.log" >&2
+        exit 1
+    }
     WAYLAND_DISPLAY=wayland-0 "$clicker" "$cx" "$cy" 1366 768
-    sleep 0.25
-    WAYLAND_DISPLAY=wayland-0 wtype -d 85 -k F13 0 -k Return
+    wait "$xdg_typer" || {
+        echo "Headless XDG virtual keyboard failed during focus acceptance" >&2
+        cat "$runtime/xdg-wtype.log" >&2
+        exit 1
+    }
     count=0
     while [ ! -s "$runtime/full-gio.log" ] && [ "$count" -lt 25 ]; do
         count=$((count + 1))
