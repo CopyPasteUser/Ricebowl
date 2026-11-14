@@ -353,7 +353,7 @@ def verify_delivered_frame(fd: int, node: int, *, timeout: int = 18) -> str:
     if len(receipts) != 1:
         raise RuntimeError("PipeWire frame probe returned no unique frame receipt")
     match = re.fullmatch(
-        r"PORTAL_FRAME_OK: node=(\\d+) bytes=(\\d+) caps=(video/x-raw(?:[,(].*)?)",
+        r"PORTAL_FRAME_OK: node=(\d+) bytes=(\d+) caps=(video/x-raw(?:[,(].*)?)",
         receipts[0])
     if not match or int(match[1]) != node or int(match[2]) <= 0:
         raise RuntimeError("PipeWire frame probe returned an invalid frame receipt")
