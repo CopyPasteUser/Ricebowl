@@ -141,6 +141,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.88.0
+        with:
+          components: clippy
       - name: Install native Wayland and keyboard build dependencies
         run: |
           sudo apt-get update
