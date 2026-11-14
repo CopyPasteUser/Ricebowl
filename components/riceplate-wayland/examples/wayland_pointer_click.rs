@@ -5,7 +5,7 @@ use std::{error::Error, time::Duration};
 
 use wayland_client::{
     globals::{registry_queue_init, GlobalListContents},
-    protocol::{wl_pointer, wl_registry},
+    protocol::{wl_pointer, wl_registry, wl_seat},
     Connection, Dispatch, QueueHandle,
 };
 use wayland_protocols_wlr::virtual_pointer::v1::client::{
@@ -28,6 +28,19 @@ impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for Probe {
 
 wayland_client::delegate_noop!(Probe: ZwlrVirtualPointerManagerV1);
 wayland_client::delegate_noop!(Probe: ZwlrVirtualPointerV1);
+// A compositor immediately announces wl_seat name/capabilities. Consume
+// these real events: delegate_noop! panics when invoked, making this CI
+// helper crash before the input smoke can observe compositor focus.
+impl Dispatch<wl_seat::WlSeat, ()> for Probe {
+    fn event(
+        _: &mut Self,
+        _: &wl_seat::WlSeat,
+        _: wl_seat::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {}
+}
 
 fn main() -> Result<(), Box<dyn Error>> {
     let values = std::env::args().skip(1).collect::<Vec<_>>();
@@ -53,7 +66,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let (globals, mut queue) = registry_queue_init(&conn)?;
     let qh = queue.handle();
     let manager: ZwlrVirtualPointerManagerV1 = globals.bind(&qh, 1..=2, ())?;
-    let pointer = manager.create_virtual_pointer(None, &qh, ());
+    // Bind the compositor-advertised seat instead of creating an unassigned
+    // virtual pointer. A separate virtual keyboard (wtype) uses this seat,
+    // allowing real keyboard focus checks without bypassing seat isolation.
+    let seat: wl_seat::WlSeat = globals.bind(&qh, 1..=9, ())?;
+    let pointer = manager.create_virtual_pointer(Some(&seat), &qh, ());
     queue.roundtrip(&mut Probe)?;
 
     // Let labwc update pointer focus before sending a real press/release pair.
