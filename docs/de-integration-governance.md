@@ -49,55 +49,55 @@ small and reviewed by integration, while behavior lives in owned modules.
 4. Never silently cherry-pick/duplicate unmerged private branch behavior.
 5. Rebase/retarget only after the parent lands and rerun CI for the new head.
 
-## Live integration dependency graph (snapshot: 2026-11-13)
+## Integration dependency snapshot (2026-11-14; refresh before each merge)
+
+This is an **evidence snapshot**, not a branch lock or release certificate.
+Live coordination: [issue #360](https://github.com/CopyPasteUser/Ricebowl/issues/360).
+Current refs and exact-head checks must always override this snapshot.
 
 ```text
-main (verified baseline c9373bd2)
-├── #359 seat-owned input / Show Desktop (Draft; shared main.rs)
-├── #342 desktop focus (Draft, native compositor focus gate FAIL)
-│   └── #355 XDG Desktop/RiceField (Draft, native gate FAIL)
-│       └── #356 inotify desktop refresh (Draft; stacked on #355)
-├── #343 window actions (Draft, CI FAIL)
-│   └── #352 taskbar follow-up (Draft, CI PASS on own head; parent FAIL)
-├── #349 Start/All Programs (Draft, CI FAIL)
-│   └── #353 Start menu follow-up (Draft, native keyboard FAIL)
-├── #357 strict GLES2/PipeWire portal CI (Draft, new system lane)
-├── #354 Control Panel/System UX (Draft, Tests + Wayland PASS;
-│    native capture covered by Wayland workflow; review still required)
-├── #337 recents roadmap (Draft, branch diverged; scope must be cleaned)
-└── #358 integration contract (Draft; docs only)
+main @ 7fd55f44832d3e15be4bcd00daf719fa56d687af (verified at snapshot)
+├── #367 Core focus lease/seat fallback — MERGED 23f524e7
+├── #370 XDG inventory/inotify/file state — MERGED 7fd55f4
+├── #366 XP Run pointer/focus — Draft; native CI failed
+├── #368 strict portal ScreenCast — Draft; strict DRM frame gate outstanding
+├── #369 governance refresh — this documentation PR
+├── #371 native file-desktop assembly — Draft; native E2E outstanding
+├── #372 file actions/RiceField — Draft; reconciled with main, CI pending
+└── #373 compositor focus timeout/probe — Draft; reconciled, CI pending
 ```
 
-See [issue #360](https://github.com/CopyPasteUser/Ricebowl/issues/360) for live cross-lane handoffs and CI triage. This graph must be refreshed whenever a concurrent agent opens a new PR.
+**Main includes foundations, not a completed interactive file desktop.**
+#367 owns the seat-safe focus state machine; it does not prove real
+compositor keyboard focus on Bottom-layer icons. #370 supplies bounded
+XDG inventory/inotify/file state without completed native UI surfaces.
 
-The graph describes actual *PR base branches* as observed on this date, not
-permanent ownership. Every entry is conditional on current refs and checks.
-`mergeable=true` does **not** mean release-ready; draft, failing, stale,
-missing or incorrectly scoped checks are independent blockers.
+**Pending runtime:** #371 must deliver live file layers, calloop watcher
+wiring, real keyboard handling and return-to-client E2E under labwc.
+#372 exposes verified file actions, no-overwrite rename and RiceField
+intents, but does not prove UI integration. #373 provides bounded focus
+acquisition and a diagnostic probe, not standalone production focus.
+#366 must satisfy its full exact-head Run/Help native capture gate.
 
-### Merge order and explicit blocking conditions
+**Portals (#368):** D-Bus negotiation and a socket FD are not delivered
+video. The strict gate requires a nonempty GStreamer frame on a compatible
+DRM/GLES2 runner. Pixman response=2 remains a documented limitation.
+A missing render node is an infrastructure blocker; never weaken the
+frame assertion to force green CI.
 
-1. **Core gate:** #342 must pass a real labwc keyboard focus/return-to-client
-   proof on a supported compositor, not just a Rust unit test or popup pixels.
-   Legacy compositor limitations must be clearly classified and supported via
-   an honest fallback or explicit minimum-version requirement.
-2. **Window gate:** #343 must pass exact-head Rust/Clippy, Python,
-   native compositor and Wayland session tests. Then rebase/retarget #352,
-   revalidate and integrate.
-3. **Desktop gate:** only after #342 is integrated, retarget #355 onto updated
-   `main`; verify file interaction/focus, read-only/denied paths, output
-   unplug, cleanup and native compositor tests.
-4. **Menu gate:** fix #349's failed Tests/Native workflows and #353 keyboard
-   Escape behavior; integrate parent before follow-up.
-5. **Independent UI:** #354 may undergo review independently; functional DE
-   integration takes precedence over visual fidelity. Do not merge merely
-   because two workflows are green.
-6. **Docs cleanup:** #337 is not automatically safe because its title says
-   `docs`; compare the full PR against the current `main` and isolate
-   only the intended roadmap change before integration.
+### Safe merge sequence
 
-Do not merge any of these just to shorten the queue. Preserve a passing
-`main` until a candidate meets its own acceptance contract.
+1. Recheck current main, all PR heads, ancestry, review and exact-head
+   Tests/Native status before each guarded merge.
+2. After each merge, validate current main and shared-path regressions.
+3. Finish #366 and #371 native runtime proof before claiming UX parity.
+4. Integrate #372/#373 only after fresh CI on their main-based heads and
+   relevant interaction/security review; no force-push of live branches.
+5. Keep #368 unmerged without the required delivered-frame evidence.
+6. Keep physical Mint/IME/accessibility/multioutput/Flatpak/real-GPU release
+   gates open until validated on hardware.
+
+Previously closed nonmerged 13 November PRs are not active dependencies.
 
 ## Mandatory PR pre-merge checklist
 
@@ -147,16 +147,17 @@ real-device list in `RELEASE_1_0_GATES.md` stays open until independently
 performed and recorded. The 1.0 sign-off JSON must not be marked approved
 on CI evidence alone.
 
-## Immediate coordination risk: scheduled automation
+## Concurrent writers and scheduled automation
 
-An existing enabled automation titled **RiceBowl Wayland weiterentwickeln**
-also scans `main`, comments on PRs and may create/merge feature branches.
-Its last confirmed run on 2026-11-13 performed PR #342 CI triage. The
-integration lane must inspect automation-originated PRs and avoid parallel
-writes to its active branches; only the owner/operator may change the
-automation schedule or instructions. Before long parallel sprints, either
-give that automation a disjoint ownership lane or explicitly suspend its
-repository writes. A written governance rule alone cannot enforce the lock.
+At the 14 November preflight, task automation **RiceBowl Wayland
+weiterentwickeln** (`Automation_ef9aa6256c388191b92abae017fad985`) was
+verified **disabled**. The older XP Luna and RiceBowl Roadmap automation tasks
+were also disabled. This resolves the previously documented *scheduled*
+merge-writer overlap; it does not prevent other live development chats
+from pushing to their own branches. A file lease requires fresh head/base
+checks before every write, and only Integration merges to `main`.
+Other active automations target separate repositories and are not treated
+as RiceBowl merge approval.
 
 ## Reporting format
 
