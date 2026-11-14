@@ -122,10 +122,223 @@ impl PanelPointerVisual {
     }
 }
 
+/// Opt-in desktop focus intent. This is not a Wayland focus request:
+/// only a compositor wl_keyboard.enter can confirm ownership. In particular,
+/// Bottom-layer OnDemand surfaces may never receive focus on labwc.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // Integration owns main.rs and will wire this contract.
+pub(crate) enum DesktopFocusIntent {
+    PointerSelection,
+    KeyboardNavigation,
+    AssistiveAction,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub(crate) enum DesktopFocusPhase {
+    Idle,
+    AwaitingCompositor,
+    Confirmed,
+}
+
+#[derive(Debug)]
+struct DesktopFocusRequest<S, O, W> {
+    seat: S,
+    output: O,
+    surface: W,
+    intent: DesktopFocusIntent,
+}
+
+/// A fail-closed focus ledger for the bounded, ephemeral native desktop
+/// keyboard target. A request from a real user gesture NEVER grants focus:
+/// the compositor's matching keyboard Enter is the authority.
+///
+/// The integrator must allocate a fresh, genuinely focusable surface for
+/// each activation and destroy it on cancellation; there is no implicit
+/// layer-shell focus, popup emulation, global grab or synthetic key dispatch.
+/// The request is scoped to a wl_seat, wl_output and wl_surface and is
+/// invalidated by Leave, device loss, output unplug or surface destruction.
+#[derive(Debug)]
+#[allow(dead_code)] // Staged core API; shared main.rs glue is owned by integration.
+pub(crate) struct DesktopFocusLease<S, O, W> {
+    request: Option<DesktopFocusRequest<S, O, W>>,
+    confirmed: bool,
+}
+
+impl<S, O, W> Default for DesktopFocusLease<S, O, W> {
+    fn default() -> Self {
+        Self { request: None, confirmed: false }
+    }
+}
+
+#[allow(dead_code)] // Integration connects this to verified compositor callbacks.
+impl<S: PartialEq, O: PartialEq, W: PartialEq> DesktopFocusLease<S, O, W> {
+    /// Must be called only after an explicit pointer, keyboard or assistive
+    /// activation. A new request revokes the previous lease, even if it has
+    /// the same surface; the integration must use a fresh focus surface.
+    pub(crate) fn request(
+        &mut self, intent: DesktopFocusIntent, seat: S, output: O, surface: W,
+    ) {
+        self.request = Some(DesktopFocusRequest { seat, output, surface, intent });
+        self.confirmed = false;
+    }
+
+    pub(crate) fn phase(&self) -> DesktopFocusPhase {
+        match (&self.request, self.confirmed) {
+            (None, _) => DesktopFocusPhase::Idle,
+            (Some(_), false) => DesktopFocusPhase::AwaitingCompositor,
+            (Some(_), true) => DesktopFocusPhase::Confirmed,
+        }
+    }
+
+    /// Returns true only on the first actual compositor focus confirmation.
+    /// An Enter for another RicePlate surface on the same keyboard seat
+    /// cancels the request: it cannot be treated as desktop keyboard focus.
+    pub(crate) fn compositor_enter(&mut self, seat: &S, surface: &W) -> bool {
+        let Some(target) = &self.request else { return false; };
+        if &target.seat != seat { return false; }
+        if &target.surface != surface {
+            self.cancel();
+            return false;
+        }
+        if self.confirmed { return false; }
+        self.confirmed = true;
+        true
+    }
+
+    pub(crate) fn compositor_leave(&mut self, seat: &S, surface: &W) -> bool {
+        if self.request.as_ref().is_some_and(|target|
+            &target.seat == seat && &target.surface == surface) {
+            self.cancel();
+            return true;
+        }
+        false
+    }
+
+    /// Keyboard press/repeat must not be dispatched during Pending, after
+    /// Leave or from another seat/surface, even if selection remains painted.
+    pub(crate) fn can_dispatch(&self, seat: &S, surface: &W) -> bool {
+        self.confirmed && self.request.as_ref().is_some_and(|target|
+            &target.seat == seat && &target.surface == surface)
+    }
+
+    pub(crate) fn intent(&self) -> Option<DesktopFocusIntent> {
+        self.request.as_ref().map(|target| target.intent)
+    }
+
+    pub(crate) fn surface_closed(&mut self, surface: &W) -> bool {
+        self.revoke_when(|target| &target.surface == surface)
+    }
+
+    pub(crate) fn output_removed(&mut self, output: &O) -> bool {
+        self.revoke_when(|target| &target.output == output)
+    }
+
+    pub(crate) fn seat_removed(&mut self, seat: &S) -> bool {
+        self.revoke_when(|target| &target.seat == seat)
+    }
+
+    fn revoke_when(&mut self, condition: impl FnOnce(&DesktopFocusRequest<S, O, W>) -> bool) -> bool {
+        if self.request.as_ref().is_some_and(condition) {
+            self.cancel();
+            true
+        } else {
+            false
+        }
+    }
+
+    pub(crate) fn cancel(&mut self) {
+        self.request = None;
+        self.confirmed = false;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::recipe::Widget;
+
+    #[test]
+    fn desktop_focus_is_not_fabricated_by_a_pointer_selection() {
+        let mut focus = DesktopFocusLease::default();
+        assert_eq!(focus.phase(), DesktopFocusPhase::Idle);
+        assert!(!focus.compositor_enter(&"seat-a", &"icon"));
+        focus.request(DesktopFocusIntent::PointerSelection,
+                      "seat-a", "HDMI-A-1", "temporary-focus-surface");
+        assert_eq!(focus.phase(), DesktopFocusPhase::AwaitingCompositor);
+        assert!(!focus.can_dispatch(&"seat-a", &"temporary-focus-surface"));
+        assert!(!focus.compositor_enter(&"seat-b", &"temporary-focus-surface"));
+        assert_eq!(focus.phase(), DesktopFocusPhase::AwaitingCompositor);
+        assert!(focus.compositor_enter(&"seat-a", &"temporary-focus-surface"));
+        assert_eq!(focus.phase(), DesktopFocusPhase::Confirmed);
+        assert!(focus.can_dispatch(&"seat-a", &"temporary-focus-surface"));
+        assert!(!focus.can_dispatch(&"seat-b", &"temporary-focus-surface"));
+        assert!(!focus.can_dispatch(&"seat-a", &"another-app"));
+    }
+
+    #[test]
+    fn another_riceplate_surface_enter_cancels_pending_focus() {
+        let mut focus = DesktopFocusLease::default();
+        focus.request(DesktopFocusIntent::KeyboardNavigation, 1, 10, 100);
+        assert!(!focus.compositor_enter(&1, &101));
+        assert_eq!(focus.phase(), DesktopFocusPhase::Idle);
+        assert!(!focus.compositor_enter(&1, &100),
+                "stale compositor Enter cannot revive a cancelled request");
+    }
+
+    #[test]
+    fn keyboard_leave_revokes_access_until_a_new_gesture_and_enter() {
+        let mut focus = DesktopFocusLease::default();
+        focus.request(DesktopFocusIntent::PointerSelection, 1, 10, 100);
+        assert!(focus.compositor_enter(&1, &100));
+        assert!(!focus.compositor_leave(&2, &100));
+        assert!(focus.can_dispatch(&1, &100));
+        assert!(focus.compositor_leave(&1, &100));
+        assert_eq!(focus.phase(), DesktopFocusPhase::Idle);
+        assert!(!focus.can_dispatch(&1, &100));
+        assert!(!focus.compositor_enter(&1, &100));
+        focus.request(DesktopFocusIntent::PointerSelection, 1, 10, 200);
+        assert!(focus.compositor_enter(&1, &200));
+        assert!(!focus.can_dispatch(&1, &100));
+    }
+
+    #[test]
+    fn removing_the_target_output_seat_or_surface_revokes_focus() {
+        let mut focus = DesktopFocusLease::default();
+        focus.request(DesktopFocusIntent::PointerSelection,
+                      "seat-a", "DP-1", "surface-a");
+        assert!(!focus.output_removed(&"HDMI-A-1"));
+        assert!(!focus.seat_removed(&"seat-b"));
+        assert!(!focus.surface_closed(&"other-surface"));
+        assert!(focus.compositor_enter(&"seat-a", &"surface-a"));
+        assert!(focus.output_removed(&"DP-1"));
+        assert!(!focus.can_dispatch(&"seat-a", &"surface-a"));
+        focus.request(DesktopFocusIntent::AssistiveAction,
+                      "seat-a", "DP-1", "surface-b");
+        assert!(focus.seat_removed(&"seat-a"));
+        assert_eq!(focus.phase(), DesktopFocusPhase::Idle);
+        focus.request(DesktopFocusIntent::KeyboardNavigation,
+                      "seat-a", "DP-1", "surface-c");
+        assert!(focus.surface_closed(&"surface-c"));
+        assert_eq!(focus.phase(), DesktopFocusPhase::Idle);
+    }
+
+    #[test]
+    fn popup_lifecycle_requires_fresh_compositor_confirmation() {
+        let mut focus = DesktopFocusLease::default();
+        focus.request(DesktopFocusIntent::PointerSelection, 1, 10, 100);
+        assert_eq!(focus.intent(), Some(DesktopFocusIntent::PointerSelection));
+        assert!(focus.compositor_enter(&1, &100));
+        focus.cancel(); // Escape / popup teardown returns keyboard to normal clients.
+        assert!(!focus.compositor_leave(&1, &100));
+        assert!(!focus.can_dispatch(&1, &100));
+        focus.request(DesktopFocusIntent::PointerSelection, 1, 10, 101);
+        assert!(!focus.can_dispatch(&1, &101));
+        assert!(focus.compositor_enter(&1, &101));
+        assert!(focus.can_dispatch(&1, &101));
+        focus.cancel();
+        assert_eq!(focus.phase(), DesktopFocusPhase::Idle);
+    }
 
     #[test]
     fn panel_keys_have_identical_meaning_across_recipes() {
