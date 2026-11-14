@@ -482,6 +482,7 @@ mod desktop_file_layout_tests {
             kind: inventory::Kind::File,
             label: format!("File {n}"),
             stamp: inventory::Stamp::default(),
+            birth: None,
         }).collect()
     }
 
