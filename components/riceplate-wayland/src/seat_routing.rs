@@ -7,14 +7,16 @@
 
 #[derive(Debug)]
 pub(crate) struct SeatAssignments<S> {
-    fallback: Option<S>,
+    // Preserve all advertised seats so removing the first one cannot leave
+    // a stale or empty assistive-activation fallback while others remain.
+    present: Vec<S>,
     keyboard: Option<S>,
     pointer: Option<S>,
 }
 
 impl<S> Default for SeatAssignments<S> {
     fn default() -> Self {
-        Self { fallback: None, keyboard: None, pointer: None }
+        Self { present: Vec::new(), keyboard: None, pointer: None }
     }
 }
 
@@ -25,18 +27,20 @@ pub(crate) enum ActivationSource { Pointer, Keyboard, Assistive }
 
 impl<S: Clone + PartialEq> SeatAssignments<S> {
     pub(crate) fn appeared(&mut self, seat: S) {
-        if self.fallback.is_none() {
-            self.fallback = Some(seat);
+        if !self.present.contains(&seat) {
+            self.present.push(seat);
         }
     }
 
     /// Only one input proxy per capability is currently supported.
     /// Claim ownership *after* SCTK has successfully created the proxy.
     pub(crate) fn claim_keyboard(&mut self, seat: S) {
+        self.appeared(seat.clone());
         self.keyboard = Some(seat);
     }
 
     pub(crate) fn claim_pointer(&mut self, seat: S) {
+        self.appeared(seat.clone());
         self.pointer = Some(seat);
     }
 
@@ -60,23 +64,37 @@ impl<S: Clone + PartialEq> SeatAssignments<S> {
         true
     }
 
+    /// The single actual keyboard proxy owner for authentic SCTK events.
+    /// Never substitute a pointer/assistive activation fallback for this.
+    pub(crate) fn keyboard_owner(&self) -> Option<&S> {
+        self.keyboard.as_ref()
+    }
+
+    /// A pointer gesture can initiate a focus lease only when RicePlate owns
+    /// a keyboard proxy on that SAME wl_seat. A keyboard from another seat
+    /// must not be used to turn this pointer click into a keyboard grab.
+    pub(crate) fn keyboard_seat_for_pointer_gesture(&self) -> Option<&S> {
+        match (self.pointer.as_ref(), self.keyboard.as_ref()) {
+            (Some(pointer), Some(keyboard)) if pointer == keyboard => Some(keyboard),
+            _ => None,
+        }
+    }
+
     /// Never use the pointer's seat for a keyboard action if its own seat
     /// exists. This matters when a compositor advertises several input seats.
     pub(crate) fn activation_seat_for(&self, source: ActivationSource) -> Option<&S> {
         match source {
             ActivationSource::Keyboard => self.keyboard.as_ref()
-                .or(self.pointer.as_ref()).or(self.fallback.as_ref()),
+                .or(self.pointer.as_ref()).or(self.present.first()),
             ActivationSource::Pointer | ActivationSource::Assistive => self.pointer.as_ref()
-                .or(self.keyboard.as_ref()).or(self.fallback.as_ref()),
+                .or(self.keyboard.as_ref()).or(self.present.first()),
         }
     }
 
     /// Called after the seat's owned devices have been released. A removed
     /// fallback must never remain available for foreign-toplevel activation.
     pub(crate) fn forget_seat(&mut self, seat: &S) {
-        if self.fallback.as_ref() == Some(seat) {
-            self.fallback = None;
-        }
+        self.present.retain(|candidate| candidate != seat);
         self.release_keyboard(seat);
         self.release_pointer(seat);
     }
@@ -113,6 +131,9 @@ mod tests {
         assert_eq!(s.activation_seat_for(ActivationSource::Assistive), Some(&"seat-b"));
         assert!(!s.release_keyboard(&"seat-a"));
         assert!(s.release_pointer(&"seat-b"));
+        // Capability loss does not mean the still-advertised seat vanished.
+        assert_eq!(s.activation_seat_for(ActivationSource::Assistive), Some(&"seat-b"));
+        s.forget_seat(&"seat-b");
         assert_eq!(s.activation_seat_for(ActivationSource::Assistive), None);
     }
 
@@ -126,6 +147,48 @@ mod tests {
         s.forget_seat(&1);
         assert!(s.owns_keyboard(&2));
         assert_eq!(s.activation_seat_for(ActivationSource::Assistive), Some(&2));
+    }
+
+    #[test]
+    fn pointer_focus_cannot_use_a_different_seats_keyboard() {
+        let mut seats = SeatAssignments::default();
+        seats.appeared(1);
+        seats.appeared(2);
+        seats.claim_pointer(1);
+        seats.claim_keyboard(2);
+        assert_eq!(seats.keyboard_owner(), Some(&2));
+        assert_eq!(seats.keyboard_seat_for_pointer_gesture(), None);
+        seats.release_keyboard(&2);
+        seats.claim_keyboard(1);
+        assert_eq!(seats.keyboard_seat_for_pointer_gesture(), Some(&1));
+        seats.forget_seat(&1);
+        assert_eq!(seats.keyboard_seat_for_pointer_gesture(), None);
+    }
+
+    #[test]
+    fn removed_primary_seat_falls_back_to_a_still_advertised_seat() {
+        let mut seats = SeatAssignments::default();
+        seats.appeared("primary");
+        seats.appeared("secondary");
+        seats.appeared("secondary");
+        seats.forget_seat(&"primary");
+        assert_eq!(seats.activation_seat_for(ActivationSource::Assistive), Some(&"secondary"));
+        assert_eq!(seats.activation_seat_for(ActivationSource::Keyboard), Some(&"secondary"));
+        seats.forget_seat(&"secondary");
+        assert_eq!(seats.activation_seat_for(ActivationSource::Assistive), None);
+    }
+
+    #[test]
+    fn removing_a_different_seat_keeps_live_capability_owner_and_fallback() {
+        let mut seats = SeatAssignments::default();
+        seats.appeared(1_u8);
+        seats.appeared(2_u8);
+        seats.claim_pointer(2);
+        seats.forget_seat(&1);
+        assert_eq!(seats.activation_seat_for(ActivationSource::Pointer), Some(&2));
+        assert!(seats.owns_pointer(&2));
+        seats.release_pointer(&2);
+        assert_eq!(seats.activation_seat_for(ActivationSource::Assistive), Some(&2));
     }
 
     #[test]
