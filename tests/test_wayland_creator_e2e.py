@@ -83,6 +83,7 @@ class WaylandCreatorEndToEndTests(unittest.TestCase):
             env=self.env, mode="native", which=which, spawn=spawn,
             cleanup=self.cleanup_stack, initial_panel=self.old_panel,
             initial_wallpaper=self.old_wallpaper, background=self.background,
+            frame_readiness=False,  # Processes here are explicit test doubles.
         )
         sleep = mock.patch("macrice.de.session.time.sleep", return_value=None)
         reconfigure = mock.patch.object(self.supervisor, "_reconfigure")
@@ -370,6 +371,7 @@ class WaylandCreatorEndToEndTests(unittest.TestCase):
             spawn=lambda command, **kwargs: Process(), cleanup=self.cleanup_stack,
             initial_panel=replacement_panel, initial_wallpaper=replacement_wallpaper,
             background=[replacement_wallpaper],
+            frame_readiness=False,
         )
         with mock.patch.object(self.supervisor, "_reconfigure"):
             with self.server():
