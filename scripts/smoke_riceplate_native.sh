@@ -1522,6 +1522,67 @@ PY
     test -d "$runtime/file-home/Desktop/New Folder"
     test ! -e "$runtime/full-ricefield.log"
     echo "Verified real Luna new-folder IPC, visible selected XDG icon, collision-safe repeat and no RiceField launch"
+    # Start on the actual logged native surface for the second created folder.
+    # The compositor must dispatch Press/Motion/Release with an implicit grab,
+    # not a synthetic FilePositions::set directly from the test harness.
+    folder_position=$(sed -n "s/.*XDG mapped x=\\([0-9][0-9]*\\) y=\\([0-9][0-9]*\\) kind=Directory.*/\\1 \\2/p" \\
+        "$runtime/file-plate.log" | tail -n 1)
+    test -n "$folder_position" || {
+        echo "No XDG Directory surface for real drag acceptance" >&2
+        exit 1
+    }
+    set -- $folder_position
+    from_x=$1
+    from_y=$2
+    start_x=$((from_x + 52))
+    start_y=$((from_y + 43))
+    end_x=$((start_x + 173))
+    end_y=$((start_y + 79))
+    test "$end_x" -lt 1366
+    test "$end_y" -lt 768
+    WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 1100 450 1366 768
+    sleep 0.15
+    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xdg-before-drag.png"
+    WAYLAND_DISPLAY=wayland-0 "$clicker" --drag-to "$end_x" "$end_y" \\
+        "$start_x" "$start_y" 1366 768
+    sleep 0.45
+    grep -Fq "RicePlate: XDG file icon drop committed" "$runtime/file-plate.log" || {
+        echo "Real compositor pointer drag did not complete" >&2
+        tail -n 50 "$runtime/file-plate.log" >&2
+        exit 1
+    }
+    test -d "$runtime/file-home/Desktop/New Folder (2)"
+    test ! -e "$runtime/full-ricefield.log"
+    test ! -e "$runtime/full-gio.log"
+    position_file="$runtime/file-config/ricebowl/native-file-positions.json"
+    /usr/bin/python3 - "$position_file" "$output" "$from_x" "$from_y" <<"PY"
+import json
+from pathlib import Path
+import sys
+path, output, old_x, old_y = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
+stored = json.loads(Path(path).read_text())
+assert stored["schema_version"] == 1
+records = list(stored["records"].values())
+assert len(records) >= 1, "No persistent XDG icon positions"
+assert any(r["output"] == output and (
+    abs(r["x"] - old_x) >= 20 or abs(r["y"] - old_y) >= 20
+) for r in records), f"Drag not persisted on the owning output: {records}"
+PY
+    WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 1100 450 1366 768
+    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xdg-after-drag.png"
+    /usr/bin/python3 - "$runtime/xdg-before-drag.png" "$runtime/xdg-after-drag.png" <<"PY"
+from PIL import Image, ImageChops
+import sys
+with Image.open(sys.argv[1]) as a, Image.open(sys.argv[2]) as b:
+    assert a.size == b.size == (1366, 768)
+    diff = ImageChops.difference(
+        a.convert("RGB").crop((0, 0, 900, 700)),
+        b.convert("RGB").crop((0, 0, 900, 700)),
+    )
+    changed = sum(max(px) > 20 for px in diff.getdata())
+    assert changed > 200, f"Compositor framebuffer did not reflect file drag: {changed}"
+PY
+    echo "Verified actual XDG icon pointer drag, owner-private persistence, screenshot change and no file operation"
     echo "Verified genuine file context, read-only properties, Wayland rename, Trash Cancel and confirmed Gio argv"
     echo "Verified live XDG file layers, compositor double-click, external create/rename/delete and inert .desktop/symlink inventory"
     kill "$plate"
