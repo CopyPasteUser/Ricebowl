@@ -152,7 +152,7 @@ pub fn open_created_folder(path: &Path) -> bool {
 /// navigation in the XP profile, but keep working Gio fallback for machines
 /// without RiceField. This does not change desktop file associations.
 pub fn launch(action: &str, prefer_ricefield: bool) -> bool {
-    let Some(mut fallback) = location_command(action) else {
+    let Some(fallback) = location_command(action) else {
         eprintln!("RicePlate: {action} location unavailable");
         return false;
     };
