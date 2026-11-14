@@ -7,6 +7,7 @@ on:
       - 'scripts/smoke_wayland_portals.sh'
       - 'scripts/wayland_portals_smoke_client.sh'
       - 'scripts/wayland_portal_capture_smoke.py'
+      - 'scripts/wayland_portal_frame_painter.py'
       - 'scripts/check_wayland_portals.py'
       - 'tests/test_wayland_portal_capture.py'
       - 'tests/test_wayland_portal_probe.py'
@@ -35,7 +36,7 @@ jobs:
         run: |
           sh -n scripts/smoke_wayland_portals.sh
           sh -n scripts/wayland_portals_smoke_client.sh
-          /usr/bin/python3 -m py_compile scripts/wayland_portal_capture_smoke.py scripts/check_wayland_portals.py
+          /usr/bin/python3 -m py_compile scripts/wayland_portal_capture_smoke.py scripts/wayland_portal_frame_painter.py scripts/check_wayland_portals.py
           /usr/bin/python3 -m unittest discover -s tests -p 'test_wayland_portal_*.py' -v
 
   portal-pixman-repeat:
@@ -106,7 +107,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y labwc pipewire dbus-user-session dbus-x11 \
-            python3-gi python3-gst-1.0 gir1.2-gstreamer-1.0 \
+            python3-gi gir1.2-gtk-3.0 python3-gst-1.0 gir1.2-gstreamer-1.0 \
             gstreamer1.0-pipewire gstreamer1.0-plugins-base \
             xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-wlr grim \
             libpipewire-0.3-dev libspa-0.2-dev libwayland-dev \

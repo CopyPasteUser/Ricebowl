@@ -350,11 +350,18 @@ def verify_pipewire_remote(connection, session: str) -> int:
 
 def verify_delivered_frame(fd: int, node: int, *, timeout: int = 18) -> str:
     """Accept a successful, node-matched nonempty Gst.Sample receipt only."""
-    result = subprocess.run(
-        [sys.executable, str(Path(__file__).resolve()),
-         "--frame-probe", str(fd), str(node)],
-        pass_fds=(fd,), capture_output=True, text=True,
-        timeout=timeout, check=False)
+    try:
+        result = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve()),
+             "--frame-probe", str(fd), str(node)],
+            pass_fds=(fd,), capture_output=True, text=True,
+            timeout=timeout, check=False)
+    except subprocess.TimeoutExpired as exc:
+        detail = exc.stderr or b""
+        if isinstance(detail, bytes):
+            detail = detail.decode("utf-8", errors="replace")
+        raise TimeoutError("PipeWire frame receiver deadline; " +
+                           str(detail)[-500:]) from exc
     if result.returncode != 0:
         raise RuntimeError("PipeWire frame probe failed: " +
                            (result.stderr or result.stdout).strip()[:700])
@@ -382,6 +389,7 @@ def frame_probe(fd: int, node: int) -> None:
     gi.require_version("Gst", "1.0")
     from gi.repository import Gst
     Gst.init(None)
+    print("PORTAL_PROBE_STAGE: gst_initialized", file=sys.stderr, flush=True)
     pipeline = Gst.parse_launch(
         "pipewiresrc name=remote-src ! appsink name=frame-sink "
         "sync=false max-buffers=1 drop=true")
@@ -392,8 +400,10 @@ def frame_probe(fd: int, node: int) -> None:
     src.set_property("fd", fd)
     src.set_property("path", str(node))
     try:
+        print("PORTAL_PROBE_STAGE: entering_playing", file=sys.stderr, flush=True)
         if pipeline.set_state(Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE:
             raise RuntimeError("PipeWire receiver failed to start")
+        print("PORTAL_PROBE_STAGE: awaiting_real_frame", file=sys.stderr, flush=True)
         sample = sink.emit("try-pull-sample", 12 * Gst.SECOND)
         if sample is None:
             message = pipeline.get_bus().timed_pop_filtered(0, Gst.MessageType.ERROR)
@@ -407,6 +417,7 @@ def frame_probe(fd: int, node: int) -> None:
         print(f"PORTAL_FRAME_OK: node={node} bytes={buffer.get_size()} "
               f"caps={caps.to_string()}", flush=True)
     finally:
+        print("PORTAL_PROBE_STAGE: releasing_pipeline", file=sys.stderr, flush=True)
         pipeline.set_state(Gst.State.NULL)
 
 

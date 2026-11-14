@@ -117,3 +117,14 @@ GPU/DMABUF capture path.** The `portal-gpu-frame` job remains an optional,
 explicitly triggered strict lane on a separately configured DRM-capable
 self-hosted runner labeled `drm-render`; neither that check nor physical
 Flatpak permissions/consent is silently considered green.
+
+### Real compositor damage for headless SHM capture
+
+A completely static headless compositor can acknowledge ScreenCast Start
+and create a PipeWire node but never publish a frame. The strict generic
+CI lane launches an ordinary animated GTK3 Wayland client (from repository
+source, private to the test) to produce real surface commits/compositor damage
+while ScreenCast is active. The receiver still gets its samples only from
+the portal-provided PipeWire FD. It does not generate, inject or fabricate
+frames. Missing frames remain a hard failure. Diagnostics report the probe
+stage and preserve the actual backend log.

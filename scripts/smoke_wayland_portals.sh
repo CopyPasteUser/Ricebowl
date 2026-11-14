@@ -125,12 +125,17 @@ dbus-run-session -- sh -eu -c '
     client=
     pipewire_pid=
     generic_pid=
+    painter_pid=
     cleanup_children() {
         # Client owns a distinct session/process group; terminate it and
         # all of its timeout/Python descendants on compositor failures.
         if [ -n "$client" ]; then
             kill -TERM "-$client" 2>/dev/null || :
             wait "$client" 2>/dev/null || :
+        fi
+        if [ -n "$painter_pid" ]; then
+            kill "$painter_pid" 2>/dev/null || :
+            wait "$painter_pid" 2>/dev/null || :
         fi
         if [ -n "$generic_pid" ]; then
             kill "$generic_pid" 2>/dev/null || :
@@ -201,6 +206,18 @@ dbus-run-session -- sh -eu -c '
             sed -n "1,70p" "$runtime/generic.log" >&2
             exit 1
         fi
+        # A real animated Wayland surface keeps producing compositor damage.
+        # A static empty headless output can return Stream Start without a
+        # single PipeWire buffer; never manufacture video in the receiver.
+        GDK_BACKEND=wayland /usr/bin/python3 "$root/scripts/wayland_portal_frame_painter.py" \
+            >"$runtime/painter.log" 2>&1 &
+        painter_pid=$!
+        sleep 0.5
+        if ! kill -0 "$painter_pid" 2>/dev/null; then
+            echo "PORTAL_SETUP_FAIL: real Wayland frame painter exited" >&2
+            sed -n "1,70p" "$runtime/painter.log" >&2
+            exit 1
+        fi
     fi
     setsid sh "$root/scripts/wayland_portals_smoke_client.sh" "$root" "$runtime" \
         >"$runtime/client.log" 2>&1 &
@@ -216,7 +233,7 @@ dbus-run-session -- sh -eu -c '
     done
     if [ ! -f "$runtime/portals-ok" ] || [ -f "$runtime/portals-failed" ]; then
         echo "Portal runtime acceptance did not complete" >&2
-        for log in client.log labwc.log pipewire.log generic.log; do
+        for log in client.log labwc.log pipewire.log painter.log generic.log; do
             if [ -f "$runtime/$log" ]; then
                 sed -n "1,55p" "$runtime/$log" >&2
             fi
