@@ -26,9 +26,12 @@ PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
 class PortalRejected(RuntimeError):
+    """Non-successful xdg-desktop-portal Request.Response with method context."""
+
     def __init__(self, method: str, code: int):
-        super().__init__(f"{method} request denied/failed: response={code}")
+        self.method = method
         self.code = code
+        super().__init__(f"{method} request denied/failed: response={code}")
 
 
 def strict_ci_mode(env: dict[str, str]) -> bool:
