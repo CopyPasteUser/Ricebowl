@@ -148,8 +148,9 @@ jobs:
       - name: Install disposable compositor, portal, PipeWire and GStreamer
         run: |
           sudo apt-get update
-          sudo apt-get install -y labwc pipewire dbus-user-session dbus-x11 \
-            python3-gi python3-gst-1.0 gir1.2-gstreamer-1.0 \
+          sudo apt-get install -y labwc pipewire wireplumber pipewire-bin \
+            dbus-user-session dbus-x11 python3-gi gir1.2-gtk-3.0 \
+            python3-gst-1.0 gir1.2-gstreamer-1.0 \
             gstreamer1.0-pipewire gstreamer1.0-plugins-base \
             xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-wlr grim \
             libegl1 libegl-mesa0 libgles2 libgl1-mesa-dri

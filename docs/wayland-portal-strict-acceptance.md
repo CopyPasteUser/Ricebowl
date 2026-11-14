@@ -229,3 +229,33 @@ single-block, eight-buffer CPU `SPA_DATA_MemFd` proposal with checked BGRx
 `width * height * 4` size and `width * 4` stride and calls
 `pw_stream_update_params`. The test continues to demand a real nonempty
 GStreamer frame and never ships the patched backend.
+
+
+### Strict wlr/GLES2 headless frame witness and acceptance boundary
+
+The optional `portal-gpu-frame` job has its own fail-closed software-test
+prerequisites in addition to the DRM-render-node preflight. It starts a
+**private** WirePlumber for the disposable PipeWire daemon and an animated,
+ordinary GTK Wayland window on the same headless labwc display. Without
+compositor damage an empty headless desktop may advertise a stream but never
+publish a frame; without a private PipeWire policy manager the receiver may
+never be linked to the real stream. Neither condition is a reason to replace
+the strict video-frame assertion with Start/FD-only success.
+
+The witness accepts only owner-private mode-0700 runtimes carrying the
+disposable CI marker and the exact `(wlr, gles2)` or
+`(generic, pixman)` strict backend/renderer pair. No video is synthesized
+or injected into the receiver. The production portal preference continues to
+use `xdg-desktop-portal-wlr`; neither the test witness nor private PipeWire
+manager is deployed as a background user service.
+
+**Not yet accepted:** This test cannot run on GitHub's default hosted
+Ubuntu runner because no writable DRM render device is available. The GPU job
+requires an explicitly configured ephemeral `[self-hosted, linux, drm-render]`
+runner with real device access. A green strict wlr frame there will validate
+the private headless GPU capture path, **not** Flatpak app-origin permissions,
+user-visible monitor consent, multiple real displays, XWayland focus or
+physical Mint hardware sign-off. Those must be tested in a real RiceBowl
+session with explicit allow/deny/reopen and multi-monitor exercises, and
+separate traceable release evidence; do not close issue #304 from the
+software/headless results alone.
