@@ -102,13 +102,14 @@ impl Snapshot {
         let anchored = PathBuf::from(format!("/proc/self/fd/{}", root.as_raw_fd())).join(relative);
         let info = fs::symlink_metadata(anchored)?;
         let kind = classify(&entry.key.name, &info);
-        let same_generation = match (entry.birth, birth_at(&root, &entry.key.name)) {
-            (Some(before), Some(now)) => before == now,
-            _ => Stamp::of(&info) == entry.stamp,
-        };
+        // Birthtime protects against inode reuse where supported. Requiring
+        // the original no-follow metadata stamp as well makes an in-place
+        // content/attribute change request a fresh snapshot before opening.
+        let birth_consistent = entry.birth.is_none_or(|before|
+            birth_at(&root, &entry.key.name) == Some(before));
         if kind != entry.kind || matches!(kind, Kind::Symlink | Kind::DesktopFile)
             || info.dev() != entry.key.device || info.ino() != entry.key.inode
-            || !same_generation {
+            || Stamp::of(&info) != entry.stamp || !birth_consistent {
             return Err(io::Error::new(io::ErrorKind::NotFound, "Desktop entry replaced"));
         }
         // Revalidate the path used by the eventual external opener; a different
