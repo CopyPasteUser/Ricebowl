@@ -1667,7 +1667,7 @@ impl RicePlate {
             back_hovered: false, back_pressed: false, notice: None,
         });
         if std::env::var("RICEBOWL_DE_TRACE_FILES").as_deref() == Ok("1") {
-            eprintln!("RicePlate: XDG context opened kind={kind:?}");
+            eprintln!("RicePlate: XDG context opened kind={kind:?} x={x} y={y}");
         }
     }
 
