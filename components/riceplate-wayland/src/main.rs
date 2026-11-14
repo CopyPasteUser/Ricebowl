@@ -1118,13 +1118,10 @@ impl RicePlate {
             Request::NewFolder => match luna_desktop_ipc::new_folder() {
                 Ok(path) => {
                     eprintln!("RicePlate: Desktop folder created: {}", path.display());
-                    // The native desktop currently displays recipe shortcuts,
-                    // not arbitrary file icons. Open the created directory in
-                    // the real file manager instead of implying it appeared
-                    // on the static desktop.
-                    if let Err(error) = Command::new("gio").arg("open").arg(&path).spawn() {
-                        eprintln!("RicePlate: new folder created but cannot open it: {error}");
-                    }
+                    // There are not yet file-backed icon layers: open the real
+                    // new folder in XP-themed RiceField where available,
+                    // otherwise use the configured Gio file manager.
+                    luna_places::open_created_folder(&path);
                 },
                 Err(error) => eprintln!("RicePlate: cannot create Desktop folder: {error}"),
             },

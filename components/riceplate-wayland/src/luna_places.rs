@@ -1,7 +1,7 @@
 //! Fixed, non-shell location launchers for the opt-in Luna Start menu.
 //! Reuses the desktop's configured Gio file handler. No new background process.
 
-use std::{env, path::{Path, PathBuf}, process::Command};
+use std::{env, fs, os::unix::fs::MetadataExt, path::{Path, PathBuf}, process::Command};
 
 fn xdg_user_directory(kind: &str) -> Option<PathBuf> {
     // Fixed XDG directory types only. Never pass a recipe-supplied value
@@ -87,42 +87,77 @@ fn ricefield_command(action: &str, fallback: &Command) -> Option<Command> {
     if args.next()? != "open" { return None; }
     let target = Path::new(args.next()?);
     if !target.is_absolute() || !target.is_dir() || args.next().is_some() { return None; }
+    ricefield_local_command(target)
+}
+
+/// Construct the same XP-themed RiceField invocation for an owned, real
+/// filesystem directory (including a folder just created on the Desktop).
+/// Keep this distinct from virtual GVfs URIs such as trash:///.
+fn ricefield_local_command(target: &Path) -> Option<Command> {
+    if !target.is_absolute() || !target.is_dir() { return None; }
     let mut cmd = Command::new("ricefield");
     cmd.args(["--theme", "xp-luna", "--separate-window"]).arg(target);
     Some(cmd)
 }
 
-/// Prefer the existing installed RiceField 1.0 for real local Explorer
-/// navigation in the XP profile, but keep working Gio fallback for machines
-/// without RiceField. This does not change desktop file associations.
-pub fn launch(action: &str, prefer_ricefield: bool) -> bool {
-    let Some(mut fallback) = location_command(action) else {
-        eprintln!("RicePlate: {action} location unavailable");
-        return false;
-    };
-    if prefer_ricefield {
-        if let Some(mut cmd) = ricefield_command(action, &fallback) {
-            match cmd.spawn() {
-                Ok(_) => return true,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                    // RiceField is optional, and ordinary Gio remains usable.
-                }
-                Err(error) => {
-                    eprintln!("RicePlate: cannot launch RiceField for {action}: {error}");
-                    // A damaged install or denied executable is not the same
-                    // as an absent package. Avoid silently masking the error.
-                    return false;
-                }
+/// Only the result of Luna's checked desktop-folder creation is passed here.
+/// Do not accept missing/relative/symlinked directories as file-manager
+/// targets; never interpret their names as executable arguments.
+fn created_folder_commands(path: &Path) -> Option<(Command, Command)> {
+    let meta = fs::symlink_metadata(path).ok()?;
+    if !path.is_absolute() || !meta.is_dir()
+        || meta.uid() != unsafe { libc::geteuid() } {
+        return None;
+    }
+    let ricefield = ricefield_local_command(path)?;
+    let mut gio = Command::new("gio");
+    gio.arg("open").arg(path);
+    Some((ricefield, gio))
+}
+
+/// Only a missing RiceField binary permits Gio fallback. A denied or broken
+/// executable must report an error instead of silently masking the failure.
+fn spawn_preferred(context: &str, preferred: Option<Command>, mut fallback: Command) -> bool {
+    if let Some(mut cmd) = preferred {
+        match cmd.spawn() {
+            Ok(_) => return true,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                eprintln!("RicePlate: cannot launch RiceField for {context}: {error}");
+                return false;
             }
         }
     }
     match fallback.spawn() {
         Ok(_) => true,
         Err(error) => {
-            eprintln!("RicePlate: cannot open {action} location: {error}");
+            eprintln!("RicePlate: cannot open {context} location: {error}");
             false
         }
     }
+}
+
+/// Open the actual folder created by the Luna background context menu in
+/// RiceField's XP view, or through the configured Gio handler if absent.
+/// This never changes the file association or launches an arbitrary command.
+pub fn open_created_folder(path: &Path) -> bool {
+    let Some((ricefield, gio)) = created_folder_commands(path) else {
+        eprintln!("RicePlate: refusing unsafe or missing created Desktop folder");
+        return false;
+    };
+    spawn_preferred("created Desktop folder", Some(ricefield), gio)
+}
+
+/// Prefer the existing installed RiceField 1.0 for real local Explorer
+/// navigation in the XP profile, but keep working Gio fallback for machines
+/// without RiceField. This does not change desktop file associations.
+pub fn launch(action: &str, prefer_ricefield: bool) -> bool {
+    let Some(fallback) = location_command(action) else {
+        eprintln!("RicePlate: {action} location unavailable");
+        return false;
+    };
+    let preferred = prefer_ricefield.then(|| ricefield_command(action, &fallback)).flatten();
+    spawn_preferred(action, preferred, fallback)
 }
 
 #[cfg(test)]
@@ -156,6 +191,37 @@ mod tests {
         let mut relative = Command::new("gio");
         relative.arg("open").arg("relative/path");
         assert!(ricefield_command("computer", &relative).is_none());
+    }
+
+
+    #[test]
+    fn newly_created_desktop_folder_uses_actual_absolute_path_and_xp_theme() {
+        use std::{os::unix::fs::symlink, time::{SystemTime, UNIX_EPOCH}};
+        let n = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let root = env::temp_dir().join(format!("riceplate-new-folder-{}-{n}",std::process::id()));
+        fs::create_dir(&root).unwrap();
+        let folder = root.join("New Folder (2)");
+        fs::create_dir(&folder).unwrap();
+        let (ricefield, gio) = created_folder_commands(&folder).unwrap();
+        assert_eq!(ricefield.get_program(), "ricefield");
+        assert_eq!(ricefield.get_args().map(|s| s.to_string_lossy().into_owned())
+                   .collect::<Vec<_>>(),
+                   vec!["--theme", "xp-luna", "--separate-window",
+                        folder.to_str().unwrap()]);
+        assert_eq!(gio.get_program(), "gio");
+        assert_eq!(gio.get_args().map(|s| s.to_string_lossy().into_owned())
+                   .collect::<Vec<_>>(),
+                   vec!["open", folder.to_str().unwrap()]);
+        let shortcut = root.join("shortcut");
+        symlink(&folder, &shortcut).unwrap();
+        assert!(created_folder_commands(&shortcut).is_none(),
+                "symlink must not be passed as a newly created folder");
+        assert!(created_folder_commands(&root.join("missing")).is_none());
+        assert!(created_folder_commands(Path::new("relative")).is_none());
+        let ordinary_file = root.join("document.txt");
+        fs::write(&ordinary_file, b"hello").unwrap();
+        assert!(created_folder_commands(&ordinary_file).is_none());
+        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

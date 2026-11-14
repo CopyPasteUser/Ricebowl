@@ -1,7 +1,7 @@
 //! Opt-in Luna desktop root-menu bridge. The compositor already owns the
 //! background right-click: do not create a transparent fullscreen layer.
 //! Only fixed, allowlisted commands cross the local owner-private datagram socket.
-use std::{env,fs,io,os::unix::{fs::{FileTypeExt,MetadataExt,PermissionsExt},net::UnixDatagram},
+use std::{env,ffi::CString,fs::{self,OpenOptions},io,os::{fd::AsRawFd,unix::{fs::{FileTypeExt,MetadataExt,OpenOptionsExt,PermissionsExt},net::UnixDatagram}},
           path::{Path,PathBuf}};
 
 #[derive(Clone,Copy,Debug,Eq,PartialEq)]
@@ -139,15 +139,35 @@ fn desktop_folder() -> io::Result<PathBuf> {
 }
 
 fn new_folder_in(dir: &Path) -> io::Result<PathBuf> {
+    // Pin the checked Desktop directory before modifying it. mkdirat never
+    // follows a newly substituted symlink or writes into a replacement path
+    // between the directory validation and folder creation.
+    let parent = OpenOptions::new().read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(dir)?;
+    let original = parent.metadata()?;
+    if !original.is_dir() || original.uid() != unsafe { libc::geteuid() } {
+        return Err(io::Error::new(io::ErrorKind::PermissionDenied,
+                                  "Desktop directory is not owned by the user"));
+    }
     for attempt in 1..=100 {
         let label = if attempt == 1 { "New Folder".to_owned() }
                     else { format!("New Folder ({attempt})") };
-        let candidate = dir.join(label);
-        match fs::create_dir(&candidate) {
-            Ok(()) => return Ok(candidate),
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(error) => return Err(error),
+        let name = CString::new(label.as_bytes()).expect("fixed folder label");
+        let result = unsafe { libc::mkdirat(parent.as_raw_fd(), name.as_ptr(), 0o700) };
+        if result == 0 {
+            // A renamed directory is still safely modified through parent,
+            // but its former pathname must not be passed to a file manager.
+            let current = fs::symlink_metadata(dir)?;
+            if !current.is_dir() || current.dev() != original.dev()
+                || current.ino() != original.ino() {
+                return Err(io::Error::new(io::ErrorKind::NotFound,
+                                          "Desktop directory moved during creation"));
+            }
+            return Ok(dir.join(label));
         }
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::AlreadyExists { return Err(error); }
     }
     Err(io::Error::new(io::ErrorKind::AlreadyExists,"No unused folder name"))
 }
@@ -177,6 +197,31 @@ mod tests {
                         b"explorer /etc", b"show-desktop\n", b"run;sh"] {
             assert_eq!(Request::decode(invalid),None);
         }
+    }
+
+
+    #[test]
+    fn new_folder_rejects_symlinked_parent_and_does_not_follow_name_collision() {
+        use std::{os::unix::fs::{DirBuilderExt, symlink},
+                  time::{SystemTime,UNIX_EPOCH}};
+        let n = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let root = env::temp_dir().join(format!("luna-folder-safety-{}-{n}",std::process::id()));
+        fs::DirBuilder::new().mode(0o700).create(&root).unwrap();
+        let target = root.join("target");
+        fs::create_dir(&target).unwrap();
+        fs::write(target.join("keep"), b"important").unwrap();
+        symlink(&target, root.join("New Folder")).unwrap();
+        let created = new_folder_in(&root).unwrap();
+        assert_eq!(created.file_name().unwrap(),"New Folder (2)");
+        assert!(created.is_dir());
+        assert_eq!(fs::symlink_metadata(&created).unwrap().mode() & 0o077, 0);
+        assert_eq!(fs::read(target.join("keep")).unwrap(), b"important");
+        let alias = root.with_extension("alias");
+        symlink(&root, &alias).unwrap();
+        assert!(new_folder_in(&alias).is_err(), "symlinked Desktop root rejected");
+        assert_eq!(fs::read(target.join("keep")).unwrap(), b"important");
+        fs::remove_file(alias).unwrap();
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
