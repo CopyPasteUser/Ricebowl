@@ -172,7 +172,11 @@ mod tests {
 /// separate from the original seven virtual shortcuts and does not invoke a
 /// process or mutate user files. The integration lane owns the UI/confirmation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FileAction { Open, OpenInExplorer, Rename, MoveToTrash, Properties }
+pub enum FileAction {
+    Open, OpenInExplorer, Rename, MoveToTrash, Properties,
+    // Complex file transfers belong to RiceField's own file-operation UX.
+    Move, Copy,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FilePermission { Disabled, Ready, UserEdit, ExplicitConfirmation }
@@ -189,6 +193,7 @@ pub fn file_permission(action: FileAction, kind: crate::desktop_layout::inventor
         (Open | OpenInExplorer, Kind::File | Kind::Directory) => Ready,
         (Rename, Kind::File | Kind::Directory) => UserEdit,
         (MoveToTrash, Kind::File | Kind::Directory) => ExplicitConfirmation,
+        (Move | Copy, _) => Disabled,
     }
 }
 
@@ -214,7 +219,16 @@ pub fn file_open_intent(
         return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied,
                                        "Desktop entry is not an executable file target"));
     }
-    let path = snapshot.current_path(desktop, entry)?;
+    // Reuse the descriptor-bound action validator; no second filesystem
+    // security policy is permitted in the context-menu renderer.
+    let mode = if explorer {
+        crate::desktop_layout::actions::OpenMode::Explorer
+    } else {
+        crate::desktop_layout::actions::OpenMode::Default
+    };
+    let _plan = crate::desktop_layout::actions::prepare_open(snapshot, desktop, entry, mode)
+        .map_err(crate::desktop_layout::actions::ActionError::into_io)?;
+    let path = desktop.join(&entry.key.name);
     if explorer || entry.kind == Kind::Directory {
         let destination = if entry.kind == Kind::Directory {
             path
@@ -273,5 +287,122 @@ mod file_action_tests {
         fs::remove_file(dir.join("notes.txt")).unwrap();
         assert!(file_open_intent(&snap, &dir, file, false).is_err());
         fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+
+/// The compositor translates actual seat-owned input into these intents.
+/// This model does not generate key events or claim focus itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileGesture {
+    DoubleClick,
+    Enter,
+    F2,
+    RightClick,
+    Context(FileAction),
+    Escape,
+}
+
+/// No filesystem mutation occurs during gesture resolution. A destructive
+/// action must enter a separate confirmation state in the integration UI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileUiIntent {
+    Open(crate::desktop_layout::actions::OpenMode),
+    ShowProperties,
+    EditName,
+    ShowContextMenu,
+    ConfirmTrashDelegation,
+    Cancelled,
+    Disabled(&'static str),
+}
+
+#[derive(Debug)]
+pub enum FileActionFeedback {
+    Ready(FileUiIntent),
+    Started(crate::desktop_layout::actions::Backend, u32),
+    Renamed(crate::desktop_layout::actions::RenameReceipt),
+    Failed(crate::desktop_layout::actions::ActionError),
+    Cancelled,
+    Disabled(&'static str),
+}
+
+/// One-file actions always require exactly one selected, visible file item.
+/// Right-click may show a menu without starting any operation. Ctrl/Shift
+/// multi-selection remains possible, but no implicit batch launch/delete.
+#[allow(dead_code)]
+pub fn file_gesture_intent(
+    gesture: FileGesture,
+    kind: crate::desktop_layout::inventory::Kind,
+    selected_count: usize,
+) -> FileUiIntent {
+    use FileGesture::*;
+    use FileUiIntent as Intent;
+    let chosen = match gesture {
+        Escape => return Intent::Cancelled,
+        RightClick => return Intent::ShowContextMenu,
+        DoubleClick | Enter => FileAction::Open,
+        F2 => FileAction::Rename,
+        Context(action) => action,
+    };
+    if selected_count != 1 {
+        return Intent::Disabled("Select exactly one Desktop item");
+    }
+    match file_permission(chosen, kind) {
+        FilePermission::Disabled =>
+            Intent::Disabled("Use RiceField for this item or operation"),
+        FilePermission::Ready => match chosen {
+            FileAction::Open => Intent::Open(crate::desktop_layout::actions::OpenMode::Default),
+            FileAction::OpenInExplorer =>
+                Intent::Open(crate::desktop_layout::actions::OpenMode::Explorer),
+            FileAction::Properties => Intent::ShowProperties,
+            _ => Intent::Disabled("Unsupported file action"),
+        },
+        FilePermission::UserEdit => Intent::EditName,
+        FilePermission::ExplicitConfirmation => Intent::ConfirmTrashDelegation,
+    }
+}
+
+#[cfg(test)]
+mod file_gesture_tests {
+    use super::*;
+    use crate::desktop_layout::{actions::OpenMode, inventory::Kind};
+
+    #[test]
+    fn direct_input_is_pure_and_requires_exactly_one_selected_file() {
+        assert_eq!(file_gesture_intent(FileGesture::DoubleClick, Kind::File, 1),
+                   FileUiIntent::Open(OpenMode::Default));
+        assert_eq!(file_gesture_intent(FileGesture::Enter, Kind::Directory, 1),
+                   FileUiIntent::Open(OpenMode::Default));
+        assert_eq!(file_gesture_intent(FileGesture::F2, Kind::File, 1),
+                   FileUiIntent::EditName);
+        assert_eq!(file_gesture_intent(FileGesture::RightClick, Kind::File, 3),
+                   FileUiIntent::ShowContextMenu);
+        for count in [0, 2, 96] {
+            assert!(matches!(file_gesture_intent(FileGesture::Enter, Kind::File, count),
+                             FileUiIntent::Disabled(_)));
+            assert!(matches!(file_gesture_intent(FileGesture::F2, Kind::Directory, count),
+                             FileUiIntent::Disabled(_)));
+        }
+    }
+
+    #[test]
+    fn no_implicit_execute_trash_or_batch_operation() {
+        assert_eq!(file_gesture_intent(FileGesture::Context(FileAction::Properties),
+                   Kind::Symlink, 1), FileUiIntent::ShowProperties);
+        for kind in [Kind::DesktopFile, Kind::Symlink] {
+            for gesture in [FileGesture::DoubleClick, FileGesture::Enter, FileGesture::F2] {
+                assert!(matches!(file_gesture_intent(gesture, kind, 1),
+                                 FileUiIntent::Disabled(_)));
+            }
+        }
+        assert_eq!(file_gesture_intent(
+            FileGesture::Context(FileAction::MoveToTrash), Kind::File, 1),
+            FileUiIntent::ConfirmTrashDelegation);
+        for action in [FileAction::Move, FileAction::Copy] {
+            assert!(matches!(file_gesture_intent(FileGesture::Context(action), Kind::File, 1),
+                             FileUiIntent::Disabled(_)));
+        }
+        assert_eq!(file_gesture_intent(FileGesture::Escape, Kind::File, 1),
+                   FileUiIntent::Cancelled);
     }
 }

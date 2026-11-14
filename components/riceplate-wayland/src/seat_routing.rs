@@ -25,6 +25,17 @@ impl<S> Default for SeatAssignments<S> {
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum ActivationSource { Pointer, Keyboard, Assistive }
 
+/// Why a real pointer gesture cannot be associated with a keyboard proxy.
+/// Callers can display a non-capturing pointer-only fallback instead of
+/// fabricating an activation seat or grabbing another seat's keyboard.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // Integration will consume the typed failure reasons.
+pub(crate) enum FocusSeatError {
+    NoPointerProxy,
+    NoKeyboardProxy,
+    DifferentSeats,
+}
+
 impl<S: Clone + PartialEq> SeatAssignments<S> {
     pub(crate) fn appeared(&mut self, seat: S) {
         if !self.present.contains(&seat) {
@@ -70,14 +81,18 @@ impl<S: Clone + PartialEq> SeatAssignments<S> {
         self.keyboard.as_ref()
     }
 
-    /// A pointer gesture can initiate a focus lease only when RicePlate owns
-    /// a keyboard proxy on that SAME wl_seat. A keyboard from another seat
-    /// must not be used to turn this pointer click into a keyboard grab.
+    /// A pointer gesture can initiate a focus lease only when the pointer
+    /// and keyboard proxies are both live and belong to the SAME wl_seat.
+    /// The specific failure lets integration leave the shortcut pointer-only.
+    pub(crate) fn focus_seat_for_pointer_gesture(&self) -> Result<&S, FocusSeatError> {
+        let pointer = self.pointer.as_ref().ok_or(FocusSeatError::NoPointerProxy)?;
+        let keyboard = self.keyboard.as_ref().ok_or(FocusSeatError::NoKeyboardProxy)?;
+        if pointer != keyboard { return Err(FocusSeatError::DifferentSeats); }
+        Ok(keyboard)
+    }
+
     pub(crate) fn keyboard_seat_for_pointer_gesture(&self) -> Option<&S> {
-        match (self.pointer.as_ref(), self.keyboard.as_ref()) {
-            (Some(pointer), Some(keyboard)) if pointer == keyboard => Some(keyboard),
-            _ => None,
-        }
+        self.focus_seat_for_pointer_gesture().ok()
     }
 
     /// Never use the pointer's seat for a keyboard action if its own seat
@@ -189,6 +204,27 @@ mod tests {
         assert!(seats.owns_pointer(&2));
         seats.release_pointer(&2);
         assert_eq!(seats.activation_seat_for(ActivationSource::Assistive), Some(&2));
+    }
+
+    #[test]
+    fn focus_request_reports_exact_capability_and_cross_seat_blockers() {
+        use super::FocusSeatError;
+        let mut seats = SeatAssignments::default();
+        seats.appeared("primary");
+        seats.appeared("secondary");
+        assert_eq!(seats.focus_seat_for_pointer_gesture(),
+                   Err(FocusSeatError::NoPointerProxy));
+        seats.claim_pointer("secondary");
+        assert_eq!(seats.focus_seat_for_pointer_gesture(),
+                   Err(FocusSeatError::NoKeyboardProxy));
+        seats.claim_keyboard("primary");
+        assert_eq!(seats.focus_seat_for_pointer_gesture(),
+                   Err(FocusSeatError::DifferentSeats));
+        seats.claim_keyboard("secondary");
+        assert_eq!(seats.focus_seat_for_pointer_gesture(), Ok(&"secondary"));
+        seats.forget_seat(&"secondary");
+        assert_eq!(seats.focus_seat_for_pointer_gesture(),
+                   Err(FocusSeatError::NoPointerProxy));
     }
 
     #[test]
