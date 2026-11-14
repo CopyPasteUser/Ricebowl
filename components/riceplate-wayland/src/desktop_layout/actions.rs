@@ -88,6 +88,17 @@ fn ricefield(target: &Path) -> LaunchCommand {
     ])
 }
 
+/// Resolve the current user's XDG Desktop again at gesture time. Integration
+/// must use this instead of a stale recipe path, especially after user-dirs
+/// configuration changes. Explicit fixture roots are only for unit tests.
+pub fn current_desktop_for_action() -> Result<PathBuf, ActionError> {
+    match inventory::current_location()? {
+        inventory::DesktopLocation::Path(path) => Ok(path),
+        inventory::DesktopLocation::Disabled =>
+            Err(ActionError::Disabled("XDG Desktop is disabled for this user")),
+    }
+}
+
 fn valid_name(name: &OsStr) -> Result<CString, ActionError> {
     let raw = name.as_bytes();
     if raw.is_empty() || raw.len() > 255 || raw == b"." || raw == b".."
@@ -560,6 +571,39 @@ mod tests {
         fs::remove_file(f.0.join("private")).unwrap();
         assert!(prepare_open(&snap, &f.0, item, OpenMode::Default).is_err());
         assert!(properties(&snap, &f.0, item).is_err());
+    }
+
+
+    #[test]
+    fn occupied_symlink_name_cannot_be_overwritten_or_followed() {
+        let f = Fixture::new();
+        fs::write(f.0.join("source"), b"SOURCE").unwrap();
+        let protected = f.0.join("protected");
+        fs::write(&protected, b"KEEP").unwrap();
+        symlink(&protected, f.0.join("destination")).unwrap();
+        let snap = f.snap();
+        let source = f.entry(&snap, "source");
+        assert!(matches!(rename(&snap, &f.0, source, OsStr::new("destination")),
+                         Err(ActionError::Conflict)));
+        assert!(f.0.join("destination").symlink_metadata().unwrap().file_type().is_symlink());
+        assert_eq!(fs::read(&protected).unwrap(), b"KEEP");
+        assert_eq!(fs::read(f.0.join("source")).unwrap(), b"SOURCE");
+    }
+
+    #[test]
+    fn denied_directory_write_fails_without_touching_contents() {
+        use std::os::unix::fs::PermissionsExt;
+        if unsafe { libc::geteuid() } == 0 { return; }
+        let f = Fixture::new();
+        fs::write(f.0.join("source"), b"data").unwrap();
+        let snap = f.snap();
+        let source = f.entry(&snap, "source");
+        fs::set_permissions(&f.0, fs::Permissions::from_mode(0o500)).unwrap();
+        let result = rename(&snap, &f.0, source, OsStr::new("destination"));
+        fs::set_permissions(&f.0, fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(result.is_err());
+        assert_eq!(fs::read(f.0.join("source")).unwrap(), b"data");
+        assert!(!f.0.join("destination").exists());
     }
 
 }
