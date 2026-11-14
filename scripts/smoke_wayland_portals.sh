@@ -33,7 +33,7 @@ if [ "$strict" = 1 ]; then
     echo "PORTAL_STRICT_PREREQ_OK: DRM render node available: $render_node"
 fi
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
-for binary in labwc pipewire dbus-run-session dbus-update-activation-environment gdbus timeout; do
+for binary in labwc pipewire dbus-run-session dbus-update-activation-environment gdbus timeout setsid; do
     command -v "$binary" >/dev/null 2>&1 || {
         echo "Portal smoke missing dependency: $binary" >&2; exit 1;
     }
@@ -87,8 +87,15 @@ dbus-run-session -- sh -eu -c '
     root=$1
     runtime=$2
     compositor=
+    client=
     pipewire_pid=
     cleanup_children() {
+        # Client owns a distinct session/process group; terminate it and
+        # all of its timeout/Python descendants on compositor failures.
+        if [ -n "$client" ]; then
+            kill -TERM -- "-$client" 2>/dev/null || :
+            wait "$client" 2>/dev/null || :
+        fi
         if [ -n "$compositor" ]; then
             kill "$compositor" 2>/dev/null || :
             wait "$compositor" 2>/dev/null || :
@@ -119,10 +126,34 @@ dbus-run-session -- sh -eu -c '
         sed -n "1,50p" "$runtime/pipewire.log" >&2
         exit 1
     fi
-    labwc --config-dir "$root/macrice/de/resources/labwc" \
-        --startup "sh \"$root/scripts/wayland_portals_smoke_client.sh\" \"$root\" \"$runtime\" >\"$runtime/client.log\" 2>&1" \
+    # The compositor and client are sibling processes owned by this wrapper.
+    # Avoid labwc --startup orphaning the client when the compositor crashes.
+    labwc --config-dir "$root/macrice/de/resources/labwc" --startup true \
         >"$runtime/labwc.log" 2>&1 &
     compositor=$!
+    display=
+    attempt=0
+    while [ -z "$display" ] && [ "$attempt" -lt 60 ]; do
+        kill -0 "$compositor" 2>/dev/null || break
+        for candidate in "$runtime"/wayland-*; do
+            if [ -S "$candidate" ]; then
+                display=${candidate##*/}
+                break
+            fi
+        done
+        [ -n "$display" ] && break
+        attempt=$((attempt + 1))
+        sleep 0.2
+    done
+    if [ -z "$display" ]; then
+        echo "PORTAL_SETUP_FAIL: labwc never created an isolated Wayland socket" >&2
+        sed -n "1,80p" "$runtime/labwc.log" >&2
+        exit 1
+    fi
+    export WAYLAND_DISPLAY="$display"
+    setsid sh "$root/scripts/wayland_portals_smoke_client.sh" "$root" "$runtime" \
+        >"$runtime/client.log" 2>&1 &
+    client=$!
     attempt=0
     max_attempts=260
     if [ "$RICEBOWL_PORTAL_STRICT_CI" = 1 ]; then max_attempts=520; fi
@@ -132,7 +163,7 @@ dbus-run-session -- sh -eu -c '
         attempt=$((attempt + 1))
         sleep 0.25
     done
-    if [ ! -f "$runtime/portals-ok" ]; then
+    if [ ! -f "$runtime/portals-ok" ] || [ -f "$runtime/portals-failed" ]; then
         echo "Portal runtime acceptance did not complete" >&2
         for log in client.log labwc.log pipewire.log; do
             if [ -f "$runtime/$log" ]; then
@@ -141,6 +172,14 @@ dbus-run-session -- sh -eu -c '
         done
         exit 1
     fi
+    # A receipt written immediately before client termination is not
+    # successful until the process actually exits with status 0.
+    wait "$client" || {
+        echo "PORTAL_CAPTURE_FAIL: client exited unsuccessfully" >&2
+        sed -n "1,110p" "$runtime/client.log" >&2
+        exit 1
+    }
+    client=
     if [ "$RICEBOWL_PORTAL_STRICT_CI" = 1 ]; then
         # Independent shell gate: the client must prove it sampled a frame.
         grep -q "^PORTAL_FRAME_OK:" "$runtime/client.log" || {
