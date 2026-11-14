@@ -7072,6 +7072,13 @@ impl KeyboardHandler for RicePlate {
         _: u32,
     ) {
         if self.keyboard.as_ref() != Some(keyboard) { return; }
+        // Closing the ephemeral 8px desktop keyboard focus on the next mouse
+        // Press generates an asynchronous wl_keyboard.leave. That event must
+        // NOT erase the preceding mouse Release: otherwise a normal second
+        // click can never be recognized as a double-click with a connected
+        // keyboard. Different application/menu surfaces still invalidate it.
+        let temporary_desktop_leave =
+            self.desktop_keyboard_focus_lease.was_last_surface(surface);
         if let Some(seat) = self.seat_assignments.keyboard_owner().cloned() {
             if self.desktop_keyboard_focus_lease.compositor_leave(&seat, surface) {
                 self.close_desktop_keyboard_focus();
@@ -7079,7 +7086,9 @@ impl KeyboardHandler for RicePlate {
         }
         // Never retain Ctrl/Shift after compositor keyboard focus leaves.
         self.selection_modifiers = Modifiers::default();
-        self.desktop_selection.cancel();
+        if !temporary_desktop_leave {
+            self.desktop_selection.cancel();
+        }
         if self.luna_dialog.as_ref().is_some_and(|dialog|
             dialog.surface.wl_surface() == surface) {
             // A modal Run/Help dialog outlives temporary keyboard-seat
