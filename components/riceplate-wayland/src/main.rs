@@ -1475,6 +1475,96 @@ impl RicePlate {
         true
     }
 
+    /// Executed only when the *same-seat, same-surface* compositor lease is
+    /// already confirmed by wl_keyboard.enter in dispatch_desktop_keyboard_focus.
+    fn dispatch_shortcut_keyboard_focus(&mut self, target: wl_surface::WlSurface,
+                                        event: &KeyEvent, qh: &QueueHandle<Self>) -> bool {
+        let Some(index) = self.icon_layers.iter().position(|icon|
+            icon.surface.wl_surface() == &target && icon.placed.is_some()) else {
+            self.close_desktop_keyboard_focus();
+            return true;
+        };
+        match event.keysym {
+            Keysym::Escape => {
+                self.close_desktop_keyboard_focus();
+                self.clear_luna_selection();
+            }
+            Keysym::Return | Keysym::KP_Enter | Keysym::space
+                if !self.selection_modifiers.ctrl => {
+                let action = self.recipe.desktop_icons[self.icon_layers[index].recipe_index]
+                    .action.clone();
+                self.close_desktop_keyboard_focus();
+                self.activate_action(&action, qh);
+            }
+            Keysym::Menu => {
+                self.close_desktop_keyboard_focus();
+                self.open_desktop_context(index, (52.0, 42.0), qh);
+            }
+            Keysym::F10 if self.selection_modifiers.shift => {
+                self.close_desktop_keyboard_focus();
+                self.open_desktop_context(index, (52.0, 42.0), qh);
+            }
+            Keysym::a | Keysym::A if self.selection_modifiers.ctrl => {
+                self.select_all_luna_icons(index);
+            }
+            Keysym::Tab | Keysym::ISO_Left_Tab | Keysym::Left | Keysym::Right |
+            Keysym::Up | Keysym::Down => {
+                let backwards = matches!(event.keysym,
+                    Keysym::ISO_Left_Tab | Keysym::Left | Keysym::Up);
+                let peers = self.luna_icon_peers(index);
+                if let Some(next) = desktop_layout::navigate(&peers, index,
+                    if backwards { -1 } else { 1 }) {
+                    let mode = if self.selection_modifiers.shift {
+                        desktop_selection::Mode::Range
+                    } else { desktop_selection::Mode::Replace };
+                    self.select_luna_icon_mode(next, mode);
+                    if let Some(layer) = self.desktop_keyboard_focus_layer.as_mut() {
+                        layer.target = DesktopFocusTarget::Shortcut(
+                            self.icon_layers[next].surface.wl_surface().clone());
+                        layer.expires = Instant::now() + Duration::from_secs(5);
+                        layer.typed.clear();
+                    }
+                }
+            }
+            _ => {
+                if self.selection_modifiers.ctrl || self.selection_modifiers.alt { return true; }
+                let Some(character) = event.utf8.as_ref()
+                    .filter(|s| s.chars().count() == 1
+                        && s.chars().all(|c| !c.is_control())) else { return true; };
+                let Some(layer) = self.desktop_keyboard_focus_layer.as_mut() else { return true; };
+                if layer.last_typed.elapsed() > Duration::from_secs(1) {
+                    layer.typed.clear();
+                }
+                if layer.typed.chars().count() >= shortcut_focus::MAX_PREFIX {
+                    layer.typed.clear();
+                }
+                layer.typed.push_str(character);
+                layer.last_typed = Instant::now();
+                layer.expires = Instant::now() + Duration::from_secs(5);
+                let query = layer.typed.clone();
+                let output = self.icon_layers[index].bound_output.clone();
+                let peers = self.icon_layers.iter().map(|candidate| {
+                    if candidate.placed.is_some() && candidate.bound_output == output {
+                        self.recipe.desktop_icons.get(candidate.recipe_index)
+                            .map(|icon| icon.label.as_str())
+                    } else { None }
+                });
+                if let Some(next) = shortcut_focus::match_visible_prefix(&query, peers) {
+                    self.select_luna_icon(next);
+                    if let Some(layer) = self.desktop_keyboard_focus_layer.as_mut() {
+                        layer.target = DesktopFocusTarget::Shortcut(
+                            self.icon_layers[next].surface.wl_surface().clone());
+                    }
+                    if std::env::var("RICEBOWL_DE_TRACE_FOCUS").as_deref() == Ok("1") {
+                        // Log only an index, not text the user typed.
+                        eprintln!("RicePlate: Luna shortcut prefix selected index={next}");
+                    }
+                }
+            }
+        }
+        true
+    }
+
     fn sync_file_layers(&mut self, qh: &QueueHandle<Self>) {
         let Some(snapshot) = self.file_snapshot.as_ref() else { return };
         let live = &snapshot.entries;
