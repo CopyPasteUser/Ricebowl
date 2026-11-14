@@ -73,7 +73,8 @@ class LiveRiceTests(unittest.TestCase):
         self.controller = _LiveSwitch(
             env=self.env, mode="native", which=self.tools.get, spawn=spawn,
             cleanup=self.cleanup_stack, initial_panel=self.initial_panel,
-            initial_wallpaper=self.initial_wallpaper, background=self.background)
+            initial_wallpaper=self.initial_wallpaper, background=self.background,
+            frame_readiness=False)
         self.reconfigure = mock.patch.object(self.controller, "_reconfigure")
         self.reconfigure.start()
         self.addCleanup(self.reconfigure.stop)
@@ -542,7 +543,7 @@ class LiveRiceTests(unittest.TestCase):
             env=self.env, mode="native", which=self.tools.get,
             spawn=lambda command, **kw: FakeProcess(), cleanup=self.cleanup_stack,
             initial_panel=FakeProcess(), initial_wallpaper=FakeProcess(),
-            background=[])
+            background=[], frame_readiness=False)
         self.assertEqual(controller.status()["active"], "classic")
         with self.assertRaises(live.LiveError) as caught:
             controller.handle({"action": "apply", "recipe": "chrome",
