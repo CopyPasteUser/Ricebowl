@@ -35,6 +35,18 @@ class PanelOutputCheckTests(unittest.TestCase):
             with self.assertRaises((OSError, ValueError)):
                 validate([path])
 
+    def test_rejects_missing_png_end_chunk_after_complete_pixels(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory, "missing-iend.png")
+            Image.new("RGB", (1024, 768), (0x20, 0x3C, 0x59)).save(path)
+            original = path.read_bytes()
+            # All compressed scanlines remain intact; Pillow.load() alone
+            # accepts this file, but its mandatory IEND chunk is missing.
+            self.assertEqual(original[-8:-4], b"IEND")
+            path.write_bytes(original[:-12])
+            with self.assertRaises((OSError, SyntaxError, ValueError)):
+                validate([path])
+
     def test_rejects_wrong_panel_and_invalid_geometry(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory, "wrong.png")
