@@ -170,3 +170,11 @@ property addresses a deprecated node ID and can cause `target not found`
 under WirePlumber even if the ID is valid. The returned stream node ID is
 still validated and tied to the exact video receipt; an absent serial
 cannot silently downgrade the strict generic test.
+
+### Private PipeWire object-inventory diagnostic
+
+The strict generic CI lane runs a bounded read-only `pw-dump` against its
+disposable PipeWire daemon and logs **only** the matching node and local
+video-source `id`, `object.serial`, `media.class` and truncated `node.name`.
+This does not grant permissions, change policy, create nodes or count as
+ScreenCast success; the actual GStreamer frame remains mandatory.

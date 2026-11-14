@@ -114,7 +114,7 @@ jobs:
           sudo apt-get install -y labwc pipewire dbus-user-session dbus-x11 \
             python3-gi gir1.2-gtk-3.0 python3-gst-1.0 gir1.2-gstreamer-1.0 \
             gstreamer1.0-pipewire gstreamer1.0-plugins-base \
-            xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-wlr grim wireplumber \
+            xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-wlr grim wireplumber pipewire-bin \
             libpipewire-0.3-dev libspa-0.2-dev libwayland-dev \
             libxkbcommon-dev libclang-dev clang pkg-config
       - name: Repair only the disposable backend's invalid remote FD connection

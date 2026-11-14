@@ -8,6 +8,7 @@ wrapper. A returned ScreenCast node and remote FD do not prove frame delivery.
 from __future__ import annotations
 
 import os
+import json
 import re
 import subprocess
 import secrets
@@ -364,6 +365,43 @@ def verify_pipewire_remote(connection, session: str) -> int:
     return fd
 
 
+def diagnose_pipewire_node(node: int, serial: int | None) -> str:
+    """Read-only private daemon query, never substitutes for a delivered frame."""
+    if not 0 < node <= 0xffffffff:
+        raise RuntimeError("Invalid diagnostic node ID")
+    try:
+        result = subprocess.run(["pw-dump"], capture_output=True, text=True,
+                                check=False, timeout=4)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return f"PORTAL_PIPEWIRE_DIAG: inventory unavailable: {type(error).__name__}"
+    if result.returncode or len(result.stdout) > 2_000_000:
+        return f"PORTAL_PIPEWIRE_DIAG: daemon inventory failed rc={result.returncode}"
+    try:
+        objects = json.loads(result.stdout)
+        if not isinstance(objects, list):
+            raise ValueError("non-array PipeWire inventory")
+    except (json.JSONDecodeError, ValueError):
+        return "PORTAL_PIPEWIRE_DIAG: daemon returned invalid bounded JSON"
+    sources = []
+    for obj in objects:
+        if not isinstance(obj, dict) or obj.get("type") != "PipeWire:Interface:Node":
+            continue
+        ident = obj.get("id")
+        props = obj.get("info", {}).get("props", {})
+        if type(ident) is not int or not isinstance(props, dict):
+            continue
+        media = props.get("media.class")
+        if ident == node or media == "Video/Source":
+            sources.append({
+                "node_id": ident,
+                "object_serial": props.get("object.serial"),
+                "media_class": media,
+                "node_name": str(props.get("node.name", ""))[:75],
+            })
+    return (f"PORTAL_PIPEWIRE_DIAG: requested_node={node} "
+            f"requested_serial={serial} discovered={sources[:8]}")
+
+
 def verify_delivered_frame(
     fd: int, node: int, *, timeout: int = 18, serial: int | None = None
 ) -> str:
@@ -508,6 +546,8 @@ def run() -> None:
             print(f"PORTAL_STREAM_SERIAL_OK: object.serial={serial}", flush=True)
         remote_fd = verify_pipewire_remote(connection, session)
         try:
+            if strict and env.get("RICEBOWL_PORTAL_BACKEND") == "generic":
+                print(diagnose_pipewire_node(nodes[0], serial), flush=True)
             print(f"PORTAL_FD_OK: {len(nodes)} ScreenCast node(s), socket FD={remote_fd}",
                   flush=True)
             if strict:

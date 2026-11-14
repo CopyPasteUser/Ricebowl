@@ -170,6 +170,28 @@ class ScreenCastCapabilityTests(unittest.TestCase):
             with self.subTest(invalid=invalid), self.assertRaises(RuntimeError):
                 portal.stream_nodes(invalid)
 
+    def test_private_pipewire_diagnostic_cannot_replace_frame_receipt(self):
+        inventory = [
+            {"id": 41, "type": "PipeWire:Interface:Node",
+             "info": {"props": {"media.class": "Video/Source",
+                                "object.serial": 91,
+                                "node.name": "real-screen"}}},
+            {"id": 11, "type": "PipeWire:Interface:Node",
+             "info": {"props": {"media.class": "Audio/Sink",
+                                "node.name": "unrelated"}}},
+        ]
+        with patch.object(portal.subprocess, "run") as run:
+            run.return_value.returncode = 0
+            run.return_value.stdout = portal.json.dumps(inventory)
+            output = portal.diagnose_pipewire_node(41, 91)
+            self.assertIn("object_serial", output)
+            self.assertIn("real-screen", output)
+            self.assertNotIn("unrelated", output)
+            self.assertEqual(run.call_args.args[0], ["pw-dump"])
+        self.assertNotIn("PORTAL_FRAME_OK", output)
+        with self.assertRaises(RuntimeError):
+            portal.diagnose_pipewire_node(0, None)
+
     def test_pipewire_serial_property_is_positive_and_typed(self):
         self.assertEqual(portal.stream_target_serial(
             [(10, {"pipewire-serial": 1234567890123})]), 1234567890123)
