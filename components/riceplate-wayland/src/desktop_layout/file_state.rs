@@ -164,9 +164,12 @@ impl FilePositions {
     }
 
     pub fn reconcile(&mut self, before: &Snapshot, after: &Snapshot) {
-        // A truncated scan is incomplete: do not discard icons simply because
-        // they fell outside the bounded visible window.
-        if after.truncated || before.truncated { return; }
+        // A truncated/unavailable scan is incomplete: do not discard icons
+        // merely because a resource fell outside the visible window or the
+        // XDG directory was temporarily removed.
+        if after.truncated || before.truncated
+            || after.status != super::inventory::Status::Available
+            || before.status != super::inventory::Status::Available { return; }
         let mut renamed = Vec::new();
         for old in &before.entries {
             let old_id = key_id(&old.key);
@@ -177,6 +180,10 @@ impl FilePositions {
             }
         }
         for (key, position) in renamed { self.records.insert(key, position); }
+        // Also collect stale entries loaded from prior sessions, even when
+        // they were never visible in the immediately preceding snapshot.
+        let live: BTreeSet<_> = after.entries.iter().map(|e| key_id(&e.key)).collect();
+        self.records.retain(|id, _| live.contains(id));
     }
 
     fn decode(raw: &[u8]) -> io::Result<Self> {
