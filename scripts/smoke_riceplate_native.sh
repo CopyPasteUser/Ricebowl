@@ -169,6 +169,7 @@ dbus-run-session -- sh -eu -c '
     plate=
     wallpaper=
     keyboard_keeper=
+    focus_clicker=
     cleanup() {
         if [ -s "$runtime/clip-action-gui.pid" ]; then
             clip_pid=$(cat "$runtime/clip-action-gui.pid" 2>/dev/null || :)
@@ -180,6 +181,10 @@ dbus-run-session -- sh -eu -c '
         if [ -n "$wallpaper" ]; then
             kill "$wallpaper" 2>/dev/null || :
             wait "$wallpaper" 2>/dev/null || :
+        fi
+        if [ -n "$focus_clicker" ]; then
+            kill -TERM "$focus_clicker" 2>/dev/null || :
+            wait "$focus_clicker" 2>/dev/null || :
         fi
         if [ -n "$keyboard_keeper" ]; then
             kill -TERM "$keyboard_keeper" 2>/dev/null || :
@@ -1707,6 +1712,7 @@ from pathlib import Path
 
 import gi
 gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
 from gi.repository import GLib, Gdk, Gtk
 
 ready = Path(os.environ["FOCUS_RECEIVER_READY"])
@@ -1762,11 +1768,23 @@ def activated(widget):
     received.write_text(widget.get_text())
     Gtk.main_quit()
 
+def focus_left(*unused):
+    with geometry.open("a") as log:
+        log.write("window-focus-out\\n")
+    return False
+
+def entry_focus_left(*unused):
+    with geometry.open("a") as log:
+        log.write("entry-focus-out\\n")
+    return False
+
 window.connect("focus-in-event", keyboard_focused)
+window.connect("focus-out-event", focus_left)
 window.connect("map-event", mapped)
 window.connect("button-press-event", clicked)
 window.connect("destroy", Gtk.main_quit)
 entry.connect("button-press-event", clicked)
+entry.connect("focus-out-event", entry_focus_left)
 entry.connect("key-press-event", record_key)
 entry.connect("changed", record_text)
 entry.connect("activate", activated)
@@ -1830,8 +1848,13 @@ PY
         tail -n 50 "$runtime/file-plate.log" >&2
         exit 1
     }
-    # Now perform a real pointer activation on the fullscreen XDG window.
-    WAYLAND_DISPLAY=wayland-0 "$clicker" 683 384 1366 768
+    # Keep the actual compositor-assigned pointer connection alive until
+    # GTK has received a real keyboard event. Otherwise the CI clicker tears
+    # down the virtual pointer immediately and can withdraw seat focus before
+    # a separate wtype client even starts.
+    WAYLAND_DISPLAY=wayland-0 "$clicker" --hold-ms 12000 683 384 1366 768 \
+        > "$runtime/focus-pointer-click.log" 2>&1 &
+    focus_clicker=$!
     count=0
     while [ ! -s "$runtime/focus-focused.log" ] && [ "$count" -lt 30 ]; do
         count=$((count + 1))
@@ -1839,6 +1862,7 @@ PY
     done
     test -s "$runtime/focus-focused.log" || {
         echo "External GTK Wayland client never received compositor keyboard focus" >&2
+        cat "$runtime/focus-pointer-click.log" >&2
         cat "$runtime/focus-geometry.log" 2>/dev/null || :
         cat "$runtime/focus-pointer.log" 2>/dev/null || :
         tail -n 45 "$runtime/file-plate.log" >&2
@@ -1860,6 +1884,8 @@ PY
     done
     test "$(cat "$runtime/focus-input.log" 2>/dev/null || :)" = ricebowl-focus-ok || {
         echo "External Wayland app did not receive keyboard after XDG desktop focus" >&2
+        cat "$runtime/focus-geometry.log" 2>/dev/null >&2 || :
+        cat "$runtime/focus-pointer-click.log" >&2
         echo "GTK text observed:" >&2
         cat "$runtime/focus-text.log" 2>/dev/null >&2 || :
         echo "GTK key events observed:" >&2
@@ -1869,6 +1895,9 @@ PY
         cat "$runtime/focus-wtype.log" >&2
         exit 1
     }
+    kill -TERM "$focus_clicker" 2>/dev/null || :
+    wait "$focus_clicker" 2>/dev/null || :
+    focus_clicker=
     focus_releases_after=$(grep -Fc "RicePlate: XDG file keyboard focus released" "$runtime/file-plate.log" || :)
     test "$focus_releases_after" -gt "$focus_releases_after_icon" || {
         echo "Compositor never revoked the fresh desktop keyboard lease on external app activation" >&2
