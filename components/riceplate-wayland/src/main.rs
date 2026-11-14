@@ -5618,6 +5618,7 @@ impl SeatHandler for RicePlate {
             }
             self.menu_focused = false;
             self.calendar_focused = false;
+            self.luna_dialog_focused = false;
             self.keyboard_icon_surface = None;
             self.keyboard_widget_surface = None;
             self.pressed_widget = None;
@@ -5732,11 +5733,17 @@ impl KeyboardHandler for RicePlate {
         self.selection_modifiers = Modifiers::default();
         self.desktop_selection.cancel();
         if self.luna_dialog.as_ref().is_some_and(|dialog|
-            dialog.surface.wl_surface() == surface) && self.luna_dialog_focused {
+            dialog.surface.wl_surface() == surface) {
+            // A modal Run/Help dialog outlives temporary keyboard-seat
+            // handovers (notably virtual-keyboard disconnect/reconnect).
+            // Closing on wl_keyboard.leave silently discarded typed input
+            // before the next input device could regain focus. Escape,
+            // Cancel, successful Run, compositor close and session teardown
+            // remain explicit, bounded dismissal paths.
+            self.luna_dialog_focused = false;
             if std::env::var_os("RICEBOWL_DE_TRACE_MENU").is_some() {
-                eprintln!("RicePlate: Luna Run/Help keyboard leave -> dismiss");
+                eprintln!("RicePlate: Luna Run/Help keyboard leave, dialog retained");
             }
-            self.close_luna_dialog();
         }
         if self.desktop_context.as_ref().is_some_and(|menu|
             menu.surface.wl_surface() == surface) && self.context_focused {
