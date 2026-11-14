@@ -574,7 +574,7 @@ class _LiveSwitch:
             # existing bounded liveness check instead of claiming a frame.
             time.sleep(0.5)
             if process.poll() is not None:
-                raise LiveError("Replacement panel exited during activation",
+                raise LiveError("New shell component exited during activation",
                                 code="component_failed")
             return
         try:
