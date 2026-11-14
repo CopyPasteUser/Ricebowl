@@ -2,7 +2,8 @@
 //!
 //! No shell evaluation, recursive file operations, background worker or
 //! compositor ownership. This adapter is invoked only on an explicit UI action.
-//! Move/Copy/Trash remain delegated to RiceField's UI, never emulated here.
+//! Move/Copy remain delegated to RiceField; explicit confirmed Trash uses Gio.
+//! There is no unlink/rm implementation or inferred confirmation.
 #![allow(dead_code)] // The integration lane owns the Wayland event bindings.
 
 use std::{
