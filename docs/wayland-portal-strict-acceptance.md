@@ -159,3 +159,14 @@ It must NEVER be distributed or installed in user sessions. It validates
 real compositor -> PipeWire -> FD -> GStreamer video transport, but it
 does not validate per-stream grants, sandbox privacy or real consent. Those
 require the untouched production portal and separate hardware/Flatpak tests.
+
+### Correct PipeWire stream target identity
+
+ScreenCast Start can return `pipewire-serial` (the stable
+`object.serial`) in its stream properties. For the generic software
+backend the strict receiver now requires a positive bounded serial and
+passes it to GStreamer's `pipewiresrc target-object`. The older `path`
+property addresses a deprecated node ID and can cause `target not found`
+under WirePlumber even if the ID is valid. The returned stream node ID is
+still validated and tied to the exact video receipt; an absent serial
+cannot silently downgrade the strict generic test.

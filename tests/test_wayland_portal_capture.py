@@ -170,6 +170,26 @@ class ScreenCastCapabilityTests(unittest.TestCase):
             with self.subTest(invalid=invalid), self.assertRaises(RuntimeError):
                 portal.stream_nodes(invalid)
 
+    def test_pipewire_serial_property_is_positive_and_typed(self):
+        self.assertEqual(portal.stream_target_serial(
+            [(10, {"pipewire-serial": 1234567890123})]), 1234567890123)
+        self.assertIsNone(portal.stream_target_serial([(10, {})]))
+        for bad in (0, -1, True, "4", 1 << 64):
+            with self.subTest(value=bad), self.assertRaises(RuntimeError):
+                portal.stream_target_serial([(10, {"pipewire-serial": bad})])
+
+    def test_frame_receiver_passes_portal_serial_without_losing_node_receipt(self):
+        valid = type("Result", (), {
+            "returncode": 0,
+            "stdout": "PORTAL_FRAME_OK: node=12 bytes=4096 caps=video/x-raw,format=RGB",
+            "stderr": ""})()
+        with patch.object(portal.subprocess, "run", return_value=valid) as run:
+            portal.verify_delivered_frame(8, 12, serial=450)
+            self.assertEqual(run.call_args.args[0][-3:], ["8", "12", "450"])
+        for invalid in (True, 0, -1, 1 << 64):
+            with self.subTest(value=invalid), self.assertRaises(RuntimeError):
+                portal.verify_delivered_frame(8, 12, serial=invalid)
+
     def test_fd_lifetime_and_frame_failure_never_claim_success(self):
         with ExitStack() as stack:
             left, right = socket.socketpair()

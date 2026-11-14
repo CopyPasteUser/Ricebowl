@@ -65,6 +65,22 @@ def stream_nodes(streams: object) -> tuple[int, ...]:
     return tuple(nodes)
 
 
+def stream_target_serial(streams: object) -> int | None:
+    """Read the ScreenCast-v6 PipeWire object.serial for robust target linking.
+
+    object.id can change with connections and is deprecated as a target in
+    PipeWire; only a real positive uint64 property returned by Start counts.
+    """
+    stream_nodes(streams)
+    props = streams[0][1]
+    serial = props.get("pipewire-serial")
+    if serial is None:
+        return None
+    if type(serial) is not int or not 0 < serial <= 0xffffffffffffffff:
+        raise RuntimeError("ScreenCast returned invalid PipeWire object.serial")
+    return serial
+
+
 def classify_failure(exc: Exception) -> str:
     """Stable machine-readable failure families; never equate reply to frames."""
     if isinstance(exc, PortalRejected):
@@ -348,12 +364,20 @@ def verify_pipewire_remote(connection, session: str) -> int:
     return fd
 
 
-def verify_delivered_frame(fd: int, node: int, *, timeout: int = 18) -> str:
+def verify_delivered_frame(
+    fd: int, node: int, *, timeout: int = 18, serial: int | None = None
+) -> str:
     """Accept a successful, node-matched nonempty Gst.Sample receipt only."""
+    if serial is not None and (type(serial) is not int
+                               or not 0 < serial <= 0xffffffffffffffff):
+        raise RuntimeError("Invalid PipeWire target serial")
+    argv = [sys.executable, str(Path(__file__).resolve()),
+            "--frame-probe", str(fd), str(node)]
+    if serial is not None:
+        argv.append(str(serial))
     try:
         result = subprocess.run(
-            [sys.executable, str(Path(__file__).resolve()),
-             "--frame-probe", str(fd), str(node)],
+            argv,
             pass_fds=(fd,), capture_output=True, text=True,
             timeout=timeout, check=False)
     except subprocess.TimeoutExpired as exc:
@@ -379,7 +403,7 @@ def verify_delivered_frame(fd: int, node: int, *, timeout: int = 18) -> str:
 
 
 
-def frame_probe(fd: int, node: int) -> None:
+def frame_probe(fd: int, node: int, serial: int | None = None) -> None:
     """Child-only GStreamer receiver: a D-Bus FD without a buffer fails."""
     require_private_headless_session(dict(os.environ))
     if fd < 3 or node <= 0 or node > 0xffffffff:
@@ -401,7 +425,16 @@ def frame_probe(fd: int, node: int) -> None:
     if src is None or sink is None:
         raise RuntimeError("GStreamer PipeWire source/appsink plugin unavailable")
     src.set_property("fd", fd)
-    src.set_property("path", str(node))
+    if serial is not None:
+        if not 0 < serial <= 0xffffffffffffffff:
+            raise RuntimeError("Invalid PipeWire target object.serial")
+        src.set_property("target-object", str(serial))
+        print(f"PORTAL_PROBE_STAGE: pipewire_target_serial={serial}",
+              file=sys.stderr, flush=True)
+    else:
+        src.set_property("path", str(node))
+        print(f"PORTAL_PROBE_STAGE: legacy_pipewire_node_id={node}",
+              file=sys.stderr, flush=True)
     try:
         print("PORTAL_PROBE_STAGE: entering_playing", file=sys.stderr, flush=True)
         if pipeline.set_state(Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE:
@@ -465,14 +498,21 @@ def run() -> None:
                   "Real GPU acceptance still required.", flush=True)
             return
         print("PORTAL_CAPTURE_STAGE: Start responded", flush=True)
-        nodes = stream_nodes(started.get("streams"))
+        streams = started.get("streams")
+        nodes = stream_nodes(streams)
+        serial = stream_target_serial(streams) if (strict and
+                     env.get("RICEBOWL_PORTAL_BACKEND") == "generic") else None
+        if strict and env.get("RICEBOWL_PORTAL_BACKEND") == "generic":
+            if serial is None:
+                raise RuntimeError("Generic portal did not supply PipeWire object.serial")
+            print(f"PORTAL_STREAM_SERIAL_OK: object.serial={serial}", flush=True)
         remote_fd = verify_pipewire_remote(connection, session)
         try:
             print(f"PORTAL_FD_OK: {len(nodes)} ScreenCast node(s), socket FD={remote_fd}",
                   flush=True)
             if strict:
                 # Do not count D-Bus Start/FD as delivered video.
-                print(verify_delivered_frame(remote_fd, nodes[0]), flush=True)
+                print(verify_delivered_frame(remote_fd, nodes[0], serial=serial), flush=True)
                 print(f"PORTAL_STRICT_OK: backend={env.get('RICEBOWL_PORTAL_BACKEND', 'wlr')} renderer={env['WLR_RENDERER']} remote FD and video sample verified",
                       flush=True)
         finally:
@@ -493,8 +533,9 @@ def run() -> None:
 
 if __name__ == "__main__":
     try:
-        if len(sys.argv) == 4 and sys.argv[1] == "--frame-probe":
-            frame_probe(int(sys.argv[2]), int(sys.argv[3]))
+        if len(sys.argv) in (4, 5) and sys.argv[1] == "--frame-probe":
+            frame_probe(int(sys.argv[2]), int(sys.argv[3]),
+                        int(sys.argv[4]) if len(sys.argv) == 5 else None)
         elif len(sys.argv) == 1:
             run()
         else:
