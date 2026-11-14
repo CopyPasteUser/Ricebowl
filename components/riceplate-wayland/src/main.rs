@@ -1,7 +1,7 @@
 //! Native RicePlate experiment: an input-capable, idle event-driven layer surface.
 //! No session takeover: launch only inside an already running Wayland session.
 
-use std::{error::Error, os::fd::AsFd, process::Command, sync::mpsc, time::{Duration, Instant}};
+use std::{error::Error, os::fd::{AsFd, FromRawFd, OwnedFd}, process::Command, sync::mpsc, time::{Duration, Instant}};
 
 use chrono::{Local, Timelike};
 use accesskit::{ActionRequest, Role as AccessibleRole};
@@ -71,7 +71,7 @@ use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState, FrameCallbackData, Region},
     delegate_registry,
     output::{OutputHandler, OutputState},
-    reexports::{calloop::{channel, generic::Generic, EventLoop, Interest, Mode, PostAction},
+    reexports::{calloop::{channel, generic::Generic, EventLoop, Interest, LoopHandle, Mode, PostAction},
                 calloop_wayland_source::WaylandSource},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
@@ -278,6 +278,33 @@ fn main() -> Result<(), Box<dyn Error>> {
     if preview_calendar && !clock_present {
         return Err("Calendar preview requires a native clock widget".into());
     }
+    // The file-backed XDG Desktop belongs only to a full session. Preview
+    // captures and nested Creator compositors never inspect a user's files.
+    let (file_desktop, file_snapshot) = if full_session {
+        match desktop_layout::inventory::scan_current() {
+            Ok((desktop_layout::inventory::DesktopLocation::Path(path), snapshot)) =>
+                (Some(path), Some(snapshot)),
+            Ok((desktop_layout::inventory::DesktopLocation::Disabled, snapshot)) =>
+                (None, Some(snapshot)),
+            Err(error) => {
+                eprintln!("RicePlate: XDG Desktop inventory unavailable: {error}");
+                (None, None)
+            }
+        }
+    } else { (None, None) };
+    let file_positions = if full_session {
+        desktop_layout::file_state::FilePositions::default_path().ok().flatten()
+            .and_then(|path| desktop_layout::file_state::FilePositions::load_at(&path).ok())
+            .unwrap_or_default()
+    } else { desktop_layout::file_state::FilePositions::default() };
+    let file_watcher = file_desktop.as_ref().and_then(|path|
+        match desktop_layout::watcher::Watcher::new(path) {
+            Ok(watcher) => Some(watcher),
+            Err(error) => {
+                eprintln!("RicePlate: XDG Desktop watcher unavailable: {error}");
+                None
+            }
+        });
     let conn = Connection::connect_to_env()?;
     let (globals, event_queue) = registry_queue_init(&conn)?;
     let qh = event_queue.handle();
@@ -339,6 +366,15 @@ fn main() -> Result<(), Box<dyn Error>> {
             bound_output: None,
             placed: Some((icon.x, icon.y)),
         });
+    }
+    // File surfaces are independent of the seven virtual recipe shortcuts.
+    // Their hit regions remain bounded and start parked until output reflow.
+    let mut file_layers = Vec::new();
+    if let Some(snapshot) = file_snapshot.as_ref() {
+        for entry in &snapshot.entries {
+            file_layers.push(new_file_layer(&layer_shell, &compositor, &qh,
+                                            entry.clone(), None));
+        }
     }
     // Status/text widgets are input-transparent; explicitly action-bound
     // widgets alone own their bounded hit rectangle and on-demand keyboard focus.
@@ -489,6 +525,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         layer,
         mirrors: Vec::new(),
         icon_layers,
+        file_layers,
+        file_desktop,
+        file_snapshot,
+        file_positions,
+        file_selection: desktop_layout::file_state::FileSelection::default(),
+        file_watcher,
+        file_pressed: None,
+        file_last_click: None,
         widget_layers,
         menu_layer,
         menu_mirrors: Vec::new(),
@@ -566,6 +610,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         frame: FrameGate::default(),
         accessibility: None,
     };
+    if let Some(watcher) = app.file_watcher.as_ref() {
+        if let Err(error) = register_file_watch(&event_loop.handle(), watcher) {
+            eprintln!("RicePlate: could not register XDG inotify fd: {error}");
+            app.file_watcher = None;
+        }
+    }
     // Only a real standalone Luna session owns the root-menu command socket.
     // Never let nested design previews steal an active user's socket.
     let desktop_listener = if app.recipe.id == "xp-luna-columns"
@@ -786,9 +836,33 @@ fn main() -> Result<(), Box<dyn Error>> {
         let backlight_timeout = backlight.as_ref().map(|_| next_backlight_check
             .saturating_duration_since(Instant::now()));
         let timeout = [Some(next_clock_timeout()), osd_timeout, reconnect_timeout, backlight_timeout,
+                       app.file_watcher.as_ref().and_then(|w| w.next_deadline())
+                           .map(|at| at.saturating_duration_since(Instant::now())),
                        app.notification_state.refresh_timeout(Instant::now())]
             .into_iter().flatten().min().unwrap_or_else(next_clock_timeout);
         event_loop.dispatch(Some(timeout), &mut app)?;
+        // Calloop observes the inotify fd; a deadline exists only after a
+        // kernel event. No resident desktop polling loop is introduced.
+        if let Some(refresh) = app.file_watcher.as_mut()
+            .and_then(|watcher| watcher.take_due(Instant::now())) {
+            if refresh == desktop_layout::watcher::Refresh::RebuildWatch {
+                // The old Generic fd source returned PostAction::Remove before
+                // Watcher drops its original inotify descriptor.
+                app.file_watcher = None;
+            }
+            app.refresh_file_desktop(&qh);
+            if refresh == desktop_layout::watcher::Refresh::RebuildWatch {
+                if let Some(path) = app.file_desktop.as_ref() {
+                    if let Ok(watcher) = desktop_layout::watcher::Watcher::new(path) {
+                        if let Err(error) = register_file_watch(&event_loop.handle(), &watcher) {
+                            eprintln!("RicePlate: XDG inotify rearm refused: {error}");
+                        } else {
+                            app.file_watcher = Some(watcher);
+                        }
+                    }
+                }
+            }
+        }
         if backlight.is_some() && Instant::now() >= next_backlight_check {
             if let Some(percent) = backlight.as_mut().and_then(brightness::Watcher::changed) {
                 app.osd_state.show_brightness(percent, Instant::now());
@@ -843,6 +917,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
     app.save_icon_positions();
+    // Drop all reactor registrations before the owned inotify descriptor.
+    drop(event_loop);
+    app.file_watcher = None;
     Ok(())
 }
 
@@ -857,6 +934,16 @@ struct Task {
 
 struct IconLayer {
     recipe_index: usize,
+    surface: LayerSurface,
+    pool: Option<SlotPool>,
+    configured: bool,
+    output: Option<wl_output::WlOutput>,
+    bound_output: Option<wl_output::WlOutput>,
+    placed: Option<(u32, u32)>,
+}
+
+struct FileIconLayer {
+    entry: desktop_layout::inventory::Entry,
     surface: LayerSurface,
     pool: Option<SlotPool>,
     configured: bool,
@@ -958,6 +1045,14 @@ struct RicePlate {
     layer: LayerSurface,
     mirrors: Vec<PanelMirror>,
     icon_layers: Vec<IconLayer>,
+    file_layers: Vec<FileIconLayer>,
+    file_desktop: Option<std::path::PathBuf>,
+    file_snapshot: Option<desktop_layout::inventory::Snapshot>,
+    file_positions: desktop_layout::file_state::FilePositions,
+    file_selection: desktop_layout::file_state::FileSelection,
+    file_watcher: Option<desktop_layout::watcher::Watcher>,
+    file_pressed: Option<desktop_layout::inventory::Key>,
+    file_last_click: Option<(desktop_layout::inventory::Key, Instant, (f64, f64))>,
     widget_layers: Vec<DesktopWidgetLayer>,
     menu_layer: Option<MenuLayer>,
     menu_mirrors: Vec<MenuLayer>,
@@ -1040,7 +1135,201 @@ struct RicePlate {
     accessibility: Option<accessibility::Bridge>,
 }
 
+fn new_file_layer(
+    shell: &LayerShell, compositor: &CompositorState, qh: &QueueHandle<RicePlate>,
+    entry: desktop_layout::inventory::Entry,
+    output: Option<&wl_output::WlOutput>,
+) -> FileIconLayer {
+    let surface = shell.create_layer_surface(qh, compositor.create_surface(qh),
+        Layer::Bottom, Some("riceplate-xdg-file"), output);
+    surface.set_anchor(Anchor::TOP | Anchor::LEFT);
+    surface.set_size(recipe::ICON_WIDTH, recipe::ICON_HEIGHT);
+    surface.set_margin(MAX_WIDTH as i32, 0, 0, MAX_WIDTH as i32);
+    surface.set_exclusive_zone(-1);
+    surface.set_keyboard_interactivity(KeyboardInteractivity::None);
+    surface.commit();
+    FileIconLayer { entry, surface, pool: None, configured: false,
+        output: output.cloned(), bound_output: output.cloned(), placed: None }
+}
+
+fn register_file_watch(
+    handle: &LoopHandle<'_, RicePlate>, watcher: &desktop_layout::watcher::Watcher,
+) -> Result<(), Box<dyn Error>> {
+    // Generic owns an independent duplicate. The original stays with Watcher.
+    let raw = unsafe { libc::dup(watcher.fd()) };
+    if raw < 0 { return Err(std::io::Error::last_os_error().into()); }
+    let fd = unsafe { OwnedFd::from_raw_fd(raw) };
+    handle.insert_source(Generic::new(fd, Interest::READ, Mode::Level),
+        |_, _, app: &mut RicePlate| {
+            let action = match app.file_watcher.as_mut() {
+                Some(watcher) => {
+                    if let Err(error) = watcher.read_ready(Instant::now()) {
+                        eprintln!("RicePlate: XDG inotify read failed: {error}");
+                    }
+                    if watcher.invalidated() { PostAction::Remove }
+                    else { PostAction::Continue }
+                }
+                None => PostAction::Remove,
+            };
+            Ok(action)
+        })?;
+    Ok(())
+}
+
 impl RicePlate {
+    fn sync_file_layers(&mut self, qh: &QueueHandle<Self>) {
+        let Some(snapshot) = self.file_snapshot.as_ref() else { return };
+        let live = &snapshot.entries;
+        let connected: Vec<String> = self.outputs.outputs()
+            .filter_map(|o| self.outputs.info(&o).and_then(|info| info.name))
+            .collect();
+        let extra: Vec<_> = self.outputs.outputs()
+            .filter(|o| self.primary_output.as_ref() != Some(o))
+            .filter(|o| self.logical_output_size(o).is_some())
+            .take(MAX_OUTPUT_PANELS).collect();
+        self.file_layers.retain(|layer|
+            live.iter().any(|entry| entry.key == layer.entry.key)
+            && layer.bound_output.as_ref().is_none_or(|o| extra.contains(o)));
+        // Keep the primary surface count at most MAX_VISIBLE; on secondary
+        // outputs allocate only files explicitly positioned there.
+        for entry in live {
+            if !self.file_layers.iter().any(|l|
+                l.entry.key == entry.key && l.bound_output.is_none()) {
+                self.file_layers.push(new_file_layer(
+                    &self.layer_shell, &self.compositor, qh, entry.clone(), None));
+            }
+        }
+        for output in extra {
+            let Some(name) = self.outputs.info(&output).and_then(|info| info.name) else { continue };
+            for entry in live {
+                if !self.file_positions.visible_on(&entry.key, &name, false, &connected)
+                    || self.file_layers.iter().any(|l|
+                        l.entry.key == entry.key && l.bound_output.as_ref() == Some(&output)) {
+                    continue;
+                }
+                self.file_layers.push(new_file_layer(
+                    &self.layer_shell, &self.compositor, qh,
+                    entry.clone(), Some(&output)));
+            }
+        }
+        for layer in &mut self.file_layers {
+            if let Some(entry) = live.iter().find(|e| e.key == layer.entry.key) {
+                layer.entry = entry.clone();
+            }
+        }
+    }
+
+    fn refresh_file_desktop(&mut self, qh: &QueueHandle<Self>) {
+        let Some(directory) = self.file_desktop.as_ref() else { return };
+        let next = match desktop_layout::inventory::scan(directory) {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                eprintln!("RicePlate: XDG Desktop refresh refused: {error}");
+                return;
+            }
+        };
+        if let Some(before) = self.file_snapshot.take() {
+            self.file_selection.retain_after_refresh(&before, &next);
+            self.file_positions.reconcile(&before, &next);
+        }
+        self.file_snapshot = Some(next);
+        self.file_pressed = None;
+        self.file_last_click = None;
+        self.sync_file_layers(qh);
+        self.reflow_file_layers();
+    }
+
+    fn reflow_file_layers(&mut self) {
+        let Some(snapshot) = self.file_snapshot.as_ref() else { return };
+        let connected: Vec<String> = self.outputs.outputs()
+            .filter_map(|o| self.outputs.info(&o).and_then(|info| info.name))
+            .collect();
+        for index in 0..self.file_layers.len() {
+            let layer = &self.file_layers[index];
+            let output = layer.bound_output.as_ref()
+                .or(self.primary_output.as_ref()).or(layer.output.as_ref());
+            let Some((width, height)) = output.and_then(|o| self.logical_output_size(o))
+                else { continue };
+            let Some(name) = output.and_then(|o| self.outputs.info(o))
+                .and_then(|info| info.name) else { continue };
+            let static_cells: Vec<_> = self.icon_layers.iter()
+                .filter(|icon| icon.bound_output == layer.bound_output)
+                .map(|icon| icon.placed).collect();
+            let placements = desktop_layout::place_files(
+                &snapshot.entries, &self.file_positions, &name,
+                layer.bound_output.is_none(), &connected, &static_cells,
+                width, height, self.recipe.top, self.recipe.height);
+            let placement = snapshot.entries.iter()
+                .position(|e| e.key == layer.entry.key)
+                .and_then(|i| placements.get(i).copied().flatten());
+            let layer = &mut self.file_layers[index];
+            if placement == layer.placed { continue; }
+            layer.placed = placement;
+            if let Some((x, y)) = placement {
+                layer.surface.set_margin(y as i32, 0, 0, x as i32);
+            } else {
+                layer.surface.set_margin(
+                    height.saturating_add(recipe::ICON_HEIGHT) as i32,
+                    0, 0, width.saturating_add(recipe::ICON_WIDTH) as i32);
+            }
+            layer.surface.commit();
+            if placement.is_some() && layer.configured { self.redraw_file_icon(index); }
+        }
+    }
+
+    fn redraw_file_icon(&mut self, index: usize) {
+        let Some(layer) = self.file_layers.get_mut(index) else { return };
+        if !layer.configured || layer.placed.is_none() { return }
+        let (width, height) = (recipe::ICON_WIDTH, recipe::ICON_HEIGHT);
+        let Some(pool) = layer.pool.as_mut() else { return };
+        let (buffer, canvas) = match pool.create_buffer(
+            width as i32, height as i32, (width * 4) as i32, wl_shm::Format::Argb8888) {
+            Ok(buffer) => buffer,
+            Err(error) => {
+                eprintln!("RicePlate: XDG file icon buffer unavailable: {error}");
+                return
+            }
+        };
+        paint_file_icon(canvas, &layer.entry, &self.recipe,
+                        self.file_selection.contains(&layer.entry.key));
+        let surface = layer.surface.wl_surface();
+        surface.damage_buffer(0, 0, width as i32, height as i32);
+        if let Err(error) = buffer.attach_to(surface) {
+            eprintln!("RicePlate: XDG file icon attach failed: {error}");
+            return
+        }
+        layer.surface.commit();
+    }
+
+    fn activate_file_icon(&mut self, key: &desktop_layout::inventory::Key) {
+        let (Some(directory), Some(snapshot)) = (self.file_desktop.as_deref(),
+                                                 self.file_snapshot.as_ref()) else { return };
+        let Some(entry) = snapshot.entries.iter().find(|e| &e.key == key) else { return };
+        let intent = match desktop_context::file_open_intent(snapshot, directory, entry, false) {
+            Ok(intent) => intent,
+            Err(error) => {
+                eprintln!("RicePlate: refused unsafe desktop file activation: {error}");
+                return
+            }
+        };
+        let mut command = match intent {
+            desktop_context::FileOpenIntent::DefaultApplication(path) => {
+                let mut command = Command::new("gio");
+                command.arg("open").arg(path);
+                command
+            }
+            desktop_context::FileOpenIntent::DirectoryInRiceField(path) => {
+                let mut command = Command::new("ricefield");
+                command.arg("--theme").arg("xp-luna")
+                    .arg("--separate-window").arg(path);
+                command
+            }
+        };
+        if let Err(error) = command.spawn() {
+            eprintln!("RicePlate: desktop file opener unavailable: {error}");
+        }
+    }
+
     fn maybe_collapse_luna_panel(&mut self, qh: &QueueHandle<Self>) {
         let popup_open = self.menu_state.visible || self.calendar_state.visible
             || self.tray_popup_open() || self.luna_dialog.is_some()
@@ -2282,6 +2571,7 @@ impl RicePlate {
                 }
             }
         }
+        self.sync_file_layers(qh);
         self.reflow_icons();
         if icons_removed {
             // Existing icon surfaces may keep an old selection highlight even
@@ -3363,6 +3653,7 @@ impl RicePlate {
             self.pressed_widget = None;
             self.hovered_widget = None;
         }
+        self.reflow_file_layers();
     }
 
     fn grouped_tasks(&self) -> Vec<TaskGroup> {
@@ -5029,6 +5320,38 @@ fn paint_icon(canvas: &mut [u8], icon: &recipe::DesktopIcon, style: &PanelStyle,
                    &icon.label, foreground, style);
 }
 
+fn paint_file_icon(
+    canvas: &mut [u8], entry: &desktop_layout::inventory::Entry,
+    style: &PanelStyle, selected: bool,
+) {
+    let (w, h) = (recipe::ICON_WIDTH, recipe::ICON_HEIGHT);
+    canvas.fill(0);
+    let (fill, title) = match entry.kind {
+        desktop_layout::inventory::Kind::Directory => (0xffe3_b751, "Folder"),
+        desktop_layout::inventory::Kind::File => (0xffec_eee8, "File"),
+        desktop_layout::inventory::Kind::DesktopFile => (0xffb8_c8d8, "App?"),
+        desktop_layout::inventory::Kind::Symlink => (0xff8a_98a9, "Link"),
+    };
+    fill_rounded_rect(canvas, w, h, 27, 8, 50, 43, 3, 0xff4b_5b70);
+    if entry.kind == desktop_layout::inventory::Kind::Directory {
+        fill_rect(canvas, w, h, 30, 6, 26, 9, 0xffff_da73);
+    }
+    fill_rounded_rect(canvas, w, h, 30, 12, 44, 35, 3, fill);
+    if entry.kind != desktop_layout::inventory::Kind::Directory {
+        for dy in [21, 27, 33] { fill_rect(canvas, w, h, 37, dy, 27, 2, 0xff8a_98a9); }
+    }
+    draw_rice_text(canvas, w, h, 52_u32.saturating_sub(rice_text_width(title, style)/2),
+                   47, title, style.foreground, style);
+    if selected {
+        fill_rounded_rect(canvas, w, h, 1, 59, 102, 26, 4, 0xff22_5ec3);
+    } else {
+        fill_rounded_rect(canvas, w, h, 1, 59, 102, 26, 4, 0x9b20_2b42);
+    }
+    let label = entry.label.chars().take(16).collect::<String>();
+    let x = w.saturating_sub(rice_text_width(&label, style))/2;
+    draw_rice_text(canvas, w, h, x, 67, &label, 0xffff_ffff, style);
+}
+
 fn paint_desktop_widget(canvas: &mut [u8], title: &str, lines: &[String], style: &PanelStyle,
                         interactive: bool, focused: bool, hovered: bool, disabled: bool) {
     let width = recipe::DESKTOP_WIDGET_WIDTH;
@@ -5139,6 +5462,11 @@ impl CompositorHandler for RicePlate {
             layer.output = Some(output.clone());
             self.reflow_icons();
         }
+        if let Some(icon) = self.file_layers.iter_mut()
+            .find(|icon| icon.surface.wl_surface() == surface) {
+            icon.output = Some(output.clone());
+            self.reflow_file_layers();
+        }
     }
     fn surface_leave(
         &mut self,
@@ -5162,6 +5490,11 @@ impl CompositorHandler for RicePlate {
         {
             if layer.output.as_ref() == Some(output) {
                 layer.output = None;
+            }
+        }
+        for icon in &mut self.file_layers {
+            if icon.surface.wl_surface() == surface && icon.output.as_ref() == Some(output) {
+                icon.output = None;
             }
         }
     }
@@ -5232,6 +5565,11 @@ impl LayerShellHandler for RicePlate {
             .find(|icon| icon.surface.wl_surface() == layer.wl_surface())
         {
             icon.configured = false;
+        } else if let Some(file) = self.file_layers.iter_mut()
+            .find(|file| file.surface.wl_surface() == layer.wl_surface()) {
+            file.configured = false;
+            file.placed = None;
+            self.file_pressed = None;
         } else if let Some(widget) = self.widget_layers.iter_mut()
             .find(|widget| widget.surface.wl_surface() == layer.wl_surface())
         {
@@ -5468,6 +5806,28 @@ impl LayerShellHandler for RicePlate {
             self.redraw_icon(index);
             return;
         }
+        if let Some(index) = self.file_layers.iter()
+            .position(|file| file.surface.wl_surface() == layer.wl_surface()) {
+            if config.new_size != (recipe::ICON_WIDTH, recipe::ICON_HEIGHT) {
+                eprintln!("RicePlate: invalid file-icon surface geometry");
+                self.file_layers[index].configured = false;
+                return;
+            }
+            let file = &mut self.file_layers[index];
+            if file.pool.is_none() {
+                let bytes = recipe::ICON_WIDTH as usize * recipe::ICON_HEIGHT as usize * 4 * 2;
+                match SlotPool::new(bytes, &self.shm) {
+                    Ok(pool) => file.pool = Some(pool),
+                    Err(error) => {
+                        eprintln!("RicePlate: XDG file icon allocation refused: {error}");
+                        return;
+                    }
+                }
+            }
+            file.configured = true;
+            self.redraw_file_icon(index);
+            return;
+        }
         if let Some(index) = self.widget_layers.iter()
             .position(|widget| widget.surface.wl_surface() == layer.wl_surface())
         {
@@ -5550,6 +5910,11 @@ impl OutputHandler for RicePlate {
                 icon.output = None;
             }
         }
+        for icon in &mut self.file_layers {
+            if icon.output.as_ref() == Some(&output) { icon.output = None; }
+        }
+        self.file_pressed = None;
+        self.file_last_click = None;
         self.reflow_icons();
         self.sync_mirrors(qh);
     }
@@ -6623,6 +6988,58 @@ impl PointerHandler for RicePlate {
                             None => {}
                         }
                     }
+                }
+                continue;
+            }
+            if let Some(index) = self.file_layers.iter().position(|file|
+                &event.surface == file.surface.wl_surface()) {
+                if self.file_layers[index].placed.is_none() { continue; }
+                let key = self.file_layers[index].entry.key.clone();
+                match event.kind {
+                    PointerEventKind::Press { button: BTN_LEFT, .. } => {
+                        self.close_desktop_context();
+                        let mode = if self.selection_modifiers.ctrl {
+                            desktop_layout::file_state::ChooseMode::Toggle
+                        } else if self.selection_modifiers.shift {
+                            desktop_layout::file_state::ChooseMode::Range
+                        } else { desktop_layout::file_state::ChooseMode::Replace };
+                        if let Some(snapshot) = self.file_snapshot.as_ref() {
+                            self.file_selection.choose(&key, mode, &snapshot.entries);
+                            for i in 0..self.file_layers.len() { self.redraw_file_icon(i); }
+                        }
+                        self.file_pressed = Some(key);
+                    }
+                    PointerEventKind::Press { button: BTN_RIGHT, .. } => {
+                        if let Some(snapshot) = self.file_snapshot.as_ref() {
+                            self.file_selection.choose(&key,
+                                desktop_layout::file_state::ChooseMode::Replace, &snapshot.entries);
+                            for i in 0..self.file_layers.len() { self.redraw_file_icon(i); }
+                        }
+                        // File-context UI is a distinct integration gate.
+                        // Never send file keys into the virtual-shortcut menu.
+                        self.file_pressed = None;
+                        self.file_last_click = None;
+                    }
+                    PointerEventKind::Release { button: BTN_LEFT, .. } => {
+                        if self.file_pressed.take().as_ref() == Some(&key) {
+                            let now = Instant::now();
+                            let activate = self.file_last_click.as_ref().is_some_and(
+                                |(old, when, previous)| old == &key
+                                    && now.duration_since(*when) < Duration::from_millis(450)
+                                    && (previous.0 - event.position.0).abs() < 12.0
+                                    && (previous.1 - event.position.1).abs() < 12.0);
+                            if activate {
+                                self.file_last_click = None;
+                                self.activate_file_icon(&key);
+                            } else {
+                                self.file_last_click = Some((key, now, event.position));
+                            }
+                        }
+                    }
+                    PointerEventKind::Leave { .. } => {
+                        self.file_pressed = None;
+                    }
+                    _ => {}
                 }
                 continue;
             }
