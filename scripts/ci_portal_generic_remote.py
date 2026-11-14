@@ -80,7 +80,7 @@ STREAM_FLAGS = "StreamFlags::MAP_BUFFERS | StreamFlags::ALLOC_BUFFERS | StreamFl
 def patch_stream_buffers(source: str) -> str:
     if source.count(STREAM_FLAGS) != 1 or "pub fn queue_frame(" not in source:
         raise ValueError("unsupported pinned upstream buffer allocation layout")
-    return source.replace(STREAM_FLAGS, "StreamFlags::MAP_BUFFERS | StreamFlags::DRIVER")
+    return source.replace(STREAM_FLAGS, "StreamFlags::MAP_BUFFERS")
 
 
 def main() -> int:

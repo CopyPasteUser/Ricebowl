@@ -25,7 +25,8 @@ class PrivateRemotePatchTests(unittest.TestCase):
     def test_buffer_flag_patch_requires_exact_pinned_upstream(self):
         original = "start pub fn queue_frame(\n" + STREAM_FLAGS + "\nfinish"
         result = patch_stream_buffers(original)
-        self.assertIn("StreamFlags::MAP_BUFFERS | StreamFlags::DRIVER", result)
+        self.assertIn("StreamFlags::MAP_BUFFERS", result)
+        self.assertNotIn("StreamFlags::DRIVER", result)
         self.assertNotIn("StreamFlags::ALLOC_BUFFERS", result)
         for invalid in ("missing", STREAM_FLAGS, original + STREAM_FLAGS):
             with self.subTest(source=invalid[:30]), self.assertRaises(ValueError):

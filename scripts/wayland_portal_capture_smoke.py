@@ -468,13 +468,18 @@ def frame_probe(fd: int, node: int, serial: int | None = None) -> None:
     Gst.init(None)
     print("PORTAL_PROBE_STAGE: gst_initialized", file=sys.stderr, flush=True)
     pipeline = Gst.parse_launch(
-        "pipewiresrc name=remote-src ! queue ! appsink name=frame-sink "
+        "pipewiresrc name=remote-src ! video/x-raw,format=BGRx ! queue ! appsink name=frame-sink "
         "sync=false async=false max-buffers=1 drop=true")
     src = pipeline.get_by_name("remote-src")
     sink = pipeline.get_by_name("frame-sink")
     if src is None or sink is None:
         raise RuntimeError("GStreamer PipeWire source/appsink plugin unavailable")
     src.set_property("fd", fd)
+    if serial is not None:
+        # Force CPU-compatible copied SystemMemory samples in the headless
+        # software lane. Never consider a zero-memory Gst.Buffer a frame.
+        src.set_property("use-bufferpool", False)
+        src.set_property("always-copy", True)
     if serial is not None:
         if not 0 < serial <= 0xffffffffffffffff:
             raise RuntimeError("Invalid PipeWire target object.serial")

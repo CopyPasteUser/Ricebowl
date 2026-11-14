@@ -207,3 +207,12 @@ CI runtime. The consumer still uses the portal's real FD and must read an
 actual nonempty `video/x-raw` sample. This is transport acceptance,
 **not** automatic real-user WirePlumber policy, consent, or sandbox
 verification; those remain separate production acceptance gates.
+
+### CPU memory negotiation trial
+
+After explicit private PipeWire link, the GStreamer source reached PLAYING
+but the server reported an unsupported SPA buffer data type (12), and no
+nonempty video sample was received. The test-only generic source no longer
+requests `DRIVER` mode without a corresponding process callback, and the
+GStreamer receiver requests `BGRx` raw CPU pixels with a copying buffer
+path. This does **not** relax the nonempty-video requirement.
