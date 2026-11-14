@@ -917,6 +917,20 @@ assert text_changed("run-typed", "run-pointer-caret") > 20, (
 assert text_changed("run-pointer-caret", "run-pointer-insert") > 20, (
     "Run did not accept keyboard input after pointer caret placement"
 )
+# Preserve real grim crop evidence when the pixel-exact restoration gate
+# fails. Crops cover only the synthetic CI command field, never real user data.
+restored_delta = ImageChops.difference(images["run-typed"].crop(text_region),
+                                       images["run-pointer-restored"].crop(text_region))
+if text_changed("run-typed", "run-pointer-restored") >= 8:
+    import base64
+    from io import BytesIO
+    print("RUN_RESTORE_FRAME_DIAG bbox=", restored_delta.getbbox(), flush=True)
+    for capture in ("run-typed", "run-pointer-caret", "run-pointer-insert",
+                    "run-pointer-restored"):
+        output = BytesIO()
+        images[capture].crop(text_region).save(output, "PNG")
+        print("RUN_RESTORE_CROP", capture, base64.b64encode(output.getvalue()).decode(),
+              flush=True)
 assert text_changed("run-typed", "run-pointer-restored") < 8, (
     "Run pointer insertion could not be undone to original text and caret"
 )
