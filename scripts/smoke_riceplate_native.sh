@@ -827,7 +827,7 @@ PY
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-pointer-caret.png"
             cp "$runtime/xp-luna-parity-run-pointer-caret.png" \
                "$source_root/dist/riceplate-native-preview/xp-luna-parity-run-pointer-caret.png"
-            WAYLAND_DISPLAY=wayland-0 wtype Z
+            WAYLAND_DISPLAY=wayland-0 wtype -d 35 Z
             sleep 0.2
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-pointer-insert.png"
             cp "$runtime/xp-luna-parity-run-pointer-insert.png" \
@@ -863,6 +863,8 @@ PY
             WAYLAND_DISPLAY=wayland-0 "$clicker" 843 450 1366 768
             sleep 0.25
             kill -0 "$plate"
+            echo "Luna native Run key focus trace:"
+            grep -F "RicePlate: Luna Run/Help" "$runtime/plate-$label.log" | tail -n 20 || :
             /usr/bin/python3 - "$runtime" <<PY
 from pathlib import Path
 from PIL import Image, ImageChops
@@ -889,6 +891,12 @@ def text_changed(a, b):
     delta = ImageChops.difference(
         images[a].crop(text_region), images[b].crop(text_region))
     return sum(1 for pixel in delta.getdata() if max(pixel) > 18)
+print("Run pointer CI metrics:",
+      "typed", text_changed("run", "run-typed"),
+      "caret", text_changed("run-typed", "run-pointer-caret"),
+      "insert", text_changed("run-pointer-caret", "run-pointer-insert"),
+      "restored", text_changed("run-typed", "run-pointer-restored"),
+      "dialog_visible", changed("run", "run-pointer-caret"), flush=True)
 assert text_changed("run", "run-typed") > 20, "Wayland typing did not reach native Run"
 assert text_changed("run-typed", "run-pointer-caret") > 20, (
     "Real pointer click did not move the native Run caret"
