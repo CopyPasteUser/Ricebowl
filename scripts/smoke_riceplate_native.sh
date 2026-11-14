@@ -1652,26 +1652,67 @@ PY
         tail -n 45 "$runtime/file-plate.log" >&2
         exit 1
     }
-    cat > "$runtime/focus-receiver.sh" <<"RECEIVER"
-#!/bin/sh
-set -eu
-IFS= read -r input
-printf %s "$input" > "$FOCUS_RECEIVER_LOG"
+    # Fullscreen is confined to this disposable headless compositor. This
+    # is a real, normal GTK3 Wayland client, not an input mock or synthetic
+    # wl_keyboard event. Its actual Entry activates only on typed Return.
+    cat > "$runtime/focus-receiver.py" <<"RECEIVER"
+import os
+from pathlib import Path
+
+import gi
+gi.require_version("Gtk", "3.0")
+from gi.repository import GLib, Gtk
+
+ready = Path(os.environ["FOCUS_RECEIVER_READY"])
+received = Path(os.environ["FOCUS_RECEIVER_LOG"])
+window = Gtk.Window(title="RiceBowl external Wayland keyboard witness")
+window.set_default_size(880, 520)
+window.fullscreen()
+entry = Gtk.Entry()
+entry.set_hexpand(True)
+entry.set_vexpand(True)
+window.add(entry)
+
+def mapped(*unused):
+    ready.write_text("mapped\n")
+    return False
+
+def activated(widget):
+    received.write_text(widget.get_text())
+    Gtk.main_quit()
+
+window.connect("map-event", mapped)
+window.connect("destroy", Gtk.main_quit)
+entry.connect("activate", activated)
+window.show_all()
+entry.grab_focus()
+GLib.timeout_add_seconds(20, Gtk.main_quit)
+Gtk.main()
 RECEIVER
-    chmod 0700 "$runtime/focus-receiver.sh"
-    FOCUS_RECEIVER_LOG="$runtime/focus-input.log" \
-        WAYLAND_DISPLAY=wayland-0 \
-        foot --app-id=ricebowl-focus-receiver --title=RiceBowl-Focus-Probe \
-        /bin/sh "$runtime/focus-receiver.sh" >"$runtime/focus-app.log" 2>&1 &
+    FOCUS_RECEIVER_READY="$runtime/focus-ready.log" \
+        FOCUS_RECEIVER_LOG="$runtime/focus-input.log" \
+        GDK_BACKEND=wayland WAYLAND_DISPLAY=wayland-0 \
+        /usr/bin/python3 -B "$runtime/focus-receiver.py" \
+        >"$runtime/focus-app.log" 2>&1 &
     focus_app=$!
-    sleep 0.7
+    count=0
+    while [ ! -s "$runtime/focus-ready.log" ] && [ "$count" -lt 40 ]; do
+        kill -0 "$focus_app" 2>/dev/null || break
+        count=$((count + 1))
+        sleep 0.1
+    done
+    test -s "$runtime/focus-ready.log" || {
+        echo "Real external GTK Wayland window did not map" >&2
+        tail -n 50 "$runtime/focus-app.log" >&2
+        exit 1
+    }
     kill -0 "$focus_app" || {
-        echo "External Wayland keyboard receiver exited early" >&2
+        echo "External Wayland keyboard witness exited early" >&2
         cat "$runtime/focus-app.log" >&2
         exit 1
     }
-    # The compositor, not our shell, must grant the external application
-    # keyboard focus; click the window at the center of the headless output.
+    # The external client has a fullscreen wl_surface, so this deliberate
+    # pointer click cannot miss a small or compositor-positioned terminal.
     WAYLAND_DISPLAY=wayland-0 "$clicker" 683 384 1366 768
     wait "$focus_typer" || {
         echo "Virtual keyboard failed during external Wayland focus handoff" >&2
