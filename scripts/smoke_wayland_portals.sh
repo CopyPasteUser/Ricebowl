@@ -18,14 +18,6 @@ if [ "$backend" = generic ] && [ "$strict" != 1 ]; then
     echo "PORTAL_SETUP_FAIL: generic backend reserved for strict isolated CI" >&2
     exit 2
 fi
-if [ "$strict" = 1 ]; then
-    # Both strict backends must have a private session manager. A PipeWire
-    # socket alone cannot establish an authorized producer-consumer link.
-    command -v wireplumber >/dev/null 2>&1 || {
-        echo "PORTAL_SETUP_FAIL: private WirePlumber is unavailable" >&2
-        exit 2
-    }
-fi
 if [ "$strict" = 1 ] && [ "$backend" = generic ]; then
     [ "$renderer" = pixman ] || {
         echo "PORTAL_STRICT_BLOCKED: generic SHM backend requires pixman" >&2
@@ -67,6 +59,14 @@ if [ "$strict" = 1 ] && [ "$backend" = wlr ]; then
     export WLR_RENDER_DRM_DEVICE="$render_node"
     export WLR_RENDERER_ALLOW_SOFTWARE=1
     echo "PORTAL_STRICT_PREREQ_OK: DRM render node available: $render_node"
+fi
+if [ "$strict" = 1 ]; then
+    # Both strict backends must have a private session manager. A PipeWire
+    # socket alone cannot establish an authorized producer-consumer link.
+    command -v wireplumber >/dev/null 2>&1 || {
+        echo "PORTAL_SETUP_FAIL: private WirePlumber is unavailable" >&2
+        exit 2
+    }
 fi
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 for binary in labwc pipewire dbus-run-session dbus-update-activation-environment gdbus timeout setsid grim; do
