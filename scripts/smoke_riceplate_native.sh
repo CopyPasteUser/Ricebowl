@@ -1622,7 +1622,7 @@ PY
     # A real external Wayland application must regain the keyboard after a
     # desktop icon is intentionally selected. Headless labwc has no physical
     # keyboard: connect the test keyboard BEFORE requesting focus and retain
-    # the same live seat across desktop -> foot -> typed input. A late wtype
+    # the same live seat across desktop -> GTK -> typed input. A late wtype
     # invocation does not test this focus transition and previously generated
     # NoKeyboardProxy errors instead of a meaningful external-app assertion.
     file_position=$(sed -n "s/.*XDG mapped x=\([0-9][0-9]*\) y=\([0-9][0-9]*\) kind=File.*/\1 \2/p" \
@@ -1696,7 +1696,7 @@ def mapped(*unused):
     return False
 
 def keyboard_focused(*unused):
-    focused.write_text("compositor-focus\\n")
+    focused.write_text("compositor-focus\n")
     return False
 
 def activated(widget):
@@ -1745,6 +1745,7 @@ RECEIVER
     done
     test -s "$runtime/focus-focused.log" || {
         echo "External GTK Wayland client never received compositor keyboard focus" >&2
+        tail -n 45 "$runtime/file-plate.log" >&2
         tail -n 45 "$runtime/focus-app.log" >&2
         exit 1
     }
