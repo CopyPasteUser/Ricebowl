@@ -92,8 +92,13 @@ def save(desired: Mapping, *, expected: Mapping) -> dict[str, bool]:
                 or info.st_mode & 0o077):
             raise TaskbarSettingsError("Unsafe taskbar settings lock")
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-        if load() != previous:
+        current = load()
+        if current != previous:
             raise TaskbarSettingsError("Taskbar settings changed elsewhere; reload")
+        # Keep the inode, mtime and any external observers stable when nothing
+        # changed. This check must happen *after* the locked CAS comparison.
+        if current == values:
+            return values
         fd, name = tempfile.mkstemp(prefix=".luna-taskbar-", dir=directory)
         try:
             with os.fdopen(fd, "wb") as stream:

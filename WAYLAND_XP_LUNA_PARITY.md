@@ -19,6 +19,22 @@ Wayland uses upstream labwc plus RicePlate. Original/licensed art only.
 | Window decorations | XFWM Luna borders/buttons | labwc-managed decoration/theme support | Cannot skin all Wayland CSD windows |
 | Display/login/recovery | Existing XFCE/X11 session | Opt-in labwc native preview; package rollback in CI | Physical Mint/ThinkPad sign-off |
 
+## Luna native preference write efficiency (14 November 2026)
+
+The opt-in native taskbar (Auto-hide/Quick Launch) and panel clock (12/24h)
+settings now short-circuit an unchanged **Save/Apply** after taking their
+existing owner-private lock and validating the compare-and-swap expected
+state. This preserves the existing file's inode and modification time,
+avoids a redundant temporary-file write/replace/fsync, and does not
+create a settings JSON when explicitly saving unchanged first-run defaults.
+A stale expected state still raises a conflict even when the requested value
+matches the on-disk value. Both Python modules have regression tests for
+idempotence, first-run defaults and stale editors.
+
+Changes still take effect only when the native Luna session next starts;
+this is not live panel reconfiguration or physical device validation.
+Tests and complete native CI remain acceptance gates for this branch.
+
 ## Native XP notification area and Control Panel (November 2026)
 
 The opt-in `xp-luna-columns` panel now retains NetworkManager, WirePlumber,
