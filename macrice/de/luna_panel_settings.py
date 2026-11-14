@@ -104,8 +104,13 @@ def save(values: Mapping, *, expected: Mapping) -> dict[str, str]:
                 or meta.st_mode & 0o077):
             raise LunaPanelError("Unsafe Luna preference lock")
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-        if load() != before:
+        current = load()
+        if current != before:
             raise LunaPanelError("Luna settings changed elsewhere; refresh before saving")
+        # Avoid a redundant atomic replace/fsync on an unchanged Apply.
+        # The lock still guards the CAS check, including the no-op case.
+        if current == desired:
+            return desired
         fd, temporary = tempfile.mkstemp(prefix=".luna-panel-", dir=directory)
         try:
             with os.fdopen(fd, "wb") as stream:
