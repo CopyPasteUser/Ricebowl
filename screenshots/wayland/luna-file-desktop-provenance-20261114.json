@@ -1,0 +1,59 @@
+{
+  "ci_run": 43593535063,
+  "environment": {
+    "backend": "headless",
+    "compositor": "labwc",
+    "native_surface": "riceplate",
+    "renderer": "pixman"
+  },
+  "image_changes": {
+    "inotify_created": 4848,
+    "new_folder": 7573,
+    "real_selection": 2617
+  },
+  "images": [
+    {
+      "preview": "luna-file-desktop-before-20261114.webp",
+      "preview_sha256": "07e70bccb1d86c6346a08915eba6956b23fce559ad51ddbee48d4e1734189b52",
+      "size": [
+        1366,
+        768
+      ],
+      "source": "xdg-before.png",
+      "source_sha256": "a865fdb53836813aca941bd45166342010ceb98f386a597c2c731b9ce1808ffb"
+    },
+    {
+      "preview": "luna-file-desktop-live-20261114.webp",
+      "preview_sha256": "728e055acda7e1319cb1d2d878db67888d1c5d70d0e3de2daf109c013af404ea",
+      "size": [
+        1366,
+        768
+      ],
+      "source": "xdg-created.png",
+      "source_sha256": "42dd1e76d07493c57ea82f7be255e8532a1200e1e4167b7384fea0b06071ee2c"
+    },
+    {
+      "preview": "luna-file-desktop-selected-20261114.webp",
+      "preview_sha256": "5be70170c29557b330035e05d58a38311b623a6ef349f60ec91e5ca403ac5cde",
+      "size": [
+        1366,
+        768
+      ],
+      "source": "xdg-selected.png",
+      "source_sha256": "ee9e8cc6eafc71335ac9088c3e593f5f2bcd9f956ea139aa967db41cbfdb2c51"
+    },
+    {
+      "preview": "luna-file-desktop-folder-20261114.webp",
+      "preview_sha256": "b2ee97a88ccda8929087b35b608cb69037d20720e41c6deab2e3769ba6b10bc8",
+      "size": [
+        1366,
+        768
+      ],
+      "source": "xdg-folder.png",
+      "source_sha256": "692c120f8ed12eb0bd5a1d9c56a76b533afc357a18402b6ddb3ba900b5f42c12"
+    }
+  ],
+  "limitations": "RiceField open is tested as exact argv with an isolated mock; no actual RiceField window is shown. No physical GPU/keyboard acceptance.",
+  "source": "genuine labwc headless compositor grim frames from full XDG file-desktop smoke",
+  "source_commit": "0779d2e0b903db496105d0f6be2f7b7b166509c8"
+}
