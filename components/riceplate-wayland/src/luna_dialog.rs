@@ -82,12 +82,11 @@ impl State {
         self.cursor != previous
     }
 
-    /// Calculate the visible input and caret from the exact active font
-    /// metrics. Long input scrolls horizontally towards the caret instead
-    /// of painting across the dialog or leaving the caret off-screen.
-    pub fn input_view<F: Fn(&str) -> u32>(&self, max_width: u32, measure: F)
-        -> (String, u32)
-    {
+    /// Use identical glyph advances for painting and mouse hit-testing.
+    /// The caret is always within the visible Unicode scalar window.
+    fn visible_range<F: Fn(&str) -> u32>(
+        &self, max_width: u32, measure: &F,
+    ) -> (usize, usize) {
         let chars: Vec<char> = self.input.chars().collect();
         let cursor = self.cursor.min(chars.len());
         let mut start = cursor;
@@ -102,9 +101,47 @@ impl State {
             if measure(&candidate).saturating_add(2) > max_width { break; }
             end += 1;
         }
+        (start, end)
+    }
+
+    /// Calculate the visible input and caret from the exact active font
+    /// metrics. Long input scrolls horizontally towards the caret instead
+    /// of painting across the dialog or leaving the caret off-screen.
+    pub fn input_view<F: Fn(&str) -> u32>(&self, max_width: u32, measure: F)
+        -> (String, u32)
+    {
+        let chars: Vec<char> = self.input.chars().collect();
+        let (start, end) = self.visible_range(max_width, &measure);
         let display: String = chars[start..end].iter().collect();
-        let prefix: String = chars[start..cursor].iter().collect();
+        let prefix: String = chars[start..self.cursor.min(chars.len())].iter().collect();
         (display, measure(&prefix).min(max_width.saturating_sub(1)))
+    }
+
+    /// Move the caret to the nearest glyph boundary in the *painted* input.
+    /// A scrolled field must not place it on hidden characters. The caller
+    /// supplies mouse X relative to the rendered text origin (128px).
+    pub fn place_cursor_at<F: Fn(&str) -> u32>(
+        &mut self, x: f64, max_width: u32, measure: F,
+    ) -> bool {
+        if self.kind != Kind::Run || !x.is_finite() || max_width == 0 {
+            return false;
+        }
+        let chars: Vec<char> = self.input.chars().collect();
+        let (start, end) = self.visible_range(max_width, &measure);
+        let x = x.clamp(0.0, f64::from(max_width));
+        let mut selected = start;
+        let mut previous = 0_u32;
+        for index in start..end {
+            let segment: String = chars[start..index + 1].iter().collect();
+            let next = measure(&segment);
+            let midpoint = f64::from(previous) + f64::from(next.saturating_sub(previous)) / 2.0;
+            if x < midpoint { break; }
+            selected = index + 1;
+            previous = next;
+        }
+        let changed = self.cursor != selected;
+        self.cursor = selected;
+        changed
     }
 
     /// A tiny argv lexer, not a shell. Only explicit user keystrokes feed
@@ -280,6 +317,44 @@ mod tests {
         // assuming eight fixed pixels per glyph.
         assert_eq!(state.input_view(13, |text| text.chars().map(|c|
             if c == 'f' { 11 } else { 7 }).sum()), ("f".into(), 11));
+    }
+
+    #[test]
+    fn clicking_run_input_moves_unicode_caret_using_actual_font_widths() {
+        let mut state = State::new(Kind::Run);
+        for ch in "a界bc".chars() { assert!(state.enter(&ch.to_string())); }
+        let width = |text: &str| text.chars().map(|ch|
+            if ch == '界' { 14_u32 } else { 8_u32 }).sum();
+        assert_eq!(state.input_view(80, width), ("a界bc".into(), 38));
+        assert!(state.place_cursor_at(16.0, 80, width));
+        assert_eq!(state.cursor, 2, "click past wide glyph midpoint");
+        assert!(state.enter("Z"));
+        assert_eq!(state.input, "a界Zbc");
+        assert!(state.move_cursor(CursorMove::Home));
+        assert!(state.place_cursor_at(3.0, 80, width));
+        assert_eq!(state.cursor, 0);
+        assert!(!state.place_cursor_at(f64::NAN, 80, width));
+        assert!(!state.place_cursor_at(f64::INFINITY, 80, width));
+        assert_eq!(state.cursor, 0);
+        assert!(!state.place_cursor_at(8.0, 0, width));
+        let mut help = State::new(Kind::Help);
+        assert!(!help.place_cursor_at(12.0, 80, width));
+    }
+
+    #[test]
+    fn clicking_scrolled_run_input_never_selects_invisible_prefix() {
+        let mut state = State::new(Kind::Run);
+        for ch in "abcdef".chars() { assert!(state.enter(&ch.to_string())); }
+        let width = |text: &str| text.chars().count() as u32 * 8;
+        assert_eq!(state.input_view(26, width), ("def".into(), 24));
+        assert!(state.place_cursor_at(-50.0, 26, width));
+        assert_eq!(state.cursor, 3, "left click selects first visible scalar");
+        assert_eq!(state.input_view(26, width), ("abc".into(), 24));
+        assert_eq!(state.input, "abcdef", "click never changes text");
+        assert!(state.place_cursor_at(1.0, 26, width));
+        assert_eq!(state.cursor, 0);
+        assert!(state.place_cursor_at(999.0, 26, width));
+        assert_eq!(state.cursor, 3, "right click selects last visible boundary");
     }
 
     #[test]
