@@ -383,23 +383,34 @@ def diagnose_pipewire_node(node: int, serial: int | None) -> str:
     except (json.JSONDecodeError, ValueError):
         return "PORTAL_PIPEWIRE_DIAG: daemon returned invalid bounded JSON"
     sources = []
+    ports = []
     for obj in objects:
-        if not isinstance(obj, dict) or obj.get("type") != "PipeWire:Interface:Node":
+        if not isinstance(obj, dict):
             continue
+        typ = obj.get("type")
         ident = obj.get("id")
         props = obj.get("info", {}).get("props", {})
         if type(ident) is not int or not isinstance(props, dict):
             continue
-        media = props.get("media.class")
-        if ident == node or media == "Video/Source":
-            sources.append({
-                "node_id": ident,
-                "object_serial": props.get("object.serial"),
-                "media_class": media,
-                "node_name": str(props.get("node.name", ""))[:75],
+        if typ == "PipeWire:Interface:Node":
+            media = props.get("media.class")
+            if ident == node or media == "Video/Source":
+                sources.append({
+                    "node_id": ident,
+                    "object_serial": props.get("object.serial"),
+                    "media_class": media,
+                    "node_name": str(props.get("node.name", ""))[:75],
+                    "node_state": obj.get("info", {}).get("state"),
+                })
+        elif typ == "PipeWire:Interface:Port" and str(props.get("node.id")) == str(node):
+            ports.append({
+                "port_id": ident,
+                "direction": props.get("port.direction"),
+                "format_dsp": str(props.get("format.dsp", ""))[:40],
             })
     return (f"PORTAL_PIPEWIRE_DIAG: requested_node={node} "
-            f"requested_serial={serial} discovered={sources[:8]}")
+            f"requested_serial={serial} discovered={sources[:8]} "
+            f"output_ports={ports[:12]}")
 
 
 def verify_delivered_frame(
