@@ -5568,20 +5568,32 @@ fn paint_luna_dialog(canvas: &mut [u8], style: &PanelStyle, state: &luna_dialog:
     fill_rect(canvas, w, h, 3, 3, w - 6, h - 6, 0xfff6_f3e9);
     fill_rect(canvas, w, h, 4, 4, w - 8, 34, 0xff1c_57c3);
     // Authentic-ish blue caption and a distinct red close glyph, all original.
-    draw_rice_text(canvas, w, h, 15, 14, if state.kind == luna_dialog::Kind::Run {
-        "Run" } else { "Help and Support" }, 0xffff_ffff, style);
+    draw_rice_text(canvas, w, h, 15, 14, match state.kind {
+        luna_dialog::Kind::Run => "Run",
+        luna_dialog::Kind::Help => "Help and Support",
+        luna_dialog::Kind::FileRename => "Rename File",
+        luna_dialog::Kind::FileTrash => "Move to Recycle Bin",
+    }, 0xffff_ffff, style);
     fill_rounded_rect(canvas, w, h, 414, 9, 24, 23, 3, 0xffd8_4039);
     draw_rice_text(canvas, w, h, 422, 16, "x", 0xffff_ffff, style);
 
     match state.kind {
-        luna_dialog::Kind::Run => {
-            fill_rounded_rect(canvas, w, h, 25, 67, 67, 73, 8, 0xff2b_64ae);
+        luna_dialog::Kind::Run | luna_dialog::Kind::FileRename => {
+            if state.kind == luna_dialog::Kind::Run {
+                fill_rounded_rect(canvas, w, h, 25, 67, 67, 73, 8, 0xff2b_64ae);
             fill_rect(canvas, w, h, 38, 81, 41, 33, 0xffe2_f5ff);
             fill_rect(canvas, w, h, 44, 87, 29, 21, 0xff8a_d6ec);
             fill_rect(canvas, w, h, 50, 116, 17, 7, 0xffab_c6d7);
-            draw_rice_text(canvas, w, h, 118, 68, "Type a program name.", 0xff17_315c, style);
-            draw_rice_text(canvas, w, h, 118, 87, "No shell expansion.", 0xff4d_6284, style);
-            draw_rice_text(canvas, w, h, 118, 104, "Open:", 0xff17_315c, style);
+            }
+            draw_rice_text(canvas, w, h, 118, 68,
+                if state.kind == luna_dialog::Kind::Run { "Type a program name." }
+                else { "Edit the file name below." }, 0xff17_315c, style);
+            draw_rice_text(canvas, w, h, 118, 87,
+                if state.kind == luna_dialog::Kind::Run { "No shell expansion." }
+                else { "Existing files are protected." }, 0xff4d_6284, style);
+            draw_rice_text(canvas, w, h, 118, 104,
+                if state.kind == luna_dialog::Kind::Run { "Open:" }
+                else { "Name:" }, 0xff17_315c, style);
             fill_rect(canvas, w, h, 118, 111, 306, 32, 0xff75_879f);
             fill_rect(canvas, w, h, 120, 113, 302, 28, 0xffff_ffff);
             // Use the same font advances as actual glyph drawing: a
@@ -5590,10 +5602,21 @@ fn paint_luna_dialog(canvas: &mut [u8], style: &PanelStyle, state: &luna_dialog:
                 luna_dialog_text_width(style, value));
             draw_rice_text(canvas, w, h, 128, 122, &text, 0xff10_2849, style);
             fill_rect(canvas, w, h, 128 + cursor_x, 120, 2, 16, 0xff10_2849);
-            let notice = state.notice.unwrap_or("Executes a command directly as your user.");
+            let notice = state.notice.unwrap_or(if state.kind == luna_dialog::Kind::Run {
+                "Executes a command directly as your user."
+            } else { "Rename stays within the Desktop; no overwrite." });
             draw_rice_text(canvas, w, h, 22, 163,
                            &notice.chars().take(50).collect::<String>(),
                            if state.notice.is_some() { 0xffb2_302e } else { 0xff4d_6284 }, style);
+        }
+        luna_dialog::Kind::FileTrash => {
+            draw_rice_text(canvas, w, h, 25, 72, "Move this item to the Recycle Bin?",
+                           0xff17_315c, style);
+            let label: String = state.input.chars().take(48).collect();
+            draw_rice_text(canvas, w, h, 25, 104, &label, 0xff17_315c, style);
+            draw_rice_text(canvas, w, h, 25, 136,
+                state.notice.unwrap_or("Gio manages Trash. Cancel leaves the item intact."),
+                if state.notice.is_some() { 0xffb2_302e } else { 0xff4d_6284 }, style);
         }
         luna_dialog::Kind::Help => {
             for (line, text) in [
@@ -5609,7 +5632,12 @@ fn paint_luna_dialog(canvas: &mut [u8], style: &PanelStyle, state: &luna_dialog:
             }
         }
     }
-    let primary = if state.kind == luna_dialog::Kind::Run { "OK" } else { "Close" };
+    let primary = match state.kind {
+        luna_dialog::Kind::Run => "OK",
+        luna_dialog::Kind::Help => "Close",
+        luna_dialog::Kind::FileRename => "Rename",
+        luna_dialog::Kind::FileTrash => "Trash",
+    };
     for (x, label, hit) in [(260, primary, luna_dialog::Hit::Accept),
                            (346, "Cancel", luna_dialog::Hit::Cancel)] {
         if state.kind == luna_dialog::Kind::Help && hit == luna_dialog::Hit::Cancel {
@@ -5620,8 +5648,9 @@ fn paint_luna_dialog(canvas: &mut [u8], style: &PanelStyle, state: &luna_dialog:
                     else { 0xff37_6bbd };
         fill_rounded_rect(canvas, w, h, x, 188, 78, 30, 3, shade);
         fill_rect(canvas, w, h, x + 3, 190, 72, 1, 0xffc3_dffb);
-        draw_rice_text(canvas, w, h, x + if label == "Cancel" { 12 }
-                       else if label == "Close" { 16 } else { 30 },
+        draw_rice_text(canvas, w, h, x + match label {
+                           "Cancel" => 12, "Close" => 16,
+                           "Rename" => 18, "Trash" => 22, _ => 30 },
                        198, label, 0xffff_ffff, style);
     }
 }
