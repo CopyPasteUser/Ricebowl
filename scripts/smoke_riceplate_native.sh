@@ -1735,8 +1735,22 @@ RECEIVER
         cat "$runtime/focus-app.log" >&2
         exit 1
     }
-    # The external client has a fullscreen wl_surface, so this deliberate
-    # pointer click cannot miss a small or compositor-positioned terminal.
+    # The compositor must report the new toplevel and RicePlate must
+    # retire its Exclusive desktop focus before the pointer activates it.
+    # A map-event is not sufficient proof of compositor keyboard ownership.
+    count=0
+    while [ "$count" -lt 40 ]; do
+        focus_releases_on_map=$(grep -Fc "RicePlate: XDG file keyboard focus released" "$runtime/file-plate.log" || :)
+        test "$focus_releases_on_map" -gt "$focus_releases_before" && break
+        count=$((count + 1))
+        sleep 0.1
+    done
+    test "$focus_releases_on_map" -gt "$focus_releases_before" || {
+        echo "New app toplevel did not revoke exclusive desktop keyboard surface" >&2
+        tail -n 50 "$runtime/file-plate.log" >&2
+        exit 1
+    }
+    # Now perform a real pointer activation on the fullscreen XDG window.
     WAYLAND_DISPLAY=wayland-0 "$clicker" 683 384 1366 768
     count=0
     while [ ! -s "$runtime/focus-focused.log" ] && [ "$count" -lt 30 ]; do
