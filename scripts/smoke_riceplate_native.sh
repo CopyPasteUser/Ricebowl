@@ -718,7 +718,7 @@ PY
             # labwc headless has no physical keyboard. Its real virtual
             # keyboard MUST exist before the pointer gesture; the same-seat
             # policy correctly rejects late keyboard capabilities.
-            WAYLAND_DISPLAY=wayland-0 wtype -d 750 -k F13 p \
+            WAYLAND_DISPLAY=wayland-0 wtype -d 600 -k F13 -k F13 -k F13 p -k F13 -k F13 \
                 > "$runtime/luna-shortcut-wtype.log" 2>&1 &
             shortcut_typer=$!
             sleep 0.2
@@ -772,7 +772,7 @@ PY
             # Reacquire via a fresh physical pointer gesture while a REAL
             # virtual keyboard remains connected, then send Escape on that
             # very seat. Detached wtype cannot retroactively claim focus.
-            WAYLAND_DISPLAY=wayland-0 wtype -d 700 -k F13 -k Escape \
+            WAYLAND_DISPLAY=wayland-0 wtype -d 600 -k F13 -k F13 -k F13 -k Escape -k F13 -k F13 \
                 > "$runtime/luna-shortcut-escape-wtype.log" 2>&1 &
             escape_typer=$!
             sleep 0.2
