@@ -1085,15 +1085,47 @@ PY
             exit 1
         }
     done
+    # A newly created folder receives its own live compositor surface.
+    # Opening it uses exact RiceField argv rather than invoking a shell.
+    mkdir "$runtime/file-home/Desktop/04-folder"
+    sleep 0.65
+    grep -Fq "RicePlate: XDG inventory refreshed entries=5" \
+        "$runtime/file-plate.log" || {
+        echo "Native XDG folder creation did not reach the Wayland inventory" >&2
+        exit 1
+    }
+    folder_position=$(sed -n "s/.*XDG mapped x=\([0-9][0-9]*\) y=\([0-9][0-9]*\) kind=Directory.*/\1 \2/p" \
+        "$runtime/file-plate.log" | tail -n 1)
+    test -n "$folder_position" || {
+        echo "New XDG folder has no separate Wayland surface" >&2
+        exit 1
+    }
+    set -- $folder_position
+    folder_x=$(($1 + 52))
+    folder_y=$(($2 + 45))
+    WAYLAND_DISPLAY=wayland-0 "$clicker" "$folder_x" "$folder_y" 1366 768
+    WAYLAND_DISPLAY=wayland-0 "$clicker" "$folder_x" "$folder_y" 1366 768
+    count=0
+    while [ ! -s "$runtime/full-ricefield.log" ] && [ "$count" -lt 25 ]; do
+        count=$((count + 1))
+        sleep 0.1
+    done
+    expected_ricefield=$(printf "%s\n" --theme xp-luna --separate-window \
+        "$runtime/file-home/Desktop/04-folder")
+    test "$(cat "$runtime/full-ricefield.log" 2>/dev/null || :)" = "$expected_ricefield" || {
+        echo "Native XDG folder double click did not dispatch the exact RiceField argv" >&2
+        exit 1
+    }
+    rm -f "$runtime/full-ricefield.log"
     # Rename and removal are external writes; the live watcher must notice
     # both, clean up the old surface, and preserve the existing panel.
     mv "$runtime/file-home/Desktop/00-note.txt" \
        "$runtime/file-home/Desktop/00-renamed.txt"
     sleep 0.65
-    grep -Fq "RicePlate: XDG inventory refreshed entries=4" "$runtime/file-plate.log"
+    grep -Fq "RicePlate: XDG inventory refreshed entries=5" "$runtime/file-plate.log"
     rm "$runtime/file-home/Desktop/03-new.txt"
     sleep 0.65
-    grep -Fq "RicePlate: XDG inventory refreshed entries=3" "$runtime/file-plate.log" || {
+    grep -Fq "RicePlate: XDG inventory refreshed entries=4" "$runtime/file-plate.log" || {
         echo "Native XDG Desktop did not refresh after external deletion" >&2
         exit 1
     }
