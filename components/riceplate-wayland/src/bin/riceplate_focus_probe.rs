@@ -40,7 +40,7 @@ use wayland_client::{
 const WIDTH: i32 = 256;
 const HEIGHT: i32 = 128;
 const STRIDE: i32 = WIDTH * 4;
-const POOL_BYTES: usize = (STRIDE * HEIGHT * 4) as usize;
+const POOL_BYTES: usize = (STRIDE * HEIGHT * 16) as usize;
 
 fn log(message: &str) {
     println!("FOCUS_PROBE {message}");
@@ -276,6 +276,10 @@ impl KeyboardHandler for Probe {
             log(&format!("event=keyboard_press count={}", self.presses));
         }
     }
+    fn repeat_key(
+        &mut self, _: &Connection, _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard, _: u32, _: KeyEvent,
+    ) {}
     fn release_key(
         &mut self, _: &Connection, _: &QueueHandle<Self>,
         _: &wl_keyboard::WlKeyboard, _: u32, _: KeyEvent,
