@@ -483,7 +483,6 @@ def frame_probe(fd: int, node: int, serial: int | None = None) -> None:
     if serial is not None:
         # Force CPU-compatible copied SystemMemory samples in the headless
         # software lane. Never consider a zero-memory Gst.Buffer a frame.
-        src.set_property("use-bufferpool", False)
         src.set_property("always-copy", True)
     if serial is not None:
         if not 0 < serial <= 0xffffffffffffffff:
