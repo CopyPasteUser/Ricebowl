@@ -36,6 +36,26 @@ class NativeLunaTaskbarOptionsTest(unittest.TestCase):
         self.assertEqual(options.load(), chosen)
         self.assertEqual(options.save(before, expected=chosen), before)
 
+
+    def test_noop_save_preserves_existing_file_and_cas(self):
+        chosen = {"auto_hide": True, "quick_launch": False}
+        options.save(chosen, expected=options.load())
+        before = self.path.stat()
+        with mock.patch.object(options.tempfile, "mkstemp",
+                               side_effect=AssertionError("unexpected rewrite")):
+            self.assertEqual(options.save(chosen, expected=chosen), chosen)
+        after = self.path.stat()
+        self.assertEqual((before.st_ino, before.st_mtime_ns),
+                         (after.st_ino, after.st_mtime_ns))
+        with self.assertRaisesRegex(options.TaskbarSettingsError, "changed elsewhere"):
+            options.save(chosen, expected=options.DEFAULTS)
+        self.assertEqual(options.load(), chosen)
+
+    def test_unchanged_default_does_not_create_preferences_file(self):
+        self.assertEqual(options.save(options.DEFAULTS, expected=options.DEFAULTS),
+                         options.DEFAULTS)
+        self.assertFalse(self.path.exists())
+
     def test_invalid_types_and_schema_fail_closed(self):
         self.path.parent.mkdir()
         for data in [
