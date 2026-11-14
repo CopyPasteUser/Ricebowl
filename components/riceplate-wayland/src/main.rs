@@ -6195,6 +6195,29 @@ impl LayerShellHandler for RicePlate {
             self.redraw_desktop_context();
             return;
         }
+        if self.file_context.as_ref().is_some_and(|menu|
+            menu.surface.wl_surface() == layer.wl_surface()) {
+            if config.new_size != (desktop_file_menu::WIDTH, desktop_file_menu::HEIGHT) {
+                eprintln!("RicePlate: compositor rejected XDG file context geometry");
+                self.close_file_context();
+                return;
+            }
+            let menu = self.file_context.as_mut().expect("matched file context");
+            if menu.pool.is_none() {
+                let bytes = (desktop_file_menu::WIDTH * desktop_file_menu::HEIGHT * 4 * 3) as usize;
+                match SlotPool::new(bytes, &self.shm) {
+                    Ok(pool) => menu.pool = Some(pool),
+                    Err(error) => {
+                        eprintln!("RicePlate: XDG context allocation failed: {error}");
+                        self.close_file_context();
+                        return;
+                    }
+                }
+            }
+            menu.configured = true;
+            self.redraw_file_context();
+            return;
+        }
         if let Some(index) = self.mirrors.iter().position(|mirror|
                 mirror.surface.wl_surface() == layer.wl_surface()) {
             let width = config.new_size.0;
