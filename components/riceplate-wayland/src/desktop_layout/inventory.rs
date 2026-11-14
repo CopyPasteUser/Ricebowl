@@ -4,10 +4,10 @@
 
 use std::{
     env,
-    ffi::{OsStr, OsString},
-    fs::{self, File, OpenOptions},
+    ffi::{CString, OsStr, OsString},
+    fs::{self, File},
     io::{self, Read},
-    os::unix::{ffi::OsStrExt, fs::{MetadataExt, OpenOptionsExt}, io::AsRawFd},
+    os::{fd::{AsRawFd, FromRawFd}, unix::{ffi::OsStrExt, fs::MetadataExt}},
     path::{Component, Path, PathBuf},
 };
 
@@ -71,15 +71,15 @@ impl Snapshot {
         let anchored = PathBuf::from(format!("/proc/self/fd/{}", root.as_raw_fd())).join(relative);
         let info = fs::symlink_metadata(anchored)?;
         let kind = classify(&entry.key.name, &info);
-        if kind != entry.kind || kind == Kind::Symlink
+        if kind != entry.kind || matches!(kind, Kind::Symlink | Kind::DesktopFile)
             || info.dev() != entry.key.device || info.ino() != entry.key.inode {
             return Err(io::Error::new(io::ErrorKind::NotFound, "Desktop entry replaced"));
         }
         // Revalidate the path used by the eventual external opener; a different
         // same-UID process can still race after this check, so callers must not
         // treat it as an atomic authorization for destructive operations.
-        let current = fs::symlink_metadata(desktop)?;
-        if !current.is_dir() || current.dev() != dev || current.ino() != ino {
+        let current = open_owned_directory(desktop)?.metadata()?;
+        if current.dev() != dev || current.ino() != ino {
             return Err(io::Error::new(io::ErrorKind::NotFound, "Desktop path replaced"));
         }
         Ok(desktop.join(&entry.key.name))
@@ -162,8 +162,18 @@ fn valid_absolute(path: &Path) -> io::Result<()> {
 
 pub(super) fn open_owned_directory(path: &Path) -> io::Result<File> {
     valid_absolute(path)?;
-    let file = OpenOptions::new().read(true)
-        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC).open(path)?;
+    // O_NOFOLLOW on the final basename alone is insufficient: a replaced
+    // intermediate parent could redirect a read into another directory.
+    // Walk every component relative to an already-open parent descriptor.
+    let mut file = File::open("/")?;
+    for part in path.components() {
+        let Component::Normal(name) = part else { continue };
+        let name = CString::new(name.as_bytes()).map_err(|_| io::ErrorKind::InvalidInput)?;
+        let raw = unsafe { libc::openat(file.as_raw_fd(), name.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC) };
+        if raw < 0 { return Err(io::Error::last_os_error()); }
+        file = unsafe { File::from_raw_fd(raw) };
+    }
     let meta = file.metadata()?;
     if !meta.is_dir() || meta.uid() != unsafe { libc::geteuid() } {
         return Err(io::Error::new(io::ErrorKind::PermissionDenied, "Desktop is not owner-controlled"));
@@ -217,8 +227,8 @@ pub fn scan(desktop: &Path) -> io::Result<Snapshot> {
         truncated = true;
     }
     // Never publish a snapshot of a root that was swapped during enumeration.
-    let current = fs::symlink_metadata(desktop)?;
-    if !current.is_dir() || current.dev() != root_meta.dev() || current.ino() != root_meta.ino() {
+    let current = open_owned_directory(desktop)?.metadata()?;
+    if current.dev() != root_meta.dev() || current.ino() != root_meta.ino() {
         return Err(io::Error::new(io::ErrorKind::WouldBlock, "Desktop directory replaced during scan"));
     }
     Ok(Snapshot { status: Status::Available, entries, truncated,
@@ -274,6 +284,8 @@ mod tests {
         let snap = scan(&f.0).unwrap();
         assert_eq!(snap.entries.len(), 4);
         assert!(snap.entries.iter().any(|e| e.kind == Kind::Directory && e.label == "Dir 🍚"));
+        let unsafe_launcher = snap.entries.iter().find(|e| e.kind == Kind::DesktopFile).unwrap();
+        assert!(snap.current_path(&f.0, unsafe_launcher).is_err());
         assert!(snap.entries.iter().any(|e| e.kind == Kind::DesktopFile));
         assert!(snap.entries.iter().any(|e| e.key.name == invalid));
         assert_eq!(snap.current_path(&f.0, &snap.entries[0]).unwrap().parent(), Some(f.0.as_path()));
@@ -304,6 +316,12 @@ mod tests {
         assert!(snap.current_path(&f.0, target).is_err());
         symlink(&f.0, f.0.with_extension("alias")).unwrap();
         assert!(scan(&f.0.with_extension("alias")).is_err());
+        let nested = f.0.join("parent");
+        fs::create_dir(&nested).unwrap();
+        fs::create_dir(nested.join("Desktop")).unwrap();
+        symlink(&nested, f.0.join("parent-link")).unwrap();
+        assert!(scan(&f.0.join("parent-link/Desktop")).is_err(),
+                "intermediate symlinks must also be rejected");
         fs::remove_file(f.0.with_extension("alias")).unwrap();
     }
 }
