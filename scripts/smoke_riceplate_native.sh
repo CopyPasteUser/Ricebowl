@@ -817,7 +817,11 @@ PY
             # round trip to assign focus to a new virtual-keyboard client.
             # All subsequent typed characters must reach the actual dialog.
             command -v wtype >/dev/null || { echo "wtype missing" >&2; exit 1; }
-            WAYLAND_DISPLAY=wayland-0 wtype -d 85 -k F13 abcd
+            # F13 is deliberately ignored by the editor. Multiple real
+            # Wayland round trips give labwc time to deliver keyboard.enter
+            # before the first command character. Keep the exact four-character
+            # assertion and the unmodified framebuffer/caret checks below.
+            WAYLAND_DISPLAY=wayland-0 wtype -d 250 -k F13 -k F13 -k F13 abcd
             sleep 0.25
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-typed.png"
             cp "$runtime/xp-luna-parity-run-typed.png" \
@@ -1021,6 +1025,209 @@ PY
             wallpaper=
         fi
     done
+    # Exercise real XDG file surfaces in a full isolated session. All earlier
+    # recipe screenshots run nested and must remain isolated from host files.
+    output=$(WAYLAND_DISPLAY=wayland-0 wlr-randr | sed -n "1s/[[:space:]].*//p")
+    test -n "$output"
+    WAYLAND_DISPLAY=wayland-0 wlr-randr --output "$output" \
+        --custom-mode 1366x768@60Hz --scale 1
+    mkdir -m 0700 "$runtime/file-home" "$runtime/file-home/Desktop" "$runtime/file-config"
+    printf "%s\n" "XDG_DESKTOP_DIR=\"\$HOME/Desktop\"" \
+        > "$runtime/file-config/user-dirs.dirs"
+    printf "%s\n" "RiceBowl native XDG file acceptance" \
+        > "$runtime/file-home/Desktop/00-note.txt"
+    # A .desktop file and a symlink must be visible, but never executables.
+    printf "%s\n" "[Desktop Entry]" "Type=Application" "Name=Unsafe test" \
+        "Exec=/usr/bin/false" > "$runtime/file-home/Desktop/01-app.desktop"
+    ln -s /etc/passwd "$runtime/file-home/Desktop/02-outside-link"
+    HOME="$runtime/file-home" XDG_CONFIG_HOME="$runtime/file-config" \
+        RICEBOWL_DE_NESTED=0 RICEBOWL_DE_TRACE_FILES=1 RICEBOWL_DE_TRACE_FOCUS=1 \
+        PATH="$runtime/mock-bin:$PATH" \
+        RICEBOWL_CI_TRASH_LOG="$runtime/full-gio.log" \
+        RICEBOWL_CI_RICEFIELD_LOG="$runtime/full-ricefield.log" \
+        WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$runtime/xp-luna-columns.json" \
+        > "$runtime/file-plate.log" 2>&1 &
+    plate=$!
+    sleep 1.3
+    kill -0 "$plate"
+    grep -Fq "RicePlate: XDG mapped" "$runtime/file-plate.log" || {
+        echo "Full native session never mapped a real XDG Desktop file layer" >&2
+        sed -n "1,75p" "$runtime/file-plate.log" >&2
+        exit 1
+    }
+    # Stable compositor pointer outside the screenshot crop; all icon
+    # differences must come from actual file/surface changes.
+    WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 1100 450 1366 768
+    sleep 0.2
+    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xdg-before.png"
+    # A file created by a different process must trigger calloop/inotify
+    # without a fake reload, polling request or direct State mutation.
+    printf "%s\n" "Externally created from test shell" \
+        > "$runtime/file-home/Desktop/03-new.txt"
+    sleep 0.7
+    kill -0 "$plate"
+    grep -Fq "RicePlate: XDG inventory refreshed entries=4" "$runtime/file-plate.log" || {
+        echo "Native XDG Desktop did not react to external create/inotify" >&2
+        tail -n 35 "$runtime/file-plate.log" >&2
+        exit 1
+    }
+    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xdg-created.png"
+    /usr/bin/python3 - "$runtime/xdg-before.png" "$runtime/xdg-created.png" <<"PY"
+from PIL import Image, ImageChops
+import sys
+with Image.open(sys.argv[1]) as first, Image.open(sys.argv[2]) as next_frame:
+    assert first.size == next_frame.size == (1366, 768)
+    roi = (0, 0, 900, 700)
+    diff = ImageChops.difference(first.convert("RGB").crop(roi),
+                                 next_frame.convert("RGB").crop(roi))
+    changed = sum(any(c > 20 for c in px) for px in diff.getdata())
+    print("Native XDG file creation framebuffer changed pixels:", changed, flush=True)
+    assert changed > 60, "External XDG file creation produced no compositor-visible icon"
+PY
+    # The initial regular file occupies a logged position. Do not hardcode a
+    # fake click or bypass compositor hit-testing for the file-open action.
+    position=$(sed -n "s/.*XDG mapped x=\([0-9][0-9]*\) y=\([0-9][0-9]*\) kind=File.*/\1 \2/p" \
+        "$runtime/file-plate.log" | head -n 1)
+    test -n "$position" || { echo "No real regular file position" >&2; exit 1; }
+    set -- $position
+    cx=$(($1 + 52))
+    cy=$(($2 + 45))
+    test ! -e "$runtime/full-gio.log"
+    WAYLAND_DISPLAY=wayland-0 "$clicker" "$cx" "$cy" 1366 768
+    sleep 0.1
+    test ! -e "$runtime/full-gio.log" || {
+        echo "Native file single click unexpectedly launched an application" >&2
+        exit 1
+    }
+    WAYLAND_DISPLAY=wayland-0 "$clicker" "$cx" "$cy" 1366 768
+    count=0
+    while [ ! -s "$runtime/full-gio.log" ] && [ "$count" -lt 25 ]; do
+        count=$((count + 1))
+        sleep 0.1
+    done
+    expected_gio=$(printf "open\n%s" "$runtime/file-home/Desktop/00-note.txt")
+    test "$(cat "$runtime/full-gio.log" 2>/dev/null || :)" = "$expected_gio" || {
+        echo "Real XDG double-click did not open the original regular file" >&2
+        exit 1
+    }
+    rm -f "$runtime/full-gio.log"
+    # Headless labwc has no permanent physical keyboard. Keep a real
+    # virtual keyboard connected *through* the pointer selection, otherwise
+    # wtype creates the only keyboard seat after the focus lease request and
+    # the fail-closed same-seat policy correctly rejects it. Never fabricate
+    # keyboard.enter or bypass seat routing in the production runtime.
+    WAYLAND_DISPLAY=wayland-0 wtype -d 650 -k F13 0 -k Return \
+        > "$runtime/xdg-wtype.log" 2>&1 &
+    xdg_typer=$!
+    sleep 0.20
+    kill -0 "$xdg_typer" || {
+        echo "Headless XDG virtual keyboard exited before pointer focus request" >&2
+        cat "$runtime/xdg-wtype.log" >&2
+        exit 1
+    }
+    WAYLAND_DISPLAY=wayland-0 "$clicker" "$cx" "$cy" 1366 768
+    wait "$xdg_typer" || {
+        echo "Headless XDG virtual keyboard failed during focus acceptance" >&2
+        cat "$runtime/xdg-wtype.log" >&2
+        exit 1
+    }
+    count=0
+    while [ ! -s "$runtime/full-gio.log" ] && [ "$count" -lt 25 ]; do
+        count=$((count + 1))
+        sleep 0.1
+    done
+    grep -Fq "RicePlate: compositor confirmed XDG file keyboard focus" \
+        "$runtime/file-plate.log" || {
+        echo "Native XDG file focus not confirmed by real compositor keyboard enter" >&2
+        tail -n 50 "$runtime/file-plate.log" >&2
+        exit 1
+    }
+    grep -Fq "RicePlate: XDG file keyboard focus released" \
+        "$runtime/file-plate.log" || {
+        echo "Native XDG temporary keyboard focus never released" >&2
+        exit 1
+    }
+    test "$(cat "$runtime/full-gio.log" 2>/dev/null || :)" = "$expected_gio" || {
+        echo "Native XDG Type-to-Select and real Enter did not open selected file" >&2
+        exit 1
+    }
+    rm -f "$runtime/full-gio.log"
+    # A visible desktop launcher / symlink must NOT become executable through
+    # the shared double-click path. Their hitboxes come from actual placement.
+    for unsafe_kind in DesktopFile Symlink; do
+        unsafe_position=$(sed -n "s/.*XDG mapped x=\([0-9][0-9]*\) y=\([0-9][0-9]*\) kind=$unsafe_kind.*/\1 \2/p" \
+            "$runtime/file-plate.log" | head -n 1)
+        test -n "$unsafe_position" || {
+            echo "Missing mapped unsafe XDG file kind $unsafe_kind" >&2
+            exit 1
+        }
+        set -- $unsafe_position
+        unsafe_x=$(($1 + 52))
+        unsafe_y=$(($2 + 45))
+        WAYLAND_DISPLAY=wayland-0 "$clicker" "$unsafe_x" "$unsafe_y" 1366 768
+        WAYLAND_DISPLAY=wayland-0 "$clicker" "$unsafe_x" "$unsafe_y" 1366 768
+        sleep 0.2
+        test ! -e "$runtime/full-gio.log" || {
+            echo "Unsafe XDG file $unsafe_kind invoked an opener" >&2
+            exit 1
+        }
+        test ! -e "$runtime/full-ricefield.log" || {
+            echo "Unsafe XDG file $unsafe_kind invoked RiceField" >&2
+            exit 1
+        }
+    done
+    # A newly created folder receives its own live compositor surface.
+    # Opening it uses exact RiceField argv rather than invoking a shell.
+    mkdir "$runtime/file-home/Desktop/04-folder"
+    sleep 0.65
+    grep -Fq "RicePlate: XDG inventory refreshed entries=5" \
+        "$runtime/file-plate.log" || {
+        echo "Native XDG folder creation did not reach the Wayland inventory" >&2
+        exit 1
+    }
+    folder_position=$(sed -n "s/.*XDG mapped x=\([0-9][0-9]*\) y=\([0-9][0-9]*\) kind=Directory.*/\1 \2/p" \
+        "$runtime/file-plate.log" | tail -n 1)
+    test -n "$folder_position" || {
+        echo "New XDG folder has no separate Wayland surface" >&2
+        exit 1
+    }
+    set -- $folder_position
+    folder_x=$(($1 + 52))
+    folder_y=$(($2 + 45))
+    WAYLAND_DISPLAY=wayland-0 "$clicker" "$folder_x" "$folder_y" 1366 768
+    WAYLAND_DISPLAY=wayland-0 "$clicker" "$folder_x" "$folder_y" 1366 768
+    count=0
+    while [ ! -s "$runtime/full-ricefield.log" ] && [ "$count" -lt 25 ]; do
+        count=$((count + 1))
+        sleep 0.1
+    done
+    expected_ricefield=$(printf "%s\n" --theme xp-luna --separate-window \
+        "$runtime/file-home/Desktop/04-folder")
+    test "$(cat "$runtime/full-ricefield.log" 2>/dev/null || :)" = "$expected_ricefield" || {
+        echo "Native XDG folder double click did not dispatch the exact RiceField argv" >&2
+        exit 1
+    }
+    rm -f "$runtime/full-ricefield.log"
+    # Rename and removal are external writes; the live watcher must notice
+    # both, clean up the old surface, and preserve the existing panel.
+    mv "$runtime/file-home/Desktop/00-note.txt" \
+       "$runtime/file-home/Desktop/00-renamed.txt"
+    sleep 0.65
+    grep -Fq "RicePlate: XDG inventory refreshed entries=5" "$runtime/file-plate.log"
+    rm "$runtime/file-home/Desktop/03-new.txt"
+    sleep 0.65
+    grep -Fq "RicePlate: XDG inventory refreshed entries=4" "$runtime/file-plate.log" || {
+        echo "Native XDG Desktop did not refresh after external deletion" >&2
+        exit 1
+    }
+    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xdg-deleted.png"
+    kill -0 "$plate"
+    test ! -e "$runtime/full-gio.log"
+    test ! -e "$runtime/full-ricefield.log"
+    echo "Verified live XDG file layers, compositor double-click, external create/rename/delete and inert .desktop/symlink inventory"
+    kill "$plate"
+    wait "$plate" 2>/dev/null || :
+    plate=
     # We own this exact CI compositor PID. On labwc 0.7.1 the --exit client
     # command is not a reliable external teardown mechanism in a headless job.
     kill -TERM "$compositor"
