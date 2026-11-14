@@ -1608,15 +1608,40 @@ with Image.open(sys.argv[1]) as a, Image.open(sys.argv[2]) as b:
 PY
     echo "Verified actual XDG icon pointer drag, owner-private persistence, screenshot change and no file operation"
     # A real external Wayland application must regain the keyboard after a
-    # desktop icon is intentionally selected. No global grab may survive.
-    file_position=$(sed -n "s/.*XDG mapped x=\([0-9][0-9]*\) y=\([0-9][0-9]*\) kind=File.*/\1 \2/p" \
+    # desktop icon is intentionally selected. Headless labwc has no physical
+    # keyboard: connect the test keyboard BEFORE requesting focus and retain
+    # the same live seat across desktop -> foot -> typed input. A late wtype
+    # invocation does not test this focus transition and previously generated
+    # NoKeyboardProxy errors instead of a meaningful external-app assertion.
+    file_position=$(sed -n "s/.*XDG mapped x=\\([0-9][0-9]*\\) y=\\([0-9][0-9]*\\) kind=File.*/\\1 \\2/p" \\
         "$runtime/file-plate.log" | tail -n 1)
     test -n "$file_position"
     set -- $file_position
+    focus_confirmations_before=$(grep -Fc "RicePlate: compositor confirmed XDG file keyboard focus" "$runtime/file-plate.log" || :)
+    # F13 is inert in the desktop and terminal; real Wayland event processing
+    # takes place while this single wtype device stays connected. Type only
+    # after foot has been mapped and deliberately activated by a pointer click.
+    WAYLAND_DISPLAY=wayland-0 wtype -d 300 \\
+        -k F13 -k F13 -k F13 -k F13 -k F13 -k F13 \\
+        -k F13 -k F13 -k F13 -k F13 -k F13 -k F13 \\
+        ricebowl-focus-ok -k Return >"$runtime/focus-wtype.log" 2>&1 &
+    focus_typer=$!
+    sleep 0.25
+    kill -0 "$focus_typer" || {
+        echo "External-focus test keyboard exited before pointer selection" >&2
+        cat "$runtime/focus-wtype.log" >&2
+        exit 1
+    }
     WAYLAND_DISPLAY=wayland-0 "$clicker" "$(($1 + 52))" "$(($2 + 43))" 1366 768
-    sleep 0.2
-    grep -Fq "RicePlate: XDG file focus surface requested" "$runtime/file-plate.log" || {
-        echo "Native desktop failed to request compositor-confirmed keyboard focus" >&2
+    count=0
+    while [ "$count" -lt 18 ]; do
+        focus_confirmations_after=$(grep -Fc "RicePlate: compositor confirmed XDG file keyboard focus" "$runtime/file-plate.log" || :)
+        test "$focus_confirmations_after" -gt "$focus_confirmations_before" && break
+        count=$((count + 1))
+        sleep 0.1
+    done
+    test "$focus_confirmations_after" -gt "$focus_confirmations_before" || {
+        echo "Real compositor did not deliver fresh XDG keyboard Enter on this seat" >&2
         tail -n 45 "$runtime/file-plate.log" >&2
         exit 1
     }
@@ -1627,9 +1652,9 @@ IFS= read -r input
 printf %s "$input" > "$FOCUS_RECEIVER_LOG"
 RECEIVER
     chmod 0700 "$runtime/focus-receiver.sh"
-    FOCUS_RECEIVER_LOG="$runtime/focus-input.log" \
-        WAYLAND_DISPLAY=wayland-0 \
-        foot --app-id=ricebowl-focus-receiver --title=RiceBowl-Focus-Probe \
+    FOCUS_RECEIVER_LOG="$runtime/focus-input.log" \\
+        WAYLAND_DISPLAY=wayland-0 \\
+        foot --app-id=ricebowl-focus-receiver --title=RiceBowl-Focus-Probe \\
         /bin/sh "$runtime/focus-receiver.sh" >"$runtime/focus-app.log" 2>&1 &
     focus_app=$!
     sleep 0.7
@@ -1638,7 +1663,14 @@ RECEIVER
         cat "$runtime/focus-app.log" >&2
         exit 1
     }
-    WAYLAND_DISPLAY=wayland-0 wtype -d 100 ricebowl-focus-ok -k Return
+    # The compositor, not our shell, must grant the external application's
+    # keyboard focus; click the window at the center of the headless output.
+    WAYLAND_DISPLAY=wayland-0 "$clicker" 683 384 1366 768
+    wait "$focus_typer" || {
+        echo "Virtual keyboard failed during external Wayland focus handoff" >&2
+        cat "$runtime/focus-wtype.log" >&2
+        exit 1
+    }
     count=0
     while [ ! -s "$runtime/focus-input.log" ] && [ "$count" -lt 30 ]; do
         count=$((count + 1))
@@ -1648,6 +1680,7 @@ RECEIVER
         echo "External Wayland app did not receive keyboard after XDG desktop focus" >&2
         tail -n 50 "$runtime/file-plate.log" >&2
         tail -n 35 "$runtime/focus-app.log" >&2
+        cat "$runtime/focus-wtype.log" >&2
         exit 1
     }
     grep -Fq "RicePlate: XDG file keyboard focus released" "$runtime/file-plate.log" || {
