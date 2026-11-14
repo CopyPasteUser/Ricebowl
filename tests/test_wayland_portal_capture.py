@@ -192,7 +192,13 @@ class ScreenCastCapabilityTests(unittest.TestCase):
         self.assertEqual(portal.classify_failure(portal.PortalRejected("Start", 1)),
                          "request_cancelled")
         self.assertEqual(portal.classify_failure(portal.PortalRejected("Start", 2)),
+                         "session_start_failed")
+        self.assertEqual(portal.classify_failure(portal.PortalRejected("SelectSources", 2)),
                          "request_denied_or_failed")
+        self.assertEqual(portal.classify_failure(RuntimeError("Missing Unix FD")),
+                         "fd_missing_or_invalid")
+        self.assertEqual(portal.classify_failure(RuntimeError("Permission denied")),
+                         "permission_denied")
         self.assertEqual(portal.classify_failure(RuntimeError("No DRM render node")),
                          "renderer_unavailable")
 

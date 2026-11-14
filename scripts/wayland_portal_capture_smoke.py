@@ -59,12 +59,20 @@ def stream_nodes(streams: object) -> tuple[int, ...]:
 def classify_failure(exc: Exception) -> str:
     """Stable machine-readable failure families; never equate reply to frames."""
     if isinstance(exc, PortalRejected):
-        return "request_cancelled" if exc.code == 1 else "request_denied_or_failed"
+        if exc.code == 1:
+            return "request_cancelled"
+        if exc.method == "Start":
+            return "session_start_failed"
+        return "request_denied_or_failed"
     if isinstance(exc, (TimeoutError, subprocess.TimeoutExpired)):
         return "request_timeout"
     message = str(exc).lower()
+    if "permission" in message or "accessdenied" in message or "notallowed" in message:
+        return "permission_denied"
     if "render" in message or "drm" in message or "egl" in message:
         return "renderer_unavailable"
+    if "fd" in message or "file descriptor" in message:
+        return "fd_missing_or_invalid"
     if "pipewire" in message or "gst" in message or "stream" in message or "frame" in message:
         return "pipewire_or_stream_failed"
     if "serviceunknown" in message or "dbus" in message or "d-bus" in message:
