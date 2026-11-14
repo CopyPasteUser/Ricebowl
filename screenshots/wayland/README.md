@@ -8,6 +8,23 @@ They were recorded in an isolated headless compositor with a pixman renderer
 and virtual input. They show the experimental Wayland desktop, **not**
 physical-hardware acceptance or completed Windows XP fidelity.
 
+## XP Luna · Live XDG file desktop (14 November 2026)
+
+These **four new 1366×768 screenshots** come from the *same actual native labwc + RicePlate compositor session* in [successful capture CI #43593535063](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43593535063). The tested source is [`0779d2e0`](https://github.com/CopyPasteUser/Ricebowl/commit/0779d2e0b903db496105d0f6be2f7b7b166509c8); none of the desktop surfaces was mocked, drawn, retouched or composited into these screenshots. The CI-only test directory and file names are disposable.
+
+| Before external file creation | New file appears through live inotify refresh |
+| :---: | :---: |
+| [![Actual native XP Luna desktop before the new XDG file is created](luna-file-desktop-before-20261114.webp)](luna-file-desktop-before-20261114.webp) | [![Native XP Luna desktop with an externally added file appearing as a real compositor icon](luna-file-desktop-live-20261114.webp)](luna-file-desktop-live-20261114.webp) |
+
+| Real compositor pointer-selected file | Dynamically added real folder |
+| :---: | :---: |
+| [![Real selected XDG file icon on the native XP Luna desktop](luna-file-desktop-selected-20261114.webp)](luna-file-desktop-selected-20261114.webp) | [![New XDG folder displayed on the native XP Luna desktop](luna-file-desktop-folder-20261114.webp)](luna-file-desktop-folder-20261114.webp) |
+
+The native smoke verifies double-click and keyboard activation, actual file additions and removal, and the RiceField folder opener's **exact command arguments**. The file manager is substituted by an isolated argv-recording shim during these captures: **the screenshots do not show a real RiceField window**. Dangerous `.desktop` launchers and symlinks remain non-executable. There is no physical Mint/GPU/IME sign-off.
+
+[Source/preview SHA-256 provenance](luna-file-desktop-provenance-20261114.json) records all source PNG hashes, WebP hashes, source commit, frame size and measured pixel changes. The screenshots were converted to WebP without drawing additional UI elements.
+
+
 ## XP Luna · Sprint 3: Visuelle Fidelity 2.0 (13 November 2026)
 
 Source: successful [Native RicePlate CI run #43384733571](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43384733571),
