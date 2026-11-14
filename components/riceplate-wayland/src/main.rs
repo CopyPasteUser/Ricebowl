@@ -8536,6 +8536,7 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for RicePlate {
         if let Some(index) = state.tasks.iter().position(|task| task.handle == *proxy) {
             let task = &mut state.tasks[index];
             let mut refresh = false;
+            let mut application_activated = false;
             match event {
                 zwlr_foreign_toplevel_handle_v1::Event::Title { title } => {
                     task.title = title.chars().take(256).collect()
@@ -8547,12 +8548,20 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for RicePlate {
                     let window_state = task_groups::decode_window_state(&states);
                     task.active = window_state.active;
                     task.minimized = window_state.minimized;
+                    application_activated = window_state.active;
                 }
                 zwlr_foreign_toplevel_handle_v1::Event::Done => {
                     task.ready = true;
                     refresh = true;
                 }
                 _ => {}
+            }
+            // An application becoming active is authoritative compositor
+            // evidence that desktop icon focus is no longer appropriate.
+            // Drop the ephemeral Exclusive 8px focus lease immediately, rather
+            // than leaving a stale keyboard owner until its five-second TTL.
+            if application_activated {
+                state.close_desktop_keyboard_focus();
             }
             if refresh {
                 if state.trace_window_events {
