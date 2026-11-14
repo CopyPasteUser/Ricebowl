@@ -5788,10 +5788,9 @@ impl KeyboardHandler for RicePlate {
     ) {
         if self.keyboard.as_ref() != Some(keyboard) { return; }
         if self.luna_dialog_focused {
-            if std::env::var_os("RICEBOWL_DE_TRACE_MENU").is_some() {
-                eprintln!("RicePlate: Luna Run/Help key {:?} utf8={:?}",
-                          event.keysym, event.utf8);
-            }
+            // Do not log keysyms or UTF-8 from the Run dialog: they can
+            // contain sensitive commands. Test diagnostics report only
+            // cursor and character count after an edit below.
             let mut execute = false;
             let mut repaint = false;
             match event.keysym {
