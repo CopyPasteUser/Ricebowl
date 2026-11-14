@@ -745,7 +745,11 @@ PY
             WAYLAND_DISPLAY=wayland-0 wtype -d 600 -k F13 -k F13 -k F13 p -k F13 -k F13 \
                 > "$runtime/luna-shortcut-wtype.log" 2>&1 &
             shortcut_typer=$!
-            sleep 0.2
+            # Headless labwc announces the virtual keyboard asynchronously.
+            # Waiting only 200ms races wl_seat capability delivery and can
+            # turn this real keyboard assertion into a NoKeyboardProxy failure.
+            # F13 warm-up events remain inert until after the pointer gesture.
+            sleep 0.55
             kill -0 "$shortcut_typer" || {
                 echo "Shortcut virtual keyboard exited before pointer gesture" >&2
                 cat "$runtime/luna-shortcut-wtype.log" >&2
@@ -1246,10 +1250,12 @@ PY
     # wtype creates the only keyboard seat after the focus lease request and
     # the fail-closed same-seat policy correctly rejects it. Never fabricate
     # keyboard.enter or bypass seat routing in the production runtime.
-    WAYLAND_DISPLAY=wayland-0 wtype -d 650 -k F13 0 -k Return \
+    WAYLAND_DISPLAY=wayland-0 wtype -d 650 -k F13 -k F13 0 -k Return \
         > "$runtime/xdg-wtype.log" 2>&1 &
     xdg_typer=$!
-    sleep 0.20
+    # Give the virtual keyboard's real wl_seat capability time to arrive
+    # before requesting a same-seat focus lease. Never inject fake Enter.
+    sleep 0.55
     kill -0 "$xdg_typer" || {
         echo "Headless XDG virtual keyboard exited before pointer focus request" >&2
         cat "$runtime/xdg-wtype.log" >&2
