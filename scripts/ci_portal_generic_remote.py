@@ -59,9 +59,11 @@ REPLACEMENT = r"""    fn create_remote_fd(
 
 def patch_source(source: str) -> str:
     """Replace only the known-broken socketpair implementation; fail closed."""
-    if source.count(START) != 1 or source.count(END) != 1:
+    if source.count(START) != 1:
         raise ValueError("unsupported pinned upstream source structure")
     begin = source.index(START)
+    if source.count(END, begin) != 1:
+        raise ValueError("unexpected source structure following remote FD function")
     end = source.index(END, begin)
     old = source[begin:end]
     if any(marker not in old for marker in REQUIRES):
