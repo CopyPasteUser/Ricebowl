@@ -188,7 +188,10 @@ class ScreenCastCapabilityTests(unittest.TestCase):
             self.assertGreaterEqual(right.fileno(), 0)
 
     def test_frame_receipt_rejects_wrong_node_zero_length_and_forged_output(self):
-        with socket.socketpair() as (a, b):
+        with ExitStack() as stack:
+            a, b = socket.socketpair()
+            stack.enter_context(a)
+            stack.enter_context(b)
             for result in (
                 {"returncode": 0, "stdout": "PORTAL_FRAME_OK: node=13 bytes=123 caps=video/x-raw", "stderr": ""},
                 {"returncode": 0, "stdout": "PORTAL_FRAME_OK: node=12 bytes=0 caps=video/x-raw", "stderr": ""},
