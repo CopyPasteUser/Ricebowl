@@ -5,7 +5,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     env,
-    fs::{self, OpenOptions},
+    fs::{self, File, OpenOptions},
     io::{self, Read, Write},
     os::unix::{ffi::OsStrExt, fs::{DirBuilderExt, MetadataExt, OpenOptionsExt}},
     path::{Path, PathBuf},
