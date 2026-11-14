@@ -43,7 +43,7 @@ pub struct Stamp {
     pub ctime_nsec: i64,
 }
 impl Stamp {
-    fn of(info: &fs::Metadata) -> Self {
+    pub(super) fn of(info: &fs::Metadata) -> Self {
         Self { size: info.size(), mode: info.mode(),
                ctime: info.ctime(), ctime_nsec: info.ctime_nsec() }
     }
