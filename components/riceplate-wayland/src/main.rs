@@ -1244,7 +1244,11 @@ impl RicePlate {
     }
 
     fn reflow_file_layers(&mut self) {
-        let Some(snapshot) = self.file_snapshot.as_ref() else { return };
+        // Clone the bounded (at most 96) inventory once for this layout pass:
+        // assigning/painting a surface mutates the shell and must not keep a
+        // long-lived borrow of the snapshot across redraw_file_icon().
+        let Some(entries) = self.file_snapshot.as_ref().map(|s| s.entries.clone())
+            else { return };
         let connected: Vec<String> = self.outputs.outputs()
             .filter_map(|o| self.outputs.info(&o).and_then(|info| info.name))
             .collect();
@@ -1260,10 +1264,10 @@ impl RicePlate {
                 .filter(|icon| icon.bound_output == layer.bound_output)
                 .map(|icon| icon.placed).collect();
             let placements = desktop_layout::place_files(
-                &snapshot.entries, &self.file_positions, &name,
+                &entries, &self.file_positions, &name,
                 layer.bound_output.is_none(), &connected, &static_cells,
                 width, height, self.recipe.top, self.recipe.height);
-            let placement = snapshot.entries.iter()
+            let placement = entries.iter()
                 .position(|e| e.key == layer.entry.key)
                 .and_then(|i| placements.get(i).copied().flatten());
             let layer = &mut self.file_layers[index];
