@@ -1236,26 +1236,26 @@ PY
     test ! -e "$runtime/full-ricefield.log"
     # The new file menu is driven by *real* labwc right-clicks and mouse hit
     # testing. All fixture paths and overrides are confined to this CI root.
-    printf '%s\n' 'rename me' > "$runtime/file-home/Desktop/05-context.txt"
+    printf "%s\n" "rename me" > "$runtime/file-home/Desktop/05-context.txt"
     sleep 0.75
-    grep -Fq 'XDG inventory refreshed entries=5' "$runtime/file-plate.log"
-    file_position=$(sed -n 's/.*XDG mapped x=\([0-9][0-9]*\) y=\([0-9][0-9]*\) kind=File.*/\1 \2/p' \
+    grep -Fq "XDG inventory refreshed entries=5" "$runtime/file-plate.log"
+    file_position=$(sed -n "s/.*XDG mapped x=\([0-9][0-9]*\) y=\([0-9][0-9]*\) kind=File.*/\1 \2/p" \
         "$runtime/file-plate.log" | tail -n 1)
-    test -n "$file_position" || { echo 'No added XDG file surface' >&2; exit 1; }
+    test -n "$file_position" || { echo "No added XDG file surface" >&2; exit 1; }
     set -- $file_position
     context_x=$(($1 + 52))
     context_y=$(($2 + 43))
     WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click \
         "$context_x" "$context_y" 1366 768
     sleep 0.35
-    grep -Fq 'RicePlate: XDG context opened kind=File' "$runtime/file-plate.log" || {
-        echo 'Wayland file right-click did not open native context' >&2
+    grep -Fq "RicePlate: XDG context opened kind=File" "$runtime/file-plate.log" || {
+        echo "Wayland file right-click did not open native context" >&2
         tail -n 35 "$runtime/file-plate.log" >&2
         exit 1
     }
     # The popup clamps to its real logical output. Read its logged compositor
     # coordinates instead of assuming the icon is far from the panel.
-    origin=$(sed -n 's/.*XDG context opened kind=File x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p' \
+    origin=$(sed -n "s/.*XDG context opened kind=File x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p" \
         "$runtime/file-plate.log" | tail -n 1)
     test -n "$origin"
     set -- $origin
@@ -1271,14 +1271,14 @@ PY
     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xdg-file-properties.png"
     cp "$runtime/xdg-file-properties.png" \
         "$source_root/dist/riceplate-native-preview/xdg-file-properties.png"
-    /usr/bin/python3 - "$runtime/xdg-file-context.png" "$runtime/xdg-file-properties.png" <<'PY'
+    /usr/bin/python3 - "$runtime/xdg-file-context.png" "$runtime/xdg-file-properties.png" <<"PY"
 from PIL import Image, ImageChops
 import sys
 with Image.open(sys.argv[1]) as a, Image.open(sys.argv[2]) as b:
     assert a.size == b.size == (1366, 768)
-    diff = ImageChops.difference(a.convert('RGB'), b.convert('RGB'))
+    diff = ImageChops.difference(a.convert("RGB"), b.convert("RGB"))
     changed = sum(max(pixel) > 20 for pixel in diff.getdata())
-    assert changed > 500, f'Properties did not appear on the real compositor: {changed}'
+    assert changed > 500, f"Properties did not appear on the real compositor: {changed}"
 PY
     WAYLAND_DISPLAY=wayland-0 "$clicker" \
         "$((menu_x + 24))" "$((menu_y + 204))" 1366 768
@@ -1294,21 +1294,21 @@ PY
         "$source_root/dist/riceplate-native-preview/xdg-file-rename.png"
     # Press Home and insert a prefix using a genuine Wayland virtual keyboard.
     # The real native editor is prefilled with the original selected filename.
-    WAYLAND_DISPLAY=wayland-0 wtype -d 110 -k F13 -k F13 -k F13 -k Home 'QA-' -k Return
+    WAYLAND_DISPLAY=wayland-0 wtype -d 110 -k F13 -k F13 -k F13 -k Home "QA-" -k Return
     count=0
     while [ ! -f "$runtime/file-home/Desktop/QA-05-context.txt" ] && [ "$count" -lt 25 ]; do
         count=$((count + 1))
         sleep 0.1
     done
     test -f "$runtime/file-home/Desktop/QA-05-context.txt" || {
-        echo 'Actual Wayland rename dialog did not invoke guarded rename' >&2
+        echo "Actual Wayland rename dialog did not invoke guarded rename" >&2
         tail -n 45 "$runtime/file-plate.log" >&2
         exit 1
     }
     test ! -e "$runtime/file-home/Desktop/05-context.txt"
     sleep 0.65
     # The file was renamed and rediscovered through the same live compositor.
-    new_pos=$(sed -n 's/.*XDG mapped x=\([0-9][0-9]*\) y=\([0-9][0-9]*\) kind=File.*/\1 \2/p' \
+    new_pos=$(sed -n "s/.*XDG mapped x=\([0-9][0-9]*\) y=\([0-9][0-9]*\) kind=File.*/\1 \2/p" \
         "$runtime/file-plate.log" | tail -n 1)
     test -n "$new_pos"
     set -- $new_pos
@@ -1317,7 +1317,7 @@ PY
     # Move to Trash must remain inert without a *second* explicit confirmation.
     WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click "$context_x" "$context_y" 1366 768
     sleep 0.25
-    origin=$(sed -n 's/.*XDG context opened kind=File x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p' \
+    origin=$(sed -n "s/.*XDG context opened kind=File x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p" \
         "$runtime/file-plate.log" | tail -n 1)
     test -n "$origin"
     set -- $origin
@@ -1326,7 +1326,7 @@ PY
     WAYLAND_DISPLAY=wayland-0 "$clicker" "$((menu_x + 24))" "$((menu_y + 141))" 1366 768
     sleep 0.25
     test ! -e "$runtime/full-gio.log" || {
-        echo 'Trash was invoked before separate user confirmation' >&2
+        echo "Trash was invoked before separate user confirmation" >&2
         exit 1
     }
     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xdg-file-trash-confirm.png"
@@ -1339,7 +1339,7 @@ PY
     test -f "$runtime/file-home/Desktop/QA-05-context.txt"
     WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click "$context_x" "$context_y" 1366 768
     sleep 0.25
-    origin=$(sed -n 's/.*XDG context opened kind=File x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p' \
+    origin=$(sed -n "s/.*XDG context opened kind=File x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p" \
         "$runtime/file-plate.log" | tail -n 1)
     test -n "$origin"
     set -- $origin
@@ -1351,9 +1351,9 @@ PY
         count=$((count + 1))
         sleep 0.1
     done
-    expected_trash=$(printf 'trash\n%s' "$runtime/file-home/Desktop/QA-05-context.txt")
+    expected_trash=$(printf "trash\n%s" "$runtime/file-home/Desktop/QA-05-context.txt")
     test "$(cat "$runtime/full-gio.log" 2>/dev/null || :)" = "$expected_trash" || {
-        echo 'Confirmed Trash did not dispatch exact safe Gio argv' >&2
+        echo "Confirmed Trash did not dispatch exact safe Gio argv" >&2
         tail -n 40 "$runtime/file-plate.log" >&2
         exit 1
     }
@@ -1361,9 +1361,9 @@ PY
     test -f "$runtime/file-home/Desktop/QA-05-context.txt"
     rm "$runtime/file-home/Desktop/QA-05-context.txt" "$runtime/full-gio.log"
     sleep 0.65
-    grep -Fq 'XDG inventory refreshed entries=4' "$runtime/file-plate.log"
+    grep -Fq "XDG inventory refreshed entries=4" "$runtime/file-plate.log"
     test ! -e "$runtime/full-ricefield.log"
-    echo 'Verified genuine file context, read-only properties, Wayland rename, Trash Cancel and confirmed Gio argv'
+    echo "Verified genuine file context, read-only properties, Wayland rename, Trash Cancel and confirmed Gio argv"
     echo "Verified live XDG file layers, compositor double-click, external create/rename/delete and inert .desktop/symlink inventory"
     kill "$plate"
     wait "$plate" 2>/dev/null || :
