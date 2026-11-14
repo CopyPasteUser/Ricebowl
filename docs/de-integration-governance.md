@@ -49,90 +49,55 @@ small and reviewed by integration, while behavior lives in owned modules.
 4. Never silently cherry-pick/duplicate unmerged private branch behavior.
 5. Rebase/retarget only after the parent lands and rerun CI for the new head.
 
-## Live integration dependency graph (snapshot: 2026-11-14; check current refs)
+## Integration dependency snapshot (2026-11-14; refresh before each merge)
 
-> Verified against GitHub on 14 November, after the original review; this
-> is an *evidence snapshot*, not an atomic branch lock. [Issue #360](https://github.com/CopyPasteUser/Ricebowl/issues/360)
-> tracks subsequent handoffs. #367/#370 are now CLOSED, not merged; #366,
-> #368 and #371 remain Draft. Frozen code blobs are valid even when PRs close.
+This is an **evidence snapshot**, not a branch lock or release certificate.
+Live coordination: [issue #360](https://github.com/CopyPasteUser/Ricebowl/issues/360).
+Current refs and exact-head checks must always override this snapshot.
 
 ```text
-main @ 559f800ead46ff60c6551624734d4bbe47ddf667 [unchanged at snapshot]
-├── #366 Run keyboard/pointer fix — integration-owned
-│   fix/luna-run-pointer-caret-20261114 @ bb16551fed7c318968867bc31ce5e46fce3fe975
-│   previous head 12eb4193 Tests/Native PASS; newest head Clippy CI pending
-├── #367 Core lease/seat — CLOSED UNMERGED; FROZEN source
-│   sprint/de-core-focus-20261114 @ 8947a569612c8258ddeb6949ad8e74ee42a43798
-│   Tests PASS 43579110004; Native PASS 43579109980
-├── #370 Desktop inventory/inotify — CLOSED UNMERGED; FROZEN source
-│   sprint/de-desktop-files-20261114 @ e588c2edc337c30e2f23dcfb9ab755ced88724a1
-│   Tests PASS 43580321303; Native PASS 43580321268
-├── #368 System strict portals — EXCLUSIVELY SYSTEM-OWNED
-│   sprint/de-system-portals-20261114 @ 52713f797d2aec6c47f490a7e9f7d3d654cb8d36
-│   Tests/Native/Strict FAILED; DRM-backed frame acceptance not passed
-├── #369 Integration governance documentation
-│   integration/de-governance-snapshot-20261114 [this PR; docs only]
-└── #371 Integration runtime assembly — separate candidate, NOT READY
-    integration/de-runtime-assembly-20261114 @ 23fd50d266d906263e9378776dd0f75edb3d9fc0
-    exact module inputs: #367 @ 8947a569612c and #370 @ e588c2edc337
-    main.rs file surfaces, inotify + temporary Core focus overlay;
-    first new native build FAILED E0502, later E2E focus FAIL; newest CI pending
+main @ 7fd55f44832d3e15be4bcd00daf719fa56d687af (verified at snapshot)
+├── #367 Core focus lease/seat fallback — MERGED 23f524e7
+├── #370 XDG inventory/inotify/file state — MERGED 7fd55f4
+├── #366 XP Run pointer/focus — Draft; native CI failed
+├── #368 strict portal ScreenCast — Draft; strict DRM frame gate outstanding
+├── #369 governance refresh — this documentation PR
+├── #371 native file-desktop assembly — Draft; native E2E outstanding
+├── #372 file actions/RiceField — Draft; reconciled with main, CI pending
+└── #373 compositor focus timeout/probe — Draft; reconciled, CI pending
 ```
 
-Original feature PRs #367/#370 are frozen and must never be rewritten by
-integration. Seven exact file blobs from those heads were assembled in the
-initial commit of #371 (`de6f2c239b720d28b3ae51855b1e0e0fd6a67ab1`),
-without touching either source branch. A green modular CI is **not**
-evidence of an interactive desktop: #371 must prove real XDG layer surfaces,
-file actions, inotify, temporary compositor focus and return to normal
-Wayland/XWayland clients via headless labwc with real input and `grim`.
+**Main includes foundations, not a completed interactive file desktop.**
+#367 owns the seat-safe focus state machine; it does not prove real
+compositor keyboard focus on Bottom-layer icons. #370 supplies bounded
+XDG inventory/inotify/file state without completed native UI surfaces.
 
-**#366 root cause established with real captures:** earlier `grim` Run
-restoration compared the same text/caret (`chars=4, caret=4`) with and
-without the compositor-drawn mouse pointer over the field. Captured crop
-`bbox=(21,12,37,32)` accounts for the 130 changed pixels. The fix moves
-the **real** pointer into neutral dialog space after actual caret placement,
-without changing the original pixel assertions or bypassing `wtype`.
-[Native exact-head PASS](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43582896711),
-[Tests PASS](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43582896633).
-This is headless software acceptance, not physical Mint/IME/Orca QA.
+**Pending runtime:** #371 must deliver live file layers, calloop watcher
+wiring, real keyboard handling and return-to-client E2E under labwc.
+#372 exposes verified file actions, no-overwrite rename and RiceField
+intents, but does not prove UI integration. #373 provides bounded focus
+acquisition and a diagnostic probe, not standalone production focus.
+#366 must satisfy its full exact-head Run/Help native capture gate.
 
-**#371 current status at this snapshot:** the first integration patch wired
-file surfaces and callback/reactor paths but [Native](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43583190211)
-failed Rust E0502 from an immutable snapshot borrow overlapping redraw.
-The borrow regression was fixed; intermediate combined Native CI subsequently
-ran real headless labwc. External XDG file creation triggered a genuine
-4,848-pixel framebuffer change, and the regular file double-click operated,
-but [Native](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43584560681)
-FAILED because the temporary keyboard focus had no compositor-confirmed
-`wl_keyboard.enter`. A later patch changed the focus overlay's input-region
-policy and added redacted seat diagnostics; its exact-head CI is pending.
-The context UI, robust focus return to regular applications, file drag/move,
-dual-output/hotplug and hardware/IME acceptance remain open.
+**Portals (#368):** D-Bus negotiation and a socket FD are not delivered
+video. The strict gate requires a nonempty GStreamer frame on a compatible
+DRM/GLES2 runner. Pixman response=2 remains a documented limitation.
+A missing render node is an infrastructure blocker; never weaken the
+frame assertion to force green CI.
 
-### Ownership and controlled sequence
+### Safe merge sequence
 
-- **Integration owns only** `main.rs`, `luna_dialog.rs`,
-  `scripts/smoke_riceplate_native.sh`, shared CI, this governance
-  document, guarded merges and isolated assembly branches. Core/Desktop
-  maintain their own modules on new stacked branches; System alone owns #368.
-- #366 may be considered for a guarded merge only after exact final head,
-  relevant CI, Clippy/build and review requirements are independently
-  satisfied; recheck head immediately before mutation, then verify new
-  `main` push workflows before the next merge.
-- #371 is a combined candidate that must pass end-to-end checks **as a
-  whole**; do not merge disjoint unit-green #367/#370 and claim a file
-  desktop is finished. Retime/rebase new stacked Core/Desktop branches only
-  after their accepted parent integration.
-- #368 remains isolated and **unmergeable** without an actually delivered
-  PipeWire frame in strict mode on a compatible runner. Hosted pixman
-  isolation response=2 does not count as success.
-- All PRs need exact head/base SHAs, complete file scope, review resolution,
-  rollback and a hardware-unverified marker. A GitHub comment is not a
-  transactionally enforced lock.
+1. Recheck current main, all PR heads, ancestry, review and exact-head
+   Tests/Native status before each guarded merge.
+2. After each merge, validate current main and shared-path regressions.
+3. Finish #366 and #371 native runtime proof before claiming UX parity.
+4. Integrate #372/#373 only after fresh CI on their main-based heads and
+   relevant interaction/security review; no force-push of live branches.
+5. Keep #368 unmerged without the required delivered-frame evidence.
+6. Keep physical Mint/IME/accessibility/multioutput/Flatpak/real-GPU release
+   gates open until validated on hardware.
 
-Older #342/#343/#349/#352/#353/#355/#356/#357/#361 are closed, not merged:
-they are not current parents and must not be revived implicitly.
+Previously closed nonmerged 13 November PRs are not active dependencies.
 
 ## Mandatory PR pre-merge checklist
 
