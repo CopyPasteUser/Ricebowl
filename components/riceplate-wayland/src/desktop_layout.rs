@@ -11,6 +11,7 @@ const GAP: u32 = 8;
 pub mod inventory;
 pub mod watcher;
 pub mod file_state;
+pub mod actions;
 
 pub const MAX_SAVED_POSITION: u32 = 16_384;
 
