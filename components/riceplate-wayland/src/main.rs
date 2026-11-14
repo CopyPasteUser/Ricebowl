@@ -6971,6 +6971,21 @@ impl KeyboardHandler for RicePlate {
                 eprintln!("RicePlate: XDG focus lease observed keyboard enter elsewhere");
             }
             if self.desktop_keyboard_focus_lease.compositor_enter(&seat, surface) {
+                // Exclusive is needed only for acquiring initial focus from
+                // labwc when Bottom-layer desktop icons cannot focus directly.
+                // Downgrade the confirmed, 8px temporary Overlay surface to
+                // OnDemand immediately. Retaining Exclusive here can prevent
+                // ordinary XDG toplevels from obtaining keyboard focus even
+                // after they map and receive a real pointer gesture.
+                // Ownership still requires the exact compositor-confirmed
+                // wl_keyboard.enter, and Leave always revokes the lease.
+                if let Some(focus) = self.desktop_keyboard_focus_layer.as_ref() {
+                    if focus.surface.wl_surface() == surface {
+                        focus.surface.set_keyboard_interactivity(
+                            KeyboardInteractivity::OnDemand);
+                        focus.surface.commit();
+                    }
+                }
                 if std::env::var("RICEBOWL_DE_TRACE_FOCUS").as_deref() == Ok("1") {
                     match self.desktop_keyboard_focus_layer.as_ref().map(|l| &l.target) {
                         Some(DesktopFocusTarget::File(_)) =>
