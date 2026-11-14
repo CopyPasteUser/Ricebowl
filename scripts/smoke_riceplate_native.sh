@@ -821,7 +821,7 @@ PY
                "$source_root/dist/riceplate-native-preview/xp-luna-parity-run-typed.png"
             # A real virtual pointer click must move the Run caret without
             # stealing focus or resetting the typed text. In the centered
-            # dialog the input's text origin is at (587,370).
+            # dialog the input text origin is at (587,370).
             WAYLAND_DISPLAY=wayland-0 "$clicker" 599 372 1366 768
             sleep 0.2
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-pointer-caret.png"
