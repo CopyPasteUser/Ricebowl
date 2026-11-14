@@ -163,8 +163,12 @@ impl FilePositions {
         if !self.records.contains_key(&digest) && self.records.len() >= MAX_RECORDS {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "Too many file positions"));
         }
-        let unique_outputs: BTreeSet<_> = self.records.values().map(|r| &r.output).collect();
-        if !self.records.values().any(|r| r.output == output) && unique_outputs.len() >= MAX_OUTPUTS {
+        // Reassigning an existing icon can retire its old output. Count
+        // distinct outputs after excluding that icon, not before its update.
+        let other_outputs: BTreeSet<_> = self.records.iter()
+            .filter(|(key, _)| key.as_str() != digest.as_str())
+            .map(|(_, record)| record.output.as_str()).collect();
+        if !other_outputs.contains(output) && other_outputs.len() >= MAX_OUTPUTS {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "Too many displays"));
         }
         self.records.insert(digest, Position {
@@ -219,7 +223,8 @@ impl FilePositions {
         };
         let meta = file.metadata()?;
         if !meta.is_file() || meta.uid() != unsafe { libc::geteuid() }
-            || meta.mode() & 0o077 != 0 || meta.len() > MAX_BYTES {
+            || meta.mode() & 0o077 != 0 || meta.nlink() != 1
+            || meta.len() > MAX_BYTES {
             return Err(io::Error::new(io::ErrorKind::PermissionDenied, "Non-private file-icon positions"));
         }
         let mut bytes = Vec::new();
@@ -237,15 +242,29 @@ impl FilePositions {
             || dir.uid() != unsafe { libc::geteuid() } || dir.mode() & 0o077 != 0 {
             return Err(io::Error::new(io::ErrorKind::PermissionDenied, "Non-private config directory"));
         }
-        if let Ok(existing) = fs::symlink_metadata(path) {
-            if !existing.is_file() || existing.file_type().is_symlink()
-                || existing.uid() != unsafe { libc::geteuid() } || existing.mode() & 0o077 != 0 {
-                return Err(io::Error::new(io::ErrorKind::PermissionDenied, "Unsafe position file occupant"));
-            }
-        }
         let bytes = serde_json::to_vec(&Stored { schema_version: 1,
             records: self.records.clone() }).map_err(io::Error::other)?;
         if bytes.len() as u64 > MAX_BYTES { return Err(io::ErrorKind::InvalidInput.into()); }
+        // Read the current inode without following symlinks. Identical data
+        // must not generate an inode replacement, mtime change or disk write.
+        let current = match OpenOptions::new().read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC).open(path) {
+            Ok(file) => Some(file),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error),
+        };
+        if let Some(mut existing) = current {
+            let meta = existing.metadata()?;
+            if !meta.is_file() || meta.uid() != unsafe { libc::geteuid() }
+                || meta.mode() & 0o077 != 0 || meta.nlink() != 1
+                || meta.len() > MAX_BYTES {
+                return Err(io::Error::new(io::ErrorKind::PermissionDenied,
+                                          "Unsafe position file occupant"));
+            }
+            let mut old = Vec::new();
+            existing.take(MAX_BYTES + 1).read_to_end(&mut old)?;
+            if old == bytes { return Ok(()); }
+        }
         let n = SystemTime::now().duration_since(UNIX_EPOCH)
             .map_err(io::Error::other)?.as_nanos();
         let temp = parent.join(format!(".native-file-positions-{}-{n}.tmp", std::process::id()));
@@ -253,7 +272,10 @@ impl FilePositions {
             let mut file = OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temp)?;
             file.write_all(&bytes)?;
             file.sync_all()?;
-            fs::rename(&temp, path)
+            fs::rename(&temp, path)?;
+            // Atomic replacement is only crash-durable once the directory
+            // metadata has also been flushed on filesystems supporting fsync.
+            File::open(parent)?.sync_all()
         })();
         if result.is_err() { let _ = fs::remove_file(temp); }
         result
@@ -293,7 +315,7 @@ impl FilePositions {
 mod tests {
     use super::*;
     use super::super::inventory::{scan, Status};
-    use std::os::unix::fs::symlink;
+    use std::os::unix::fs::{symlink, MetadataExt, PermissionsExt};
 
     struct Fixture(PathBuf);
     impl Fixture {
@@ -355,6 +377,27 @@ mod tests {
     }
 
     #[test]
+    fn moving_the_only_icon_off_the_eighth_output_is_allowed() {
+        let mut positions = FilePositions::default();
+        let mut keys = Vec::new();
+        for index in 0..MAX_OUTPUTS {
+            let key = Key { device: 1, inode: index as u64 + 100,
+                            name: format!("icon-{index}").into() };
+            positions.set(&key, &format!("OUT-{index}"),
+                          Coordinates { x: 10, y: 20 }).unwrap();
+            keys.push(key);
+        }
+        // Previously rejected: the eighth output disappears as this icon
+        // moves, so the resulting state still uses exactly eight outputs.
+        positions.set(&keys[0], "OUT-new", Coordinates { x: 7, y: 9 }).unwrap();
+        assert_eq!(positions.record_count(), MAX_OUTPUTS);
+        assert_eq!(positions.coordinates(&keys[0], "OUT-new"),
+                   Some(Coordinates { x: 7, y: 9 }));
+        let extra = Key { device: 1, inode: 900, name: "extra".into() };
+        assert!(positions.set(&extra, "OUT-extra", Coordinates { x: 0, y: 0 }).is_err());
+    }
+
+    #[test]
     fn owner_private_persistence_roundtrip_corrupt_and_symlink_rejected() {
         let f = Fixture::new();
         let data = f.0.join("positions.json");
@@ -365,6 +408,14 @@ mod tests {
                       Coordinates { x: 30, y: 50 }).unwrap();
         positions.save_at(&data).unwrap();
         assert_eq!(FilePositions::load_at(&data).unwrap(), positions);
+        let first = fs::metadata(&data).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        positions.save_at(&data).unwrap();
+        let unchanged = fs::metadata(&data).unwrap();
+        assert_eq!(first.ino(), unchanged.ino(), "byte-identical saves must retain the inode");
+        assert_eq!((first.mtime(), first.mtime_nsec()),
+                   (unchanged.mtime(), unchanged.mtime_nsec()),
+                   "byte-identical saves must preserve the modification time");
         fs::write(&data, b"invalid JSON").unwrap();
         assert!(FilePositions::load_at(&data).is_err());
         fs::remove_file(&data).unwrap();
@@ -373,6 +424,15 @@ mod tests {
         symlink(&target, &data).unwrap();
         assert!(positions.save_at(&data).is_err());
         assert_eq!(fs::read(&target).unwrap(), b"KEEP");
+
+        fs::remove_file(&data).unwrap();
+        fs::write(&data, b"private hardlinked data").unwrap();
+        fs::set_permissions(&data, fs::Permissions::from_mode(0o600)).unwrap();
+        let alias = f.0.join("alias");
+        fs::hard_link(&data, &alias).unwrap();
+        assert!(positions.save_at(&data).is_err(), "hardlinked private config is unsafe");
+        assert!(FilePositions::load_at(&data).is_err(), "hardlinked private config must not be restored");
+        assert_eq!(fs::read(&alias).unwrap(), b"private hardlinked data");
     }
  
     #[test]
