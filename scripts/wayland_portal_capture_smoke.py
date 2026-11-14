@@ -360,8 +360,9 @@ def verify_delivered_frame(fd: int, node: int, *, timeout: int = 18) -> str:
         detail = exc.stderr or b""
         if isinstance(detail, bytes):
             detail = detail.decode("utf-8", errors="replace")
-        raise TimeoutError("PipeWire frame receiver deadline; " +
-                           str(detail)[-500:]) from exc
+        print("PORTAL_FRAME_TIMEOUT_DIAG: " + str(detail)[-500:],
+              file=sys.stderr, flush=True)
+        raise
     if result.returncode != 0:
         raise RuntimeError("PipeWire frame probe failed: " +
                            (result.stderr or result.stdout).strip()[:700])
