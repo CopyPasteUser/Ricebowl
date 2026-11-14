@@ -1253,7 +1253,7 @@ PY
     WAYLAND_DISPLAY=wayland-0 wtype -d 650 -k F13 -k F13 0 -k Return \
         > "$runtime/xdg-wtype.log" 2>&1 &
     xdg_typer=$!
-    # Give the virtual keyboard's real wl_seat capability time to arrive
+    # Give the virtual keyboard wl_seat capability time to arrive
     # before requesting a same-seat focus lease. Never inject fake Enter.
     sleep 0.55
     kill -0 "$xdg_typer" || {
