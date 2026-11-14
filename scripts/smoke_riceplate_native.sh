@@ -813,8 +813,11 @@ PY
                "$source_root/dist/riceplate-native-preview/xp-luna-parity-run.png"
             # Real compositor-owned keyboard input, not a synthetic state or
             # a mocked screenshot. The native Run overlay owns focus here.
+            # F13 is an ignored wake-up event: labwc may need a Wayland
+            # round trip to assign focus to a new virtual-keyboard client.
+            # All subsequent typed characters must reach the actual dialog.
             command -v wtype >/dev/null || { echo "wtype missing" >&2; exit 1; }
-            WAYLAND_DISPLAY=wayland-0 wtype -d 35 abcd
+            WAYLAND_DISPLAY=wayland-0 wtype -d 85 -k F13 abcd
             sleep 0.25
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-typed.png"
             cp "$runtime/xp-luna-parity-run-typed.png" \
@@ -827,28 +830,27 @@ PY
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-pointer-caret.png"
             cp "$runtime/xp-luna-parity-run-pointer-caret.png" \
                "$source_root/dist/riceplate-native-preview/xp-luna-parity-run-pointer-caret.png"
-            WAYLAND_DISPLAY=wayland-0 wtype -d 35 Z
+            WAYLAND_DISPLAY=wayland-0 wtype -d 85 -k F13 Z
             sleep 0.2
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-pointer-insert.png"
             cp "$runtime/xp-luna-parity-run-pointer-insert.png" \
                "$source_root/dist/riceplate-native-preview/xp-luna-parity-run-pointer-insert.png"
             # Undo the inserted glyph and return to the original end caret
             # before the pre-existing keyboard-editing regression.
-            WAYLAND_DISPLAY=wayland-0 wtype -k BackSpace -k End
+            WAYLAND_DISPLAY=wayland-0 wtype -d 85 -k F13 -k BackSpace -k End
             sleep 0.2
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-pointer-restored.png"
             cp "$runtime/xp-luna-parity-run-pointer-restored.png" \
                "$source_root/dist/riceplate-native-preview/xp-luna-parity-run-pointer-restored.png"
             # Left, Backspace, and an insertion must edit in-place:
             # "abcd" -> "abd" -> "abXd", never execute anything.
-            WAYLAND_DISPLAY=wayland-0 wtype -k Left -k BackSpace
-            WAYLAND_DISPLAY=wayland-0 wtype X
+            WAYLAND_DISPLAY=wayland-0 wtype -d 85 -k F13 -k Left -k BackSpace X
             sleep 0.25
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-edited.png"
             cp "$runtime/xp-luna-parity-run-edited.png" \
                "$source_root/dist/riceplate-native-preview/xp-luna-parity-run-edited.png"
             # Home plus four Deletes must restore the actual empty input.
-            WAYLAND_DISPLAY=wayland-0 wtype -k Home -k Delete -k Delete -k Delete -k Delete
+            WAYLAND_DISPLAY=wayland-0 wtype -d 85 -k F13 -k Home -k Delete -k Delete -k Delete -k Delete
             sleep 0.25
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-cleared.png"
             cp "$runtime/xp-luna-parity-run-cleared.png" \
@@ -863,6 +865,19 @@ PY
             WAYLAND_DISPLAY=wayland-0 "$clicker" 843 450 1366 768
             sleep 0.25
             kill -0 "$plate"
+            # Reject screenshots that changed because a transient keyboard
+            # device closed the entire dialog, or only the final character
+            # arrived after a late focus assignment.
+            for character in a b c d; do
+                grep -Fq "utf8=Some(\"$character\")" "$runtime/plate-$label.log" || {
+                    echo "Native Run missed typed character $character" >&2
+                    exit 1
+                }
+            done
+            grep -Fq "utf8=Some(\"Z\")" "$runtime/plate-$label.log" || {
+                echo "Native Run lost keyboard input after pointer click" >&2
+                exit 1
+            }
             echo "Luna native Run key focus trace:"
             grep -F "RicePlate: Luna Run/Help" "$runtime/plate-$label.log" | tail -n 20 || :
             /usr/bin/python3 - "$runtime" <<PY
