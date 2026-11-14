@@ -1613,7 +1613,7 @@ PY
     # the same live seat across desktop -> foot -> typed input. A late wtype
     # invocation does not test this focus transition and previously generated
     # NoKeyboardProxy errors instead of a meaningful external-app assertion.
-    file_position=$(sed -n "s/.*XDG mapped x=\\([0-9][0-9]*\\) y=\\([0-9][0-9]*\\) kind=File.*/\\1 \\2/p" \\
+    file_position=$(sed -n "s/.*XDG mapped x=\([0-9][0-9]*\) y=\([0-9][0-9]*\) kind=File.*/\1 \2/p" \
         "$runtime/file-plate.log" | tail -n 1)
     test -n "$file_position"
     set -- $file_position
@@ -1621,9 +1621,9 @@ PY
     # F13 is inert in the desktop and terminal; real Wayland event processing
     # takes place while this single wtype device stays connected. Type only
     # after foot has been mapped and deliberately activated by a pointer click.
-    WAYLAND_DISPLAY=wayland-0 wtype -d 300 \\
-        -k F13 -k F13 -k F13 -k F13 -k F13 -k F13 \\
-        -k F13 -k F13 -k F13 -k F13 -k F13 -k F13 \\
+    WAYLAND_DISPLAY=wayland-0 wtype -d 300 \
+        -k F13 -k F13 -k F13 -k F13 -k F13 -k F13 \
+        -k F13 -k F13 -k F13 -k F13 -k F13 -k F13 \
         ricebowl-focus-ok -k Return >"$runtime/focus-wtype.log" 2>&1 &
     focus_typer=$!
     sleep 0.25
@@ -1652,9 +1652,9 @@ IFS= read -r input
 printf %s "$input" > "$FOCUS_RECEIVER_LOG"
 RECEIVER
     chmod 0700 "$runtime/focus-receiver.sh"
-    FOCUS_RECEIVER_LOG="$runtime/focus-input.log" \\
-        WAYLAND_DISPLAY=wayland-0 \\
-        foot --app-id=ricebowl-focus-receiver --title=RiceBowl-Focus-Probe \\
+    FOCUS_RECEIVER_LOG="$runtime/focus-input.log" \
+        WAYLAND_DISPLAY=wayland-0 \
+        foot --app-id=ricebowl-focus-receiver --title=RiceBowl-Focus-Probe \
         /bin/sh "$runtime/focus-receiver.sh" >"$runtime/focus-app.log" 2>&1 &
     focus_app=$!
     sleep 0.7
@@ -1663,7 +1663,7 @@ RECEIVER
         cat "$runtime/focus-app.log" >&2
         exit 1
     }
-    # The compositor, not our shell, must grant the external application's
+    # The compositor, not our shell, must grant the external application
     # keyboard focus; click the window at the center of the headless output.
     WAYLAND_DISPLAY=wayland-0 "$clicker" 683 384 1366 768
     wait "$focus_typer" || {
