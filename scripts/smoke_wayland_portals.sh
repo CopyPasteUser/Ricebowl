@@ -216,7 +216,7 @@ dbus-run-session -- sh -eu -c '
     fi
     if [ "$RICEBOWL_PORTAL_STRICT_CI" = 1 ]; then
         # Both strict capture paths use a private PipeWire session manager,
-        # never the user's services. A bare core is not a stream policy.
+        # never host-user services. A bare core is not a stream policy.
         wireplumber >"$runtime/wireplumber.log" 2>&1 &
         wireplumber_pid=$!
         sleep 1
