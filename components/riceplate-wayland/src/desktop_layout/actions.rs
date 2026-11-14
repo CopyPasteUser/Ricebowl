@@ -252,6 +252,32 @@ pub fn open(snapshot: &Snapshot, desktop: &Path, entry: &Entry,
     Ok(plan.spawn()?)
 }
 
+/// A destructive intent is represented only as an inert fixed-argv plan.
+/// The native UI must show a separate confirmation before spawning it.
+/// Gio implements the platform trash semantics; no unlink/rm fallback exists.
+/// A concurrent same-UID rename after pinning cannot be prevented by an
+/// argv-based Gio API; this is not an atomic source-inode transaction.
+pub fn prepare_trash(snapshot: &Snapshot, desktop: &Path, entry: &Entry)
+                     -> Result<LaunchPlan, ActionError> {
+    if !matches!(entry.kind, Kind::File | Kind::Directory) {
+        return Err(ActionError::Disabled("Untrusted item cannot be trashed"));
+    }
+    let target = verified_path(snapshot, desktop, entry, true)?;
+    Ok(LaunchPlan {
+        preferred: command(Backend::Gio, "gio", vec![
+            OsString::from("trash"), target.into_os_string(),
+        ]),
+        fallback: None,
+    })
+}
+
+/// Called strictly after an explicit, separate user confirmation.
+/// Return the child so the compositor can reap it and report process failures.
+pub fn trash_confirmed(snapshot: &Snapshot, desktop: &Path, entry: &Entry)
+                       -> Result<Child, ActionError> {
+    Ok(prepare_trash(snapshot, desktop, entry)?.spawn()?.1)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Properties {
     pub name: OsString,
@@ -433,6 +459,26 @@ mod tests {
         }
     }
     impl Drop for Fixture { fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); } }
+
+    #[test]
+    fn trash_requires_separate_confirmation_and_revalidates_source() {
+        let f = Fixture::new();
+        fs::write(f.0.join("safe.txt"), b"keep").unwrap();
+        fs::write(f.0.join("bad.desktop"), b"Exec=/bin/false").unwrap();
+        symlink("safe.txt", f.0.join("link")).unwrap();
+        let before = f.snap();
+        let file = f.entry(&before, "safe.txt");
+        let plan = prepare_trash(&before, &f.0, file).unwrap();
+        assert_eq!(plan.preferred.program, "gio");
+        assert_eq!(plan.preferred.arguments, vec![
+            OsString::from("trash"), f.0.join("safe.txt").into_os_string()
+        ]);
+        assert!(f.0.join("safe.txt").exists(), "preparation must not mutate");
+        assert!(prepare_trash(&before, &f.0, f.entry(&before, "bad.desktop")).is_err());
+        assert!(prepare_trash(&before, &f.0, f.entry(&before, "link")).is_err());
+        fs::remove_file(f.0.join("safe.txt")).unwrap();
+        assert!(prepare_trash(&before, &f.0, file).is_err());
+    }
 
     #[test]
     fn open_is_fixed_argv_and_never_execs_untrusted_launchers() {
