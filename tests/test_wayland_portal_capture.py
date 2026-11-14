@@ -1,5 +1,6 @@
 """Offline safeguards for the opt-in, headless-only portal capture smoke."""
 import importlib.util
+from contextlib import ExitStack
 import os
 import socket
 import struct
@@ -127,7 +128,10 @@ class ScreenCastCapabilityTests(unittest.TestCase):
                 portal.stream_nodes(invalid)
 
     def test_fd_lifetime_and_frame_failure_never_claim_success(self):
-        with socket.socketpair() as (left, right):
+        with ExitStack() as stack:
+            left, right = socket.socketpair()
+            stack.enter_context(left)
+            stack.enter_context(right)
             fd = os.dup(left.fileno())
             try:
                 with patch.object(portal.subprocess, "run", return_value=type(
