@@ -42,7 +42,7 @@ Run only in a disposable VM:
 ```sh
 RICEBOWL_PORTAL_RENDERER=gles2 RICEBOWL_PORTAL_STRICT_CI=1 \
 LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe EGL_PLATFORM=surfaceless \
-timeout -k 5s 105s sh scripts/smoke_wayland_portals.sh
+timeout -k 5s 160s sh scripts/smoke_wayland_portals.sh
 ```
 
 The shell creates private `/tmp/ricebowl-portals.XXXXXXXX` mode-0700

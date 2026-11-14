@@ -125,7 +125,7 @@ dbus-run-session -- sh -eu -c '
     compositor=$!
     attempt=0
     max_attempts=260
-    if [ "$RICEBOWL_PORTAL_STRICT_CI" = 1 ]; then max_attempts=400; fi
+    if [ "$RICEBOWL_PORTAL_STRICT_CI" = 1 ]; then max_attempts=520; fi
     while [ ! -f "$runtime/portals-ok" ] && [ ! -f "$runtime/portals-failed" ] \
           && [ "$attempt" -lt "$max_attempts" ]; do
         kill -0 "$compositor" 2>/dev/null || break

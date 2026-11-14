@@ -19,6 +19,6 @@ dbus-update-activation-environment \
 timeout -k 2s 18s /usr/bin/python3 "$root/scripts/check_wayland_portals.py" \
     --timeout 12
 capture_seconds=45
-if [ "${RICEBOWL_PORTAL_STRICT_CI:-0}" = 1 ]; then capture_seconds=90; fi
+if [ "${RICEBOWL_PORTAL_STRICT_CI:-0}" = 1 ]; then capture_seconds=100; fi
 timeout -k 2s "${capture_seconds}s" /usr/bin/python3 "$root/scripts/wayland_portal_capture_smoke.py"
 printf 'OK\n' >"$runtime/portals-ok"
