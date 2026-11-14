@@ -51,14 +51,21 @@ fn main() -> Result<(), Box<dyn Error>> {
         _ => 0.0,
     };
     let right_click = values.first().map(String::as_str) == Some("--right-click");
-    let args = if move_only || scroll != 0.0 || right_click { &values[1..] } else { &values[..] };
-    if args.len() != 4 {
-        return Err("Usage: wayland_pointer_click [--move-only|--scroll-down|--scroll-up|--right-click] X Y OUTPUT_WIDTH OUTPUT_HEIGHT".into());
+    let drag = values.first().map(String::as_str) == Some("--drag-to");
+    let args = if move_only || scroll != 0.0 || right_click || drag {
+        &values[1..]
+    } else { &values[..] };
+    if args.len() != if drag { 6 } else { 4 } {
+        return Err("Usage: wayland_pointer_click [--move-only|--scroll-down|--scroll-up|--right-click|--drag-to END_X END_Y] X Y OUTPUT_WIDTH OUTPUT_HEIGHT".into());
     }
     let coordinates = args.iter().map(|arg| arg.parse::<u32>())
         .collect::<Result<Vec<_>, _>>()?;
-    let [x, y, width, height] = [coordinates[0], coordinates[1], coordinates[2], coordinates[3]];
-    if width < 1 || height < 1 || x >= width || y >= height || width > 16384 || height > 16384 {
+    let (end, base) = if drag {
+        (Some((coordinates[0], coordinates[1])), &coordinates[2..])
+    } else { (None, &coordinates[..]) };
+    let [x, y, width, height] = [base[0], base[1], base[2], base[3]];
+    if width < 1 || height < 1 || x >= width || y >= height || width > 16384 || height > 16384
+        || end.is_some_and(|(end_x, end_y)| end_x >= width || end_y >= height) {
         return Err("Pointer coordinates must be inside a bounded Wayland output".into());
     }
 
@@ -90,7 +97,23 @@ fn main() -> Result<(), Box<dyn Error>> {
         pointer.frame();
         conn.flush()?;
         std::thread::sleep(Duration::from_millis(70));
-        pointer.button(3, button, wl_pointer::ButtonState::Released);
+        if let Some((end_x, end_y)) = end {
+            // Preserve the compositor's implicit pointer grab from press to
+            // release: this exercises the real layer-shell drag handlers.
+            // Intermediate frames keep the UI event path fully observable.
+            for step in 1..=12_u32 {
+                let interp = |start: u32, finish: u32| -> u32 {
+                    (i64::from(start) + (i64::from(finish) - i64::from(start))
+                        * i64::from(step) / 12) as u32
+                };
+                pointer.motion_absolute(3 + step, interp(x, end_x),
+                    interp(y, end_y), width, height);
+                pointer.frame();
+                conn.flush()?;
+                std::thread::sleep(Duration::from_millis(25));
+            }
+        }
+        pointer.button(25, button, wl_pointer::ButtonState::Released);
         pointer.frame();
     }
     queue.roundtrip(&mut Probe)?;
@@ -101,6 +124,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         if move_only { "pointer motion" }
         else if scroll != 0.0 { "wheel axis" }
         else if right_click { "right click" }
+        else if drag { "drag-and-drop" }
         else { "pointer click" });
     Ok(())
 }
