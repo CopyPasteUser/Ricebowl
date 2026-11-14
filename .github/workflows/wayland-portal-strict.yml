@@ -1,0 +1,114 @@
+name: Strict Wayland portals and PipeWire frames
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/wayland-portal-strict.yml'
+      - 'scripts/smoke_wayland_portals.sh'
+      - 'scripts/wayland_portals_smoke_client.sh'
+      - 'scripts/wayland_portal_capture_smoke.py'
+      - 'scripts/check_wayland_portals.py'
+      - 'tests/test_wayland_portal_capture.py'
+      - 'tests/test_wayland_portal_probe.py'
+      - 'packaging/wayland/ricebowl-portals.conf'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  portal-unit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Python GIO bindings for protocol tests
+        run: sudo apt-get update && sudo apt-get install -y python3-gi gir1.2-glib-2.0
+      - name: Test negative paths and validate shell / Python syntax
+        run: |
+          sh -n scripts/smoke_wayland_portals.sh
+          sh -n scripts/wayland_portals_smoke_client.sh
+          /usr/bin/python3 -m py_compile scripts/wayland_portal_capture_smoke.py scripts/check_wayland_portals.py
+          /usr/bin/python3 -m unittest discover -s tests -p 'test_wayland_portal_*.py' -v
+
+  portal-pixman-repeat:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    needs: portal-unit
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install disposable pixman compositor and portal runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y labwc pipewire dbus-user-session dbus-x11 \
+            python3-gi gir1.2-gtk-3.0 libglib2.0-bin \
+            xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-wlr grim
+      - name: Repeat existing pixman acceptance and verify no runtime leftovers
+        run: |
+          set -eu
+          before=$(find /tmp -maxdepth 1 -type d -name 'ricebowl-portals.*' -print | sort)
+          timeout -k 5s 90s sh scripts/smoke_wayland_portals.sh
+          timeout -k 5s 90s sh scripts/smoke_wayland_portals.sh
+          after=$(find /tmp -maxdepth 1 -type d -name 'ricebowl-portals.*' -print | sort)
+          [ "$before" = "$after" ] || {
+            echo "PORTAL_CLEANUP_FAIL: private runtimes left behind" >&2
+            printf 'Before:\n%s\nAfter:\n%s\n' "$before" "$after" >&2
+            exit 1
+          }
+          echo "PORTAL_PIXMAN_REPEAT_OK: two isolated runs without runtime leftovers"
+      - name: Crash labwc before socket creation and verify runtime recovery
+        run: |
+          set -eu
+          fake_bin=$(mktemp -d)
+          trap 'rm -rf -- "$fake_bin"' EXIT
+          printf '%s\n' '#!/bin/sh' 'echo PORTAL_TEST_COMPOSITOR_CRASH >&2' 'exit 17' >"$fake_bin/labwc"
+          chmod 0700 "$fake_bin/labwc"
+          before=$(find /tmp -maxdepth 1 -type d -name 'ricebowl-portals.*' -print | sort)
+          if PATH="$fake_bin:$PATH" timeout -k 5s 30s sh scripts/smoke_wayland_portals.sh >"$fake_bin/crash.log" 2>&1; then
+            echo "PORTAL_CRASH_FAIL: compositor crash was accepted as success" >&2
+            exit 1
+          fi
+          if ! grep -q 'PORTAL_TEST_COMPOSITOR_CRASH' "$fake_bin/crash.log" || \
+             ! grep -q 'PORTAL_SETUP_FAIL: labwc never created' "$fake_bin/crash.log"; then
+            echo "PORTAL_CRASH_FAIL: test did not reach intended compositor failure" >&2
+            sed -n '1,75p' "$fake_bin/crash.log" >&2
+            exit 1
+          fi
+          after=$(find /tmp -maxdepth 1 -type d -name 'ricebowl-portals.*' -print | sort)
+          [ "$before" = "$after" ] || {
+            echo "PORTAL_CRASH_FAIL: runtime survived compositor exit" >&2
+            exit 1
+          }
+          echo "PORTAL_CRASH_CLEANUP_OK: failed compositor left no private runtime"
+
+  portal-strict-frame:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    needs: portal-unit
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install disposable compositor, portal, PipeWire and GStreamer
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y labwc pipewire dbus-user-session dbus-x11 \
+            python3-gi python3-gst-1.0 gir1.2-gstreamer-1.0 \
+            gstreamer1.0-pipewire gstreamer1.0-plugins-base \
+            xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-wlr grim \
+            libegl1 libegl-mesa0 libgles2 libgl1-mesa-dri
+      - name: Identify renderer and DRM prerequisites without modifying host drivers
+        run: |
+          echo '--- OS/kernel/DRM ---'
+          uname -a
+          labwc --version || true
+          ls -l /dev/dri 2>&1 || true
+          echo '--- Mesa configuration (CI-only environment) ---'
+          printf 'LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe EGL_PLATFORM=surfaceless\n'
+      - name: Strict ScreenCast and real frame acceptance (fail closed)
+        env:
+          RICEBOWL_PORTAL_RENDERER: gles2
+          RICEBOWL_PORTAL_STRICT_CI: '1'
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          GALLIUM_DRIVER: llvmpipe
+          EGL_PLATFORM: surfaceless
+        run: |
+          timeout -k 5s 160s sh scripts/smoke_wayland_portals.sh

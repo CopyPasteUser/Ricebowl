@@ -1,7 +1,10 @@
 """Offline safeguards for the opt-in, headless-only portal capture smoke."""
 import importlib.util
+from contextlib import ExitStack
 import os
+import socket
 import struct
+import zlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,6 +14,18 @@ SCRIPT = Path(__file__).resolve().parents[1] / "scripts/wayland_portal_capture_s
 spec = importlib.util.spec_from_file_location("ricebowl_portal_capture", SCRIPT)
 portal = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(portal)
+
+
+def sample_png(width: int, height: int) -> bytes:
+    """Construct a valid PNG fixture without optional image libraries."""
+    def chunk(kind, data):
+        crc = zlib.crc32(kind + data) & 0xffffffff
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", crc)
+    pixels = (b"\x00" + b"\x42\x68\x93\xff" * width) * height
+    return (portal.PNG_SIGNATURE
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(pixels))
+            + chunk(b"IEND", b""))
 
 
 class CaptureGuardTests(unittest.TestCase):
@@ -32,6 +47,9 @@ class CaptureGuardTests(unittest.TestCase):
                     "DBUS_SESSION_BUS_ADDRESS": "unix:path=" + path + "/bus",
                     "WAYLAND_DISPLAY": "wayland-1",
                 }
+                (runtime / ".ricebowl-portal-dbus").write_text(
+                    env["DBUS_SESSION_BUS_ADDRESS"] + "\n", encoding="utf-8")
+                (runtime / ".ricebowl-portal-dbus").chmod(0o600)
                 self.assertEqual(portal.require_private_headless_session(env), runtime)
                 for key, bad in (
                     ("RICEBOWL_PORTAL_CAPTURE_CI", "0"),
@@ -49,6 +67,29 @@ class CaptureGuardTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "marker"):
                     portal.require_private_headless_session(env)
                 (runtime / ".ricebowl-portal-ci").touch()
+                marker = runtime / ".ricebowl-portal-ci"
+                marker.rename(runtime / "original-marker")
+                marker.symlink_to(runtime / "original-marker")
+                with self.assertRaisesRegex(RuntimeError, "marker"):
+                    portal.require_private_headless_session(env)
+                marker.unlink()
+                marker.touch()
+                alias = runtime.parent / (runtime.name + "-alias")
+                alias.symlink_to(runtime)
+                try:
+                    with self.assertRaisesRegex(RuntimeError, "symlink"):
+                        portal.require_private_headless_session({
+                            **env, "XDG_RUNTIME_DIR": str(alias),
+                            "PIPEWIRE_RUNTIME_DIR": str(alias)})
+                finally:
+                    alias.unlink()
+                dbus_marker = runtime / ".ricebowl-portal-dbus"
+                dbus_marker.write_text("unix:path=/run/user/1000/bus\\n",
+                                       encoding="utf-8")
+                with self.assertRaisesRegex(RuntimeError, "D-Bus identity"):
+                    portal.require_private_headless_session(env)
+                dbus_marker.write_text(
+                    env["DBUS_SESSION_BUS_ADDRESS"] + "\n", encoding="utf-8")
                 runtime.chmod(0o755)
                 with self.assertRaisesRegex(RuntimeError, "0700"):
                     portal.require_private_headless_session(env)
@@ -70,9 +111,9 @@ class ScreenshotValidationTests(unittest.TestCase):
     def test_png_header_dimensions_and_truncated_data(self):
         with tempfile.TemporaryDirectory() as path:
             image = Path(path) / "screenshot.png"
-            image.write_bytes(portal.PNG_SIGNATURE + b"\x00\x00\x00\x0dIHDR"
-                              + struct.pack(">II", 1920, 1080) + b"\x00" * 9)
-            self.assertEqual(portal.verify_png(image.as_uri()), (1920, 1080, 33))
+            data = sample_png(2, 2)
+            image.write_bytes(data)
+            self.assertEqual(portal.verify_png(image.as_uri()), (2, 2, len(data)))
             image.write_bytes(b"not PNG")
             with self.assertRaisesRegex(ValueError, "PNG"):
                 portal.verify_png(image.as_uri())
@@ -80,8 +121,7 @@ class ScreenshotValidationTests(unittest.TestCase):
     def test_rejects_symlink_and_invalid_dimensions(self):
         with tempfile.TemporaryDirectory() as path:
             image = Path(path) / "image.png"
-            image.write_bytes(portal.PNG_SIGNATURE + b"\x00\x00\x00\x0dIHDR"
-                              + struct.pack(">II", 0, 42) + b"\x00" * 9)
+            image.write_bytes(sample_png(0, 1))
             with self.assertRaisesRegex(ValueError, "dimensions"):
                 portal.verify_png(image.as_uri())
             link = Path(path) / "symlink.png"
@@ -89,8 +129,116 @@ class ScreenshotValidationTests(unittest.TestCase):
             with self.assertRaises(OSError):
                 portal.verify_png(link.as_uri())
 
+    def test_rejects_bad_crc_and_truncated_png(self):
+        with tempfile.TemporaryDirectory() as path:
+            image = Path(path) / "frame.png"
+            original = sample_png(1, 1)
+            broken = bytearray(original)
+            broken[32] ^= 1
+            image.write_bytes(broken)
+            with self.assertRaisesRegex(ValueError, "CRC"):
+                portal.verify_png(image.as_uri())
+            for data in (original[:-8], original[:33]):
+                image.write_bytes(data)
+                with self.assertRaisesRegex(ValueError, "PNG"):
+                    portal.verify_png(image.as_uri())
+
 
 class ScreenCastCapabilityTests(unittest.TestCase):
+    def test_strict_renderer_and_pixman_fallback_never_mix(self):
+        self.assertFalse(portal.strict_ci_mode({}))
+        self.assertTrue(portal.strict_ci_mode({
+            "RICEBOWL_PORTAL_STRICT_CI": "1", "WLR_RENDERER": "gles2"}))
+        for env in ({"RICEBOWL_PORTAL_STRICT_CI": "1", "WLR_RENDERER": "pixman"},
+                    {"RICEBOWL_PORTAL_STRICT_CI": "invalid"}):
+            with self.assertRaises(RuntimeError):
+                portal.strict_ci_mode(env)
+
+    def test_stream_nodes_must_be_unique_bounded_unsigned_and_well_formed(self):
+        self.assertEqual(portal.stream_nodes([(12, {}), (55, {"size": (2, 2)})]),
+                         (12, 55))
+        for invalid in (None, [], [(0, {})], [(True, {})], [(-1, {})],
+                        [(4294967296, {})], [(3, None)], [(1, {}), (1, {})],
+                        [(2, 3, {})], "3", [(i, {}) for i in range(17)]):
+            with self.subTest(invalid=invalid), self.assertRaises(RuntimeError):
+                portal.stream_nodes(invalid)
+
+    def test_fd_lifetime_and_frame_failure_never_claim_success(self):
+        with ExitStack() as stack:
+            left, right = socket.socketpair()
+            stack.enter_context(left)
+            stack.enter_context(right)
+            fd = os.dup(left.fileno())
+            try:
+                with patch.object(portal.subprocess, "run", return_value=type(
+                    "Result", (), {"returncode": 1, "stdout": "",
+                                   "stderr": "no sample"})()) as run:
+                    with self.assertRaisesRegex(RuntimeError, "no sample"):
+                        portal.verify_delivered_frame(fd, 12)
+                    self.assertEqual(run.call_args.kwargs["pass_fds"], (fd,))
+                    self.assertEqual(run.call_args.kwargs["timeout"], 18)
+                with patch.object(portal.subprocess, "run", return_value=type(
+                    "Result", (), {"returncode": 0,
+                                   "stdout": "PORTAL_FRAME_OK: node=12 bytes=4096 caps=video/x-raw,format=RGB",
+                                   "stderr": ""})()):
+                    self.assertIn("PORTAL_FRAME_OK:", portal.verify_delivered_frame(fd, 12))
+                self.assertTrue(os.fstat(fd).st_mode)
+            finally:
+                os.close(fd)
+            self.assertGreaterEqual(right.fileno(), 0)
+
+    def test_frame_receipt_rejects_wrong_node_zero_length_and_forged_output(self):
+        with ExitStack() as stack:
+            a, b = socket.socketpair()
+            stack.enter_context(a)
+            stack.enter_context(b)
+            for result in (
+                {"returncode": 0, "stdout": "PORTAL_FRAME_OK: node=13 bytes=123 caps=video/x-raw", "stderr": ""},
+                {"returncode": 0, "stdout": "PORTAL_FRAME_OK: node=12 bytes=0 caps=video/x-raw", "stderr": ""},
+                {"returncode": 0, "stdout": "PORTAL_FRAME_OK: sample delivered", "stderr": ""},
+                {"returncode": 0, "stdout": "PORTAL_FRAME_OK: node=12 bytes=123 caps=audio/x-raw", "stderr": ""},
+                {"returncode": 1, "stdout": "PORTAL_FRAME_OK: node=12 bytes=123 caps=video/x-raw", "stderr": "crash"},
+            ):
+                with self.subTest(result=result), patch.object(
+                        portal.subprocess, "run", return_value=type(
+                            "Result", (), result)()):
+                    with self.assertRaises(RuntimeError):
+                        portal.verify_delivered_frame(a.fileno(), 12)
+            with patch.object(portal.subprocess, "run",
+                              side_effect=portal.subprocess.TimeoutExpired("probe", 2)):
+                with self.assertRaises(portal.subprocess.TimeoutExpired):
+                    portal.verify_delivered_frame(a.fileno(), 12, timeout=2)
+            self.assertGreaterEqual(b.fileno(), 0)
+
+    def test_timeout_and_cancel_statuses_are_machine_readable(self):
+        denied = portal.PortalRejected("Start", 2)
+        self.assertEqual((denied.method, denied.code), ("Start", 2))
+        self.assertIn("Start", str(denied))
+        for method, code, expected in (
+            ("Start", 2, "session_start_failed"),
+            ("SelectSources", 2, "request_denied_or_failed"),
+            ("CreateSession", 2, "request_denied_or_failed"),
+            ("Screenshot", 2, "request_denied_or_failed"),
+            ("Start", 1, "request_cancelled"),
+            ("SelectSources", 1, "request_cancelled"),
+        ):
+            with self.subTest(method=method, code=code):
+                self.assertEqual(portal.classify_failure(
+                    portal.PortalRejected(method, code)), expected)
+        self.assertEqual(portal.classify_failure(TimeoutError("late")), "request_timeout")
+        self.assertEqual(portal.classify_failure(portal.PortalRejected("Start", 1)),
+                         "request_cancelled")
+        self.assertEqual(portal.classify_failure(portal.PortalRejected("Start", 2)),
+                         "session_start_failed")
+        self.assertEqual(portal.classify_failure(portal.PortalRejected("SelectSources", 2)),
+                         "request_denied_or_failed")
+        self.assertEqual(portal.classify_failure(RuntimeError("Missing Unix FD")),
+                         "fd_missing_or_invalid")
+        self.assertEqual(portal.classify_failure(RuntimeError("Permission denied")),
+                         "permission_denied")
+        self.assertEqual(portal.classify_failure(RuntimeError("No DRM render node")),
+                         "renderer_unavailable")
+
     def test_only_ci_pixman_headless_start_failure_is_non_blocking(self):
         env = {"RICEBOWL_PORTAL_CAPTURE_CI": "1", "WLR_BACKENDS": "headless",
                "WLR_RENDERER": "pixman"}
@@ -108,6 +256,141 @@ class ScreenCastCapabilityTests(unittest.TestCase):
 
 @unittest.skipUnless(importlib.util.find_spec("gi"), "PyGObject not available")
 class RequestProtocolTests(unittest.TestCase):
+    def test_request_timeout_attempts_close_and_unsubscribes(self):
+        from gi.repository import GLib
+
+        class NoResponse:
+            def get_unique_name(self):
+                return ":1.42"
+
+            def signal_subscribe(self, _dest, _iface, _signal, path,
+                                 _arg0, _flags, _callback):
+                self.path = path
+                return 91
+
+            def call_sync(self, _dest, path, _iface, method, *_args):
+                if method == "Close":
+                    self.closed = path
+                    return None
+                return GLib.Variant("(o)", (self.path,))
+
+            def signal_unsubscribe(self, ident):
+                self.unsubscribed = ident
+
+        conn = NoResponse()
+        # Queue the timeout to the main loop; never delay the unit test.
+        with patch.object(GLib, "timeout_add_seconds",
+                          side_effect=lambda _seconds, cb: GLib.idle_add(cb)):
+            with self.assertRaisesRegex(TimeoutError, "Screenshot"):
+                portal.request(conn, portal.SCREENSHOT, "Screenshot",
+                               "(sa{sv})", ("",), timeout_seconds=1)
+        self.assertEqual(conn.closed, conn.path)
+        self.assertEqual(conn.unsubscribed, 91)
+
+    def test_create_session_rejects_wrong_session_token(self):
+        from gi.repository import GLib
+
+        class IncorrectSession:
+            def get_unique_name(self):
+                return ":1.42"
+
+            def signal_subscribe(self, _dest, _iface, _signal, path,
+                                 _arg0, _flags, callback):
+                self.path, self.callback = path, callback
+                return 92
+
+            def call_sync(self, _dest, path, _iface, method, *_args):
+                if method == "Close":
+                    self.closed = path
+                    return None
+                self.callback(self, ":1.7", self.path, portal.REQUEST,
+                              "Response", GLib.Variant("(ua{sv})", (0, {
+                                  "session_handle": GLib.Variant(
+                                      "o", portal.DESKTOP_PATH +
+                                      "/session/1_42/incorrect")
+                              })))
+                return GLib.Variant("(o)", (self.path,))
+
+            def signal_unsubscribe(self, ident):
+                self.unsubscribed = ident
+
+        conn = IncorrectSession()
+        with self.assertRaisesRegex(RuntimeError, "mismatched session"):
+            portal.request(conn, portal.SCREENCAST, "CreateSession",
+                           "(a{sv})", ())
+        self.assertEqual(conn.closed, conn.path)
+        self.assertEqual(conn.unsubscribed, 92)
+
+    def test_request_handle_mismatch_closes_expected_handle(self):
+        from gi.repository import GLib
+
+        class WrongHandle:
+            def get_unique_name(self):
+                return ":1.11"
+
+            def signal_subscribe(self, _dest, _iface, _signal, path,
+                                 _arg0, _flags, _callback):
+                self.expected = path
+                return 49
+
+            def call_sync(self, _dest, path, _iface, method, *_args):
+                if method == "Close":
+                    self.closed = path
+                    return None
+                return GLib.Variant("(o)", (portal.DESKTOP_PATH + "/request/untrusted",))
+
+            def signal_unsubscribe(self, ident):
+                self.unsubscribed = ident
+
+        conn = WrongHandle()
+        with self.assertRaisesRegex(RuntimeError, "Unexpected portal request handle"):
+            portal.request(conn, portal.SCREENSHOT, "Screenshot", "(sa{sv})", ("",))
+        self.assertEqual(conn.closed, conn.expected)
+        self.assertEqual(conn.unsubscribed, 49)
+
+    def test_pipewire_fd_list_requires_socket_and_closes_bad_duplicate(self):
+        from gi.repository import Gio, GLib
+
+        class FakeConnection:
+            def __init__(self, handle, descriptors):
+                self.handle = handle
+                self.descriptors = descriptors
+
+            def call_with_unix_fd_list_sync(self, *_args):
+                return GLib.Variant("(h)", (self.handle,)), self.descriptors
+
+        with ExitStack() as stack:
+            left, right = socket.socketpair()
+            stack.enter_context(left)
+            stack.enter_context(right)
+            descriptors = Gio.UnixFDList.new()
+            self.assertEqual(descriptors.append(left.fileno()), 0)
+            fd = portal.verify_pipewire_remote(
+                FakeConnection(0, descriptors), "/org/freedesktop/portal/desktop/session/x")
+            try:
+                self.assertTrue(os.fstat(fd).st_mode)
+                self.assertNotEqual(fd, left.fileno())
+            finally:
+                os.close(fd)
+            with self.assertRaisesRegex(RuntimeError, "invalid FD index"):
+                portal.verify_pipewire_remote(
+                    FakeConnection(99, descriptors), "/org/freedesktop/portal/desktop/session/x")
+            with self.assertRaisesRegex(RuntimeError, "no Unix FD list"):
+                portal.verify_pipewire_remote(
+                    FakeConnection(0, None), "/org/freedesktop/portal/desktop/session/x")
+
+        read_fd, write_fd = os.pipe()
+        try:
+            descriptors = Gio.UnixFDList.new()
+            descriptors.append(read_fd)
+            with self.assertRaisesRegex(RuntimeError, "not a socket"):
+                portal.verify_pipewire_remote(
+                    FakeConnection(0, descriptors),
+                    "/org/freedesktop/portal/desktop/session/x")
+        finally:
+            os.close(read_fd)
+            os.close(write_fd)
+
     def test_response_signal_receives_six_gio_callback_arguments(self):
         from gi.repository import GLib
 
@@ -136,6 +419,92 @@ class RequestProtocolTests(unittest.TestCase):
                                   "(sa{sv})", ("",))
         self.assertEqual(response["uri"], "file:///tmp/test.png")
         self.assertEqual(fake.unsubscribed, 5)
+
+
+@unittest.skipUnless(importlib.util.find_spec("gi"), "PyGObject not available")
+class PortalSessionLifecycleTests(unittest.TestCase):
+    """Exercise the real orchestration path with deterministic D-Bus replies."""
+
+    def _run(self, failure, *, strict=True, remote_fd=None):
+        from gi.repository import Gio
+
+        class Connection:
+            closed = []
+
+            def call_sync(self, _dest, path, _interface, method, *_args):
+                if method == "Close":
+                    self.closed.append(path)
+                    return None
+                raise AssertionError("Unexpected raw D-Bus call: " + method)
+
+        conn = Connection()
+        session = portal.DESKTOP_PATH + "/session/1_99/fixture"
+
+        def reply(_conn, _iface, method, *_args, **_kwargs):
+            if method == "Screenshot":
+                return {"uri": "file:///tmp/fixture.png"}
+            if method == "CreateSession":
+                return {"session_handle": session}
+            if method == "SelectSources":
+                if failure == "SelectSources":
+                    raise portal.PortalRejected(method, 2)
+                return {}
+            if method == "Start":
+                if failure == "Start":
+                    raise portal.PortalRejected(method, 2)
+                return {"streams": [(7, {})]}
+            raise AssertionError(method)
+
+        env = {
+            "RICEBOWL_PORTAL_STRICT_CI": "1" if strict else "0",
+            "RICEBOWL_PORTAL_CAPTURE_CI": "1",
+            "WLR_BACKENDS": "headless",
+            "WLR_RENDERER": "gles2" if strict else "pixman",
+        }
+        with patch.dict(os.environ, env), \
+             patch.object(portal, "require_private_headless_session"), \
+             patch.object(portal, "verify_png", return_value=(1, 1, 123)), \
+             patch.object(portal, "request", side_effect=reply), \
+             patch.object(Gio, "bus_get_sync", return_value=conn):
+            if remote_fd is not None:
+                with patch.object(portal, "verify_pipewire_remote",
+                                  return_value=remote_fd), \
+                     patch.object(portal, "verify_delivered_frame",
+                                  side_effect=RuntimeError("no frame")):
+                    with self.assertRaisesRegex(RuntimeError, "no frame"):
+                        portal.run()
+            elif strict:
+                with self.assertRaises(portal.PortalRejected):
+                    portal.run()
+            else:
+                portal.run()
+        self.assertEqual(conn.closed, [session])
+
+    def test_select_sources_denial_closes_session(self):
+        self._run("SelectSources")
+
+    def test_start_denial_closes_session(self):
+        self._run("Start")
+
+    def test_pixman_response_two_is_limited_but_session_closes(self):
+        self._run("Start", strict=False)
+
+    def test_frame_probe_failure_closes_remote_fd_and_session(self):
+        with ExitStack() as stack:
+            left, right = socket.socketpair()
+            stack.enter_context(left)
+            stack.enter_context(right)
+            fd = os.dup(left.fileno())
+            try:
+                self._run(None, remote_fd=fd)
+                with self.assertRaises(OSError):
+                    os.fstat(fd)
+            finally:
+                # If a regression left fd open, close it before failing the test.
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
 
 
 if __name__ == "__main__":
