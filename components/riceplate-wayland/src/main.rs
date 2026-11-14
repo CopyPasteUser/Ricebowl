@@ -533,6 +533,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         file_watcher,
         file_pressed: None,
         file_last_click: None,
+        file_launches: Vec::new(),
+        file_last_reap: Instant::now(),
         file_keyboard_focus_layer: None,
         file_keyboard_focus_lease: input_core::DesktopFocusLease::default(),
         widget_layers,
@@ -845,6 +847,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                        app.notification_state.refresh_timeout(Instant::now())]
             .into_iter().flatten().min().unwrap_or_else(next_clock_timeout);
         event_loop.dispatch(Some(timeout), &mut app)?;
+        app.reap_file_launches_if_due();
         if app.file_keyboard_focus_layer.as_ref().is_some_and(|focus|
             Instant::now() >= focus.expires) {
             app.close_file_keyboard_focus();
@@ -1073,6 +1076,8 @@ struct RicePlate {
     file_watcher: Option<desktop_layout::watcher::Watcher>,
     file_pressed: Option<desktop_layout::inventory::Key>,
     file_last_click: Option<(desktop_layout::inventory::Key, Instant, (f64, f64))>,
+    file_launches: Vec<std::process::Child>,
+    file_last_reap: Instant,
     file_keyboard_focus_layer: Option<FileKeyboardFocusLayer>,
     file_keyboard_focus_lease:
         input_core::DesktopFocusLease<wl_seat::WlSeat, wl_output::WlOutput, wl_surface::WlSurface>,
@@ -1173,6 +1178,37 @@ fn new_file_layer(
     surface.commit();
     FileIconLayer { entry, surface, pool: None, configured: false,
         output: output.cloned(), bound_output: output.cloned(), placed: None }
+}
+
+// Dropping Child without wait leaks zombies for short-lived Gio launchers.
+// Long-running RiceField windows remain tracked and are only polled on normal
+// event-loop wakes (no idle spin or dedicated reaper thread).
+fn reap_finished_file_openers(children: &mut Vec<std::process::Child>) {
+    children.retain_mut(|child| match child.try_wait() {
+        Ok(Some(_)) => false,
+        Ok(None) => true,
+        Err(error) => {
+            eprintln!("RicePlate: could not reap desktop file opener: {error}");
+            false
+        }
+    });
+}
+
+#[cfg(test)]
+mod file_opener_lifecycle_tests {
+    use super::*;
+
+    #[test]
+    fn finished_gio_style_launchers_do_not_accumulate_zombies() {
+        let child = Command::new("true").spawn().expect("coreutils true");
+        let mut children = vec![child];
+        for _ in 0..100 {
+            reap_finished_file_openers(&mut children);
+            if children.is_empty() { return; }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        panic!("completed child was never reaped");
+    }
 }
 
 fn register_file_watch(
@@ -1492,32 +1528,27 @@ impl RicePlate {
         layer.surface.commit();
     }
 
+    // Reap only while the event loop is already awake. No permanent
+    // SIGCHLD handler, polling thread or timer is introduced for file openers.
+    fn reap_file_launches_if_due(&mut self) {
+        if self.file_launches.is_empty()
+            || self.file_last_reap.elapsed() < Duration::from_secs(2) { return; }
+        self.file_last_reap = Instant::now();
+        reap_finished_file_openers(&mut self.file_launches);
+    }
+
     fn activate_file_icon(&mut self, key: &desktop_layout::inventory::Key) {
         let (Some(directory), Some(snapshot)) = (self.file_desktop.as_deref(),
                                                  self.file_snapshot.as_ref()) else { return };
         let Some(entry) = snapshot.entries.iter().find(|e| &e.key == key) else { return };
-        let intent = match desktop_context::file_open_intent(snapshot, directory, entry, false) {
-            Ok(intent) => intent,
-            Err(error) => {
-                eprintln!("RicePlate: refused unsafe desktop file activation: {error}");
-                return
-            }
-        };
-        let mut command = match intent {
-            desktop_context::FileOpenIntent::DefaultApplication(path) => {
-                let mut command = Command::new("gio");
-                command.arg("open").arg(path);
-                command
-            }
-            desktop_context::FileOpenIntent::DirectoryInRiceField(path) => {
-                let mut command = Command::new("ricefield");
-                command.arg("--theme").arg("xp-luna")
-                    .arg("--separate-window").arg(path);
-                command
-            }
-        };
-        if let Err(error) = command.spawn() {
-            eprintln!("RicePlate: desktop file opener unavailable: {error}");
+        // Use the existing descriptor-validated action adapter immediately
+        // before launch. Its fixed-argv RiceField -> Gio ENOENT fallback must
+        // remain identical for keyboard, pointer and context-menu actions.
+        match desktop_layout::actions::open(
+            snapshot, directory, entry, desktop_layout::actions::OpenMode::Default
+        ) {
+            Ok((_backend, child)) => self.file_launches.push(child),
+            Err(error) => eprintln!("RicePlate: desktop file activation refused: {error}"),
         }
     }
 
