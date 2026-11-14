@@ -2230,6 +2230,7 @@ impl RicePlate {
             self.icon_outputs.can_reset_position(
                 &name, &self.recipe.desktop_icons, recipe_index));
         self.icon_drag = None;
+        self.close_desktop_keyboard_focus();
         self.desktop_selection.cancel();
         self.select_luna_icon(index);
         if self.menu_state.visible { self.set_menu_visible(false, qh); }
@@ -4150,9 +4151,13 @@ impl RicePlate {
     }
 
     fn reflow_icons(&mut self) {
-        // A context menu is anchored to one physical output; hotplug and
-        // icon position changes invalidate its coordinates and target.
+        // A context menu and ephemeral keyboard focus are anchored to a
+        // physical output. Hotplug/reflow invalidates their coordinates.
         self.close_desktop_context();
+        if self.desktop_keyboard_focus_layer.as_ref().is_some_and(|layer|
+            matches!(layer.target, DesktopFocusTarget::Shortcut(_))) {
+            self.close_desktop_keyboard_focus();
+        }
         // Output reflow and icon dragging invalidate pending pointer timing.
         self.desktop_selection.cancel();
         // An advertised output without a shell surface must not swallow
@@ -6798,7 +6803,13 @@ impl KeyboardHandler for RicePlate {
             }
             if self.desktop_keyboard_focus_lease.compositor_enter(&seat, surface) {
                 if std::env::var("RICEBOWL_DE_TRACE_FOCUS").as_deref() == Ok("1") {
-                    eprintln!("RicePlate: compositor confirmed XDG file keyboard focus");
+                    match self.desktop_keyboard_focus_layer.as_ref().map(|l| &l.target) {
+                        Some(DesktopFocusTarget::File(_)) =>
+                            eprintln!("RicePlate: compositor confirmed XDG file keyboard focus"),
+                        Some(DesktopFocusTarget::Shortcut(_)) =>
+                            eprintln!("RicePlate: compositor confirmed Luna shortcut keyboard focus"),
+                        None => {}
+                    }
                 }
             } else if self.desktop_keyboard_focus_layer.is_some()
                 && self.desktop_keyboard_focus_lease.phase() == input_core::DesktopFocusPhase::Idle {
@@ -7995,6 +8006,7 @@ impl PointerHandler for RicePlate {
                     }
                     PointerEventKind::Press { button: BTN_LEFT, .. } => {
                         self.close_desktop_context();
+                        self.close_desktop_keyboard_focus();
                         let mode = if self.recipe.id == "xp-luna-columns" {
                             if self.selection_modifiers.ctrl {
                                 desktop_selection::Mode::Toggle
@@ -8041,9 +8053,15 @@ impl PointerHandler for RicePlate {
                                     self.desktop_selection.release(index, event.position, Instant::now())
                                 } else { true };
                                 if open {
+                                    self.close_desktop_keyboard_focus();
                                     let action = self.recipe.desktop_icons[
                                         self.icon_layers[index].recipe_index].action.clone();
                                     self.activate_action(&action, qh);
+                                } else if self.recipe.id == "xp-luna-columns" {
+                                    // An ordinary first click explicitly selects this icon.
+                                    // Request a bounded focus surface only AFTER release,
+                                    // keeping double-click action semantics intact.
+                                    self.open_shortcut_keyboard_focus(index, qh);
                                 }
                             } else if drag.index == index {
                                 self.desktop_selection.cancel();
