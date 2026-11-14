@@ -5655,6 +5655,56 @@ fn paint_luna_dialog(canvas: &mut [u8], style: &PanelStyle, state: &luna_dialog:
     }
 }
 
+fn paint_file_context(canvas: &mut [u8], style: &PanelStyle,
+                      menu: &FileContextLayer) {
+    let (w, h) = (desktop_file_menu::WIDTH, desktop_file_menu::HEIGHT);
+    canvas.fill(0);
+    fill_rect(canvas, w, h, 0, 0, w, h, 0xff20_3f7e);
+    fill_rect(canvas, w, h, 2, 2, w - 4, h - 4, 0xfffc_faf2);
+    fill_rect(canvas, w, h, 3, 3, w - 6, 29, 0xff24_5ed3);
+    draw_rice_text(canvas, w, h, 12, 11,
+        if menu.properties.is_some() { "File Properties" } else { "Desktop File" },
+        0xffff_ffff, style);
+    if let Some(properties) = menu.properties.as_ref() {
+        let name: String = properties.name.to_string_lossy().chars().take(29).collect();
+        let kind = match properties.kind {
+            desktop_layout::inventory::Kind::File => "File",
+            desktop_layout::inventory::Kind::Directory => "Folder",
+            desktop_layout::inventory::Kind::DesktopFile => "Launcher (inert)",
+            desktop_layout::inventory::Kind::Symlink => "Symbolic link (inert)",
+        };
+        for (index, line) in [
+            format!("Name: {name}"),
+            format!("Type: {kind}"),
+            format!("Size: {} bytes", properties.size),
+            format!("Owner: UID {}", properties.owner_uid),
+            format!("Mode: {:o}", properties.mode & 0o7777),
+        ].iter().enumerate() {
+            draw_rice_text(canvas, w, h, 12, 44 + index as u32 * 28,
+                           line, 0xff1d_273d, style);
+        }
+        fill_rect(canvas, w, h, 5, desktop_file_menu::BACK_ROW, w - 10, 28,
+                  if menu.back_hovered { 0xff36_6ac9 } else { 0xffe5_e9f2 });
+        draw_rice_text(canvas, w, h, 16, desktop_file_menu::BACK_ROW + 8,
+                       "Back", if menu.back_hovered { 0xffff_ffff } else { 0xff1d_273d }, style);
+        return;
+    }
+    for item in desktop_file_menu::Item::ALL {
+        let y = desktop_file_menu::row(item);
+        if menu.selected == item || menu.hovered == Some(item) {
+            fill_rect(canvas, w, h, 5, y, w - 10, 28,
+                      if item.enabled(menu.kind) { 0xff36_6ac9 } else { 0xffdb_dfeb });
+        }
+        let color = if !item.enabled(menu.kind) { 0xff7c_8291 }
+            else if menu.selected == item || menu.hovered == Some(item) { 0xffff_ffff }
+            else { 0xff1d_273d };
+        draw_rice_text(canvas, w, h, 16, y + 8, item.label(), color, style);
+    }
+    if let Some(notice) = menu.notice {
+        draw_rice_text(canvas, w, h, 12, 200, notice, 0xffb2_302e, style);
+    }
+}
+
 fn paint_desktop_context(canvas: &mut [u8], style: &PanelStyle,
                          selected: DesktopContextAction,
                          hovered: Option<DesktopContextAction>,
