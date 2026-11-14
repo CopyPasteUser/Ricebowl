@@ -35,7 +35,7 @@ class CaptureGuardTests(unittest.TestCase):
                     "WAYLAND_DISPLAY": "wayland-1",
                 }
                 (runtime / ".ricebowl-portal-dbus").write_text(
-                    env["DBUS_SESSION_BUS_ADDRESS"] + "\\n", encoding="utf-8")
+                    env["DBUS_SESSION_BUS_ADDRESS"] + "\n", encoding="utf-8")
                 (runtime / ".ricebowl-portal-dbus").chmod(0o600)
                 self.assertEqual(portal.require_private_headless_session(env), runtime)
                 for key, bad in (
@@ -76,7 +76,7 @@ class CaptureGuardTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "D-Bus identity"):
                     portal.require_private_headless_session(env)
                 dbus_marker.write_text(
-                    env["DBUS_SESSION_BUS_ADDRESS"] + "\\n", encoding="utf-8")
+                    env["DBUS_SESSION_BUS_ADDRESS"] + "\n", encoding="utf-8")
                 runtime.chmod(0o755)
                 with self.assertRaisesRegex(RuntimeError, "0700"):
                     portal.require_private_headless_session(env)

@@ -126,7 +126,7 @@ def require_private_headless_session(env: dict[str, str]) -> Path:
     if (bus_stat.st_uid != os.geteuid()
             or stat.S_IMODE(bus_stat.st_mode) != 0o600
             or bus_stat.st_nlink != 1
-            or bus_marker.read_text(encoding="utf-8").rstrip("\\n") != bus):
+            or bus_marker.read_text(encoding="utf-8").rstrip("\n") != bus):
         raise RuntimeError("Private D-Bus identity does not match runtime")
     display = env.get("WAYLAND_DISPLAY", "")
     if not display or "/" in display or display in (".", ".."):
