@@ -28,7 +28,19 @@ impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for Probe {
 
 wayland_client::delegate_noop!(Probe: ZwlrVirtualPointerManagerV1);
 wayland_client::delegate_noop!(Probe: ZwlrVirtualPointerV1);
-wayland_client::delegate_noop!(Probe: wl_seat::WlSeat);
+// A compositor immediately announces wl_seat name/capabilities. Consume
+// these real events: delegate_noop! panics when invoked, making this CI
+// helper crash before the input smoke can observe compositor focus.
+impl Dispatch<wl_seat::WlSeat, ()> for Probe {
+    fn event(
+        _: &mut Self,
+        _: &wl_seat::WlSeat,
+        _: wl_seat::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {}
+}
 
 fn main() -> Result<(), Box<dyn Error>> {
     let values = std::env::args().skip(1).collect::<Vec<_>>();
