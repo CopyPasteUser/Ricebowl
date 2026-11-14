@@ -1669,6 +1669,9 @@ PY
         tail -n 45 "$runtime/file-plate.log" >&2
         exit 1
     }
+    # New external-app handoff must release this confirmed lease, not a
+    # previous desktop selection that happened earlier in the test.
+    focus_releases_after_icon=$(grep -Fc "RicePlate: XDG file keyboard focus released" "$runtime/file-plate.log" || :)
     # Fullscreen is confined to this disposable headless compositor. This
     # is a real, normal GTK3 Wayland client, not an input mock or synthetic
     # wl_keyboard event. Its actual Entry activates only on typed Return.
@@ -1741,11 +1744,11 @@ RECEIVER
     count=0
     while [ "$count" -lt 40 ]; do
         focus_releases_on_map=$(grep -Fc "RicePlate: XDG file keyboard focus released" "$runtime/file-plate.log" || :)
-        test "$focus_releases_on_map" -gt "$focus_releases_before" && break
+        test "$focus_releases_on_map" -gt "$focus_releases_after_icon" && break
         count=$((count + 1))
         sleep 0.1
     done
-    test "$focus_releases_on_map" -gt "$focus_releases_before" || {
+    test "$focus_releases_on_map" -gt "$focus_releases_after_icon" || {
         echo "New app toplevel did not revoke exclusive desktop keyboard surface" >&2
         tail -n 50 "$runtime/file-plate.log" >&2
         exit 1
@@ -1784,7 +1787,7 @@ RECEIVER
         exit 1
     }
     focus_releases_after=$(grep -Fc "RicePlate: XDG file keyboard focus released" "$runtime/file-plate.log" || :)
-    test "$focus_releases_after" -gt "$focus_releases_before" || {
+    test "$focus_releases_after" -gt "$focus_releases_after_icon" || {
         echo "Compositor never revoked the fresh desktop keyboard lease on external app activation" >&2
         tail -n 50 "$runtime/file-plate.log" >&2
         exit 1
