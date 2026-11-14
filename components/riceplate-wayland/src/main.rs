@@ -1920,7 +1920,53 @@ impl RicePlate {
         });
     }
 
-    fn execute_luna_dialog(&mut self) {
+    fn execute_luna_dialog(&mut self, qh: &QueueHandle<Self>) {
+        let Some(kind) = self.luna_dialog.as_ref().map(|dialog| dialog.state.kind) else { return };
+        if matches!(kind, luna_dialog::Kind::FileRename | luna_dialog::Kind::FileTrash) {
+            let result = (|| {
+                let key = self.file_dialog_target.as_ref().ok_or(
+                    desktop_layout::actions::ActionError::Stale("No selected file"))?;
+                let root = self.file_desktop.as_deref().ok_or(
+                    desktop_layout::actions::ActionError::Disabled("No Desktop folder"))?;
+                let snapshot = self.file_snapshot.as_ref().ok_or(
+                    desktop_layout::actions::ActionError::Stale("No Desktop inventory"))?;
+                let entry = snapshot.entries.iter().find(|entry| &entry.key == key).ok_or(
+                    desktop_layout::actions::ActionError::Stale("Selected file disappeared"))?;
+                if kind == luna_dialog::Kind::FileRename {
+                    let name = self.luna_dialog.as_ref().map(|dialog| dialog.state.input.as_str())
+                        .unwrap_or_default();
+                    desktop_layout::actions::rename(snapshot, root, entry,
+                        std::ffi::OsStr::new(name)).map(|_| None)
+                } else {
+                    desktop_layout::actions::trash_confirmed(snapshot, root, entry).map(Some)
+                }
+            })();
+            match result {
+                Ok(child) => {
+                    if let Some(child) = child { self.file_launches.push(child); }
+                    self.close_luna_dialog();
+                    if kind == luna_dialog::Kind::FileRename { self.refresh_file_desktop(qh); }
+                    if std::env::var("RICEBOWL_DE_TRACE_FILES").as_deref() == Ok("1") {
+                        eprintln!("RicePlate: XDG confirmed action dispatched kind={kind:?}");
+                    }
+                }
+                Err(error) => {
+                    eprintln!("RicePlate: XDG confirmed action refused: {error}");
+                    if let Some(dialog) = self.luna_dialog.as_mut() {
+                        use desktop_layout::actions::ActionError;
+                        dialog.state.notice = Some(match error {
+                            ActionError::InvalidName => "Invalid or unchanged file name",
+                            ActionError::Conflict => "A file with that name already exists",
+                            ActionError::Stale(_) => "File changed; close and retry",
+                            ActionError::Disabled(_) => "This file action is not allowed",
+                            ActionError::Io(_) => "Operation failed; check permissions",
+                        });
+                    }
+                    self.redraw_luna_dialog();
+                }
+            }
+            return;
+        }
         let Some(dialog) = self.luna_dialog.as_mut() else { return };
         if dialog.state.kind == luna_dialog::Kind::Help {
             self.close_luna_dialog();
@@ -6666,7 +6712,7 @@ impl KeyboardHandler for RicePlate {
                     }
                 }
             }
-            if execute { self.execute_luna_dialog(); }
+            if execute { self.execute_luna_dialog(qh); }
             else if repaint { self.redraw_luna_dialog(); }
             if std::env::var_os("RICEBOWL_DE_TRACE_MENU").is_some() {
                 if let Some(dialog) = self.luna_dialog.as_ref() {
@@ -7159,7 +7205,7 @@ impl PointerHandler for RicePlate {
                     }
                 }
                 match activate {
-                    Some(luna_dialog::Hit::Accept) => self.execute_luna_dialog(),
+                    Some(luna_dialog::Hit::Accept) => self.execute_luna_dialog(qh),
                     Some(luna_dialog::Hit::Cancel) => self.close_luna_dialog(),
                     Some(luna_dialog::Hit::Input) => {
                         // The cursor follows the real painted glyph advances.
