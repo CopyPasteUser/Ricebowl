@@ -826,6 +826,12 @@ PY
             # stealing focus or resetting the typed text. In the centered
             # dialog the input text origin is at (587,370).
             WAYLAND_DISPLAY=wayland-0 "$clicker" 599 372 1366 768
+            # The real screencopy framebuffer includes the compositor cursor.
+            # Move it to neutral dialog space before each frame comparison:
+            # otherwise its 16x20 silhouette overlays the restored text
+            # (130 changed pixels) although chars=4 and caret=4 are correct.
+            # Motion has no button press and cannot reposition the text caret.
+            WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 530 410 1366 768
             sleep 0.2
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-pointer-caret.png"
             cp "$runtime/xp-luna-parity-run-pointer-caret.png" \
