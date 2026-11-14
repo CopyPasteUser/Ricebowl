@@ -13,6 +13,7 @@ mod desktop_context;
 mod desktop_file_menu;
 mod desktop_layout;
 mod desktop_selection;
+mod shortcut_focus;
 mod frame_scheduler;
 mod input_core;
 mod seat_routing;
@@ -536,11 +537,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         file_last_click: None,
         file_launches: Vec::new(),
         file_last_reap: Instant::now(),
-        file_keyboard_focus_layer: None,
+        desktop_keyboard_focus_layer: None,
         file_context: None,
         file_context_focused: false,
         file_dialog_target: None,
-        file_keyboard_focus_lease: input_core::DesktopFocusLease::default(),
+        desktop_keyboard_focus_lease: input_core::DesktopFocusLease::default(),
         widget_layers,
         menu_layer,
         menu_mirrors: Vec::new(),
@@ -844,7 +845,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let backlight_timeout = backlight.as_ref().map(|_| next_backlight_check
             .saturating_duration_since(Instant::now()));
         let timeout = [Some(next_clock_timeout()), osd_timeout, reconnect_timeout, backlight_timeout,
-                       app.file_keyboard_focus_layer.as_ref().map(|focus|
+                       app.desktop_keyboard_focus_layer.as_ref().map(|focus|
                            focus.expires.saturating_duration_since(Instant::now())),
                        app.file_watcher.as_ref().and_then(|w| w.next_deadline())
                            .map(|at| at.saturating_duration_since(Instant::now())),
@@ -852,9 +853,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             .into_iter().flatten().min().unwrap_or_else(next_clock_timeout);
         event_loop.dispatch(Some(timeout), &mut app)?;
         app.reap_file_launches_if_due();
-        if app.file_keyboard_focus_layer.as_ref().is_some_and(|focus|
+        if app.desktop_keyboard_focus_layer.as_ref().is_some_and(|focus|
             Instant::now() >= focus.expires) {
-            app.close_file_keyboard_focus();
+            app.close_desktop_keyboard_focus();
         }
         // Calloop observes the inotify fd; a deadline exists only after a
         // kernel event. No resident desktop polling loop is introduced.
@@ -967,13 +968,22 @@ struct FileIconLayer {
     placed: Option<(u32, u32)>,
 }
 
+/// Both real XDG files and XP's virtual shortcuts share ONE compositor-verified
+/// short-lived focus lease. Target identity uses the actual wl_surface for
+/// shortcut clones on different outputs, never an unstable recipe index.
+#[derive(Clone)]
+enum DesktopFocusTarget {
+    File(desktop_layout::inventory::Key),
+    Shortcut(wl_surface::WlSurface),
+}
+
 /// Focus is granted only by a real wl_keyboard.enter after a user click.
-/// The overlay is an 8px non-pointer surface, never a fullscreen grab.
-struct FileKeyboardFocusLayer {
+/// This 8px overlay has a bounded hitbox and expires; no global grab exists.
+struct DesktopKeyboardFocusLayer {
     surface: LayerSurface,
     pool: Option<SlotPool>,
     configured: bool,
-    entry: desktop_layout::inventory::Key,
+    target: DesktopFocusTarget,
     expires: Instant,
     typed: String,
     last_typed: Instant,
@@ -1107,11 +1117,11 @@ struct RicePlate {
     file_last_click: Option<(desktop_layout::inventory::Key, Instant, (f64, f64))>,
     file_launches: Vec<std::process::Child>,
     file_last_reap: Instant,
-    file_keyboard_focus_layer: Option<FileKeyboardFocusLayer>,
+    desktop_keyboard_focus_layer: Option<DesktopKeyboardFocusLayer>,
     file_context: Option<FileContextLayer>,
     file_context_focused: bool,
     file_dialog_target: Option<desktop_layout::inventory::Key>,
-    file_keyboard_focus_lease:
+    desktop_keyboard_focus_lease:
         input_core::DesktopFocusLease<wl_seat::WlSeat, wl_output::WlOutput, wl_surface::WlSurface>,
     widget_layers: Vec<DesktopWidgetLayer>,
     menu_layer: Option<MenuLayer>,
@@ -1268,40 +1278,42 @@ fn register_file_watch(
 }
 
 impl RicePlate {
-    fn close_file_keyboard_focus(&mut self) {
-        if self.file_keyboard_focus_layer.is_some()
-            && std::env::var("RICEBOWL_DE_TRACE_FOCUS").as_deref() == Ok("1") {
-            eprintln!("RicePlate: XDG file keyboard focus released");
+    fn close_desktop_keyboard_focus(&mut self) {
+        if let Some(layer) = self.desktop_keyboard_focus_layer.as_ref() {
+            if std::env::var("RICEBOWL_DE_TRACE_FOCUS").as_deref() == Ok("1") {
+                match layer.target {
+                    DesktopFocusTarget::File(_) =>
+                        eprintln!("RicePlate: XDG file keyboard focus released"),
+                    DesktopFocusTarget::Shortcut(_) =>
+                        eprintln!("RicePlate: Luna shortcut keyboard focus released"),
+                }
+            }
         }
-        self.file_keyboard_focus_lease.cancel();
-        // Dropping the compositor-owned overlay releases its scoped keyboard
-        // interactivity immediately. A pending virtual keyboard cannot retain
-        // a global focus grab after Escape, Leave, output loss or timeout.
-        self.file_keyboard_focus_layer = None;
+        self.desktop_keyboard_focus_lease.cancel();
+        // The compositor drops this 8px Exclusive surface on dismissal; no
+        // background input-grab layer survives an app transition or timeout.
+        self.desktop_keyboard_focus_layer = None;
     }
 
-    fn open_file_keyboard_focus(&mut self, index: usize, qh: &QueueHandle<Self>) {
-        // A virtual-keyboard client may be a different wl_seat. Do not
-        // borrow its identity to legitimize this pointer gesture.
+    fn begin_desktop_keyboard_focus(&mut self, position: (u32, u32),
+        output: wl_output::WlOutput, target: DesktopFocusTarget, qh: &QueueHandle<Self>) {
+        // Only a pointer gesture from the actual owning seat can request
+        // focus. A separate virtual keyboard is never allowed to synthesize
+        // pointer authority; it must wait for wl_keyboard.enter on this seat.
         let seat = match self.seat_assignments.focus_seat_for_pointer_gesture() {
             Ok(seat) => seat.clone(),
             Err(reason) => {
                 if std::env::var("RICEBOWL_DE_TRACE_FOCUS").as_deref() == Ok("1") {
-                    eprintln!("RicePlate: XDG file focus refused: {reason:?}");
+                    eprintln!("RicePlate: desktop focus refused: {reason:?}");
                 }
                 return;
             }
         };
-        let Some(file) = self.file_layers.get(index) else { return };
-        let Some((file_x, file_y)) = file.placed else { return };
-        let entry = file.entry.key.clone();
-        let Some(output) = file.bound_output.as_ref().or(self.primary_output.as_ref())
-            .or(file.output.as_ref()).cloned() else { return };
-        let Some((width, height)) = self.logical_output_size(&output) else { return };
-        // A tiny adjacent corner indicator, not a desktop-covering input hitbox.
-        let x = file_x.saturating_add(recipe::ICON_WIDTH + 4).min(width.saturating_sub(8));
-        let y = file_y.min(height.saturating_sub(8));
-        self.close_file_keyboard_focus();
+        let Some((width, height)) = self.logical_output_size(&output) else { return; };
+        let x = position.0.saturating_add(recipe::ICON_WIDTH + 4)
+            .min(width.saturating_sub(8));
+        let y = position.1.min(height.saturating_sub(8));
+        self.close_desktop_keyboard_focus();
         let surface = self.layer_shell.create_layer_surface(
             qh, self.compositor.create_surface(qh), Layer::Overlay,
             Some("riceplate-desktop-keyboard-focus"), Some(&output));
@@ -1309,28 +1321,52 @@ impl RicePlate {
         surface.set_size(8, 8);
         surface.set_margin(y as i32, 0, 0, x as i32);
         surface.set_exclusive_zone(-1);
-        // Use the compositor's normal bounded input region on this 8px
-        // surface. An empty region may make labwc treat it as unfocusable;
-        // the surface does not intercept any click on the actual file icon.
-        // Exclusive only for this short-lived bounded surface, never the
-        // original Bottom desktop icon or an always-on keyboard owner.
+        // Exclusive is used ONLY while this adjacent 8x8 target exists;
+        // original Bottom icon layers remain OnDemand/None. No full-screen
+        // keyboard or pointer grab. A regular app activation drops it.
         surface.set_keyboard_interactivity(KeyboardInteractivity::Exclusive);
-        let wl_surface = surface.wl_surface().clone();
-        self.file_keyboard_focus_lease.request(
-            input_core::DesktopFocusIntent::PointerSelection, seat, output, wl_surface);
-        self.file_keyboard_focus_layer = Some(FileKeyboardFocusLayer {
-            surface, pool: None, configured: false, entry,
+        self.desktop_keyboard_focus_lease.request(
+            input_core::DesktopFocusIntent::PointerSelection,
+            seat, output, surface.wl_surface().clone());
+        let source = match target {
+            DesktopFocusTarget::File(_) => "XDG file",
+            DesktopFocusTarget::Shortcut(_) => "Luna shortcut",
+        };
+        self.desktop_keyboard_focus_layer = Some(DesktopKeyboardFocusLayer {
+            surface, pool: None, configured: false, target,
             expires: Instant::now() + Duration::from_secs(5),
             typed: String::new(), last_typed: Instant::now(),
         });
-        self.file_keyboard_focus_layer.as_ref().unwrap().surface.commit();
+        self.desktop_keyboard_focus_layer.as_ref().unwrap().surface.commit();
         if std::env::var("RICEBOWL_DE_TRACE_FOCUS").as_deref() == Ok("1") {
-            eprintln!("RicePlate: XDG file focus surface requested x={x} y={y}");
+            eprintln!("RicePlate: {source} focus surface requested x={x} y={y}");
         }
     }
 
-    fn redraw_file_keyboard_focus(&mut self) {
-        let Some(layer) = self.file_keyboard_focus_layer.as_mut() else { return };
+    fn open_file_keyboard_focus(&mut self, index: usize, qh: &QueueHandle<Self>) {
+        let Some(layer) = self.file_layers.get(index) else { return; };
+        let Some(position) = layer.placed else { return; };
+        let key = layer.entry.key.clone();
+        let Some(output) = layer.bound_output.as_ref()
+            .or(self.primary_output.as_ref()).or(layer.output.as_ref()).cloned()
+            else { return; };
+        self.begin_desktop_keyboard_focus(position, output, DesktopFocusTarget::File(key), qh);
+    }
+
+    fn open_shortcut_keyboard_focus(&mut self, index: usize, qh: &QueueHandle<Self>) {
+        if self.recipe.id != "xp-luna-columns" { return; }
+        let Some(layer) = self.icon_layers.get(index) else { return; };
+        let Some(position) = layer.placed else { return; };
+        let target = layer.surface.wl_surface().clone();
+        let Some(output) = layer.bound_output.as_ref()
+            .or(self.primary_output.as_ref()).or(layer.output.as_ref()).cloned()
+            else { return; };
+        self.begin_desktop_keyboard_focus(position, output,
+            DesktopFocusTarget::Shortcut(target), qh);
+    }
+
+    fn redraw_desktop_keyboard_focus(&mut self) {
+        let Some(layer) = self.desktop_keyboard_focus_layer.as_mut() else { return };
         if !layer.configured { return };
         let Some(pool) = layer.pool.as_mut() else { return };
         let (buffer, canvas) = match pool.create_buffer(
@@ -1347,46 +1383,50 @@ impl RicePlate {
         surface.damage_buffer(0, 0, 8, 8);
         if let Err(error) = buffer.attach_to(surface) {
             eprintln!("RicePlate: keyboard focus surface attach refused: {error}");
-            self.close_file_keyboard_focus();
+            self.close_desktop_keyboard_focus();
             return;
         }
         layer.surface.commit();
     }
 
-    fn dispatch_file_keyboard_focus(&mut self, event: &KeyEvent,
+    fn dispatch_desktop_keyboard_focus(&mut self, event: &KeyEvent,
                                     qh: &QueueHandle<Self>) -> bool {
-        let Some(layer) = self.file_keyboard_focus_layer.as_ref() else { return false };
+        let Some(layer) = self.desktop_keyboard_focus_layer.as_ref() else { return false };
         let Some(seat) = self.seat_assignments.keyboard_owner() else { return false };
-        if !self.file_keyboard_focus_lease.can_dispatch(seat, layer.surface.wl_surface()) {
+        if !self.desktop_keyboard_focus_lease.can_dispatch(seat, layer.surface.wl_surface()) {
             return false;
         }
-        let selected = layer.entry.clone();
+        let selected = match &layer.target {
+            DesktopFocusTarget::File(key) => key.clone(),
+            DesktopFocusTarget::Shortcut(surface) =>
+                return self.dispatch_shortcut_keyboard_focus(surface.clone(), event, qh),
+        };
         match event.keysym {
-            Keysym::Escape => self.close_file_keyboard_focus(),
+            Keysym::Escape => self.close_desktop_keyboard_focus(),
             Keysym::F2 => {
-                self.close_file_keyboard_focus();
+                self.close_desktop_keyboard_focus();
                 self.open_file_modal(&selected, luna_dialog::Kind::FileRename, qh);
             }
             Keysym::Delete => {
-                self.close_file_keyboard_focus();
+                self.close_desktop_keyboard_focus();
                 self.open_file_modal(&selected, luna_dialog::Kind::FileTrash, qh);
             }
             Keysym::Menu => {
-                self.close_file_keyboard_focus();
+                self.close_desktop_keyboard_focus();
                 if let Some(index) = self.file_layers.iter().position(|item|
                     item.entry.key == selected && item.placed.is_some()) {
                     self.open_file_context(index, (52.0, 42.0), qh);
                 }
             }
             Keysym::F10 if self.selection_modifiers.shift => {
-                self.close_file_keyboard_focus();
+                self.close_desktop_keyboard_focus();
                 if let Some(index) = self.file_layers.iter().position(|item|
                     item.entry.key == selected && item.placed.is_some()) {
                     self.open_file_context(index, (52.0, 42.0), qh);
                 }
             }
             Keysym::Return | Keysym::KP_Enter => {
-                self.close_file_keyboard_focus();
+                self.close_desktop_keyboard_focus();
                 self.activate_file_icon(&selected);
             }
             Keysym::Up | Keysym::Down | Keysym::Left | Keysym::Right => {
@@ -1399,8 +1439,8 @@ impl RicePlate {
                     (current + entries.len() - 1) % entries.len()
                 } else { (current + 1) % entries.len() };
                 let key = entries[index].key.clone();
-                if let Some(layer) = self.file_keyboard_focus_layer.as_mut() {
-                    layer.entry = key.clone();
+                if let Some(layer) = self.desktop_keyboard_focus_layer.as_mut() {
+                    layer.target = DesktopFocusTarget::File(key.clone());
                     layer.expires = Instant::now() + Duration::from_secs(5);
                 }
                 self.file_selection.select(&key, false);
@@ -1411,7 +1451,7 @@ impl RicePlate {
                 let Some(character) = event.utf8.as_ref()
                     .filter(|str| str.chars().count() == 1
                         && str.chars().all(|c| !c.is_control())) else { return true };
-                let Some(layer) = self.file_keyboard_focus_layer.as_mut() else { return true };
+                let Some(layer) = self.desktop_keyboard_focus_layer.as_mut() else { return true };
                 if layer.last_typed.elapsed() > Duration::from_secs(1) {
                     layer.typed.clear();
                 }
@@ -1425,10 +1465,100 @@ impl RicePlate {
                         .find(|item| item.label.to_lowercase().starts_with(&needle)))
                     .map(|item| item.key.clone()) {
                     self.file_selection.select(&key, false);
-                    if let Some(layer) = self.file_keyboard_focus_layer.as_mut() {
-                        layer.entry = key;
+                    if let Some(layer) = self.desktop_keyboard_focus_layer.as_mut() {
+                        layer.target = DesktopFocusTarget::File(key);
                     }
                     for index in 0..self.file_layers.len() { self.redraw_file_icon(index); }
+                }
+            }
+        }
+        true
+    }
+
+    /// Executed only when the *same-seat, same-surface* compositor lease is
+    /// already confirmed by wl_keyboard.enter in dispatch_desktop_keyboard_focus.
+    fn dispatch_shortcut_keyboard_focus(&mut self, target: wl_surface::WlSurface,
+                                        event: &KeyEvent, qh: &QueueHandle<Self>) -> bool {
+        let Some(index) = self.icon_layers.iter().position(|icon|
+            icon.surface.wl_surface() == &target && icon.placed.is_some()) else {
+            self.close_desktop_keyboard_focus();
+            return true;
+        };
+        match event.keysym {
+            Keysym::Escape => {
+                self.close_desktop_keyboard_focus();
+                self.clear_luna_selection();
+            }
+            Keysym::Return | Keysym::KP_Enter | Keysym::space
+                if !self.selection_modifiers.ctrl => {
+                let action = self.recipe.desktop_icons[self.icon_layers[index].recipe_index]
+                    .action.clone();
+                self.close_desktop_keyboard_focus();
+                self.activate_action(&action, qh);
+            }
+            Keysym::Menu => {
+                self.close_desktop_keyboard_focus();
+                self.open_desktop_context(index, (52.0, 42.0), qh);
+            }
+            Keysym::F10 if self.selection_modifiers.shift => {
+                self.close_desktop_keyboard_focus();
+                self.open_desktop_context(index, (52.0, 42.0), qh);
+            }
+            Keysym::a | Keysym::A if self.selection_modifiers.ctrl => {
+                self.select_all_luna_icons(index);
+            }
+            Keysym::Tab | Keysym::ISO_Left_Tab | Keysym::Left | Keysym::Right |
+            Keysym::Up | Keysym::Down => {
+                let backwards = matches!(event.keysym,
+                    Keysym::ISO_Left_Tab | Keysym::Left | Keysym::Up);
+                let peers = self.luna_icon_peers(index);
+                if let Some(next) = desktop_layout::navigate(&peers, index,
+                    if backwards { -1 } else { 1 }) {
+                    let mode = if self.selection_modifiers.shift {
+                        desktop_selection::Mode::Range
+                    } else { desktop_selection::Mode::Replace };
+                    self.select_luna_icon_mode(next, mode);
+                    if let Some(layer) = self.desktop_keyboard_focus_layer.as_mut() {
+                        layer.target = DesktopFocusTarget::Shortcut(
+                            self.icon_layers[next].surface.wl_surface().clone());
+                        layer.expires = Instant::now() + Duration::from_secs(5);
+                        layer.typed.clear();
+                    }
+                }
+            }
+            _ => {
+                if self.selection_modifiers.ctrl || self.selection_modifiers.alt { return true; }
+                let Some(character) = event.utf8.as_ref()
+                    .filter(|s| s.chars().count() == 1
+                        && s.chars().all(|c| !c.is_control())) else { return true; };
+                let Some(layer) = self.desktop_keyboard_focus_layer.as_mut() else { return true; };
+                if layer.last_typed.elapsed() > Duration::from_secs(1) {
+                    layer.typed.clear();
+                }
+                if layer.typed.chars().count() >= shortcut_focus::MAX_PREFIX {
+                    layer.typed.clear();
+                }
+                layer.typed.push_str(character);
+                layer.last_typed = Instant::now();
+                layer.expires = Instant::now() + Duration::from_secs(5);
+                let query = layer.typed.clone();
+                let output = self.icon_layers[index].bound_output.clone();
+                let peers = self.icon_layers.iter().map(|candidate| {
+                    if candidate.placed.is_some() && candidate.bound_output == output {
+                        self.recipe.desktop_icons.get(candidate.recipe_index)
+                            .map(|icon| icon.label.as_str())
+                    } else { None }
+                });
+                if let Some(next) = shortcut_focus::match_visible_prefix(&query, peers) {
+                    self.select_luna_icon(next);
+                    if let Some(layer) = self.desktop_keyboard_focus_layer.as_mut() {
+                        layer.target = DesktopFocusTarget::Shortcut(
+                            self.icon_layers[next].surface.wl_surface().clone());
+                    }
+                    if std::env::var("RICEBOWL_DE_TRACE_FOCUS").as_deref() == Ok("1") {
+                        // Log only an index, not text the user typed.
+                        eprintln!("RicePlate: Luna shortcut prefix selected index={next}");
+                    }
                 }
             }
         }
@@ -1494,9 +1624,10 @@ impl RicePlate {
             eprintln!("RicePlate: XDG inventory refreshed entries={} status={:?}",
                       next.entries.len(), next.status);
         }
-        if self.file_keyboard_focus_layer.as_ref().is_some_and(|focus|
-            !next.entries.iter().any(|item| item.key == focus.entry)) {
-            self.close_file_keyboard_focus();
+        if self.desktop_keyboard_focus_layer.as_ref().is_some_and(|focus|
+            matches!(&focus.target, DesktopFocusTarget::File(key)
+                if !next.entries.iter().any(|item| item.key == *key))) {
+            self.close_desktop_keyboard_focus();
         }
         self.file_snapshot = Some(next);
         self.file_pressed = None;
@@ -1641,7 +1772,7 @@ impl RicePlate {
             position, pointer, size, self.recipe.height, self.recipe.top)
             else { return; };
         let (key, kind) = (icon.entry.key.clone(), icon.entry.kind);
-        self.close_file_keyboard_focus();
+        self.close_desktop_keyboard_focus();
         self.close_desktop_context();
         self.close_file_context();
         if self.menu_state.visible { self.set_menu_visible(false, qh); }
@@ -1729,7 +1860,7 @@ impl RicePlate {
         }
         let name = name.to_owned();
         self.close_file_context();
-        self.close_file_keyboard_focus();
+        self.close_desktop_keyboard_focus();
         self.open_luna_dialog(kind, qh);
         let Some(dialog) = self.luna_dialog.as_mut() else { return };
         if kind == luna_dialog::Kind::FileRename {
@@ -2099,6 +2230,7 @@ impl RicePlate {
             self.icon_outputs.can_reset_position(
                 &name, &self.recipe.desktop_icons, recipe_index));
         self.icon_drag = None;
+        self.close_desktop_keyboard_focus();
         self.desktop_selection.cancel();
         self.select_luna_icon(index);
         if self.menu_state.visible { self.set_menu_visible(false, qh); }
@@ -4019,9 +4151,13 @@ impl RicePlate {
     }
 
     fn reflow_icons(&mut self) {
-        // A context menu is anchored to one physical output; hotplug and
-        // icon position changes invalidate its coordinates and target.
+        // A context menu and ephemeral keyboard focus are anchored to a
+        // physical output. Hotplug/reflow invalidates their coordinates.
         self.close_desktop_context();
+        if self.desktop_keyboard_focus_layer.as_ref().is_some_and(|layer|
+            matches!(layer.target, DesktopFocusTarget::Shortcut(_))) {
+            self.close_desktop_keyboard_focus();
+        }
         // Output reflow and icon dragging invalidate pending pointer timing.
         self.desktop_selection.cancel();
         // An advertised output without a shell surface must not swallow
@@ -6075,9 +6211,9 @@ impl CompositorHandler for RicePlate {
 
 impl LayerShellHandler for RicePlate {
     fn closed(&mut self, _: &Connection, qh: &QueueHandle<Self>, layer: &LayerSurface) {
-        if self.file_keyboard_focus_layer.as_ref().is_some_and(|focus|
+        if self.desktop_keyboard_focus_layer.as_ref().is_some_and(|focus|
             focus.surface.wl_surface() == layer.wl_surface()) {
-            self.close_file_keyboard_focus();
+            self.close_desktop_keyboard_focus();
             return;
         }
         if self.focused_panel.as_ref() == Some(layer.wl_surface()) {
@@ -6165,27 +6301,27 @@ impl LayerShellHandler for RicePlate {
         config: LayerSurfaceConfigure,
         _: u32,
     ) {
-        if self.file_keyboard_focus_layer.as_ref().is_some_and(|focus|
+        if self.desktop_keyboard_focus_layer.as_ref().is_some_and(|focus|
             focus.surface.wl_surface() == layer.wl_surface()) {
             if config.new_size != (8, 8) {
                 eprintln!("RicePlate: keyboard focus surface got invalid geometry");
-                self.close_file_keyboard_focus();
+                self.close_desktop_keyboard_focus();
                 return;
             }
-            if let Some(focus) = self.file_keyboard_focus_layer.as_mut() {
+            if let Some(focus) = self.desktop_keyboard_focus_layer.as_mut() {
                 if focus.pool.is_none() {
                     match SlotPool::new(8 * 8 * 4 * 2, &self.shm) {
                         Ok(pool) => focus.pool = Some(pool),
                         Err(error) => {
                             eprintln!("RicePlate: keyboard focus buffer unavailable: {error}");
-                            self.close_file_keyboard_focus();
+                            self.close_desktop_keyboard_focus();
                             return;
                         }
                     }
                 }
                 focus.configured = true;
             }
-            self.redraw_file_keyboard_focus();
+            self.redraw_desktop_keyboard_focus();
             return;
         }
         if self.luna_dialog.as_ref().is_some_and(|dialog|
@@ -6529,8 +6665,8 @@ impl OutputHandler for RicePlate {
         qh: &QueueHandle<Self>,
         output: wl_output::WlOutput,
     ) {
-        if self.file_keyboard_focus_lease.output_removed(&output) {
-            self.close_file_keyboard_focus();
+        if self.desktop_keyboard_focus_lease.output_removed(&output) {
+            self.close_desktop_keyboard_focus();
         }
         if self.primary_output.as_ref() == Some(&output) {
             self.primary_output = None;
@@ -6607,8 +6743,8 @@ impl SeatHandler for RicePlate {
             self.save_icon_positions();
         } else if capability == Capability::Keyboard
             && self.seat_assignments.release_keyboard(&seat) {
-            self.file_keyboard_focus_lease.seat_removed(&seat);
-            self.close_file_keyboard_focus();
+            self.desktop_keyboard_focus_lease.seat_removed(&seat);
+            self.close_desktop_keyboard_focus();
             // A removed keyboard never sends release/modifier updates.
             self.selection_modifiers = Modifiers::default();
             self.desktop_selection.cancel();
@@ -6659,19 +6795,25 @@ impl KeyboardHandler for RicePlate {
     ) {
         if self.keyboard.as_ref() != Some(keyboard) { return; }
         if let Some(seat) = self.seat_assignments.keyboard_owner().cloned() {
-            if self.file_keyboard_focus_layer.is_some()
-                && self.file_keyboard_focus_layer.as_ref().is_some_and(|layer|
+            if self.desktop_keyboard_focus_layer.is_some()
+                && self.desktop_keyboard_focus_layer.as_ref().is_some_and(|layer|
                     layer.surface.wl_surface() != surface)
                 && std::env::var("RICEBOWL_DE_TRACE_FOCUS").as_deref() == Ok("1") {
                 eprintln!("RicePlate: XDG focus lease observed keyboard enter elsewhere");
             }
-            if self.file_keyboard_focus_lease.compositor_enter(&seat, surface) {
+            if self.desktop_keyboard_focus_lease.compositor_enter(&seat, surface) {
                 if std::env::var("RICEBOWL_DE_TRACE_FOCUS").as_deref() == Ok("1") {
-                    eprintln!("RicePlate: compositor confirmed XDG file keyboard focus");
+                    match self.desktop_keyboard_focus_layer.as_ref().map(|l| &l.target) {
+                        Some(DesktopFocusTarget::File(_)) =>
+                            eprintln!("RicePlate: compositor confirmed XDG file keyboard focus"),
+                        Some(DesktopFocusTarget::Shortcut(_)) =>
+                            eprintln!("RicePlate: compositor confirmed Luna shortcut keyboard focus"),
+                        None => {}
+                    }
                 }
-            } else if self.file_keyboard_focus_layer.is_some()
-                && self.file_keyboard_focus_lease.phase() == input_core::DesktopFocusPhase::Idle {
-                self.close_file_keyboard_focus();
+            } else if self.desktop_keyboard_focus_layer.is_some()
+                && self.desktop_keyboard_focus_lease.phase() == input_core::DesktopFocusPhase::Idle {
+                self.close_desktop_keyboard_focus();
             }
         }
         self.luna_dialog_focused = self.luna_dialog.as_ref().is_some_and(|dialog|
@@ -6747,8 +6889,8 @@ impl KeyboardHandler for RicePlate {
     ) {
         if self.keyboard.as_ref() != Some(keyboard) { return; }
         if let Some(seat) = self.seat_assignments.keyboard_owner().cloned() {
-            if self.file_keyboard_focus_lease.compositor_leave(&seat, surface) {
-                self.close_file_keyboard_focus();
+            if self.desktop_keyboard_focus_lease.compositor_leave(&seat, surface) {
+                self.close_desktop_keyboard_focus();
             }
         }
         // Never retain Ctrl/Shift after compositor keyboard focus leaves.
@@ -6813,7 +6955,7 @@ impl KeyboardHandler for RicePlate {
         event: KeyEvent,
     ) {
         if self.keyboard.as_ref() != Some(keyboard) { return; }
-        if self.dispatch_file_keyboard_focus(&event, qh) { return; }
+        if self.dispatch_desktop_keyboard_focus(&event, qh) { return; }
         if self.luna_dialog_focused {
             // Do not log keysyms or UTF-8 from the Run dialog: they can
             // contain sensitive commands. Test diagnostics report only
@@ -7799,7 +7941,7 @@ impl PointerHandler for RicePlate {
                 let key = self.file_layers[index].entry.key.clone();
                 match event.kind {
                     PointerEventKind::Press { button: BTN_LEFT, .. } => {
-                        self.close_file_keyboard_focus();
+                        self.close_desktop_keyboard_focus();
                         self.close_desktop_context();
                         self.close_file_context();
                         let mode = if self.selection_modifiers.ctrl {
@@ -7814,7 +7956,7 @@ impl PointerHandler for RicePlate {
                         self.file_pressed = Some(key);
                     }
                     PointerEventKind::Press { button: BTN_RIGHT, .. } => {
-                        self.close_file_keyboard_focus();
+                        self.close_desktop_keyboard_focus();
                         if let Some(snapshot) = self.file_snapshot.as_ref() {
                             self.file_selection.choose(&key,
                                 desktop_layout::file_state::ChooseMode::Replace, &snapshot.entries);
@@ -7864,6 +8006,7 @@ impl PointerHandler for RicePlate {
                     }
                     PointerEventKind::Press { button: BTN_LEFT, .. } => {
                         self.close_desktop_context();
+                        self.close_desktop_keyboard_focus();
                         let mode = if self.recipe.id == "xp-luna-columns" {
                             if self.selection_modifiers.ctrl {
                                 desktop_selection::Mode::Toggle
@@ -7910,9 +8053,15 @@ impl PointerHandler for RicePlate {
                                     self.desktop_selection.release(index, event.position, Instant::now())
                                 } else { true };
                                 if open {
+                                    self.close_desktop_keyboard_focus();
                                     let action = self.recipe.desktop_icons[
                                         self.icon_layers[index].recipe_index].action.clone();
                                     self.activate_action(&action, qh);
+                                } else if self.recipe.id == "xp-luna-columns" {
+                                    // An ordinary first click explicitly selects this icon.
+                                    // Request a bounded focus surface only AFTER release,
+                                    // keeping double-click action semantics intact.
+                                    self.open_shortcut_keyboard_focus(index, qh);
                                 }
                             } else if drag.index == index {
                                 self.desktop_selection.cancel();

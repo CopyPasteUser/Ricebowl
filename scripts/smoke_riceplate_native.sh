@@ -289,7 +289,7 @@ dbus-run-session -- sh -eu -c '
                 WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" \
                 >"$runtime/plate-$label.log" 2>&1 &
         elif [ "$label" = xp-luna-columns ]; then
-            RICEBOWL_DE_TRACE_MENU=1 PATH="$runtime/mock-bin:$PATH" \
+            RICEBOWL_DE_TRACE_FOCUS=1 RICEBOWL_DE_TRACE_MENU=1 PATH="$runtime/mock-bin:$PATH" \
                 RICEBOWL_CI_TRASH_LOG="$runtime/trash-gio.log" \
                 RICEBOWL_CI_RICEFIELD_LOG="$runtime/ricefield-argv.log" \
                 WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" \
@@ -707,6 +707,73 @@ PY
             cp "$runtime/xp-luna-recycle-bin-click.png" \
                "$source_root/dist/riceplate-native-preview/xp-luna-recycle-bin-click.png"
             echo "Verified Luna single-select and double-open through real pointer/Gio events"
+            # Regression for issue #328: Bottom-layer native shortcuts must
+            # become keyboard-reachable after an intentional, real pointer
+            # selection. The shared 8px focus overlay requires a genuine
+            # labwc wl_keyboard.enter; pure Rust selectors cannot fake this.
+            rm -f "$runtime/trash-gio.log"
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 68 435 1366 768
+            sleep 0.35
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/luna-shortcut-before-prefix.png"
+            cp "$runtime/luna-shortcut-before-prefix.png" \
+                "$source_root/dist/riceplate-native-preview/luna-shortcut-before-prefix.png"
+            WAYLAND_DISPLAY=wayland-0 wtype -d 150 -k F13 -k F13 -k F13 p
+            sleep 0.4
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/luna-shortcut-after-prefix.png"
+            cp "$runtime/luna-shortcut-after-prefix.png" \
+                "$source_root/dist/riceplate-native-preview/luna-shortcut-after-prefix.png"
+            grep -Fq "RicePlate: compositor confirmed Luna shortcut keyboard focus" \
+                "$runtime/plate-$label.log" || {
+                echo "Real compositor never assigned focus to the native Luna shortcut" >&2
+                tail -n 50 "$runtime/plate-$label.log" >&2
+                exit 1
+            }
+            grep -Fq "RicePlate: Luna shortcut prefix selected index=" \
+                "$runtime/plate-$label.log" || {
+                echo "Real keyboard Type-to-Select did not dispatch to Luna shortcuts" >&2
+                tail -n 50 "$runtime/plate-$label.log" >&2
+                exit 1
+            }
+            /usr/bin/python3 - "$runtime/luna-shortcut-before-prefix.png" \
+                "$runtime/luna-shortcut-after-prefix.png" <<PY
+from PIL import Image, ImageChops
+import sys
+with Image.open(sys.argv[1]) as before, Image.open(sys.argv[2]) as after:
+    assert before.size == after.size == (1366, 768)
+    # Programs is the original, visible (136, 88) shortcut. The scan must
+    # alter its actual native icon selection outline, not another widget.
+    region = (136, 88, 240, 176)
+    a, b = [im.convert("RGB").crop(region) for im in (before, after)]
+    diff = ImageChops.difference(a, b)
+    changed = sum(max(px) > 18 for px in diff.getdata())
+    assert changed > 170, f"Programs was not selected by compositor keyboard: {changed}"
+PY
+            test ! -e "$runtime/trash-gio.log" || {
+                echo "Shortcut prefix incorrectly launched the selected application" >&2
+                exit 1
+            }
+            # Escape releases the ephemeral focus surface and clears the
+            # highlight. Subsequent arbitrary keys are not intercepted.
+            WAYLAND_DISPLAY=wayland-0 wtype -d 120 -k F13 -k Escape
+            sleep 0.25
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/luna-shortcut-escaped.png"
+            WAYLAND_DISPLAY=wayland-0 wtype -d 120 -k F13 p
+            sleep 0.25
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/luna-shortcut-post-escape.png"
+            /usr/bin/python3 - "$runtime/luna-shortcut-escaped.png" \
+                "$runtime/luna-shortcut-post-escape.png" <<PY
+from PIL import Image, ImageChops
+import sys
+with Image.open(sys.argv[1]) as a, Image.open(sys.argv[2]) as b:
+    rect = (136, 88, 240, 176)
+    pixels = ImageChops.difference(a.convert("RGB").crop(rect),
+                                   b.convert("RGB").crop(rect))
+    assert not pixels.getbbox(), "Stale keyboard lease selected icon after Escape"
+PY
+            grep -Fq "RicePlate: Luna shortcut keyboard focus released" \
+                "$runtime/plate-$label.log"
+            test ! -e "$runtime/trash-gio.log"
+            echo "Verified real Bottom shortcut keyboard focus, Unicode prefix dispatch and Escape release"
             # Right-click must open a bounded popup, never launch a shortcut.
             rm -f "$runtime/trash-gio.log"
             WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click 68 435 1366 768
