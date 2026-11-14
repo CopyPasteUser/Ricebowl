@@ -169,6 +169,7 @@ dbus-run-session -- sh -eu -c '
     plate=
     wallpaper=
     focus_typer=
+    shortcut_typer=
     cleanup() {
         if [ -s "$runtime/clip-action-gui.pid" ]; then
             clip_pid=$(cat "$runtime/clip-action-gui.pid" 2>/dev/null || :)
@@ -185,6 +186,11 @@ dbus-run-session -- sh -eu -c '
             kill -CONT "$focus_typer" 2>/dev/null || :
             kill -TERM "$focus_typer" 2>/dev/null || :
             wait "$focus_typer" 2>/dev/null || :
+        fi
+        if [ -n "$shortcut_typer" ]; then
+            kill -CONT "$shortcut_typer" 2>/dev/null || :
+            kill -TERM "$shortcut_typer" 2>/dev/null || :
+            wait "$shortcut_typer" 2>/dev/null || :
         fi
         if [ -n "$plate" ]; then
             kill "$plate" 2>/dev/null || :
@@ -745,28 +751,55 @@ PY
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/luna-shortcut-before-prefix.png"
             cp "$runtime/luna-shortcut-before-prefix.png" \
                 "$source_root/dist/riceplate-native-preview/luna-shortcut-before-prefix.png"
-            # labwc headless has no physical keyboard. Its real virtual
-            # keyboard MUST exist before the pointer gesture; the same-seat
-            # policy correctly rejects late keyboard capabilities.
+            # Headless labwc has no physical keyboard. Connect the actual
+            # wtype virtual keyboard and observe its wl_seat capability BEFORE
+            # the native pointer gesture. A fixed sleep races labwc startup
+            # and can turn an otherwise valid focus test into NoKeyboardProxy.
+            keyboard_announcements_before=$(grep -Fc "RicePlate: XDG seat keyboard announced" \
+                "$runtime/plate-$label.log" || :)
+            shortcut_confirms_before=$(grep -Fc \
+                "RicePlate: compositor confirmed Luna shortcut keyboard focus" \
+                "$runtime/plate-$label.log" || :)
             WAYLAND_DISPLAY=wayland-0 wtype -d 600 -k F13 -k F13 -k F13 p -k F13 -k F13 \
                 > "$runtime/luna-shortcut-wtype.log" 2>&1 &
             shortcut_typer=$!
-            # Headless labwc announces the virtual keyboard asynchronously.
-            # Waiting only 200ms races wl_seat capability delivery and can
-            # turn this real keyboard assertion into a NoKeyboardProxy failure.
-            # F13 warm-up events remain inert until after the pointer gesture.
-            sleep 0.55
-            kill -0 "$shortcut_typer" || {
-                echo "Shortcut virtual keyboard exited before pointer gesture" >&2
-                cat "$runtime/luna-shortcut-wtype.log" >&2
+            count=0
+            while [ "$count" -lt 30 ]; do
+                keyboard_announcements_after=$(grep -Fc "RicePlate: XDG seat keyboard announced" \
+                    "$runtime/plate-$label.log" || :)
+                test "$keyboard_announcements_after" -gt "$keyboard_announcements_before" && break
+                kill -0 "$shortcut_typer" 2>/dev/null || break
+                count=$((count + 1))
+                sleep 0.1
+            done
+            test "$keyboard_announcements_after" -gt "$keyboard_announcements_before" || {
+                echo "Native compositor never announced the real shortcut test keyboard" >&2
+                tail -n 45 "$runtime/plate-$label.log" >&2
                 exit 1
             }
+            kill -STOP "$shortcut_typer" || exit 1
             WAYLAND_DISPLAY=wayland-0 "$clicker" 68 435 1366 768
+            count=0
+            while [ "$count" -lt 30 ]; do
+                shortcut_confirms_after=$(grep -Fc \
+                    "RicePlate: compositor confirmed Luna shortcut keyboard focus" \
+                    "$runtime/plate-$label.log" || :)
+                test "$shortcut_confirms_after" -gt "$shortcut_confirms_before" && break
+                count=$((count + 1))
+                sleep 0.1
+            done
+            test "$shortcut_confirms_after" -gt "$shortcut_confirms_before" || {
+                echo "Real compositor never granted fresh Luna shortcut focus on the existing keyboard seat" >&2
+                tail -n 50 "$runtime/plate-$label.log" >&2
+                exit 1
+            }
+            kill -CONT "$shortcut_typer" || exit 1
             wait "$shortcut_typer" || {
                 echo "Virtual keyboard failed during Luna focus check" >&2
                 cat "$runtime/luna-shortcut-wtype.log" >&2
                 exit 1
             }
+            shortcut_typer=
             sleep 0.35
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/luna-shortcut-after-prefix.png"
             cp "$runtime/luna-shortcut-after-prefix.png" \
