@@ -457,6 +457,8 @@ class PortalSessionLifecycleTests(unittest.TestCase):
 
         env = {
             "RICEBOWL_PORTAL_STRICT_CI": "1" if strict else "0",
+            "RICEBOWL_PORTAL_CAPTURE_CI": "1",
+            "WLR_BACKENDS": "headless",
             "WLR_RENDERER": "gles2" if strict else "pixman",
         }
         with patch.dict(os.environ, env), \
