@@ -372,7 +372,7 @@ class RequestProtocolTests(unittest.TestCase):
                 self.assertNotEqual(fd, left.fileno())
             finally:
                 os.close(fd)
-            with self.assertRaises(Exception):
+            with self.assertRaisesRegex(RuntimeError, "invalid FD index"):
                 portal.verify_pipewire_remote(
                     FakeConnection(99, descriptors), "/org/freedesktop/portal/desktop/session/x")
             with self.assertRaisesRegex(RuntimeError, "no Unix FD list"):
