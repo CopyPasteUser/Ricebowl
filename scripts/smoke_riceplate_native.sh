@@ -1235,6 +1235,7 @@ PY
     ln -s /etc/passwd "$runtime/file-home/Desktop/02-outside-link"
     HOME="$runtime/file-home" XDG_CONFIG_HOME="$runtime/file-config" \
         RICEBOWL_DE_NESTED=0 RICEBOWL_DE_TRACE_FILES=1 RICEBOWL_DE_TRACE_FOCUS=1 \
+        RICEBOWL_DE_TRACE_WINDOWS=1 \
         PATH="$runtime/mock-bin:$PATH" \
         RICEBOWL_CI_TRASH_LOG="$runtime/full-gio.log" \
         RICEBOWL_CI_RICEFIELD_LOG="$runtime/full-ricefield.log" \
@@ -1731,6 +1732,9 @@ PY
     # New external-app handoff must release this confirmed lease, not a
     # previous desktop selection that happened earlier in the test.
     focus_releases_after_icon=$(grep -Fc "RicePlate: XDG file keyboard focus released" "$runtime/file-plate.log" || :)
+    # Framebuffer before a real external toplevel lets the failing CI show
+    # whether that application became visible, independent of keyboard events.
+    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/focus-before-app.png"
     # Fullscreen is confined to this disposable headless compositor. This
     # is a real, normal GTK3 Wayland client, not an input mock or synthetic
     # wl_keyboard event. Its actual Entry activates only on typed Return.
@@ -1745,6 +1749,8 @@ from gi.repository import GLib, Gtk
 ready = Path(os.environ["FOCUS_RECEIVER_READY"])
 focused = Path(os.environ["FOCUS_RECEIVER_FOCUSED"])
 received = Path(os.environ["FOCUS_RECEIVER_LOG"])
+pointer = Path(os.environ["FOCUS_RECEIVER_POINTER"])
+geometry = Path(os.environ["FOCUS_RECEIVER_GEOMETRY"])
 window = Gtk.Window(title="RiceBowl external Wayland keyboard witness")
 window.set_default_size(880, 520)
 window.fullscreen()
@@ -1755,6 +1761,13 @@ window.add(entry)
 
 def mapped(*unused):
     ready.write_text("mapped\n")
+    x, y = window.get_position()
+    w, h = window.get_size()
+    geometry.write_text(f"mapped position={x},{y} size={w}x{h}\n")
+    return False
+
+def clicked(widget, event):
+    pointer.write_text(f"hit widget={type(widget).__name__} at={event.x:.0f},{event.y:.0f}\n")
     return False
 
 def keyboard_focused(*unused):
@@ -1767,7 +1780,9 @@ def activated(widget):
 
 window.connect("focus-in-event", keyboard_focused)
 window.connect("map-event", mapped)
+window.connect("button-press-event", clicked)
 window.connect("destroy", Gtk.main_quit)
+entry.connect("button-press-event", clicked)
 entry.connect("activate", activated)
 window.show_all()
 entry.grab_focus()
@@ -1776,6 +1791,8 @@ Gtk.main()
 RECEIVER
     FOCUS_RECEIVER_READY="$runtime/focus-ready.log" \
         FOCUS_RECEIVER_FOCUSED="$runtime/focus-focused.log" \
+        FOCUS_RECEIVER_POINTER="$runtime/focus-pointer.log" \
+        FOCUS_RECEIVER_GEOMETRY="$runtime/focus-geometry.log" \
         FOCUS_RECEIVER_LOG="$runtime/focus-input.log" \
         GDK_BACKEND=wayland WAYLAND_DISPLAY=wayland-0 \
         /usr/bin/python3 -B "$runtime/focus-receiver.py" \
@@ -1797,6 +1814,18 @@ RECEIVER
         cat "$runtime/focus-app.log" >&2
         exit 1
     }
+    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/focus-after-map.png"
+    /usr/bin/python3 - "$runtime/focus-before-app.png" "$runtime/focus-after-map.png" <<"PY"
+from PIL import Image, ImageChops
+import sys
+with Image.open(sys.argv[1]) as before, Image.open(sys.argv[2]) as after:
+    assert before.size == after.size == (1366, 768)
+    crop = (250, 100, 1100, 650)
+    delta = ImageChops.difference(before.convert("RGB").crop(crop),
+                                  after.convert("RGB").crop(crop))
+    changed = sum(max(px) > 20 for px in delta.getdata())
+    print(f"External GTK toplevel compositor framebuffer changed pixels: {changed}", flush=True)
+PY
     # The compositor must report the new toplevel and RicePlate must
     # retire its Exclusive desktop focus before the pointer activates it.
     # A map-event is not sufficient proof of compositor keyboard ownership.
@@ -1821,6 +1850,8 @@ RECEIVER
     done
     test -s "$runtime/focus-focused.log" || {
         echo "External GTK Wayland client never received compositor keyboard focus" >&2
+        cat "$runtime/focus-geometry.log" 2>/dev/null || :
+        cat "$runtime/focus-pointer.log" 2>/dev/null || :
         tail -n 45 "$runtime/file-plate.log" >&2
         tail -n 45 "$runtime/focus-app.log" >&2
         exit 1
