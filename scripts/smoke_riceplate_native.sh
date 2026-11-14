@@ -1060,6 +1060,7 @@ PY
     WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 1100 450 1366 768
     sleep 0.2
     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xdg-before.png"
+    cp "$runtime/xdg-before.png" "$source_root/dist/riceplate-native-preview/xdg-before.png"
     # A file created by a different process must trigger calloop/inotify
     # without a fake reload, polling request or direct State mutation.
     printf "%s\n" "Externally created from test shell" \
@@ -1072,6 +1073,7 @@ PY
         exit 1
     }
     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xdg-created.png"
+    cp "$runtime/xdg-created.png" "$source_root/dist/riceplate-native-preview/xdg-created.png"
     /usr/bin/python3 - "$runtime/xdg-before.png" "$runtime/xdg-created.png" <<"PY"
 from PIL import Image, ImageChops
 import sys
@@ -1110,6 +1112,10 @@ PY
         echo "Real XDG double-click did not open the original regular file" >&2
         exit 1
     }
+    WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 1100 450 1366 768
+    sleep 0.2
+    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xdg-selected.png"
+    cp "$runtime/xdg-selected.png" "$source_root/dist/riceplate-native-preview/xdg-selected.png"
     rm -f "$runtime/full-gio.log"
     # Headless labwc has no permanent physical keyboard. Keep a real
     # virtual keyboard connected *through* the pointer selection, otherwise
@@ -1207,6 +1213,10 @@ PY
         echo "Native XDG folder double click did not dispatch the exact RiceField argv" >&2
         exit 1
     }
+    WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 1100 450 1366 768
+    sleep 0.2
+    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xdg-folder.png"
+    cp "$runtime/xdg-folder.png" "$source_root/dist/riceplate-native-preview/xdg-folder.png"
     rm -f "$runtime/full-ricefield.log"
     # Rename and removal are external writes; the live watcher must notice
     # both, clean up the old surface, and preserve the existing panel.
