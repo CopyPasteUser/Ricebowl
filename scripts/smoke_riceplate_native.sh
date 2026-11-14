@@ -813,22 +813,51 @@ PY
                "$source_root/dist/riceplate-native-preview/xp-luna-parity-run.png"
             # Real compositor-owned keyboard input, not a synthetic state or
             # a mocked screenshot. The native Run overlay owns focus here.
+            # F13 is an ignored wake-up event: labwc may need a Wayland
+            # round trip to assign focus to a new virtual-keyboard client.
+            # All subsequent typed characters must reach the actual dialog.
             command -v wtype >/dev/null || { echo "wtype missing" >&2; exit 1; }
-            WAYLAND_DISPLAY=wayland-0 wtype -d 35 abcd
+            WAYLAND_DISPLAY=wayland-0 wtype -d 85 -k F13 abcd
             sleep 0.25
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-typed.png"
             cp "$runtime/xp-luna-parity-run-typed.png" \
                "$source_root/dist/riceplate-native-preview/xp-luna-parity-run-typed.png"
+            # A real virtual pointer click must move the Run caret without
+            # stealing focus or resetting the typed text. In the centered
+            # dialog the input text origin is at (587,370).
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 599 372 1366 768
+            # The real screencopy framebuffer includes the compositor cursor.
+            # Move it to neutral dialog space before each frame comparison:
+            # otherwise its 16x20 silhouette overlays the restored text
+            # (130 changed pixels) although chars=4 and caret=4 are correct.
+            # Motion has no button press and cannot reposition the text caret.
+            WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 530 410 1366 768
+            sleep 0.2
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-pointer-caret.png"
+            cp "$runtime/xp-luna-parity-run-pointer-caret.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-parity-run-pointer-caret.png"
+            WAYLAND_DISPLAY=wayland-0 wtype -d 85 -k F13 Z
+            sleep 0.2
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-pointer-insert.png"
+            cp "$runtime/xp-luna-parity-run-pointer-insert.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-parity-run-pointer-insert.png"
+            # Undo the inserted glyph and return to the original end caret
+            # before the pre-existing keyboard-editing regression.
+            WAYLAND_DISPLAY=wayland-0 wtype -d 85 -k F13 -k BackSpace -k End
+            # Allow the last asynchronous wl_surface damage/commit to display.
+            sleep 0.55
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-pointer-restored.png"
+            cp "$runtime/xp-luna-parity-run-pointer-restored.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-parity-run-pointer-restored.png"
             # Left, Backspace, and an insertion must edit in-place:
             # "abcd" -> "abd" -> "abXd", never execute anything.
-            WAYLAND_DISPLAY=wayland-0 wtype -k Left -k BackSpace
-            WAYLAND_DISPLAY=wayland-0 wtype X
+            WAYLAND_DISPLAY=wayland-0 wtype -d 85 -k F13 -k Left -k BackSpace X
             sleep 0.25
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-edited.png"
             cp "$runtime/xp-luna-parity-run-edited.png" \
                "$source_root/dist/riceplate-native-preview/xp-luna-parity-run-edited.png"
             # Home plus four Deletes must restore the actual empty input.
-            WAYLAND_DISPLAY=wayland-0 wtype -k Home -k Delete -k Delete -k Delete -k Delete
+            WAYLAND_DISPLAY=wayland-0 wtype -d 85 -k F13 -k Home -k Delete -k Delete -k Delete -k Delete
             sleep 0.25
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-cleared.png"
             cp "$runtime/xp-luna-parity-run-cleared.png" \
@@ -843,12 +872,26 @@ PY
             WAYLAND_DISPLAY=wayland-0 "$clicker" 843 450 1366 768
             sleep 0.25
             kill -0 "$plate"
+            echo "Luna native Run focus and redacted edit trace:"
+            grep -E "RicePlate: Luna Run( edit|/Help keyboard)" "$runtime/plate-$label.log" | tail -n 45 || :
+            # Check observed edit states, not raw keystrokes or command text:
+            # the diagnostic log deliberately contains no input characters.
+            grep -Fq "RicePlate: Luna Run edit chars=4 caret=4" "$runtime/plate-$label.log" || {
+                echo "Native Run did not retain all four typed characters" >&2
+                exit 1
+            }
+            grep -Fq "RicePlate: Luna Run edit chars=5 caret=" "$runtime/plate-$label.log" || {
+                echo "Native Run did not insert after pointer caret placement" >&2
+                exit 1
+            }
             /usr/bin/python3 - "$runtime" <<PY
 from pathlib import Path
 from PIL import Image, ImageChops
 
 folder = Path("$runtime")
-names = ["start", "help", "run", "run-typed", "run-edited", "run-cleared", "run-empty"]
+names = ["start", "help", "run", "run-typed", "run-pointer-caret",
+         "run-pointer-insert", "run-pointer-restored",
+         "run-edited", "run-cleared", "run-empty"]
 images = {name: Image.open(folder / f"xp-luna-parity-{name}.png").convert("RGB")
           for name in names}
 assert all(img.size == (1366, 768) for img in images.values())
@@ -867,7 +910,36 @@ def text_changed(a, b):
     delta = ImageChops.difference(
         images[a].crop(text_region), images[b].crop(text_region))
     return sum(1 for pixel in delta.getdata() if max(pixel) > 18)
+print("Run pointer CI metrics:",
+      "typed", text_changed("run", "run-typed"),
+      "caret", text_changed("run-typed", "run-pointer-caret"),
+      "insert", text_changed("run-pointer-caret", "run-pointer-insert"),
+      "restored", text_changed("run-typed", "run-pointer-restored"),
+      "dialog_visible", changed("run", "run-pointer-caret"), flush=True)
 assert text_changed("run", "run-typed") > 20, "Wayland typing did not reach native Run"
+assert text_changed("run-typed", "run-pointer-caret") > 20, (
+    "Real pointer click did not move the native Run caret"
+)
+assert text_changed("run-pointer-caret", "run-pointer-insert") > 20, (
+    "Run did not accept keyboard input after pointer caret placement"
+)
+# Preserve real grim crop evidence when the pixel-exact restoration gate
+# fails. Crops cover only the synthetic CI command field, never real user data.
+restored_delta = ImageChops.difference(images["run-typed"].crop(text_region),
+                                       images["run-pointer-restored"].crop(text_region))
+if text_changed("run-typed", "run-pointer-restored") >= 8:
+    import base64
+    from io import BytesIO
+    print("RUN_RESTORE_FRAME_DIAG bbox=", restored_delta.getbbox(), flush=True)
+    for capture in ("run-typed", "run-pointer-caret", "run-pointer-insert",
+                    "run-pointer-restored"):
+        output = BytesIO()
+        images[capture].crop(text_region).save(output, "PNG")
+        print("RUN_RESTORE_CROP", capture, base64.b64encode(output.getvalue()).decode(),
+              flush=True)
+assert text_changed("run-typed", "run-pointer-restored") < 8, (
+    "Run pointer insertion could not be undone to original text and caret"
+)
 assert text_changed("run-typed", "run-edited") > 20, (
     "Wayland Left/Backspace/insertion did not repaint Run"
 )

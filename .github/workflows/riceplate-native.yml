@@ -141,6 +141,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.88.0
+        with:
+          components: clippy
       - name: Install native Wayland and keyboard build dependencies
         run: |
           sudo apt-get update
@@ -150,6 +152,10 @@ jobs:
           /usr/bin/python3 -m unittest tests.test_de_session -v
           /usr/bin/python3 -m unittest tests.test_de_acceptance -v
           cargo test --locked --manifest-path components/riceplate-wayland/Cargo.toml
+          # Baseline contains legacy style warnings in other owner modules.
+          # Keep full lint output; fail the merge on correctness, suspicious
+          # code, perf regressions and ignored must-use results.
+          cargo clippy --locked --manifest-path components/riceplate-wayland/Cargo.toml --all-targets -- -D clippy::correctness -D clippy::suspicious -D clippy::perf -D unused_must_use
           cargo build --locked --release --manifest-path components/riceplate-wayland/Cargo.toml
           cargo build --locked --release --manifest-path components/riceplate-wayland/Cargo.toml \
             --example wayland_pointer_click

@@ -4810,6 +4810,16 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
     }
 }
 
+// Keep Run text hit-testing pixel-aligned with its actual painter, including
+// the selected private proportional font rather than assuming 8px cells.
+fn luna_dialog_text_width(style: &PanelStyle, text: &str) -> u32 {
+    style.native_art.as_ref().and_then(|art| art.font.as_ref())
+        .map_or_else(
+            || text_pixel_width(text, style.font_scale.max(1)),
+            |font| font.measure_text(text),
+        )
+}
+
 fn paint_luna_dialog(canvas: &mut [u8], style: &PanelStyle, state: &luna_dialog::State) {
     let (w, h) = (luna_dialog::WIDTH, luna_dialog::HEIGHT);
     canvas.fill(0);
@@ -4835,13 +4845,8 @@ fn paint_luna_dialog(canvas: &mut [u8], style: &PanelStyle, state: &luna_dialog:
             fill_rect(canvas, w, h, 120, 113, 302, 28, 0xffff_ffff);
             // Use the same font advances as actual glyph drawing: a
             // proportional selected font must not misplace the caret.
-            let (text, cursor_x) = state.input_view(282, |value| {
-                style.native_art.as_ref().and_then(|art| art.font.as_ref())
-                    .map_or_else(
-                        || text_pixel_width(value, style.font_scale.max(1)),
-                        |font| font.measure_text(value),
-                    )
-            });
+            let (text, cursor_x) = state.input_view(282, |value|
+                luna_dialog_text_width(style, value));
             draw_rice_text(canvas, w, h, 128, 122, &text, 0xff10_2849, style);
             fill_rect(canvas, w, h, 128 + cursor_x, 120, 2, 16, 0xff10_2849);
             let notice = state.notice.unwrap_or("Executes a command directly as your user.");
@@ -5613,6 +5618,7 @@ impl SeatHandler for RicePlate {
             }
             self.menu_focused = false;
             self.calendar_focused = false;
+            self.luna_dialog_focused = false;
             self.keyboard_icon_surface = None;
             self.keyboard_widget_surface = None;
             self.pressed_widget = None;
@@ -5655,6 +5661,9 @@ impl KeyboardHandler for RicePlate {
         if self.keyboard.as_ref() != Some(keyboard) { return; }
         self.luna_dialog_focused = self.luna_dialog.as_ref().is_some_and(|dialog|
             dialog.surface.wl_surface() == surface);
+        if self.luna_dialog_focused && std::env::var_os("RICEBOWL_DE_TRACE_MENU").is_some() {
+            eprintln!("RicePlate: Luna Run/Help keyboard enter");
+        }
         self.context_focused = self.desktop_context.as_ref().is_some_and(|menu|
             menu.surface.wl_surface() == surface);
         self.menu_focused = self.menu_state.visible
@@ -5724,8 +5733,17 @@ impl KeyboardHandler for RicePlate {
         self.selection_modifiers = Modifiers::default();
         self.desktop_selection.cancel();
         if self.luna_dialog.as_ref().is_some_and(|dialog|
-            dialog.surface.wl_surface() == surface) && self.luna_dialog_focused {
-            self.close_luna_dialog();
+            dialog.surface.wl_surface() == surface) {
+            // A modal Run/Help dialog outlives temporary keyboard-seat
+            // handovers (notably virtual-keyboard disconnect/reconnect).
+            // Closing on wl_keyboard.leave silently discarded typed input
+            // before the next input device could regain focus. Escape,
+            // Cancel, successful Run, compositor close and session teardown
+            // remain explicit, bounded dismissal paths.
+            self.luna_dialog_focused = false;
+            if std::env::var_os("RICEBOWL_DE_TRACE_MENU").is_some() {
+                eprintln!("RicePlate: Luna Run/Help keyboard leave, dialog retained");
+            }
         }
         if self.desktop_context.as_ref().is_some_and(|menu|
             menu.surface.wl_surface() == surface) && self.context_focused {
@@ -5770,6 +5788,9 @@ impl KeyboardHandler for RicePlate {
     ) {
         if self.keyboard.as_ref() != Some(keyboard) { return; }
         if self.luna_dialog_focused {
+            // Do not log keysyms or UTF-8 from the Run dialog: they can
+            // contain sensitive commands. Test diagnostics report only
+            // cursor and character count after an edit below.
             let mut execute = false;
             let mut repaint = false;
             match event.keysym {
@@ -5807,6 +5828,14 @@ impl KeyboardHandler for RicePlate {
             }
             if execute { self.execute_luna_dialog(); }
             else if repaint { self.redraw_luna_dialog(); }
+            if std::env::var_os("RICEBOWL_DE_TRACE_MENU").is_some() {
+                if let Some(dialog) = self.luna_dialog.as_ref() {
+                    // No command text in logs: only non-sensitive edit state
+                    // for compositor/virtual-keyboard regression diagnosis.
+                    eprintln!("RicePlate: Luna Run edit chars={} caret={}",
+                              dialog.state.input.chars().count(), dialog.state.cursor);
+                }
+            }
             return;
         }
         if self.context_focused {
@@ -6292,8 +6321,17 @@ impl PointerHandler for RicePlate {
                 match activate {
                     Some(luna_dialog::Hit::Accept) => self.execute_luna_dialog(),
                     Some(luna_dialog::Hit::Cancel) => self.close_luna_dialog(),
-                    Some(luna_dialog::Hit::Input) | None =>
-                        if repaint { self.redraw_luna_dialog(); },
+                    Some(luna_dialog::Hit::Input) => {
+                        // The cursor follows the real painted glyph advances.
+                        // Only a completed click in the text field moves it;
+                        // no synthetic key event or compositor focus grab.
+                        let style = &self.recipe;
+                        let moved = self.luna_dialog.as_mut().is_some_and(|dialog|
+                            dialog.state.place_cursor_at(event.position.0 - 128.0, 282,
+                                |text| luna_dialog_text_width(style, text)));
+                        if moved || repaint { self.redraw_luna_dialog(); }
+                    }
+                    None => if repaint { self.redraw_luna_dialog(); },
                 }
                 continue;
             }
