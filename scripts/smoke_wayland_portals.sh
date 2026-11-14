@@ -23,6 +23,10 @@ if [ "$strict" = 1 ] && [ "$backend" = generic ]; then
         echo "PORTAL_STRICT_BLOCKED: generic SHM backend requires pixman" >&2
         exit 3
     }
+    command -v wireplumber >/dev/null 2>&1 || {
+        echo "PORTAL_SETUP_FAIL: missing private PipeWire session manager: wireplumber" >&2
+        exit 2
+    }
     [ -x /usr/libexec/xdg-desktop-portal-generic ] || {
         echo "PORTAL_SETUP_FAIL: pinned generic portal binary missing" >&2
         exit 2
@@ -124,6 +128,7 @@ dbus-run-session -- sh -eu -c '
     compositor=
     client=
     pipewire_pid=
+    wireplumber_pid=
     generic_pid=
     painter_pid=
     cleanup_children() {
@@ -144,6 +149,10 @@ dbus-run-session -- sh -eu -c '
         if [ -n "$compositor" ]; then
             kill "$compositor" 2>/dev/null || :
             wait "$compositor" 2>/dev/null || :
+        fi
+        if [ -n "$wireplumber_pid" ]; then
+            kill "$wireplumber_pid" 2>/dev/null || :
+            wait "$wireplumber_pid" 2>/dev/null || :
         fi
         if [ -n "$pipewire_pid" ]; then
             kill "$pipewire_pid" 2>/dev/null || :
@@ -170,6 +179,19 @@ dbus-run-session -- sh -eu -c '
         echo "Isolated PipeWire core failed to open its runtime socket" >&2
         sed -n "1,50p" "$runtime/pipewire.log" >&2
         exit 1
+    fi
+    if [ "$RICEBOWL_PORTAL_BACKEND" = generic ]; then
+        # The bare PipeWire core cannot policy-link a portal source with a
+        # GStreamer client; without a private session manager the producer
+        # loops indefinitely with "No buffer available from PipeWire stream".
+        wireplumber >"$runtime/wireplumber.log" 2>&1 &
+        wireplumber_pid=$!
+        sleep 1
+        kill -0 "$wireplumber_pid" 2>/dev/null || {
+            echo "PORTAL_SETUP_FAIL: private WirePlumber session manager exited" >&2
+            tail -n 65 "$runtime/wireplumber.log" >&2
+            exit 1
+        }
     fi
     # The compositor and client are sibling processes owned by this wrapper.
     # Avoid labwc --startup orphaning the client when the compositor crashes.
@@ -233,7 +255,7 @@ dbus-run-session -- sh -eu -c '
     done
     if [ ! -f "$runtime/portals-ok" ] || [ -f "$runtime/portals-failed" ]; then
         echo "Portal runtime acceptance did not complete" >&2
-        for log in client.log labwc.log pipewire.log painter.log generic.log; do
+        for log in client.log labwc.log pipewire.log wireplumber.log painter.log generic.log; do
             if [ -f "$runtime/$log" ]; then
                 tail -n 100 "$runtime/$log" >&2
             fi

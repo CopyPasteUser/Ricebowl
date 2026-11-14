@@ -128,3 +128,14 @@ while ScreenCast is active. The receiver still gets its samples only from
 the portal-provided PipeWire FD. It does not generate, inject or fabricate
 frames. Missing frames remain a hard failure. Diagnostics report the probe
 stage and preserve the actual backend log.
+
+### Private PipeWire policy link
+
+The hosted runner has no persistent user PipeWire services. A private
+`pipewire` daemon alone lets Start return a node, but cannot policy-link
+that new output to a GStreamer consumer and allocate negotiated stream
+buffers. The strict generic CI lane now also starts a **private WirePlumber**
+session manager against the same owner-private runtime bus and PipeWire
+socket, with bounded liveness and teardown. No host audio devices or user
+login services are modified. A screenshot or raw screencopy frame by itself
+never passes the PipeWire acceptance gate.
