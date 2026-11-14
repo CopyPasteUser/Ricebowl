@@ -573,6 +573,9 @@ class _LiveSwitch:
         from .live import LiveError
         reader = self._pending_ready.pop(id(process), None)
         if reader is None:
+            if self.mode == "native" and not self.fallback and self._frame_readiness:
+                raise LiveError("Native replacement lacks compositor readiness channel",
+                                code="component_failed")
             # Waybar has no RicePlate compositor-frame protocol. Preserve its
             # existing bounded liveness check instead of claiming a frame.
             time.sleep(0.5)
