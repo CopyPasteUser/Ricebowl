@@ -59,6 +59,10 @@ impl Snapshot {
     /// A selected item is safe only while its directory and no-follow inode
     /// still match. This does not authorize execution of .desktop files.
     pub fn current_path(&self, desktop: &Path, entry: &Entry) -> io::Result<PathBuf> {
+        if self.status != Status::Available
+            || !self.entries.iter().any(|seen| seen.key == entry.key && seen.kind == entry.kind) {
+            return Err(io::Error::new(io::ErrorKind::PermissionDenied, "Entry is not in this snapshot"));
+        }
         let (Some(dev), Some(ino)) = (self.device, self.inode) else {
             return Err(io::ErrorKind::NotFound.into());
         };
@@ -324,4 +328,21 @@ mod tests {
                 "intermediate symlinks must also be rejected");
         fs::remove_file(f.0.with_extension("alias")).unwrap();
     }
+ 
+    #[test]
+    fn unreadable_desktop_and_foreign_entries_fail_closed() {
+        use std::os::unix::fs::PermissionsExt;
+        let f = Fixture::new();
+        fs::write(f.0.join("normal"), b"ok").unwrap();
+        let snap = scan(&f.0).unwrap();
+        let mut forged = snap.entries[0].clone();
+        forged.key.name = OsString::from("arbitrary");
+        assert!(snap.current_path(&f.0, &forged).is_err());
+        if unsafe { libc::geteuid() } != 0 {
+            fs::set_permissions(&f.0, fs::Permissions::from_mode(0o000)).unwrap();
+            assert!(scan(&f.0).is_err());
+            fs::set_permissions(&f.0, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+    }
+
 }
