@@ -819,6 +819,26 @@ PY
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-typed.png"
             cp "$runtime/xp-luna-parity-run-typed.png" \
                "$source_root/dist/riceplate-native-preview/xp-luna-parity-run-typed.png"
+            # A real virtual pointer click must move the Run caret without
+            # stealing focus or resetting the typed text. In the centered
+            # dialog the input's text origin is at (587,370).
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 599 372 1366 768
+            sleep 0.2
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-pointer-caret.png"
+            cp "$runtime/xp-luna-parity-run-pointer-caret.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-parity-run-pointer-caret.png"
+            WAYLAND_DISPLAY=wayland-0 wtype Z
+            sleep 0.2
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-pointer-insert.png"
+            cp "$runtime/xp-luna-parity-run-pointer-insert.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-parity-run-pointer-insert.png"
+            # Undo the inserted glyph and return to the original end caret
+            # before the pre-existing keyboard-editing regression.
+            WAYLAND_DISPLAY=wayland-0 wtype -k BackSpace -k End
+            sleep 0.2
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-pointer-restored.png"
+            cp "$runtime/xp-luna-parity-run-pointer-restored.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-parity-run-pointer-restored.png"
             # Left, Backspace, and an insertion must edit in-place:
             # "abcd" -> "abd" -> "abXd", never execute anything.
             WAYLAND_DISPLAY=wayland-0 wtype -k Left -k BackSpace
@@ -848,7 +868,9 @@ from pathlib import Path
 from PIL import Image, ImageChops
 
 folder = Path("$runtime")
-names = ["start", "help", "run", "run-typed", "run-edited", "run-cleared", "run-empty"]
+names = ["start", "help", "run", "run-typed", "run-pointer-caret",
+         "run-pointer-insert", "run-pointer-restored",
+         "run-edited", "run-cleared", "run-empty"]
 images = {name: Image.open(folder / f"xp-luna-parity-{name}.png").convert("RGB")
           for name in names}
 assert all(img.size == (1366, 768) for img in images.values())
@@ -868,6 +890,15 @@ def text_changed(a, b):
         images[a].crop(text_region), images[b].crop(text_region))
     return sum(1 for pixel in delta.getdata() if max(pixel) > 18)
 assert text_changed("run", "run-typed") > 20, "Wayland typing did not reach native Run"
+assert text_changed("run-typed", "run-pointer-caret") > 20, (
+    "Real pointer click did not move the native Run caret"
+)
+assert text_changed("run-pointer-caret", "run-pointer-insert") > 20, (
+    "Run did not accept keyboard input after pointer caret placement"
+)
+assert text_changed("run-typed", "run-pointer-restored") < 8, (
+    "Run pointer insertion could not be undone to original text and caret"
+)
 assert text_changed("run-typed", "run-edited") > 20, (
     "Wayland Left/Backspace/insertion did not repaint Run"
 )
