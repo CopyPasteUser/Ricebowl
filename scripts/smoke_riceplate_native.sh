@@ -817,7 +817,11 @@ PY
             # round trip to assign focus to a new virtual-keyboard client.
             # All subsequent typed characters must reach the actual dialog.
             command -v wtype >/dev/null || { echo "wtype missing" >&2; exit 1; }
-            WAYLAND_DISPLAY=wayland-0 wtype -d 85 -k F13 abcd
+            # F13 is deliberately ignored by the editor. Multiple real
+            # Wayland round trips give labwc time to deliver keyboard.enter
+            # before the first command character. Keep the exact four-character
+            # assertion and the unmodified framebuffer/caret checks below.
+            WAYLAND_DISPLAY=wayland-0 wtype -d 250 -k F13 -k F13 -k F13 abcd
             sleep 0.25
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-typed.png"
             cp "$runtime/xp-luna-parity-run-typed.png" \
