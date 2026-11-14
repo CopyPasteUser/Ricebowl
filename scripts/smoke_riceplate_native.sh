@@ -965,7 +965,7 @@ PY
         "Exec=/usr/bin/false" > "$runtime/file-home/Desktop/01-app.desktop"
     ln -s /etc/passwd "$runtime/file-home/Desktop/02-outside-link"
     HOME="$runtime/file-home" XDG_CONFIG_HOME="$runtime/file-config" \
-        RICEBOWL_DE_NESTED=0 RICEBOWL_DE_TRACE_FILES=1 \
+        RICEBOWL_DE_NESTED=0 RICEBOWL_DE_TRACE_FILES=1 RICEBOWL_DE_TRACE_FOCUS=1 \
         PATH="$runtime/mock-bin:$PATH" \
         RICEBOWL_CI_TRASH_LOG="$runtime/full-gio.log" \
         RICEBOWL_CI_RICEFIELD_LOG="$runtime/full-ricefield.log" \
@@ -1035,6 +1035,56 @@ PY
         exit 1
     }
     rm -f "$runtime/full-gio.log"
+    # Focus request must be confirmed by a genuine wl_keyboard.enter. One
+    # ephemeral wtype client drives Type-to-Select and Enter, not state APIs.
+    WAYLAND_DISPLAY=wayland-0 "$clicker" "$cx" "$cy" 1366 768
+    sleep 0.25
+    WAYLAND_DISPLAY=wayland-0 wtype -d 85 -k F13 0 -k Return
+    count=0
+    while [ ! -s "$runtime/full-gio.log" ] && [ "$count" -lt 25 ]; do
+        count=$((count + 1))
+        sleep 0.1
+    done
+    grep -Fq "RicePlate: compositor confirmed XDG file keyboard focus" \
+        "$runtime/file-plate.log" || {
+        echo "Native XDG file focus not confirmed by real compositor keyboard enter" >&2
+        tail -n 50 "$runtime/file-plate.log" >&2
+        exit 1
+    }
+    grep -Fq "RicePlate: XDG file keyboard focus released" \
+        "$runtime/file-plate.log" || {
+        echo "Native XDG temporary keyboard focus never released" >&2
+        exit 1
+    }
+    test "$(cat "$runtime/full-gio.log" 2>/dev/null || :)" = "$expected_gio" || {
+        echo "Native XDG Type-to-Select and real Enter did not open selected file" >&2
+        exit 1
+    }
+    rm -f "$runtime/full-gio.log"
+    # A visible desktop launcher / symlink must NOT become executable through
+    # the shared double-click path. Their hitboxes come from actual placement.
+    for unsafe_kind in DesktopFile Symlink; do
+        unsafe_position=$(sed -n "s/.*XDG mapped x=\([0-9][0-9]*\) y=\([0-9][0-9]*\) kind=$unsafe_kind.*/\1 \2/p" \
+            "$runtime/file-plate.log" | head -n 1)
+        test -n "$unsafe_position" || {
+            echo "Missing mapped unsafe XDG file kind $unsafe_kind" >&2
+            exit 1
+        }
+        set -- $unsafe_position
+        unsafe_x=$(($1 + 52))
+        unsafe_y=$(($2 + 45))
+        WAYLAND_DISPLAY=wayland-0 "$clicker" "$unsafe_x" "$unsafe_y" 1366 768
+        WAYLAND_DISPLAY=wayland-0 "$clicker" "$unsafe_x" "$unsafe_y" 1366 768
+        sleep 0.2
+        test ! -e "$runtime/full-gio.log" || {
+            echo "Unsafe XDG file $unsafe_kind invoked an opener" >&2
+            exit 1
+        }
+        test ! -e "$runtime/full-ricefield.log" || {
+            echo "Unsafe XDG file $unsafe_kind invoked RiceField" >&2
+            exit 1
+        }
+    done
     # Rename and removal are external writes; the live watcher must notice
     # both, clean up the old surface, and preserve the existing panel.
     mv "$runtime/file-home/Desktop/00-note.txt" \
