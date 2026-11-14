@@ -1579,6 +1579,158 @@ impl RicePlate {
         }
     }
 
+    fn activate_file_mode(&mut self, key: &desktop_layout::inventory::Key,
+                          mode: desktop_layout::actions::OpenMode) {
+        let (Some(directory), Some(snapshot)) = (self.file_desktop.as_deref(),
+                                                  self.file_snapshot.as_ref()) else { return };
+        let Some(entry) = snapshot.entries.iter().find(|entry| &entry.key == key) else { return };
+        match desktop_layout::actions::open(snapshot, directory, entry, mode) {
+            Ok((_backend, child)) => self.file_launches.push(child),
+            Err(error) => eprintln!("RicePlate: XDG file operation refused: {error}"),
+        }
+    }
+
+    fn close_file_context(&mut self) {
+        self.file_context = None;
+        self.file_context_focused = false;
+    }
+
+    fn open_file_context(&mut self, index: usize, pointer: (f64, f64),
+                         qh: &QueueHandle<Self>) {
+        if self.recipe.id != "xp-luna-columns" { return; }
+        let Some(icon) = self.file_layers.get(index) else { return; };
+        let Some(position) = icon.placed else { return; };
+        let Some(output) = icon.bound_output.as_ref()
+            .or(self.primary_output.as_ref()).or(icon.output.as_ref()).cloned()
+            else { return; };
+        let Some(size) = self.logical_output_size(&output) else { return; };
+        let Some((x, y)) = desktop_file_menu::placement(
+            position, pointer, size, self.recipe.height, self.recipe.top)
+            else { return; };
+        let (key, kind) = (icon.entry.key.clone(), icon.entry.kind);
+        self.close_file_keyboard_focus();
+        self.close_desktop_context();
+        self.close_file_context();
+        if self.menu_state.visible { self.set_menu_visible(false, qh); }
+        if self.calendar_state.visible { self.set_calendar_visible(false, qh); }
+        if self.tray_popup_open() { self.set_tray_popup_visible(false, qh); }
+        let surface = self.layer_shell.create_layer_surface(
+            qh, self.compositor.create_surface(qh), Layer::Overlay,
+            Some("riceplate-xdg-file-context"), Some(&output),
+        );
+        surface.set_anchor(Anchor::TOP | Anchor::LEFT);
+        surface.set_size(desktop_file_menu::WIDTH, desktop_file_menu::HEIGHT);
+        surface.set_margin(y as i32, 0, 0, x as i32);
+        surface.set_exclusive_zone(-1);
+        surface.set_keyboard_interactivity(KeyboardInteractivity::OnDemand);
+        surface.commit();
+        self.file_context = Some(FileContextLayer {
+            surface, pool: None, configured: false,
+            entry: key, kind,
+            selected: if desktop_file_menu::Item::Open.enabled(kind) {
+                desktop_file_menu::Item::Open
+            } else { desktop_file_menu::Item::Properties },
+            hovered: None, pressed: None, properties: None,
+            back_hovered: false, back_pressed: false, notice: None,
+        });
+        if std::env::var("RICEBOWL_DE_TRACE_FILES").as_deref() == Ok("1") {
+            eprintln!("RicePlate: XDG context opened kind={kind:?}");
+        }
+    }
+
+    fn choose_file_context(&mut self, item: desktop_file_menu::Item,
+                           qh: &QueueHandle<Self>) {
+        let Some(menu) = self.file_context.as_ref() else { return; };
+        if !item.enabled(menu.kind) { return; }
+        let key = menu.entry.clone();
+        if item == desktop_file_menu::Item::Properties {
+            let result = (|| {
+                let root = self.file_desktop.as_deref().ok_or(
+                    desktop_layout::actions::ActionError::Disabled("No XDG Desktop"))?;
+                let snapshot = self.file_snapshot.as_ref().ok_or(
+                    desktop_layout::actions::ActionError::Stale("No Desktop inventory"))?;
+                let entry = snapshot.entries.iter().find(|e| e.key == key).ok_or(
+                    desktop_layout::actions::ActionError::Stale("File changed"))?;
+                desktop_layout::actions::properties(snapshot, root, entry)
+            })();
+            if let Some(menu) = self.file_context.as_mut() {
+                match result {
+                    Ok(properties) => { menu.properties = Some(properties); menu.notice = None; }
+                    Err(error) => {
+                        eprintln!("RicePlate: XDG properties refused: {error}");
+                        menu.notice = Some("File changed or access denied");
+                    }
+                }
+                menu.pressed = None;
+            }
+            self.redraw_file_context();
+            return;
+        }
+        self.close_file_context();
+        match item {
+            desktop_file_menu::Item::Open => self.activate_file_mode(
+                &key, desktop_layout::actions::OpenMode::Default),
+            desktop_file_menu::Item::Explorer => self.activate_file_mode(
+                &key, desktop_layout::actions::OpenMode::Explorer),
+            desktop_file_menu::Item::Rename =>
+                self.open_file_modal(&key, luna_dialog::Kind::FileRename, qh),
+            desktop_file_menu::Item::Trash =>
+                self.open_file_modal(&key, luna_dialog::Kind::FileTrash, qh),
+            desktop_file_menu::Item::Properties => unreachable!(),
+        }
+    }
+
+    fn open_file_modal(&mut self, key: &desktop_layout::inventory::Key,
+                       kind: luna_dialog::Kind, qh: &QueueHandle<Self>) {
+        let Some(entry) = self.file_snapshot.as_ref()
+            .and_then(|snapshot| snapshot.entries.iter().find(|e| &e.key == key)) else { return };
+        let Some(name) = entry.key.name.to_str() else {
+            eprintln!("RicePlate: XDG rename cannot represent non-UTF8 name");
+            return;
+        };
+        if kind == luna_dialog::Kind::FileRename
+            && (name.is_empty() || name.chars().count() > luna_dialog::MAX_INPUT
+                || name.chars().any(char::is_control)) {
+            eprintln!("RicePlate: XDG filename outside bounded editor");
+            return;
+        }
+        let name = name.to_owned();
+        self.close_file_context();
+        self.close_file_keyboard_focus();
+        self.open_luna_dialog(kind, qh);
+        let Some(dialog) = self.luna_dialog.as_mut() else { return };
+        if kind == luna_dialog::Kind::FileRename {
+            if !dialog.state.prefill_name(&name) { self.close_luna_dialog(); return; }
+        } else { dialog.state.input = name; }
+        self.file_dialog_target = Some(key.clone());
+        self.redraw_luna_dialog();
+    }
+
+    fn redraw_file_context(&mut self) {
+        let Some(menu) = self.file_context.as_mut() else { return };
+        if !menu.configured { return; }
+        let Some(pool) = menu.pool.as_mut() else { return };
+        let (w, h) = (desktop_file_menu::WIDTH, desktop_file_menu::HEIGHT);
+        let (buffer, canvas) = match pool.create_buffer(
+            w as i32, h as i32, (w * 4) as i32, wl_shm::Format::Argb8888) {
+            Ok(buffer) => buffer,
+            Err(error) => {
+                eprintln!("RicePlate: XDG context framebuffer unavailable: {error}");
+                self.close_file_context();
+                return;
+            }
+        };
+        paint_file_context(canvas, &self.recipe, menu);
+        let surface = menu.surface.wl_surface();
+        surface.damage_buffer(0, 0, w as i32, h as i32);
+        if let Err(error) = buffer.attach_to(surface) {
+            eprintln!("RicePlate: XDG context attach failed: {error}");
+            self.close_file_context();
+            return;
+        }
+        menu.surface.commit();
+    }
+
     fn maybe_collapse_luna_panel(&mut self, qh: &QueueHandle<Self>) {
         let popup_open = self.menu_state.visible || self.calendar_state.visible
             || self.tray_popup_open() || self.luna_dialog.is_some()
