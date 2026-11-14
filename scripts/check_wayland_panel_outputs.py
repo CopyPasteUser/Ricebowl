@@ -20,11 +20,14 @@ def validate(paths: list[Path]) -> None:
     # `macrice/de/resources/recipes/classic.json`: background #203c59.
     expected = (0x20, 0x3C, 0x59)
     for path in paths:
+        # Pillow's load() decodes pixels but can accept a PNG missing its
+        # terminal IEND chunk. verify() checks the chunk stream and CRCs;
+        # reopening is required because verify() invalidates the decoder.
         with Image.open(path) as image:
             if image.format != "PNG" or min(image.size) < 480:
                 raise ValueError("Output screenshot has invalid PNG geometry")
-            # Validate the complete capture before sampling a panel pixel:
-            # truncated PNGs can retain valid early scanlines.
+            image.verify()
+        with Image.open(path) as image:
             image.load()
             rgb = image.convert("RGB").getpixel((image.width // 2, image.height - 5))
         if any(abs(actual - base) > 6 for actual, base in zip(rgb, expected)):
