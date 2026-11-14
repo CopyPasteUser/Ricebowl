@@ -139,3 +139,23 @@ session manager against the same owner-private runtime bus and PipeWire
 socket, with bounded liveness and teardown. No host audio devices or user
 login services are modified. A screenshot or raw screencopy frame by itself
 never passes the PipeWire acceptance gate.
+
+### Upstream remote-FD defect and CI-only isolation
+
+The pinned generic backend's `create_remote_fd` creates a local
+`UnixStream::pair()` and calls PipeWire `context.connect_fd` on one end.
+That is **not a connection to the private PipeWire server**; a consumer
+received an unusable descriptor (`target not found` with WirePlumber).
+For the strict no-DRM CI job only, `ci_portal_generic_remote.py` verifies
+that precise upstream function and replaces it at build time with a connection
+to the already running private `$XDG_RUNTIME_DIR/pipewire-0` socket.
+Runtime directory permissions, file type, strict backend flags and private
+CI marker are checked and the replacement emits
+`PORTAL_CI_REMOTE_UNRESTRICTED` to ensure test provenance.
+
+**Security boundary:** this CI-only connection is **unrestricted within
+the disposable PipeWire daemon**, which only contains the test stream.
+It must NEVER be distributed or installed in user sessions. It validates
+real compositor -> PipeWire -> FD -> GStreamer video transport, but it
+does not validate per-stream grants, sandbox privacy or real consent. Those
+require the untouched production portal and separate hardware/Flatpak tests.

@@ -8,6 +8,8 @@ on:
       - 'scripts/wayland_portals_smoke_client.sh'
       - 'scripts/wayland_portal_capture_smoke.py'
       - 'scripts/wayland_portal_frame_painter.py'
+      - 'scripts/ci_portal_generic_remote.py'
+      - 'tests/test_wayland_portal_ci_patch.py'
       - 'scripts/check_wayland_portals.py'
       - 'tests/test_wayland_portal_capture.py'
       - 'tests/test_wayland_portal_probe.py'
@@ -36,7 +38,7 @@ jobs:
         run: |
           sh -n scripts/smoke_wayland_portals.sh
           sh -n scripts/wayland_portals_smoke_client.sh
-          /usr/bin/python3 -m py_compile scripts/wayland_portal_capture_smoke.py scripts/wayland_portal_frame_painter.py scripts/check_wayland_portals.py
+          /usr/bin/python3 -m py_compile scripts/wayland_portal_capture_smoke.py scripts/wayland_portal_frame_painter.py scripts/ci_portal_generic_remote.py scripts/check_wayland_portals.py
           /usr/bin/python3 -m unittest discover -s tests -p 'test_wayland_portal_*.py' -v
 
   portal-pixman-repeat:
@@ -115,7 +117,9 @@ jobs:
             xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-wlr grim wireplumber \
             libpipewire-0.3-dev libspa-0.2-dev libwayland-dev \
             libxkbcommon-dev libclang-dev clang pkg-config
-      - name: Compile pinned third-party backend without package or session changes
+      - name: Repair only the disposable backend's invalid remote FD connection
+        run: /usr/bin/python3 scripts/ci_portal_generic_remote.py .ci-generic-portal/src/pipewire/mod.rs
+      - name: Compile pinned third-party backend with CI-only private remote
         working-directory: .ci-generic-portal
         run: cargo build --release --locked
       - name: Register backend only inside the disposable CI VM
