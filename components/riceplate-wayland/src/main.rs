@@ -1215,13 +1215,15 @@ impl RicePlate {
     fn open_file_keyboard_focus(&mut self, index: usize, qh: &QueueHandle<Self>) {
         // A virtual-keyboard client may be a different wl_seat. Do not
         // borrow its identity to legitimize this pointer gesture.
-        let Some(seat) = self.seat_assignments.keyboard_seat_for_pointer_gesture().cloned()
-            else {
+        let seat = match self.seat_assignments.focus_seat_for_pointer_gesture() {
+            Ok(seat) => seat.clone(),
+            Err(reason) => {
                 if std::env::var("RICEBOWL_DE_TRACE_FOCUS").as_deref() == Ok("1") {
-                    eprintln!("RicePlate: XDG file focus refused: pointer and keyboard seats differ");
+                    eprintln!("RicePlate: XDG file focus refused: {reason:?}");
                 }
-                return
-            };
+                return;
+            }
+        };
         let Some(file) = self.file_layers.get(index) else { return };
         let Some((file_x, file_y)) = file.placed else { return };
         let entry = file.entry.key.clone();
@@ -6154,6 +6156,13 @@ impl SeatHandler for RicePlate {
         seat: wl_seat::WlSeat,
         capability: Capability,
     ) {
+        if std::env::var("RICEBOWL_DE_TRACE_FOCUS").as_deref() == Ok("1") {
+            if capability == Capability::Keyboard {
+                eprintln!("RicePlate: XDG seat keyboard announced: {seat:?}");
+            } else if capability == Capability::Pointer {
+                eprintln!("RicePlate: XDG seat pointer announced: {seat:?}");
+            }
+        }
         if capability == Capability::Keyboard && self.keyboard.is_none() {
             match self.seats.get_keyboard(qh, &seat, None) {
                 Ok(keyboard) => {
