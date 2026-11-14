@@ -30,6 +30,34 @@ pub enum ActionError {
 impl From<io::Error> for ActionError {
     fn from(e: io::Error) -> Self { Self::Io(e) }
 }
+impl std::fmt::Display for ActionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Disabled(reason) | Self::Stale(reason) => f.write_str(reason),
+            Self::InvalidName => f.write_str("Invalid or unchanged Desktop file name"),
+            Self::Conflict => f.write_str("A Desktop item with this name already exists"),
+            Self::Io(error) => write!(f, "Desktop filesystem operation failed: {error}"),
+        }
+    }
+}
+impl std::error::Error for ActionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self { Self::Io(error) => Some(error), _ => None }
+    }
+}
+impl ActionError {
+    /// Used by legacy integration callers that still consume io::Result.
+    /// Prefer preserving the typed variant in new UI bindings.
+    pub fn into_io(self) -> io::Error {
+        match self {
+            Self::Io(error) => error,
+            Self::Disabled(reason) => io::Error::new(io::ErrorKind::PermissionDenied, reason),
+            Self::Stale(reason) => io::Error::new(io::ErrorKind::NotFound, reason),
+            Self::Conflict => io::ErrorKind::AlreadyExists.into(),
+            Self::InvalidName => io::ErrorKind::InvalidInput.into(),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Backend { RiceField, Gio }
