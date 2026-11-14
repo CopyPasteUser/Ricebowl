@@ -49,12 +49,21 @@ impl Stamp {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Birth {
+    pub secs: i64,
+    pub nanos: u32,
+}
+
 #[derive(Debug, Clone)]
 pub struct Entry {
     pub key: Key,
     pub kind: Kind,
     pub label: String,
     pub stamp: Stamp,
+    /// Kernel birthtime when available. Remains stable across rename/write,
+    /// unlike ctime; used to guard against rapid inode reuse.
+    pub birth: Option<Birth>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -93,9 +102,13 @@ impl Snapshot {
         let anchored = PathBuf::from(format!("/proc/self/fd/{}", root.as_raw_fd())).join(relative);
         let info = fs::symlink_metadata(anchored)?;
         let kind = classify(&entry.key.name, &info);
+        let same_generation = match (entry.birth, birth_at(&root, &entry.key.name)) {
+            (Some(before), Some(now)) => before == now,
+            _ => Stamp::of(&info) == entry.stamp,
+        };
         if kind != entry.kind || matches!(kind, Kind::Symlink | Kind::DesktopFile)
             || info.dev() != entry.key.device || info.ino() != entry.key.inode
-            || Stamp::of(&info) != entry.stamp {
+            || !same_generation {
             return Err(io::Error::new(io::ErrorKind::NotFound, "Desktop entry replaced"));
         }
         // Revalidate the path used by the eventual external opener; a different
@@ -204,6 +217,17 @@ pub(super) fn open_owned_directory(path: &Path) -> io::Result<File> {
     Ok(file)
 }
 
+/// statx is optional on some Linux mounts; fall back to a conservative
+/// ctime/size/mode stamp rather than allowing an unverified generation.
+fn birth_at(dir: &File, name: &OsStr) -> Option<Birth> {
+    let name = CString::new(name.as_bytes()).ok()?;
+    let mut info = unsafe { std::mem::zeroed::<libc::statx>() };
+    let ret = unsafe { libc::statx(dir.as_raw_fd(), name.as_ptr(),
+        libc::AT_SYMLINK_NOFOLLOW, libc::STATX_BTIME, &mut info) };
+    if ret < 0 || info.stx_mask & libc::STATX_BTIME == 0 { return None; }
+    Some(Birth { secs: info.stx_btime.tv_sec, nanos: info.stx_btime.tv_nsec })
+}
+
 fn classify(name: &OsStr, info: &fs::Metadata) -> Kind {
     if info.file_type().is_symlink() { Kind::Symlink }
     else if info.is_dir() { Kind::Directory }
@@ -243,12 +267,18 @@ pub fn scan(desktop: &Path) -> io::Result<Snapshot> {
             kind: classify(&name, &info),
             label,
             stamp: Stamp::of(&info),
+            birth: None,
         });
     }
     entries.sort_by(|a, b| a.key.name.as_bytes().cmp(b.key.name.as_bytes()));
     if entries.len() > MAX_VISIBLE {
         entries.truncate(MAX_VISIBLE);
         truncated = true;
+    }
+    // At most 96 additional statx calls; avoid a birthtime syscall for every
+    // file in a huge directory before sorting and truncation.
+    for entry in &mut entries {
+        entry.birth = birth_at(&root, &entry.key.name);
     }
     // Never publish a snapshot of a root that was swapped during enumeration.
     let current = open_owned_directory(desktop)?.metadata()?;
