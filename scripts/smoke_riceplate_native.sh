@@ -839,29 +839,22 @@ PY
             # Reacquire via a fresh physical pointer gesture while a REAL
             # virtual keyboard remains connected, then send Escape on that
             # very seat. Detached wtype cannot retroactively claim focus.
-            keyboard_announcements_before=$(grep -Fc \
-                "RicePlate: XDG seat keyboard announced" "$runtime/plate-$label.log" || :)
             shortcut_confirms_before=$(grep -Fc \
                 "RicePlate: compositor confirmed Luna shortcut keyboard focus" \
                 "$runtime/plate-$label.log" || :)
+            # The current wl_seat keyboard capability can persist across
+            # consecutive wtype clients. A new seat announcement is not
+            # required. A new compositor-confirmed focus lease and actual
+            # Escape event remain mandatory.
             WAYLAND_DISPLAY=wayland-0 wtype -d 600 -k F13 -k F13 -k F13 -k Escape -k F13 -k F13 \
                 > "$runtime/luna-shortcut-escape-wtype.log" 2>&1 &
             shortcut_typer=$!
-            count=0
-            while [ "$count" -lt 30 ]; do
-                keyboard_announcements_after=$(grep -Fc \
-                    "RicePlate: XDG seat keyboard announced" "$runtime/plate-$label.log" || :)
-                test "$keyboard_announcements_after" -gt "$keyboard_announcements_before" && break
-                kill -0 "$shortcut_typer" 2>/dev/null || break
-                count=$((count + 1))
-                sleep 0.1
-            done
-            test "$keyboard_announcements_after" -gt "$keyboard_announcements_before" || {
-                echo "Native compositor never announced the Escape test keyboard" >&2
-                tail -n 45 "$runtime/plate-$label.log" >&2
+            sleep 0.25
+            kill -0 "$shortcut_typer" || {
+                echo "Virtual keyboard exited before fresh shortcut Escape gesture" >&2
+                cat "$runtime/luna-shortcut-escape-wtype.log" >&2
                 exit 1
             }
-            kill -STOP "$shortcut_typer" || exit 1
             WAYLAND_DISPLAY=wayland-0 "$clicker" 68 435 1366 768
             count=0
             while [ "$count" -lt 30 ]; do
@@ -877,7 +870,6 @@ PY
                 tail -n 45 "$runtime/plate-$label.log" >&2
                 exit 1
             }
-            kill -CONT "$shortcut_typer" || exit 1
             wait "$shortcut_typer" || {
                 cat "$runtime/luna-shortcut-escape-wtype.log" >&2
                 exit 1
