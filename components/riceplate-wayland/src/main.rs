@@ -5829,6 +5829,14 @@ impl KeyboardHandler for RicePlate {
             }
             if execute { self.execute_luna_dialog(); }
             else if repaint { self.redraw_luna_dialog(); }
+            if std::env::var_os("RICEBOWL_DE_TRACE_MENU").is_some() {
+                if let Some(dialog) = self.luna_dialog.as_ref() {
+                    // No command text in logs: only non-sensitive edit state
+                    // for compositor/virtual-keyboard regression diagnosis.
+                    eprintln!("RicePlate: Luna Run edit chars={} caret={}",
+                              dialog.state.input.chars().count(), dialog.state.cursor);
+                }
+            }
             return;
         }
         if self.context_focused {
