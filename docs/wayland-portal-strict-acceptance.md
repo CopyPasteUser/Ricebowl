@@ -1,0 +1,231 @@
+# RiceBowl portal strict acceptance — Issue #304
+
+This is a **disposable test-only** contract. It does not alter login sessions,
+systemd user services, global portal configuration, GPU drivers or permanent
+DRM devices. Regular pixman smoke retains its explicitly limited status.
+
+## What the two lanes prove
+
+- **pixman (existing):** private D-Bus/PipeWire startup, FileChooser interface,
+  screenshot PNG and attempted ScreenCast session. A Start response=2 means
+  the capture backend remains untested; it is *not* stream success.
+- **strict GLES2 (new):** in addition, require CreateSession, SelectSources,
+  Start streams with distinct positive PipeWire node IDs, a genuine Unix
+  socket FD from OpenPipeWireRemote, and a non-empty raw video Gst.Sample
+  from `pipewiresrc` + `appsink` on that inherited FD before closing the
+  portal session. A log tag `PORTAL_STRICT_OK` is emitted only after a
+  `PORTAL_FRAME_OK` tag from the receiver. This does not prove Flatpak
+  consent UX, real GPU hardware, multiple monitors or sustained frame rates.
+
+## Renderer environment and reproducibility
+
+Ubuntu 24.04 hosted Actions previously failed on PR #357 at
+[run 43466167206](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43466167206):
+`labwc 0.7.1` / `wlroots 0.17.1` logged
+`Failed to find any DRM render node` and
+`Cannot create GLES2 renderer: no DRM FD available`.
+Installing Mesa llvmpipe does *not* supply a DRM node. Strict mode checks
+for readable/writable `/dev/dri/renderD*` character devices before making
+a runtime and fails explicitly with `PORTAL_STRICT_BLOCKED` if absent.
+
+A suitable runner must supply an **ephemeral VM** with a usable DRM render
+node accessible to the test UID, the supported Mesa llvmpipe EGL/GLES2
+stack, labwc/wlroots compatible with that node, and PipeWire +
+GStreamer PipeWire source and appsink. The host may expose a render node
+through virtual GPU hardware configured by the VM provider. Do not install
+or load kernel DRM modules on shared Actions workers; `vkms` by itself is
+not proof of a suitable render node. The strict CI is intentionally red
+until such a runner is proven; no fallback to pixman is permitted.
+
+Run only in a disposable VM:
+
+```sh
+RICEBOWL_PORTAL_RENDERER=gles2 RICEBOWL_PORTAL_STRICT_CI=1 \
+LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe EGL_PLATFORM=surfaceless \
+timeout -k 5s 160s sh scripts/smoke_wayland_portals.sh
+```
+
+The shell creates private `/tmp/ricebowl-portals.XXXXXXXX` mode-0700
+runtime/config/cache/tmp, an isolated D-Bus session and PipeWire socket.
+The portal client accepts only that runtime and the CI marker and checks
+the compositor socket. All subprocesses are bounded; trap cleanup kills
+the launched compositor/PipeWire processes and removes the temporary
+runtime. Any failure prints bounded client/labwc/PipeWire diagnostics.
+
+## Failure signatures
+
+- `PORTAL_SETUP_FAIL`: invalid renderer/strict configuration.
+- `PORTAL_STRICT_BLOCKED`: infrastructure missing DRM render node or
+  strict renderer mismatch.
+- `PORTAL_FAIL`: D-Bus activation or required interface absent.
+- `PORTAL_CAPTURE_FAIL: category=...`: request cancellation/denial,
+  timeout, invalid session, PipeWire/sample/protocol failure.
+- `PORTAL_FD_OK`: PipeWire remote socket verified (not a video frame).
+- `PORTAL_FRAME_OK`: first nonempty `video/x-raw` sample received.
+- `PORTAL_STRICT_OK`: strict acceptance through actual sample.
+  
+Hardware login/logout, Flatpak consent, long-running streams and
+multi-output remain **OPEN**. Do not close #304 based on unit tests alone.
+
+## Regression and CI matrix (14 November 2026)
+
+The screenshot implementation for Ubuntu 24.04's `xdg-desktop-portal-wlr`
+requires the `grim` executable. The dedicated portal workflow now installs
+and preflights it in both pixman and GLES2 jobs. Previously a missing screenshot
+helper surfaced as a generic response=2 rather than a missing binary; do not
+treat that denial as a pixman limitation.
+
+The parent portal smoke **owns and reaps** the PipeWire core, labwc and an
+isolated `setsid`-managed client process group. It does not depend on
+compositor startup grandchildren surviving compositor failure. The crash CI
+injects a stub labwc that deliberately exits before opening its Wayland socket;
+the test asserts a unique crash marker and verifies the private runtime was
+removed. This is *early compositor crash recovery*, not proof of recovery
+during an already-running video stream.
+
+Normal Python tests cover request handle/token mismatches, D-Bus timeout
+cleanup, request denials, FD index/socket verification, false frame receipts
+and failure-path session cleanup. Actual frame transport remains separately
+required from a DRM-capable runner. `PORTAL_STRICT_OK` never denotes a
+successful D-Bus Start response alone.
+
+CI snapshot and exact-head evidence are tracked in Issue #360; do not treat
+older green runs as acceptance of a newer PR head.
+
+## CI software-path acceptance (14 November 2026)
+
+The hosted Ubuntu 24.04 runner cannot provide a DRM render node. To test
+**actual** frame transport without lying about GPU coverage, the dedicated
+`portal-strict-software-frame` lane now builds the independently maintained
+`xdg-desktop-portal-generic` at immutable source revision
+`09fe2bd00dcb7139c34f3d437376af81a2fec96b` with Cargo.lock.
+Only this disposable CI job installs the generic portal descriptor and
+DBus activation. The production RiceBowl portal config **remains wlr**.
+
+The CI-private runtime selects the generic ScreenCast implementation with
+the existing headless labwc pixman renderer. The backend uses
+`wlr-screencopy-v1` SHM frame buffers and pushes them to PipeWire.
+The same strict client must complete CreateSession, SelectSources, Start,
+OpenPipeWireRemote, and receive a nonempty `video/x-raw` Gst.Sample
+on the returned remote socket FD. The CI-only picker chooses the first
+test monitor; it is never deployed. The assertions do not accept pixman
+Start=2, a fake stream node, a fake receipt, or a socket without video.
+
+This covers the real compositor → generic backend → PipeWire → receiver
+software path. **It does not prove the default production wlr backend's
+GPU/DMABUF capture path.** The `portal-gpu-frame` job remains an optional,
+explicitly triggered strict lane on a separately configured DRM-capable
+self-hosted runner labeled `drm-render`; neither that check nor physical
+Flatpak permissions/consent is silently considered green.
+
+### Real compositor damage for headless SHM capture
+
+A completely static headless compositor can acknowledge ScreenCast Start
+and create a PipeWire node but never publish a frame. The strict generic
+CI lane launches an ordinary animated GTK3 Wayland client (from repository
+source, private to the test) to produce real surface commits/compositor damage
+while ScreenCast is active. The receiver still gets its samples only from
+the portal-provided PipeWire FD. It does not generate, inject or fabricate
+frames. Missing frames remain a hard failure. Diagnostics report the probe
+stage and preserve the actual backend log.
+
+### Private PipeWire policy link
+
+The hosted runner has no persistent user PipeWire services. A private
+`pipewire` daemon alone lets Start return a node, but cannot policy-link
+that new output to a GStreamer consumer and allocate negotiated stream
+buffers. The strict generic CI lane now also starts a **private WirePlumber**
+session manager against the same owner-private runtime bus and PipeWire
+socket, with bounded liveness and teardown. No host audio devices or user
+login services are modified. A screenshot or raw screencopy frame by itself
+never passes the PipeWire acceptance gate.
+
+### Upstream remote-FD defect and CI-only isolation
+
+The pinned generic backend's `create_remote_fd` creates a local
+`UnixStream::pair()` and calls PipeWire `context.connect_fd` on one end.
+That is **not a connection to the private PipeWire server**; a consumer
+received an unusable descriptor (`target not found` with WirePlumber).
+For the strict no-DRM CI job only, `ci_portal_generic_remote.py` verifies
+that precise upstream function and replaces it at build time with a connection
+to the already running private `$XDG_RUNTIME_DIR/pipewire-0` socket.
+Runtime directory permissions, file type, strict backend flags and private
+CI marker are checked and the replacement emits
+`PORTAL_CI_REMOTE_UNRESTRICTED` to ensure test provenance.
+
+**Security boundary:** this CI-only connection is **unrestricted within
+the disposable PipeWire daemon**, which only contains the test stream.
+It must NEVER be distributed or installed in user sessions. It validates
+real compositor -> PipeWire -> FD -> GStreamer video transport, but it
+does not validate per-stream grants, sandbox privacy or real consent. Those
+require the untouched production portal and separate hardware/Flatpak tests.
+
+### Correct PipeWire stream target identity
+
+ScreenCast Start can return `pipewire-serial` (the stable
+`object.serial`) in its stream properties. For the generic software
+backend the strict receiver now requires a positive bounded serial and
+passes it to GStreamer's `pipewiresrc target-object`. The older `path`
+property addresses a deprecated node ID and can cause `target not found`
+under WirePlumber even if the ID is valid. The returned stream node ID is
+still validated and tied to the exact video receipt; an absent serial
+cannot silently downgrade the strict generic test.
+
+### Private PipeWire object-inventory diagnostic
+
+The strict generic CI lane runs a bounded read-only `pw-dump` against its
+disposable PipeWire daemon and logs **only** the matching node and local
+video-source `id`, `object.serial`, `media.class` and truncated `node.name`.
+This does not grant permissions, change policy, create nodes or count as
+ScreenCast success; the actual GStreamer frame remains mandatory.
+
+### Direct PipeWire node targeting trial (2026-11-14)
+
+A test-only, bounded one-second registry stabilization follows the private
+`pw-dump` verification. The software capture client connects to the node
+ID returned by ScreenCast Start with `pipewiresrc autoconnect=false`,
+using **the portal-provided PipeWire FD**. It does not route through a
+second PipeWire connection or generate synthetic data. A nonempty GStreamer
+video sample remains mandatory; a direct-node connection without a sample
+still fails strict CI.
+
+### CI-only explicit PipeWire video link and allocator correction
+
+The pinned generic portal uses the PipeWire `ALLOC_BUFFERS` stream flag
+but does not implement the required `add_buffer` allocation callback.
+This flag is therefore removed from the **disposable CI build only** after
+an exact pinned-source guard; `MAP_BUFFERS` and the live-stream driver
+remain enabled.
+
+Hosted headless WirePlumber does not reliably create a video link between
+the generic portal's `Video/Source` and the GStreamer consumer. In the
+isolated runner only, a bounded, fail-closed watcher queries the private
+PipeWire registry and links exactly one validated `xdp-capture-*` video
+source output to one named `ricebowl-ci-consumer` input via `pw-link`.
+It cannot select arbitrary audio nodes or operate outside the private
+CI runtime. The consumer still uses the portal's real FD and must read an
+actual nonempty `video/x-raw` sample. This is transport acceptance,
+**not** automatic real-user WirePlumber policy, consent, or sandbox
+verification; those remain separate production acceptance gates.
+
+### CPU memory negotiation trial
+
+After explicit private PipeWire link, the GStreamer source reached PLAYING
+but the server reported an unsupported SPA buffer data type (12), and no
+nonempty video sample was received. The test-only generic source no longer
+requests `DRIVER` mode without a corresponding process callback, and the
+GStreamer receiver requests `BGRx` raw CPU pixels with a copying buffer
+path. This does **not** relax the nonempty-video requirement.
+
+### Explicit SPA MemFd buffer negotiation (2026-11-14)
+
+The pinned upstream generic backend announces video formats but never
+handles the `SPA_PARAM_Format` callback. The client therefore does not
+send a `SPA_PARAM_Buffers` allocation proposal, resulting in empty or invalid
+memory data blocks even when the PipeWire ports are linked. A CI-only,
+version-guarded build patch now registers and owns a Rust stream listener
+throughout the stream lifetime; for a real format selection it serializes a
+single-block, eight-buffer CPU `SPA_DATA_MemFd` proposal with checked BGRx
+`width * height * 4` size and `width * 4` stride and calls
+`pw_stream_update_params`. The test continues to demand a real nonempty
+GStreamer frame and never ships the patched backend.

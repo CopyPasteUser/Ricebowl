@@ -18,5 +18,7 @@ dbus-update-activation-environment \
     XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_SESSION_DESKTOP
 timeout -k 2s 18s /usr/bin/python3 "$root/scripts/check_wayland_portals.py" \
     --timeout 12
-timeout -k 2s 45s /usr/bin/python3 "$root/scripts/wayland_portal_capture_smoke.py"
+capture_seconds=45
+if [ "${RICEBOWL_PORTAL_STRICT_CI:-0}" = 1 ]; then capture_seconds=100; fi
+timeout -k 2s "${capture_seconds}s" /usr/bin/python3 "$root/scripts/wayland_portal_capture_smoke.py"
 printf 'OK\n' >"$runtime/portals-ok"
