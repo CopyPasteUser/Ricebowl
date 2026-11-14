@@ -289,16 +289,40 @@ dbus-run-session -- sh -eu -c '
                 WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" \
                 >"$runtime/plate-$label.log" 2>&1 &
         elif [ "$label" = xp-luna-columns ]; then
-            RICEBOWL_DE_TRACE_FOCUS=1 RICEBOWL_DE_TRACE_MENU=1 PATH="$runtime/mock-bin:$PATH" \
+            RICEBOWL_DE_SHELL_CHILD=1 RICEBOWL_DE_READY_FD=3 \
+                RICEBOWL_DE_TRACE_FOCUS=1 RICEBOWL_DE_TRACE_MENU=1 PATH="$runtime/mock-bin:$PATH" \
                 RICEBOWL_CI_TRASH_LOG="$runtime/trash-gio.log" \
                 RICEBOWL_CI_RICEFIELD_LOG="$runtime/ricefield-argv.log" \
                 WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" \
-                >"$runtime/plate-$label.log" 2>&1 &
+                3>"$runtime/frame-$label.ready" >"$runtime/plate-$label.log" 2>&1 &
+        elif [ "$label" = classic ] || [ "$label" = chrome ]; then
+            # The owner supervisor passes a descriptor, not a writable
+            # untrusted path. Verify two structurally distinct recipes each
+            # acknowledge a genuine compositor frame (never startup alone).
+            RICEBOWL_DE_SHELL_CHILD=1 RICEBOWL_DE_READY_FD=3 \
+                WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" \
+                3>"$runtime/frame-$label.ready" >"$runtime/plate-$label.log" 2>&1 &
         else
             WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" >"$runtime/plate-$label.log" 2>&1 &
         fi
         plate=$!
         sleep 1
+        if [ "$label" = classic ] || [ "$label" = chrome ] \
+            || [ "$label" = xp-luna-columns ]; then
+            count=0
+            until [ "$(cat "$runtime/frame-$label.ready")" = RICEPLATE_READY_V1 ] \
+                || [ "$count" -ge 25 ]; do
+                kill -0 "$plate" || break
+                count=$((count + 1))
+                sleep 0.1
+            done
+            if [ "$(cat "$runtime/frame-$label.ready")" != RICEPLATE_READY_V1 ]; then
+                echo "Native rice did not acknowledge a compositor frame: $label" >&2
+                tail -n 60 "$runtime/plate-$label.log" >&2
+                exit 1
+            fi
+            echo "Native rice $label acknowledged compositor-frame readiness"
+        fi
         state=$(ps -o stat= -p "$plate" 2>/dev/null || :)
         case "$state" in
             ""|*Z*)

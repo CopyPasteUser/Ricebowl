@@ -24,6 +24,10 @@ from . import riceprofile
 REQUIRED_TOOLS = ("labwc", "waybar", "foot", "fuzzel", "swaylock")
 DESKTOP_NAME = "RiceBowl:labwc:wlroots"
 _CONFIG_PREFIX = "ricebowl-labwc-"
+# A single atomic write from the native shell after its first compositor
+# frame callback. Inherited, process-scoped pipe FDs are not filesystem IPC.
+_NATIVE_FRAME_READY = b"RICEPLATE_READY_V1\n"
+_NATIVE_FRAME_TIMEOUT = 6.0
 
 
 class SessionError(RuntimeError):
@@ -190,6 +194,9 @@ def start(
     if panel not in ("waybar", "native"):
         raise SessionError("Unsupported RiceBowl panel mode.")
     env = dict(os.environ if environment is None else environment)
+    # Readiness is only issued through a new supervisor-owned pass_fds pipe
+    # during a reviewed native live apply, never inherited from the launcher.
+    env.pop("RICEBOWL_DE_READY_FD", None)
     if not nested and not env.get("RICEBOWL_DM_SESSION") and (
         env.get("WAYLAND_DISPLAY") or env.get("DISPLAY")
     ):
@@ -492,12 +499,17 @@ class _LiveSwitch:
                  cleanup: ExitStack, initial_panel: subprocess.Popen[bytes],
                  initial_wallpaper: subprocess.Popen[bytes] | None,
                  background: list[subprocess.Popen[bytes]],
-                 stopping: Callable[[], bool] | None = None):
+                 stopping: Callable[[], bool] | None = None,
+                 frame_readiness: bool = True):
         from . import recipes, staging
         self.env, self.mode, self.which, self.spawn = env, mode, which, spawn
         self.cleanup, self.panel, self.wallpaper = cleanup, initial_panel, initial_wallpaper
         self.background = background
         self.stopping = stopping or (lambda: False)
+        # Production always requires native compositor presentation. Only
+        # explicitly constructed process fakes in unit tests disable the gate.
+        self._frame_readiness = frame_readiness
+        self._pending_ready: dict[int, int] = {}
         self.nested = env.get("RICEBOWL_DE_NESTED") == "1"
         self.active = recipes.load(env.get("RICEBOWL_DE_RECIPE", "classic")).recipe_id
         self.active_digest = staging._hash(self.active)
@@ -551,9 +563,51 @@ class _LiveSwitch:
         subprocess.run([binary, "--reconfigure"], env=self.env, check=True,
                        timeout=4, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+    def _await_panel_frame(self, process: subprocess.Popen[bytes]) -> None:
+        """Confirm the *new process* rendered a real Wayland compositor frame.
+
+        Liveness and successful recipe parsing alone do not authorize
+        replacing an already usable shell. Timeouts, EOF, malformed messages
+        and crashes all fail closed; no polling daemon or host file is used.
+        """
+        from .live import LiveError
+        reader = self._pending_ready.pop(id(process), None)
+        if reader is None:
+            if self.mode == "native" and not self.fallback and self._frame_readiness:
+                raise LiveError("Native replacement lacks compositor readiness channel",
+                                code="component_failed")
+            # Waybar has no RicePlate compositor-frame protocol. Preserve its
+            # existing bounded liveness check instead of claiming a frame.
+            time.sleep(0.5)
+            if process.poll() is not None:
+                raise LiveError("New shell component exited during activation",
+                                code="component_failed")
+            return
+        try:
+            deadline = time.monotonic() + _NATIVE_FRAME_TIMEOUT
+            while not self.stopping():
+                if process.poll() is not None:
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                ready, _, _ = select.select([reader], [], [], min(remaining, 0.2))
+                if ready:
+                    message = os.read(reader, 64)
+                    if message == _NATIVE_FRAME_READY and process.poll() is None:
+                        return
+                    break
+        finally:
+            os.close(reader)
+        if self.stopping():
+            raise LiveError("Session is shutting down", code="session_stopping")
+        raise LiveError("New native RicePlate did not present a compositor frame",
+                        code="component_failed")
+
     def _start_panel(self, token: str, recipe: object) -> subprocess.Popen[bytes]:
         from . import recipes
-        if self.mode == "native" and not self.fallback:
+        native = self.mode == "native" and not self.fallback
+        if native:
             binary = self.which("riceplate-native")
             if not binary:
                 from .live import LiveError
@@ -571,8 +625,24 @@ class _LiveSwitch:
                 (directory / name).write_text(content, encoding="utf-8")
             command = [binary, "--config", str(directory / "config.jsonc"),
                        "--style", str(directory / "style.css")]
-        return self.spawn(command, env={**self.env, "RICEBOWL_DE_RECIPE": recipes.native_token(token)},
-                          stdin=subprocess.DEVNULL)
+        spawn_env = {**self.env, "RICEBOWL_DE_RECIPE": recipes.native_token(token)}
+        # Never leak a readiness descriptor inherited from an outer process
+        # into the wallpaper, rescue bar or a later replacement.
+        spawn_env.pop("RICEBOWL_DE_READY_FD", None)
+        if native and self._frame_readiness:
+            read_fd, write_fd = os.pipe2(os.O_CLOEXEC)
+            try:
+                spawn_env["RICEBOWL_DE_READY_FD"] = str(write_fd)
+                process = self.spawn(command, env=spawn_env, stdin=subprocess.DEVNULL,
+                                     pass_fds=(write_fd,))
+            except BaseException:
+                os.close(read_fd)
+                raise
+            finally:
+                os.close(write_fd)
+            self._pending_ready[id(process)] = read_fd
+            return process
+        return self.spawn(command, env=spawn_env, stdin=subprocess.DEVNULL)
 
     def rescue_panel(self) -> None:
         """Try one bounded Waybar rescue without changing saved user state.
@@ -647,14 +717,14 @@ class _LiveSwitch:
             except (recipes.RecipeError, OSError) as exc:
                 raise LiveError("Waybar output refresh could not start",
                                 code="component_failed") from exc
-            time.sleep(0.5)
+            try:
+                self._await_panel_frame(new_panel)
+            except LiveError:
+                _stop_process(new_panel)
+                raise
             if self.stopping():
                 _stop_process(new_panel)
                 raise LiveError("Session is shutting down", code="session_stopping")
-            if new_panel.poll() is not None:
-                _stop_process(new_panel)
-                raise LiveError("Waybar output refresh failed; previous bar retained",
-                                code="component_failed")
             old_panel, self.panel = self.panel, new_panel
             _stop_process(old_panel)
             return {**self.status(), "changed": True}
@@ -716,9 +786,9 @@ class _LiveSwitch:
             new_wallpaper = self.spawn([wallpaper_binary, "--image", str(wallpaper_path),
                                         "--mode", "fill"], env=self.env, stdin=subprocess.DEVNULL)
             new_panel = self._start_panel(token, recipe)
-            time.sleep(0.5)
-            if new_panel.poll() is not None or new_wallpaper.poll() is not None:
-                raise LiveError("New shell component exited during activation", code="component_failed")
+            self._await_panel_frame(new_panel)
+            if new_wallpaper.poll() is not None:
+                raise LiveError("New wallpaper exited during activation", code="component_failed")
             if self.stopping():
                 raise LiveError("Session is shutting down", code="session_stopping")
             menu_attempted = True
@@ -739,6 +809,13 @@ class _LiveSwitch:
                 recipes.change_selection(token, expected_active=self.expected_selection,
                                          expected_semantic_sha256=digest,
                                          expected_selection_state=selection_before)
+            # A freshly painted candidate may crash during labwc reconfigure,
+            # profile commit or durable preference writes. Recheck both owned
+            # processes before publishing the new active recipe, otherwise a
+            # crashed compositor surface could become the rollback baseline.
+            if new_panel.poll() is not None or new_wallpaper.poll() is not None:
+                raise LiveError("New shell component exited during activation",
+                                code="component_failed")
             if self.stopping():
                 raise LiveError("Session is shutting down", code="session_stopping")
             if pending_recovery is not None:
@@ -853,6 +930,9 @@ def shell(
 ) -> int:
     """Supervise the temporary native Wayland shell until its panel exits."""
     env = dict(os.environ if environment is None else environment)
+    # Readiness is only issued through a new supervisor-owned pass_fds pipe
+    # during a reviewed native live apply, never inherited from the launcher.
+    env.pop("RICEBOWL_DE_READY_FD", None)
     if env.get("RICEBOWL_DE_SHELL_CHILD") != "1" or not env.get("WAYLAND_DISPLAY"):
         raise SessionError("RiceBowl's Wayland shell may only run inside its labwc session.")
     waybar = which("waybar")

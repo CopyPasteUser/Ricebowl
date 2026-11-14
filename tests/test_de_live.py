@@ -73,7 +73,8 @@ class LiveRiceTests(unittest.TestCase):
         self.controller = _LiveSwitch(
             env=self.env, mode="native", which=self.tools.get, spawn=spawn,
             cleanup=self.cleanup_stack, initial_panel=self.initial_panel,
-            initial_wallpaper=self.initial_wallpaper, background=self.background)
+            initial_wallpaper=self.initial_wallpaper, background=self.background,
+            frame_readiness=False)
         self.reconfigure = mock.patch.object(self.controller, "_reconfigure")
         self.reconfigure.start()
         self.addCleanup(self.reconfigure.stop)
@@ -91,6 +92,104 @@ class LiveRiceTests(unittest.TestCase):
                             "examples/wayland/xp-luna-columns.json").read_bytes())
         source.chmod(0o600)
         return recipes.import_recipe(source)[0].recipe_id
+
+    def test_shared_native_rice_switch_waits_for_exact_compositor_ack(self):
+        # The faked child writes to the *real inherited pipe* before the
+        # supervisor commits the previously running recipe.
+        original_spawn = self.controller.spawn
+        seen = []
+
+        def painted_child(command, **kwargs):
+            child = original_spawn(command, **kwargs)
+            if command[0].endswith("riceplate-native"):
+                descriptor = int(kwargs["env"]["RICEBOWL_DE_READY_FD"])
+                self.assertEqual(kwargs["pass_fds"], (descriptor,))
+                os.write(descriptor, b"RICEPLATE_READY_V1\n")
+                seen.append(descriptor)
+            return child
+
+        self.controller.spawn = painted_child
+        self.controller._frame_readiness = True
+        result = self.change("apply", "chrome", staging._hash("chrome"))
+        self.assertTrue(result["changed"])
+        self.assertEqual(result["active"], "chrome")
+        self.assertTrue(self.initial_panel.terminated)
+        self.assertEqual(len(seen), 1)
+        with self.assertRaises(OSError):
+            os.fstat(seen[0])
+        self.assertEqual(self.change("restore", expected="chrome")["active"], "classic")
+        self.assertEqual(len(seen), 2)
+        self.assertIsNone(live_recovery.read())
+
+    def test_native_missing_readiness_channel_is_never_treated_as_waybar(self):
+        self.controller._frame_readiness = True
+        with self.assertRaises(live.LiveError) as caught:
+            self.controller._await_panel_frame(FakeProcess())
+        self.assertEqual(caught.exception.code, "component_failed")
+        self.assertEqual(self.controller.active, "classic")
+        self.assertFalse(self.initial_panel.terminated)
+
+    def test_liveness_without_compositor_frame_cannot_replace_the_active_rice(self):
+        original_panel = self.controller.panel
+        original_wallpaper = self.controller.wallpaper
+        self.controller._frame_readiness = True
+        # The child exists but never writes; its inherited writer is closed
+        # in the parent, so the private reader receives EOF immediately.
+        with self.assertRaises(live.LiveError) as caught:
+            self.change("apply", "chrome", staging._hash("chrome"))
+        self.assertEqual(caught.exception.code, "component_failed")
+        self.assertIs(self.controller.panel, original_panel)
+        self.assertIs(self.controller.wallpaper, original_wallpaper)
+        self.assertFalse(original_panel.terminated)
+        self.assertFalse(original_wallpaper.terminated)
+        self.assertEqual(recipes.current_selection(), ("classic", None))
+        self.assertFalse(self.controller._pending_ready)
+        self.assertIsNone(live_recovery.read())
+
+    def test_wrong_compositor_ack_is_rejected_and_old_rice_survives(self):
+        original_spawn = self.controller.spawn
+        self.controller._frame_readiness = True
+
+        def invalid_child(command, **kwargs):
+            child = original_spawn(command, **kwargs)
+            if command[0].endswith("riceplate-native"):
+                os.write(int(kwargs["env"]["RICEBOWL_DE_READY_FD"]),
+                         b"RICEPLATE_READY_V0\n")
+            return child
+
+        self.controller.spawn = invalid_child
+        with self.assertRaises(live.LiveError) as caught:
+            self.change("apply", "chrome", staging._hash("chrome"))
+        self.assertEqual(caught.exception.code, "component_failed")
+        self.assertEqual(self.controller.active, "classic")
+        self.assertFalse(self.initial_panel.terminated)
+        self.assertFalse(self.initial_wallpaper.terminated)
+        self.assertFalse(self.controller._pending_ready)
+        self.assertEqual(recipes.current_selection()[0], "classic")
+
+    def test_candidate_crashing_after_frame_during_commit_restores_whole_rice(self):
+        # Rendering one compositor frame is necessary but not sufficient:
+        # the replacement can fail while labwc or selection is committed.
+        before_menu = self.menu.read_bytes()
+        original_panel = self.controller.panel
+        original_wallpaper = self.controller.wallpaper
+
+        def compositor_reconfigure():
+            for command, _, candidate in self.processes:
+                if command[0].endswith("riceplate-native"):
+                    candidate.exit_code = 9
+
+        self.controller._reconfigure.side_effect = compositor_reconfigure
+        with self.assertRaises(live.LiveError) as caught:
+            self.change("apply", "chrome", staging._hash("chrome"))
+        self.assertEqual(caught.exception.code, "component_failed")
+        self.assertIs(self.controller.panel, original_panel)
+        self.assertIs(self.controller.wallpaper, original_wallpaper)
+        self.assertFalse(original_panel.terminated)
+        self.assertFalse(original_wallpaper.terminated)
+        self.assertEqual(self.menu.read_bytes(), before_menu)
+        self.assertEqual(recipes.current_selection(), ("classic", None))
+        self.assertIsNone(live_recovery.read())
 
     def test_luna_chrome_live_switch_and_restore_are_isolated(self):
         token = self.import_luna()
@@ -542,7 +641,7 @@ class LiveRiceTests(unittest.TestCase):
             env=self.env, mode="native", which=self.tools.get,
             spawn=lambda command, **kw: FakeProcess(), cleanup=self.cleanup_stack,
             initial_panel=FakeProcess(), initial_wallpaper=FakeProcess(),
-            background=[])
+            background=[], frame_readiness=False)
         self.assertEqual(controller.status()["active"], "classic")
         with self.assertRaises(live.LiveError) as caught:
             controller.handle({"action": "apply", "recipe": "chrome",
