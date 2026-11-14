@@ -806,6 +806,13 @@ class _LiveSwitch:
                 recipes.change_selection(token, expected_active=self.expected_selection,
                                          expected_semantic_sha256=digest,
                                          expected_selection_state=selection_before)
+            # A freshly painted candidate may crash during labwc reconfigure,
+            # profile commit or durable preference writes. Recheck both owned
+            # processes before publishing the new active recipe, otherwise a
+            # crashed compositor surface could become the rollback baseline.
+            if new_panel.poll() is not None or new_wallpaper.poll() is not None:
+                raise LiveError("New shell component exited during activation",
+                                code="component_failed")
             if self.stopping():
                 raise LiveError("Session is shutting down", code="session_stopping")
             if pending_recovery is not None:
