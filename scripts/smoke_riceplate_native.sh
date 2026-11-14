@@ -168,6 +168,7 @@ dbus-run-session -- sh -eu -c '
     compositor=$!
     plate=
     wallpaper=
+    focus_typer=
     cleanup() {
         if [ -s "$runtime/clip-action-gui.pid" ]; then
             clip_pid=$(cat "$runtime/clip-action-gui.pid" 2>/dev/null || :)
@@ -179,6 +180,11 @@ dbus-run-session -- sh -eu -c '
         if [ -n "$wallpaper" ]; then
             kill "$wallpaper" 2>/dev/null || :
             wait "$wallpaper" 2>/dev/null || :
+        fi
+        if [ -n "$focus_typer" ]; then
+            kill -CONT "$focus_typer" 2>/dev/null || :
+            kill -TERM "$focus_typer" 2>/dev/null || :
+            wait "$focus_typer" 2>/dev/null || :
         fi
         if [ -n "$plate" ]; then
             kill "$plate" 2>/dev/null || :
@@ -1625,18 +1631,29 @@ PY
     set -- $file_position
     focus_confirmations_before=$(grep -Fc "RicePlate: compositor confirmed XDG file keyboard focus" "$runtime/file-plate.log" || :)
     focus_releases_before=$(grep -Fc "RicePlate: XDG file keyboard focus released" "$runtime/file-plate.log" || :)
-    # F13 is inert in the desktop and terminal; real Wayland event processing
-    # takes place while this single wtype device stays connected. Type only
-    # after foot has been mapped and deliberately activated by a pointer click.
-    WAYLAND_DISPLAY=wayland-0 wtype -d 300 \
-        -k F13 -k F13 -k F13 -k F13 -k F13 -k F13 \
+    # Pause one real connected virtual keyboard AFTER its wl_seat appears.
+    # Keep that same device connected while the compositor transfers focus.
+    # Resume and type only once the external GTK window confirms focus.
+    focus_keyboards_before=$(grep -Fc "RicePlate: XDG seat keyboard announced" "$runtime/file-plate.log" || :)
+    WAYLAND_DISPLAY=wayland-0 wtype -d 400 \
         -k F13 -k F13 -k F13 -k F13 -k F13 -k F13 \
         ricebowl-focus-ok -k Return >"$runtime/focus-wtype.log" 2>&1 &
     focus_typer=$!
-    sleep 0.25
-    kill -0 "$focus_typer" || {
-        echo "External-focus test keyboard exited before pointer selection" >&2
-        cat "$runtime/focus-wtype.log" >&2
+    count=0
+    while [ "$count" -lt 30 ]; do
+        focus_keyboards_after=$(grep -Fc "RicePlate: XDG seat keyboard announced" "$runtime/file-plate.log" || :)
+        test "$focus_keyboards_after" -gt "$focus_keyboards_before" && break
+        kill -0 "$focus_typer" 2>/dev/null || break
+        count=$((count + 1))
+        sleep 0.1
+    done
+    test "$focus_keyboards_after" -gt "$focus_keyboards_before" || {
+        echo "Real virtual keyboard seat was not announced before XDG pointer gesture" >&2
+        tail -n 40 "$runtime/file-plate.log" >&2
+        exit 1
+    }
+    kill -STOP "$focus_typer" || {
+        echo "Unable to retain keyboard connection during external client mapping" >&2
         exit 1
     }
     WAYLAND_DISPLAY=wayland-0 "$clicker" "$(($1 + 52))" "$(($2 + 43))" 1366 768
@@ -1664,6 +1681,7 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import GLib, Gtk
 
 ready = Path(os.environ["FOCUS_RECEIVER_READY"])
+focused = Path(os.environ["FOCUS_RECEIVER_FOCUSED"])
 received = Path(os.environ["FOCUS_RECEIVER_LOG"])
 window = Gtk.Window(title="RiceBowl external Wayland keyboard witness")
 window.set_default_size(880, 520)
@@ -1677,10 +1695,15 @@ def mapped(*unused):
     ready.write_text("mapped\n")
     return False
 
+def keyboard_focused(*unused):
+    focused.write_text("compositor-focus\\n")
+    return False
+
 def activated(widget):
     received.write_text(widget.get_text())
     Gtk.main_quit()
 
+window.connect("focus-in-event", keyboard_focused)
 window.connect("map-event", mapped)
 window.connect("destroy", Gtk.main_quit)
 entry.connect("activate", activated)
@@ -1690,6 +1713,7 @@ GLib.timeout_add_seconds(20, Gtk.main_quit)
 Gtk.main()
 RECEIVER
     FOCUS_RECEIVER_READY="$runtime/focus-ready.log" \
+        FOCUS_RECEIVER_FOCUSED="$runtime/focus-focused.log" \
         FOCUS_RECEIVER_LOG="$runtime/focus-input.log" \
         GDK_BACKEND=wayland WAYLAND_DISPLAY=wayland-0 \
         /usr/bin/python3 -B "$runtime/focus-receiver.py" \
@@ -1714,11 +1738,24 @@ RECEIVER
     # The external client has a fullscreen wl_surface, so this deliberate
     # pointer click cannot miss a small or compositor-positioned terminal.
     WAYLAND_DISPLAY=wayland-0 "$clicker" 683 384 1366 768
+    count=0
+    while [ ! -s "$runtime/focus-focused.log" ] && [ "$count" -lt 30 ]; do
+        count=$((count + 1))
+        sleep 0.1
+    done
+    test -s "$runtime/focus-focused.log" || {
+        echo "External GTK Wayland client never received compositor keyboard focus" >&2
+        tail -n 45 "$runtime/focus-app.log" >&2
+        exit 1
+    }
+    # The pointer click and real GTK focus-in precede actual typed input.
+    kill -CONT "$focus_typer" || exit 1
     wait "$focus_typer" || {
         echo "Virtual keyboard failed during external Wayland focus handoff" >&2
         cat "$runtime/focus-wtype.log" >&2
         exit 1
     }
+    focus_typer=
     count=0
     while [ ! -s "$runtime/focus-input.log" ] && [ "$count" -lt 30 ]; do
         count=$((count + 1))
