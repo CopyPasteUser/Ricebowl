@@ -32,11 +32,29 @@ pub struct Key {
     pub name: OsString,
 }
 
+/// Basic no-follow generation stamp. Inodes can be reused immediately after
+/// unlink, even in the same directory; never use device/inode alone to reopen
+/// a snapshot entry. A content/metadata update requires a fresh snapshot.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Stamp {
+    pub size: u64,
+    pub mode: u32,
+    pub ctime: i64,
+    pub ctime_nsec: i64,
+}
+impl Stamp {
+    fn of(info: &fs::Metadata) -> Self {
+        Self { size: info.size(), mode: info.mode(),
+               ctime: info.ctime(), ctime_nsec: info.ctime_nsec() }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Entry {
     pub key: Key,
     pub kind: Kind,
     pub label: String,
+    pub stamp: Stamp,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,7 +94,8 @@ impl Snapshot {
         let info = fs::symlink_metadata(anchored)?;
         let kind = classify(&entry.key.name, &info);
         if kind != entry.kind || matches!(kind, Kind::Symlink | Kind::DesktopFile)
-            || info.dev() != entry.key.device || info.ino() != entry.key.inode {
+            || info.dev() != entry.key.device || info.ino() != entry.key.inode
+            || Stamp::of(&info) != entry.stamp {
             return Err(io::Error::new(io::ErrorKind::NotFound, "Desktop entry replaced"));
         }
         // Revalidate the path used by the eventual external opener; a different
@@ -223,6 +242,7 @@ pub fn scan(desktop: &Path) -> io::Result<Snapshot> {
             key: Key { device: info.dev(), inode: info.ino(), name: name.clone() },
             kind: classify(&name, &info),
             label,
+            stamp: Stamp::of(&info),
         });
     }
     entries.sort_by(|a, b| a.key.name.as_bytes().cmp(b.key.name.as_bytes()));
