@@ -5,7 +5,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     env,
-    fs::{self, File, OpenOptions},
+    fs::{self, OpenOptions},
     io::{self, Read, Write},
     os::unix::{ffi::OsStrExt, fs::{DirBuilderExt, MetadataExt, OpenOptionsExt}},
     path::{Path, PathBuf},
@@ -390,7 +390,7 @@ mod tests {
         let after = scan(&f.0).unwrap();
         state.retain_after_refresh(&snap, &after);
         assert_eq!(state.count(), 1);
-        assert!(!state.choose(&snap.entries[2].key, ChooseMode::Replace, &after));
+        assert!(!state.choose(&snap.entries[2].key, ChooseMode::Replace, &after.entries));
         assert_eq!(state.count(), 1);
     }
 
