@@ -104,7 +104,7 @@ class LiveRiceTests(unittest.TestCase):
             if command[0].endswith("riceplate-native"):
                 descriptor = int(kwargs["env"]["RICEBOWL_DE_READY_FD"])
                 self.assertEqual(kwargs["pass_fds"], (descriptor,))
-                os.write(descriptor, b"RICEPLATE_READY_V1\\n")
+                os.write(descriptor, b"RICEPLATE_READY_V1\n")
                 seen.append(descriptor)
             return child
 
@@ -146,7 +146,7 @@ class LiveRiceTests(unittest.TestCase):
             child = original_spawn(command, **kwargs)
             if command[0].endswith("riceplate-native"):
                 os.write(int(kwargs["env"]["RICEBOWL_DE_READY_FD"]),
-                         b"RICEPLATE_READY_V0\\n")
+                         b"RICEPLATE_READY_V0\n")
             return child
 
         self.controller.spawn = invalid_child
