@@ -194,6 +194,9 @@ def start(
     if panel not in ("waybar", "native"):
         raise SessionError("Unsupported RiceBowl panel mode.")
     env = dict(os.environ if environment is None else environment)
+    # Readiness is only issued through a new supervisor-owned pass_fds pipe
+    # during a reviewed native live apply, never inherited from the launcher.
+    env.pop("RICEBOWL_DE_READY_FD", None)
     if not nested and not env.get("RICEBOWL_DM_SESSION") and (
         env.get("WAYLAND_DISPLAY") or env.get("DISPLAY")
     ):
@@ -917,6 +920,9 @@ def shell(
 ) -> int:
     """Supervise the temporary native Wayland shell until its panel exits."""
     env = dict(os.environ if environment is None else environment)
+    # Readiness is only issued through a new supervisor-owned pass_fds pipe
+    # during a reviewed native live apply, never inherited from the launcher.
+    env.pop("RICEBOWL_DE_READY_FD", None)
     if env.get("RICEBOWL_DE_SHELL_CHILD") != "1" or not env.get("WAYLAND_DISPLAY"):
         raise SessionError("RiceBowl's Wayland shell may only run inside its labwc session.")
     waybar = which("waybar")
