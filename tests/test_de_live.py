@@ -159,6 +159,30 @@ class LiveRiceTests(unittest.TestCase):
         self.assertFalse(self.controller._pending_ready)
         self.assertEqual(recipes.current_selection()[0], "classic")
 
+    def test_candidate_crashing_after_frame_during_commit_restores_whole_rice(self):
+        # Rendering one compositor frame is necessary but not sufficient:
+        # the replacement can fail while labwc or selection is committed.
+        before_menu = self.menu.read_bytes()
+        original_panel = self.controller.panel
+        original_wallpaper = self.controller.wallpaper
+
+        def compositor_reconfigure():
+            for command, _, candidate in self.processes:
+                if command[0].endswith("riceplate-native"):
+                    candidate.exit_code = 9
+
+        self.controller._reconfigure.side_effect = compositor_reconfigure
+        with self.assertRaises(live.LiveError) as caught:
+            self.change("apply", "chrome", staging._hash("chrome"))
+        self.assertEqual(caught.exception.code, "component_failed")
+        self.assertIs(self.controller.panel, original_panel)
+        self.assertIs(self.controller.wallpaper, original_wallpaper)
+        self.assertFalse(original_panel.terminated)
+        self.assertFalse(original_wallpaper.terminated)
+        self.assertEqual(self.menu.read_bytes(), before_menu)
+        self.assertEqual(recipes.current_selection(), ("classic", None))
+        self.assertIsNone(live_recovery.read())
+
     def test_luna_chrome_live_switch_and_restore_are_isolated(self):
         token = self.import_luna()
         override = self.menu_dir / "themerc-override"
