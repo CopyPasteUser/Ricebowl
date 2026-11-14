@@ -1583,6 +1583,54 @@ with Image.open(sys.argv[1]) as a, Image.open(sys.argv[2]) as b:
     assert changed > 200, f"Compositor framebuffer did not reflect file drag: {changed}"
 PY
     echo "Verified actual XDG icon pointer drag, owner-private persistence, screenshot change and no file operation"
+    # A real external Wayland application must regain the keyboard after a
+    # desktop icon is intentionally selected. No global grab may survive.
+    file_position=$(sed -n "s/.*XDG mapped x=\([0-9][0-9]*\) y=\([0-9][0-9]*\) kind=File.*/\1 \2/p" \
+        "$runtime/file-plate.log" | tail -n 1)
+    test -n "$file_position"
+    set -- $file_position
+    WAYLAND_DISPLAY=wayland-0 "$clicker" "$(($1 + 52))" "$(($2 + 43))" 1366 768
+    sleep 0.2
+    grep -Fq "RicePlate: XDG file focus surface requested" "$runtime/file-plate.log" || {
+        echo "Native desktop failed to request compositor-confirmed keyboard focus" >&2
+        tail -n 45 "$runtime/file-plate.log" >&2
+        exit 1
+    }
+    cat > "$runtime/focus-receiver.sh" <<"RECEIVER"
+#!/bin/sh
+set -eu
+IFS= read -r input
+printf %s "$input" > "$FOCUS_RECEIVER_LOG"
+RECEIVER
+    chmod 0700 "$runtime/focus-receiver.sh"
+    FOCUS_RECEIVER_LOG="$runtime/focus-input.log" \
+        WAYLAND_DISPLAY=wayland-0 \
+        foot --app-id=ricebowl-focus-receiver --title=RiceBowl-Focus-Probe \
+        /bin/sh "$runtime/focus-receiver.sh" >"$runtime/focus-app.log" 2>&1 &
+    focus_app=$!
+    sleep 0.7
+    kill -0 "$focus_app" || {
+        echo "External Wayland keyboard receiver exited early" >&2
+        cat "$runtime/focus-app.log" >&2
+        exit 1
+    }
+    WAYLAND_DISPLAY=wayland-0 wtype -d 100 -k F13 ricebowl-focus-ok -k Return
+    count=0
+    while [ ! -s "$runtime/focus-input.log" ] && [ "$count" -lt 30 ]; do
+        count=$((count + 1))
+        sleep 0.1
+    done
+    test "$(cat "$runtime/focus-input.log" 2>/dev/null || :)" = ricebowl-focus-ok || {
+        echo "External Wayland app did not receive keyboard after XDG desktop focus" >&2
+        tail -n 50 "$runtime/file-plate.log" >&2
+        tail -n 35 "$runtime/focus-app.log" >&2
+        exit 1
+    }
+    grep -Fq "RicePlate: XDG file keyboard focus released" "$runtime/file-plate.log" || {
+        echo "Desktop exclusive keyboard surface was not revoked on app activation" >&2
+        exit 1
+    }
+    echo "Verified keyboard input returned to an actual Wayland client after desktop icon focus"
     echo "Verified genuine file context, read-only properties, Wayland rename, Trash Cancel and confirmed Gio argv"
     echo "Verified live XDG file layers, compositor double-click, external create/rename/delete and inert .desktop/symlink inventory"
     kill "$plate"
