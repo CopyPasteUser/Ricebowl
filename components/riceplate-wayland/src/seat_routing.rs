@@ -64,6 +64,16 @@ impl<S: Clone + PartialEq> SeatAssignments<S> {
         true
     }
 
+    /// A pointer gesture can initiate a focus lease only when RicePlate owns
+    /// a keyboard proxy on that SAME wl_seat. A keyboard from another seat
+    /// must not be used to turn this pointer click into a keyboard grab.
+    pub(crate) fn keyboard_seat_for_pointer_gesture(&self) -> Option<&S> {
+        match (self.pointer.as_ref(), self.keyboard.as_ref()) {
+            (Some(pointer), Some(keyboard)) if pointer == keyboard => Some(keyboard),
+            _ => None,
+        }
+    }
+
     /// Never use the pointer's seat for a keyboard action if its own seat
     /// exists. This matters when a compositor advertises several input seats.
     pub(crate) fn activation_seat_for(&self, source: ActivationSource) -> Option<&S> {
@@ -131,6 +141,21 @@ mod tests {
         s.forget_seat(&1);
         assert!(s.owns_keyboard(&2));
         assert_eq!(s.activation_seat_for(ActivationSource::Assistive), Some(&2));
+    }
+
+    #[test]
+    fn pointer_focus_cannot_use_a_different_seats_keyboard() {
+        let mut seats = SeatAssignments::default();
+        seats.appeared(1);
+        seats.appeared(2);
+        seats.claim_pointer(1);
+        seats.claim_keyboard(2);
+        assert_eq!(seats.keyboard_seat_for_pointer_gesture(), None);
+        seats.release_keyboard(&2);
+        seats.claim_keyboard(1);
+        assert_eq!(seats.keyboard_seat_for_pointer_gesture(), Some(&1));
+        seats.forget_seat(&1);
+        assert_eq!(seats.keyboard_seat_for_pointer_gesture(), None);
     }
 
     #[test]
