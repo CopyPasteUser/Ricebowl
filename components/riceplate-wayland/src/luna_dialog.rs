@@ -1,4 +1,5 @@
-//! XP Luna's native Run and Help dialogs. Only explicit user input may
+//! XP Luna's native Run/Help and confirmed Desktop file dialogs.
+//! Only explicit user input may
 //! launch programs; never interpret recipe data or invoke a command shell.
 use std::path::Path;
 
@@ -8,7 +9,7 @@ pub const MAX_INPUT: usize = 192;
 const MAX_ARGUMENTS: usize = 16;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Kind { Run, Help }
+pub enum Kind { Run, Help, FileRename, FileTrash }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Hit { Input, Accept, Cancel }
@@ -28,12 +29,25 @@ pub struct State {
 }
 
 impl State {
+    fn editable(&self) -> bool { matches!(self.kind, Kind::Run | Kind::FileRename) }
+
+    /// Prefill a name only for an owner-selected verified Desktop entry.
+    /// Refuse names outside the editor's representable bounds; never truncate.
+    pub fn prefill_name(&mut self, name: &str) -> bool {
+        if self.kind != Kind::FileRename || name.is_empty()
+            || name.chars().count() > MAX_INPUT
+            || name.chars().any(char::is_control) { return false; }
+        self.input = name.to_owned();
+        self.cursor = self.input.chars().count();
+        true
+    }
+
     pub fn new(kind: Kind) -> Self {
         Self { kind, input: String::new(), cursor: 0, notice: None, hover: None, pressed: None }
     }
 
     pub fn enter(&mut self, content: &str) -> bool {
-        if self.kind != Kind::Run || content.chars().count() != 1
+        if !self.editable() || content.chars().count() != 1
             || self.input.chars().count() >= MAX_INPUT
             || !content.chars().all(|c| !c.is_control()) {
             return false;
@@ -48,7 +62,7 @@ impl State {
 
     /// Backspace removes the Unicode scalar immediately before the caret.
     pub fn erase(&mut self) -> bool {
-        if self.kind != Kind::Run || self.cursor == 0 { return false; }
+        if !self.editable() || self.cursor == 0 { return false; }
         let Some((offset, _)) = self.input.char_indices().nth(self.cursor - 1) else {
             return false;
         };
@@ -60,7 +74,7 @@ impl State {
 
     /// Delete removes the next scalar without changing caret position.
     pub fn delete(&mut self) -> bool {
-        if self.kind != Kind::Run { return false; }
+        if !self.editable() { return false; }
         let Some((offset, _)) = self.input.char_indices().nth(self.cursor) else {
             return false;
         };
@@ -70,7 +84,7 @@ impl State {
     }
 
     pub fn move_cursor(&mut self, movement: CursorMove) -> bool {
-        if self.kind != Kind::Run { return false; }
+        if !self.editable() { return false; }
         let previous = self.cursor;
         let count = self.input.chars().count();
         self.cursor = match movement {
@@ -123,7 +137,7 @@ impl State {
     pub fn place_cursor_at<F: Fn(&str) -> u32>(
         &mut self, x: f64, max_width: u32, measure: F,
     ) -> bool {
-        if self.kind != Kind::Run || !x.is_finite() || max_width == 0 {
+        if !self.editable() || !x.is_finite() || max_width == 0 {
             return false;
         }
         let chars: Vec<char> = self.input.chars().collect();
@@ -162,12 +176,12 @@ pub fn hit(x: f64, y: f64, kind: Kind) -> Option<Hit> {
     if (414.0..438.0).contains(&x) && (9.0..32.0).contains(&y) {
         return Some(Hit::Cancel);
     }
-    if kind == Kind::Run && (118.0..424.0).contains(&x) &&
+    if matches!(kind, Kind::Run | Kind::FileRename) && (118.0..424.0).contains(&x) &&
         (111.0..143.0).contains(&y) { return Some(Hit::Input); }
     if (260.0..338.0).contains(&x) && (188.0..218.0).contains(&y) {
         return Some(Hit::Accept);
     }
-    if kind == Kind::Run && (346.0..424.0).contains(&x) &&
+    if kind != Kind::Help && (346.0..424.0).contains(&x) &&
         (188.0..218.0).contains(&y) { return Some(Hit::Cancel); }
     None
 }
@@ -370,5 +384,34 @@ mod tests {
         assert_eq!(hit(200.0, 120.0, Kind::Help), None);
         assert_eq!(hit(-1.0, 120.0, Kind::Run), None);
         assert_eq!(hit(f64::NAN, 120.0, Kind::Run), None);
+    }
+}
+
+#[cfg(test)]
+mod file_dialog_tests {
+    use super::*;
+
+    #[test]
+    fn rename_edit_is_unicode_safe_and_never_executes_argv() {
+        let mut state = State::new(Kind::FileRename);
+        assert!(state.prefill_name("notes 🍚.txt"));
+        assert_eq!(state.cursor, 11);
+        assert!(state.erase());
+        assert!(state.enter("x"));
+        assert!(state.argv().is_err());
+        assert!(!state.prefill_name(&"x".repeat(MAX_INPUT + 1)));
+        assert_eq!(state.input, "notes 🍚.txx");
+        assert!(!state.enter("/\n"));
+        assert_eq!(hit(130.0, 125.0, Kind::FileRename), Some(Hit::Input));
+        assert_eq!(hit(370.0, 200.0, Kind::FileTrash), Some(Hit::Cancel));
+    }
+
+    #[test]
+    fn trash_dialog_has_no_mutable_text_input() {
+        let mut state = State::new(Kind::FileTrash);
+        assert!(!state.enter("x"));
+        assert!(!state.erase());
+        assert!(!state.delete());
+        assert_eq!(hit(130.0, 125.0, Kind::FileTrash), None);
     }
 }

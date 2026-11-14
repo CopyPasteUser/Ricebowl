@@ -10,6 +10,7 @@ mod brightness;
 mod calendar;
 mod control_feedback;
 mod desktop_context;
+mod desktop_file_menu;
 mod desktop_layout;
 mod desktop_selection;
 mod frame_scheduler;
@@ -536,6 +537,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         file_launches: Vec::new(),
         file_last_reap: Instant::now(),
         file_keyboard_focus_layer: None,
+        file_context: None,
+        file_context_focused: false,
+        file_dialog_target: None,
         file_keyboard_focus_lease: input_core::DesktopFocusLease::default(),
         widget_layers,
         menu_layer,
@@ -1000,6 +1004,31 @@ struct LunaDialogLayer {
     state: luna_dialog::State,
 }
 
+struct FileContextLayer {
+    surface: LayerSurface,
+    pool: Option<SlotPool>,
+    configured: bool,
+    entry: desktop_layout::inventory::Key,
+    kind: desktop_layout::inventory::Kind,
+    selected: desktop_file_menu::Item,
+    hovered: Option<desktop_file_menu::Item>,
+    pressed: Option<desktop_file_menu::Item>,
+    properties: Option<desktop_layout::actions::Properties>,
+    back_hovered: bool,
+    back_pressed: bool,
+    notice: Option<&'static str>,
+}
+
+#[derive(Clone)]
+struct FileContextVisual {
+    kind: desktop_layout::inventory::Kind,
+    selected: desktop_file_menu::Item,
+    hovered: Option<desktop_file_menu::Item>,
+    properties: Option<desktop_layout::actions::Properties>,
+    back_hovered: bool,
+    notice: Option<&'static str>,
+}
+
 struct DesktopContextLayer {
     surface: LayerSurface,
     pool: Option<SlotPool>,
@@ -1079,6 +1108,9 @@ struct RicePlate {
     file_launches: Vec<std::process::Child>,
     file_last_reap: Instant,
     file_keyboard_focus_layer: Option<FileKeyboardFocusLayer>,
+    file_context: Option<FileContextLayer>,
+    file_context_focused: bool,
+    file_dialog_target: Option<desktop_layout::inventory::Key>,
     file_keyboard_focus_lease:
         input_core::DesktopFocusLease<wl_seat::WlSeat, wl_output::WlOutput, wl_surface::WlSurface>,
     widget_layers: Vec<DesktopWidgetLayer>,
@@ -1321,7 +1353,8 @@ impl RicePlate {
         layer.surface.commit();
     }
 
-    fn dispatch_file_keyboard_focus(&mut self, event: &KeyEvent) -> bool {
+    fn dispatch_file_keyboard_focus(&mut self, event: &KeyEvent,
+                                    qh: &QueueHandle<Self>) -> bool {
         let Some(layer) = self.file_keyboard_focus_layer.as_ref() else { return false };
         let Some(seat) = self.seat_assignments.keyboard_owner() else { return false };
         if !self.file_keyboard_focus_lease.can_dispatch(seat, layer.surface.wl_surface()) {
@@ -1330,6 +1363,28 @@ impl RicePlate {
         let selected = layer.entry.clone();
         match event.keysym {
             Keysym::Escape => self.close_file_keyboard_focus(),
+            Keysym::F2 => {
+                self.close_file_keyboard_focus();
+                self.open_file_modal(&selected, luna_dialog::Kind::FileRename, qh);
+            }
+            Keysym::Delete => {
+                self.close_file_keyboard_focus();
+                self.open_file_modal(&selected, luna_dialog::Kind::FileTrash, qh);
+            }
+            Keysym::Menu => {
+                self.close_file_keyboard_focus();
+                if let Some(index) = self.file_layers.iter().position(|item|
+                    item.entry.key == selected && item.placed.is_some()) {
+                    self.open_file_context(index, (52.0, 42.0), qh);
+                }
+            }
+            Keysym::F10 if self.selection_modifiers.shift => {
+                self.close_file_keyboard_focus();
+                if let Some(index) = self.file_layers.iter().position(|item|
+                    item.entry.key == selected && item.placed.is_some()) {
+                    self.open_file_context(index, (52.0, 42.0), qh);
+                }
+            }
             Keysym::Return | Keysym::KP_Enter => {
                 self.close_file_keyboard_focus();
                 self.activate_file_icon(&selected);
@@ -1446,6 +1501,11 @@ impl RicePlate {
         self.file_snapshot = Some(next);
         self.file_pressed = None;
         self.file_last_click = None;
+        if self.file_context.as_ref().is_some_and(|menu|
+            !self.file_snapshot.as_ref().is_some_and(|s|
+                s.entries.iter().any(|e| e.key == menu.entry))) {
+            self.close_file_context();
+        }
         self.sync_file_layers(qh);
         self.reflow_file_layers();
     }
@@ -1552,10 +1612,168 @@ impl RicePlate {
         }
     }
 
+    fn activate_file_mode(&mut self, key: &desktop_layout::inventory::Key,
+                          mode: desktop_layout::actions::OpenMode) {
+        let (Some(directory), Some(snapshot)) = (self.file_desktop.as_deref(),
+                                                  self.file_snapshot.as_ref()) else { return };
+        let Some(entry) = snapshot.entries.iter().find(|entry| &entry.key == key) else { return };
+        match desktop_layout::actions::open(snapshot, directory, entry, mode) {
+            Ok((_backend, child)) => self.file_launches.push(child),
+            Err(error) => eprintln!("RicePlate: XDG file operation refused: {error}"),
+        }
+    }
+
+    fn close_file_context(&mut self) {
+        self.file_context = None;
+        self.file_context_focused = false;
+    }
+
+    fn open_file_context(&mut self, index: usize, pointer: (f64, f64),
+                         qh: &QueueHandle<Self>) {
+        if self.recipe.id != "xp-luna-columns" { return; }
+        let Some(icon) = self.file_layers.get(index) else { return; };
+        let Some(position) = icon.placed else { return; };
+        let Some(output) = icon.bound_output.as_ref()
+            .or(self.primary_output.as_ref()).or(icon.output.as_ref()).cloned()
+            else { return; };
+        let Some(size) = self.logical_output_size(&output) else { return; };
+        let Some((x, y)) = desktop_file_menu::placement(
+            position, pointer, size, self.recipe.height, self.recipe.top)
+            else { return; };
+        let (key, kind) = (icon.entry.key.clone(), icon.entry.kind);
+        self.close_file_keyboard_focus();
+        self.close_desktop_context();
+        self.close_file_context();
+        if self.menu_state.visible { self.set_menu_visible(false, qh); }
+        if self.calendar_state.visible { self.set_calendar_visible(false, qh); }
+        if self.tray_popup_open() { self.set_tray_popup_visible(false, qh); }
+        let surface = self.layer_shell.create_layer_surface(
+            qh, self.compositor.create_surface(qh), Layer::Overlay,
+            Some("riceplate-xdg-file-context"), Some(&output),
+        );
+        surface.set_anchor(Anchor::TOP | Anchor::LEFT);
+        surface.set_size(desktop_file_menu::WIDTH, desktop_file_menu::HEIGHT);
+        surface.set_margin(y as i32, 0, 0, x as i32);
+        surface.set_exclusive_zone(-1);
+        surface.set_keyboard_interactivity(KeyboardInteractivity::OnDemand);
+        surface.commit();
+        self.file_context = Some(FileContextLayer {
+            surface, pool: None, configured: false,
+            entry: key, kind,
+            selected: if desktop_file_menu::Item::Open.enabled(kind) {
+                desktop_file_menu::Item::Open
+            } else { desktop_file_menu::Item::Properties },
+            hovered: None, pressed: None, properties: None,
+            back_hovered: false, back_pressed: false, notice: None,
+        });
+        if std::env::var("RICEBOWL_DE_TRACE_FILES").as_deref() == Ok("1") {
+            eprintln!("RicePlate: XDG context opened kind={kind:?} x={x} y={y}");
+        }
+    }
+
+    fn choose_file_context(&mut self, item: desktop_file_menu::Item,
+                           qh: &QueueHandle<Self>) {
+        let Some(menu) = self.file_context.as_ref() else { return; };
+        if !item.enabled(menu.kind) { return; }
+        let key = menu.entry.clone();
+        if item == desktop_file_menu::Item::Properties {
+            let result = (|| {
+                let root = self.file_desktop.as_deref().ok_or(
+                    desktop_layout::actions::ActionError::Disabled("No XDG Desktop"))?;
+                let snapshot = self.file_snapshot.as_ref().ok_or(
+                    desktop_layout::actions::ActionError::Stale("No Desktop inventory"))?;
+                let entry = snapshot.entries.iter().find(|e| e.key == key).ok_or(
+                    desktop_layout::actions::ActionError::Stale("File changed"))?;
+                desktop_layout::actions::properties(snapshot, root, entry)
+            })();
+            if let Some(menu) = self.file_context.as_mut() {
+                match result {
+                    Ok(properties) => { menu.properties = Some(properties); menu.notice = None; }
+                    Err(error) => {
+                        eprintln!("RicePlate: XDG properties refused: {error}");
+                        menu.notice = Some("File changed or access denied");
+                    }
+                }
+                menu.pressed = None;
+            }
+            self.redraw_file_context();
+            return;
+        }
+        self.close_file_context();
+        match item {
+            desktop_file_menu::Item::Open => self.activate_file_mode(
+                &key, desktop_layout::actions::OpenMode::Default),
+            desktop_file_menu::Item::Explorer => self.activate_file_mode(
+                &key, desktop_layout::actions::OpenMode::Explorer),
+            desktop_file_menu::Item::Rename =>
+                self.open_file_modal(&key, luna_dialog::Kind::FileRename, qh),
+            desktop_file_menu::Item::Trash =>
+                self.open_file_modal(&key, luna_dialog::Kind::FileTrash, qh),
+            desktop_file_menu::Item::Properties => unreachable!(),
+        }
+    }
+
+    fn open_file_modal(&mut self, key: &desktop_layout::inventory::Key,
+                       kind: luna_dialog::Kind, qh: &QueueHandle<Self>) {
+        let Some(entry) = self.file_snapshot.as_ref()
+            .and_then(|snapshot| snapshot.entries.iter().find(|e| &e.key == key)) else { return };
+        let Some(name) = entry.key.name.to_str() else {
+            eprintln!("RicePlate: XDG rename cannot represent non-UTF8 name");
+            return;
+        };
+        if kind == luna_dialog::Kind::FileRename
+            && (name.is_empty() || name.chars().count() > luna_dialog::MAX_INPUT
+                || name.chars().any(char::is_control)) {
+            eprintln!("RicePlate: XDG filename outside bounded editor");
+            return;
+        }
+        let name = name.to_owned();
+        self.close_file_context();
+        self.close_file_keyboard_focus();
+        self.open_luna_dialog(kind, qh);
+        let Some(dialog) = self.luna_dialog.as_mut() else { return };
+        if kind == luna_dialog::Kind::FileRename {
+            if !dialog.state.prefill_name(&name) { self.close_luna_dialog(); return; }
+        } else { dialog.state.input = name; }
+        self.file_dialog_target = Some(key.clone());
+        self.redraw_luna_dialog();
+    }
+
+    fn redraw_file_context(&mut self) {
+        let Some(menu) = self.file_context.as_mut() else { return };
+        if !menu.configured { return; }
+        // Snapshot paint-only fields before mutably borrowing the SHM pool.
+        let view = FileContextVisual {
+            kind: menu.kind, selected: menu.selected, hovered: menu.hovered,
+            properties: menu.properties.clone(), back_hovered: menu.back_hovered,
+            notice: menu.notice,
+        };
+        let Some(pool) = menu.pool.as_mut() else { return };
+        let (w, h) = (desktop_file_menu::WIDTH, desktop_file_menu::HEIGHT);
+        let (buffer, canvas) = match pool.create_buffer(
+            w as i32, h as i32, (w * 4) as i32, wl_shm::Format::Argb8888) {
+            Ok(buffer) => buffer,
+            Err(error) => {
+                eprintln!("RicePlate: XDG context framebuffer unavailable: {error}");
+                self.close_file_context();
+                return;
+            }
+        };
+        paint_file_context(canvas, &self.recipe, &view);
+        let surface = menu.surface.wl_surface();
+        surface.damage_buffer(0, 0, w as i32, h as i32);
+        if let Err(error) = buffer.attach_to(surface) {
+            eprintln!("RicePlate: XDG context attach failed: {error}");
+            self.close_file_context();
+            return;
+        }
+        menu.surface.commit();
+    }
+
     fn maybe_collapse_luna_panel(&mut self, qh: &QueueHandle<Self>) {
         let popup_open = self.menu_state.visible || self.calendar_state.visible
             || self.tray_popup_open() || self.luna_dialog.is_some()
-            || self.desktop_context.is_some();
+            || self.desktop_context.is_some() || self.file_context.is_some();
         if std::env::var_os("RICEBOWL_DE_TRACE_MENU").is_some()
             && self.recipe.id == "xp-luna-columns" {
             eprintln!("RicePlate: Luna auto-hide pointer_inside={} popup_open={} collapsed={}",
@@ -1691,6 +1909,7 @@ impl RicePlate {
         // fullscreen input grab, background worker or hidden popup survives.
         self.luna_dialog = None;
         self.luna_dialog_focused = false;
+        self.file_dialog_target = None;
     }
 
     fn open_luna_dialog(&mut self, kind: luna_dialog::Kind,
@@ -1720,6 +1939,7 @@ impl RicePlate {
         };
         self.set_menu_visible(false, qh);
         self.close_desktop_context();
+        self.close_file_context();
         self.close_luna_dialog();
         let surface = self.layer_shell.create_layer_surface(
             qh, self.compositor.create_surface(qh), Layer::Overlay,
@@ -1739,7 +1959,53 @@ impl RicePlate {
         });
     }
 
-    fn execute_luna_dialog(&mut self) {
+    fn execute_luna_dialog(&mut self, qh: &QueueHandle<Self>) {
+        let Some(kind) = self.luna_dialog.as_ref().map(|dialog| dialog.state.kind) else { return };
+        if matches!(kind, luna_dialog::Kind::FileRename | luna_dialog::Kind::FileTrash) {
+            let result = (|| {
+                let key = self.file_dialog_target.as_ref().ok_or(
+                    desktop_layout::actions::ActionError::Stale("No selected file"))?;
+                let root = self.file_desktop.as_deref().ok_or(
+                    desktop_layout::actions::ActionError::Disabled("No Desktop folder"))?;
+                let snapshot = self.file_snapshot.as_ref().ok_or(
+                    desktop_layout::actions::ActionError::Stale("No Desktop inventory"))?;
+                let entry = snapshot.entries.iter().find(|entry| &entry.key == key).ok_or(
+                    desktop_layout::actions::ActionError::Stale("Selected file disappeared"))?;
+                if kind == luna_dialog::Kind::FileRename {
+                    let name = self.luna_dialog.as_ref().map(|dialog| dialog.state.input.as_str())
+                        .unwrap_or_default();
+                    desktop_layout::actions::rename(snapshot, root, entry,
+                        std::ffi::OsStr::new(name)).map(|_| None)
+                } else {
+                    desktop_layout::actions::trash_confirmed(snapshot, root, entry).map(Some)
+                }
+            })();
+            match result {
+                Ok(child) => {
+                    if let Some(child) = child { self.file_launches.push(child); }
+                    self.close_luna_dialog();
+                    if kind == luna_dialog::Kind::FileRename { self.refresh_file_desktop(qh); }
+                    if std::env::var("RICEBOWL_DE_TRACE_FILES").as_deref() == Ok("1") {
+                        eprintln!("RicePlate: XDG confirmed action dispatched kind={kind:?}");
+                    }
+                }
+                Err(error) => {
+                    eprintln!("RicePlate: XDG confirmed action refused: {error}");
+                    if let Some(dialog) = self.luna_dialog.as_mut() {
+                        use desktop_layout::actions::ActionError;
+                        dialog.state.notice = Some(match error {
+                            ActionError::InvalidName => "Invalid or unchanged file name",
+                            ActionError::Conflict => "A file with that name already exists",
+                            ActionError::Stale(_) => "File changed; close and retry",
+                            ActionError::Disabled(_) => "This file action is not allowed",
+                            ActionError::Io(_) => "Operation failed; check permissions",
+                        });
+                    }
+                    self.redraw_luna_dialog();
+                }
+            }
+            return;
+        }
         let Some(dialog) = self.luna_dialog.as_mut() else { return };
         if dialog.state.kind == luna_dialog::Kind::Help {
             self.close_luna_dialog();
@@ -1839,6 +2105,7 @@ impl RicePlate {
         if self.calendar_state.visible { self.set_calendar_visible(false, qh); }
         if self.tray_popup_open() { self.set_tray_popup_visible(false, qh); }
         self.close_desktop_context();
+        self.close_file_context();
         self.context_generation = self.context_generation.wrapping_add(1);
         let surface = self.layer_shell.create_layer_surface(
             qh, self.compositor.create_surface(qh), Layer::Overlay,
@@ -5340,20 +5607,32 @@ fn paint_luna_dialog(canvas: &mut [u8], style: &PanelStyle, state: &luna_dialog:
     fill_rect(canvas, w, h, 3, 3, w - 6, h - 6, 0xfff6_f3e9);
     fill_rect(canvas, w, h, 4, 4, w - 8, 34, 0xff1c_57c3);
     // Authentic-ish blue caption and a distinct red close glyph, all original.
-    draw_rice_text(canvas, w, h, 15, 14, if state.kind == luna_dialog::Kind::Run {
-        "Run" } else { "Help and Support" }, 0xffff_ffff, style);
+    draw_rice_text(canvas, w, h, 15, 14, match state.kind {
+        luna_dialog::Kind::Run => "Run",
+        luna_dialog::Kind::Help => "Help and Support",
+        luna_dialog::Kind::FileRename => "Rename File",
+        luna_dialog::Kind::FileTrash => "Move to Recycle Bin",
+    }, 0xffff_ffff, style);
     fill_rounded_rect(canvas, w, h, 414, 9, 24, 23, 3, 0xffd8_4039);
     draw_rice_text(canvas, w, h, 422, 16, "x", 0xffff_ffff, style);
 
     match state.kind {
-        luna_dialog::Kind::Run => {
-            fill_rounded_rect(canvas, w, h, 25, 67, 67, 73, 8, 0xff2b_64ae);
+        luna_dialog::Kind::Run | luna_dialog::Kind::FileRename => {
+            if state.kind == luna_dialog::Kind::Run {
+                fill_rounded_rect(canvas, w, h, 25, 67, 67, 73, 8, 0xff2b_64ae);
             fill_rect(canvas, w, h, 38, 81, 41, 33, 0xffe2_f5ff);
             fill_rect(canvas, w, h, 44, 87, 29, 21, 0xff8a_d6ec);
             fill_rect(canvas, w, h, 50, 116, 17, 7, 0xffab_c6d7);
-            draw_rice_text(canvas, w, h, 118, 68, "Type a program name.", 0xff17_315c, style);
-            draw_rice_text(canvas, w, h, 118, 87, "No shell expansion.", 0xff4d_6284, style);
-            draw_rice_text(canvas, w, h, 118, 104, "Open:", 0xff17_315c, style);
+            }
+            draw_rice_text(canvas, w, h, 118, 68,
+                if state.kind == luna_dialog::Kind::Run { "Type a program name." }
+                else { "Edit the file name below." }, 0xff17_315c, style);
+            draw_rice_text(canvas, w, h, 118, 87,
+                if state.kind == luna_dialog::Kind::Run { "No shell expansion." }
+                else { "Existing files are protected." }, 0xff4d_6284, style);
+            draw_rice_text(canvas, w, h, 118, 104,
+                if state.kind == luna_dialog::Kind::Run { "Open:" }
+                else { "Name:" }, 0xff17_315c, style);
             fill_rect(canvas, w, h, 118, 111, 306, 32, 0xff75_879f);
             fill_rect(canvas, w, h, 120, 113, 302, 28, 0xffff_ffff);
             // Use the same font advances as actual glyph drawing: a
@@ -5362,10 +5641,21 @@ fn paint_luna_dialog(canvas: &mut [u8], style: &PanelStyle, state: &luna_dialog:
                 luna_dialog_text_width(style, value));
             draw_rice_text(canvas, w, h, 128, 122, &text, 0xff10_2849, style);
             fill_rect(canvas, w, h, 128 + cursor_x, 120, 2, 16, 0xff10_2849);
-            let notice = state.notice.unwrap_or("Executes a command directly as your user.");
+            let notice = state.notice.unwrap_or(if state.kind == luna_dialog::Kind::Run {
+                "Executes a command directly as your user."
+            } else { "Rename stays within the Desktop; no overwrite." });
             draw_rice_text(canvas, w, h, 22, 163,
                            &notice.chars().take(50).collect::<String>(),
                            if state.notice.is_some() { 0xffb2_302e } else { 0xff4d_6284 }, style);
+        }
+        luna_dialog::Kind::FileTrash => {
+            draw_rice_text(canvas, w, h, 25, 72, "Move this item to the Recycle Bin?",
+                           0xff17_315c, style);
+            let label: String = state.input.chars().take(48).collect();
+            draw_rice_text(canvas, w, h, 25, 104, &label, 0xff17_315c, style);
+            draw_rice_text(canvas, w, h, 25, 136,
+                state.notice.unwrap_or("Gio manages Trash. Cancel leaves the item intact."),
+                if state.notice.is_some() { 0xffb2_302e } else { 0xff4d_6284 }, style);
         }
         luna_dialog::Kind::Help => {
             for (line, text) in [
@@ -5381,7 +5671,12 @@ fn paint_luna_dialog(canvas: &mut [u8], style: &PanelStyle, state: &luna_dialog:
             }
         }
     }
-    let primary = if state.kind == luna_dialog::Kind::Run { "OK" } else { "Close" };
+    let primary = match state.kind {
+        luna_dialog::Kind::Run => "OK",
+        luna_dialog::Kind::Help => "Close",
+        luna_dialog::Kind::FileRename => "Rename",
+        luna_dialog::Kind::FileTrash => "Trash",
+    };
     for (x, label, hit) in [(260, primary, luna_dialog::Hit::Accept),
                            (346, "Cancel", luna_dialog::Hit::Cancel)] {
         if state.kind == luna_dialog::Kind::Help && hit == luna_dialog::Hit::Cancel {
@@ -5392,9 +5687,60 @@ fn paint_luna_dialog(canvas: &mut [u8], style: &PanelStyle, state: &luna_dialog:
                     else { 0xff37_6bbd };
         fill_rounded_rect(canvas, w, h, x, 188, 78, 30, 3, shade);
         fill_rect(canvas, w, h, x + 3, 190, 72, 1, 0xffc3_dffb);
-        draw_rice_text(canvas, w, h, x + if label == "Cancel" { 12 }
-                       else if label == "Close" { 16 } else { 30 },
+        draw_rice_text(canvas, w, h, x + match label {
+                           "Cancel" => 12, "Close" => 16,
+                           "Rename" => 18, "Trash" => 22, _ => 30 },
                        198, label, 0xffff_ffff, style);
+    }
+}
+
+fn paint_file_context(canvas: &mut [u8], style: &PanelStyle,
+                      menu: &FileContextVisual) {
+    let (w, h) = (desktop_file_menu::WIDTH, desktop_file_menu::HEIGHT);
+    canvas.fill(0);
+    fill_rect(canvas, w, h, 0, 0, w, h, 0xff20_3f7e);
+    fill_rect(canvas, w, h, 2, 2, w - 4, h - 4, 0xfffc_faf2);
+    fill_rect(canvas, w, h, 3, 3, w - 6, 29, 0xff24_5ed3);
+    draw_rice_text(canvas, w, h, 12, 11,
+        if menu.properties.is_some() { "File Properties" } else { "Desktop File" },
+        0xffff_ffff, style);
+    if let Some(properties) = menu.properties.as_ref() {
+        let name: String = properties.name.to_string_lossy().chars().take(29).collect();
+        let kind = match properties.kind {
+            desktop_layout::inventory::Kind::File => "File",
+            desktop_layout::inventory::Kind::Directory => "Folder",
+            desktop_layout::inventory::Kind::DesktopFile => "Launcher (inert)",
+            desktop_layout::inventory::Kind::Symlink => "Symbolic link (inert)",
+        };
+        for (index, line) in [
+            format!("Name: {name}"),
+            format!("Type: {kind}"),
+            format!("Size: {} bytes", properties.size),
+            format!("Owner: UID {}", properties.owner_uid),
+            format!("Mode: {:o}", properties.mode & 0o7777),
+        ].iter().enumerate() {
+            draw_rice_text(canvas, w, h, 12, 44 + index as u32 * 28,
+                           line, 0xff1d_273d, style);
+        }
+        fill_rect(canvas, w, h, 5, desktop_file_menu::BACK_ROW, w - 10, 28,
+                  if menu.back_hovered { 0xff36_6ac9 } else { 0xffe5_e9f2 });
+        draw_rice_text(canvas, w, h, 16, desktop_file_menu::BACK_ROW + 8,
+                       "Back", if menu.back_hovered { 0xffff_ffff } else { 0xff1d_273d }, style);
+        return;
+    }
+    for item in desktop_file_menu::Item::ALL {
+        let y = desktop_file_menu::row(item);
+        if menu.selected == item || menu.hovered == Some(item) {
+            fill_rect(canvas, w, h, 5, y, w - 10, 28,
+                      if item.enabled(menu.kind) { 0xff36_6ac9 } else { 0xffdb_dfeb });
+        }
+        let color = if !item.enabled(menu.kind) { 0xff7c_8291 }
+            else if menu.selected == item || menu.hovered == Some(item) { 0xffff_ffff }
+            else { 0xff1d_273d };
+        draw_rice_text(canvas, w, h, 16, y + 8, item.label(), color, style);
+    }
+    if let Some(notice) = menu.notice {
+        draw_rice_text(canvas, w, h, 12, 200, notice, 0xffb2_302e, style);
     }
 }
 
@@ -5744,6 +6090,9 @@ impl LayerShellHandler for RicePlate {
         } else if self.desktop_context.as_ref().is_some_and(|menu|
             menu.surface.wl_surface() == layer.wl_surface()) {
             self.close_desktop_context();
+        } else if self.file_context.as_ref().is_some_and(|menu|
+            menu.surface.wl_surface() == layer.wl_surface()) {
+            self.close_file_context();
         } else if layer.wl_surface() == self.layer.wl_surface() {
             self.closed = true;
         } else if let Some(index) = self.mirrors.iter().position(|mirror|
@@ -5883,6 +6232,29 @@ impl LayerShellHandler for RicePlate {
             }
             menu.configured = true;
             self.redraw_desktop_context();
+            return;
+        }
+        if self.file_context.as_ref().is_some_and(|menu|
+            menu.surface.wl_surface() == layer.wl_surface()) {
+            if config.new_size != (desktop_file_menu::WIDTH, desktop_file_menu::HEIGHT) {
+                eprintln!("RicePlate: compositor rejected XDG file context geometry");
+                self.close_file_context();
+                return;
+            }
+            let menu = self.file_context.as_mut().expect("matched file context");
+            if menu.pool.is_none() {
+                let bytes = (desktop_file_menu::WIDTH * desktop_file_menu::HEIGHT * 4 * 3) as usize;
+                match SlotPool::new(bytes, &self.shm) {
+                    Ok(pool) => menu.pool = Some(pool),
+                    Err(error) => {
+                        eprintln!("RicePlate: XDG context allocation failed: {error}");
+                        self.close_file_context();
+                        return;
+                    }
+                }
+            }
+            menu.configured = true;
+            self.redraw_file_context();
             return;
         }
         if let Some(index) = self.mirrors.iter().position(|mirror|
@@ -6309,6 +6681,8 @@ impl KeyboardHandler for RicePlate {
         }
         self.context_focused = self.desktop_context.as_ref().is_some_and(|menu|
             menu.surface.wl_surface() == surface);
+        self.file_context_focused = self.file_context.as_ref().is_some_and(|menu|
+            menu.surface.wl_surface() == surface);
         self.menu_focused = self.menu_state.visible
             && self.active_menu.as_ref() == Some(surface);
         self.calendar_focused = self.calendar_state.visible
@@ -6397,6 +6771,10 @@ impl KeyboardHandler for RicePlate {
             menu.surface.wl_surface() == surface) && self.context_focused {
             self.close_desktop_context();
         }
+        if self.file_context.as_ref().is_some_and(|menu|
+            menu.surface.wl_surface() == surface) && self.file_context_focused {
+            self.close_file_context();
+        }
         if self.active_menu.as_ref() == Some(surface) && self.menu_focused {
             self.set_menu_visible(false, qh);
         }
@@ -6435,7 +6813,7 @@ impl KeyboardHandler for RicePlate {
         event: KeyEvent,
     ) {
         if self.keyboard.as_ref() != Some(keyboard) { return; }
-        if self.dispatch_file_keyboard_focus(&event) { return; }
+        if self.dispatch_file_keyboard_focus(&event, qh) { return; }
         if self.luna_dialog_focused {
             // Do not log keysyms or UTF-8 from the Run dialog: they can
             // contain sensitive commands. Test diagnostics report only
@@ -6475,7 +6853,7 @@ impl KeyboardHandler for RicePlate {
                     }
                 }
             }
-            if execute { self.execute_luna_dialog(); }
+            if execute { self.execute_luna_dialog(qh); }
             else if repaint { self.redraw_luna_dialog(); }
             if std::env::var_os("RICEBOWL_DE_TRACE_MENU").is_some() {
                 if let Some(dialog) = self.luna_dialog.as_ref() {
@@ -6485,6 +6863,43 @@ impl KeyboardHandler for RicePlate {
                               dialog.state.input.chars().count(), dialog.state.cursor);
                 }
             }
+            return;
+        }
+        if self.file_context_focused {
+            let mut invoke = None;
+            let mut redraw = false;
+            if let Some(menu) = self.file_context.as_mut() {
+                if menu.properties.is_some() {
+                    match event.keysym {
+                        Keysym::Escape | Keysym::BackSpace | Keysym::Return |
+                        Keysym::KP_Enter | Keysym::space => {
+                            menu.properties = None;
+                            menu.back_hovered = false;
+                            menu.back_pressed = false;
+                            redraw = true;
+                        }
+                        _ => {}
+                    }
+                } else {
+                    match event.keysym {
+                        Keysym::Escape => { self.close_file_context(); return; }
+                        Keysym::Up | Keysym::ISO_Left_Tab |
+                        Keysym::Down | Keysym::Tab => {
+                            let delta = if matches!(event.keysym, Keysym::Up | Keysym::ISO_Left_Tab) {
+                                -1
+                            } else { 1 };
+                            menu.selected = desktop_file_menu::navigate(
+                                menu.selected, delta, menu.kind);
+                            redraw = true;
+                        }
+                        Keysym::Return | Keysym::KP_Enter | Keysym::space =>
+                            invoke = Some(menu.selected),
+                        _ => {}
+                    }
+                }
+            }
+            if let Some(item) = invoke { self.choose_file_context(item, qh); }
+            else if redraw { self.redraw_file_context(); }
             return;
         }
         if self.context_focused {
@@ -6968,7 +7383,7 @@ impl PointerHandler for RicePlate {
                     }
                 }
                 match activate {
-                    Some(luna_dialog::Hit::Accept) => self.execute_luna_dialog(),
+                    Some(luna_dialog::Hit::Accept) => self.execute_luna_dialog(qh),
                     Some(luna_dialog::Hit::Cancel) => self.close_luna_dialog(),
                     Some(luna_dialog::Hit::Input) => {
                         // The cursor follows the real painted glyph advances.
@@ -6982,6 +7397,71 @@ impl PointerHandler for RicePlate {
                     }
                     None => if repaint { self.redraw_luna_dialog(); },
                 }
+                continue;
+            }
+            if self.file_context.as_ref().is_some_and(|menu|
+                menu.surface.wl_surface() == &event.surface) {
+                let mut invoke = None;
+                let mut repaint = false;
+                if let Some(menu) = self.file_context.as_mut() {
+                    if menu.properties.is_some() {
+                        let back = desktop_file_menu::back_hit(
+                            event.position.0, event.position.1);
+                        match event.kind {
+                            PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
+                                if menu.back_hovered != back {
+                                    menu.back_hovered = back;
+                                    repaint = true;
+                                }
+                            }
+                            PointerEventKind::Leave { .. } => {
+                                menu.back_hovered = false;
+                                menu.back_pressed = false;
+                                repaint = true;
+                            }
+                            PointerEventKind::Press { button: BTN_LEFT, .. } =>
+                                menu.back_pressed = back,
+                            PointerEventKind::Release { button: BTN_LEFT, .. } => {
+                                if menu.back_pressed && back {
+                                    menu.properties = None;
+                                    menu.back_hovered = false;
+                                    repaint = true;
+                                }
+                                menu.back_pressed = false;
+                            }
+                            _ => {}
+                        }
+                    } else {
+                        let hit = desktop_file_menu::hit(
+                            event.position.0, event.position.1, menu.kind);
+                        match event.kind {
+                            PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
+                                if menu.hovered != hit {
+                                    menu.hovered = hit;
+                                    repaint = true;
+                                }
+                            }
+                            PointerEventKind::Leave { .. } => {
+                                menu.hovered = None;
+                                menu.pressed = None;
+                                repaint = true;
+                            }
+                            PointerEventKind::Press { button: BTN_LEFT, .. } => {
+                                menu.pressed = hit;
+                                if let Some(item) = hit { menu.selected = item; }
+                                repaint = true;
+                            }
+                            PointerEventKind::Release { button: BTN_LEFT, .. } => {
+                                if menu.pressed.take().is_some_and(|pressed| Some(pressed) == hit) {
+                                    invoke = hit;
+                                } else { repaint = true; }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                if let Some(item) = invoke { self.choose_file_context(item, qh); }
+                else if repaint { self.redraw_file_context(); }
                 continue;
             }
             if self.desktop_context.as_ref().is_some_and(|menu|
@@ -7321,6 +7801,7 @@ impl PointerHandler for RicePlate {
                     PointerEventKind::Press { button: BTN_LEFT, .. } => {
                         self.close_file_keyboard_focus();
                         self.close_desktop_context();
+                        self.close_file_context();
                         let mode = if self.selection_modifiers.ctrl {
                             desktop_layout::file_state::ChooseMode::Toggle
                         } else if self.selection_modifiers.shift {
@@ -7339,8 +7820,9 @@ impl PointerHandler for RicePlate {
                                 desktop_layout::file_state::ChooseMode::Replace, &snapshot.entries);
                             for i in 0..self.file_layers.len() { self.redraw_file_icon(i); }
                         }
-                        // File-context UI is a distinct integration gate.
-                        // Never send file keys into the virtual-shortcut menu.
+                        // A real file has a separate, typed context menu; never
+                        // route it through the virtual-shortcut action table.
+                        self.open_file_context(index, event.position, qh);
                         self.file_pressed = None;
                         self.file_last_click = None;
                     }
