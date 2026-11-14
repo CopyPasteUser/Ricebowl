@@ -1486,6 +1486,9 @@ impl RicePlate {
         };
         match event.keysym {
             Keysym::Escape => {
+                if std::env::var("RICEBOWL_DE_TRACE_FOCUS").as_deref() == Ok("1") {
+                    eprintln!("RicePlate: Luna shortcut keyboard focus canceled by Escape");
+                }
                 self.close_desktop_keyboard_focus();
                 self.clear_luna_selection();
             }
