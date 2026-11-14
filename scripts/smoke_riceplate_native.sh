@@ -1744,13 +1744,15 @@ from pathlib import Path
 
 import gi
 gi.require_version("Gtk", "3.0")
-from gi.repository import GLib, Gtk
+from gi.repository import GLib, Gdk, Gtk
 
 ready = Path(os.environ["FOCUS_RECEIVER_READY"])
 focused = Path(os.environ["FOCUS_RECEIVER_FOCUSED"])
 received = Path(os.environ["FOCUS_RECEIVER_LOG"])
 pointer = Path(os.environ["FOCUS_RECEIVER_POINTER"])
 geometry = Path(os.environ["FOCUS_RECEIVER_GEOMETRY"])
+keys = Path(os.environ["FOCUS_RECEIVER_KEYS"])
+typed = Path(os.environ["FOCUS_RECEIVER_TEXT"])
 window = Gtk.Window(title="RiceBowl external Wayland keyboard witness")
 window.set_default_size(880, 520)
 window.fullscreen()
@@ -1771,8 +1773,27 @@ def clicked(widget, event):
     return False
 
 def keyboard_focused(*unused):
-    focused.write_text("compositor-focus\n")
+    # The compositor has focused the real XDG window. Also focus the child
+    # entry *after* the window focus-in; focus before map is not sufficient
+    # evidence that a specific GTK widget can consume keyboard input.
+    entry.grab_focus()
+    def confirm_entry_focus():
+        if window.is_active() and entry.has_focus():
+            focused.write_text("compositor-window-and-gtk-entry-focused\n")
+        else:
+            geometry.write_text(geometry.read_text() +
+                f"gtk-focus-failed window={window.is_active()} entry={entry.has_focus()}\n")
+        return False
+    GLib.idle_add(confirm_entry_focus)
     return False
+
+def record_key(widget, event):
+    with keys.open("a") as log:
+        log.write(f"{Gdk.keyval_name(event.keyval)}\n")
+    return False
+
+def record_text(widget):
+    typed.write_text(widget.get_text())
 
 def activated(widget):
     received.write_text(widget.get_text())
@@ -1783,8 +1804,11 @@ window.connect("map-event", mapped)
 window.connect("button-press-event", clicked)
 window.connect("destroy", Gtk.main_quit)
 entry.connect("button-press-event", clicked)
+entry.connect("key-press-event", record_key)
+entry.connect("changed", record_text)
 entry.connect("activate", activated)
 window.show_all()
+window.set_focus(entry)
 entry.grab_focus()
 GLib.timeout_add_seconds(20, Gtk.main_quit)
 Gtk.main()
@@ -1793,6 +1817,8 @@ RECEIVER
         FOCUS_RECEIVER_FOCUSED="$runtime/focus-focused.log" \
         FOCUS_RECEIVER_POINTER="$runtime/focus-pointer.log" \
         FOCUS_RECEIVER_GEOMETRY="$runtime/focus-geometry.log" \
+        FOCUS_RECEIVER_KEYS="$runtime/focus-keys.log" \
+        FOCUS_RECEIVER_TEXT="$runtime/focus-text.log" \
         FOCUS_RECEIVER_LOG="$runtime/focus-input.log" \
         GDK_BACKEND=wayland WAYLAND_DISPLAY=wayland-0 \
         /usr/bin/python3 -B "$runtime/focus-receiver.py" \
@@ -1871,6 +1897,10 @@ PY
     done
     test "$(cat "$runtime/focus-input.log" 2>/dev/null || :)" = ricebowl-focus-ok || {
         echo "External Wayland app did not receive keyboard after XDG desktop focus" >&2
+        echo "GTK text observed:" >&2
+        cat "$runtime/focus-text.log" 2>/dev/null >&2 || :
+        echo "GTK key events observed:" >&2
+        tail -n 35 "$runtime/focus-keys.log" 2>/dev/null >&2 || :
         tail -n 50 "$runtime/file-plate.log" >&2
         tail -n 35 "$runtime/focus-app.log" >&2
         cat "$runtime/focus-wtype.log" >&2
