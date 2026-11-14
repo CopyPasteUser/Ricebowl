@@ -712,13 +712,28 @@ PY
             # selection. The shared 8px focus overlay requires a genuine
             # labwc wl_keyboard.enter; pure Rust selectors cannot fake this.
             rm -f "$runtime/trash-gio.log"
-            WAYLAND_DISPLAY=wayland-0 "$clicker" 68 435 1366 768
-            sleep 0.35
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/luna-shortcut-before-prefix.png"
             cp "$runtime/luna-shortcut-before-prefix.png" \
                 "$source_root/dist/riceplate-native-preview/luna-shortcut-before-prefix.png"
-            WAYLAND_DISPLAY=wayland-0 wtype -d 150 -k F13 -k F13 -k F13 p
-            sleep 0.4
+            # labwc headless has no physical keyboard. Its real virtual
+            # keyboard MUST exist before the pointer gesture; the same-seat
+            # policy correctly rejects late keyboard capabilities.
+            WAYLAND_DISPLAY=wayland-0 wtype -d 750 -k F13 p \
+                > "$runtime/luna-shortcut-wtype.log" 2>&1 &
+            shortcut_typer=$!
+            sleep 0.2
+            kill -0 "$shortcut_typer" || {
+                echo "Shortcut virtual keyboard exited before pointer gesture" >&2
+                cat "$runtime/luna-shortcut-wtype.log" >&2
+                exit 1
+            }
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 68 435 1366 768
+            wait "$shortcut_typer" || {
+                echo "Virtual keyboard failed during Luna focus check" >&2
+                cat "$runtime/luna-shortcut-wtype.log" >&2
+                exit 1
+            }
+            sleep 0.35
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/luna-shortcut-after-prefix.png"
             cp "$runtime/luna-shortcut-after-prefix.png" \
                 "$source_root/dist/riceplate-native-preview/luna-shortcut-after-prefix.png"
@@ -754,7 +769,19 @@ PY
             }
             # Escape releases the ephemeral focus surface and clears the
             # highlight. Subsequent arbitrary keys are not intercepted.
-            WAYLAND_DISPLAY=wayland-0 wtype -d 120 -k F13 -k Escape
+            # Reacquire via a fresh physical pointer gesture while a REAL
+            # virtual keyboard remains connected, then send Escape on that
+            # very seat. Detached wtype cannot retroactively claim focus.
+            WAYLAND_DISPLAY=wayland-0 wtype -d 700 -k F13 -k Escape \
+                > "$runtime/luna-shortcut-escape-wtype.log" 2>&1 &
+            escape_typer=$!
+            sleep 0.2
+            kill -0 "$escape_typer"
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 68 435 1366 768
+            wait "$escape_typer" || {
+                cat "$runtime/luna-shortcut-escape-wtype.log" >&2
+                exit 1
+            }
             sleep 0.25
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/luna-shortcut-escaped.png"
             WAYLAND_DISPLAY=wayland-0 wtype -d 120 -k F13 p
