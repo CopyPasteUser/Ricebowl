@@ -1980,10 +1980,33 @@ impl RicePlate {
             }
             Request::NewFolder => match luna_desktop_ipc::new_folder() {
                 Ok(path) => {
-                    eprintln!("RicePlate: Desktop folder created: {}", path.display());
-                    // There are not yet file-backed icon layers: open the real
-                    // new folder in XP-themed RiceField where available,
-                    // otherwise use the configured Gio file manager.
+                    // File-backed XDG icons now exist in full Luna sessions.
+                    // Prefer the live native desktop over opening a second file
+                    // manager window. Only accept an entry from the freshly
+                    // scanned, owned Desktop root; never select by recipe data.
+                    let same_desktop = self.file_desktop.as_deref()
+                        .is_some_and(|root| path.parent() == Some(root));
+                    if same_desktop {
+                        self.refresh_file_desktop(qh);
+                        let created = self.file_snapshot.as_ref().and_then(|snapshot|
+                            snapshot.entries.iter()
+                                .find(|entry| entry.kind == desktop_layout::inventory::Kind::Directory
+                                    && path.file_name() == Some(entry.key.name.as_os_str()))
+                                .map(|entry| entry.key.clone()));
+                        if let Some(key) = created.filter(|key| self.file_layers.iter().any(|layer|
+                            layer.entry.key == *key && layer.placed.is_some())) {
+                            self.file_selection.select(&key, false);
+                            for index in 0..self.file_layers.len() {
+                                self.redraw_file_icon(index);
+                            }
+                            eprintln!("RicePlate: XDG created folder selected on native desktop");
+                            return;
+                        }
+                        eprintln!("RicePlate: XDG created folder not visible; using file manager");
+                    }
+                    // Missing, disabled or saturated native Desktop: keep the
+                    // established RiceField/Gio fallback instead of pretending
+                    // the new folder is visible.
                     luna_places::open_created_folder(&path);
                 },
                 Err(error) => eprintln!("RicePlate: cannot create Desktop folder: {error}"),
