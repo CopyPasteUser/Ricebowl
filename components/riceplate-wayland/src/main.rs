@@ -8072,6 +8072,7 @@ impl PointerHandler for RicePlate {
                 let key = self.file_layers[index].entry.key.clone();
                 match event.kind {
                     PointerEventKind::Press { button: BTN_LEFT, .. } => {
+                        if self.file_drag.is_some() { self.restore_file_drag(qh); }
                         self.close_desktop_keyboard_focus();
                         self.close_desktop_context();
                         self.close_file_context();
@@ -8099,6 +8100,7 @@ impl PointerHandler for RicePlate {
                         self.file_pressed = Some(key);
                     }
                     PointerEventKind::Press { button: BTN_RIGHT, .. } => {
+                        if self.file_drag.is_some() { self.restore_file_drag(qh); }
                         self.close_desktop_keyboard_focus();
                         if let Some(snapshot) = self.file_snapshot.as_ref() {
                             self.file_selection.choose(&key,
@@ -8143,7 +8145,18 @@ impl PointerHandler for RicePlate {
                         }
                     }
                     PointerEventKind::Release { button: BTN_LEFT, .. } => {
-                        if let Some(drag) = self.file_drag.take().filter(|drag| drag.key == key) {
+                        if let Some(drag) = self.file_drag.take() {
+                            if drag.key != key {
+                                // Defensive multi-pointer/seat mismatch: an
+                                // unrelated release must never commit a drag
+                                // owned by a different real file surface.
+                                self.file_positions = drag.original_positions;
+                                self.sync_file_layers(qh);
+                                self.reflow_file_layers();
+                                self.file_pressed = None;
+                                self.file_last_click = None;
+                                continue;
+                            }
                             if drag.moved {
                                 self.file_pressed = None;
                                 self.file_last_click = None;
