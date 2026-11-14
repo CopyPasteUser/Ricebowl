@@ -15,6 +15,7 @@ import secrets
 import stat
 import struct
 import sys
+import time
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
@@ -477,8 +478,13 @@ def frame_probe(fd: int, node: int, serial: int | None = None) -> None:
     if serial is not None:
         if not 0 < serial <= 0xffffffffffffffff:
             raise RuntimeError("Invalid PipeWire target object.serial")
-        src.set_property("target-object", str(serial))
-        print(f"PORTAL_PROBE_STAGE: pipewire_target_serial={serial}",
+        # The generic CI source exposes the PipeWire node in the private
+        # server, but WirePlumber's automatic target selection can race that
+        # registration. Direct target-id connection removes that policy race.
+        # It still consumes the actual OpenPipeWireRemote FD and a real sample.
+        src.set_property("autoconnect", False)
+        src.set_property("path", str(node))
+        print(f"PORTAL_PROBE_STAGE: direct_node={node} serial={serial} autoconnect=false",
               file=sys.stderr, flush=True)
     else:
         src.set_property("path", str(node))
@@ -559,6 +565,9 @@ def run() -> None:
         try:
             if strict and env.get("RICEBOWL_PORTAL_BACKEND") == "generic":
                 print(diagnose_pipewire_node(nodes[0], serial), flush=True)
+                # Give the private PipeWire registry/port a bounded turn
+                # before the client targets it; only the hosted CI path waits.
+                time.sleep(1.0)
             print(f"PORTAL_FD_OK: {len(nodes)} ScreenCast node(s), socket FD={remote_fd}",
                   flush=True)
             if strict:

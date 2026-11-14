@@ -178,3 +178,13 @@ disposable PipeWire daemon and logs **only** the matching node and local
 video-source `id`, `object.serial`, `media.class` and truncated `node.name`.
 This does not grant permissions, change policy, create nodes or count as
 ScreenCast success; the actual GStreamer frame remains mandatory.
+
+### Direct PipeWire node targeting trial (2026-11-14)
+
+A test-only, bounded one-second registry stabilization follows the private
+`pw-dump` verification. The software capture client connects to the node
+ID returned by ScreenCast Start with `pipewiresrc autoconnect=false`,
+using **the portal-provided PipeWire FD**. It does not route through a
+second PipeWire connection or generate synthetic data. A nonempty GStreamer
+video sample remains mandatory; a direct-node connection without a sample
+still fails strict CI.
