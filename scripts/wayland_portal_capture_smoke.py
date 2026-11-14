@@ -360,7 +360,7 @@ def verify_delivered_frame(fd: int, node: int, *, timeout: int = 18) -> str:
         detail = exc.stderr or b""
         if isinstance(detail, bytes):
             detail = detail.decode("utf-8", errors="replace")
-        print("PORTAL_FRAME_TIMEOUT_DIAG: " + str(detail)[-500:],
+        print("PORTAL_FRAME_TIMEOUT_DIAG: " + str(detail)[:1200] + " ... " + str(detail)[-1200:],
               file=sys.stderr, flush=True)
         raise
     if result.returncode != 0:
@@ -389,11 +389,13 @@ def frame_probe(fd: int, node: int) -> None:
     import gi
     gi.require_version("Gst", "1.0")
     from gi.repository import Gst
+    if os.environ.get("RICEBOWL_PORTAL_BACKEND") == "generic":
+        os.environ.setdefault("GST_DEBUG", "pipewiresrc:6,pipewire:6,*:2")
     Gst.init(None)
     print("PORTAL_PROBE_STAGE: gst_initialized", file=sys.stderr, flush=True)
     pipeline = Gst.parse_launch(
-        "pipewiresrc name=remote-src ! appsink name=frame-sink "
-        "sync=false max-buffers=1 drop=true")
+        "pipewiresrc name=remote-src ! queue ! appsink name=frame-sink "
+        "sync=false async=false max-buffers=1 drop=true")
     src = pipeline.get_by_name("remote-src")
     sink = pipeline.get_by_name("frame-sink")
     if src is None or sink is None:

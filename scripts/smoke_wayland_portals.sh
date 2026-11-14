@@ -235,7 +235,7 @@ dbus-run-session -- sh -eu -c '
         echo "Portal runtime acceptance did not complete" >&2
         for log in client.log labwc.log pipewire.log painter.log generic.log; do
             if [ -f "$runtime/$log" ]; then
-                sed -n "1,55p" "$runtime/$log" >&2
+                tail -n 100 "$runtime/$log" >&2
             fi
         done
         exit 1

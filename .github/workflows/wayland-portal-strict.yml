@@ -103,6 +103,9 @@ jobs:
           path: .ci-generic-portal
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .ci-generic-portal
       - name: Install isolated software compositor and PipeWire development prerequisites
         run: |
           sudo apt-get update
