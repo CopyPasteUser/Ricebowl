@@ -309,6 +309,58 @@ pub fn refresh_after_change(
     Ok(fresh)
 }
 
+/// Complex transfers are deliberately performed *inside* RiceField after
+/// handoff. This is not a shell-executed or arbitrary file-operation API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DelegatedOperation { Move, Copy, Trash }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RiceFieldHandoff {
+    pub operation: DelegatedOperation,
+    /// Validated item names to highlight manually in RiceField; the current
+    /// RiceField CLI has no guaranteed multi-select contract.
+    pub selected_names: Vec<OsString>,
+    pub launch: LaunchPlan,
+    /// True: clicking through the file manager is still required. No mutation
+    /// has been attempted by this adapter.
+    pub manual_action_required: bool,
+}
+
+/// Builds a bounded, non-destructive handoff for selection including multiple
+/// files. The UI must not claim that Move/Copy/Trash succeeded on spawning
+/// RiceField; RiceField owns both confirmation and actual filesystem changes.
+pub fn prepare_handoff(
+    snapshot: &Snapshot,
+    desktop: &Path,
+    selected: &[&Entry],
+    operation: DelegatedOperation,
+) -> Result<RiceFieldHandoff, ActionError> {
+    if selected.is_empty() || selected.len() > inventory::MAX_VISIBLE {
+        return Err(ActionError::Disabled("Invalid file selection size"));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    let mut names = Vec::with_capacity(selected.len());
+    for entry in selected {
+        if matches!(entry.kind, Kind::DesktopFile | Kind::Symlink) {
+            return Err(ActionError::Disabled("Untrusted entry cannot be transferred"));
+        }
+        verified_path(snapshot, desktop, entry, true)?;
+        if !seen.insert(entry.key.name.clone()) {
+            return Err(ActionError::Disabled("Duplicate Desktop file selection"));
+        }
+        names.push(entry.key.name.clone());
+    }
+    // Launching RiceField only opens the Desktop. The file manager, rather
+    // than RicePlate, chooses sources/destinations and owns destructive dialogs.
+    let launch = LaunchPlan {
+        preferred: ricefield(desktop), fallback: Some(gio_open(desktop)),
+    };
+    Ok(RiceFieldHandoff {
+        operation, selected_names: names, launch,
+        manual_action_required: true,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -476,4 +528,38 @@ mod tests {
         fs::remove_file(f.0.join("item")).unwrap();
         assert!(rename(&snap, &f.0, entry, OsStr::new("renamed")).is_err());
     }
+
+    #[test]
+    fn multi_file_handoff_only_opens_the_folder_no_implicit_trash() {
+        let f = Fixture::new();
+        for name in ["a", "b"] { fs::write(f.0.join(name), b"KEEP").unwrap(); }
+        let snap = f.snap();
+        let chosen = [&snap.entries[0], &snap.entries[1]];
+        for operation in [DelegatedOperation::Move, DelegatedOperation::Copy, DelegatedOperation::Trash] {
+            let handoff = prepare_handoff(&snap, &f.0, &chosen, operation).unwrap();
+            assert!(handoff.manual_action_required);
+            assert_eq!(handoff.selected_names.len(), 2);
+            assert_eq!(handoff.launch.preferred.program, "ricefield");
+            assert_eq!(handoff.launch.fallback.as_ref().unwrap().program, "gio");
+            assert_eq!(fs::read(f.0.join("a")).unwrap(), b"KEEP");
+            assert_eq!(fs::read(f.0.join("b")).unwrap(), b"KEEP");
+        }
+        assert!(prepare_handoff(&snap, &f.0, &[], DelegatedOperation::Trash).is_err());
+        assert!(prepare_handoff(&snap, &f.0, &[chosen[0], chosen[0]],
+                                DelegatedOperation::Copy).is_err());
+        fs::remove_file(f.0.join("a")).unwrap();
+        assert!(prepare_handoff(&snap, &f.0, &chosen, DelegatedOperation::Move).is_err());
+    }
+
+    #[test]
+    fn unreadable_file_does_not_gain_a_fake_open_success() {
+        let f = Fixture::new();
+        fs::write(f.0.join("private"), b"blocked").unwrap();
+        let snap = f.snap();
+        let item = f.entry(&snap, "private");
+        fs::remove_file(f.0.join("private")).unwrap();
+        assert!(prepare_open(&snap, &f.0, item, OpenMode::Default).is_err());
+        assert!(properties(&snap, &f.0, item).is_err());
+    }
+
 }
