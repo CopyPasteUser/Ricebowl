@@ -168,8 +168,7 @@ dbus-run-session -- sh -eu -c '
     compositor=$!
     plate=
     wallpaper=
-    focus_typer=
-    shortcut_typer=
+    keyboard_keeper=
     cleanup() {
         if [ -s "$runtime/clip-action-gui.pid" ]; then
             clip_pid=$(cat "$runtime/clip-action-gui.pid" 2>/dev/null || :)
@@ -182,15 +181,9 @@ dbus-run-session -- sh -eu -c '
             kill "$wallpaper" 2>/dev/null || :
             wait "$wallpaper" 2>/dev/null || :
         fi
-        if [ -n "$focus_typer" ]; then
-            kill -CONT "$focus_typer" 2>/dev/null || :
-            kill -TERM "$focus_typer" 2>/dev/null || :
-            wait "$focus_typer" 2>/dev/null || :
-        fi
-        if [ -n "$shortcut_typer" ]; then
-            kill -CONT "$shortcut_typer" 2>/dev/null || :
-            kill -TERM "$shortcut_typer" 2>/dev/null || :
-            wait "$shortcut_typer" 2>/dev/null || :
+        if [ -n "$keyboard_keeper" ]; then
+            kill -TERM "$keyboard_keeper" 2>/dev/null || :
+            wait "$keyboard_keeper" 2>/dev/null || :
         fi
         if [ -n "$plate" ]; then
             kill "$plate" 2>/dev/null || :
@@ -216,6 +209,20 @@ dbus-run-session -- sh -eu -c '
         sed -n "1,70p" "$runtime/labwc.log" >&2
         exit 1
     fi
+    # An actual connected keyboard is persistent in a desktop session. Keep
+    # this inert, private virtual keyboard connected to headless labwc across
+    # every test. Without it, wtype disconnect/reconnect changes wl_seat
+    # capabilities and races pointer focus. F13 has no desktop side effects.
+    # Long sleep is bounded by owning this exact PID and terminating on EXIT.
+    WAYLAND_DISPLAY=wayland-0 wtype -k F13 -s 1800000 -k F13 \
+        > "$runtime/keyboard-keeper.log" 2>&1 &
+    keyboard_keeper=$!
+    sleep 0.3
+    kill -0 "$keyboard_keeper" || {
+        echo "Private persistent keyboard failed to connect" >&2
+        cat "$runtime/keyboard-keeper.log" >&2
+        exit 1
+    }
     for recipe in classic chrome "$runtime/custom.json" "$runtime/nested.json" "$runtime/shell-v4.json" "$runtime/desktop-v5.json" "$runtime/actions-v6.json" "$runtime/riceclip-actions.json" "$runtime/controls-v7.json" "$runtime/layout-v8.json" "$runtime/components-v9.json" "$runtime/desktop-actions-v9.json" "$runtime/appearance-v10.json" "$runtime/xp-luna-columns.json" "$runtime/xp-luna-default-icons.json" "$runtime/xp-luna-columns-menu" "$runtime/xp-luna-font-menu" "$runtime/xp-luna-columns-calendar" "$runtime/xp-luna-font-calendar" "$runtime/xp-luna-columns-osd" "$runtime/xp-luna-font-osd" "$runtime/xp-luna-columns-notifications" "$runtime/xp-luna-columns-notifications-scroll" "$runtime/xp-luna-font-notifications" "$runtime/xp-luna-columns-notification-detail" "$runtime/xp-luna-font-notification-detail" "$runtime/overflow-v5.json" "$runtime/desktop-v5-menu" "$runtime/sidebar-v6-menu" "$runtime/composed-v6-menu" "$runtime/desktop-v5-calendar"; do
         case "$recipe" in
             */desktop-v5-calendar) label=calendar-v5 ;;
@@ -751,33 +758,18 @@ PY
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/luna-shortcut-before-prefix.png"
             cp "$runtime/luna-shortcut-before-prefix.png" \
                 "$source_root/dist/riceplate-native-preview/luna-shortcut-before-prefix.png"
-            # Headless labwc has no physical keyboard. Connect the actual
-            # wtype virtual keyboard and observe its wl_seat capability BEFORE
-            # the native pointer gesture. A fixed sleep races labwc startup
-            # and can turn an otherwise valid focus test into NoKeyboardProxy.
-            keyboard_announcements_before=$(grep -Fc "RicePlate: XDG seat keyboard announced" \
-                "$runtime/plate-$label.log" || :)
+            # The persistent keyboard must have been announced to this
+            # RicePlate instance before the pointer initiates keyboard focus.
+            # Only the real compositor keyboard Enter authorizes typing.
+            test "$(grep -Fc "RicePlate: XDG seat keyboard announced" \
+                "$runtime/plate-$label.log" || :)" -gt 0 || {
+                echo "Persistent keyboard was not announced to native shortcuts" >&2
+                tail -n 40 "$runtime/plate-$label.log" >&2
+                exit 1
+            }
             shortcut_confirms_before=$(grep -Fc \
                 "RicePlate: compositor confirmed Luna shortcut keyboard focus" \
                 "$runtime/plate-$label.log" || :)
-            WAYLAND_DISPLAY=wayland-0 wtype -d 600 -k F13 -k F13 -k F13 p -k F13 -k F13 \
-                > "$runtime/luna-shortcut-wtype.log" 2>&1 &
-            shortcut_typer=$!
-            count=0
-            while [ "$count" -lt 30 ]; do
-                keyboard_announcements_after=$(grep -Fc "RicePlate: XDG seat keyboard announced" \
-                    "$runtime/plate-$label.log" || :)
-                test "$keyboard_announcements_after" -gt "$keyboard_announcements_before" && break
-                kill -0 "$shortcut_typer" 2>/dev/null || break
-                count=$((count + 1))
-                sleep 0.1
-            done
-            test "$keyboard_announcements_after" -gt "$keyboard_announcements_before" || {
-                echo "Native compositor never announced the real shortcut test keyboard" >&2
-                tail -n 45 "$runtime/plate-$label.log" >&2
-                exit 1
-            }
-            kill -STOP "$shortcut_typer" || exit 1
             WAYLAND_DISPLAY=wayland-0 "$clicker" 68 435 1366 768
             count=0
             while [ "$count" -lt 30 ]; do
@@ -789,17 +781,16 @@ PY
                 sleep 0.1
             done
             test "$shortcut_confirms_after" -gt "$shortcut_confirms_before" || {
-                echo "Real compositor never granted fresh Luna shortcut focus on the existing keyboard seat" >&2
+                echo "Compositor did not grant real shortcut keyboard focus" >&2
                 tail -n 50 "$runtime/plate-$label.log" >&2
                 exit 1
             }
-            kill -CONT "$shortcut_typer" || exit 1
-            wait "$shortcut_typer" || {
-                echo "Virtual keyboard failed during Luna focus check" >&2
+            WAYLAND_DISPLAY=wayland-0 wtype -d 120 p \
+                > "$runtime/luna-shortcut-wtype.log" 2>&1 || {
+                echo "Typing via connected virtual keyboard failed" >&2
                 cat "$runtime/luna-shortcut-wtype.log" >&2
                 exit 1
             }
-            shortcut_typer=
             sleep 0.35
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/luna-shortcut-after-prefix.png"
             cp "$runtime/luna-shortcut-after-prefix.png" \
@@ -842,19 +833,8 @@ PY
             shortcut_confirms_before=$(grep -Fc \
                 "RicePlate: compositor confirmed Luna shortcut keyboard focus" \
                 "$runtime/plate-$label.log" || :)
-            # The current wl_seat keyboard capability can persist across
-            # consecutive wtype clients. A new seat announcement is not
-            # required. A new compositor-confirmed focus lease and actual
-            # Escape event remain mandatory.
-            WAYLAND_DISPLAY=wayland-0 wtype -d 600 -k F13 -k F13 -k F13 -k Escape -k F13 -k F13 \
-                > "$runtime/luna-shortcut-escape-wtype.log" 2>&1 &
-            shortcut_typer=$!
-            sleep 0.25
-            kill -0 "$shortcut_typer" || {
-                echo "Virtual keyboard exited before fresh shortcut Escape gesture" >&2
-                cat "$runtime/luna-shortcut-escape-wtype.log" >&2
-                exit 1
-            }
+            # Re-enter the desktop via a genuine pointer gesture before
+            # typing Escape. No keyboard reconnection or fixed typing delay.
             WAYLAND_DISPLAY=wayland-0 "$clicker" 68 435 1366 768
             count=0
             while [ "$count" -lt 30 ]; do
@@ -870,11 +850,11 @@ PY
                 tail -n 45 "$runtime/plate-$label.log" >&2
                 exit 1
             }
-            wait "$shortcut_typer" || {
+            WAYLAND_DISPLAY=wayland-0 wtype -k Escape \
+                > "$runtime/luna-shortcut-escape-wtype.log" 2>&1 || {
                 cat "$runtime/luna-shortcut-escape-wtype.log" >&2
                 exit 1
             }
-            shortcut_typer=
             grep -Fq "RicePlate: Luna shortcut keyboard focus canceled by Escape" \
                 "$runtime/plate-$label.log" || {
                 echo "Escape never reached a compositor-confirmed shortcut focus" >&2
@@ -1691,29 +1671,12 @@ PY
     set -- $file_position
     focus_confirmations_before=$(grep -Fc "RicePlate: compositor confirmed XDG file keyboard focus" "$runtime/file-plate.log" || :)
     focus_releases_before=$(grep -Fc "RicePlate: XDG file keyboard focus released" "$runtime/file-plate.log" || :)
-    # Pause one real connected virtual keyboard AFTER its wl_seat appears.
-    # Keep that same device connected while the compositor transfers focus.
-    # Resume and type only once the external GTK window confirms focus.
-    focus_keyboards_before=$(grep -Fc "RicePlate: XDG seat keyboard announced" "$runtime/file-plate.log" || :)
-    WAYLAND_DISPLAY=wayland-0 wtype -d 400 \
-        -k F13 -k F13 -k F13 -k F13 -k F13 -k F13 \
-        ricebowl-focus-ok -k Return >"$runtime/focus-wtype.log" 2>&1 &
-    focus_typer=$!
-    count=0
-    while [ "$count" -lt 30 ]; do
-        focus_keyboards_after=$(grep -Fc "RicePlate: XDG seat keyboard announced" "$runtime/file-plate.log" || :)
-        test "$focus_keyboards_after" -gt "$focus_keyboards_before" && break
-        kill -0 "$focus_typer" 2>/dev/null || break
-        count=$((count + 1))
-        sleep 0.1
-    done
-    test "$focus_keyboards_after" -gt "$focus_keyboards_before" || {
-        echo "Real virtual keyboard seat was not announced before XDG pointer gesture" >&2
-        tail -n 40 "$runtime/file-plate.log" >&2
-        exit 1
-    }
-    kill -STOP "$focus_typer" || {
-        echo "Unable to retain keyboard connection during external client mapping" >&2
+    # Use the same long-lived keyboard seat as all earlier XDG acceptance.
+    # A new wl_seat capability announcement is NOT needed per wtype process.
+    test "$(grep -Fc "RicePlate: XDG seat keyboard announced" \
+        "$runtime/file-plate.log" || :)" -gt 0 || {
+        echo "Persistent keyboard not announced to XDG file desktop" >&2
+        tail -n 45 "$runtime/file-plate.log" >&2
         exit 1
     }
     WAYLAND_DISPLAY=wayland-0 "$clicker" "$(($1 + 52))" "$(($2 + 43))" 1366 768
@@ -1882,14 +1845,14 @@ PY
         tail -n 45 "$runtime/focus-app.log" >&2
         exit 1
     }
-    # The pointer click and real GTK focus-in precede actual typed input.
-    kill -CONT "$focus_typer" || exit 1
-    wait "$focus_typer" || {
-        echo "Virtual keyboard failed during external Wayland focus handoff" >&2
+    # A real client window AND its text-entry widget have focus. Type only
+    # now, on the already-connected compositor keyboard seat.
+    WAYLAND_DISPLAY=wayland-0 wtype -d 120 ricebowl-focus-ok -k Return \
+        > "$runtime/focus-wtype.log" 2>&1 || {
+        echo "Virtual keyboard failed during real external GTK focus" >&2
         cat "$runtime/focus-wtype.log" >&2
         exit 1
     }
-    focus_typer=
     count=0
     while [ ! -s "$runtime/focus-input.log" ] && [ "$count" -lt 30 ]; do
         count=$((count + 1))
