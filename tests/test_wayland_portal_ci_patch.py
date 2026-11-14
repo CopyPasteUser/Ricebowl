@@ -23,12 +23,23 @@ class PrivateRemotePatchTests(unittest.TestCase):
         self.assertNotIn('UnixStream::pair()', patched)
 
     def test_buffer_flag_patch_requires_exact_pinned_upstream(self):
-        original = "start pub fn queue_frame(\n" + STREAM_FLAGS + "\nfinish"
+        original = (
+            "pub fn queue_frame(\n" + STREAM_FLAGS + "\n"
+            "    stream: StreamBox<'static>,\n"
+            "        // Connect as an output (we produce frames).\n"
+            "        Ok(Self { stream, node_id })\n"
+            "    /// Get the PipeWire node ID for this stream.\n"
+        )
         result = patch_stream_buffers(original)
-        self.assertIn("StreamFlags::MAP_BUFFERS", result)
-        self.assertNotIn("StreamFlags::DRIVER", result)
+        self.assertIn("StreamFlags::MAP_BUFFERS | StreamFlags::DRIVER", result)
         self.assertNotIn("StreamFlags::ALLOC_BUFFERS", result)
-        for invalid in ("missing", STREAM_FLAGS, original + STREAM_FLAGS):
+        self.assertIn("SPA_PARAM_BUFFERS_dataType", result)
+        self.assertIn("PORTAL_CI_BUFFERS_NEGOTIATED", result)
+        self.assertIn(".param_changed(", result)
+        self.assertIn("let ci_listener", result)
+        self.assertIn("Ok(Self { ci_listener, stream, node_id })", result)
+        for invalid in ("missing", STREAM_FLAGS, original + STREAM_FLAGS,
+                        original + ".param_changed(", original.replace("queue_frame(", "enqueue(")):
             with self.subTest(source=invalid[:30]), self.assertRaises(ValueError):
                 patch_stream_buffers(invalid)
 

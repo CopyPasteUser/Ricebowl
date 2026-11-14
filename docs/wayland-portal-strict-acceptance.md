@@ -216,3 +216,16 @@ nonempty video sample was received. The test-only generic source no longer
 requests `DRIVER` mode without a corresponding process callback, and the
 GStreamer receiver requests `BGRx` raw CPU pixels with a copying buffer
 path. This does **not** relax the nonempty-video requirement.
+
+### Explicit SPA MemFd buffer negotiation (2026-11-14)
+
+The pinned upstream generic backend announces video formats but never
+handles the `SPA_PARAM_Format` callback. The client therefore does not
+send a `SPA_PARAM_Buffers` allocation proposal, resulting in empty or invalid
+memory data blocks even when the PipeWire ports are linked. A CI-only,
+version-guarded build patch now registers and owns a Rust stream listener
+throughout the stream lifetime; for a real format selection it serializes a
+single-block, eight-buffer CPU `SPA_DATA_MemFd` proposal with checked BGRx
+`width * height * 4` size and `width * 4` stride and calls
+`pw_stream_update_params`. The test continues to demand a real nonempty
+GStreamer frame and never ships the patched backend.

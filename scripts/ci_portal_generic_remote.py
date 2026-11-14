@@ -78,9 +78,54 @@ STREAM_FLAGS = "StreamFlags::MAP_BUFFERS | StreamFlags::ALLOC_BUFFERS | StreamFl
 
 
 def patch_stream_buffers(source: str) -> str:
-    if source.count(STREAM_FLAGS) != 1 or "pub fn queue_frame(" not in source:
-        raise ValueError("unsupported pinned upstream buffer allocation layout")
-    return source.replace(STREAM_FLAGS, "StreamFlags::MAP_BUFFERS")
+    """Fix pinned upstream's real PipeWire format/buffer negotiation, CI only."""
+    # Keep the source pin strict: fail if upstream already has a listener or
+    # if any insertion anchor is absent/duplicated. Never ship this patch.
+    anchors = (
+        STREAM_FLAGS,
+        "    stream: StreamBox<'static>,",
+        "        // Connect as an output (we produce frames).",
+        "        Ok(Self { stream, node_id })",
+        "    /// Get the PipeWire node ID for this stream.",
+        "pub fn queue_frame(",
+    )
+    if any(source.count(anchor) != 1 for anchor in anchors) or (
+        ".param_changed(" in source or "ci_negotiate_video_buffers" in source
+    ):
+        raise ValueError("unsupported pinned upstream video buffer layout")
+    source = source.replace(
+        STREAM_FLAGS, "StreamFlags::MAP_BUFFERS | StreamFlags::DRIVER")
+    source = source.replace(
+        "    stream: StreamBox<'static>,",
+        "    // Drop listener before the stream: it holds a callback on that stream.\n"
+        "    ci_listener: pipewire::stream::StreamListener<()>,\n"
+        "    stream: StreamBox<'static>,",
+    )
+    source = source.replace(
+        "        // Connect as an output (we produce frames).",
+        "        // The backend must acknowledge SPA_PARAM_Format with an explicit\n"
+        "        // SPA_PARAM_Buffers proposal; otherwise MemFd buffers are absent.\n"
+        "        let width = config.width;\n"
+        "        let height = config.height;\n"
+        "        let ci_listener = stream.add_local_listener::<()>()\n"
+        "            .param_changed(move |stream, _, id, param| {\n"
+        "                if id == libspa::sys::SPA_PARAM_Format && param.is_some() {\n"
+        "                    Self::ci_negotiate_video_buffers(stream, width, height);\n"
+        "                }\n"
+        "            })\n"
+        "            .register()\n"
+        "            .map_err(|e| PortalError::PipeWire(format!(\"CI buffer callback failed: {e}\")))?;\n\n"
+        "        // Connect as an output (we produce frames).",
+    )
+    source = source.replace(
+        "        Ok(Self { stream, node_id })",
+        "        Ok(Self { ci_listener, stream, node_id })",
+    )
+    source = source.replace(
+        "    /// Get the PipeWire node ID for this stream.",
+        "    /// CI-only: negotiate one actual MemFd-backed CPU video data block.\n    /// This backend's pinned upstream lacks the required param_changed event.\n    #[expect(unsafe_code, reason = \"Convert a checked SPA PodSerializer buffer to libspa Pod\")]\n    #[expect(clippy::cast_ptr_alignment, reason = \"PodSerializer produces SPA-aligned records\")]\n    fn ci_negotiate_video_buffers(stream: &pipewire::stream::Stream, width: u32, height: u32) {\n        use libspa::pod::{self, Value, serialize::PodSerializer};\n        let Some(stride) = width.checked_mul(4) else {\n            eprintln!(\"PORTAL_CI_BUFFER_FAIL: stride overflow\");\n            return;\n        };\n        let Some(size) = stride.checked_mul(height) else {\n            eprintln!(\"PORTAL_CI_BUFFER_FAIL: size overflow\");\n            return;\n        };\n        let Ok(stride) = i32::try_from(stride) else { return; };\n        let Ok(size) = i32::try_from(size) else { return; };\n        let property = |key, value| pod::Property {\n            key,\n            flags: pod::PropertyFlags::empty(),\n            value: Value::Int(value),\n        };\n        let parameter = Value::Object(pod::Object {\n            type_: libspa::sys::SPA_TYPE_OBJECT_ParamBuffers,\n            id: libspa::sys::SPA_PARAM_Buffers,\n            properties: vec![\n                property(libspa::sys::SPA_PARAM_BUFFERS_buffers, 8),\n                property(libspa::sys::SPA_PARAM_BUFFERS_blocks, 1),\n                property(libspa::sys::SPA_PARAM_BUFFERS_size, size),\n                property(libspa::sys::SPA_PARAM_BUFFERS_stride, stride),\n                property(libspa::sys::SPA_PARAM_BUFFERS_dataType,\n                         1 << libspa::sys::SPA_DATA_MemFd),\n            ],\n        });\n        let mut storage = Vec::<u8>::with_capacity(1024);\n        let Ok(_) = PodSerializer::serialize(\n            &mut std::io::Cursor::new(&mut storage), &parameter\n        ) else {\n            eprintln!(\"PORTAL_CI_BUFFER_FAIL: SPA ParamBuffers serialization failed\");\n            return;\n        };\n        // The serialized bytes live through update_params; no persistent\n        // borrowed pointers or uninitialized buffer memory escape this call.\n        let buffer = unsafe {\n            libspa::pod::Pod::from_raw(storage.as_ptr().cast::<libspa::sys::spa_pod>())\n        };\n        match stream.update_params(&mut [buffer]) {\n            Ok(()) => eprintln!(\"PORTAL_CI_BUFFERS_NEGOTIATED: {}x{} MemFd\", width, height),\n            Err(e) => eprintln!(\"PORTAL_CI_BUFFER_FAIL: update_params: {e}\"),\n        }\n    }\n\n" + "    /// Get the PipeWire node ID for this stream.",
+    )
+    return source
 
 
 def main() -> int:
