@@ -63,15 +63,30 @@ done
 runtime=$(mktemp -d /tmp/ricebowl-portals.XXXXXXXX)
 chmod 0700 "$runtime"
 cleanup() {
-    # The document portal may mount its own FUSE directory asynchronously.
-    if command -v mountpoint >/dev/null 2>&1 && mountpoint -q "$runtime/doc"; then
-        if command -v fusermount3 >/dev/null 2>&1; then
-            fusermount3 -uz "$runtime/doc" 2>/dev/null || :
-        elif command -v fusermount >/dev/null 2>&1; then
-            fusermount -uz "$runtime/doc" 2>/dev/null || :
+    # The document portal can create its private FUSE mount *after* its
+    # D-Bus owner has started shutting down. A single lazy-unmount/rm can race
+    # the late mount and silently leave behind a runtime directory.
+    case "$runtime" in /tmp/ricebowl-portals.*) ;; *)
+        echo "PORTAL_CLEANUP_FAIL: unsafe runtime path" >&2; exit 1 ;;
+    esac
+    attempt=0
+    while [ "$attempt" -lt 15 ]; do
+        if command -v mountpoint >/dev/null 2>&1 &&
+           mountpoint -q "$runtime/doc"; then
+            if command -v fusermount3 >/dev/null 2>&1; then
+                fusermount3 -uz "$runtime/doc" 2>/dev/null || :
+            elif command -v fusermount >/dev/null 2>&1; then
+                fusermount -uz "$runtime/doc" 2>/dev/null || :
+            fi
         fi
-    fi
-    rm -rf -- "$runtime" 2>/dev/null || :
+        if rm -rf -- "$runtime" 2>/dev/null && [ ! -e "$runtime" ]; then
+            return 0
+        fi
+        attempt=$((attempt + 1))
+        sleep 0.2
+    done
+    echo "PORTAL_CLEANUP_FAIL: private runtime still present after bounded FUSE retries" >&2
+    exit 1
 }
 trap cleanup EXIT
 trap 'exit 130' INT
