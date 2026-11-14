@@ -64,6 +64,12 @@ impl<S: Clone + PartialEq> SeatAssignments<S> {
         true
     }
 
+    /// The single actual keyboard proxy owner for authentic SCTK events.
+    /// Never substitute a pointer/assistive activation fallback for this.
+    pub(crate) fn keyboard_owner(&self) -> Option<&S> {
+        self.keyboard.as_ref()
+    }
+
     /// A pointer gesture can initiate a focus lease only when RicePlate owns
     /// a keyboard proxy on that SAME wl_seat. A keyboard from another seat
     /// must not be used to turn this pointer click into a keyboard grab.
@@ -150,6 +156,7 @@ mod tests {
         seats.appeared(2);
         seats.claim_pointer(1);
         seats.claim_keyboard(2);
+        assert_eq!(seats.keyboard_owner(), Some(&2));
         assert_eq!(seats.keyboard_seat_for_pointer_gesture(), None);
         seats.release_keyboard(&2);
         seats.claim_keyboard(1);
