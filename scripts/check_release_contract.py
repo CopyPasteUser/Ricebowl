@@ -84,6 +84,7 @@ def check_release(root: Path, tag: str | None) -> str:
         evidence = data["evidence"]
         if (data["status"] != "approved"
                 or not isinstance(data["device"], str) or not data["device"].strip()
+                or not isinstance(data["tested_source_commit"], str)
                 or not isinstance(data["date_utc"], str)
                 or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", data["date_utc"])
                 or not isinstance(evidence, dict)
