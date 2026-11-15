@@ -5,6 +5,23 @@ physical acceptance outstanding.** RiceBowl 0.9.x is still an XFCE/X11
 rice manager. The separate Wayland login-session package requires explicit
 installation and is not yet a finished desktop environment.
 
+### Sprint 5 shared-shell status parity (15 November 2026, CI-gated candidate)
+
+The schema-v9 shared status component vocabulary is extended with a
+read-only `bluetooth` binding for the existing BlueZ default-controller
+power readback. The same source resolves into a native panel indicator,
+desktop status widget, and Waybar's native Bluetooth module in fallback mode.
+The native verified `bluetooth-toggle` control remains a separate explicit
+action; tapping a status indicator never changes radio power, and unavailable
+controllers are labeled N/A rather than assumed off. Headless Rust parser,
+framebuffer-difference and noninteractive hit tests plus Python catalog,
+compact-layout/Waybar and unsafe binding regressions are required. A real
+labwc compositor smoke renders the opt-in quick-controls sample. Physical
+Bluetooth hardware, Orca and mixed-DPI signoff remain explicitly pending.
+
+This is one Sprint 5 component-parity increment, **not** completion of every
+RicePlate/RiceSpice/RicePop 1.0 feature gate.
+
 ### Step 4 functional desktop integration checkpoint (15 November 2026)
 
 **Scope: opt-in labwc/RicePlate Wayland desktop software, not Mint hardware or
