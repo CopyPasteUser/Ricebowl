@@ -141,9 +141,9 @@ mod tests {
         let cell = 8 * classic.font_scale;
         // Fitting a base character while cutting away its combining mark
         // would produce visibly incomplete user-facing text.
-        assert_eq!(fit_rice_text("a\\u{301}bc", cell * 2, &classic), "…");
-        assert_eq!(fit_rice_text("a\\u{301}bc", cell * 3, &classic),
-                   "a\\u{301}…");
+        assert_eq!(fit_rice_text("a\u{301}bc", cell * 2, &classic), "…");
+        assert_eq!(fit_rice_text("a\u{301}bc", cell * 3, &classic),
+                   "a\u{301}…");
         // Emoji modifiers, joined emoji and flags each form indivisible
         // extended graphemes even if their code points span many bytes.
         assert_eq!(fit_rice_text("👩‍💻 task", cell * 2, &classic), "…");
