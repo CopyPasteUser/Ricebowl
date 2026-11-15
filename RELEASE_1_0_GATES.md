@@ -135,13 +135,18 @@ human measurements**. Do not edit evidence merely to make CI green.
 ## Exact-source GitHub CI gate for release artifacts
 
 The `v1.0.0-rc.N` / `v1.0.0` source-artifact workflow now requires
-successful, completed **main-branch push** runs for all three canonical
-workflows: Tests (`ci.yml`), Native RicePlate (`riceplate-native.yml`),
-and Wayland session preview (`wayland-session.yml`). The latest matching
-run for each workflow is checked by ID, so an older success cannot hide a
-later failure. Missing, pending, cancelled, untrusted-branch or unreachable
-evidence blocks artifact assembly. Workflow identity is pinned by both name
-and file path.
+successful, completed exact-SHA **main-branch** runs for all three canonical
+workflows: Tests (`ci.yml`, requires a main `push`), Native RicePlate
+(`riceplate-native.yml`), and Wayland session preview (`wayland-session.yml`).
+The last two expensive, path-filtered workflows additionally support a
+**manual GitHub Actions workflow dispatch** at the exact main revision.
+A release engineer must deliberately run them before tagging when automatic
+path filters did not include that SHA; this avoids widening normal CI on every
+push. Only `push` or `workflow_dispatch` on `main` is trusted for those
+two workflows. The latest matching run for each workflow is checked by ID,
+so an older success cannot hide a later failure. Missing, pending, cancelled,
+untrusted-branch or unreachable evidence blocks artifact assembly. Workflow
+identity is pinned by both name and file path.
 
 A stable 1.0 tag checks the `tested_source_commit`, after the separate
 Git ancestry/sign-off gate has verified that only the sign-off JSON changed
