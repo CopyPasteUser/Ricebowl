@@ -19,6 +19,7 @@ class NativeQuickActionsTests(unittest.TestCase):
                          ("wifi-toggle", "audio-mute", "audio-up", "audio-down"))
         self.assertEqual(parsed.menu[1][2].actions,
                          ("notifications", "lock", "logout"))
+        self.assertEqual(parsed.menu[1][3].actions, ("bluetooth-toggle",))
         root = ET.fromstring(recipes.labwc_menu(parsed)).find("menu")
         self.assertEqual([group.attrib["label"] for group in root.findall("menu")],
                          ["Applications", "Session"])
