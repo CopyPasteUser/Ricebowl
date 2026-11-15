@@ -4,6 +4,7 @@
 use std::{io::Read, process::{Command, Stdio}, thread, time::{Duration, Instant}};
 
 use serde::Deserialize;
+use unicode_segmentation::UnicodeSegmentation;
 
 const MAX_RESPONSE: u64 = 512 * 1024;
 pub const VISIBLE_ROWS: usize = 3;
@@ -61,16 +62,26 @@ pub fn body_lines_with_width(body: &str, width: usize) -> Vec<String> {
     let mut lines = Vec::new();
     for paragraph in body.split('\n') {
         let mut line = String::new();
+        let mut cells = 0_usize;
         for word in paragraph.split_whitespace() {
-            let length = line.chars().count();
-            if length > 0 && length + 1 + word.chars().count() > width {
+            // A width is a bounded, logical glyph-cell count, NOT UTF-8 bytes
+            // or Unicode scalars. A joined emoji, flag or base+combining-mark
+            // sequence must never be split across notification pages.
+            let word_cells = word.graphemes(true).count();
+            if cells > 0 && cells.saturating_add(1).saturating_add(word_cells) > width {
                 lines.push(std::mem::take(&mut line));
-            } else if length > 0 { line.push(' '); }
-            for character in word.chars() {
-                if line.chars().count() == width {
+                cells = 0;
+            } else if cells > 0 {
+                line.push(' ');
+                cells += 1;
+            }
+            for grapheme in word.graphemes(true) {
+                if cells == width {
                     lines.push(std::mem::take(&mut line));
+                    cells = 0;
                 }
-                line.push(character);
+                line.push_str(grapheme);
+                cells += 1;
             }
         }
         lines.push(line);
@@ -825,6 +836,25 @@ mod tests {
         assert_eq!(state.compact_hit(15.0, 95.0, size), Some(Hit::Action(2)));
         assert_eq!(state.compact_hit(f64::NAN, 95.0, size), None);
         assert_eq!(state.compact_hit(15.0, 144.0, size), None);
+    }
+
+    #[test]
+    fn notification_wrapping_preserves_complete_graphemes_and_exact_pages() {
+        let message = "a\u{301} 👩‍💻 🇩🇪 👍🏽 끝\nNext";
+        let lines = body_lines_with_width(message, 2);
+        assert_eq!(lines, vec!["a\u{301}", "👩‍💻", "🇩🇪", "👍🏽", "끝", "Ne", "xt"]);
+        assert!(lines.iter().all(|line| line.graphemes(true).count() <= 2));
+        for cluster in ["a\u{301}", "👩‍💻", "🇩🇪", "👍🏽"] {
+            assert_eq!(lines.iter().filter(|line| line.contains(cluster)).count(), 1);
+        }
+        // No O(n^2) rescans: the 2,048-character Mako body limit remains
+        // bounded even when every input unit becomes a separate page cell.
+        let long = "👩‍💻".repeat(700);
+        let parts = body_lines_with_width(&long, 1);
+        assert_eq!(parts.len(), 700);
+        assert!(parts.iter().all(|line| line == "👩‍💻"));
+        assert_eq!(body_lines_with_width("one\n\nthree", 3),
+                   vec!["one", "", "thr", "ee"]);
     }
 
     #[test]
