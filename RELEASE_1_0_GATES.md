@@ -120,11 +120,17 @@ For Wayland DE changes, apply the [parallel integration contract](docs/de-integr
 - [ ] Measured cold start, settled PSS/RSS, idle CPU/wakeups, mixed-DPI and
   long-running memory behavior on actual devices.
 
-After those tests, add the **real device, date and traceable evidence** for
-every area to `.github/release-signoff-1.0.json`; then set `status` to
-`approved` in a reviewed commit. The check script verifies completeness, but
-cannot establish the truth of a human sign-off. Do not edit it merely to
-make CI green.
+After those tests, add the **real device, date, traceable evidence and
+`tested_source_commit`** (the 40-character Git SHA of the *hardware-tested*
+code) to `.github/release-signoff-1.0.json`; then set `status` to
+`approved` in a reviewed, sign-off-only commit. The stable-release gate
+requires that tested commit be an ancestor of the release tag and rejects
+all intervening file changes **except the sign-off JSON itself**. This avoids
+the impossible requirement for a commit to contain its own SHA and blocks
+reusing device approval after subsequent code changes. The tag workflow
+fetches the necessary Git history. Shallow source snapshots cannot certify
+stable 1.0. The gate verifies provenance and completeness, **not the truth of
+human measurements**. Do not edit evidence merely to make CI green.
 
 ## Candidate preparation
 
