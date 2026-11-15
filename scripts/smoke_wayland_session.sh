@@ -35,7 +35,7 @@ export XDG_SESSION_TYPE=wayland
 
 dbus-run-session -- sh -eu -c '
     # This marker is set *inside* a brand-new dbus-run-session, not copied
-    # from the test runner or an existing user's XFCE session.
+    # from the test runner or an existing XFCE login session.
     RICEBOWL_DE_PRIVATE_BUS=1
     export RICEBOWL_DE_PRIVATE_BUS
     project_root=$1
