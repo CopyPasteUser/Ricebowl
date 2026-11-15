@@ -17,6 +17,7 @@ names=(ricebowl-wayland-core ricebowl-wayland-session ricebowl-riceplate-native 
 architectures=(all all amd64 amd64)
 files=("$@")
 versions=()
+source_commits=()
 
 for i in "${!files[@]}"; do
     package=${files[$i]}
@@ -32,6 +33,15 @@ for i in "${!files[@]}"; do
         exit 1
     fi
     versions+=("$version")
+    # Provenance is recorded in each package. Matching version constraints
+    # do not prove packages belong to the same reviewed source revision.
+    # Exported/untracked builds deliberately fail this release-bundle gate.
+    source_commit=$(dpkg-deb -f "$package" X-RiceBowl-Source-Commit)
+    if [[ ! "$source_commit" =~ ^[0-9a-f]{40}$ ]]; then
+        echo "Missing or invalid package source commit: $package" >&2
+        exit 1
+    fi
+    source_commits+=("$source_commit")
 
     # No maintainer script may alter the login manager, XFCE or a home folder.
     dpkg-deb --ctrl-tarfile "$package" | tar -tf - > "$work/control-$i"
@@ -77,6 +87,13 @@ for i in "${!files[@]}"; do
     done < <(find "$extracted" -mindepth 1 -print0)
 done
 
+for i in 1 2 3; do
+    if [[ "${source_commits[$i]}" != "${source_commits[0]}" ]]; then
+        echo "Mixed source commits in Wayland package set: ${names[$i]}" >&2
+        exit 1
+    fi
+done
+
 depends=$(dpkg-deb -f "${files[3]}" Depends)
 if [[ "$depends" != *"ricebowl-wayland-core (= ${versions[0]})"* ]]; then
     echo "Desktop package does not pin this core version" >&2
@@ -97,8 +114,29 @@ done
 
 buildinfo="$work/package-0/usr/lib/ricebowl-wayland/BUILDINFO"
 if [[ ! -f "$buildinfo" ]] || ! grep -Fxq "version=${versions[0]}" "$buildinfo" || \
-   ! grep -Eq '^source_commit=[0-9a-f]{40}$' "$buildinfo" || \
-   ! grep -Eq '^source_date_epoch=[0-9]+$' "$buildinfo"; then
+   ! grep -Fxq "source_commit=${source_commits[0]}" "$buildinfo" || \
+   ! grep -Eq '^source_date_epoch=[0-9]+
+    echo "Core package is missing valid provenance data" >&2
+    exit 1
+fi
+for required in \
+    "$work/package-0/usr/lib/ricebowl-wayland/launcher.py" \
+    "$work/package-0/usr/lib/ricebowl-wayland/macrice/de/session.py" \
+    "$work/package-1/usr/share/wayland-sessions/ricebowl.desktop" \
+    "$work/package-2/usr/bin/riceplate-native"; do
+    if [[ ! -f "$required" ]]; then
+        echo "Missing runtime or login entry: $required" >&2
+        exit 1
+    fi
+done
+if find "$work/package-3" -type f -print -quit | grep -q .; then
+    echo "The desktop meta package must not install files" >&2
+    exit 1
+fi
+
+echo "Verified four opt-in Wayland preview packages (no host installation)."
+sha256sum -- "${files[@]}"
+ "$buildinfo"; then
     echo "Core package is missing valid provenance data" >&2
     exit 1
 fi
