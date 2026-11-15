@@ -215,7 +215,9 @@ class CreatorRuntimeParityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             target = Path(folder) / "gallery"
             target.mkdir()
-            with (mock.patch.object(gallery.os, "geteuid", return_value=1000),
+            if target.stat().st_uid == 0:
+                self.skipTest("Native gallery intentionally refuses root sessions")
+            with (mock.patch.object(gallery.os, "geteuid", return_value=target.stat().st_uid),
                   mock.patch.object(gallery.shutil, "which", return_value="/usr/bin/dbus-run-session"),
                   mock.patch.object(gallery.subprocess, "check_output",
                                     return_value="test-commit-sha\n"),
@@ -260,7 +262,9 @@ class CreatorRuntimeParityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             target = Path(folder) / "gallery"
             target.mkdir()
-            with (mock.patch.object(gallery.os, "geteuid", return_value=1000),
+            if target.stat().st_uid == 0:
+                self.skipTest("Native gallery intentionally refuses root sessions")
+            with (mock.patch.object(gallery.os, "geteuid", return_value=target.stat().st_uid),
                   mock.patch.object(gallery.shutil, "which", return_value="/usr/bin/dbus-run-session"),
                   mock.patch.object(gallery.subprocess, "check_output",
                                     return_value="test-commit-sha\n"),
