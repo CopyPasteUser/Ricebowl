@@ -1507,8 +1507,8 @@ mod tests {
         assert!(layout(&parsed, 1366, 1).iter().any(|p| p.widget == Widget::Bluetooth));
         let placed = layout(&parsed, 1366, 1).into_iter()
             .find(|p| p.widget == Widget::Bluetooth).unwrap();
-        assert_eq!(hit_test(&parsed, 1366, 1, 0,
-                            f64::from(placed.x + placed.width / 2)), None);
+        assert_eq!(hit(f64::from(placed.x + placed.width / 2),
+                       1366, 1, 0, &parsed), None);
         data["components"][3]["binding"] = serde_json::json!("bluetoothctl power on");
         assert!(parse(&data.to_string(), None).is_err());
     }
