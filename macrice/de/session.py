@@ -368,7 +368,12 @@ def _spawn_optional_process(
 
 
 class _OptionalService:
-    """One bounded crash retry; no daemon, timer or unbounded restart loop."""
+    """One bounded crash recovery, with optional alternate installed provider.
+
+    A non-polkit service retries its own command once. An exclusive polkit
+    provider transfers ownership to at most one live alternative and never
+    overlaps a still-running process or creates a restart loop.
+    """
 
     def __init__(self, name: str, command: list[str], *, env: Mapping[str, str],
                  spawn: Callable[..., subprocess.Popen[bytes]],
