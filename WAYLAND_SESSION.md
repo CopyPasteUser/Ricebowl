@@ -7,6 +7,20 @@ and its backups stay intact.
 Mint 22/Ubuntu 24.04's labwc **0.7.1** is supported by using its
 `--startup` command and requesting compositor exit when the shell finishes.
 
+## Sprint 6: bounded child teardown and recovery
+
+The opt-in Wayland supervisor cleans up only subprocesses it owns.
+A child that ignores SIGTERM receives SIGKILL after a bounded wait; a
+second bounded wait records an unresolved process without raising a
+new exception that would skip other child cleanup. Normal child exit
+races (gone before TERM/KILL) remain harmless. There is no global
+process-name kill, no root helper, and no silent assumption that an
+uninterruptible Linux task was actually reaped. Repeated shutdown and
+race regressions exercise TERM, KILL, timeout and sibling cleanup.
+
+This software cleanup path does not establish real machine power-loss,
+suspend/resume or physical display-manager acceptance.
+
 ## Step 4: opt-in session service isolation and runtime visibility
 
 The **full** separately selected RiceBowl Wayland login owns its unprivileged
