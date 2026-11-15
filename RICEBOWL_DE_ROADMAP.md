@@ -22,11 +22,13 @@ the separate 1.0 release certificate.**
   Mako bridge rather than claiming a second notification daemon.
 - The remaining opt-in **session boundary** is addressed by
   [#386](https://github.com/CopyPasteUser/Ricebowl/pull/386): a nested preview
-  shares its parent user's D-Bus and must not spawn a competing Mako, polkit
-  authentication agent or Orca. A full login alone supervises those optional
-  integrations and the mandatory idle lock guard. The live supervisor exposes
-  an owner-scoped, PII-free service health snapshot through its existing
-  read-only status endpoint (not a same-UID process guess).
+  with an **inherited** parent user's D-Bus must not spawn a competing Mako,
+  polkit authentication agent or Orca. An **explicitly isolated private**
+  nested D-Bus may run its own Mako for genuine RicePop CI acceptance, without
+  registering polkit or changing the parent's user bus. A full login owns
+  the optional user integrations and mandatory idle lock guard. The live
+  supervisor exposes an owner-scoped, PII-free service health snapshot through
+  its existing read-only status endpoint (not a same-UID process guess).
 - The session change requires exact-head Python/XFCE regression, real Wayland
   session preview and native compositor/packaging CI, followed by **new main**
   post-merge checks. Do not treat a branch or this roadmap entry as evidence
