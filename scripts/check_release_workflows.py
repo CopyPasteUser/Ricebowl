@@ -30,7 +30,7 @@ class WorkflowGateError(ValueError):
 
 
 def validate_runs(payload: object, source_sha: str) -> dict[str, int]:
-    """Choose the latest *main push* run for each required workflow."""
+    """Choose the latest verified main run for each required workflow."""
     if not isinstance(payload, dict) or not isinstance(payload.get("workflow_runs"), list):
         raise WorkflowGateError("Malformed GitHub Actions evidence")
     selected: dict[str, dict] = {}
@@ -38,9 +38,17 @@ def validate_runs(payload: object, source_sha: str) -> dict[str, int]:
         if not isinstance(run, dict):
             continue
         path = run.get("path")
-        if (path not in REQUIRED or run.get("name") != REQUIRED[path]
-                or run.get("head_sha") != source_sha or run.get("event") != "push"
+        if (not isinstance(path, str) or path not in REQUIRED
+                or run.get("name") != REQUIRED[path]
+                or run.get("head_sha") != source_sha
                 or run.get("head_branch") != "main"):
+            continue
+        # Tests always runs on main pushes; the two path-filtered, costly
+        # Wayland lanes may instead be dispatched explicitly on the exact
+        # main source SHA before cutting a release candidate.
+        allowed_events = (("push",) if path == ".github/workflows/ci.yml"
+                          else ("push", "workflow_dispatch"))
+        if run.get("event") not in allowed_events:
             continue
         run_id = run.get("id")
         if not isinstance(run_id, int) or isinstance(run_id, bool):
@@ -75,7 +83,7 @@ def fetch_evidence(repository: str, sha: str, token: str) -> object:
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository) or not token:
         raise WorkflowGateError("Missing trusted GitHub repository/token context")
     url = (f"https://api.github.com/repos/{repository}/actions/runs?"
-           + urllib.parse.urlencode({"head_sha": sha, "event": "push", "per_page": 100}))
+           + urllib.parse.urlencode({"head_sha": sha, "per_page": 100}))
     request = urllib.request.Request(url, headers={
         "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github+json",
