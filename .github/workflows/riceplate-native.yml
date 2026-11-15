@@ -1,6 +1,7 @@
 name: Native RicePlate prototype
 
 on:
+  workflow_dispatch:
   push:
     paths:
       - '.github/workflows/riceplate-native.yml'
