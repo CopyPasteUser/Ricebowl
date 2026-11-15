@@ -285,10 +285,24 @@ fn blend_pixel(canvas: &mut [u8], index: usize, r: u8, g: u8, b: u8, a: u8) {
 
 pub fn paint_icon(canvas: &mut [u8], canvas_width: u32,
                   asset: &IconPixels, at_x: u32, at_y: u32) {
-    for row in 0..48_u32 {
-        for col in 0..48_u32 {
-            let src = ((row * 48 + col) * 4) as usize;
-            let dst = (((at_y + row) * canvas_width + at_x + col) * 4) as usize;
+    // Native desktop icons can temporarily cross an output edge while a
+    // pointer drag, hotplug or compositor resize is being resolved. The
+    // texture must clip to the *actual* buffer, not panic the whole shell.
+    // The canvas height is derived from the byte slice; callers cannot
+    // accidentally pass an untrusted larger geometry here.
+    let stride = canvas_width as usize;
+    if stride == 0 || asset.0.len() != 48 * 48 * 4 {
+        return;
+    }
+    let rows = canvas.len() / 4 / stride;
+    for row in 0..48_usize {
+        let Some(dst_y) = (at_y as usize).checked_add(row) else { continue; };
+        if dst_y >= rows { continue; }
+        for col in 0..48_usize {
+            let Some(dst_x) = (at_x as usize).checked_add(col) else { continue; };
+            if dst_x >= stride { continue; }
+            let src = (row * 48 + col) * 4;
+            let dst = (dst_y * stride + dst_x) * 4;
             blend_pixel(canvas, dst, asset.0[src], asset.0[src + 1],
                         asset.0[src + 2], asset.0[src + 3]);
         }
@@ -660,6 +674,28 @@ mod tests {
         assert!(cache.glyphs.contains_key(&(FontFace::Primary, '\u{393}')));
         assert!(cache.glyphs.contains_key(&(FontFace::Primary, '\u{3b5}')));
         assert!(canvas.chunks_exact(4).any(|pixel| pixel[3] != 0));
+    }
+
+    #[test]
+    fn partially_visible_icons_are_clipped_safely_on_small_hotplug_outputs() {
+        let opaque = IconPixels(vec![255_u8; 48 * 48 * 4]);
+        let mut buffer = vec![0_u8; 24 * 16 * 4];
+        paint_icon(&mut buffer, 24, &opaque, 20, 14);
+        let changed = buffer.chunks_exact(4).filter(|pixel| pixel[3] > 0).count();
+        assert_eq!(changed, 4 * 2, "Only the visible clipped 4x2 icon corner");
+        let before = buffer.clone();
+        // Maximal or stale dragged coordinates are harmless, not u32
+        // overflow or an out-of-bounds panic during compositor reconfigure.
+        paint_icon(&mut buffer, 24, &opaque, u32::MAX, u32::MAX);
+        paint_icon(&mut buffer, 24, &opaque, 500, 500);
+        assert_eq!(buffer, before);
+        // Malformed buffers/assets must never expose an unchecked pixel read.
+        paint_icon(&mut buffer, 0, &opaque, 0, 0);
+        paint_icon(&mut buffer, 24, &IconPixels(vec![255; 3]), 0, 0);
+        assert_eq!(buffer, before);
+        let mut tiny = vec![0_u8; 4]; // one 1x1 pixel
+        paint_icon(&mut tiny, 1, &opaque, 0, 0);
+        assert_eq!(tiny, vec![255, 255, 255, 255]);
     }
 
     #[test]

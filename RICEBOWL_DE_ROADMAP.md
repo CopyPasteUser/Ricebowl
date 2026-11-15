@@ -21,6 +21,29 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
+### Shared software mega-sprint – SG1/SG3/SG4/SG5 correctness slice (15 November 2026)
+
+- **SG1 / native desktop stability:** Owner-private 48px icon paints clip to
+  the actual pixel buffer rather than indexing beyond a short, hotplugged or
+  partially offscreen output; malformed bitmap buffers and u32-max drag
+  coordinates cannot crash native RicePlate.
+- **SG3 + SG5 / Unicode:** Native bitmap label layout now measures and paints
+  exactly one fallback cell per extended grapheme, with unchanged single-scalar
+  Latin/Greek/Hiragana sprites. RicePop's body wrapping and paging run in a
+  bounded linear pass over grapheme clusters and do not split combining marks,
+  flags, modifiers or ZWJ sequences.
+- **SG4 + SG6 / Creator evidence:** The two-rice native gallery uses an
+  owner-scoped staging directory on the destination filesystem and publishes
+  PNGs with collision-safe hardlinks, the manifest last. Any failed native
+  render, format/geometry/IDAT validation or atomic publication rejects the
+  whole result without leaving an incomplete gallery. Focused tests exercise
+  successful full-matrix publication and second-render failure rollback.
+- These are **shared software regressions**, not completion of SG1–SG7.
+  Multi-script shaping and RTL, IME composition, full interactive two-rice
+  acceptance, comprehensive settings/notification feature parity and signed
+  final 1.0 packaging remain open. Require exact-head Tests and Native CI,
+  followed by post-merge `main` CI before calling this slice accepted.
+
 ### Sprint 9+ – Native Creator capture decode gate (15 November 2026; CI candidate)
 
 The isolated two-rice Creator handoff now checks both valid PNG chunk CRCs

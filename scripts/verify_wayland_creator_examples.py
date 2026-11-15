@@ -39,8 +39,10 @@ def build_gallery(destination: Path, *, names: tuple[str, ...] = NAMES) -> dict[
     """Write only new artifacts; callers own and create a private output dir."""
     if not names or len(set(names)) != len(names) or any(name not in SCHEMAS for name in names):
         raise ValueError("Gallery needs distinct known validated recipes")
-    if not destination.is_absolute() or not destination.is_dir() or any(destination.iterdir()):
-        raise ValueError("Gallery destination must be an empty absolute directory")
+    if (not destination.is_absolute() or destination.is_symlink()
+            or not destination.is_dir() or destination.stat().st_uid != os.geteuid()
+            or any(destination.iterdir())):
+        raise ValueError("Gallery destination must be an empty, owned absolute directory")
     if os.geteuid() == 0:
         raise ValueError("Do not launch a headless compositor as root")
     if not shutil.which("dbus-run-session"):
@@ -55,8 +57,14 @@ def build_gallery(destination: Path, *, names: tuple[str, ...] = NAMES) -> dict[
         "captures": [],
     }
     hashes_by_size: dict[tuple[int, int, float], set[str]] = {}
-    with tempfile.TemporaryDirectory(prefix="ricebowl-gallery-private-") as temp:
+    # Stage captures on the SAME filesystem as the user's target. A failed
+    # compositor/render/geometry check must not publish a half-complete gallery.
+    # Use hardlink no-replace publication; never overwrite existing captures.
+    with tempfile.TemporaryDirectory(prefix="ricebowl-gallery-private-") as temp, \
+         tempfile.TemporaryDirectory(prefix=".ricebowl-gallery-stage-",
+                                     dir=destination) as stage_dir:
         temporary = Path(temp)
+        stage = Path(stage_dir)
         for name in names:
             source = EXAMPLES / f"{name}.json"
             payload = source.read_bytes()
@@ -69,7 +77,7 @@ def build_gallery(destination: Path, *, names: tuple[str, ...] = NAMES) -> dict[
             semantic_hash = review._semantic_hash(review._manifest(parsed))
             for width, height, scale in SIZES:
                 suffix = f"{width}x{height}-scale-{str(scale).replace('.', '-')}"
-                screenshot = destination / f"{name}-{suffix}.png"
+                screenshot = stage / f"{name}-{suffix}.png"
                 command = [
                     "dbus-run-session", "--", "/usr/bin/python3",
                     str(ROOT / "launcher.py"), "de", "render",
@@ -88,6 +96,10 @@ def build_gallery(destination: Path, *, names: tuple[str, ...] = NAMES) -> dict[
                     if image.format != "PNG" or image.size != (width, height):
                         raise ValueError("Native screenshot has wrong format or dimensions")
                     image.verify()
+                # CRC/IEND checks cannot validate compressed IDAT pixels.
+                # Re-open and decode the full raster before publishing bytes.
+                with Image.open(screenshot) as image:
+                    image.load()
                 contents = screenshot.read_bytes()
                 digest = hashlib.sha256(contents).hexdigest()
                 if receipt["render"]["output"]["sha256"] != digest:
@@ -109,11 +121,26 @@ def build_gallery(destination: Path, *, names: tuple[str, ...] = NAMES) -> dict[
                                 for item in diagnostics["regions"]],
                     "layout_issues": [],
                 })
-    if len(manifest["captures"]) != len(names) * len(SIZES) or any(
-            len(digests) != len(names) for digests in hashes_by_size.values()):
-        raise ValueError("Distinct rice previews were not captured at every size")
-    destination.joinpath("manifest.json").write_text(
-        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        if len(manifest["captures"]) != len(names) * len(SIZES) or any(
+                len(digests) != len(names) for digests in hashes_by_size.values()):
+            raise ValueError("Distinct rice previews were not captured at every size")
+        (stage / "manifest.json").write_text(
+            json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        published: list[Path] = []
+        try:
+            # The receipt is the last file to become visible. os.link() is
+            # atomic and rejects collisions; a regular copy could overwrite
+            # an independent file created while the native render was running.
+            for source in sorted(stage.glob("*.png")) + [stage / "manifest.json"]:
+                target = destination / source.name
+                os.link(source, target)
+                published.append(target)
+        except OSError:
+            # Roll back only paths published by this invocation; never delete
+            # another process's pre-existing files or change login selection.
+            for target in reversed(published):
+                target.unlink(missing_ok=True)
+            raise
     return manifest
 
 

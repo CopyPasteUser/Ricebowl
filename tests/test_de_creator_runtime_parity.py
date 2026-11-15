@@ -1,7 +1,9 @@
 """Creator -> validated recipe -> declared native contract, without activation."""
 
 import json
+import hashlib
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -187,6 +189,93 @@ class CreatorRuntimeParityTests(unittest.TestCase):
                 self.assertFalse(config.exists())
                 start.assert_not_called()
                 select.assert_not_called()
+
+    @unittest.skipIf(Image is None, "Pillow is not installed")
+    def test_creator_gallery_publishes_only_complete_verified_matrix(self):
+        from scripts import verify_wayland_creator_examples as gallery
+
+        def fake_run(command, **_kwargs):
+            source = Path(command[command.index("--recipe") + 1])
+            screenshot = Path(command[command.index("--output") + 1])
+            width = int(command[command.index("--width") + 1])
+            height = int(command[command.index("--height") + 1])
+            recipe = recipes.parse(source.read_bytes())
+            color = (25, 82, 152) if recipe.recipe_id.startswith("heritage") else (35, 163, 90)
+            Image.new("RGB", (width, height), color).save(screenshot)
+            return type("Result", (), {"stdout": json.dumps({
+                "ok": True, "creator_contract_version": 1,
+                "render": {
+                    "recipe": {"semantic_sha256":
+                        review._semantic_hash(review._manifest(recipe))},
+                    "source": "isolated-headless-labwc-native-riceplate",
+                    "output": {"sha256": hashlib.sha256(screenshot.read_bytes()).hexdigest()},
+                },
+            })})()
+
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / "gallery"
+            target.mkdir()
+            if target.stat().st_uid == 0:
+                self.skipTest("Native gallery intentionally refuses root sessions")
+            with (mock.patch.object(gallery.os, "geteuid", return_value=target.stat().st_uid),
+                  mock.patch.object(gallery.shutil, "which", return_value="/usr/bin/dbus-run-session"),
+                  mock.patch.object(gallery.subprocess, "check_output",
+                                    return_value="test-commit-sha\n"),
+                  mock.patch.object(gallery.subprocess, "run", side_effect=fake_run),
+                  mock.patch.object(gallery, "compare",
+                                    return_value={"layout_issues": [], "regions": []})):
+                result = gallery.build_gallery(target, names=gallery.COMPOSERS)
+            self.assertEqual(len(result["captures"]), 2 * len(gallery.SIZES))
+            self.assertEqual(len(list(target.glob("*.png"))), 2 * len(gallery.SIZES))
+            self.assertEqual(result["source_commit"], "test-commit-sha")
+            self.assertEqual(json.loads((target / "manifest.json").read_text()), result)
+            self.assertFalse(any(name.name.startswith(".ricebowl-gallery-stage")
+                                 for name in target.iterdir()))
+
+    @unittest.skipIf(Image is None, "Pillow is not installed")
+    def test_failed_creator_render_never_publishes_partial_gallery(self):
+        from scripts import verify_wayland_creator_examples as gallery
+
+        calls = 0
+
+        def fake_run(command, **_kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise subprocess.CalledProcessError(7, command)
+            source = Path(command[command.index("--recipe") + 1])
+            screenshot = Path(command[command.index("--output") + 1])
+            width = int(command[command.index("--width") + 1])
+            height = int(command[command.index("--height") + 1])
+            recipe = recipes.parse(source.read_bytes())
+            Image.new("RGB", (width, height), "#123456").save(screenshot)
+            return type("Result", (), {"stdout": json.dumps({
+                "ok": True, "creator_contract_version": 1,
+                "render": {
+                    "recipe": {"semantic_sha256":
+                        review._semantic_hash(review._manifest(recipe))},
+                    "source": "isolated-headless-labwc-native-riceplate",
+                    "output": {"sha256": hashlib.sha256(screenshot.read_bytes()).hexdigest()},
+                },
+            })})()
+
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / "gallery"
+            target.mkdir()
+            if target.stat().st_uid == 0:
+                self.skipTest("Native gallery intentionally refuses root sessions")
+            with (mock.patch.object(gallery.os, "geteuid", return_value=target.stat().st_uid),
+                  mock.patch.object(gallery.shutil, "which", return_value="/usr/bin/dbus-run-session"),
+                  mock.patch.object(gallery.subprocess, "check_output",
+                                    return_value="test-commit-sha\n"),
+                  mock.patch.object(gallery.subprocess, "run", side_effect=fake_run),
+                  mock.patch.object(gallery, "compare",
+                                    return_value={"layout_issues": [], "regions": []})):
+                with self.assertRaises(subprocess.CalledProcessError):
+                    gallery.build_gallery(target, names=gallery.COMPOSERS)
+            self.assertEqual(list(target.iterdir()), [],
+                             "A failed second render must leave no partially published PNGs")
+            self.assertEqual(calls, 2)
 
     def test_native_gallery_composer_selection_is_opt_in_and_allowlisted(self):
         from scripts import verify_wayland_creator_examples as gallery
