@@ -89,7 +89,13 @@ impl ControlAction {
         match self {
             Self::WifiToggle => before.wifi != after.wifi,
             Self::BluetoothToggle => before.bluetooth != after.bluetooth,
-            Self::AudioMute => before.audio != after.audio,
+            // A successful mute command must actually toggle the mute bit.
+            // A concurrent volume adjustment is not evidence that the mute
+            // request took effect, even if the command exited successfully.
+            Self::AudioMute => matches!(
+                (&before.audio, &after.audio),
+                (Audio::Muted, Audio::Volume(_)) | (Audio::Volume(_), Audio::Muted)
+            ),
             Self::AudioUp | Self::AudioDown => match (&before.audio, &after.audio) {
                 (Audio::Volume(first), Audio::Volume(second)) =>
                     if self == Self::AudioUp { second > first } else { second < first },
@@ -404,6 +410,21 @@ mod tests {
         assert!(ControlAction::AudioMute.verified(&before, &after, true));
         assert!(!ControlAction::AudioUp.verified(&before, &after, true));
         assert_eq!(ControlAction::AudioMute.state_label(&after), "Muted");
+        assert!(!ControlAction::AudioMute.verified(
+            &SystemStatus { audio: Audio::Volume(40), ..before.clone() },
+            &SystemStatus { audio: Audio::Volume(55), ..after.clone() }, true),
+            "a concurrent volume-only change must never confirm a mute");
+        assert!(!ControlAction::AudioMute.verified(
+            &SystemStatus { audio: Audio::Volume(40), ..before.clone() },
+            &SystemStatus { audio: Audio::Volume(40), ..after.clone() }, true));
+        assert!(ControlAction::AudioMute.verified(
+            &SystemStatus { audio: Audio::Muted, ..before.clone() },
+            &SystemStatus { audio: Audio::Volume(40), ..after.clone() }, true),
+            "unmute must be accepted when a real sink becomes audible");
+        assert!(!ControlAction::AudioMute.verified(
+            &SystemStatus { audio: Audio::Muted, ..before.clone() },
+            &SystemStatus { audio: Audio::Muted, ..after.clone() }, true),
+            "two muted readings must not confirm a change");
     }
 
     #[test]
