@@ -2809,10 +2809,12 @@ impl RicePlate {
                             else { self.menu_state.first_action_row_for(rows) };
                 for (index, action) in menu_actions.into_iter().enumerate()
                     .skip(first).take(rows) {
-                    let enabled = action != "logout" || logout_available();
+                    let (label, enabled) = ControlFeedback::menu_accessibility(
+                        action, &self.menu_state.label(action), &self.system_status,
+                        self.control_pending, self.control_result,
+                        self.control_sender.is_some(), logout_available());
                     model.add(20_500 + index as u64, 20_000, AccessibleRole::Button,
-                              self.menu_state.label(action),
-                              enabled.then(|| Target::MenuAction(action.to_string())));
+                              label, enabled.then(|| Target::MenuAction(action.to_string())));
                 }
                 model.add(20_980, 20_000, AccessibleRole::Label,
                           self.menu_state.accessible_summary(menu, rows),
