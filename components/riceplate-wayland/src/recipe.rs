@@ -46,6 +46,7 @@ pub enum DesktopWidgetKind {
     Network,
     Audio,
     Battery,
+    Bluetooth,
     Text(String),
     Action(String),
 }
@@ -143,6 +144,7 @@ pub enum Widget {
     Battery,
     Network,
     Audio,
+    Bluetooth,
     Tray,
     Gap(u32),
     Divider(u32),
@@ -505,7 +507,7 @@ fn validate_components(input: Vec<ComponentInput>) -> Result<Vec<ComponentInput>
     for item in &input {
         let bytes = item.id.as_bytes();
         let allowed = match item.role.as_str() {
-            "status" => ["clock", "network", "audio", "battery"]
+            "status" => ["clock", "network", "audio", "battery", "bluetooth"]
                 .contains(&item.binding.as_str()),
             "action" => ["applications", "terminal", "settings", "lock",
                          "clip-history", "wifi-toggle", "bluetooth-toggle", "audio-mute", "audio-up", "audio-down"]
@@ -560,6 +562,7 @@ fn validate_composition(
                     "network" => DesktopWidgetKind::Network,
                     "audio" => DesktopWidgetKind::Audio,
                     "battery" => DesktopWidgetKind::Battery,
+                    "bluetooth" => DesktopWidgetKind::Bluetooth,
                     _ => return Err("Unknown desktop component status".into()),
                 }
                 } else { return Err("Unknown desktop component role".into()); }
@@ -728,6 +731,7 @@ fn expand_layout(
                 "battery" => rendered.push(Widget::Battery),
                 "network" => rendered.push(Widget::Network),
                 "audio" => rendered.push(Widget::Audio),
+                "bluetooth" => rendered.push(Widget::Bluetooth),
                 // Known but unsupported native controls remain Waybar-only.
                 "tray" => rendered.push(Widget::Tray),
                 _ => return Err("Unsupported panel widget or action".into()),
@@ -868,6 +872,7 @@ pub fn parse(raw: &str, expected_id: Option<&str>) -> Result<PanelStyle, Box<dyn
                         "battery" => sections[index].push(Widget::Battery),
                         "network" => sections[index].push(Widget::Network),
                         "audio" => sections[index].push(Widget::Audio),
+                        "bluetooth" => sections[index].push(Widget::Bluetooth),
                         "tray" => sections[index].push(Widget::Tray),
                         _ => return Err("Unsupported RicePlate widget or action".into()),
                     }
@@ -1140,7 +1145,7 @@ fn width_for(style: &PanelStyle, widget: Widget, tasks: usize) -> u32 {
         // whereas the other recipes intentionally retain readable labels.
         Widget::Network | Widget::Audio if style.id == "xp-luna-columns" => 28,
         Widget::Battery if style.id == "xp-luna-columns" => 70,
-        Widget::Battery | Widget::Network | Widget::Audio => 64 * style.font_scale,
+        Widget::Battery | Widget::Network | Widget::Audio | Widget::Bluetooth => 64 * style.font_scale,
         Widget::Tray => crate::tray::WIDTH,
         Widget::Tasks => tasks as u32 * style.widths[1],
         Widget::Gap(width) => width,
@@ -1178,7 +1183,7 @@ pub fn layout(style: &PanelStyle, screen_width: u32, tasks: usize) -> Vec<Placed
     let section_gaps: u32 = sections.iter().map(|section|
         section.len().saturating_sub(1) as u32 * style.item_spacing).sum();
     let fixed_width = fixed_width.saturating_add(section_gaps);
-    let optional = [Widget::Battery, Widget::Audio, Widget::Network];
+    let optional = [Widget::Battery, Widget::Audio, Widget::Network, Widget::Bluetooth];
     let enabled = optional.map(|widget| sections.iter().flatten().any(|&w| w == widget));
     // Subtract the *actual* recipe-specific widths. XP Luna uses 28px
     // status glyphs, not the 64px text indicators of other rices.
@@ -1191,7 +1196,7 @@ pub fn layout(style: &PanelStyle, screen_width: u32, tasks: usize) -> Vec<Placed
     let mut effective_fixed = without_status.saturating_sub(
         if show_clock || !has_clock { 0 } else { width_for(style, Widget::Clock, 0) });
     let baseline_slots = screen_width.saturating_sub(effective_fixed + 8) / style.widths[1];
-    let mut show_status = [false; 3];
+    let mut show_status = [false; 4];
     // Preserve task capacity, adding lower-priority read-only indicators only
     // when the next one does not cost an existing visible task group.
     for (index, present) in enabled.into_iter().enumerate() {
@@ -1327,7 +1332,7 @@ pub fn hit(
                 f64::from(crate::tray::SLOT_WIDTH)) as usize)),
             Widget::Battery | Widget::Network | Widget::Audio
                 if style.id == "xp-luna-columns" => Some(Hit::Status(item.widget)),
-            Widget::Battery | Widget::Network | Widget::Audio => None,
+            Widget::Battery | Widget::Network | Widget::Audio | Widget::Bluetooth => None,
             Widget::Gap(_) | Widget::Divider(_) | Widget::Label(_) => None,
         };
     }
