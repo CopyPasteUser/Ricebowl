@@ -279,10 +279,19 @@ pub fn paint_icon(canvas: &mut [u8], canvas_width: u32,
 }
 
 impl FontSprites {
-    fn display_letter(&self, letter: char) -> char {
-        // Keep painted glyph, advance and kern pairs in sync for fonts with
-        // incomplete Unicode cmaps. No system-wide fallback font is invented.
-        if self.font.lookup_glyph_index(letter) == 0 { '?' } else { letter }
+    fn displayed_letters<'a>(&'a self, text: &'a str) -> impl Iterator<Item = char> + 'a {
+        use unicode_segmentation::UnicodeSegmentation;
+        // A user-perceived character may consist of multiple Unicode
+        // scalars (combining marks, flags, ZWJ emoji). If the selected
+        // face cannot draw the *entire* grapheme, paint exactly one visible
+        // replacement for it. Measurement, clipping and painting share this
+        // allocation-free mapping; it is not an OpenType shaper.
+        text.graphemes(true).flat_map(move |grapheme| {
+            let missing = grapheme.chars().any(|letter|
+                !letter.is_control() && self.font.lookup_glyph_index(letter) == 0);
+            std::iter::once(missing.then_some('?')).flatten().chain(
+                grapheme.chars().filter(move |letter| !missing && !letter.is_control()))
+        })
     }
 
     fn proportional_advance(&self, text: &str) -> f32 {
@@ -291,8 +300,7 @@ impl FontSprites {
         // This is not complex-script shaping; that remains a separate gate.
         let mut width = 0.0_f32;
         let mut previous = None;
-        for letter in text.chars().filter(|letter| !letter.is_control()) {
-            let letter = self.display_letter(letter);
+        for letter in self.displayed_letters(text) {
             if let Some(left) = previous {
                 width += self.font.horizontal_kern(left, letter, self.size).unwrap_or(0.0);
             }
@@ -313,7 +321,7 @@ impl FontSprites {
             let mut length = 0_usize;
             let mut cells = 0_u32;
             for (offset, cluster) in label.grapheme_indices(true) {
-                cells = cells.saturating_add(u32::try_from(cluster.chars().count())
+                cells = cells.saturating_add(u32::try_from(self.displayed_letters(cluster).count())
                     .unwrap_or(u32::MAX));
                 if cells.saturating_mul(self.cell) > budget {
                     break;
@@ -329,8 +337,7 @@ impl FontSprites {
         let mut previous: Option<char> = None;
         let mut best_end = 0_usize;
         for (offset, cluster) in label.grapheme_indices(true) {
-            for letter in cluster.chars().filter(|letter| !letter.is_control()) {
-                let letter = self.display_letter(letter);
+            for letter in self.displayed_letters(cluster) {
                 if let Some(left) = previous {
                     width += self.font.horizontal_kern(left, letter, self.size).unwrap_or(0.0);
                 }
@@ -349,7 +356,8 @@ impl FontSprites {
 
     pub fn measure_text(&self, text: &str) -> u32 {
         if !self.proportional {
-            return (text.chars().count() as u32).saturating_mul(self.cell);
+            return u32::try_from(self.displayed_letters(text).count())
+                .unwrap_or(u32::MAX).saturating_mul(self.cell);
         }
         self.proportional_advance(text).ceil() as u32
     }
@@ -361,9 +369,7 @@ impl FontSprites {
         let mut cache = self.cache.lock().unwrap_or_else(|poison| poison.into_inner());
         let mut cursor = x as f32;
         let mut previous = None;
-        for (offset, letter) in text.chars().enumerate() {
-            if letter.is_control() { continue; }
-            let letter = self.display_letter(letter);
+        for (offset, letter) in self.displayed_letters(text).enumerate() {
             if self.proportional {
                 if let Some(left) = previous {
                     cursor += self.font.horizontal_kern(left, letter, self.size)
@@ -473,6 +479,27 @@ mod tests {
         font.draw(&mut expected, 180, 32, 4, 4, "A?V", 0xffff_ffff, false);
         assert_eq!(actual, expected);
         assert!(actual.iter().any(|byte| *byte != 0));
+    }
+
+    #[test]
+    fn missing_multi_scalar_graphemes_paint_one_replacement_each() {
+        let selection = ArtworkSelection { font: Some("builtin-luna-ui".into()),
+                                           icons: [None, None, None] };
+        let font = load(&selection, 1).unwrap().font.unwrap();
+        for cluster in ["👩‍💻", "🇩🇪", "👍🏽"] {
+            assert!(cluster.chars().any(|ch| font.font.lookup_glyph_index(ch) == 0));
+            assert_eq!(font.displayed_letters(cluster).collect::<String>(), "?");
+            assert_eq!(font.measure_text(cluster), font.measure_text("?"));
+            let original = format!("A{cluster}V");
+            let mut actual = vec![0_u8; 160 * 32 * 4];
+            let mut expected = actual.clone();
+            font.draw(&mut actual, 160, 32, 4, 4, &original, 0xffff_ffff, false);
+            font.draw(&mut expected, 160, 32, 4, 4, "A?V", 0xffff_ffff, false);
+            assert_eq!(actual, expected, "cluster: {cluster}");
+        }
+        assert_eq!(font.displayed_letters("🇩🇪👩‍💻").collect::<String>(), "??");
+        assert_eq!(font.displayed_letters("AV").collect::<String>(), "AV");
+        assert_eq!(font.displayed_letters("A\nV").collect::<String>(), "AV");
     }
 
     #[test]
