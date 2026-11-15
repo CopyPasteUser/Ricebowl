@@ -5,6 +5,18 @@ physical acceptance outstanding.** RiceBowl 0.9.x is still an XFCE/X11
 rice manager. The separate Wayland login-session package requires explicit
 installation and is not yet a finished desktop environment.
 
+### Sprint 8 native TrueType missing-glyph consistency (15 November 2026; pending CI)
+
+The native font rasterizer now resolves unmapped Unicode codepoints to
+the **same visible '?' glyph for advance, kerning and painting**. Its eager
+ASCII/Latin cache no longer preloads a font's missing-glyph `.notdef` raster
+as though it were a supported character. A regression verifies actual painted
+pixels and measured width against the fallback for a valid missing Unicode
+noncharacter. This improves honest unavailable-glyph behavior without a new
+font worker, host font changes or extra dependencies. It is **not** a complete
+font fallback stack, bidirectional layout or OpenType shaping implementation;
+native CI and real-device script coverage remain separately required.
+
 ### Sprint 8 native proportional label fit (15 November 2026; pending CI)
 
 Native text fitting now considers the **whole grapheme prefix together with
