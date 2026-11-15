@@ -3801,6 +3801,13 @@ impl RicePlate {
             self.notification_state.set_compact_viewport(
                 native_menu::compact_layout(size).then_some(size));
         }
+        // The renderer and AT-SPI model consume one verified owner-worker snapshot.
+        let controls = Some(MenuControlVisual {
+            status: &self.system_status,
+            pending: self.control_pending,
+            result: self.control_result,
+            worker_ready: self.control_sender.is_some(),
+        });
         let layer = self.menu_layer.as_mut().filter(|menu|
             menu.surface.wl_surface() == active)
             .or_else(|| self.menu_mirrors.iter_mut().find(|menu|
@@ -3831,12 +3838,13 @@ impl RicePlate {
             // Keep the bitmap font at its native pixel size on rotated/small
             // outputs; actions and optional composed sections become a paged
             // list rather than shrinking into unreadable miniature tiles.
-            paint_compact_menu(canvas, menu, &self.recipe, &self.menu_state, layer.size);
+            paint_compact_menu_state(canvas, menu, &self.recipe, &self.menu_state,
+                                     layer.size, controls);
         } else if layer.size == (native_menu::WIDTH, native_menu::HEIGHT) {
             if self.notification_state.open {
                 paint_notifications(canvas, &self.recipe, &self.notification_state);
             } else {
-                paint_menu(canvas, menu, &self.recipe, &self.menu_state);
+                paint_menu_state(canvas, menu, &self.recipe, &self.menu_state, controls);
             }
         } else {
             // The menu and RicePop detail states share a 320×304 logical hit
@@ -3847,7 +3855,7 @@ impl RicePlate {
             if self.notification_state.open {
                 paint_notifications(&mut original, &self.recipe, &self.notification_state);
             } else {
-                paint_menu(&mut original, menu, &self.recipe, &self.menu_state);
+                paint_menu_state(&mut original, menu, &self.recipe, &self.menu_state, controls);
             }
             if self.recipe.id == "xp-luna-columns" && !self.notification_state.open
                 && layer.size.0 > native_menu::WIDTH && layer.size.1 > native_menu::HEIGHT {
@@ -5489,8 +5497,43 @@ fn paint_menu_header_controls(canvas: &mut [u8], size: (u32, u32),
     }
 }
 
+#[derive(Clone, Copy)]
+struct MenuControlVisual<'a> {
+    status: &'a SystemStatus,
+    pending: Option<ControlAction>,
+    result: Option<(ControlAction, bool)>,
+    worker_ready: bool,
+}
+
+/// Verified control presentation never advertises an unavailable backend
+/// as a working action. Non-control labels and their hitboxes stay unchanged.
+fn menu_control_presentation(action: &str, label: &str,
+                             visual: Option<MenuControlVisual<'_>>) -> (String, bool) {
+    let Some((control, visual)) = ControlAction::from_id(action).zip(visual) else {
+        return (label.to_string(), false);
+    };
+    let feedback = ControlFeedback::snapshot(control, visual.status,
+                                             visual.pending, visual.result,
+                                             visual.worker_ready);
+    match feedback {
+        ControlFeedback::Ready =>
+            (format!("{label} ({})", control.state_label(visual.status)), false),
+        ControlFeedback::Applying => (format!("Wait: {label}"), true),
+        ControlFeedback::Busy => (format!("Busy: {label}"), true),
+        ControlFeedback::Unavailable => (format!("N/A: {label}"), true),
+        ControlFeedback::Failed => (format!("Retry: {label}"), false),
+    }
+}
+
+#[cfg(test)]
 fn paint_compact_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
                       style: &PanelStyle, state: &MenuState, size: (u32, u32)) {
+    paint_compact_menu_state(canvas, menu, style, state, size, None);
+}
+
+fn paint_compact_menu_state(canvas: &mut [u8], menu: &recipe::NativeMenu,
+                           style: &PanelStyle, state: &MenuState, size: (u32, u32),
+                           visual: Option<MenuControlVisual<'_>>) {
     let (width, height) = size;
     let rows = native_menu::compact_visible_actions(size);
     let first = state.first_action_row_for(rows);
@@ -5553,8 +5596,10 @@ fn paint_compact_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
                               style.task_radius,
                               selection);
         }
-        let unavailable = *action == "logout" && !logout_available();
-        let label = state.visible_label(menu, action, !unavailable);
+        let logout_disabled = *action == "logout" && !logout_available();
+        let (label, control_disabled) = menu_control_presentation(
+            action, state.visible_label(menu, action, !logout_disabled), visual);
+        let unavailable = logout_disabled || control_disabled;
         let pinned = state.pins.iter().any(|pin| pin.as_str() == *action);
         let text = format!("{}{}", if pinned { "* " } else { "" }, label);
         let limit = width.saturating_sub(24) / (8 * style.font_scale);
@@ -5614,7 +5659,15 @@ fn toggle_menu_pin(state: &mut MenuState, recipe_id: &str, menu: &recipe::Native
     }
 }
 
-fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, state: &MenuState) {
+#[cfg(test)]
+fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu,
+              style: &PanelStyle, state: &MenuState) {
+    paint_menu_state(canvas, menu, style, state, None);
+}
+
+fn paint_menu_state(canvas: &mut [u8], menu: &recipe::NativeMenu,
+                    style: &PanelStyle, state: &MenuState,
+                    visual: Option<MenuControlVisual<'_>>) {
     let width = native_menu::WIDTH;
     let height = native_menu::HEIGHT;
     let bg = menu.palette.map_or(style.background, |item| item.background);
@@ -5739,10 +5792,13 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                                       tile.width.saturating_sub(4), tile.height.saturating_sub(4),
                                       style.task_radius, if columns { header } else { selection });
                 }
-                let tile_fg = if columns && tile.index == state.selected {
+                let (label, disabled_control) = menu_control_presentation(
+                    tile.action, state.visible_label(menu, tile.action, logout_available()), visual);
+                let tile_fg = if disabled_control && style.disabled != 0 {
+                    style.disabled
+                } else if columns && tile.index == state.selected {
                     header_fg
                 } else { fg };
-                let label = state.visible_label(menu, tile.action, logout_available());
                 let pinned = state.pins.iter().any(|pin| pin.as_str() == tile.action);
                 if luna_columns && columns && !tile.grid {
                     let icon_y = if tile.height == native_menu::COLUMNS_RIGHT_XP_PARITY_ROW_HEIGHT {
@@ -5821,9 +5877,10 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                     selection,
                 );
             }
-            let label = if action == "logout" && !logout_available() {
+            let base_label = if action == "logout" && !logout_available() {
                 "Log out (unavailable)"
             } else { state.label(action) };
+            let (label, disabled_control) = menu_control_presentation(action, base_label, visual);
             let pinned = state.pins.iter().any(|pin| pin.as_str() == action);
             let max_chars = (if sidebar { if pinned { 19 } else { 21 } }
                              else if pinned { 33 } else { 35 }) / style.font_scale as usize;
@@ -5832,8 +5889,8 @@ fn paint_menu(canvas: &mut [u8], menu: &recipe::NativeMenu, style: &PanelStyle, 
                       top + if style.font_scale == 1 { 16 } else {
                           native_menu::ACTION_HEIGHT.saturating_sub(8 * style.font_scale) / 2 },
                       &format!("{}{}", if pinned { "* " } else { "" }, short_label),
-                      if label.contains("(unavailable)") && style.disabled != 0
-                          { style.disabled } else { fg }, style);
+                      if (label.contains("(unavailable)") || disabled_control)
+                          && style.disabled != 0 { style.disabled } else { fg }, style);
         }
     }
     }
@@ -9163,6 +9220,67 @@ mod tests {
                 })
             }));
         }
+    }
+
+    #[test]
+    fn native_menu_pixels_follow_shared_control_worker_and_failure_state() {
+        let style = recipe::parse(
+            include_str!("../../../examples/wayland/quick-controls.json"),
+            Some("quick-controls")).unwrap();
+        let menu = style.menu.as_ref().unwrap();
+        let mut state = MenuState::default();
+        state.open();
+        state.group_by(menu, 3);
+        assert_eq!(state.actions(menu), vec!["bluetooth-toggle"]);
+
+        let status = SystemStatus {
+            network: system_status::Network::Global,
+            audio: Audio::Volume(50),
+            wifi: system_status::WifiRadio::Enabled,
+            bluetooth: system_status::BluetoothRadio::Enabled,
+        };
+        let visual = |worker_ready, pending, result| MenuControlVisual {
+            status: &status, pending, result, worker_ready,
+        };
+        let label = "Toggle Bluetooth radio";
+        assert_eq!(menu_control_presentation("bluetooth-toggle", label,
+                     Some(visual(true, None, None))),
+                   ("Toggle Bluetooth radio (On)".into(), false));
+        assert_eq!(menu_control_presentation("bluetooth-toggle", label,
+                     Some(visual(false, None, None))),
+                   ("N/A: Toggle Bluetooth radio".into(), true));
+        assert_eq!(menu_control_presentation("bluetooth-toggle", label,
+                     Some(visual(false, Some(ControlAction::BluetoothToggle), None))),
+                   ("N/A: Toggle Bluetooth radio".into(), true));
+        assert_eq!(menu_control_presentation("bluetooth-toggle", label,
+                     Some(visual(true, Some(ControlAction::BluetoothToggle), None))),
+                   ("Wait: Toggle Bluetooth radio".into(), true));
+        assert_eq!(menu_control_presentation("bluetooth-toggle", label,
+                     Some(visual(true, Some(ControlAction::AudioUp), None))),
+                   ("Busy: Toggle Bluetooth radio".into(), true));
+        assert_eq!(menu_control_presentation("bluetooth-toggle", label,
+                     Some(visual(true, None, Some((ControlAction::BluetoothToggle, false))))),
+                   ("Retry: Toggle Bluetooth radio".into(), false));
+        assert_eq!(menu_control_presentation("terminal", "Terminal",
+                     Some(visual(false, None, None))),
+                   ("Terminal".into(), false));
+
+        let full = |ready| {
+            let mut frame = vec![0; (native_menu::WIDTH * native_menu::HEIGHT * 4) as usize];
+            paint_menu_state(&mut frame, menu, &style, &state,
+                             Some(visual(ready, None, None)));
+            frame
+        };
+        assert_ne!(full(true), full(false), "full menu needs real control feedback");
+        let compact = |ready| {
+            let size = (280_u32, 200_u32);
+            let mut frame = vec![0; (size.0 * size.1 * 4) as usize];
+            paint_compact_menu_state(&mut frame, menu, &style, &state, size,
+                                     Some(visual(ready, None, None)));
+            frame
+        };
+        assert_ne!(compact(true), compact(false),
+                   "compact menu needs the same availability feedback");
     }
 
     #[test]
