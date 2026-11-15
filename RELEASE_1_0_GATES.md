@@ -58,11 +58,16 @@ the sign-off guard and its tests are deliberately unchanged.
   This proves packaged software failure paths in CI, not real suspend,
   crash recovery or display-manager behavior on physical hardware. Validated
   by the complete native package CI in PR #219.
-- [x] Isolated headless labwc portal CI goes beyond D-Bus introspection:
-  verify a real PNG Screenshot, create a ScreenCast session, select a monitor
-  and attempt Start. The CI pixman renderer rejects Start with response 2;
-  this is explicitly reported as an **untested ScreenCast backend**, never as
-  PipeWire-stream success. The unattended chooser override is CI-private.
+- [x] Isolated headless labwc portal baseline verifies a real Screenshot PNG
+  and ScreenCast request behavior. A rejected pixman/wlr Start (response 2)
+  remains a failed capture path, **not** proof of usable ScreenCast.
+- [x] Separate disposable, CI-only **generic/pixman** software frame acceptance
+  (#382) now verifies CreateSession, SelectSources, Start, stream node, real
+  OpenPipeWireRemote FD and a nonempty GStreamer video/x-raw buffer with a
+  genuine animated GTK Wayland witness and private PipeWire/WirePlumber.
+  The CI-patched generic backend is **not** installed as the production portal.
+  The optional production wlr/GLES2 hardware lane was prepared in #384, but
+  has **not** been accepted on a DRM-capable runner.
 - [ ] Verify successful ScreenCast Start, PipeWire node/FD, consent UX and
   actual frame delivery on a GPU-backed Wayland session; also Flatpak sandbox,
   permissions, denial and multi-monitor behavior on real hardware.
@@ -72,9 +77,32 @@ the sign-off guard and its tests are deliberately unchanged.
 - [x] Panel-only v1 recipes can be validated, imported and exported offline
   with bounded files and no desktop mutation; full RicePack compatibility
   remains an independent 1.0 gate.
-- [x] A selected Wayland panel recipe persists across sessions and can be
-  restored one step, with safe classic fallback after missing/corrupt state;
-  no claim of live multi-component rice switching.
+- [x] A selected Wayland recipe persists across sessions and can be restored
+  one step, with safe classic fallback after missing/corrupt state.
+  The owner-private shared live-switch transaction now waits for an actual
+  native RicePlate compositor-frame acknowledgement, supports guarded
+  apply/restore across its managed components, and tests composited
+  Classic -> Chrome -> XP Luna -> Chrome (#381; post-merge Native run
+  #43678051154). This is **not** an atomic frame boundary across third-party
+  clients or a physical device acceptance.
+
+## Software-only post-merge checkpoint (15 November 2026)
+
+- Base under test: `main@fca6910d5a885d0bfd0f37d757f199775f821983`
+  (guarded merge of #383). The **push-triggered** [Tests run #43678051131](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43678051131)
+  and [Native RicePlate run #43678051154](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43678051154)
+  both completed successfully on this exact SHA; this is post-merge evidence,
+  not just a green PR head. No blanket 1.0 release-signoff is implied.
+- That Native run covers real same-seat desktop keyboard Enter and return to
+  an external GTK Wayland text-entry client; file context actions, Trash,
+  new folder, dragging and two-output position persistence; composited
+  multi-rice apply/restore; upgrade/downgrade and user/XFCE preservation;
+  native installed-session failure guards, XWayland and compositor cleanup.
+- Remaining separate gates: exact final-release SHA/complete workflow set,
+  real Mint/ThinkPad input, IME, Orca, power and display acceptance,
+  GPU-backed production wlr/GLES2 capture, Flatpak consent/denial/permissions,
+  and physical multi-monitor testing. The absence of a DRM node in the
+  software acceptance environment is not proof of hardware readiness.
 
 ## Multi-lane integration gate
 

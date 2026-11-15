@@ -5,6 +5,41 @@ physical acceptance outstanding.** RiceBowl 0.9.x is still an XFCE/X11
 rice manager. The separate Wayland login-session package requires explicit
 installation and is not yet a finished desktop environment.
 
+### Step 3 software-integration closeout (15 November 2026)
+
+**Status: software-only acceptance completed on `main@fca6910d5a885d0bfd0f37d757f199775f821983`; physical 1.0 release gates remain open.**
+- **Post-merge, exact-SHA checks:** [Tests #43678051131](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43678051131)
+  and [Native RicePlate #43678051154](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43678051154)
+  both passed on `main` after the guarded squash of #383, rather than only on
+  the PR branch.
+- **Desktop/input (#383, issue #328):** one short-lived, compositor-confirmed
+  same-seat keyboard focus lease supports native Bottom-layer shortcuts and
+  XDG file surfaces. The lease downgrades its temporary Exclusive focus after
+  genuine `wl_keyboard.enter`, retires on external app mapping, and preserves
+  desktop double-click. Actual headless labwc checks confirm shortcut Unicode
+  prefix/Escape and real GTK Wayland text + Return after desktop selection.
+  This is not a permanent global input grab.
+- **Desktop actions:** the same native run verifies real XDG context, safe
+  rename, Trash confirmation, a visible newly-created folder, drag/persisted
+  icon position, two-output file drop and hotplug restoration; ordinary
+  Wayland/XWayland taskbar and clipboard checks also passed.
+- **Shared Rice engine (#381):** native readiness now requires a genuine first
+  compositor frame before committing guarded multi-component live apply.
+  Headless integration verifies Classic -> Chrome -> XP Luna -> Chrome with
+  restore, failure injection, supervisor restart recovery, package upgrade,
+  downgrade and preserved XFCE test-user configuration. This does **not**
+  establish atomic presentation across third-party clients.
+- **Portals (#382, #384, issue #304):** a CI-private generic/pixman backend,
+  isolated D-Bus/PipeWire/WirePlumber and real animated GTK compositor witness
+  delivered a nonempty `video/x-raw` GStreamer buffer **without a DRM render
+  node**. The installed production selection remains
+  `xdg-desktop-portal-wlr`; the strict GPU-backed wlr/GLES2 lane was
+  prepared but not actually run on a DRM-capable runner.
+- **Not covered:** physical Mint login/input/IME/Orca, GPU-backed production
+  ScreenCast, Flatpak consent and per-stream sandbox permissions, real
+  multi-monitor hardware and final distribution/performance signoff.
+  Issues #328 and #304 stay open for these remaining acceptance criteria.
+
 ### Shared native Rice engine / compositor-frame transaction gate (14 November 2026)
 
 - The existing single recipe schema, shared system backends and owner-private
