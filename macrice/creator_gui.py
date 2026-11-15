@@ -680,7 +680,7 @@ def run() -> int:
             try:
                 options = workspace.installed_editable()
                 if not options:
-                    self._status("No editable installed rices. Import a schema-v10+ RicePack first.")
+                    self._status("No installed rices found. Import a validated RicePack first.")
                     return
                 dialog = Gtk.Dialog(title="Edit installed rice", transient_for=self, modal=True)
                 dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
@@ -704,11 +704,15 @@ def run() -> int:
                     return
                 expected = next(item["semantic_sha256"] for item in options
                                 if item["id"] == selected)
+                source_version = next(item["schema_version"] for item in options
+                                      if item["id"] == selected)
                 info = workspace.create_draft_from_installed(selected, expected_sha256=expected)
                 self._load(info, reset_history=True)
                 self._refresh_drafts()
-                self._status(f"Editable copy {info.recipe_id} created. Original untouched; not applied.",
-                             success=True)
+                migration = (f"Migrated v{source_version} to editable v11 draft. "
+                             if source_version < 10 else "")
+                self._status(f"{migration}Editable copy {info.recipe_id} created. "
+                             "Original untouched; not applied.", success=True)
             except (workspace.WorkspaceError, recipes.RecipeError, pack.PackError,
                     OSError, ValueError) as exc:
                 self._status(f"Could not open installed rice: {exc}", error=True)
@@ -732,12 +736,17 @@ def run() -> int:
             try:
                 inspection = pack.inspect_pack(source)
                 record = inspection["manifest"]["recipe"]
-                if record["schema_version"] < 10:
-                    raise workspace.WorkspaceError("Creator can edit schema-v10+ RicePacks only")
+                migration_note = (
+                    "\nLegacy schema will be migrated into a new v11 draft; "
+                    "the installed original stays unchanged."
+                    + (" v1–v4 require one new Applications desktop shortcut."
+                       if record["schema_version"] < 5 else "")
+                    if record["schema_version"] < 10 else "")
                 if not self._confirm_handoff("Import this RicePack?",
                         f"{record['id']} · SHA-256 {record['semantic_sha256'][:12]}\n\n"
                         "Installs the verified data-only pack in your private collection, "
-                        "then opens an editable copy with a new ID. Neither desktop is changed.",
+                        "then opens an editable copy with a new ID. Neither desktop is changed."
+                        + migration_note,
                         "Import and edit"):
                     return
                 result = pack.import_pack(source, expected_manifest=inspection["manifest"])
@@ -745,7 +754,9 @@ def run() -> int:
                     result["recipe_id"], expected_sha256=result["semantic_sha256"])
                 self._load(info, reset_history=True)
                 self._refresh_drafts()
-                self._status(f"RicePack imported; editing {info.recipe_id}. Not applied.", success=True)
+                self._status(f"RicePack imported; editing {info.recipe_id} "
+                             f"(schema v{recipes.load(str(info.path)).schema_version}). "
+                             "Not applied.", success=True)
             except (pack.PackError, workspace.WorkspaceError, recipes.RecipeError,
                     OSError, ValueError) as exc:
                 self._status(f"Import/edit failed: {exc}. If installed, use Edit installed rice…",
@@ -3615,6 +3626,44 @@ def run() -> int:
             assert window.info.recipe_id not in (installed_id, forked_id)
             assert recipes.load(installed_id).recipe_id == installed_id
             assert "Original untouched" in window.status.get_text()
+            # Sprint 7: use a real Gtk.FileChooserDialog and the production
+            # RicePack import path, not only the offline backend. The approval
+            # is explicit and test-scoped; no session is applied or selected.
+            with tempfile.TemporaryDirectory(prefix="ricebowl-gtk-import-") as stage:
+                previous_draft = window.info
+                archive = Path(stage) / "gtk-import.ricepack"
+                workspace.export_draft(previous_draft, archive)
+                original_selection = recipes.current_selection()
+                import faulthandler
+                import sys
+                print("Creator CI: invoking GTK RicePack chooser", file=sys.stderr, flush=True)
+                faulthandler.dump_traceback_later(10, file=sys.stderr)
+                def select_import_archive():
+                    choosers = [dialog for dialog in Gtk.Window.list_toplevels()
+                                if isinstance(dialog, Gtk.FileChooserDialog)
+                                and dialog.get_title() == "Import a RicePack"]
+                    print(f"Creator CI: chooser widgets={len(choosers)}",
+                          file=sys.stderr, flush=True)
+                    assert len(choosers) == 1, "GTK RicePack chooser missing"
+                    assert choosers[0].set_filename(str(archive))
+                    print("Creator CI: archive selected", file=sys.stderr, flush=True)
+                    choosers[0].response(Gtk.ResponseType.ACCEPT)
+                    return False
+
+                GLib.timeout_add(150, select_import_archive)
+                try:
+                    with patch.object(window, "_confirm_handoff", return_value=True) as approval:
+                        window.import_pack_btn.clicked()
+                        approval.assert_called_once()
+                    print("Creator CI: import returned", file=sys.stderr, flush=True)
+                finally:
+                    faulthandler.cancel_dump_traceback_later()
+                assert window.info is not None
+                assert window.info.recipe_id != previous_draft.recipe_id
+                assert recipes.load(previous_draft.recipe_id).recipe_id == previous_draft.recipe_id
+                assert recipes.current_selection() == original_selection
+                assert "Not applied" in window.status.get_text()
+                assert window.info.path.stat().st_mode & 0o077 == 0
             # Exercise the real GTK interaction state without launching a
             # compositor in CI. Nested process behavior has separate tests.
             from unittest.mock import Mock
