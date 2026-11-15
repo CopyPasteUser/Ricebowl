@@ -65,6 +65,10 @@ def measure(profile: str, *, seconds: float = 10.0,
     last = {(p.pid, p.start_ticks): p for p in last_seen
             if p.role in PROFILES[profile]}
     matched = set(first) & set(last)
+    # A restarted panel or new same-UID process invalidates this two-snapshot
+    # rate window. Never report a misleading 0% CPU for a vanished PID, or
+    # silently average only the processes that happened to survive.
+    stable_window = bool(first) and set(first) == set(last)
     cpu = sum(max(0, last[key].cpu_ticks - first[key].cpu_ticks) for key in matched)
     switches = _total([last[key].switches - first[key].switches
                        if first[key].switches is not None and last[key].switches is not None
@@ -90,10 +94,12 @@ def measure(profile: str, *, seconds: float = 10.0,
     process_role_verified = (
         expected_role in before_roles and expected_role in after_roles
         and (other_role is None or (other_role not in before_roles
-                                    and other_role not in after_roles)))
+                                    and other_role not in after_roles))
+        and any(first[key].role == expected_role for key in matched))
     return {
         "schema_version": 1, "profile_requested": profile, "profile_observed": actual,
-        "profile_matches": actual == profile and process_role_verified,
+        "profile_matches": actual == profile and process_role_verified and stable_window,
+        "sample_continuity_verified": stable_window,
         "process_role_verified": process_role_verified, "read_only": True,
         "hardware_accepted": False, "idle_confirmed": False,
         "cold_login_to_ready_ms": None,
@@ -104,14 +110,18 @@ def measure(profile: str, *, seconds: float = 10.0,
         "pss_kib": _total([p.pss_kib for p in current]),
         # 100% = one logical core. Only processes present in both samples are
         # included; a restarted process is not silently counted as CPU-free.
-        "cpu_percent_one_core": round(100 * cpu / (ticks * elapsed), 3),
-        "context_switches_per_s": round(switches / elapsed, 3) if switches is not None else None,
-        "kernel_wakeups_per_s": round(wakeups / elapsed, 3) if wakeups is not None else None,
+        "cpu_percent_one_core": round(100 * cpu / (ticks * elapsed), 3)
+        if stable_window else None,
+        "context_switches_per_s": round(switches / elapsed, 3)
+        if stable_window and switches is not None else None,
+        "kernel_wakeups_per_s": round(wakeups / elapsed, 3)
+        if stable_window and wakeups is not None else None,
         "process_restart_or_exit_detected": set(first) != set(last),
         "notes": [
             "Kernel wakeups only when /proc/PID/sched exports nr_wakeups; "
             "context switches are not wakeups",
-            "Requested panel must be observed in both samples, without competing panel",
+            "Requested panel must have one stable PID/start-time across both samples",
+            "CPU and activity rates are unknown if the observed process set changes",
             "A per-user process-name sample cannot prove session membership",
             "Cold greeter-to-ready timing and idle status require manual on-device observation",
             "Compare three separately captured profiles on identical hardware and workload",
