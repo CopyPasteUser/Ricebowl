@@ -54,7 +54,7 @@ def _owner(name: str, bus: str, *, binary: str,
         output = response.stdout
         if not isinstance(output, str) or len(output) > _MAX_OUTPUT:
             return "invalid-response"
-        flags = re.findall(r"(?m)^\\s*boolean\\s+(true|false)\\s*$", output)
+        flags = re.findall(r"(?m)^\s*boolean\s+(true|false)\s*$", output)
         if len(flags) != 1:
             return "invalid-response"
         return "owned" if flags[0] == "true" else "not-owned"
