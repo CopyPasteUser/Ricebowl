@@ -894,6 +894,7 @@ safe 1–16-character static label and **never** a shell command:
 
 ```json
 {"type": "control", "id": "wifi-toggle", "label": "Wi-Fi"}
+{"type": "control", "id": "bluetooth-toggle", "label": "Bluetooth"}
 {"type": "control", "id": "audio-mute", "label": "Mute"}
 {"type": "control", "id": "audio-down", "label": "Vol -"}
 {"type": "control", "id": "audio-up", "label": "Vol +"}
