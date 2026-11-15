@@ -1386,14 +1386,22 @@ fn register_file_watch(
 }
 
 impl RicePlate {
+    // In compositor-only CI this previously exposed only "released", leaving
+    // output reflow, keyboard-owner transition and pointer lifecycle failures
+    // indistinguishable. Capture exact *source* callsite when explicit trace is
+    // enabled; never log input text, user paths or private seat identifiers.
+    #[track_caller]
     fn close_desktop_keyboard_focus(&mut self) {
         if let Some(layer) = self.desktop_keyboard_focus_layer.as_ref() {
             if std::env::var("RICEBOWL_DE_TRACE_FOCUS").as_deref() == Ok("1") {
+                let caller = std::panic::Location::caller();
                 match layer.target {
                     DesktopFocusTarget::File(_) =>
-                        eprintln!("RicePlate: XDG file keyboard focus released"),
+                        eprintln!("RicePlate: XDG file keyboard focus released at {}:{}",
+                                  caller.file(), caller.line()),
                     DesktopFocusTarget::Shortcut(_) =>
-                        eprintln!("RicePlate: Luna shortcut keyboard focus released"),
+                        eprintln!("RicePlate: Luna shortcut keyboard focus released at {}:{}",
+                                  caller.file(), caller.line()),
                 }
             }
         }
