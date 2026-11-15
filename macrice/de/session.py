@@ -274,6 +274,10 @@ def start(
         env.pop("LABWC_UPDATE_ACTIVATION_ENV", None)
 
     if not env.get("DBUS_SESSION_BUS_ADDRESS"):
+        # A nested preview without an inherited user bus creates its own
+        # dbus-run-session below; that private bus may safely own Mako.
+        if nested:
+            env["RICEBOWL_DE_PRIVATE_BUS"] = "1"
         bus = which("dbus-run-session")
         if not bus:
             raise SessionError("No D-Bus user session and dbus-run-session is unavailable.")
@@ -500,12 +504,18 @@ class _LiveSwitch:
                  initial_wallpaper: subprocess.Popen[bytes] | None,
                  background: list[subprocess.Popen[bytes]],
                  stopping: Callable[[], bool] | None = None,
-                 frame_readiness: bool = True):
+                 frame_readiness: bool = True,
+                 optional_services: list[_OptionalService] | None = None,
+                 idle_guard: subprocess.Popen[bytes] | None = None):
         from . import recipes, staging
         self.env, self.mode, self.which, self.spawn = env, mode, which, spawn
         self.cleanup, self.panel, self.wallpaper = cleanup, initial_panel, initial_wallpaper
         self.background = background
         self.stopping = stopping or (lambda: False)
+        # Only processes spawned by *this* supervisor count as managed.
+        # Same-UID /proc scans can include unrelated XFCE sessions.
+        self.optional_services = optional_services if optional_services is not None else []
+        self.idle_guard = idle_guard
         # Production always requires native compositor presentation. Only
         # explicitly constructed process fakes in unit tests disable the gate.
         self._frame_readiness = frame_readiness
@@ -544,6 +554,28 @@ class _LiveSwitch:
                         if any(key.env_key in env for key in riceprofile.CLIENTS) else None)
         self.fallback = False
 
+    def _services_status(self) -> dict[str, str]:
+        """Expose only owned service health, never bus names, PIDs or commands."""
+        if self.nested and self.env.get("RICEBOWL_DE_PRIVATE_BUS") != "1":
+            return {"notifications": "external-session",
+                    "authorization": "external-session",
+                    "screen_reader": "not_managed", "lock_guard": "not_managed"}
+        health = {"notifications": "unavailable",
+                  "authorization": ("not_managed" if self.nested else "unavailable"),
+                  "screen_reader": "not_managed",
+                  "lock_guard": ("not_managed" if self.nested else
+                                 "running" if self.idle_guard is not None
+                                 and self.idle_guard.poll() is None else "stopped")}
+        roles = {"RicePop notifications": "notifications",
+                 "polkit authentication agent": "authorization",
+                 "Orca screen reader": "screen_reader"}
+        for service in self.optional_services:
+            role = roles.get(service.name)
+            if role is not None:
+                health[role] = ("running" if service.process is not None
+                                and service.process.poll() is None else "stopped")
+        return health
+
     def status(self) -> dict:
         return {"version": 1, "ok": True, "active": self.active,
                 "semantic_sha256": self.active_digest,
@@ -552,6 +584,7 @@ class _LiveSwitch:
                 "next_login_persisted": not self.nested,
                 "panel": "waybar-fallback" if self.fallback else self.mode,
                 "applied": True,
+                "services": self._services_status(),
                 "applications": self.profile.status() if self.profile else {
                     "taskotto": "not_managed", "ricefield": "not_managed"}}
 
@@ -941,6 +974,8 @@ def shell(
     panel_mode = env.get("RICEBOWL_DE_PANEL", "waybar")
     if panel_mode not in ("waybar", "native"):
         raise SessionError("Unsupported RiceBowl panel mode.")
+    nested = env.get("RICEBOWL_DE_NESTED") == "1"
+    private_bus = nested and env.get("RICEBOWL_DE_PRIVATE_BUS") == "1"
 
     base = resources()
     background: list[subprocess.Popen[bytes]] = []
@@ -996,11 +1031,13 @@ def shell(
                     "wallpaper", [swaybg, "--image", str(wallpaper), "--mode", "fill"],
                     env=env, spawn=spawn, background=background)
 
-            # RicePop reuses the existing Mako notification owner. A saved
-            # appearance preference affects *only* the next full Wayland
-            # login's private config, never ~/.config/mako or a nested preview.
+            # Nested previews normally inherit the parent's D-Bus. Never
+            # compete for its notification name. A *separate*, explicitly
+            # created dbus-run-session (including the headless CI smoke) may
+            # run its own Mako host without touching XFCE. Full logins own
+            # Mako as before. Appearance preferences are full-login only.
             env.pop("RICEBOWL_DE_MAKO_CONFIG", None)
-            mako = which("mako")
+            mako = which("mako") if not nested or private_bus else None
             if mako:
                 mako_config = base / "mako.conf"
                 if env.get("RICEBOWL_DE_NESTED") == "0":
@@ -1044,16 +1081,19 @@ def shell(
                     print("RiceBowl: Orca screen reader requested but not installed",
                           file=sys.stderr)
 
-            # Authorization goes to a user polkit agent, never a root shell.
-            for name in ("lxpolkit", "mate-polkit", "polkit-gnome-authentication-agent-1"):
-                agent = which(name)
-                if agent:
-                    service = _OptionalService(
-                        "polkit authentication agent", [agent], env=env, spawn=spawn,
-                        background=background)
-                    if service.process is not None:
-                        optional_services.append(service)
-                        break
+            # Nested previews share the parent login's authorization agent;
+            # never register a competing polkit listener on the same user bus.
+            # Full RiceBowl logins own one unprivileged authentication agent.
+            if not nested:
+                for name in ("lxpolkit", "mate-polkit", "polkit-gnome-authentication-agent-1"):
+                    agent = which(name)
+                    if agent:
+                        service = _OptionalService(
+                            "polkit authentication agent", [agent], env=env,
+                            spawn=spawn, background=background)
+                        if service.process is not None:
+                            optional_services.append(service)
+                            break
 
             shutting_down = False
             shutdown_signal = signal.SIGTERM
@@ -1087,7 +1127,8 @@ def shell(
                         env=env, mode=mode, which=which, spawn=spawn,
                         cleanup=cleanup, initial_panel=process,
                         initial_wallpaper=wallpaper_process, background=background,
-                        stopping=lambda: shutting_down)
+                        stopping=lambda: shutting_down,
+                        optional_services=optional_services, idle_guard=idle_process)
                     # The Rust helper observes wl_output events, unlike a
                     # wlr-randr timer. It is optional and only needed for
                     # Waybar, because native RicePlate already reflows itself.

@@ -8,6 +8,7 @@ import threading
 import unittest
 from contextlib import ExitStack
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from macrice.cli import main as cli
@@ -92,6 +93,55 @@ class LiveRiceTests(unittest.TestCase):
                             "examples/wayland/xp-luna-columns.json").read_bytes())
         source.chmod(0o600)
         return recipes.import_recipe(source)[0].recipe_id
+
+    def test_live_status_reports_only_supervisor_owned_service_health(self):
+        mako = FakeProcess()
+        polkit = FakeProcess()
+        reader = FakeProcess()
+        lock = FakeProcess()
+        self.controller.optional_services = [
+            SimpleNamespace(name="RicePop notifications", process=mako),
+            SimpleNamespace(name="polkit authentication agent", process=polkit),
+            SimpleNamespace(name="Orca screen reader", process=reader),
+        ]
+        self.controller.idle_guard = lock
+        health = self.controller.status()["services"]
+        self.assertEqual(health, {"notifications": "running",
+                                  "authorization": "running",
+                                  "screen_reader": "running",
+                                  "lock_guard": "running"})
+        self.assertNotIn("pid", str(health))
+        self.assertNotIn("command", str(health))
+        mako.exit_code = 8
+        lock.exit_code = 9
+        health = self.controller.status()["services"]
+        self.assertEqual(health["notifications"], "stopped")
+        self.assertEqual(health["lock_guard"], "stopped")
+        self.assertEqual(health["authorization"], "running")
+
+    def test_nested_live_status_never_claims_parent_bus_ownership(self):
+        self.controller.nested = True
+        self.controller.optional_services = [
+            SimpleNamespace(name="RicePop notifications", process=FakeProcess()),
+            SimpleNamespace(name="polkit authentication agent", process=FakeProcess()),
+        ]
+        self.assertEqual(self.controller.status()["services"],
+                         {"notifications": "external-session",
+                          "authorization": "external-session",
+                          "screen_reader": "not_managed",
+                          "lock_guard": "not_managed"})
+
+    def test_private_nested_live_status_reports_its_owned_mako_only(self):
+        self.controller.nested = True
+        self.controller.env["RICEBOWL_DE_PRIVATE_BUS"] = "1"
+        self.controller.optional_services = [
+            SimpleNamespace(name="RicePop notifications", process=FakeProcess()),
+        ]
+        self.assertEqual(self.controller.status()["services"],
+                         {"notifications": "running",
+                          "authorization": "not_managed",
+                          "screen_reader": "not_managed",
+                          "lock_guard": "not_managed"})
 
     def test_shared_native_rice_switch_waits_for_exact_compositor_ack(self):
         # The faked child writes to the *real inherited pipe* before the
