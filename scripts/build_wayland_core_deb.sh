@@ -53,6 +53,11 @@ for relative in packaging/wayland/core-control \
 done
 payload="$stage/usr/lib/ricebowl-wayland"
 install -D -m 0644 "$snapshot/packaging/wayland/core-control" "$stage/DEBIAN/control"
+source_commit=$(git -C "$project_root" rev-parse --verify HEAD)
+if [[ ! "$source_commit" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "Invalid package source commit" >&2; exit 1
+fi
+printf 'X-RiceBowl-Source-Commit: %s\n' "$source_commit" >> "$stage/DEBIAN/control"
 install -D -m 0755 "$snapshot/packaging/wayland/ricebowl-wayland-app" \
     "$stage/usr/bin/ricebowl-wayland-app"
 install -D -m 0755 "$snapshot/packaging/wayland/ricebowl-wayland-command" \
@@ -93,10 +98,6 @@ fi
 # Preview2 records package/source provenance inside the installed package.
 # The former preview1 omitted this immutable file. Upgrade/downgrade QA
 # checks both its addition and removal, not just dpkg's version string.
-source_commit=$(git -C "$project_root" rev-parse --verify HEAD)
-if [[ ! "$source_commit" =~ ^[0-9a-f]{40}$ ]]; then
-    echo "Invalid package source commit" >&2; exit 1
-fi
 buildinfo="$stage/usr/lib/ricebowl-wayland/BUILDINFO"
 install -d -m 0755 "$(dirname -- "$buildinfo")"
 printf 'format=1\nversion=%s\nsource_commit=%s\nsource_date_epoch=%s\n' \
