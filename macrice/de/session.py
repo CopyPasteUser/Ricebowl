@@ -941,6 +941,7 @@ def shell(
     panel_mode = env.get("RICEBOWL_DE_PANEL", "waybar")
     if panel_mode not in ("waybar", "native"):
         raise SessionError("Unsupported RiceBowl panel mode.")
+    nested = env.get("RICEBOWL_DE_NESTED") == "1"
 
     base = resources()
     background: list[subprocess.Popen[bytes]] = []
@@ -996,11 +997,14 @@ def shell(
                     "wallpaper", [swaybg, "--image", str(wallpaper), "--mode", "fill"],
                     env=env, spawn=spawn, background=background)
 
-            # RicePop reuses the existing Mako notification owner. A saved
-            # appearance preference affects *only* the next full Wayland
-            # login's private config, never ~/.config/mako or a nested preview.
+            # A nested preview inherits the *parent* user bus. Starting Mako
+            # there would compete for org.freedesktop.Notifications with XFCE
+            # (or the user's existing notification host). Only a full,
+            # independently selected RiceBowl login owns this integration.
+            # RicePop still reports unavailable when the preview has no host.
+            # Saved appearance affects only the full login's private config.
             env.pop("RICEBOWL_DE_MAKO_CONFIG", None)
-            mako = which("mako")
+            mako = which("mako") if not nested else None
             if mako:
                 mako_config = base / "mako.conf"
                 if env.get("RICEBOWL_DE_NESTED") == "0":
@@ -1044,16 +1048,19 @@ def shell(
                     print("RiceBowl: Orca screen reader requested but not installed",
                           file=sys.stderr)
 
-            # Authorization goes to a user polkit agent, never a root shell.
-            for name in ("lxpolkit", "mate-polkit", "polkit-gnome-authentication-agent-1"):
-                agent = which(name)
-                if agent:
-                    service = _OptionalService(
-                        "polkit authentication agent", [agent], env=env, spawn=spawn,
-                        background=background)
-                    if service.process is not None:
-                        optional_services.append(service)
-                        break
+            # Nested previews share the parent login's authorization agent;
+            # never register a competing polkit listener on the same user bus.
+            # Full RiceBowl logins own one unprivileged authentication agent.
+            if not nested:
+                for name in ("lxpolkit", "mate-polkit", "polkit-gnome-authentication-agent-1"):
+                    agent = which(name)
+                    if agent:
+                        service = _OptionalService(
+                            "polkit authentication agent", [agent], env=env,
+                            spawn=spawn, background=background)
+                        if service.process is not None:
+                            optional_services.append(service)
+                            break
 
             shutting_down = False
             shutdown_signal = signal.SIGTERM
