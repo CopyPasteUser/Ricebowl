@@ -5,6 +5,38 @@ physical acceptance outstanding.** RiceBowl 0.9.x is still an XFCE/X11
 rice manager. The separate Wayland login-session package requires explicit
 installation and is not yet a finished desktop environment.
 
+### Step 4 functional desktop integration checkpoint (15 November 2026)
+
+**Scope: opt-in labwc/RicePlate Wayland desktop software, not Mint hardware or
+the separate 1.0 release certificate.**
+
+- The real compositor-native file desktop, keyboard/focus return, app taskbar
+  lifecycle, Wayland/XWayland clipboard, multi-output layout, actual Start/Run
+  dialogs and RiceField file intents already have successful merged-native
+  integration evidence from Step 3 on
+  [main Tests #43678051131](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43678051131)
+  and [Native RicePlate #43678051154](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43678051154).
+- The shared Rice engine has compositor-frame-confirmed
+  Classic → Chrome → XP Luna → Chrome live apply and safe restore/recovery.
+  RiceSpice uses shared Linux settings backends; RicePop uses the validated
+  Mako bridge rather than claiming a second notification daemon.
+- The remaining opt-in **session boundary** is addressed by
+  [#386](https://github.com/CopyPasteUser/Ricebowl/pull/386): a nested preview
+  shares its parent user's D-Bus and must not spawn a competing Mako, polkit
+  authentication agent or Orca. A full login alone supervises those optional
+  integrations and the mandatory idle lock guard. The live supervisor exposes
+  an owner-scoped, PII-free service health snapshot through its existing
+  read-only status endpoint (not a same-UID process guess).
+- The session change requires exact-head Python/XFCE regression, real Wayland
+  session preview and native compositor/packaging CI, followed by **new main**
+  post-merge checks. Do not treat a branch or this roadmap entry as evidence
+  of successful execution.
+- Remaining 1.0 acceptance: physical Mint login, real input/IME/Orca,
+  polkit, notification and suspend UX, GPU-backed production portal frames,
+  Flatpak consent, actual devices/monitors, per-component feature parity,
+  performance and reproducible distribution. These stay explicitly open in
+  `RELEASE_1_0_GATES.md`.
+
 ### Step 3 software-integration closeout (15 November 2026)
 
 **Status: software-only acceptance completed on `main@fca6910d5a885d0bfd0f37d757f199775f821983`; physical 1.0 release gates remain open.**
