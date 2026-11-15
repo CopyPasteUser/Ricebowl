@@ -165,6 +165,7 @@ class SessionPackageTests(unittest.TestCase):
         self.assertIn("if: github.event_name == 'push' && github.ref == 'refs/heads/main'",
                       attest)
         self.assertIn("needs: native-layer-shell", attest)
+        self.assertIn("actions: read", attest)
         self.assertIn("id-token: write", attest)
         self.assertIn("attestations: write", attest)
         self.assertIn("artifact-metadata: write", attest)
