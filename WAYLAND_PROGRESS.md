@@ -268,6 +268,21 @@ selection never changes the XFCE default.
 - This proves the offline package-to-native-preview path, **not** full GUI
   editing of imported packs, interactive focus/controls or hardware acceptance.
 
+## Sprint 7 — proportional TrueType kerning (15 November 2026; candidate)
+
+Native RicePlate's bundled Liberation Sans uses the existing `fontdue`
+horizontal kerning API in both width measurement and framebuffer pen advance.
+It no longer measures kerning pairs like AV/To as independent full-advance
+characters while drawing them on a different trajectory. The existing
+monospace mode, fallback semantics, font licensing, and bounded glyph cache
+remain unchanged. Tests cover consistent measured kerning and rasterized
+pixels for the bundled font without introducing a resident text service or
+additional dependency.
+
+This addresses only simple horizontal kerning. Complex OpenType shaping,
+font fallback, mixed-script bidirectional reordering, and line breaking still
+require a dedicated text engine and release gate; no such support is claimed.
+
 ## What's left for 1.0
 
 ### Active track: software-complete candidate
