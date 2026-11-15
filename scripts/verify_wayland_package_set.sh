@@ -17,6 +17,7 @@ names=(ricebowl-wayland-core ricebowl-wayland-session ricebowl-riceplate-native 
 architectures=(all all amd64 amd64)
 files=("$@")
 versions=()
+source_commits=()
 
 for i in "${!files[@]}"; do
     package=${files[$i]}
@@ -32,6 +33,14 @@ for i in "${!files[@]}"; do
         exit 1
     fi
     versions+=("$version")
+    # Release-bundle provenance must be consistent across independently
+    # reproducible packages, not just satisfy compatible version floors.
+    source_commit=$(dpkg-deb -f "$package" X-RiceBowl-Source-Commit)
+    if [[ ! "$source_commit" =~ ^[0-9a-f]{40}$ ]]; then
+        echo "Missing or invalid package source commit: $package" >&2
+        exit 1
+    fi
+    source_commits+=("$source_commit")
 
     # No maintainer script may alter the login manager, XFCE or a home folder.
     dpkg-deb --ctrl-tarfile "$package" | tar -tf - > "$work/control-$i"
@@ -77,6 +86,13 @@ for i in "${!files[@]}"; do
     done < <(find "$extracted" -mindepth 1 -print0)
 done
 
+for i in 1 2 3; do
+    if [[ "${source_commits[$i]}" != "${source_commits[0]}" ]]; then
+        echo "Mixed source commits in Wayland package set: ${names[$i]}" >&2
+        exit 1
+    fi
+done
+
 depends=$(dpkg-deb -f "${files[3]}" Depends)
 if [[ "$depends" != *"ricebowl-wayland-core (= ${versions[0]})"* ]]; then
     echo "Desktop package does not pin this core version" >&2
@@ -97,7 +113,7 @@ done
 
 buildinfo="$work/package-0/usr/lib/ricebowl-wayland/BUILDINFO"
 if [[ ! -f "$buildinfo" ]] || ! grep -Fxq "version=${versions[0]}" "$buildinfo" || \
-   ! grep -Eq '^source_commit=[0-9a-f]{40}$' "$buildinfo" || \
+   ! grep -Fxq "source_commit=${source_commits[0]}" "$buildinfo" || \
    ! grep -Eq '^source_date_epoch=[0-9]+$' "$buildinfo"; then
     echo "Core package is missing valid provenance data" >&2
     exit 1

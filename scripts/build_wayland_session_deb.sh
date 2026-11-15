@@ -65,6 +65,20 @@ for relative in packaging/wayland/control packaging/wayland/ricebowl-wayland-ses
 done
 
 install -D -m 0644 "$source_root/packaging/wayland/control" "$stage/DEBIAN/control"
+source_commit=unverified
+if command -v git >/dev/null 2>&1 && \
+   git -C "$project_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    source_commit=$(git -C "$project_root" rev-parse --verify HEAD)
+fi
+case "$source_commit" in
+    unverified) ;;
+    *[!0-9a-f]*|'') echo "Invalid package source commit" >&2; exit 1 ;;
+esac
+if [ "$source_commit" != unverified ] && [ "${#source_commit}" -ne 40 ]; then
+    echo "Invalid package source commit length" >&2
+    exit 1
+fi
+printf 'X-RiceBowl-Source-Commit: %s\n' "$source_commit" >> "$stage/DEBIAN/control"
 install -D -m 0755 "$source_root/packaging/wayland/ricebowl-wayland-session" \
     "$stage/usr/bin/ricebowl-wayland-session"
 install -D -m 0644 "$source_root/packaging/wayland/ricebowl.desktop" \

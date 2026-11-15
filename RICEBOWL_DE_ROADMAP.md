@@ -5,6 +5,24 @@ physical acceptance outstanding.** RiceBowl 0.9.x is still an XFCE/X11
 rice manager. The separate Wayland login-session package requires explicit
 installation and is not yet a finished desktop environment.
 
+### Sprint 8b – single-revision Wayland package provenance (15 November 2026; CI-gated)
+
+The four optional Wayland Debian packages now stamp the committed Git source
+revision in `X-RiceBowl-Source-Commit` metadata. The read-only set verifier
+requires every stamp to be the same 40-character lowercase commit ID and
+requires it to match the core application's embedded `BUILDINFO`. Mixing
+native/session/meta binaries from different source commits is rejected even
+when their Debian dependency versions remain compatible. Release-bundle
+verification fails closed for source exports without a verifiable Git commit;
+such exports may still build standalone preview packages.
+
+Tests cover unchanged-commit rebuilds, a mixed native package and an unverified
+package. This is **package-source consistency**, not a proof that a supplied
+native ELF was compiled from that source, binary bit-reproducibility across
+hosts, cryptographic signatures or a public 1.0 distribution. The CI assembly
+must still build the native ELF from the matching commit and verify its
+checksum, and clean-install/real-hardware signoff remains open.
+
 ### Sprint 8 release-source and CI provenance (15 November 2026; integrated)
 
 - [#401](https://github.com/CopyPasteUser/Ricebowl/pull/401) binds a stable
