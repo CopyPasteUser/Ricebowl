@@ -736,9 +736,12 @@ def run() -> int:
             try:
                 inspection = pack.inspect_pack(source)
                 record = inspection["manifest"]["recipe"]
-                migration_note = ("\nLegacy schema will be migrated into a new "
-                                  "v11 draft; the installed original stays unchanged."
-                                  if record["schema_version"] < 10 else "")
+                migration_note = (
+                    "\nLegacy schema will be migrated into a new v11 draft; "
+                    "the installed original stays unchanged."
+                    + (" v1–v4 require one new Applications desktop shortcut."
+                       if record["schema_version"] < 5 else "")
+                    if record["schema_version"] < 10 else "")
                 if not self._confirm_handoff("Import this RicePack?",
                         f"{record['id']} · SHA-256 {record['semantic_sha256'][:12]}\n\n"
                         "Installs the verified data-only pack in your private collection, "
