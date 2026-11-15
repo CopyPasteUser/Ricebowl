@@ -68,13 +68,14 @@ impl ControlFeedback {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::system_status::{Audio, Network, WifiRadio};
+    use crate::system_status::{Audio, BluetoothRadio, Network, WifiRadio};
 
     fn connected() -> SystemStatus {
         SystemStatus {
             network: Network::Global,
             audio: Audio::Volume(45),
             wifi: WifiRadio::Enabled,
+            bluetooth: BluetoothRadio::Enabled,
         }
     }
 

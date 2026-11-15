@@ -38,7 +38,7 @@ class PanelControlTests(unittest.TestCase):
             {"type": "control", "id": "terminal", "label": "Terminal"},
             {"type": "control", "id": "wifi-toggle", "label": "<bad>"},
             {"type": "control", "id": "audio-mute", "label": "Mute", "exec": "sh"},
-            {"type": "control", "id": "bluetooth-toggle", "label": "BT"},
+            {"type": "control", "id": "bluetooth-discover", "label": "BT"},
             {"type": "control", "id": "wifi-toggle", "label": True},
         ]:
             with self.subTest(node=node):
@@ -53,6 +53,22 @@ class PanelControlTests(unittest.TestCase):
         data["responsive"]["compact_layout"]["end"][0]["label"] = "Other"
         with self.assertRaises(recipes.RecipeError):
             recipes.parse(json.dumps(data).encode())
+
+    def test_bluetooth_control_is_discoverable_and_does_not_accept_commands(self):
+        value = json.loads(FIXTURE.read_text())
+        value["panel"]["layout"]["end"][0] = {
+            "type": "control", "id": "bluetooth-toggle", "label": "Bluetooth"}
+        value["menu"] = {"title": "Devices", "groups": [
+            {"title": "Radios", "actions": ["bluetooth-toggle"]}]}
+        parsed = recipes.parse(json.dumps(value).encode())
+        self.assertIn("bluetooth-toggle", recipes.PANEL_CONTROLS)
+        self.assertIn("bluetooth-toggle", parsed.menu[1][0].actions)
+        self.assertIn("bluetooth-toggle", catalog.describe()["recipe"]["nested_layout"]
+                      ["node_types"]["control"]["known_ids"])
+        for invalid in ("bluetoothctl power on", "bluetooth-discover"):
+            value["panel"]["layout"]["end"][0]["id"] = invalid
+            with self.assertRaises(recipes.RecipeError):
+                recipes.parse(json.dumps(value).encode())
 
     def test_creator_revalidates_edit_without_changing_original(self):
         with tempfile.TemporaryDirectory() as directory:

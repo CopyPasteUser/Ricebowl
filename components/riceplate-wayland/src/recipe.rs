@@ -508,7 +508,7 @@ fn validate_components(input: Vec<ComponentInput>) -> Result<Vec<ComponentInput>
             "status" => ["clock", "network", "audio", "battery"]
                 .contains(&item.binding.as_str()),
             "action" => ["applications", "terminal", "settings", "lock",
-                         "clip-history", "wifi-toggle", "audio-mute", "audio-up", "audio-down"]
+                         "clip-history", "wifi-toggle", "bluetooth-toggle", "audio-mute", "audio-up", "audio-down"]
                 .contains(&item.binding.as_str()),
             _ => false,
         };
@@ -641,7 +641,7 @@ fn validate_menu(menu: &Menu, version: u32) -> Result<(), Box<dyn Error>> {
                 && (version < 12 || menu.presentation.as_deref() != Some("columns")
                     || menu.colors.is_none()))
                 || !["applications", "terminal", "lock", "logout",
-                 "documents", "computer", "pictures", "music", "wifi-toggle", "audio-mute", "audio-up", "audio-down",
+                 "documents", "computer", "pictures", "music", "wifi-toggle", "bluetooth-toggle", "audio-mute", "audio-up", "audio-down",
                  "notifications", "settings", "clip-history", "help", "run"]
                 .contains(&action.as_str())
                 || !seen.insert(action.as_str())
@@ -704,7 +704,7 @@ fn expand_layout(
                 .ok_or("Unknown component reference")?;
             let resolved = if definition.role == "status" {
                 LayoutNode::Widget { id: definition.binding.clone() }
-            } else if ["wifi-toggle", "audio-mute", "audio-up", "audio-down"]
+            } else if ["wifi-toggle", "bluetooth-toggle", "audio-mute", "audio-up", "audio-down"]
                 .contains(&definition.binding.as_str())
             {
                 LayoutNode::Control { id: definition.binding.clone(),
@@ -760,7 +760,7 @@ fn expand_layout(
         LayoutNode::Action { id, label } | LayoutNode::Control { id, label } => {
             let control = matches!(node, LayoutNode::Control { .. });
             let supported = if control {
-                ["wifi-toggle", "audio-mute", "audio-up", "audio-down"].contains(&id.as_str())
+                ["wifi-toggle", "bluetooth-toggle", "audio-mute", "audio-up", "audio-down"].contains(&id.as_str())
             } else {
                 ["applications", "terminal", "settings", "lock", "clip-history", "show-desktop"].contains(&id.as_str())
             };
@@ -1663,6 +1663,7 @@ mod tests {
                    ["wifi-toggle", "audio-mute", "audio-up", "audio-down"]);
         assert_eq!(menu.groups[2].actions,
                    ["notifications", "lock", "logout"]);
+        assert_eq!(menu.groups[3].actions, ["bluetooth-toggle"]);
     }
 
     #[test]

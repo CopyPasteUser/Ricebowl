@@ -47,13 +47,13 @@ ICON_ACTIONS = frozenset(("applications", "terminal", "lock", "trash",
                           "documents", "computer", "network"))
 MENU_ACTIONS = frozenset(("applications", "terminal", "lock", "logout",
                           "documents", "computer", "pictures", "music",
-                          "wifi-toggle", "audio-mute", "audio-up", "audio-down",
+                          "wifi-toggle", "bluetooth-toggle", "audio-mute", "audio-up", "audio-down",
                           "notifications", "settings", "clip-history", "help", "run"))
-# A deliberately smaller set than menu quick controls: all four work from a
-# panel without requiring a menu feedback surface or a custom command parser.
+# Only explicitly supported radio/audio controls work from a panel;
+# recipes cannot provide arbitrary commands or backend arguments.
 PANEL_ACTIONS = frozenset(("applications", "terminal", "settings", "lock",
                            "clip-history", "show-desktop"))
-PANEL_CONTROLS = frozenset(("wifi-toggle", "audio-mute", "audio-up", "audio-down"))
+PANEL_CONTROLS = frozenset(("wifi-toggle", "bluetooth-toggle", "audio-mute", "audio-up", "audio-down"))
 PANEL_ACTION_COMMANDS = {
     "applications": "fuzzel", "terminal": "foot",
     "settings": "ricebowl de settings", "lock": "ricebowl de lock",
