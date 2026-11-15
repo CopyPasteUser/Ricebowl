@@ -25,10 +25,12 @@ pub(crate) fn draw_auxiliary_text(canvas: &mut [u8], width: u32, height: u32, x:
 }
 
 pub(crate) fn text_pixel_width(text: &str, scale: u32) -> u32 {
-    // Every native glyph advances one cell, even when its UTF-8 encoding uses
-    // multiple bytes. This is a monospace width, not a Unicode shaping claim.
-    u32::try_from(text.chars().count()).unwrap_or(u32::MAX)
-        .saturating_mul(8 * scale)
+    // Bitmap labels have one 8x8 cell per EXTENDED GRAPHEME. A flag,
+    // combining sequence or ZWJ emoji must never consume several painted
+    // replacement cells while the visual hit region assumes one character.
+    // This is fallback cell layout, not OpenType shaping or BiDi support.
+    u32::try_from(text.graphemes(true).count()).unwrap_or(u32::MAX)
+        .saturating_mul(8_u32.saturating_mul(scale))
 }
 
 
@@ -94,19 +96,25 @@ pub(crate) fn draw_rice_text(canvas: &mut [u8], width: u32, height: u32, x: u32,
 
 pub(crate) fn draw_bitmap_text(canvas: &mut [u8], width: u32, height: u32, x: u32, y: u32,
                     text: &str, color: u32, scale: u32, bold: bool) {
-    for (offset, character) in text.chars().enumerate() {
-        if character.is_control() { continue; }
-        // The existing 8x8 renderer is intentionally allocation-free: support
-        // the crate's non-ASCII tables and show a visible replacement glyph
-        // instead of silently erasing unsupported scripts.
-        let bitmap = BASIC_FONTS.get(character)
-            .or_else(|| LATIN_FONTS.get(character))
-            .or_else(|| GREEK_FONTS.get(character))
-            .or_else(|| HIRAGANA_FONTS.get(character))
-            .or_else(|| MISC_FONTS.get(character))
+    for (offset, cluster) in text.graphemes(true).enumerate() {
+        // The 8x8 table has no combining/ligature shaping. Never paint one
+        // misleading '?' per scalar in a user-perceived glyph or detach a
+        // combining mark. Unsupported clusters show ONE replacement cell;
+        // single scalar Latin/Greek/Hiragana retain byte-identical sprites.
+        let mut letters = cluster.chars();
+        let first = letters.next();
+        let single = first.filter(|_| letters.next().is_none());
+        if single.is_some_and(char::is_control) { continue; }
+        let bitmap = single.and_then(|letter|
+            BASIC_FONTS.get(letter)
+            .or_else(|| LATIN_FONTS.get(letter))
+            .or_else(|| GREEK_FONTS.get(letter))
+            .or_else(|| HIRAGANA_FONTS.get(letter))
+            .or_else(|| MISC_FONTS.get(letter)))
             .or_else(|| BASIC_FONTS.get('?'));
         let Some(bitmap) = bitmap else { continue; };
-        let origin = x.saturating_add((offset as u32).saturating_mul(8 * scale));
+        let origin = x.saturating_add((offset as u32)
+            .saturating_mul(8_u32.saturating_mul(scale)));
         for (row, bits) in bitmap.iter().enumerate() {
             for column in 0..8_u32 {
                 if *bits & (1_u8 << column) != 0 {
@@ -133,9 +141,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn glyph_widths_count_characters_not_utf8_bytes() {
+    fn glyph_widths_count_complete_graphemes_not_utf8_bytes_or_scalars() {
         assert_eq!(text_pixel_width("Aéλ", 2), 48);
+        assert_eq!(text_pixel_width("a\u{301}👩‍💻🇩🇪", 2), 48);
         assert_eq!(text_pixel_width("", 2), 0);
+        assert_eq!(text_pixel_width("A", u32::MAX), u32::MAX);
+    }
+
+    #[test]
+    fn bitmap_fallback_has_exactly_one_cell_for_multi_scalar_graphemes() {
+        let text = "A👩‍💻🇩🇪a\u{301}V";
+        assert_eq!(text_pixel_width(text, 1), 40);
+        let mut actual = vec![0_u8; 40 * 8 * 4];
+        let mut expected = actual.clone();
+        draw_bitmap_text(&mut actual, 40, 8, 0, 0, text, 0xffff_ffff, 1, false);
+        draw_bitmap_text(&mut expected, 40, 8, 0, 0, "A???V", 0xffff_ffff, 1, false);
+        assert_eq!(actual, expected, "Fallback and hit-measurement disagree");
+        assert!(actual.iter().any(|&value| value != 0));
     }
 
     #[test]
@@ -153,14 +175,16 @@ mod tests {
         let cell = 8 * classic.font_scale;
         // Fitting a base character while cutting away its combining mark
         // would produce visibly incomplete user-facing text.
-        assert_eq!(fit_rice_text("a\u{301}bc", cell * 2, &classic), "…");
-        assert_eq!(fit_rice_text("a\u{301}bc", cell * 3, &classic),
+        assert_eq!(fit_rice_text("a\u{301}bc", cell, &classic), "…");
+        assert_eq!(fit_rice_text("a\u{301}bc", cell * 2, &classic),
                    "a\u{301}…");
-        // Emoji modifiers, joined emoji and flags each form indivisible
-        // extended graphemes even if their code points span many bytes.
-        assert_eq!(fit_rice_text("👩‍💻 task", cell * 2, &classic), "…");
-        assert_eq!(fit_rice_text("🇩🇪 done", cell * 2, &classic), "…");
-        assert_eq!(fit_rice_text("👍🏽 done", cell * 2, &classic), "…");
+        assert_eq!(fit_rice_text("a\u{301}bc", cell * 3, &classic),
+                   "a\u{301}bc");
+        // One fallback glyph = one measured cell, without splitting or
+        // spraying question marks across the neighboring control.
+        assert_eq!(fit_rice_text("👩‍💻 task", cell * 2, &classic), "👩‍💻…");
+        assert_eq!(fit_rice_text("🇩🇪 done", cell * 2, &classic), "🇩🇪…");
+        assert_eq!(fit_rice_text("👍🏽 done", cell * 2, &classic), "👍🏽…");
         assert_eq!(fit_rice_text("ABC", cell * 3, &classic), "ABC");
         assert_eq!(fit_rice_text("A長い", cell * 2, &classic), "A…");
     }
