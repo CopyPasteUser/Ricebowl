@@ -22,7 +22,7 @@ from typing import Any
 
 MAX_RECIPE_BYTES = 64 * 1024
 MAX_SELECTION_BYTES = 2048
-WIDGETS = frozenset(("launcher", "tasks", "clock", "network", "audio", "battery", "tray"))
+WIDGETS = frozenset(("launcher", "tasks", "clock", "network", "audio", "battery", "bluetooth", "tray"))
 SECTIONS = ("start", "center", "end")
 COLORS = ("background", "foreground", "active")
 METRIC_DEFAULTS = (104, 164, 96)
@@ -37,7 +37,7 @@ MAX_LAYOUT_CHILDREN = 6
 MAX_DESKTOP_ICONS = 8
 MAX_DESKTOP_WIDGETS = 4
 MAX_COMPONENT_DEFINITIONS = 8
-COMPONENT_STATUS_BINDINGS = frozenset(("clock", "network", "audio", "battery"))
+COMPONENT_STATUS_BINDINGS = frozenset(("clock", "network", "audio", "battery", "bluetooth"))
 DESKTOP_WIDGET_KINDS = frozenset(("clock", "date", "system", "text"))
 DESKTOP_WIDGET_WIDTH = 200
 DESKTOP_WIDGET_HEIGHT = 96
@@ -1223,7 +1223,7 @@ def waybar_config(recipe: PanelRecipe, *, screen_width: int | None = None) -> tu
     module_names = {
         "launcher": "custom/rice-launcher", "tasks": "wlr/taskbar",
         "clock": "clock", "network": "network", "audio": "pulseaudio",
-        "battery": "battery", "tray": "tray",
+        "battery": "battery", "bluetooth": "bluetooth", "tray": "tray",
     }
     generated_modules: dict[str, Any] = {}
     generated_css: list[str] = []
@@ -1322,6 +1322,12 @@ def waybar_config(recipe: PanelRecipe, *, screen_width: int | None = None) -> tu
                                  "on-click": "fuzzel", "tooltip": True,
                                  "tooltip-format": "Applications"},
         "clock": {"format": "{:%a %d %b  %H:%M}"},
+        # Waybar owns this read-only status in fallback mode; the native
+        # verified Bluetooth toggle is deliberately not exposed as on-click.
+        "bluetooth": {"format": "BT {status}", "format-on": "BT On",
+                      "format-off": "BT Off", "format-disabled": "BT Disabled",
+                      "format-connected": "BT {num_connections}",
+                      "format-no-controller": "BT N/A"},
         **generated_modules,
     }
     background, foreground, active = recipe.colors
