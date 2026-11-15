@@ -22,8 +22,8 @@ MAX_HISTORY_DEPTH = 64
 # basenames as parents so that upgrading does not strand their edit history.
 _DRAFT_NAME = re.compile(r"draft-[A-Za-z0-9][A-Za-z0-9._-]{0,95}\.json\Z")
 _SHA = re.compile(r"[0-9a-f]{64}\Z")
-_KINDS = frozenset(("create", "import", "save", "fork", "upgrade", "recover"))
-_ROOT_KINDS = frozenset(("create", "import"))
+_KINDS = frozenset(("create", "import", "save", "fork", "upgrade", "recover", "migrate"))
+_ROOT_KINDS = frozenset(("create", "import", "migrate"))
 
 
 class HistoryError(ValueError):
@@ -68,7 +68,7 @@ def write(draft: Path, digest: str, *, kind: str,
                                or parent[0] == draft.name):
         raise HistoryError("Invalid Creator version parent")
     if attribution is not None:
-        if kind != "import":
+        if kind not in ("import", "migrate"):
             raise HistoryError("Only imported roots may carry attribution")
         _check_attribution(attribution)
     data = {"history_version": HISTORY_VERSION, "kind": kind,
@@ -133,7 +133,7 @@ def _read_receipt(draft: Path, digest: str | None) -> dict[str, Any] | None:
             or not _valid_hash(parent["semantic_sha256"])):
         raise HistoryError("Creator history parent is invalid")
     if "attribution" in data:
-        if data["kind"] != "import":
+        if data["kind"] not in ("import", "migrate"):
             raise HistoryError("Unexpected Creator attribution on a non-import receipt")
         _check_attribution(data["attribution"])
     return data
