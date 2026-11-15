@@ -2,7 +2,9 @@
 
 import hashlib
 import json
+import struct
 import tempfile
+import zlib
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -19,6 +21,51 @@ class NativeCreatorHandoffRunnerTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.output = Path(temp.name) / "captures"
         self.output.mkdir()
+
+    def test_accepts_fully_decoded_native_capture(self):
+        path = self.output / "valid.png"
+        Image.new("RGB", (1024, 768), (20, 50, 80)).save(path)
+        self.assertEqual(runner.checked_capture_png(path, width=1024, height=768),
+                         path.read_bytes())
+
+    def test_rejects_crc_valid_but_undecodable_idat(self):
+        path = self.output / "corrupt-idat.png"
+        Image.new("RGB", (1024, 768), (20, 50, 80)).save(path)
+        payload = bytearray(path.read_bytes())
+        offset = 8
+        while offset < len(payload):
+            length = struct.unpack_from(">I", payload, offset)[0]
+            chunk_type = bytes(payload[offset + 4:offset + 8])
+            if chunk_type == b"IDAT":
+                self.assertGreaterEqual(length, 2)
+                # A broken zlib header with a recomputed, valid PNG CRC.
+                # Chunk-only verify() passes; full load() must reject it.
+                payload[offset + 8:offset + 10] = bytes([0, 0])
+                crc = zlib.crc32(payload[offset + 4:offset + 8 + length])
+                struct.pack_into(">I", payload, offset + 8 + length, crc)
+                break
+            offset += 12 + length
+        else:
+            self.fail("Pillow PNG fixture did not contain an IDAT chunk")
+        path.write_bytes(payload)
+        with Image.open(path) as image:
+            image.verify()  # CRC and IEND really are intact.
+        with self.assertRaisesRegex(ValueError, "undecodable"):
+            runner.checked_capture_png(path, width=1024, height=768)
+
+    def test_rejects_truncated_or_wrong_geometry_native_capture(self):
+        path = self.output / "incomplete.png"
+        Image.new("RGB", (1024, 768), (20, 50, 80)).save(path)
+        original = path.read_bytes()
+        path.write_bytes(original[:-12])  # Entire raster remains, IEND absent.
+        with self.assertRaisesRegex(ValueError, "undecodable"):
+            runner.checked_capture_png(path, width=1024, height=768)
+        path.write_bytes(original)
+        with self.assertRaisesRegex(ValueError, "geometry"):
+            runner.checked_capture_png(path, width=1366, height=768)
+        path.write_bytes(b"")
+        with self.assertRaisesRegex(ValueError, "geometry"):
+            runner.checked_capture_png(path, width=1024, height=768)
 
     def test_ineligible_output_and_missing_native_dependencies_fail_before_creation(self):
         self.output.joinpath("existing").write_text("keep")

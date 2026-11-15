@@ -30,6 +30,30 @@ ROOT = Path(__file__).resolve().parents[1]
 GEOMETRIES = ((1024, 768, 1.0), (1366, 768, 1.25))
 
 
+
+def checked_capture_png(path: Path, *, width: int, height: int) -> bytes:
+    """Validate the PNG container AND every pixel before trusting a capture.
+
+    Pillow.verify() validates the PNG chunk stream and CRCs, but does not
+    decompress IDAT. A CRC-correct PNG can still contain a corrupt zlib stream.
+    Re-open after verify() and force full raster decoding with load().
+    """
+    payload = path.read_bytes()
+    if (len(payload) < 24 or payload[:8] != bytes.fromhex("89504e470d0a1a0a")
+            or struct.unpack(">II", payload[16:24]) != (width, height)):
+        raise ValueError("Native capture is not the expected PNG geometry")
+    try:
+        with Image.open(path) as image:
+            if image.format != "PNG" or image.size != (width, height):
+                raise ValueError("Native screenshot dimensions mismatch")
+            image.verify()
+        with Image.open(path) as image:
+            image.load()
+    except (OSError, ValueError, SyntaxError) as exc:
+        raise ValueError("Native capture PNG has invalid or undecodable image data") from exc
+    return payload
+
+
 def capture_installed(destination: Path) -> dict:
     if (not destination.is_absolute() or not destination.is_dir()
             or any(destination.iterdir())):
@@ -157,14 +181,7 @@ def capture_installed(destination: Path) -> dict:
                             or receipt["mutates_active_desktop"] is not False
                             or receipt["interactive_session"] is not False):
                         raise ValueError("Native render receipt does not match Creator draft")
-                    payload = output.read_bytes()
-                    if (payload[:8] != bytes.fromhex("89504e470d0a1a0a")
-                            or struct.unpack(">II", payload[16:24]) != (width, height)):
-                        raise ValueError("Native capture is not the expected PNG geometry")
-                    with Image.open(output) as image:
-                        if image.format != "PNG" or image.size != (width, height):
-                            raise ValueError("Native screenshot dimensions mismatch")
-                        image.verify()
+                    payload = checked_capture_png(output, width=width, height=height)
                     digest = hashlib.sha256(payload).hexdigest()
                     if receipt["output"]["sha256"] != digest:
                         raise ValueError("Native screenshot receipt digest mismatch")
