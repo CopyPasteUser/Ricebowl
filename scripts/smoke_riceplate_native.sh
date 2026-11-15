@@ -783,7 +783,13 @@ PY
             shortcut_confirms_before=$(grep -Fc \
                 "RicePlate: compositor confirmed Luna shortcut keyboard focus" \
                 "$runtime/plate-$label.log" || :)
-            WAYLAND_DISPLAY=wayland-0 "$clicker" 68 435 1366 768
+            # Maintain one real Wayland pointer connection while labwc moves
+            # keyboard focus. Disconnecting immediately after pointer up can
+            # remove the only CI pointer device and revoke a pending lease.
+            # The selected icon still requires genuine same-seat wl_keyboard.enter.
+            WAYLAND_DISPLAY=wayland-0 "$clicker" --hold-ms 12000 68 435 1366 768 \
+                >"$runtime/luna-shortcut-pointer.log" 2>&1 &
+            shortcut_clicker=$!
             count=0
             while [ "$count" -lt 30 ]; do
                 shortcut_confirms_after=$(grep -Fc \
@@ -795,6 +801,7 @@ PY
             done
             test "$shortcut_confirms_after" -gt "$shortcut_confirms_before" || {
                 echo "Compositor did not grant real shortcut keyboard focus" >&2
+                cat "$runtime/luna-shortcut-pointer.log" >&2
                 tail -n 50 "$runtime/plate-$label.log" >&2
                 exit 1
             }
@@ -846,9 +853,17 @@ PY
             shortcut_confirms_before=$(grep -Fc \
                 "RicePlate: compositor confirmed Luna shortcut keyboard focus" \
                 "$runtime/plate-$label.log" || :)
+            # Release the first pointer after proving real composited typing.
+            # The second gesture uses a new pointer and must independently
+            # reacquire a new compositor-authorized keyboard lease.
+            kill -TERM "$shortcut_clicker" 2>/dev/null || :
+            wait "$shortcut_clicker" 2>/dev/null || :
+            shortcut_clicker=
             # Re-enter the desktop via a genuine pointer gesture before
             # typing Escape. No keyboard reconnection or fixed typing delay.
-            WAYLAND_DISPLAY=wayland-0 "$clicker" 68 435 1366 768
+            WAYLAND_DISPLAY=wayland-0 "$clicker" --hold-ms 12000 68 435 1366 768 \
+                >"$runtime/luna-shortcut-escape-pointer.log" 2>&1 &
+            shortcut_clicker=$!
             count=0
             while [ "$count" -lt 30 ]; do
                 shortcut_confirms_after=$(grep -Fc \
@@ -860,6 +875,7 @@ PY
             done
             test "$shortcut_confirms_after" -gt "$shortcut_confirms_before" || {
                 echo "Compositor did not grant fresh focus before shortcut Escape" >&2
+                cat "$runtime/luna-shortcut-escape-pointer.log" >&2
                 tail -n 45 "$runtime/plate-$label.log" >&2
                 exit 1
             }
@@ -891,6 +907,9 @@ with Image.open(sys.argv[1]) as a, Image.open(sys.argv[2]) as b:
 PY
             grep -Fq "RicePlate: Luna shortcut keyboard focus released" \
                 "$runtime/plate-$label.log"
+            kill -TERM "$shortcut_clicker" 2>/dev/null || :
+            wait "$shortcut_clicker" 2>/dev/null || :
+            shortcut_clicker=
             test ! -e "$runtime/trash-gio.log"
             echo "Verified real Bottom shortcut keyboard focus, Unicode prefix dispatch and Escape release"
             # Right-click must open a bounded popup, never launch a shortcut.
