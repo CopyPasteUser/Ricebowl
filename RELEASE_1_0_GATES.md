@@ -139,6 +139,28 @@ fetches the necessary Git history. Shallow source snapshots cannot certify
 stable 1.0. The gate verifies provenance and completeness, **not the truth of
 human measurements**. Do not edit evidence merely to make CI green.
 
+## Sprint 9 — signed native preview provenance (CI-gated)
+
+After the native suite passes on a **trusted `main` push**, a separate job
+downloads the exact smoke-tested preview bundle and verifies its `SHA256SUMS`,
+Git source commit, staged ELF digest and extracted Debian binary before
+creating a GitHub/Sigstore build provenance attestation using
+`actions/attest@v4`. Only that post-test job requests OIDC,
+`attestations: write` and artifact metadata permissions; pull requests and
+forks cannot run the signing job. The native preview package and source commit
+can then be independently checked with:
+
+```sh
+gh attestation verify ricebowl-riceplate-native_0.1.0~preview2_amd64.deb \
+  --repo CopyPasteUser/Ricebowl
+```
+
+This produces *signed CI identity/subject evidence* after the first successful
+post-merge run. It does **not** certify third-party uploaded binaries, a
+reproducible byte-for-byte cross-machine toolchain, an installer, stable
+version 1.0, a device test or reviewed human sign-off. The public release
+and hardware checklist remains fully enforced.
+
 ## Exact-source GitHub CI gate for release artifacts
 
 The `v1.0.0-rc.N` / `v1.0.0` source-artifact workflow now requires
