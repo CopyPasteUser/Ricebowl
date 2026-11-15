@@ -36,6 +36,37 @@ class FrutigerCalendarGtkTests(unittest.TestCase):
         finally:
             window.destroy()
 
+    def test_stale_focus_out_cannot_hide_reopened_calendar(self):
+        import gi
+
+        gi.require_version("Gtk", "3.0")
+        from gi.repository import Gtk
+        from macrice.frutiger_calendar import AquaCalendar
+
+        initialized = Gtk.init_check()
+        if not (initialized[0] if isinstance(initialized, tuple) else initialized):
+            self.skipTest("Native GTK display unavailable; Xvfb CI supplies one")
+        window = Gtk.Window()
+        anchor = Gtk.Button(label="Clock")
+        window.add(anchor)
+        window.show_all()
+        popup = AquaCalendar(anchor, Gtk)
+        try:
+            popup.show()
+            prior = popup.popover._presentation
+            # Focus-out for a previous popup is allowed to arrive after a
+            # subsequent .present(); it must not hide the newly opened flyout.
+            popup.popover._focus_out(popup.popover, None)
+            popup.show()
+            self.assertGreater(popup.popover._presentation, prior)
+            self.assertFalse(popup.popover._dismiss_if_unfocused(prior))
+            self.assertTrue(popup.popover.get_visible())
+            popup.popover.popdown()
+            self.assertFalse(popup.popover.get_visible())
+        finally:
+            popup.popover.destroy()
+            window.destroy()
+
     def test_wpa_flyout_uses_a_masked_entry_cleared_before_dispatch(self):
         import gi
 

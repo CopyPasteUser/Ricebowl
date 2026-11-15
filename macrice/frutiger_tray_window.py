@@ -39,9 +39,25 @@ def create_tray_window(anchor, Gtk, *, title="Aqua World controls"):
                 self.set_keep_above(True)
                 self.set_transient_for(anchor.get_toplevel())
                 self.get_style_context().add_class("aqua-flyout")
-                self.connect("focus-out-event", lambda window, _event: window.hide())
+                # WM focus handoffs during first map/present can emit a
+                # transient focus-out before a new flyout becomes active.
+                # Deferring dismissal and checking the presentation generation
+                # prevents that stale signal from closing a newly opened menu.
+                self._presentation = 0
+                self.connect("focus-out-event", self._focus_out)
                 self.connect("key-press-event", self._escape)
                 self.connect("size-allocate", self._size_changed)
+
+            def _focus_out(self, _window, _event):
+                generation = self._presentation
+                GLib.timeout_add(180, self._dismiss_if_unfocused, generation)
+                return False
+
+            def _dismiss_if_unfocused(self, generation):
+                if (generation == self._presentation and self.get_visible()
+                        and not self.is_active()):
+                    self.hide()
+                return False
 
             def _escape(self, _window, event):
                 if event.keyval == Gdk.KEY_Escape:
@@ -76,12 +92,14 @@ def create_tray_window(anchor, Gtk, *, title="Aqua World controls"):
                 return False
 
             def popup(self):
+                self._presentation += 1
                 self.show_all()
                 self.present()
                 self._place()
                 GLib.idle_add(self._place)
 
             def popdown(self):
+                self._presentation += 1
                 self.hide()
 
         _TRAY_CLASS = AquaTrayWindow
