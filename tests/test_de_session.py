@@ -375,7 +375,7 @@ class WaylandSessionTests(unittest.TestCase):
             self.assertTrue(observer.ready(11.41))
             self.assertFalse(observer.ready(11.42))
 
-    def test_shell_supervises_background_services_and_uses_private_panel_config(self):
+    def test_nested_shell_preserves_parent_bus_and_uses_private_panel_config(self):
         commands = []
         processes = []
 
@@ -386,18 +386,47 @@ class WaylandSessionTests(unittest.TestCase):
             return process
 
         choices = {**self.tools, "swaybg": "/usr/bin/swaybg", "mako": "/usr/bin/mako",
-                   "lxpolkit": "/usr/bin/lxpolkit", "swayidle": "/usr/bin/swayidle"}
+                   "lxpolkit": "/usr/bin/lxpolkit", "swayidle": "/usr/bin/swayidle",
+                   "orca": "/usr/bin/orca"}
         env = {"RICEBOWL_DE_SHELL_CHILD": "1", "RICEBOWL_DE_NESTED": "1",
-               "WAYLAND_DISPLAY": "wayland-0"}
+               "RICEBOWL_DE_SCREEN_READER": "1",
+               "RICEBOWL_DE_MAKO_CONFIG": "/tmp/untrusted-parent-config",
+               "WAYLAND_DISPLAY": "wayland-0", "DBUS_SESSION_BUS_ADDRESS": "unix:path=parent"}
         with mock.patch("macrice.de.session.signal.signal"):
             result = session.shell(environment=env, which=choices.get, spawn=spawn)
         self.assertEqual(result, 0)
-        self.assertIn(["/usr/bin/mako", "--config",
-                       str(session.resources() / "mako.conf")], commands)
+        self.assertTrue(any(cmd[0] == "/usr/bin/waybar" for cmd in commands))
         self.assertIn("--config", commands[-1])
         self.assertIn(str(session.resources() / "waybar/config.jsonc"), commands[-1])
-        self.assertFalse(any(command[0] == "/usr/bin/swayidle" for command in commands))
+        self.assertFalse(any(command[0] in ("/usr/bin/mako", "/usr/bin/lxpolkit",
+                                            "/usr/bin/orca", "/usr/bin/swayidle")
+                             for command in commands))
         self.assertTrue(all(proc.terminated for proc in processes[:-1]))
+
+    def test_full_session_supervises_notifications_and_polkit_without_root(self):
+        commands = []
+        processes = []
+
+        def spawn(command, **_kwargs):
+            commands.append(command)
+            proc = _FakeProcess()
+            processes.append(proc)
+            return proc
+
+        choices = {**self.tools, "mako": "/usr/bin/mako",
+                   "lxpolkit": "/usr/bin/lxpolkit", "swayidle": "/usr/bin/swayidle"}
+        env = {"RICEBOWL_DE_SHELL_CHILD": "1", "RICEBOWL_DE_NESTED": "0",
+               "WAYLAND_DISPLAY": "wayland-0", "XDG_RUNTIME_DIR": self.runtime.name}
+        with mock.patch("macrice.de.session.signal.signal"), \\
+             mock.patch("macrice.de.notification_prefs.load_optional", return_value=None):
+            self.assertEqual(session.shell(environment=env, which=choices.get,
+                                           spawn=spawn), 0)
+        self.assertEqual(commands[0][0], "/usr/bin/swayidle")
+        self.assertIn(["/usr/bin/mako", "--config",
+                       str(session.resources() / "mako.conf")], commands)
+        self.assertIn(["/usr/bin/lxpolkit"], commands)
+        self.assertEqual(commands[-1][0], "/usr/bin/waybar")
+        self.assertTrue(all(process.terminated for process in processes))
 
     def test_full_session_starts_before_sleep_lock_listener(self):
         commands = []
