@@ -146,6 +146,22 @@ class OptionalWaylandServiceTests(unittest.TestCase):
         self.assertNotIn("/usr/bin/swayidle", attempts)
         self.assertIn("/usr/bin/waybar", attempts)
 
+    def test_explicit_private_nested_bus_runs_own_mako_but_no_polkit(self):
+        attempts = []
+        def spawn(command, **kwargs):
+            attempts.append(command[0])
+            return FakeProcess()
+        # Same marker the headless smoke sets only *inside* dbus-run-session.
+        env = {**self.nested, "RICEBOWL_DE_PRIVATE_BUS": "1"}
+        with mock.patch("macrice.de.session.signal.signal"):
+            self.assertEqual(session.shell(environment=env, which=self.tools.get,
+                                           spawn=spawn), 0)
+        self.assertIn("/usr/bin/mako", attempts)
+        self.assertIn("/usr/bin/waybar", attempts)
+        self.assertNotIn("/usr/bin/lxpolkit", attempts)
+        self.assertNotIn("/usr/bin/mate-polkit", attempts)
+        self.assertNotIn("/usr/bin/swayidle", attempts)
+
     def test_lock_watcher_starts_before_optional_full_session_clients(self):
         attempts = []
 
