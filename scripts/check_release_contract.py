@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -39,6 +40,32 @@ def read_version(root: Path) -> str:
     return package.group(1)
 
 
+def verify_tested_source(root: Path, tested_commit: str) -> None:
+    """Fail closed if runtime/source changed after real-device acceptance.
+
+    The final sign-off is recorded in a *later* commit, so requiring that
+    commit to reference its own SHA would be impossible. Only changes to
+    the sign-off JSON itself may separate the tested commit and release HEAD.
+    """
+    if not re.fullmatch(r"[0-9a-f]{40}", tested_commit):
+        raise ReleaseGateError("Invalid tested source commit in hardware sign-off")
+    try:
+        subprocess.run(
+            ["git", "-C", str(root), "merge-base", "--is-ancestor", tested_commit, "HEAD"],
+            capture_output=True, check=True, timeout=5,
+        )
+        changed = subprocess.run(
+            ["git", "-C", str(root), "diff", "--no-ext-diff", "--no-textconv",
+             "--name-only", tested_commit, "HEAD", "--", ".",
+             ":(exclude).github/release-signoff-1.0.json"],
+            capture_output=True, text=True, check=True, timeout=5,
+        )
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ReleaseGateError("Cannot verify hardware-tested source ancestry") from exc
+    if changed.stdout.strip():
+        raise ReleaseGateError("Release source changed after real-device acceptance")
+
+
 def check_release(root: Path, tag: str | None) -> str:
     version = read_version(root)
     if tag is None:
@@ -52,11 +79,12 @@ def check_release(root: Path, tag: str | None) -> str:
             data = json.loads(file.read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
             raise ReleaseGateError("Missing or invalid 1.0 hardware sign-off") from exc
-        if not isinstance(data, dict) or set(data) != {"status", "device", "date_utc", "evidence"}:
+        if not isinstance(data, dict) or set(data) != {"status", "device", "date_utc", "evidence", "tested_source_commit"}:
             raise ReleaseGateError("Incomplete 1.0 hardware sign-off")
         evidence = data["evidence"]
         if (data["status"] != "approved"
                 or not isinstance(data["device"], str) or not data["device"].strip()
+                or not isinstance(data["tested_source_commit"], str)
                 or not isinstance(data["date_utc"], str)
                 or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", data["date_utc"])
                 or not isinstance(evidence, dict)
@@ -64,6 +92,7 @@ def check_release(root: Path, tag: str | None) -> str:
                 or any(not isinstance(evidence[key], str) or not evidence[key].strip()
                        for key in REQUIRED_EVIDENCE)):
             raise ReleaseGateError("RiceBowl 1.0 requires documented real-device acceptance")
+        verify_tested_source(root, data["tested_source_commit"])
     return version
 
 
