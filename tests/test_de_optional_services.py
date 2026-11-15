@@ -77,6 +77,86 @@ class OptionalWaylandServiceTests(unittest.TestCase):
         self.assertEqual(len(background), 2)
         self.assertTrue(service.retried)
 
+    def test_polkit_crash_switches_to_next_provider_without_duplicate_agent(self):
+        attempts = []
+        background = []
+        alive = FakeProcess()
+
+        def spawn(command, **kwargs):
+            attempts.append(tuple(command))
+            return FakeProcess(exit_code=9) if command[0].endswith("lxpolkit") else alive
+
+        service = session._OptionalService(
+            "polkit authentication agent", ["/usr/bin/lxpolkit"],
+            env=self.nested, spawn=spawn, background=background,
+            fallbacks=(["/usr/bin/mate-polkit"],
+                       ["/usr/bin/polkit-gnome-authentication-agent-1"]))
+        with mock.patch("sys.stderr"):
+            service.check()
+            for _ in range(10):
+                service.check()
+        self.assertEqual(attempts, [("/usr/bin/lxpolkit",),
+                                    ("/usr/bin/mate-polkit",)])
+        self.assertIs(service.process, alive)
+        self.assertEqual(service.command, ["/usr/bin/mate-polkit"])
+        self.assertEqual(len(background), 2)
+        self.assertTrue(service.retried)
+
+    def test_polkit_all_alternatives_fail_without_repeated_start_storm(self):
+        attempts = []
+
+        def spawn(command, **kwargs):
+            attempts.append(command[0])
+            if command[0] == "/usr/bin/lxpolkit":
+                return FakeProcess(exit_code=1)
+            raise OSError("cannot acquire authorization bus name")
+
+        service = session._OptionalService(
+            "polkit authentication agent", ["/usr/bin/lxpolkit"],
+            env=self.nested, spawn=spawn, background=[],
+            fallbacks=(["/usr/bin/mate-polkit"],
+                       ["/usr/bin/polkit-gnome-authentication-agent-1"]))
+        with mock.patch("sys.stderr"):
+            for _ in range(10):
+                service.check()
+        self.assertIsNone(service.process)
+        self.assertEqual(attempts, ["/usr/bin/lxpolkit", "/usr/bin/mate-polkit",
+                                    "/usr/bin/polkit-gnome-authentication-agent-1"])
+
+    def test_full_session_dead_idle_guard_never_launches_desktop_clients(self):
+        attempts = []
+
+        def spawn(command, **kwargs):
+            attempts.append(command[0])
+            if command[0] == "/usr/bin/swayidle":
+                return FakeProcess(exit_code=11)
+            return FakeProcess()
+
+        env = {**self.nested, "RICEBOWL_DE_NESTED": "0"}
+        with self.assertRaisesRegex(session.SessionError,
+                                    "idle/lock watcher exited at startup"):
+            session.shell(environment=env, which=self.tools.get, spawn=spawn)
+        self.assertEqual(attempts, ["/usr/bin/swayidle"])
+
+    def test_full_login_polkit_failover_is_supervised_by_the_shell(self):
+        attempts = []
+
+        def spawn(command, **kwargs):
+            attempts.append(command[0])
+            if command[0] == "/usr/bin/lxpolkit":
+                return FakeProcess(exit_code=7)
+            return FakeProcess()
+
+        env = {**self.nested, "RICEBOWL_DE_NESTED": "0"}
+        with (mock.patch("macrice.de.session.signal.signal"),
+              mock.patch("sys.stderr"),
+              mock.patch("macrice.de.notification_prefs.load_optional", return_value=None)):
+            self.assertEqual(session.shell(environment=env, which=self.tools.get,
+                                           spawn=spawn), 0)
+        self.assertEqual(attempts.count("/usr/bin/lxpolkit"), 1)
+        self.assertEqual(attempts.count("/usr/bin/mate-polkit"), 1)
+        self.assertEqual(attempts.count("/usr/bin/waybar"), 1)
+
     def test_successful_optional_exit_is_not_respawned(self):
         attempts = []
         def spawn(command, **kwargs):

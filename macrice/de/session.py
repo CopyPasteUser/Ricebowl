@@ -368,13 +368,23 @@ def _spawn_optional_process(
 
 
 class _OptionalService:
-    """One bounded crash retry; no daemon, timer or unbounded restart loop."""
+    """One bounded crash recovery, with optional alternate installed provider.
+
+    A non-polkit service retries its own command once. An exclusive polkit
+    provider transfers ownership to at most one live alternative and never
+    overlaps a still-running process or creates a restart loop.
+    """
 
     def __init__(self, name: str, command: list[str], *, env: Mapping[str, str],
                  spawn: Callable[..., subprocess.Popen[bytes]],
-                 background: list[subprocess.Popen[bytes]]) -> None:
+                 background: list[subprocess.Popen[bytes]],
+                 fallbacks: tuple[list[str], ...] = ()) -> None:
         self.name, self.command = name, command
         self.env, self.spawn, self.background = env, spawn, background
+        # Polkit has mutually exclusive providers. On failure, transfer
+        # ownership only to an already allowlisted alternative, never start
+        # another agent while the previous one is alive.
+        self.fallbacks = fallbacks
         self.process = _spawn_optional_process(
             name, command, env=env, spawn=spawn, background=background)
         self.retried = False
@@ -387,11 +397,23 @@ class _OptionalService:
             return
         self.retried = True
         if status != 0:
-            print(f"RiceBowl: optional {self.name} exited with {status}; "
-                  "attempting one restart", file=sys.stderr)
-            self.process = _spawn_optional_process(
-                self.name, self.command, env=self.env,
-                spawn=self.spawn, background=self.background)
+            if self.fallbacks:
+                print(f"RiceBowl: optional {self.name} exited with {status}; "
+                      "trying a different installed provider", file=sys.stderr)
+                self.process = None
+                for alternative in self.fallbacks:
+                    replacement = _spawn_optional_process(
+                        self.name, alternative, env=self.env,
+                        spawn=self.spawn, background=self.background)
+                    if replacement is not None:
+                        self.command, self.process = alternative, replacement
+                        break
+            else:
+                print(f"RiceBowl: optional {self.name} exited with {status}; "
+                      "attempting one restart", file=sys.stderr)
+                self.process = _spawn_optional_process(
+                    self.name, self.command, env=self.env,
+                    spawn=self.spawn, background=self.background)
 
 
 def _atomic_labwc_text(path: Path, content: str) -> None:
@@ -1022,6 +1044,13 @@ def shell(
                     env=env, stdin=subprocess.DEVNULL,
                 )
                 background.append(idle_process)
+                # A detached or immediately failing swayidle process is not
+                # a suspend/lock guard. Abort *before* spawning any desktop
+                # clients; later failures are monitored by the supervisor.
+                if idle_process.poll() is not None:
+                    raise SessionError(
+                        "Full Wayland session idle/lock watcher exited at startup; "
+                        "refusing an unprotected desktop.")
 
             swaybg = which("swaybg")
             from .recipes import load, wallpaper_path
@@ -1085,15 +1114,17 @@ def shell(
             # never register a competing polkit listener on the same user bus.
             # Full RiceBowl logins own one unprivileged authentication agent.
             if not nested:
-                for name in ("lxpolkit", "mate-polkit", "polkit-gnome-authentication-agent-1"):
-                    agent = which(name)
-                    if agent:
-                        service = _OptionalService(
-                            "polkit authentication agent", [agent], env=env,
-                            spawn=spawn, background=background)
-                        if service.process is not None:
-                            optional_services.append(service)
-                            break
+                agents = [binary for name in (
+                    "lxpolkit", "mate-polkit", "polkit-gnome-authentication-agent-1")
+                    if (binary := which(name))]
+                for index, agent in enumerate(agents):
+                    service = _OptionalService(
+                        "polkit authentication agent", [agent], env=env,
+                        spawn=spawn, background=background,
+                        fallbacks=tuple([candidate] for candidate in agents[index + 1:]))
+                    if service.process is not None:
+                        optional_services.append(service)
+                        break
 
             shutting_down = False
             shutdown_signal = signal.SIGTERM
