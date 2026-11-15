@@ -12,8 +12,11 @@ RicePacks through a **one-way, data-only migration to a new schema-v11 draft**.
 The installed source is pinned by its parsed semantic hash and never modified.
 Pre-v3 sections become equivalent widget nodes. Existing menu, wallpaper,
 shortcuts, colors, responsive layout, widgets and v9 components are retained
-where they existed; absent newer UI features use validated defaults, with
-**no synthetic desktop shortcuts or composition widgets**. A new immutable
+where they existed; absent newer UI features use validated defaults.
+For v1–v4, which never defined desktop icons, the mandatory v11 icon
+contract adds exactly **one clearly disclosed Applications shortcut**
+(instead of copying the template's two demo icons). No composition widgets
+are injected. A new immutable
 `migrate` root history receipt preserves verified RicePack author/wallpaper
 provenance for private edit, fork and export. Invalid assets, a stale installed
 hash and an untrusted source fail before publishing a draft. The GUI displays
