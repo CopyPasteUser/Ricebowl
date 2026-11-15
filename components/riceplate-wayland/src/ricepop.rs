@@ -239,6 +239,10 @@ impl State {
         } else { RETRY_REFRESH_INTERVAL });
         match result {
             Ok(snapshot) => {
+                // A transient Mako owner loss invalidates authorization of any
+                // previously opened detail. Reopen explicitly after recovery:
+                // a restarted provider may reuse an ID with identical text.
+                let recovering = self.sync_error;
                 let prior_detail = self.detail_notice().cloned();
                 let prior_action_key = self.selected_action().map(|(_, action)| action.key.clone());
                 let previous_id = self.detail_id.or_else(||
@@ -249,12 +253,17 @@ impl State {
                     .iter().position(|notice| notice.id == id))
                     .unwrap_or_else(|| if background { self.visible_notices().len() }
                                     else { self.selected.min(self.visible_notices().len().saturating_sub(1)) });
-                // Do not retain an actionable detail if a host restart reused
-                // the same numeric ID for different message content.
-                if self.detail_id.is_some() && (self.detail_notice().is_none()
+                // Never silently retarget an open detail to a notification
+                // whose identity changed. In addition to visible text, check
+                // urgency and the label of every retained action key. Pure
+                // action reordering remains safe: selection follows its key.
+                if self.detail_id.is_some() && (recovering || self.detail_notice().is_none()
                     || prior_detail.as_ref().is_some_and(|old| self.detail_notice().is_some_and(|new|
                         old.app_name != new.app_name || old.summary != new.summary
-                        || old.body != new.body))) {
+                        || old.body != new.body || old.urgency != new.urgency
+                        || old.actions.iter().any(|action|
+                            new.actions.iter().any(|current|
+                                current.key == action.key && current.label != action.label))))) {
                     self.close_detail();
                 }
                 let next_action = prior_action_key.as_ref().and_then(|key|
@@ -1080,6 +1089,50 @@ mod tests {
         state.close();
         assert_eq!(state.body_page, 0);
         assert_eq!(state.compact_viewport, None);
+    }
+
+    #[test]
+    fn changed_notification_action_and_provider_recovery_require_fresh_selection() {
+        let now = Instant::now();
+        let make = |label: &str, urgency: &str| Snapshot {
+            active: vec![Notice {
+                id: 24, app_name: "Mail".into(), summary: "Unread".into(),
+                body: "One message".into(), urgency: urgency.into(),
+                actions: vec![Action { key: "open".into(), label: label.into() }],
+            }],
+            history: vec![],
+        };
+        let mut state = State::default();
+        let first = state.begin();
+        assert!(state.update(first, Ok(make("Open", "normal"))));
+        assert!(state.open_detail(0));
+        assert!(state.selected_action().is_some());
+
+        // Reused numeric ID, same text and key, different action meaning:
+        // do not leave the old actionable detail authorized.
+        let revision = state.begin_background(now + Duration::from_secs(4)).unwrap();
+        assert!(state.update(revision, Ok(make("Delete", "normal"))));
+        assert!(state.detail_notice().is_none());
+        assert!(state.selected_action().is_none());
+        assert!(state.open_detail(0));
+        let revision = state.begin_background(now + Duration::from_secs(8)).unwrap();
+        assert!(state.update(revision, Ok(make("Delete", "critical"))));
+        assert!(state.detail_notice().is_none());
+
+        assert!(state.open_detail(0));
+        let revision = state.begin_background(now + Duration::from_secs(12)).unwrap();
+        assert!(state.update(revision, Err("Host offline")));
+        assert!(state.sync_error);
+        assert!(state.selected_action().is_none());
+        // Even if the provider returns an identical ID and payload after
+        // restarting, a user must reopen the detail to invoke an action.
+        let revision = state.begin_background(now + Duration::from_secs(25)).unwrap();
+        assert!(state.update(revision, Ok(make("Delete", "critical"))));
+        assert!(!state.sync_error);
+        assert!(state.detail_notice().is_none());
+        assert!(state.selected_action().is_none());
+        assert!(state.open_detail(0));
+        assert_eq!(state.selected_action().unwrap().1.label, "Delete");
     }
 
     #[test]
