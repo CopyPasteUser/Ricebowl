@@ -35,7 +35,14 @@ the sign-off guard and its tests are deliberately unchanged.
 - [x] A separate amd64 native RicePlate preview `.deb` is assembled from that
   tested executable with dynamically derived shared-library dependencies; CI
   checks repeat-build identity and verifies the extracted binary matches.
-  The artifact is opt-in and does not replace the XFCE login or full installer.
+  The package now stamps the staged native ELF SHA-256 and the read-only
+  four-package verifier rejects missing/invalid digests and modified native
+  payloads. Native CI additionally rebuilds the locked Rust executable in an
+  independent clean target and compares its bytes before packaging.
+  This establishes same-run binary consistency, **not** cryptographic
+  provenance, cross-host bit-reproducibility, or that an externally supplied
+  ELF came from the stamped commit. The artifact is opt-in and does not
+  replace the XFCE login or full installer.
 - [x] The optional standalone Wayland core and dependency-only desktop
   metapackage have reproducible Debian builds. CI checks a disposable
   Ubuntu 24.04 install/reinstall/purge and that package removal leaves
