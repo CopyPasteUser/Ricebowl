@@ -64,6 +64,49 @@ enum StatusEvent {
     State(SystemStatus),
     Control { action: ControlAction, success: bool, state: SystemStatus },
     ObservedAudio(Audio),
+    WorkerStopped,
+}
+
+/// Notify the Wayland event loop on *any* ordinary worker exit, including
+/// unwind. The audio observer may keep another status sender alive, so merely
+/// waiting for the channel's final Closed event is insufficient.
+struct StatusWorkerExit(channel::Sender<StatusEvent>);
+
+impl Drop for StatusWorkerExit {
+    fn drop(&mut self) {
+        let _ = self.0.send(StatusEvent::WorkerStopped);
+    }
+}
+
+/// Fail closed without starting a replacement worker on the Wayland thread.
+/// The opt-in session supervisor remains responsible for lifecycle recovery.
+fn revoke_status_owner(app: &mut RicePlate, qh: &QueueHandle<RicePlate>) {
+    let previously_available = app.control_sender.take().is_some();
+    app.control_pending = None;
+    app.control_result = None;
+    app.system_status = SystemStatus::default();
+    app.menu_state.notice = Some("Hardware status unavailable");
+    if previously_available {
+        eprintln!("RicePlate: hardware status/control owner exited");
+    }
+    app.request_redraw(qh);
+    app.redraw_widgets();
+    if app.menu_state.visible { app.redraw_menu(qh); }
+}
+
+/// Preserve the zero-capacity control queue's backpressure. A full queue means
+/// the receiver is alive but busy; a disconnected receiver means the native
+/// shell must revoke its action capability until a new session starts.
+fn try_queue_control(sender: &mut Option<mpsc::SyncSender<ControlAction>>,
+                     action: ControlAction) -> bool {
+    match sender.as_ref().map(|worker| worker.try_send(action)) {
+        Some(Ok(())) => true,
+        Some(Err(mpsc::TrySendError::Disconnected(_))) => {
+            *sender = None;
+            false
+        }
+        _ => false,
+    }
 }
 use calendar::{CalendarState, Hit as CalendarHit};
 use desktop_context::Action as DesktopContextAction;
@@ -781,10 +824,18 @@ fn main() -> Result<(), Box<dyn Error>> {
         app.control_sender = Some(control_sender);
         let redraw_qh = qh.clone();
         event_loop.handle().insert_source(receiver, move |event, _, app: &mut RicePlate| {
+            if matches!(&event, channel::Event::Closed) {
+                revoke_status_owner(app, &redraw_qh);
+                return;
+            }
             if let channel::Event::Msg(message) = event {
                 let control_completed = matches!(&message, StatusEvent::Control { .. });
                 let status = match message {
                     StatusEvent::State(status) => status,
+                    StatusEvent::WorkerStopped => {
+                        revoke_status_owner(app, &redraw_qh);
+                        return;
+                    }
                     StatusEvent::ObservedAudio(audio) => {
                         if app.osd_state.show_external(&app.system_status.audio, &audio,
                                                        Instant::now()) {
@@ -835,6 +886,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         // One sleeping worker, enabled only for rices using these widgets;
         // bounded subprocesses never block Wayland input or the frame loop.
         std::thread::spawn(move || {
+            let _exit_notice = StatusWorkerExit(sender.clone());
             if sender.send(StatusEvent::State(SystemStatus::read(poll_network, poll_audio, poll_bluetooth))).is_err() {
                 return;
             }
@@ -3709,8 +3761,13 @@ impl RicePlate {
         if let Some(control) = ControlAction::from_id(action) {
             let supported = control.available(&self.system_status);
             let idle = self.control_pending.is_none();
-            let sent = supported && idle && self.control_sender.as_ref()
-                .is_some_and(|sender| sender.try_send(control).is_ok());
+            let sent = supported && idle && try_queue_control(&mut self.control_sender, control);
+            if self.control_sender.is_none() {
+                // A stale readback must never survive a verified disconnected
+                // worker, or make subsequent menu/AT-SPI actions look enabled.
+                self.system_status = SystemStatus::default();
+                self.control_pending = None;
+            }
             if sent {
                 self.control_pending = Some(control);
                 self.control_result = None;
@@ -3720,6 +3777,7 @@ impl RicePlate {
             self.menu_state.notice = Some(if sent { "Applying..." }
                 else if !supported { "Hardware unavailable" }
                 else if !idle { "Control busy" }
+                else if self.control_sender.is_none() { "Hardware backend disconnected" }
                 else { "Unavailable or denied" });
             if self.menu_state.visible { self.redraw_menu(qh); }
             self.request_redraw(qh);
@@ -9227,6 +9285,29 @@ mod tests {
                 })
             }));
         }
+    }
+
+    #[test]
+    fn disconnected_hardware_worker_revokes_controls_but_full_queue_does_not() {
+        let (sender, receiver) = mpsc::sync_channel::<ControlAction>(0);
+        let mut available = Some(sender);
+        // Zero-capacity backpressure is not equivalent to a dead worker.
+        assert!(!try_queue_control(&mut available, ControlAction::WifiToggle));
+        assert!(available.is_some(), "busy receiver must remain available");
+
+        drop(receiver);
+        assert!(!try_queue_control(&mut available, ControlAction::WifiToggle));
+        assert!(available.is_none(), "disconnected receiver must be forgotten");
+        assert!(!try_queue_control(&mut available, ControlAction::WifiToggle));
+
+        let status = SystemStatus {
+            network: system_status::Network::Global,
+            audio: Audio::Volume(55),
+            wifi: system_status::WifiRadio::Enabled,
+            bluetooth: system_status::BluetoothRadio::Enabled,
+        };
+        assert_eq!(ControlFeedback::snapshot(ControlAction::WifiToggle,
+            &status, None, None, available.is_some()), ControlFeedback::Unavailable);
     }
 
     #[test]

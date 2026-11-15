@@ -5,6 +5,23 @@ physical acceptance outstanding.** RiceBowl 0.9.x is still an XFCE/X11
 rice manager. The separate Wayland login-session package requires explicit
 installation and is not yet a finished desktop environment.
 
+### Sprint 5 disconnected control-owner recovery (15 November 2026, CI-gated candidate)
+
+The existing bounded zero-capacity radio/audio control channel now distinguishes
+a busy `Full` rendezvous from `Disconnected`. On a confirmed receiver
+disconnect, RicePlate drops its stale control sender, invalidates the last
+status and shows verified operations as unavailable on menu, panel, desktop
+and AT-SPI surfaces. A worker-exit guard additionally signals the event loop even while a
+separate audio observer keeps the status channel alive; channel closure also
+invalidates pending operations and readback. No new polling thread, retry
+daemon, privileged service or unsafe command is introduced. A native
+regression verifies busy-vs-disconnected behavior and capability revocation.
+
+This is a fail-closed software-recovery increment, not automatic backend
+reconnection or physical device acceptance. A crashed control worker can
+require restarting the opt-in RicePlate session; CI and release gates stay
+open until exact-head and post-merge checks succeed.
+
 ### Sprint 5 visual menu control feedback (15 November 2026, CI-gated candidate)
 
 Native and compact launcher menus now use the same bounded verified hardware
