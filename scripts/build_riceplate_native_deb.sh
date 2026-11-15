@@ -87,6 +87,20 @@ fi
 awk -v depends="$dependencies" \
     '/^Description:/ {print "Depends: " depends} {print}' \
     "$control" > "$package_root/DEBIAN/control"
+source_commit=unverified
+if command -v git >/dev/null 2>&1 && \
+   git -C "$project_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    source_commit=$(git -C "$project_root" rev-parse --verify HEAD)
+fi
+case "$source_commit" in
+    unverified) ;;
+    *[!0-9a-f]*|'') echo "Invalid package source commit" >&2; exit 1 ;;
+esac
+if [ "$source_commit" != unverified ] && [ "${#source_commit}" -ne 40 ]; then
+    echo "Invalid package source commit length" >&2
+    exit 1
+fi
+printf 'X-RiceBowl-Source-Commit: %s\n' "$source_commit" >> "$package_root/DEBIAN/control"
 find "$package_root" -exec touch -h -d "@$package_epoch" -- {} +
 dpkg-deb --build --root-owner-group "$package_root" "$output"
 echo "Built $output (not installed)"
