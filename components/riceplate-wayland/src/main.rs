@@ -9102,6 +9102,38 @@ mod tests {
     }
 
     #[test]
+    fn bluetooth_status_panel_pixels_follow_adapter_power_without_fake_clicks() {
+        let mut data: serde_json::Value = serde_json::from_str(
+            include_str!("../../../examples/wayland/quick-controls.json")).unwrap();
+        // A read-only indicator must not become a hit target even when a
+        // separate Bluetooth radio control exists in the menu.
+        let style = recipe::parse(&data.to_string(), Some("quick-controls")).unwrap();
+        let width = 1366;
+        let height = style.height;
+        let paint = |status: &SystemStatus| {
+            let mut pixels = vec![0; (width * height * 4) as usize];
+            paint_panel(&mut pixels, width, height, &style, &[], "12:00",
+                &PowerStatus::NotPresent, status, &tray::State::default(), 0,
+                None, None, None);
+            pixels
+        };
+        let missing = SystemStatus::default();
+        let mut powered = missing.clone();
+        powered.bluetooth = system_status::BluetoothRadio::Enabled;
+        let left = paint(&missing);
+        let right = paint(&powered);
+        let indicator = recipe::layout(&style, width, 0).into_iter()
+            .find(|p| p.widget == Widget::Bluetooth).unwrap();
+        assert!((indicator.x..indicator.x + indicator.width).any(|x|
+            (0..height).any(|y| {
+                let offset = ((y * width + x) * 4) as usize;
+                left[offset..offset + 4] != right[offset..offset + 4]
+            })));
+        assert!(matches!(recipe::hit_test(&style, width, 0, 0,
+            f64::from(indicator.x + indicator.width / 2)), None));
+    }
+
+    #[test]
     fn network_and_audio_status_pixels_follow_real_backend_results() {
         let style = recipe::load("classic").unwrap();
         let width = 1024;
