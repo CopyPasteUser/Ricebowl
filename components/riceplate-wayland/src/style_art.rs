@@ -301,14 +301,15 @@ impl FontSprites {
         if !self.proportional {
             let budget = available.saturating_sub(self.cell);
             let mut length = 0_usize;
+            let mut cells = 0_u32;
             for (offset, cluster) in label.grapheme_indices(true) {
-                let cells = u32::try_from(cluster.chars().count()).unwrap_or(u32::MAX);
-                if u32::try_from(label[..offset + cluster.len()].chars().count())
-                    .unwrap_or(u32::MAX).saturating_mul(self.cell) > budget {
+                cells = cells.saturating_add(u32::try_from(cluster.chars().count())
+                    .unwrap_or(u32::MAX));
+                if cells.saturating_mul(self.cell) > budget {
                     break;
                 }
                 // Preserve a complete extended grapheme, never part of one.
-                if cells > 0 { length = offset + cluster.len(); }
+                length = offset + cluster.len();
             }
             return length;
         }
