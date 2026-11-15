@@ -241,7 +241,11 @@ def _migrate_legacy_to_v11(parsed: recipes.PanelRecipe) -> dict[str, Any]:
     else:
         target["composition"]["widgets"] = []
         target["composition"]["compact_hide_widgets"] = []
-    target["components"] = source["components"] if parsed.schema_version >= 9 else []
+    # v11 requires 1–8 definitions even when no panel refers to them.
+    # Keep the validated template library as inert authoring primitives; it
+    # does not inject visible status controls into legacy layouts.
+    if parsed.schema_version >= 9:
+        target["components"] = source["components"]
     from .style_assets import ICON_ACTIONS
     target["artwork"] = {"font": "builtin",
                          "icons": {key: "builtin" for key in ICON_ACTIONS}}
