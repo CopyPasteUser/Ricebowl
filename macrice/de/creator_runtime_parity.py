@@ -46,9 +46,10 @@ def describe(recipe_token: str) -> dict[str, Any]:
             "native_contract": native, "waybar_contract": waybar,
             "runtime_evidence": "contract-only-not-a-render-or-input-test",
             "allowed_action": binding if interactive else None,
+            "verified_control_feedback": interactive and binding in recipes.PANEL_CONTROLS,
             "state_contract": (
-                ["unavailable", "ready", "pending", "success", "failed"]
-                if role == "conditional-button" else
+                ["unavailable", "ready", "applying", "busy", "failed"]
+                if interactive and binding in recipes.PANEL_CONTROLS else
                 ["ready", "unavailable", "failed"] if interactive else
                 ["available", "unavailable"] if role == "status" else []
             ),
@@ -96,9 +97,10 @@ def describe(recipe_token: str) -> dict[str, Any]:
     else:
         for section in recipes.SECTIONS:
             walk(panel["layout"][section], "panel-wide", f"/panel/layout/{section}")
-        for section in recipes.SECTIONS:
-            walk(recipe["responsive"]["compact_layout"][section], "panel-compact",
-                 f"/responsive/compact_layout/{section}")
+        if "responsive" in recipe:
+            for section in recipes.SECTIONS:
+                walk(recipe["responsive"]["compact_layout"][section], "panel-compact",
+                     f"/responsive/compact_layout/{section}")
 
     if "menu" in recipe:
         for i, group in enumerate(recipe["menu"]["groups"]):
