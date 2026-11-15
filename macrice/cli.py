@@ -72,7 +72,7 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("session-sync", help="Reconcile active rice after XFCE autostart")
     de = commands.add_parser("de", help="Inspect experimental RiceBowl Wayland desktop prerequisites")
     de.add_argument("action", choices=(
-        "check", "acceptance", "reliability", "start", "shell", "catalog", "fonts", "creator-api", "creator-history", "creator-schema", "creator-snapshot", "creator-recovery", "creator-recover", "review", "creator-parity", "draft-check", "draft-edit", "visual-compare",
+        "check", "acceptance", "reliability", "integration-health", "start", "shell", "catalog", "fonts", "creator-api", "creator-history", "creator-schema", "creator-snapshot", "creator-recovery", "creator-recover", "review", "creator-parity", "draft-check", "draft-edit", "visual-compare",
         "visual-baseline",
         "capture", "shot", "clip", "lock", "render", "render-matrix", "render-matrix-inspect",
         "creator-status", "creator-stage", "creator-rollback",
@@ -293,6 +293,23 @@ def main(argv: list[str] | None = None) -> int:
                             print(f"  {name}: {info['count']} same-UID process(es) "
                                   f"PSS={info['pss_kib']} KiB")
                     print("Hardware accepted: NO; process names are not session attribution.")
+                return 0
+
+            if args.action == "integration-health":
+                if args.nested or args.recipe or args.panel != "waybar":
+                    raise ValueError("de integration-health accepts only --json")
+                from .de.integration_health import inspect as inspect_health
+                report = inspect_health()
+                if args.json:
+                    print(json.dumps(report, indent=2))
+                else:
+                    print("RiceBowl standalone Wayland service owners (read-only)")
+                    print("Session: " + ("verified marker and socket" if
+                          report["session"]["full_ricebowl"] else "not a full RiceBowl login"))
+                    for service, state in report["services"].items():
+                        print(f"  {service}: {state}")
+                    print("Not-owned does not mean uninstalled; no service was activated.")
+                    print("Hardware accepted: NO; bus ownership does not prove functionality.")
                 return 0
 
             if args.action == "acceptance":
