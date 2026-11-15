@@ -1801,7 +1801,7 @@ RECEIVER
         FOCUS_RECEIVER_KEYS="$runtime/focus-keys.log" \
         FOCUS_RECEIVER_TEXT="$runtime/focus-text.log" \
         FOCUS_RECEIVER_LOG="$runtime/focus-input.log" \
-        GDK_BACKEND=wayland WAYLAND_DISPLAY=wayland-0 \
+        GDK_BACKEND=wayland WAYLAND_DISPLAY=wayland-0 WAYLAND_DEBUG=1 \
         /usr/bin/python3 -B "$runtime/focus-receiver.py" \
         >"$runtime/focus-app.log" 2>&1 &
     focus_app=$!
@@ -1893,6 +1893,12 @@ PY
         tail -n 50 "$runtime/file-plate.log" >&2
         tail -n 35 "$runtime/focus-app.log" >&2
         cat "$runtime/focus-wtype.log" >&2
+        echo "External GTK Wayland keyboard/pointer protocol events:" >&2
+        grep -E "wl_(keyboard|pointer)@.*\.(enter|leave|key|modifiers|button)" \
+            "$runtime/focus-app.log" | tail -n 70 >&2 || :
+        echo "External GTK Wayland focused state:" >&2
+        cat "$runtime/focus-focused.log" "$runtime/focus-geometry.log" \
+            "$runtime/focus-pointer.log" 2>/dev/null >&2 || :
         exit 1
     }
     kill -TERM "$focus_clicker" 2>/dev/null || :
