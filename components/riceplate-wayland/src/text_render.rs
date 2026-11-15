@@ -56,6 +56,18 @@ pub(crate) fn fit_rice_text(label: &str, available: u32, style: &PanelStyle) -> 
     if available < suffix_width {
         return String::new();
     }
+    // With a proportional face, measuring graphemes independently loses
+    // kerning across their boundaries (including the final ellipsis). Use
+    // the font's exact advance model in a single linear pass instead.
+    if style.id == "xp-luna-columns" {
+        if let Some(font) = style.native_art.as_ref().and_then(|art| art.font.as_ref()) {
+            let end = font.fitting_prefix_end(label, available, '…');
+            let mut fitted = String::with_capacity(end + suffix.len());
+            fitted.push_str(&label[..end]);
+            fitted.push_str(suffix);
+            return fitted;
+        }
+    }
     let mut clipped = String::new();
     let mut width = 0_u32;
     for cluster in UnicodeSegmentation::graphemes(label, true) {
@@ -151,6 +163,43 @@ mod tests {
         assert_eq!(fit_rice_text("👍🏽 done", cell * 2, &classic), "…");
         assert_eq!(fit_rice_text("ABC", cell * 3, &classic), "ABC");
         assert_eq!(fit_rice_text("A長い", cell * 2, &classic), "A…");
+    }
+
+    #[test]
+    fn proportional_fit_uses_actual_kerning_including_the_ellipsis() {
+        let mut luna = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns"),
+        ).unwrap();
+        luna.native_art = Some(crate::style_art::load(
+            luna.artwork.as_ref().unwrap(), luna.font_scale,
+        ).unwrap());
+        for label in ["AVATAR Tomorrow", "To AVA", "a\u{301} and AV", "🇩🇪 Done",
+                      "👩‍💻 Workspace", "WWW iii"] {
+            for available in 0..=rice_text_width(label, &luna) {
+                let actual = fit_rice_text(label, available, &luna);
+                // Independent brute-force oracle: fit the *entire* painted
+                // prefix plus suffix, not the sum of individual advances.
+                let expected = if rice_text_width(label, &luna) <= available {
+                    label.to_string()
+                } else if rice_text_width("…", &luna) > available {
+                    String::new()
+                } else {
+                    let mut best = "…".to_string();
+                    let mut prefix = String::new();
+                    for grapheme in UnicodeSegmentation::graphemes(label, true) {
+                        prefix.push_str(grapheme);
+                        let candidate = format!("{prefix}…");
+                        if rice_text_width(&candidate, &luna) <= available {
+                            best = candidate;
+                        }
+                    }
+                    best
+                };
+                assert_eq!(actual, expected, "{label:?} in {available}px");
+                assert!(rice_text_width(&actual, &luna) <= available);
+            }
+        }
     }
 
     #[test]

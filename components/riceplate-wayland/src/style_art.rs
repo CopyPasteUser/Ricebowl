@@ -292,6 +292,50 @@ impl FontSprites {
         width.max(0.0)
     }
 
+    /// Longest complete grapheme prefix whose actual proportional advance
+    /// *with* a trailing ellipsis fits. Includes kerning across cluster and
+    /// suffix boundaries, without quadratic remeasurement on long XDG titles.
+    pub fn fitting_prefix_end(&self, label: &str, available: u32, suffix: char) -> usize {
+        use unicode_segmentation::UnicodeSegmentation;
+
+        if !self.proportional {
+            let budget = available.saturating_sub(self.cell);
+            let mut length = 0_usize;
+            let mut cells = 0_u32;
+            for (offset, cluster) in label.grapheme_indices(true) {
+                cells = cells.saturating_add(u32::try_from(cluster.chars().count())
+                    .unwrap_or(u32::MAX));
+                if cells.saturating_mul(self.cell) > budget {
+                    break;
+                }
+                // Preserve a complete extended grapheme, never part of one.
+                length = offset + cluster.len();
+            }
+            return length;
+        }
+
+        let suffix_advance = self.font.metrics(suffix, self.size).advance_width.max(0.0);
+        let mut width = 0.0_f32;
+        let mut previous: Option<char> = None;
+        let mut best_end = 0_usize;
+        for (offset, cluster) in label.grapheme_indices(true) {
+            for letter in cluster.chars().filter(|letter| !letter.is_control()) {
+                if let Some(left) = previous {
+                    width += self.font.horizontal_kern(left, letter, self.size).unwrap_or(0.0);
+                }
+                width += self.font.metrics(letter, self.size).advance_width.max(0.0);
+                previous = Some(letter);
+            }
+            let suffix_kern = previous
+                .and_then(|left| self.font.horizontal_kern(left, suffix, self.size))
+                .unwrap_or(0.0);
+            if (width + suffix_kern + suffix_advance).max(0.0).ceil() as u32 <= available {
+                best_end = offset + cluster.len();
+            }
+        }
+        best_end
+    }
+
     pub fn measure_text(&self, text: &str) -> u32 {
         if !self.proportional {
             return (text.chars().count() as u32).saturating_mul(self.cell);

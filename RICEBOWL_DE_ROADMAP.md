@@ -5,6 +5,19 @@ physical acceptance outstanding.** RiceBowl 0.9.x is still an XFCE/X11
 rice manager. The separate Wayland login-session package requires explicit
 installation and is not yet a finished desktop environment.
 
+### Sprint 8 native proportional label fit (15 November 2026; pending CI)
+
+Native text fitting now considers the **whole grapheme prefix together with
+its ellipsis**. Independent per-grapheme width sums ignored TrueType kerning
+between neighboring graphemes and at the suffix. The new linear-time font
+path uses the same `fontdue` advances/kerning as measurement and painting,
+including a bounded fixed-cell path, and preserves the original bitmap
+rendering and UAX #29 boundaries. Regression coverage compares results
+against a complete-prefix reference across Latin kerning, combining marks,
+joined emoji and flags. This is **not** bidirectional layout, OpenType
+shaping or fallback-font acceptance. Mark complete only after final-head
+and post-merge native CI; physical device testing remains separate.
+
 ### Sprint 7 native Unicode grapheme-safe labels (15 November 2026; CI-gated)
 
 Native task/menu label ellipsizing now iterates Unicode **extended grapheme
