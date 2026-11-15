@@ -61,7 +61,7 @@ pub fn background(
         // starts precisely at the actual right-side status widget geometry.
         let shelf_start = layout.iter()
             .filter(|item| matches!(item.widget,
-                Widget::Network | Widget::Audio | Widget::Battery | Widget::Tray | Widget::Clock))
+                Widget::Network | Widget::Audio | Widget::Battery | Widget::Bluetooth | Widget::Tray | Widget::Clock))
             .filter(|item| item.x >= width / 2)
             .map(|item| item.x).min();
         if let Some(start) = shelf_start {
@@ -102,7 +102,7 @@ pub fn background(
     // The shelf starts only when a status widget is in the right-hand half.
     let shelf_start = layout.iter()
         .filter(|item| matches!(item.widget,
-            Widget::Network | Widget::Audio | Widget::Battery | Widget::Tray | Widget::Clock))
+            Widget::Network | Widget::Audio | Widget::Battery | Widget::Bluetooth | Widget::Tray | Widget::Clock))
         .filter(|item| item.x >= width / 2)
         .map(|item| item.x)
         .min();
