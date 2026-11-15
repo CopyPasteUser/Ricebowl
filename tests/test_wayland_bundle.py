@@ -177,6 +177,36 @@ class WaylandBundleTests(unittest.TestCase):
                                      "X-RiceBowl-Source-Commit").stdout.strip(),
                                  source_commit)
 
+            # A package whose NAME merely contains the required dependency
+            # string must never pass. The old substring checks accepted both
+            # forged identifiers with otherwise correct versions and source.
+            desktop_stage = folder / "forged-desktop-stage"
+            self.assertEqual(run("dpkg-deb", "-R", str(desktop), str(desktop_stage)).returncode, 0)
+            desktop_control = desktop_stage / "DEBIAN/control"
+            original_control = desktop_control.read_text(encoding="utf-8")
+            for required, impostor, diagnostic in (
+                ("ricebowl-wayland-core (= 0.1.0~preview2)",
+                 "notricebowl-wayland-core (= 0.1.0~preview2)",
+                 "pin exactly this core"),
+                ("ricebowl-riceplate-native (>= 0.1.0~preview2)",
+                 "impostor-ricebowl-riceplate-native (>= 0.1.0~preview2)",
+                 "exact versioned dependency"),
+            ):
+                with self.subTest(impostor=impostor):
+                    self.assertIn(required, original_control)
+                    desktop_control.write_text(
+                        original_control.replace(required, impostor), encoding="utf-8")
+                    forged_deb = folder / ("forged-core.deb" if "core" in impostor
+                                           else "forged-native-dep.deb")
+                    packed = run("dpkg-deb", "--build", "--root-owner-group",
+                                 str(desktop_stage), str(forged_deb))
+                    self.assertEqual(packed.returncode, 0, packed.stderr)
+                    rejected = run("bash", str(VERIFY), str(core), str(session),
+                                   str(native), str(forged_deb))
+                    self.assertNotEqual(rejected.returncode, 0)
+                    self.assertIn(diagnostic, rejected.stderr)
+            desktop_control.write_text(original_control, encoding="utf-8")
+
             mixed_stage = folder / "mixed-native-stage"
             self.assertEqual(run("dpkg-deb", "-R", str(native), str(mixed_stage)).returncode, 0)
             metadata = mixed_stage / "DEBIAN/control"
