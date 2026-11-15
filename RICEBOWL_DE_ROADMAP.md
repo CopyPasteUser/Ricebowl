@@ -5,6 +5,20 @@ physical acceptance outstanding.** RiceBowl 0.9.x is still an XFCE/X11
 rice manager. The separate Wayland login-session package requires explicit
 installation and is not yet a finished desktop environment.
 
+### Sprint 7 native Unicode grapheme-safe labels (15 November 2026; CI-gated)
+
+Native task/menu label ellipsizing now iterates Unicode **extended grapheme
+clusters (UAX #29)** using one pinned, dependency-light Rust crate, instead
+of splitting at scalar/codepoint boundaries. Combining accents, emoji skin
+tone modifiers, ZWJ emoji sequences and regional flag pairs cannot be cut
+in half. The measured fitting width and existing bitmap/TrueType drawing
+paths remain unchanged for ordinary text, avoiding changes to classic/XP
+pixel baselines and preserving existing font choice/face support.
+
+This closes **label truncation correctness**, not full HarfBuzz/OpenType
+shaping, Unicode bidirectional layout or fallback-font selection; those
+remain tracked as separate 1.0 typography gates.
+
 ### Sprint 6 system services: early lock guard and polkit failover (15 November 2026)
 
 The full labwc login now checks that its freshly spawned swayidle pre-suspend
