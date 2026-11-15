@@ -134,6 +134,7 @@ pub fn action_label(action: &str) -> &'static str {
         "lock" => "Lock screen",
         "logout" => "Log out of RiceBowl",
         "wifi-toggle" => "Toggle Wi-Fi radio",
+        "bluetooth-toggle" => "Toggle Bluetooth radio",
         "audio-mute" => "Toggle speaker mute",
         "audio-up" => "Volume +5%",
         "audio-down" => "Volume -5%",
