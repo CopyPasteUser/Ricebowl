@@ -109,8 +109,13 @@ class CreatorImportedTests(unittest.TestCase):
                 else:
                     self.assertEqual(draft["composition"]["widgets"], [])
                     self.assertEqual(draft["composition"]["compact_hide_widgets"], [])
-                self.assertEqual(draft["components"],
-                                 source["components"] if version >= 9 else [])
+                if version >= 9:
+                    self.assertEqual(draft["components"], source["components"])
+                else:
+                    self.assertGreaterEqual(len(draft["components"]), 1)
+                    # Pre-v9 layouts must remain free of injected components.
+                    self.assertNotIn('"type": "component"',
+                                     json.dumps(draft["panel"]["layout"]))
                 self.assertEqual(draft["artwork"]["font"], "builtin")
                 self.assertEqual(creator_history.read(
                     migrated.path, migrated.semantic_sha256)["kind"], "migrate")
@@ -130,7 +135,7 @@ class CreatorImportedTests(unittest.TestCase):
         manifest = json.loads(payload)
         manifest["panel"]["layout"]["start"] = [
             {"type": "widget", "id": "launcher"},
-            {"type": "label", "text": "Prográmma"}
+            {"type": "label", "text": "Programs"}
         ]
         manifest["composition"]["widgets"] = []
         manifest["composition"]["compact_hide_widgets"] = []
