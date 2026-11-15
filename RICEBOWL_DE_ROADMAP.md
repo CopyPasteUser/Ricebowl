@@ -5,6 +5,25 @@ physical acceptance outstanding.** RiceBowl 0.9.x is still an XFCE/X11
 rice manager. The separate Wayland login-session package requires explicit
 installation and is not yet a finished desktop environment.
 
+### Sprint 7 Creator historical schema migration (15 November 2026; pending CI)
+
+Creator can open installed schema-v1–v9 recipes and previously imported legacy
+RicePacks through a **one-way, data-only migration to a new schema-v11 draft**.
+The installed source is pinned by its parsed semantic hash and never modified.
+Pre-v3 sections become equivalent widget nodes. Existing menu, wallpaper,
+shortcuts, colors, responsive layout, widgets and v9 components are retained
+where they existed; absent newer UI features use validated defaults, with
+**no synthetic desktop shortcuts or composition widgets**. A new immutable
+`migrate` root history receipt preserves verified RicePack author/wallpaper
+provenance for private edit, fork and export. Invalid assets, a stale installed
+hash and an untrusted source fail before publishing a draft. The GUI displays
+the migration before installation and never applies or selects it.
+
+Migration does **not** claim visual pixel parity between historical backend
+versions or full arbitrary-font shaping. Physical Creator/picker tests,
+complete mixed-script typography and signed public distribution remain
+separate release gates.
+
 ### Sprint 6 system services: early lock guard and polkit failover (15 November 2026)
 
 The full labwc login now checks that its freshly spawned swayidle pre-suspend
