@@ -3634,19 +3634,30 @@ def run() -> int:
                 archive = Path(stage) / "gtk-import.ricepack"
                 workspace.export_draft(previous_draft, archive)
                 original_selection = recipes.current_selection()
+                import faulthandler
+                import sys
+                print("Creator CI: invoking GTK RicePack chooser", file=sys.stderr, flush=True)
+                faulthandler.dump_traceback_later(10, file=sys.stderr)
                 def select_import_archive():
                     choosers = [dialog for dialog in Gtk.Window.list_toplevels()
                                 if isinstance(dialog, Gtk.FileChooserDialog)
                                 and dialog.get_title() == "Import a RicePack"]
+                    print(f"Creator CI: chooser widgets={len(choosers)}",
+                          file=sys.stderr, flush=True)
                     assert len(choosers) == 1, "GTK RicePack chooser missing"
                     assert choosers[0].set_filename(str(archive))
+                    print("Creator CI: archive selected", file=sys.stderr, flush=True)
                     choosers[0].response(Gtk.ResponseType.ACCEPT)
                     return False
 
-                GLib.idle_add(select_import_archive)
-                with patch.object(window, "_confirm_handoff", return_value=True) as approval:
-                    window.import_pack_btn.clicked()
-                    approval.assert_called_once()
+                GLib.timeout_add(150, select_import_archive)
+                try:
+                    with patch.object(window, "_confirm_handoff", return_value=True) as approval:
+                        window.import_pack_btn.clicked()
+                        approval.assert_called_once()
+                    print("Creator CI: import returned", file=sys.stderr, flush=True)
+                finally:
+                    faulthandler.cancel_dump_traceback_later()
                 assert window.info is not None
                 assert window.info.recipe_id != previous_draft.recipe_id
                 assert recipes.load(previous_draft.recipe_id).recipe_id == previous_draft.recipe_id
