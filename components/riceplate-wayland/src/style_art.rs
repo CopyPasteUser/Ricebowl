@@ -568,6 +568,46 @@ mod tests {
     }
 
     #[test]
+    fn private_font_grapheme_uses_bundled_face_when_primary_lacks_glyph() {
+        let Some(font) = fixture_font(1) else { return; };
+        // DejaVuSansMono deliberately lacks these less-common Latin glyphs;
+        // the OFL-licensed Liberation Sans distributed with RiceBowl has them.
+        let chosen = ['Ǆ', 'ǅ', 'ǆ', 'Ǉ', 'ǈ', 'ǉ', 'Ǌ', 'ǋ', 'ǌ', 'Ǻ']
+            .into_iter().find(|&letter|
+                font.font.lookup_glyph_index(letter) == 0 &&
+                font.fallback.is_some_and(|fallback|
+                    fallback.lookup_glyph_index(letter) != 0))
+            .expect("test fixture must have a fallback-only Unicode glyph");
+        let label = chosen.to_string();
+        assert_eq!(font.select_face(&label), Some(FontFace::Fallback));
+        assert_eq!(font.resolved_letters(&label).collect::<Vec<_>>(),
+                   vec![(FontFace::Fallback, chosen)]);
+        assert_eq!(font.measure_text(&label), font.cell);
+        let mut actual = vec![0_u8; 96 * 24 * 4];
+        let mut missing = actual.clone();
+        font.draw(&mut actual, 96, 24, 4, 4, &label, 0xff_ff_ff_ff, false);
+        font.draw(&mut missing, 96, 24, 4, 4, "?", 0xff_ff_ff_ff, false);
+        assert_ne!(actual, missing, "fallback glyph was replaced with '?'");
+        assert!(actual.iter().any(|&p| p != 0));
+        let cache = font.cache.lock().unwrap();
+        assert!(cache.glyphs.contains_key(&(FontFace::Fallback, chosen)));
+        assert!(!cache.glyphs.contains_key(&(FontFace::Primary, chosen)));
+    }
+
+    #[test]
+    fn private_font_fallback_is_shared_and_does_not_change_luna_face() {
+        let Some(first) = fixture_font(1) else { return; };
+        let Some(second) = fixture_font(1) else { return; };
+        assert!(std::ptr::eq(first.fallback.unwrap(), second.fallback.unwrap()));
+        let luna = load(&ArtworkSelection {
+            font: Some("builtin-luna-ui".into()), icons: [None, None, None],
+        }, 1).unwrap().font.unwrap();
+        assert!(luna.fallback.is_none());
+        assert_eq!(luna.resolved_letters("AV").collect::<Vec<_>>(),
+                   vec![(FontFace::Primary, 'A'), (FontFace::Primary, 'V')]);
+    }
+
+    #[test]
     fn proportional_kern_pairs_align_measured_width_and_painted_cursor() {
         let selection = ArtworkSelection { font: Some("builtin-luna-ui".into()),
                                            icons: [None, None, None] };
