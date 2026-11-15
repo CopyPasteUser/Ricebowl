@@ -228,14 +228,15 @@ def _migrate_legacy_to_v11(parsed: recipes.PanelRecipe) -> dict[str, Any]:
     if parsed.schema_version >= 4:
         target["menu"] = source["menu"]
         target["desktop"] = dict(source["desktop"])
-        if parsed.schema_version == 4:
-            target["desktop"]["icons"] = []
         target["tokens"] = source["tokens"]
         target["responsive"] = source["responsive"]
-    else:
-        # Early schemas did not define a desktop, menu or compact layout.
-        # Do not populate the migrated desktop with demo shortcuts.
-        target["desktop"]["icons"] = []
+    # v11 requires at least one bounded Desktop icon. v1–v4 have no icon
+    # model to preserve: add exactly one clearly named safe Applications
+    # entry, rather than silently inheriting the template's demo set.
+    if parsed.schema_version < 5:
+        target["desktop"]["icons"] = [
+            {"label": "Applications", "action": "applications", "x": 32, "y": 96}
+        ]
     if parsed.schema_version >= 8:
         target["composition"] = source["composition"]
     else:
