@@ -1,6 +1,7 @@
 """The optional login package must be self-contained and reversible."""
 
 import configparser
+import hashlib
 import os
 import shutil
 import subprocess
@@ -119,6 +120,9 @@ class SessionPackageTests(unittest.TestCase):
                                                          "SOURCE_DATE_EPOCH": "1704067200"})
                 self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(first.read_bytes(), second.read_bytes())
+            self.assertEqual(subprocess.check_output(
+                ["dpkg-deb", "--field", str(first), "X-RiceBowl-Native-SHA256"],
+                text=True).strip(), hashlib.sha256(source.read_bytes()).hexdigest())
             self.assertEqual(subprocess.check_output(
                 ["dpkg-deb", "--field", str(first), "Architecture"], text=True).strip(),
                 "amd64")

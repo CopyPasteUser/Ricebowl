@@ -1,6 +1,7 @@
 """Standalone Wayland Debian package contracts; no host installation."""
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import subprocess
@@ -154,12 +155,15 @@ class WaylandBundleTests(unittest.TestCase):
             source_commit = subprocess.check_output(
                 ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
                 text=True, timeout=10).strip()
+            shutil.copy2("/bin/true", fixture / "usr/bin/riceplate-native")
+            native_digest = hashlib.sha256(
+                (fixture / "usr/bin/riceplate-native").read_bytes()).hexdigest()
             (fixture / "DEBIAN/control").write_text(
                 "Package: ricebowl-riceplate-native\nVersion: 0.1.0~preview2\n"
                 "Architecture: amd64\nMaintainer: RiceBowl QA\n"
                 f"X-RiceBowl-Source-Commit: {source_commit}\n"
+                f"X-RiceBowl-Native-SHA256: {native_digest}\n"
                 "Description: isolated package-set fixture\n")
-            shutil.copy2("/bin/true", fixture / "usr/bin/riceplate-native")
             built = run("dpkg-deb", "--build", "--root-owner-group", str(fixture), str(native))
             self.assertEqual(built.returncode, 0, built.stderr)
             argv = ("bash", str(VERIFY), str(core), str(session), str(native), str(desktop))
@@ -195,6 +199,33 @@ class WaylandBundleTests(unittest.TestCase):
                            str(unverified_native), str(desktop))
             self.assertNotEqual(rejected.returncode, 0)
             self.assertIn("invalid package source commit", rejected.stderr)
+
+            # Changing the ELF without updating its source stamp or hash must
+            # not pass a read-only release bundle inspection.
+            binary_stage = folder / "native-binary-tamper"
+            self.assertEqual(run("dpkg-deb", "-R", str(native), str(binary_stage)).returncode, 0)
+            binary_path = binary_stage / "usr/bin/riceplate-native"
+            binary_path.write_bytes(binary_path.read_bytes() + b"post-build-mutation")
+            changed_binary = folder / "changed-binary.deb"
+            self.assertEqual(run("dpkg-deb", "--build", "--root-owner-group",
+                                 str(binary_stage), str(changed_binary)).returncode, 0)
+            rejected = run("bash", str(VERIFY), str(core), str(session),
+                           str(changed_binary), str(desktop))
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn("binary integrity mismatch", rejected.stderr)
+
+            # Metadata-only forgery cannot pass either: require a strict
+            # 64-character lowercase SHA-256 and compare it to the payload.
+            binary_control = binary_stage / "DEBIAN/control"
+            binary_control.write_text(binary_control.read_text().replace(
+                native_digest, "invalid"), encoding="utf-8")
+            forged = folder / "forged-native.deb"
+            self.assertEqual(run("dpkg-deb", "--build", "--root-owner-group",
+                                 str(binary_stage), str(forged)).returncode, 0)
+            rejected = run("bash", str(VERIFY), str(core), str(session),
+                           str(forged), str(desktop))
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn("invalid native binary SHA-256", rejected.stderr)
 
             extracted = folder / "tamper-stage"
             self.assertEqual(run("dpkg-deb", "-R", str(core), str(extracted)).returncode, 0)

@@ -178,6 +178,19 @@ jobs:
           /usr/bin/python3 -m unittest discover -s tests -p test_wayland_portal_probe.py -v
           /usr/bin/python3 -m unittest discover -s tests -p test_wayland_portal_capture.py -v
           timeout -k 5s 80s sh scripts/smoke_wayland_portals.sh
+      - name: Verify same-source native ELF reproducibility from a fresh target
+        run: |
+          set -eu
+          # A second clean target isolates Cargo's incremental/build outputs
+          # while retaining the same checked-out source and pinned toolchain.
+          # This checks same-run byte reproducibility, not cross-host releases.
+          target="$RUNNER_TEMP/riceplate-clean-rebuild"
+          CARGO_TARGET_DIR="$target" cargo build --offline --locked --release \
+            --manifest-path components/riceplate-wayland/Cargo.toml
+          cmp components/riceplate-wayland/target/release/riceplate-native \
+            "$target/release/riceplate-native"
+          sha256sum components/riceplate-wayland/target/release/riceplate-native \
+            "$target/release/riceplate-native"
       - name: Prepare native preview artifact with build provenance
         run: |
           set -eu
@@ -202,6 +215,9 @@ jobs:
           cmp "$output" "$second"
           test "$(dpkg-deb --field "$output" Architecture)" = amd64
           test -n "$(dpkg-deb --field "$output" Depends)"
+          expected_digest=$(sha256sum "$binary")
+          expected_digest=${expected_digest%% *}
+          test "$(dpkg-deb --field "$output" X-RiceBowl-Native-SHA256)" = "$expected_digest"
           mkdir -p "$RUNNER_TEMP/riceplate-package-check"
           dpkg-deb --extract "$output" "$RUNNER_TEMP/riceplate-package-check"
           cmp "$binary" "$RUNNER_TEMP/riceplate-package-check/usr/bin/riceplate-native"

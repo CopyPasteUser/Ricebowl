@@ -118,6 +118,23 @@ if [[ ! -f "$buildinfo" ]] || ! grep -Fxq "version=${versions[0]}" "$buildinfo" 
     echo "Core package is missing valid provenance data" >&2
     exit 1
 fi
+# Independently check the unpacked native ELF against the staged package's
+# immutable payload digest. A self-reported digest is not build attestation:
+# trustworthy release provenance additionally needs an externally verified
+# build receipt tied to the source commit and Cargo.lock.
+native_binary="$work/package-2/usr/bin/riceplate-native"
+native_digest=$(dpkg-deb -f "${files[2]}" X-RiceBowl-Native-SHA256)
+if [[ ! "$native_digest" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "Missing or invalid native binary SHA-256 metadata" >&2
+    exit 1
+fi
+actual_digest=$(sha256sum -- "$native_binary")
+actual_digest=${actual_digest%% *}
+if [[ "$actual_digest" != "$native_digest" ]]; then
+    echo "Native package binary integrity mismatch" >&2
+    exit 1
+fi
+
 for required in \
     "$work/package-0/usr/lib/ricebowl-wayland/launcher.py" \
     "$work/package-0/usr/lib/ricebowl-wayland/macrice/de/session.py" \

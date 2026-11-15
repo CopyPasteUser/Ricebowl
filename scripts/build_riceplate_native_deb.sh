@@ -11,8 +11,9 @@ output=$2
 project_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 if ! command -v dpkg-deb >/dev/null 2>&1 || \
    ! command -v dpkg-shlibdeps >/dev/null 2>&1 || \
-   ! command -v readelf >/dev/null 2>&1; then
-    echo "dpkg-deb, dpkg-shlibdeps and readelf are required." >&2
+   ! command -v readelf >/dev/null 2>&1 || \
+   ! command -v sha256sum >/dev/null 2>&1; then
+    echo "dpkg-deb, dpkg-shlibdeps, readelf and sha256sum are required." >&2
     exit 1
 fi
 if [ ! -f "$source_binary" ] || [ -L "$source_binary" ] || [ ! -x "$source_binary" ]; then
@@ -101,6 +102,19 @@ if [ "$source_commit" != unverified ] && [ "${#source_commit}" -ne 40 ]; then
     exit 1
 fi
 printf 'X-RiceBowl-Source-Commit: %s\n' "$source_commit" >> "$package_root/DEBIAN/control"
+# Bind the stamped native payload to the exact staged bytes, not to a
+# potentially changed caller-supplied binary path. This is package integrity,
+# not evidence that an arbitrary ELF was built from the recorded Git commit.
+native_digest=$(sha256sum -- "$package_root/usr/bin/riceplate-native")
+native_digest=${native_digest%% *}
+case "$native_digest" in
+    ''|*[!0-9a-f]*) echo "Invalid native binary SHA-256" >&2; exit 1 ;;
+esac
+if [ "${#native_digest}" -ne 64 ]; then
+    echo "Invalid native binary SHA-256 length" >&2
+    exit 1
+fi
+printf 'X-RiceBowl-Native-SHA256: %s\n' "$native_digest" >> "$package_root/DEBIAN/control"
 find "$package_root" -exec touch -h -d "@$package_epoch" -- {} +
 dpkg-deb --build --root-owner-group "$package_root" "$output"
 echo "Built $output (not installed)"
