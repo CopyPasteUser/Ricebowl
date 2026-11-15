@@ -30,6 +30,30 @@ impl ControlFeedback {
         else { Self::Ready }
     }
 
+    /// Keep menu controls identical to panel/desktop action accessibility:
+    /// announce the verified hardware state and worker outcome, and expose no
+    /// AT-SPI action while unavailable or another control is in flight.
+    /// Unknown actions remain governed by the existing recipe allowlist.
+    pub(crate) fn menu_accessibility(
+        action: &str,
+        label: &str,
+        status: &SystemStatus,
+        pending: Option<ControlAction>,
+        result: Option<(ControlAction, bool)>,
+        worker_ready: bool,
+        logout_available: bool,
+    ) -> (String, bool) {
+        if action == "logout" && !logout_available {
+            return (format!("{label}, unavailable"), false);
+        }
+        let Some(control) = ControlAction::from_id(action) else {
+            return (label.to_owned(), true);
+        };
+        let feedback = Self::snapshot(control, status, pending, result, worker_ready);
+        (format!("{label}, {}, {}", control.state_label(status),
+                 feedback.accessibility_label()), feedback.is_actionable())
+    }
+
     /// Failure feedback is visible but does not permanently disable retries.
     pub(crate) fn is_actionable(self) -> bool {
         matches!(self, Self::Ready | Self::Failed)
@@ -107,6 +131,39 @@ mod tests {
         assert_eq!(failed.accessibility_label(), "failed");
         assert_eq!(failed.desktop_hint(), "Action failed");
         assert_eq!(failed.panel_caption(action, &status), "Failed");
+    }
+
+    #[test]
+    fn native_menu_uses_shared_control_feedback_and_keeps_noncontrols_unchanged() {
+        let status = connected();
+        let check = |action, pending, result, ready| {
+            ControlFeedback::menu_accessibility(
+                action, "Bluetooth", &status, pending, result, ready, true)
+        };
+        let action = ControlAction::BluetoothToggle;
+        assert_eq!(check("bluetooth-toggle", None, None, true),
+                   ("Bluetooth, On, ready".into(), true));
+        assert_eq!(check("bluetooth-toggle", Some(action), None, true),
+                   ("Bluetooth, On, applying".into(), false));
+        assert_eq!(check("bluetooth-toggle", Some(ControlAction::AudioUp), None, true),
+                   ("Bluetooth, On, busy".into(), false));
+        assert_eq!(check("bluetooth-toggle", None, Some((action, false)), true),
+                   ("Bluetooth, On, failed".into(), true)); // explicit retry
+        assert_eq!(check("bluetooth-toggle", None, None, false),
+                   ("Bluetooth, On, unavailable".into(), false));
+        assert_eq!(ControlFeedback::menu_accessibility(
+                   "wifi-toggle", "Wi-Fi", &SystemStatus::default(),
+                   None, None, true, true),
+                   ("Wi-Fi, N/A, unavailable".into(), false));
+        assert_eq!(check("settings", None, None, false), ("Bluetooth".into(), true));
+        assert_eq!(check("desktop:demo.desktop", None, None, false),
+                   ("Bluetooth".into(), true));
+        assert_eq!(ControlFeedback::menu_accessibility(
+                   "logout", "Log out", &status, None, None, false, false),
+                   ("Log out, unavailable".into(), false));
+        assert_eq!(ControlFeedback::menu_accessibility(
+                   "logout", "Log out", &status, None, None, false, true),
+                   ("Log out".into(), true));
     }
 
     #[test]
