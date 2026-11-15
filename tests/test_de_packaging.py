@@ -156,5 +156,26 @@ class SessionPackageTests(unittest.TestCase):
             self.assertIn("absolute .deb", relative.stderr)
 
 
+    def test_native_preview_provenance_is_signed_only_on_trusted_main(self):
+        # This static contract checks privilege separation, not Sigstore
+        # verification (which requires a completed trusted main workflow).
+        workflow = (project_root() / ".github/workflows/riceplate-native.yml").read_text()
+        self.assertIn("  attest-native-preview:", workflow)
+        attest = workflow.split("  attest-native-preview:", 1)[1]
+        self.assertIn("if: github.event_name == 'push' && github.ref == 'refs/heads/main'",
+                      attest)
+        self.assertIn("needs: native-layer-shell", attest)
+        self.assertIn("id-token: write", attest)
+        self.assertIn("attestations: write", attest)
+        self.assertIn("artifact-metadata: write", attest)
+        self.assertIn("actions/download-artifact@v4", attest)
+        self.assertIn("sha256sum -c SHA256SUMS", attest)
+        self.assertIn("X-RiceBowl-Source-Commit", attest)
+        self.assertIn("X-RiceBowl-Native-SHA256", attest)
+        self.assertIn("cmp \"$directory/riceplate-native\"", attest)
+        self.assertIn("uses: actions/attest@v4", attest)
+        self.assertIn("ricebowl-riceplate-native_0.1.0~preview2_amd64.deb", attest)
+
+
 if __name__ == "__main__":
     unittest.main()
