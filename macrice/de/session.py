@@ -273,6 +273,13 @@ def start(
     else:
         env.pop("LABWC_UPDATE_ACTIVATION_ENV", None)
 
+    # Only the one-shot dbus-run-session reexec may assert ownership of a
+    # *private* nested bus. An inherited marker from another shell must not
+    # start a competing Mako notification host on the parent's XFCE bus.
+    if not nested or (env.get("DBUS_SESSION_BUS_ADDRESS")
+                      and env.get("RICEBOWL_DE_BUS_REEXEC") != "1"):
+        env.pop("RICEBOWL_DE_PRIVATE_BUS", None)
+
     if not env.get("DBUS_SESSION_BUS_ADDRESS"):
         # A nested preview without an inherited user bus creates its own
         # dbus-run-session below; that private bus may safely own Mako.
