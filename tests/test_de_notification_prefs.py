@@ -63,6 +63,15 @@ class NotificationAppearanceTests(unittest.TestCase):
             self.assertFalse(any(path.name.startswith("ricebowl-pop-")
                                  for path in Path(runtime).iterdir()))
 
+            # An explicitly isolated nested dbus-run-session can run its own
+            # stock Mako without inheriting saved full-login appearance.
+            env["RICEBOWL_DE_PRIVATE_BUS"] = "1"
+            with mock.patch.object(session.signal, "signal"):
+                session.shell(environment=env, which=choices.get, spawn=spawn)
+            self.assertEqual(len(captured), 1)
+            self.assertEqual(captured[0][0], session.resources() / "mako.conf")
+            self.assertNotIn("RICEBOWL_DE_MAKO_CONFIG", captured[0][2])
+
     def test_private_versioned_preferences_and_stale_write_guard(self):
         with tempfile.TemporaryDirectory() as config, \
                 mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": config}):
