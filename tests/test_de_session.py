@@ -448,8 +448,10 @@ class WaylandSessionTests(unittest.TestCase):
         commands = []
         panel = _FakeProcess()
         class DeadIdle(_FakeProcess):
+            calls = 0
             def poll(self):
-                return 6
+                self.calls += 1
+                return None if self.calls == 1 else 6
         def spawn(command, **_kwargs):
             commands.append(command)
             return DeadIdle() if command[0] == "/usr/bin/swayidle" else panel
@@ -469,8 +471,10 @@ class WaylandSessionTests(unittest.TestCase):
         commands = []
         panel = _FakeProcess()
         class DeadIdle(_FakeProcess):
+            calls = 0
             def poll(self):
-                return 9
+                self.calls += 1
+                return None if self.calls == 1 else 9
         def spawn(command, **_kwargs):
             commands.append(command)
             return DeadIdle() if command[0] == "/usr/bin/swayidle" else panel
