@@ -276,13 +276,27 @@ pub fn paint_icon(canvas: &mut [u8], canvas_width: u32,
 }
 
 impl FontSprites {
+    fn proportional_advance(&self, text: &str) -> f32 {
+        // Use the same fontdue horizontal kern pairs as the painting cursor,
+        // instead of overestimating widths for common pairs like A/V and T/o.
+        // This is not complex-script shaping; that remains a separate gate.
+        let mut width = 0.0_f32;
+        let mut previous = None;
+        for letter in text.chars().filter(|letter| !letter.is_control()) {
+            if let Some(left) = previous {
+                width += self.font.horizontal_kern(left, letter, self.size).unwrap_or(0.0);
+            }
+            width += self.font.metrics(letter, self.size).advance_width.max(0.0);
+            previous = Some(letter);
+        }
+        width.max(0.0)
+    }
+
     pub fn measure_text(&self, text: &str) -> u32 {
         if !self.proportional {
             return (text.chars().count() as u32).saturating_mul(self.cell);
         }
-        text.chars().filter(|letter| !letter.is_control())
-            .map(|letter| self.font.metrics(letter, self.size).advance_width.max(0.0))
-            .sum::<f32>().ceil() as u32
+        self.proportional_advance(text).ceil() as u32
     }
 
     pub fn draw(&self, canvas: &mut [u8], width: u32, height: u32,
@@ -291,8 +305,15 @@ impl FontSprites {
         // font rasterization on ordinary repeated compositor redraws.
         let mut cache = self.cache.lock().unwrap_or_else(|poison| poison.into_inner());
         let mut cursor = x as f32;
+        let mut previous = None;
         for (offset, letter) in text.chars().enumerate() {
             if letter.is_control() { continue; }
+            if self.proportional {
+                if let Some(left) = previous {
+                    cursor += self.font.horizontal_kern(left, letter, self.size)
+                        .unwrap_or(0.0);
+                }
+            }
             let origin_x = if self.proportional { cursor.max(0.0) as u32 }
                 else { x.saturating_add((offset as u32).saturating_mul(self.cell)) };
             if origin_x >= width { break; }
@@ -340,7 +361,8 @@ impl FontSprites {
                     }
                 }
             }
-            if self.proportional { cursor += glyph.advance.max(1.0); }
+            if self.proportional { cursor += glyph.advance.max(0.0); }
+            previous = Some(letter);
         }
     }
 }
@@ -377,6 +399,29 @@ mod tests {
         let mut pixels = vec![0_u8; 180 * 32 * 4];
         font.draw(&mut pixels, 180, 32, 5, 4, "Luna text", 0xff_ff_ff_ff, false);
         assert!(pixels.chunks_exact(4).any(|pixel| pixel[3] > 0));
+    }
+
+    #[test]
+    fn proportional_kern_pairs_align_measured_width_and_painted_cursor() {
+        let selection = ArtworkSelection { font: Some("builtin-luna-ui".into()),
+                                           icons: [None, None, None] };
+        let art = load(&selection, 1).unwrap();
+        let font = art.font.unwrap();
+        let pair = "AV";
+        let first = font.font.metrics('A', font.size).advance_width;
+        let second = font.font.metrics('V', font.size).advance_width;
+        let kerning = font.font.horizontal_kern('A', 'V', font.size).unwrap_or(0.0);
+        let expected = first + second + kerning;
+        assert!((font.proportional_advance(pair) - expected).abs() < 0.001);
+        assert_eq!(font.measure_text(pair), expected.ceil() as u32);
+        let mut paint = vec![0; 96 * 24 * 4];
+        font.draw(&mut paint, 96, 24, 0, 0, pair, 0xffff_ffff, false);
+        assert!(paint.chunks_exact(4).any(|p| p[3] != 0));
+        // The original monospace mode preserves its strict 8px grid.
+        let mono = fixture_font(1);
+        if let Some(mono) = mono {
+            assert_eq!(mono.measure_text(pair), 16);
+        }
     }
 
     #[test]
