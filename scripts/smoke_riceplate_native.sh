@@ -30,6 +30,7 @@ cp "$source_root/tests/fixtures/riceplate-composed-v6.json" "$runtime/composed-v
 cp "$source_root/tests/fixtures/riceplate-actions-v6.json" "$runtime/actions-v6.json"
 cp "$source_root/tests/fixtures/riceplate-clip-actions-v6.json" "$runtime/riceclip-actions.json"
 cp "$source_root/tests/fixtures/riceplate-controls-v7.json" "$runtime/controls-v7.json"
+cp "$source_root/examples/wayland/quick-controls.json" "$runtime/quick-controls.json"
 cp "$source_root/tests/fixtures/riceplate-layout-v8.json" "$runtime/layout-v8.json"
 cp "$source_root/tests/fixtures/riceplate-components-v9.json" "$runtime/components-v9.json"
 cp "$source_root/tests/fixtures/riceplate-desktop-actions-v9.json" "$runtime/desktop-actions-v9.json"
@@ -45,6 +46,7 @@ chmod 0600 "$runtime/composed-v6.json"
 chmod 0600 "$runtime/actions-v6.json"
 chmod 0600 "$runtime/riceclip-actions.json"
 chmod 0600 "$runtime/controls-v7.json"
+chmod 0600 "$runtime/quick-controls.json"
 chmod 0600 "$runtime/layout-v8.json"
 chmod 0600 "$runtime/components-v9.json"
 chmod 0600 "$runtime/desktop-actions-v9.json"
@@ -233,7 +235,7 @@ dbus-run-session -- sh -eu -c '
         cat "$runtime/keyboard-keeper.log" >&2
         exit 1
     }
-    for recipe in classic chrome "$runtime/custom.json" "$runtime/nested.json" "$runtime/shell-v4.json" "$runtime/desktop-v5.json" "$runtime/actions-v6.json" "$runtime/riceclip-actions.json" "$runtime/controls-v7.json" "$runtime/layout-v8.json" "$runtime/components-v9.json" "$runtime/desktop-actions-v9.json" "$runtime/appearance-v10.json" "$runtime/xp-luna-columns.json" "$runtime/xp-luna-default-icons.json" "$runtime/xp-luna-columns-menu" "$runtime/xp-luna-font-menu" "$runtime/xp-luna-columns-calendar" "$runtime/xp-luna-font-calendar" "$runtime/xp-luna-columns-osd" "$runtime/xp-luna-font-osd" "$runtime/xp-luna-columns-notifications" "$runtime/xp-luna-columns-notifications-scroll" "$runtime/xp-luna-font-notifications" "$runtime/xp-luna-columns-notification-detail" "$runtime/xp-luna-font-notification-detail" "$runtime/overflow-v5.json" "$runtime/desktop-v5-menu" "$runtime/sidebar-v6-menu" "$runtime/composed-v6-menu" "$runtime/desktop-v5-calendar"; do
+    for recipe in classic chrome "$runtime/custom.json" "$runtime/nested.json" "$runtime/shell-v4.json" "$runtime/desktop-v5.json" "$runtime/actions-v6.json" "$runtime/riceclip-actions.json" "$runtime/controls-v7.json" "$runtime/quick-controls.json" "$runtime/layout-v8.json" "$runtime/components-v9.json" "$runtime/desktop-actions-v9.json" "$runtime/appearance-v10.json" "$runtime/xp-luna-columns.json" "$runtime/xp-luna-default-icons.json" "$runtime/xp-luna-columns-menu" "$runtime/xp-luna-font-menu" "$runtime/xp-luna-columns-calendar" "$runtime/xp-luna-font-calendar" "$runtime/xp-luna-columns-osd" "$runtime/xp-luna-font-osd" "$runtime/xp-luna-columns-notifications" "$runtime/xp-luna-columns-notifications-scroll" "$runtime/xp-luna-font-notifications" "$runtime/xp-luna-columns-notification-detail" "$runtime/xp-luna-font-notification-detail" "$runtime/overflow-v5.json" "$runtime/desktop-v5-menu" "$runtime/sidebar-v6-menu" "$runtime/composed-v6-menu" "$runtime/desktop-v5-calendar"; do
         case "$recipe" in
             */desktop-v5-calendar) label=calendar-v5 ;;
             */desktop-v5-menu) label=menu-v5 ;;
@@ -257,6 +259,7 @@ dbus-run-session -- sh -eu -c '
             */actions-v6.json) label=actions-v6 ;;
             */riceclip-actions.json) label=riceclip-actions ;;
             */controls-v7.json) label=controls-v7 ;;
+            */quick-controls.json) label=quick-controls ;;
             */layout-v8.json) label=layout-v8 ;;
             */components-v9.json) label=components-v9 ;;
             */desktop-actions-v9.json) label=desktop-actions-v9 ;;
@@ -361,7 +364,7 @@ dbus-run-session -- sh -eu -c '
                 exit 1 ;;
         esac
         echo "Native RicePlate $label layer surface remained alive"
-        if [ "$label" = shell-v4 ] || [ "$label" = desktop-v5 ] || [ "$label" = actions-v6 ] || [ "$label" = riceclip-actions ] || [ "$label" = controls-v7 ] || [ "$label" = layout-v8 ] || [ "$label" = components-v9 ] || [ "$label" = desktop-actions-v9 ] || [ "$label" = appearance-v10 ] || [ "$label" = xp-luna-columns ] || [ "$label" = xp-luna-default-icons ] || [ "$label" = xp-luna-columns-menu ] || [ "$label" = xp-luna-font-menu ] || [ "$label" = xp-luna-columns-calendar ] || [ "$label" = xp-luna-font-calendar ] || [ "$label" = xp-luna-columns-osd ] || [ "$label" = xp-luna-font-osd ] || [ "$label" = xp-luna-columns-notifications ] || [ "$label" = xp-luna-columns-notifications-scroll ] || [ "$label" = xp-luna-font-notifications ] || [ "$label" = xp-luna-columns-notification-detail ] || [ "$label" = xp-luna-font-notification-detail ] || [ "$label" = menu-v5 ] || [ "$label" = menu-sidebar-v6 ] || [ "$label" = menu-composed-v6 ] || [ "$label" = calendar-v5 ]; then
+        if [ "$label" = shell-v4 ] || [ "$label" = desktop-v5 ] || [ "$label" = actions-v6 ] || [ "$label" = riceclip-actions ] || [ "$label" = controls-v7 ] || [ "$label" = quick-controls ] || [ "$label" = layout-v8 ] || [ "$label" = components-v9 ] || [ "$label" = desktop-actions-v9 ] || [ "$label" = appearance-v10 ] || [ "$label" = xp-luna-columns ] || [ "$label" = xp-luna-default-icons ] || [ "$label" = xp-luna-columns-menu ] || [ "$label" = xp-luna-font-menu ] || [ "$label" = xp-luna-columns-calendar ] || [ "$label" = xp-luna-font-calendar ] || [ "$label" = xp-luna-columns-osd ] || [ "$label" = xp-luna-font-osd ] || [ "$label" = xp-luna-columns-notifications ] || [ "$label" = xp-luna-columns-notifications-scroll ] || [ "$label" = xp-luna-font-notifications ] || [ "$label" = xp-luna-columns-notification-detail ] || [ "$label" = xp-luna-font-notification-detail ] || [ "$label" = menu-v5 ] || [ "$label" = menu-sidebar-v6 ] || [ "$label" = menu-composed-v6 ] || [ "$label" = calendar-v5 ]; then
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/$label.png"
             cp "$runtime/$label.png" "$source_root/dist/riceplate-native-preview/$label.png"
             echo "Captured real native RicePlate $label framebuffer"

@@ -9,7 +9,7 @@
     "layout": {
       "start": [{"type": "widget", "id": "launcher"}, {"type": "widget", "id": "tasks"}],
       "center": [],
-      "end": [{"type": "widget", "id": "network"}, {"type": "widget", "id": "audio"},
+      "end": [{"type": "widget", "id": "network"}, {"type": "widget", "id": "audio"}, {"type": "widget", "id": "bluetooth"},
               {"type": "widget", "id": "battery"}, {"type": "widget", "id": "clock"}]
     }
   },

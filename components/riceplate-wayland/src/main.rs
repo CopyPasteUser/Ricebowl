@@ -296,7 +296,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         || menu_controls.contains(&ControlAction::WifiToggle)
         || panel_controls.contains(&ControlAction::WifiToggle)
         || desktop_controls.contains(&ControlAction::WifiToggle);
-    let poll_bluetooth = menu_controls.contains(&ControlAction::BluetoothToggle)
+    let desktop_bluetooth = recipe.composition.as_ref().is_some_and(|composition|
+        composition.widgets.iter().any(|widget|
+            matches!(&widget.kind, recipe::DesktopWidgetKind::Bluetooth)));
+    let poll_bluetooth = desktop_bluetooth || status_present(Widget::Bluetooth)
+        || menu_controls.contains(&ControlAction::BluetoothToggle)
         || panel_controls.contains(&ControlAction::BluetoothToggle)
         || desktop_controls.contains(&ControlAction::BluetoothToggle);
     // A native full desktop has volume OSD even when a rice omits the audio
@@ -2561,18 +2565,21 @@ impl RicePlate {
                                       AccessibleRole::Button, label, action);
                         }
                     }
-                    Widget::Network | Widget::Audio | Widget::Battery => {
+                    Widget::Network | Widget::Audio | Widget::Battery | Widget::Bluetooth => {
                         let luna = self.recipe.id == "xp-luna-columns";
                         let (number, label) = match placed.widget {
                             Widget::Network => (5, format!("Network: {}",
                                 self.system_status.network.label())),
                             Widget::Audio => (6, format!("Audio: {}",
                                 self.system_status.audio.label())),
+                            Widget::Bluetooth => (8, format!("Bluetooth: {}",
+                                self.system_status.bluetooth.label())),
                             _ => (7, format!("Battery: {}", self.power.label())),
                         };
+                        let opens_menu = luna && placed.widget != Widget::Bluetooth;
                         model.add(base + number, base,
-                            if luna { AccessibleRole::Button } else { AccessibleRole::Status },
-                            label, luna.then_some(Target::Status(placed.widget)));
+                            if opens_menu { AccessibleRole::Button } else { AccessibleRole::Status },
+                            label, opens_menu.then_some(Target::Status(placed.widget)));
                     },
                     Widget::Label(index) => {
                         if let Some(label) = self.recipe.labels.get(index as usize) {
@@ -2655,6 +2662,8 @@ impl RicePlate {
                             format!("Audio: {}", self.system_status.audio.label()),
                         recipe::DesktopWidgetKind::Battery =>
                             format!("Battery: {}", self.power.label()),
+                        recipe::DesktopWidgetKind::Bluetooth =>
+                            format!("Bluetooth: {}", self.system_status.bluetooth.label()),
                         recipe::DesktopWidgetKind::Text(value) => value.clone(),
                         recipe::DesktopWidgetKind::Action(action) => {
                             format!("{}, {}", widget.title.as_deref().unwrap_or("Action"),
@@ -2912,7 +2921,7 @@ impl RicePlate {
                         Some(KeyboardTarget::Task(index)) => base + 100 + index as u64,
                         Some(KeyboardTarget::Tray(index)) => base + 300 + index as u64,
                         Some(KeyboardTarget::Status(widget)) => base + match widget {
-                            Widget::Network => 5, Widget::Audio => 6, _ => 7,
+                            Widget::Network => 5, Widget::Audio => 6, Widget::Bluetooth => 8, _ => 7,
                         },
                         Some(KeyboardTarget::Clock) => base + 2,
                         None => base,
@@ -4096,6 +4105,9 @@ impl RicePlate {
             recipe::DesktopWidgetKind::Battery =>
                 (widget.title.as_deref().unwrap_or("Battery"),
                  vec![self.power.label().to_string()]),
+            recipe::DesktopWidgetKind::Bluetooth =>
+                (widget.title.as_deref().unwrap_or("Bluetooth"),
+                 vec![self.system_status.bluetooth.label().to_string()]),
             recipe::DesktopWidgetKind::Text(value) => ("Text", vec![value.clone()]),
             recipe::DesktopWidgetKind::Action(action) =>
                 (widget.title.as_deref().unwrap_or("Action"),
@@ -5098,6 +5110,16 @@ fn paint_panel_pointer(canvas: &mut [u8], width: u32, height: u32,
                         height.saturating_sub(8 * style.font_scale) / 2,
                         &label, style.foreground, style);
                 }
+            }
+            Widget::Bluetooth => {
+                // Status-only: radio switching is a distinct, verified control.
+                // Never turn the indicator into a silent, unverified toggle.
+                let label = format!("BT {}", status.bluetooth.label());
+                draw_rice_text(canvas, width, height,
+                    placed.x + placed.width.saturating_sub(
+                        text_pixel_width(&label, style.font_scale)) / 2,
+                    height.saturating_sub(8 * style.font_scale) / 2,
+                    &label, style.foreground, style);
             }
             Widget::Network | Widget::Audio => {
                 if style.id == "xp-luna-columns" {
@@ -9077,6 +9099,38 @@ mod tests {
         assert!(volume[1..4].iter().all(|row| row.enabled));
         assert_eq!(volume[4].id, 102);
         assert!(luna_status_rows(Widget::Tray, &active, &PowerStatus::NotPresent).is_none());
+    }
+
+    #[test]
+    fn bluetooth_status_panel_pixels_follow_adapter_power_without_fake_clicks() {
+        let mut data: serde_json::Value = serde_json::from_str(
+            include_str!("../../../examples/wayland/quick-controls.json")).unwrap();
+        // A read-only indicator must not become a hit target even when a
+        // separate Bluetooth radio control exists in the menu.
+        let style = recipe::parse(&data.to_string(), Some("quick-controls")).unwrap();
+        let width = 1366;
+        let height = style.height;
+        let paint = |status: &SystemStatus| {
+            let mut pixels = vec![0; (width * height * 4) as usize];
+            paint_panel(&mut pixels, width, height, &style, &[], "12:00",
+                &PowerStatus::NotPresent, status, &tray::State::default(), 0,
+                None, None, None);
+            pixels
+        };
+        let missing = SystemStatus::default();
+        let mut powered = missing.clone();
+        powered.bluetooth = system_status::BluetoothRadio::Enabled;
+        let left = paint(&missing);
+        let right = paint(&powered);
+        let indicator = recipe::layout(&style, width, 0).into_iter()
+            .find(|p| p.widget == Widget::Bluetooth).unwrap();
+        assert!((indicator.x..indicator.x + indicator.width).any(|x|
+            (0..height).any(|y| {
+                let offset = ((y * width + x) * 4) as usize;
+                left[offset..offset + 4] != right[offset..offset + 4]
+            })));
+        assert!(matches!(recipe::hit(
+            f64::from(indicator.x + indicator.width / 2), width, 0, 0, &style), None));
     }
 
     #[test]
