@@ -5,6 +5,20 @@ physical acceptance outstanding.** RiceBowl 0.9.x is still an XFCE/X11
 rice manager. The separate Wayland login-session package requires explicit
 installation and is not yet a finished desktop environment.
 
+### Sprint 6 nested D-Bus ownership and XFCE isolation (15 November 2026)
+
+An opt-in nested RiceBowl preview with an inherited session D-Bus connection
+now discards any inherited `RICEBOWL_DE_PRIVATE_BUS` owner marker. Only a
+matching one-shot `dbus-run-session` reexec retains private-bus ownership, so
+a nested preview cannot accidentally try to claim the parent's Mako
+notification name merely because a previous shell exported a stale marker.
+Full labwc logins also discard the nested-only marker. This does not stop or
+reconfigure XFCE, install a user service or change the login default.
+
+Unit tests prove the inherited bus path, the one-time private reexec path and
+full-login marker cleanup. As always, this is software-level isolation and
+does not replace physical login, Flatpak or polkit acceptance.
+
 ### Sprint 5 disconnected control-owner recovery (15 November 2026, CI-gated candidate)
 
 The existing bounded zero-capacity radio/audio control channel now distinguishes
