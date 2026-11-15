@@ -17,15 +17,15 @@ class NotificationAppearanceTests(unittest.TestCase):
             def poll(self):
                 return 0
 
-        class RunningGuard(FinishedProcess):
-            def poll(self):
-                return None
-
             def wait(self, **_kwargs):
                 return 0
 
             def terminate(self):
                 pass
+
+        class RunningGuard(FinishedProcess):
+            def poll(self):
+                return None
 
         with tempfile.TemporaryDirectory() as config, \
              tempfile.TemporaryDirectory() as runtime, \
