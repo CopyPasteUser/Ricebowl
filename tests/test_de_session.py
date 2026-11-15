@@ -206,6 +206,47 @@ class WaylandSessionTests(unittest.TestCase):
 
     @mock.patch("macrice.de.session.os.geteuid", return_value=1000)
     @mock.patch("macrice.de.session._check_runtime_dir")
+    def test_nested_parent_bus_discards_inherited_private_owner_marker(self, _runtime, _uid):
+        env = {**self.env, "RICEBOWL_DE_PRIVATE_BUS": "1",
+               "XDG_CURRENT_DESKTOP": "XFCE", "DISPLAY": ":0"}
+        with self.assertRaises(_ExecCalled) as caught:
+            session.start(nested=True, environment=env, which=self.which,
+                          execute=_record_exec)
+        child = caught.exception.env
+        self.assertNotIn("RICEBOWL_DE_PRIVATE_BUS", child)
+        self.assertEqual(child["LABWC_UPDATE_ACTIVATION_ENV"], "0")
+        self.assertEqual(child["DBUS_SESSION_BUS_ADDRESS"], self.env["DBUS_SESSION_BUS_ADDRESS"])
+        self.assertEqual(caught.exception.program, "/usr/bin/labwc")
+
+    @mock.patch("macrice.de.session.os.geteuid", return_value=1000)
+    @mock.patch("macrice.de.session._check_runtime_dir")
+    def test_private_nested_bus_marker_survives_only_its_reexec(self, _runtime, _uid):
+        initial = {"XDG_RUNTIME_DIR": self.runtime.name}
+        with self.assertRaises(_ExecCalled) as first:
+            session.start(nested=True, environment=initial, which=self.which,
+                          execute=_record_exec)
+        self.assertEqual(first.exception.program, "/usr/bin/dbus-run-session")
+        self.assertEqual(first.exception.env["RICEBOWL_DE_PRIVATE_BUS"], "1")
+        self.assertEqual(first.exception.env["RICEBOWL_DE_BUS_REEXEC"], "1")
+        launched_env = {**first.exception.env,
+                        "DBUS_SESSION_BUS_ADDRESS": "unix:path=private-nested"}
+        with self.assertRaises(_ExecCalled) as second:
+            session.start(nested=True, environment=launched_env,
+                          which=self.which, execute=_record_exec)
+        self.assertEqual(second.exception.program, "/usr/bin/labwc")
+        self.assertEqual(second.exception.env["RICEBOWL_DE_PRIVATE_BUS"], "1")
+
+    @mock.patch("macrice.de.session.os.geteuid", return_value=1000)
+    @mock.patch("macrice.de.session._check_runtime_dir")
+    def test_full_login_discards_nested_private_bus_marker(self, _runtime, _uid):
+        env = {**self.env, "RICEBOWL_DE_PRIVATE_BUS": "1"}
+        with self.assertRaises(_ExecCalled) as caught:
+            session.start(environment=env, which=self.which, execute=_record_exec)
+        self.assertEqual(caught.exception.program, "/usr/bin/labwc")
+        self.assertNotIn("RICEBOWL_DE_PRIVATE_BUS", caught.exception.env)
+
+    @mock.patch("macrice.de.session.os.geteuid", return_value=1000)
+    @mock.patch("macrice.de.session._check_runtime_dir")
     def test_selected_recipe_survives_one_time_dbus_reexec(self, _runtime, _uid):
         with self.assertRaises(_ExecCalled) as caught:
             session.start(nested=True, recipe="chrome",
