@@ -782,6 +782,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let redraw_qh = qh.clone();
         event_loop.handle().insert_source(receiver, move |event, _, app: &mut RicePlate| {
             if let channel::Event::Msg(message) = event {
+                let control_completed = matches!(&message, StatusEvent::Control { .. });
                 let status = match message {
                     StatusEvent::State(status) => status,
                     StatusEvent::ObservedAudio(audio) => {
@@ -799,7 +800,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                         app.menu_state.notice = Some(if success {
                             "Action applied"
                         } else { "Unavailable or denied" });
-                        if app.menu_state.visible { app.redraw_menu(&redraw_qh); }
                         if app.osd_state.show(action, success, &state, Instant::now()) {
                             app.redraw_osd();
                         }
@@ -808,10 +808,17 @@ fn main() -> Result<(), Box<dyn Error>> {
                         state
                     }
                 };
-                if app.system_status != status {
+                let status_changed = app.system_status != status;
+                if status_changed {
                     app.system_status = status;
                     app.request_redraw(&redraw_qh);
                     app.redraw_widgets();
+                }
+                // Commit the verified readback before painting the live menu.
+                // External radio/audio status changes must also refresh visible
+                // labels, even without a RicePlate-originated control action.
+                if (status_changed || control_completed) && app.menu_state.visible {
+                    app.redraw_menu(&redraw_qh);
                 }
             }
         })?;
