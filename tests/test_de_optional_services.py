@@ -148,8 +148,9 @@ class OptionalWaylandServiceTests(unittest.TestCase):
             return FakeProcess()
 
         env = {**self.nested, "RICEBOWL_DE_NESTED": "0"}
-        with mock.patch("macrice.de.session.signal.signal"), mock.patch("sys.stderr"), \\
-             mock.patch("macrice.de.notification_prefs.load_optional", return_value=None):
+        with (mock.patch("macrice.de.session.signal.signal"),
+              mock.patch("sys.stderr"),
+              mock.patch("macrice.de.notification_prefs.load_optional", return_value=None)):
             self.assertEqual(session.shell(environment=env, which=self.tools.get,
                                            spawn=spawn), 0)
         self.assertEqual(attempts.count("/usr/bin/lxpolkit"), 1)
