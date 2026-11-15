@@ -170,6 +170,7 @@ dbus-run-session -- sh -eu -c '
     wallpaper=
     keyboard_keeper=
     focus_clicker=
+    focus_typer=
     cleanup() {
         if [ -s "$runtime/clip-action-gui.pid" ]; then
             clip_pid=$(cat "$runtime/clip-action-gui.pid" 2>/dev/null || :)
@@ -185,6 +186,10 @@ dbus-run-session -- sh -eu -c '
         if [ -n "$focus_clicker" ]; then
             kill -TERM "$focus_clicker" 2>/dev/null || :
             wait "$focus_clicker" 2>/dev/null || :
+        fi
+        if [ -n "$focus_typer" ]; then
+            kill -TERM "$focus_typer" 2>/dev/null || :
+            wait "$focus_typer" 2>/dev/null || :
         fi
         if [ -n "$keyboard_keeper" ]; then
             kill -TERM "$keyboard_keeper" 2>/dev/null || :
@@ -1674,6 +1679,33 @@ PY
         "$runtime/file-plate.log" | tail -n 1)
     test -n "$file_position"
     set -- $file_position
+    # wtype - reads stdin only after creating its virtual keyboard and
+    # uploading the keymap. Keep the SAME real keyboard device attached
+    # from before desktop selection through external GTK focus and typing.
+    # A fresh wtype launched after focus can race labwc input-device routing.
+    # The producer is bounded and emits text only after both the actual
+    # GTK focus event and a real compositor pointer click.
+    (
+        count=0
+        while [ "$count" -lt 150 ]; do
+            if [ -s "$runtime/focus-focused.log" ] &&
+                grep -Fq "Pointer remains connected" "$runtime/focus-pointer-click.log" 2>/dev/null; then
+                printf "%s" ricebowl-focus-ok
+                exit 0
+            fi
+            count=$((count + 1))
+            sleep 0.1
+        done
+        exit 1
+    ) | WAYLAND_DISPLAY=wayland-0 wtype - -k Return \
+        > "$runtime/focus-wtype.log" 2>&1 &
+    focus_typer=$!
+    sleep 0.3
+    kill -0 "$focus_typer" || {
+        echo "Persistent external-app virtual keyboard failed to attach" >&2
+        cat "$runtime/focus-wtype.log" >&2
+        exit 1
+    }
     focus_confirmations_before=$(grep -Fc "RicePlate: compositor confirmed XDG file keyboard focus" "$runtime/file-plate.log" || :)
     focus_releases_before=$(grep -Fc "RicePlate: XDG file keyboard focus released" "$runtime/file-plate.log" || :)
     # Use the same long-lived keyboard seat as all earlier XDG acceptance.
@@ -1869,14 +1901,15 @@ PY
         tail -n 45 "$runtime/focus-app.log" >&2
         exit 1
     }
-    # A real client window AND its text-entry widget have focus. Type only
-    # now, on the already-connected compositor keyboard seat.
-    WAYLAND_DISPLAY=wayland-0 wtype -d 120 ricebowl-focus-ok -k Return \
-        > "$runtime/focus-wtype.log" 2>&1 || {
-        echo "Virtual keyboard failed during real external GTK focus" >&2
+    # Input comes from the already-connected wtype process above, which
+    # receives stdin only after the compositor click and GTK focus signal.
+    # Never create a replacement keyboard at the critical handoff.
+    wait "$focus_typer" || {
+        echo "Preconnected external-app virtual keyboard failed" >&2
         cat "$runtime/focus-wtype.log" >&2
         exit 1
     }
+    focus_typer=
     count=0
     while [ ! -s "$runtime/focus-input.log" ] && [ "$count" -lt 30 ]; do
         count=$((count + 1))
