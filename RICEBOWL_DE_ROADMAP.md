@@ -5,6 +5,25 @@ physical acceptance outstanding.** RiceBowl 0.9.x is still an XFCE/X11
 rice manager. The separate Wayland login-session package requires explicit
 installation and is not yet a finished desktop environment.
 
+### Sprint 6 system services: early lock guard and polkit failover (15 November 2026)
+
+The full labwc login now checks that its freshly spawned swayidle pre-suspend
+lock guard has not already exited **before** starting the panel, wallpaper,
+notifications or authorization agent. Its existing continuous monitoring still
+fails closed when swayidle dies later. A nested preview remains unprivileged and
+does not start or own an idle guard.
+
+For an opt-in full session, a failed polkit authentication agent can now hand
+over **once** to a different allowlisted installed provider. A healthy agent
+is never duplicated; clean exits remain non-restarting, and failed alternatives
+are bounded. Normal RicePop/Orca restarts preserve their prior one-retry
+contract. No systemd, XFCE autostart or global polkit configuration changes.
+
+Automated software gates cover immediate guard exit, a running guard, crashed
+polkit handover, all-alternatives-fail and no restart storm. Real login,
+logind suspend, password prompts and physical Mint acceptance remain open
+release gates, not approved by mocked child processes.
+
 ### Sprint 5 disconnected control-owner recovery (15 November 2026, CI-gated candidate)
 
 The existing bounded zero-capacity radio/audio control channel now distinguishes
