@@ -1,6 +1,7 @@
 name: Wayland session preview
 
 on:
+  workflow_dispatch:
   push:
     paths:
       - '.github/workflows/wayland-session.yml'
