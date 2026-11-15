@@ -40,7 +40,7 @@ class NativeCreatorHandoffRunnerTests(unittest.TestCase):
                 self.assertGreaterEqual(length, 2)
                 # A broken zlib header with a recomputed, valid PNG CRC.
                 # Chunk-only verify() passes; full load() must reject it.
-                payload[offset + 8:offset + 10] = b"\\x00\\x00"
+                payload[offset + 8:offset + 10] = bytes([0, 0])
                 crc = zlib.crc32(payload[offset + 4:offset + 8 + length])
                 struct.pack_into(">I", payload, offset + 8 + length, crc)
                 break
