@@ -12,5 +12,15 @@ while [ ! -f "$runtime/launch-client" ] && [ "$count" -lt 100 ]; do
 done
 test -f "$runtime/launch-client" || exit 1
 printf '%s\n' "$$" >"$runtime/client.pid"
+# The X11 client writes a receipt only after *real terminal input* delivered
+# through the compositor's Wayland seat and XWayland. The outer smoke verifies
+# that this isn't just a taskbar/screenshot-only XWayland test.
+export RICEBOWL_XWAYLAND_RECEIPT="$runtime/xwayland-typed.txt"
 exec xterm -class RiceBowlXwaylandSmoke -title RiceBowl-Legacy-Smoke \
-    -e /bin/sh -c 'sleep 30'
+    -geometry 80x24+200+130 -e /bin/sh -c '
+    stty -echo
+    IFS= read -r received || exit 1
+    [ "$received" = "ricebowl-xwayland-ok" ] || exit 2
+    printf "%s\n" "$received" > "$RICEBOWL_XWAYLAND_RECEIPT"
+    sleep 30
+'
