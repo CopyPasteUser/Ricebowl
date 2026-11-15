@@ -3,7 +3,8 @@
 //! Missing services report unavailable; a recipe never controls arguments.
 
 use std::{
-    io::{BufRead, BufReader, Read},
+    io::{BufRead, BufReader, ErrorKind, Read},
+    os::fd::AsRawFd,
     process::{Child, Command, Stdio},
     sync::mpsc::{self, TrySendError},
     thread,
@@ -321,48 +322,83 @@ fn spawn_bounded(program: &str, args: &[&str], output: bool) -> Option<(bool, St
         .stdout(if output { Stdio::piped() } else { Stdio::null() })
         .stderr(Stdio::null())
         .spawn().ok()?;
-    // Waiting before reading a piped stdout deadlocks when a provider emits
-    // more than the kernel pipe buffer. Drain concurrently, with a strict
-    // 1 KiB response cap; never parse a truncated service status as truth.
-    // The reader exits on EOF or 1025 bytes, closing the pipe on overflow.
-    let reader = if output {
-        let Some(stdout) = child.stdout.take() else {
+    // Use an O_NONBLOCK pipe rather than a joined reader thread. A command
+    // may exit while a descendant still holds its stdout FD; waiting for
+    // EOF in a reader.join() can then hang forever despite killing/reaping
+    // the original child. The timeout bounds BOTH the child and pipe.
+    let mut pipe = child.stdout.take();
+    if output && pipe.is_none() {
+        let _ = child.kill();
+        let _ = child.wait();
+        return None;
+    }
+    if let Some(stdout) = pipe.as_ref() {
+        // SAFETY: the descriptor is owned by ChildStdout and stays open
+        // until pipe is dropped. F_GETFL/F_SETFL change only its file flags.
+        let flags = unsafe { libc::fcntl(stdout.as_raw_fd(), libc::F_GETFL) };
+        if flags < 0 || unsafe {
+            libc::fcntl(stdout.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK)
+        } < 0 {
             let _ = child.kill();
             let _ = child.wait();
             return None;
-        };
-        Some(thread::spawn(move || {
-            let mut bytes = Vec::new();
-            stdout.take(1025).read_to_end(&mut bytes).map(|_| bytes)
-        }))
-    } else {
-        None
-    };
+        }
+    }
     let started = Instant::now();
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Some(status.success()),
-            Ok(None) if started.elapsed() < Duration::from_millis(4000) => {
-                thread::sleep(Duration::from_millis(15));
+    let mut bytes = Vec::new();
+    let mut status = None;
+    let mut eof = !output;
+    loop {
+        let mut chunk = [0_u8; 1025];
+        let read = pipe.as_mut().map(|stdout| stdout.read(&mut chunk));
+        match read {
+            Some(Ok(0)) => {
+                pipe = None;
+                eof = true;
             }
-            _ => {
+            Some(Ok(len)) => {
+                if bytes.len().saturating_add(len) > 1024 {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None; // Reject oversized state, never truncate it.
+                }
+                bytes.extend_from_slice(&chunk[..len]);
+            }
+            Some(Err(error)) if error.kind() == ErrorKind::WouldBlock => {}
+            Some(Err(error)) if error.kind() == ErrorKind::Interrupted => continue,
+            Some(Err(_)) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                break None;
+                return None;
+            }
+            None => {}
+        }
+        if status.is_none() {
+            match child.try_wait() {
+                Ok(Some(exit)) => status = Some(exit.success()),
+                Ok(None) => {}
+                Err(_) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
             }
         }
-    };
-    // Join even after cancellation; no lingering reader/thread from a dead
-    // NetworkManager, WirePlumber or BlueZ command survives in RicePlate.
-    let result = match reader {
-        Some(reader) => {
-            let bytes = reader.join().ok()?.ok()?;
-            if bytes.len() > 1024 { return None; }
-            String::from_utf8(bytes).ok()?
+        if let Some(success) = status {
+            if eof {
+                return Some((success, String::from_utf8(bytes).ok()?));
+            }
         }
-        None => String::new(),
-    };
-    Some((status?, result))
+        if started.elapsed() >= Duration::from_millis(4000) {
+            if status.is_none() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            // Do not wait for pipe EOF from descendants after parent exit.
+            return None;
+        }
+        thread::sleep(Duration::from_millis(15));
+    }
 }
 
 fn command_output(program: &str, args: &[&str]) -> Option<String> {
@@ -483,6 +519,20 @@ mod tests {
                                  &[], true), None);
         assert_eq!(spawn_bounded("true", &[], false),
                    Some((true, String::new())));
+    }
+
+    #[test]
+    fn bounded_worker_does_not_wait_for_inherited_stdout_after_parent_exits() {
+        // A short-lived shell can leave a child with the same pipe open.
+        // The former reader.join() waited for that unrelated process to
+        // close stdout AFTER the original command had exited.
+        // This test-only shell never enters a production command allowlist.
+        let started = Instant::now();
+        let result = spawn_bounded("sh", &["-c",
+            "printf 'enabled\\n'; sleep 6 & exit 0"], true);
+        assert_eq!(result, None, "unclosed inherited stdout must fail closed");
+        assert!(started.elapsed() < Duration::from_secs(6),
+                "an inherited pipe must never bypass the four-second bound");
     }
 
     #[test]
