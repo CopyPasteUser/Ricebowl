@@ -296,6 +296,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         || menu_controls.contains(&ControlAction::WifiToggle)
         || panel_controls.contains(&ControlAction::WifiToggle)
         || desktop_controls.contains(&ControlAction::WifiToggle);
+    let poll_bluetooth = menu_controls.contains(&ControlAction::BluetoothToggle)
+        || panel_controls.contains(&ControlAction::BluetoothToggle)
+        || desktop_controls.contains(&ControlAction::BluetoothToggle);
     // A native full desktop has volume OSD even when a rice omits the audio
     // indicator. Nested design previews retain the old opt-in behavior.
     let full_session = std::env::var("RICEBOWL_DE_NESTED").as_deref() != Ok("1");
@@ -766,7 +769,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut audio_reconnect_after = Instant::now() + Duration::from_secs(5);
     let mut backlight = if full_session { brightness::Watcher::detect() } else { None };
     let mut next_backlight_check = Instant::now() + Duration::from_millis(800);
-    if poll_network || poll_audio {
+    if poll_network || poll_audio || poll_bluetooth {
         let (sender, receiver) = channel::channel::<StatusEvent>();
         // Zero-capacity rendezvous: repeated clicks cannot queue a burst of
         // Wi-Fi toggles while the hardware service is slow or unavailable.
@@ -821,20 +824,20 @@ fn main() -> Result<(), Box<dyn Error>> {
         // One sleeping worker, enabled only for rices using these widgets;
         // bounded subprocesses never block Wayland input or the frame loop.
         std::thread::spawn(move || {
-            if sender.send(StatusEvent::State(SystemStatus::read(poll_network, poll_audio))).is_err() {
+            if sender.send(StatusEvent::State(SystemStatus::read(poll_network, poll_audio, poll_bluetooth))).is_err() {
                 return;
             }
             loop {
                 match controls.recv_timeout(Duration::from_secs(30)) {
                     Ok(action) => {
-                        let before = SystemStatus::read(poll_network, poll_audio);
+                        let before = SystemStatus::read(poll_network, poll_audio, poll_bluetooth);
                         let applied = action.available(&before) && action.apply();
-                        let state = SystemStatus::read(poll_network, poll_audio);
+                        let state = SystemStatus::read(poll_network, poll_audio, poll_bluetooth);
                         let success = action.verified(&before, &state, applied);
                         if sender.send(StatusEvent::Control { action, success, state }).is_err() { break; }
                     }
                     Err(mpsc::RecvTimeoutError::Timeout) => {
-                        if sender.send(StatusEvent::State(SystemStatus::read(poll_network, poll_audio)))
+                        if sender.send(StatusEvent::State(SystemStatus::read(poll_network, poll_audio, poll_bluetooth)))
                             .is_err() { break; }
                     }
                     Err(mpsc::RecvTimeoutError::Disconnected) => break,
@@ -9064,6 +9067,7 @@ mod tests {
             network: system_status::Network::Global,
             audio: Audio::Volume(65),
             wifi: system_status::WifiRadio::Enabled,
+            bluetooth: system_status::BluetoothRadio::Unavailable,
         };
         let (_, network) = luna_status_rows(Widget::Network, &active,
                                             &PowerStatus::NotPresent).unwrap();
@@ -9088,6 +9092,7 @@ mod tests {
             network: system_status::Network::Global,
             audio: system_status::Audio::Volume(58),
             wifi: system_status::WifiRadio::Enabled,
+            bluetooth: system_status::BluetoothRadio::Unavailable,
         };
         paint_panel(&mut connected, width, height, &style, &[], "12:00",
                     &PowerStatus::NotPresent, &current, &tray::State::default(), 0, None, None, None);
@@ -9121,6 +9126,7 @@ mod tests {
         let working = SystemStatus {
             network: system_status::Network::Offline,
             wifi: system_status::WifiRadio::Enabled,
+            bluetooth: system_status::BluetoothRadio::Unavailable,
             audio: Audio::Volume(42),
         };
         let available = render(&working, None, None);
