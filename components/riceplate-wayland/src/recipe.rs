@@ -1484,6 +1484,36 @@ mod tests {
     }
 
     #[test]
+    fn bluetooth_status_is_shared_read_only_and_compact_schema_v9() {
+        let mut data: serde_json::Value = serde_json::from_str(COMPONENTS_V9).unwrap();
+        data["components"].as_array_mut().unwrap().push(
+            serde_json::json!({"id": "bt-status", "role": "status",
+                               "binding": "bluetooth", "label": "Bluetooth"}));
+        data["panel"]["layout"]["end"][0] =
+            serde_json::json!({"type": "component", "ref": "bt-status"});
+        data["responsive"]["compact_layout"]["end"][0] =
+            serde_json::json!({"type": "component", "ref": "bt-status"});
+        data["composition"]["widgets"][2]["ref"] = serde_json::json!("bt-status");
+
+        let parsed = parse(&data.to_string(), None).unwrap();
+        assert!(parsed.sections.iter().flatten().any(|&w| w == Widget::Bluetooth));
+        assert!(parsed.compact.as_ref().unwrap().1.iter().flatten()
+                .any(|&w| w == Widget::Bluetooth));
+        assert_eq!(parsed.composition.as_ref().unwrap().widgets[2].kind,
+                   DesktopWidgetKind::Bluetooth);
+        assert_eq!(parsed.composition.as_ref().unwrap().widgets[2].title.as_deref(),
+                   Some("Bluetooth"));
+        assert_eq!(width_for(&parsed, Widget::Bluetooth, 0), 64);
+        assert!(layout(&parsed, 1366, 1).iter().any(|p| p.widget == Widget::Bluetooth));
+        let placed = layout(&parsed, 1366, 1).into_iter()
+            .find(|p| p.widget == Widget::Bluetooth).unwrap();
+        assert_eq!(hit_test(&parsed, 1366, 1, 0,
+                            f64::from(placed.x + placed.width / 2)), None);
+        data["components"][3]["binding"] = serde_json::json!("bluetoothctl power on");
+        assert!(parse(&data.to_string(), None).is_err());
+    }
+
+    #[test]
     fn v9_component_references_reject_commands_unknown_ids_and_wrong_surface_roles() {
         let original: serde_json::Value = serde_json::from_str(COMPONENTS_V9).unwrap();
         for (pointer, value) in [
