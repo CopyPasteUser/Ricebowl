@@ -5,6 +5,19 @@ physical acceptance outstanding.** RiceBowl 0.9.x is still an XFCE/X11
 rice manager. The separate Wayland login-session package requires explicit
 installation and is not yet a finished desktop environment.
 
+### Sprint 5 visual menu control feedback (15 November 2026, CI-gated candidate)
+
+Native and compact launcher menus now use the same bounded verified hardware
+control snapshot as the panel, desktop widgets, and AT-SPI actions. The visible
+radio/audio labels indicate current state or Wait/Busy/N/A/Retry; unavailable
+controls use the existing disabled color and failure permits an explicit retry.
+XDG app launchers, static actions, accessibility targets, keyboard ordering,
+existing Luna menus and Waybar fallback remain unchanged. A Rust pixel-level
+regression exercises both menu sizes and the worker-absence transition.
+This is software-only runtime consistency, not physical Bluetooth/audio,
+screen-reader or final RiceBowl 1.0 signoff. Exact-head plus post-merge native
+CI must be successful before treating the candidate as accepted.
+
 ### Sprint 5 control availability and Creator contract integration (15 November 2026)
 
 The native primary and mirror panel painters now read the same actual control
