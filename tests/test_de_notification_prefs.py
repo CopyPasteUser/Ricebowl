@@ -17,6 +17,10 @@ class NotificationAppearanceTests(unittest.TestCase):
             def poll(self):
                 return 0
 
+        class RunningGuard(FinishedProcess):
+            def poll(self):
+                return None
+
             def wait(self, **_kwargs):
                 return 0
 
@@ -36,7 +40,7 @@ class NotificationAppearanceTests(unittest.TestCase):
                 if command[0] == "/usr/bin/mako":
                     path = Path(command[2])
                     captured.append((path, path.read_text(), dict(kwargs["env"])))
-                return FinishedProcess()
+                return RunningGuard() if command[0] == "/usr/bin/swayidle" else FinishedProcess()
 
             env = {"XDG_RUNTIME_DIR": runtime, "RICEBOWL_DE_SHELL_CHILD": "1",
                    "WAYLAND_DISPLAY": "wayland-0", "RICEBOWL_DE_NESTED": "0"}
