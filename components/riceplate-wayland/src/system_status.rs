@@ -321,25 +321,48 @@ fn spawn_bounded(program: &str, args: &[&str], output: bool) -> Option<(bool, St
         .stdout(if output { Stdio::piped() } else { Stdio::null() })
         .stderr(Stdio::null())
         .spawn().ok()?;
+    // Waiting before reading a piped stdout deadlocks when a provider emits
+    // more than the kernel pipe buffer. Drain concurrently, with a strict
+    // 1 KiB response cap; never parse a truncated service status as truth.
+    // The reader exits on EOF or 1025 bytes, closing the pipe on overflow.
+    let reader = if output {
+        let Some(stdout) = child.stdout.take() else {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        };
+        Some(thread::spawn(move || {
+            let mut bytes = Vec::new();
+            stdout.take(1025).read_to_end(&mut bytes).map(|_| bytes)
+        }))
+    } else {
+        None
+    };
     let started = Instant::now();
     let status = loop {
         match child.try_wait() {
-            Ok(Some(status)) => break status,
+            Ok(Some(status)) => break Some(status.success()),
             Ok(None) if started.elapsed() < Duration::from_millis(4000) => {
                 thread::sleep(Duration::from_millis(15));
             }
             _ => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return None;
+                break None;
             }
         }
     };
-    let mut output = String::new();
-    if let Some(stdout) = child.stdout.take() {
-        stdout.take(1024).read_to_string(&mut output).ok()?;
-    }
-    Some((status.success(), output))
+    // Join even after cancellation; no lingering reader/thread from a dead
+    // NetworkManager, WirePlumber or BlueZ command survives in RicePlate.
+    let result = match reader {
+        Some(reader) => {
+            let bytes = reader.join().ok()?.ok()?;
+            if bytes.len() > 1024 { return None; }
+            String::from_utf8(bytes).ok()?
+        }
+        None => String::new(),
+    };
+    Some((status?, result))
 }
 
 fn command_output(program: &str, args: &[&str]) -> Option<String> {
@@ -446,6 +469,20 @@ mod tests {
         assert!(!ControlAction::BluetoothToggle.verified(&before, &after, false));
         after.bluetooth = BluetoothRadio::Unavailable;
         assert!(!ControlAction::BluetoothToggle.verified(&before, &after, true));
+    }
+
+    #[test]
+    fn bounded_worker_drains_pipe_and_rejects_oversized_or_invalid_responses() {
+        // Coreutils seq is available on supported Ubuntu/Mint systems. The
+        // 10,000-line process writes far more than the pipe and 1 KiB limit:
+        // neither partial successful output nor a four-second deadlock is OK.
+        assert_eq!(spawn_bounded("seq", &["1", "3"], true),
+                   Some((true, "1\n2\n3\n".into())));
+        assert_eq!(spawn_bounded("seq", &["1", "10000"], true), None);
+        assert_eq!(spawn_bounded("nonexistent-ricebowl-qa-provider",
+                                 &[], true), None);
+        assert_eq!(spawn_bounded("true", &[], false),
+                   Some((true, String::new())));
     }
 
     #[test]
