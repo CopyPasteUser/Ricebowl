@@ -274,6 +274,10 @@ def start(
         env.pop("LABWC_UPDATE_ACTIVATION_ENV", None)
 
     if not env.get("DBUS_SESSION_BUS_ADDRESS"):
+        # A nested preview without an inherited user bus creates its own
+        # dbus-run-session below; that private bus may safely own Mako.
+        if nested:
+            env["RICEBOWL_DE_PRIVATE_BUS"] = "1"
         bus = which("dbus-run-session")
         if not bus:
             raise SessionError("No D-Bus user session and dbus-run-session is unavailable.")
@@ -552,13 +556,15 @@ class _LiveSwitch:
 
     def _services_status(self) -> dict[str, str]:
         """Expose only owned service health, never bus names, PIDs or commands."""
-        if self.nested:
+        if self.nested and self.env.get("RICEBOWL_DE_PRIVATE_BUS") != "1":
             return {"notifications": "external-session",
                     "authorization": "external-session",
                     "screen_reader": "not_managed", "lock_guard": "not_managed"}
-        health = {"notifications": "unavailable", "authorization": "unavailable",
+        health = {"notifications": "unavailable",
+                  "authorization": ("not_managed" if self.nested else "unavailable"),
                   "screen_reader": "not_managed",
-                  "lock_guard": ("running" if self.idle_guard is not None
+                  "lock_guard": ("not_managed" if self.nested else
+                                 "running" if self.idle_guard is not None
                                  and self.idle_guard.poll() is None else "stopped")}
         roles = {"RicePop notifications": "notifications",
                  "polkit authentication agent": "authorization",
@@ -969,6 +975,7 @@ def shell(
     if panel_mode not in ("waybar", "native"):
         raise SessionError("Unsupported RiceBowl panel mode.")
     nested = env.get("RICEBOWL_DE_NESTED") == "1"
+    private_bus = nested and env.get("RICEBOWL_DE_PRIVATE_BUS") == "1"
 
     base = resources()
     background: list[subprocess.Popen[bytes]] = []
@@ -1024,14 +1031,13 @@ def shell(
                     "wallpaper", [swaybg, "--image", str(wallpaper), "--mode", "fill"],
                     env=env, spawn=spawn, background=background)
 
-            # A nested preview inherits the *parent* user bus. Starting Mako
-            # there would compete for org.freedesktop.Notifications with XFCE
-            # (or the user's existing notification host). Only a full,
-            # independently selected RiceBowl login owns this integration.
-            # RicePop still reports unavailable when the preview has no host.
-            # Saved appearance affects only the full login's private config.
+            # Nested previews normally inherit the parent's D-Bus. Never
+            # compete for its notification name. A *separate*, explicitly
+            # created dbus-run-session (including the headless CI smoke) may
+            # run its own Mako host without touching XFCE. Full logins own
+            # Mako as before. Appearance preferences are full-login only.
             env.pop("RICEBOWL_DE_MAKO_CONFIG", None)
-            mako = which("mako") if not nested else None
+            mako = which("mako") if not nested or private_bus else None
             if mako:
                 mako_config = base / "mako.conf"
                 if env.get("RICEBOWL_DE_NESTED") == "0":
