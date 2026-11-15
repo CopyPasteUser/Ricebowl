@@ -23,9 +23,12 @@ impl ControlFeedback {
         result: Option<(ControlAction, bool)>,
         worker_ready: bool,
     ) -> Self {
-        if pending == Some(action) { Self::Applying }
+        // Hardware can disappear while an operation is in flight. An old
+        // pending request must not keep an unavailable control in "applying"
+        // indefinitely after the backend/readback becomes unavailable.
+        if !action.available(status) || !worker_ready { Self::Unavailable }
+        else if pending == Some(action) { Self::Applying }
         else if pending.is_some() { Self::Busy }
-        else if !action.available(status) || !worker_ready { Self::Unavailable }
         else if result == Some((action, false)) { Self::Failed }
         else { Self::Ready }
     }
@@ -173,6 +176,10 @@ mod tests {
         let no_worker = ControlFeedback::snapshot(action, &status, None, None, false);
         assert_eq!(no_worker, ControlFeedback::Unavailable);
         assert!(!no_worker.is_actionable());
+        assert_eq!(ControlFeedback::snapshot(action, &status,
+            Some(action), None, false), ControlFeedback::Unavailable);
+        assert_eq!(ControlFeedback::snapshot(action, &SystemStatus::default(),
+            Some(action), None, true), ControlFeedback::Unavailable);
         assert_eq!(no_worker.desktop_hint(), "Unavailable");
 
         let no_hardware = ControlFeedback::snapshot(
