@@ -23,6 +23,23 @@ hosts, cryptographic signatures or a public 1.0 distribution. The CI assembly
 must still build the native ELF from the matching commit and verify its
 checksum, and clean-install/real-hardware signoff remains open.
 
+### Sprint 8b – compositor-delivered composed shortcut input (15 November 2026; CI-gated)
+
+The native Luna and XDG desktop Type-to-Select paths now accept **one complete
+Unicode extended grapheme** from an existing compositor-authorized Wayland
+keyboard event, rather than requiring exactly one Unicode scalar. This allows
+a correctly delivered combining sequence, joined emoji or modifier sequence
+to participate in the same bounded prefix search as plain Latin input.
+Control sequences, multiple graphemes and overlong input remain rejected.
+Appending a multi-scalar grapheme cannot exceed the existing 48-scalar
+prefix limit; overflow resets the old prefix first. Selection still requires
+the real same-seat `wl_keyboard.enter` lease, never synthetic keyboard focus.
+
+Pure Rust tests cover composed characters, flags, ZWJ emoji, invalid control
+input, capped prefix accumulation and selection. This is **not** a completed
+Wayland text-input-v3/IME integration, canonical Unicode normalization or
+physical keyboard/Orca acceptance.
+
 ### Sprint 8b – preserve compositor keyboard focus on unchanged output layout (15 November 2026; CI-gated)
 
 The native Luna desktop previously tore down an active or pending keyboard
