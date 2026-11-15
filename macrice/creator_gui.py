@@ -3645,9 +3645,21 @@ def run() -> int:
                     print(f"Creator CI: chooser widgets={len(choosers)}",
                           file=sys.stderr, flush=True)
                     assert len(choosers) == 1, "GTK RicePack chooser missing"
-                    assert choosers[0].set_filename(str(archive))
+                    chooser = choosers[0]
+                    assert chooser.set_filename(str(archive))
                     print("Creator CI: archive selected", file=sys.stderr, flush=True)
-                    choosers[0].response(Gtk.ResponseType.ACCEPT)
+                    def accept_after_selection():
+                        selected = chooser.get_filename()
+                        print(f"Creator CI: GTK resolved selection={selected == str(archive)}",
+                              file=sys.stderr, flush=True)
+                        assert selected == str(archive), "GTK chooser did not resolve selected file"
+                        chooser.response(Gtk.ResponseType.ACCEPT)
+                        return False
+
+                    # GTK3 file selection resolution can be asynchronous even
+                    # for an owner-controlled local path. A response sent in
+                    # the same idle tick is ignored by its chooser validation.
+                    GLib.timeout_add(300, accept_after_selection)
                     return False
 
                 GLib.timeout_add(150, select_import_archive)
