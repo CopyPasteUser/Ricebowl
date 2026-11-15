@@ -132,6 +132,23 @@ fetches the necessary Git history. Shallow source snapshots cannot certify
 stable 1.0. The gate verifies provenance and completeness, **not the truth of
 human measurements**. Do not edit evidence merely to make CI green.
 
+## Exact-source GitHub CI gate for release artifacts
+
+The `v1.0.0-rc.N` / `v1.0.0` source-artifact workflow now requires
+successful, completed **main-branch push** runs for all three canonical
+workflows: Tests (`ci.yml`), Native RicePlate (`riceplate-native.yml`),
+and Wayland session preview (`wayland-session.yml`). The latest matching
+run for each workflow is checked by ID, so an older success cannot hide a
+later failure. Missing, pending, cancelled, untrusted-branch or unreachable
+evidence blocks artifact assembly. Workflow identity is pinned by both name
+and file path.
+
+A stable 1.0 tag checks the `tested_source_commit`, after the separate
+Git ancestry/sign-off gate has verified that only the sign-off JSON changed
+since the physical test. RC tags check the tagged SHA directly. This is a
+**CI evidence gate**, not a physical hardware test, reproducible binary
+certificate or automatic public-release publisher.
+
 ## Candidate preparation
 
 ```bash

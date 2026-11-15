@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   source-gate:
@@ -25,6 +26,13 @@ jobs:
         run: |
           /usr/bin/python3 scripts/check_release_contract.py --tag "$RELEASE_TAG"
           /usr/bin/python3 -m unittest tests.test_release_contract -v
+      - name: Require exact-source main CI for candidate and stable artifacts
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          /usr/bin/python3 -m unittest tests.test_release_workflows -v
+          /usr/bin/python3 scripts/check_release_workflows.py --tag "$RELEASE_TAG"
       - name: Produce source archive and checksum
         env:
           RELEASE_TAG: ${{ github.ref_name }}
