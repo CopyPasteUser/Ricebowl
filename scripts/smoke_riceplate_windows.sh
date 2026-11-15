@@ -18,7 +18,7 @@ for executable in labwc grim foot wlr-randr dbus-run-session; do
     command -v "$executable" >/dev/null || { echo "Missing test dependency: $executable" >&2; exit 1; }
 done
 if [ "$mode" = "--xwayland" ]; then
-    for executable in Xwayland xterm; do
+    for executable in Xwayland xterm wtype; do
         command -v "$executable" >/dev/null || { echo "Missing XWayland test dependency: $executable" >&2; exit 1; }
     done
 fi
@@ -198,6 +198,62 @@ dbus-run-session -- sh -eu -c '
     WAYLAND_DISPLAY=wayland-0 "$clicker" "$task_click_x" 750 1024 768
     wait_window_state "active=true minimized=false"
     echo "Real taskbar pointer click minimized and restored the Wayland client"
+
+    if [ "$mode" = "--xwayland" ]; then
+        # The same compositor seat must deliver actual key events across
+        # Wayland -> XWayland after native taskbar restore. Connect the virtual
+        # keyboard before moving focus; starting it after a click can race
+        # wl_seat input registration and create false negative failures.
+        (
+            attempts=0
+            while [ "$attempts" -lt 65 ]; do
+                if grep -Fq "Pointer remains connected" \
+                    "$runtime/xwayland-pointer-click.log" 2>/dev/null; then
+                    sleep 0.15
+                    printf "%s" ricebowl-xwayland-ok
+                    exit 0
+                fi
+                attempts=$((attempts + 1))
+                sleep 0.1
+            done
+            exit 1
+        ) | WAYLAND_DISPLAY=wayland-0 wtype - -k Return \
+            >"$runtime/xwayland-keyboard.log" 2>&1 &
+        typer=$!
+        sleep 0.3
+        kill -0 "$typer" 2>/dev/null || {
+            echo "XWayland virtual keyboard could not join compositor seat" >&2
+            cat "$runtime/xwayland-keyboard.log" >&2
+            exit 1
+        }
+        # The xterm is placed using an explicit X11 geometry hint; keep this
+        # real pointer device connected while the terminal receives text.
+        WAYLAND_DISPLAY=wayland-0 "$clicker" --hold-ms 9000 \
+            340 240 1024 768 >"$runtime/xwayland-pointer-click.log" 2>&1 &
+        xwayland_clicker=$!
+        wait "$typer" || {
+            echo "XWayland keyboard handoff failed" >&2
+            cat "$runtime/xwayland-keyboard.log" >&2
+            cat "$runtime/xwayland-pointer-click.log" >&2
+            exit 1
+        }
+        attempts=0
+        while [ "$attempts" -lt 45 ] && [ ! -s "$runtime/xwayland-typed.txt" ]; do
+            attempts=$((attempts + 1))
+            sleep 0.1
+        done
+        test "$(cat "$runtime/xwayland-typed.txt" 2>/dev/null || :)" = \
+            "ricebowl-xwayland-ok" || {
+            echo "Actual X11/xterm client did not consume compositor keyboard input" >&2
+            cat "$runtime/xwayland-pointer-click.log" >&2
+            cat "$runtime/xwayland-keyboard.log" >&2
+            tail -n 35 "$runtime/labwc.log" >&2
+            exit 1
+        }
+        kill -TERM "$xwayland_clicker" 2>/dev/null || :
+        wait "$xwayland_clicker" 2>/dev/null || :
+        echo "XWayland xterm consumed real compositor-delivered text after native taskbar restore"
+    fi
 
     kill "$window"
     wait "$window" 2>/dev/null || :
