@@ -5,6 +5,16 @@ physical acceptance outstanding.** RiceBowl 0.9.x is still an XFCE/X11
 rice manager. The separate Wayland login-session package requires explicit
 installation and is not yet a finished desktop environment.
 
+### Sprint 9+ – Native Creator capture decode gate (15 November 2026; CI candidate)
+
+The isolated two-rice Creator handoff now checks both valid PNG chunk CRCs
+and fully decoded IDAT pixels for every `grim` capture before trusting the
+render receipt SHA-256. A CRC-clean but zlib-corrupted image, missing PNG IEND
+and wrong geometry are rejected by regression tests in
+`tests/test_wayland_creator_handoff.py`. No host session or rice selection is
+modified. Mark the new implementation accepted only after exact-head Tests and
+Native RicePlate CI plus post-merge `main` checks.
+
 ### Sprint 9 – bounded native font fallback for private recipes (15 November 2026; candidate)
 
 Private Creator-selected fonts now resolve each extended grapheme cluster to
@@ -401,25 +411,29 @@ the separate 1.0 release certificate.**
   third-party clients, full hardware/IME/Orca acceptance, or a stable 1.0
   release. Keep the original XFCE login and session recovery unchanged.
 
-### Screenshot evidence integrity (12 November 2026, pending CI)
+### Screenshot evidence integrity (15 November 2026; software accepted)
 
-- [ ] Require complete PNG decoding before the classic panel pixel probe; add synthetic complete/truncated/wrong-color/invalid-geometry unit cases. Local focused tests pass, but the native labwc compositor screenshot matrix and full CI remain mandatory before this is marked complete. The synthetic unit fixtures are **not** real desktop screenshots.
+- [x] Require complete PNG decoding before the classic panel pixel probe. The
+  two-pass `scripts/check_wayland_panel_outputs.py` check validates both PNG
+  chunk integrity/CRC (`verify()`) and the full decoded raster (`load()`).
+  `tests/test_de_panel_outputs.py` covers valid, truncated, missing-IEND,
+  wrong-color and invalid-geometry captures. Real labwc/grim checks passed on
+  final `main@c30825b09a81` in [Native #43735151946](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43735151946),
+  with [Tests #43735151911](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43735151911).
+  Synthetic fixtures alone do **not** establish physical-screen quality.
 
-### Native XP Luna Run text-editing gate (13 November 2026)
+### Native XP Luna Run text-editing gate (15 November 2026; software accepted)
 
-- [ ] Enable Unicode scalar-safe insertion, in-place Backspace/Delete, and
-  Left/Right/Home/End caret navigation in the *actual* native Run dialog.
-  Scroll the visible text by the selected bitmap/proportional font metrics,
-  draw a persistent caret without polling or new background processes, and
-  keep existing shell-free argv validation, 192-character/16-argument bounds.
-  Rust regressions cover multibyte input, cursor bounds, truncation and
-  unchanged command validation. The genuine headless-labwc Run PNG must show
-  real compositor-painted caret pixels. Isolated Ubuntu CI additionally
-  injects a real `wtype` virtual-keyboard sequence (type, Left, Backspace,
-  insert, Home, Delete) and archives typed/edited/cleared grim PNGs with
-  pixel-difference checks. Completion requires green Tests and Native
-  RicePlate CI on the final commit, then merge. This is not a physical
-  keyboard, IME or screen-reader acceptance claim.
+- [x] The actual native Run dialog supports Unicode scalar-safe insertion,
+  in-place Backspace/Delete, Left/Right/Home/End, proportional/bitmap-font
+  scrolling and a composited caret. It preserves shell-free argv execution
+  and the existing 192-character/16-argument limits.
+  `scripts/smoke_riceplate_native.sh` injects real labwc/`wtype` editing
+  events and checks compositor-generated typed/edited/cleared PNG differences
+  and caret pixels; Rust tests cover cursor, multibyte and command bounds.
+  See `WAYLAND_XP_LUNA_PARITY.md` and exact-main [Tests #43735151911](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43735151911)
+  / [Native #43735151946](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43735151946).
+  Physical keyboard, IME and screen-reader acceptance remain open.
 
 ### Luna recent-app privacy and write-efficiency (13 November 2026)
 
