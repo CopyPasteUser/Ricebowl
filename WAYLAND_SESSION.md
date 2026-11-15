@@ -7,6 +7,34 @@ and its backups stay intact.
 Mint 22/Ubuntu 24.04's labwc **0.7.1** is supported by using its
 `--startup` command and requesting compositor exit when the shell finishes.
 
+## Step 4: opt-in session service isolation and runtime visibility
+
+The **full** separately selected RiceBowl Wayland login owns its unprivileged
+Mako/RicePop notification host, a single best-effort polkit authentication
+agent and opt-in Orca. The mandatory `swayidle`/swaylock guard is supervised
+separately; an unexpected guard exit terminates the opt-in session rather
+than leaving it unlocked. Optional services receive only one bounded retry,
+and their processes are cleaned up on shell exit.
+
+A **nested** labwc preview inherits the parent user's session D-Bus. It must
+**not** start another Mako, polkit agent or Orca on that bus. The parent
+desktop continues to own notifications and authorization; the preview may
+still render a panel, file desktop and wallpaper. The RicePop bridge reports
+its session-scoped integration as unavailable rather than inventing ownership.
+No global `~/.config/mako`, XFCE or systemd-user activation state changes.
+
+The existing `ricebowl de creator-live-status --json` response now includes a
+read-only `services` dictionary for **actual supervisor-owned processes**:
+`notifications`, `authorization`, `screen_reader` and `lock_guard`.
+Values distinguish `running`, `stopped`, `unavailable`, `not_managed`
+and nested `external-session`. An inherited parent service is **not**
+reported as a RiceBowl-owned running process. No process IDs, secrets, device
+identifiers, environment or notification contents are exposed.
+
+This is a software integration gate, **not** physical Mint polkit/notification,
+suspend/lock or interactive usability acceptance. Those remain mandatory
+before a public 1.0 release.
+
 ## Portal integration acceptance (isolated CI)
 
 The session package routes FileChooser through GTK and Screenshot/ScreenCast
