@@ -500,12 +500,18 @@ class _LiveSwitch:
                  initial_wallpaper: subprocess.Popen[bytes] | None,
                  background: list[subprocess.Popen[bytes]],
                  stopping: Callable[[], bool] | None = None,
-                 frame_readiness: bool = True):
+                 frame_readiness: bool = True,
+                 optional_services: list[_OptionalService] | None = None,
+                 idle_guard: subprocess.Popen[bytes] | None = None):
         from . import recipes, staging
         self.env, self.mode, self.which, self.spawn = env, mode, which, spawn
         self.cleanup, self.panel, self.wallpaper = cleanup, initial_panel, initial_wallpaper
         self.background = background
         self.stopping = stopping or (lambda: False)
+        # Only processes spawned by *this* supervisor count as managed.
+        # Same-UID /proc scans can include unrelated XFCE sessions.
+        self.optional_services = optional_services if optional_services is not None else []
+        self.idle_guard = idle_guard
         # Production always requires native compositor presentation. Only
         # explicitly constructed process fakes in unit tests disable the gate.
         self._frame_readiness = frame_readiness
@@ -544,6 +550,26 @@ class _LiveSwitch:
                         if any(key.env_key in env for key in riceprofile.CLIENTS) else None)
         self.fallback = False
 
+    def _services_status(self) -> dict[str, str]:
+        """Expose only owned service health, never bus names, PIDs or commands."""
+        if self.nested:
+            return {"notifications": "external-session",
+                    "authorization": "external-session",
+                    "screen_reader": "not_managed", "lock_guard": "not_managed"}
+        health = {"notifications": "unavailable", "authorization": "unavailable",
+                  "screen_reader": "not_managed",
+                  "lock_guard": ("running" if self.idle_guard is not None
+                                 and self.idle_guard.poll() is None else "stopped")}
+        roles = {"RicePop notifications": "notifications",
+                 "polkit authentication agent": "authorization",
+                 "Orca screen reader": "screen_reader"}
+        for service in self.optional_services:
+            role = roles.get(service.name)
+            if role is not None:
+                health[role] = ("running" if service.process is not None
+                                and service.process.poll() is None else "stopped")
+        return health
+
     def status(self) -> dict:
         return {"version": 1, "ok": True, "active": self.active,
                 "semantic_sha256": self.active_digest,
@@ -552,6 +578,7 @@ class _LiveSwitch:
                 "next_login_persisted": not self.nested,
                 "panel": "waybar-fallback" if self.fallback else self.mode,
                 "applied": True,
+                "services": self._services_status(),
                 "applications": self.profile.status() if self.profile else {
                     "taskotto": "not_managed", "ricefield": "not_managed"}}
 
@@ -1094,7 +1121,8 @@ def shell(
                         env=env, mode=mode, which=which, spawn=spawn,
                         cleanup=cleanup, initial_panel=process,
                         initial_wallpaper=wallpaper_process, background=background,
-                        stopping=lambda: shutting_down)
+                        stopping=lambda: shutting_down,
+                        optional_services=optional_services, idle_guard=idle_process)
                     # The Rust helper observes wl_output events, unlike a
                     # wlr-randr timer. It is optional and only needed for
                     # Waybar, because native RicePlate already reflows itself.
