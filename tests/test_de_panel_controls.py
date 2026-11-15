@@ -89,7 +89,7 @@ class PanelControlTests(unittest.TestCase):
         for width in (320, 1366):
             config, _ = recipes.waybar_config(parsed, screen_width=width)
             data = json.loads(config)
-            self.assertIn("bluetooth", data["bluetooth"]["format"])
+            self.assertEqual(data["bluetooth"]["format"], "BT {status}")
             self.assertNotIn("on-click", data["bluetooth"])
             side = data["modules-right"]
             self.assertIn("bluetooth", side)
