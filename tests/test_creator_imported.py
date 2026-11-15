@@ -103,7 +103,10 @@ class CreatorImportedTests(unittest.TestCase):
                     self.assertEqual(draft["desktop"]["icons"],
                                      source["desktop"]["icons"])
                 else:
-                    self.assertEqual(draft["desktop"]["icons"], [])
+                    self.assertEqual(draft["desktop"]["icons"], [
+                        {"label": "Applications", "action": "applications",
+                         "x": 32, "y": 96}
+                    ])
                 if version >= 8:
                     self.assertEqual(draft["composition"], source["composition"])
                 else:
