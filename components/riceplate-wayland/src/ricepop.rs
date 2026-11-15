@@ -842,7 +842,7 @@ mod tests {
     fn notification_wrapping_preserves_complete_graphemes_and_exact_pages() {
         let message = "a\u{301} 👩‍💻 🇩🇪 👍🏽 끝\nNext";
         let lines = body_lines_with_width(message, 2);
-        assert_eq!(lines, vec!["a\u{301}", "👩‍💻", "🇩🇪", "👍🏽", "끝", "Next"]);
+        assert_eq!(lines, vec!["a\u{301}", "👩‍💻", "🇩🇪", "👍🏽", "끝", "Ne", "xt"]);
         assert!(lines.iter().all(|line| line.graphemes(true).count() <= 2));
         for cluster in ["a\u{301}", "👩‍💻", "🇩🇪", "👍🏽"] {
             assert_eq!(lines.iter().filter(|line| line.contains(cluster)).count(), 1);
