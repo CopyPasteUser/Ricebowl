@@ -70,6 +70,36 @@ class PanelControlTests(unittest.TestCase):
             with self.assertRaises(recipes.RecipeError):
                 recipes.parse(json.dumps(value).encode())
 
+    def test_shared_bluetooth_status_component_is_read_only_and_responsive(self):
+        source = json.loads((Path(__file__).parent / "fixtures/riceplate-components-v9.json").read_text())
+        source["components"].append({
+            "id": "bt-status", "role": "status", "binding": "bluetooth",
+            "label": "Bluetooth",
+        })
+        source["panel"]["layout"]["end"][0] = {
+            "type": "component", "ref": "bt-status"
+        }
+        source["responsive"]["compact_layout"]["end"][0] = {
+            "type": "component", "ref": "bt-status"
+        }
+        source["composition"]["widgets"][2]["ref"] = "bt-status"
+        parsed = recipes.parse(json.dumps(source).encode())
+        self.assertEqual(parsed.composition.widgets[2].kind, "bluetooth")
+        self.assertIn("bluetooth", recipes.COMPONENT_STATUS_BINDINGS)
+        for width in (320, 1366):
+            config, _ = recipes.waybar_config(parsed, screen_width=width)
+            data = json.loads(config)
+            self.assertIn("bluetooth", data["bluetooth"]["format"])
+            self.assertNotIn("on-click", data["bluetooth"])
+            side = data["modules-right"]
+            self.assertIn("bluetooth", side)
+        self.assertIn("bluetooth", catalog.describe()["recipe"]["component_library"]
+                      ["status_bindings"])
+
+        source["components"][-1]["binding"] = "bluetoothctl power on"
+        with self.assertRaises(recipes.RecipeError):
+            recipes.parse(json.dumps(source).encode())
+
     def test_creator_revalidates_edit_without_changing_original(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
