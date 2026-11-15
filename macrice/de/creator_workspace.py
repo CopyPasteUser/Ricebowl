@@ -242,9 +242,9 @@ def _migrate_legacy_to_v11(parsed: recipes.PanelRecipe) -> dict[str, Any]:
         target["composition"]["widgets"] = []
         target["composition"]["compact_hide_widgets"] = []
     target["components"] = source["components"] if parsed.schema_version >= 9 else []
+    from .style_assets import ICON_ACTIONS
     target["artwork"] = {"font": "builtin",
-                         "icons": {key: "builtin" for key in
-                                   __import__("macrice.de.style_assets", fromlist=["ICON_ACTIONS"]).ICON_ACTIONS}}
+                         "icons": {key: "builtin" for key in ICON_ACTIONS}}
     # This result is validated by the same full parser as ordinary Creator
     # edits *before* a receipt or private draft file can be published.
     recipes.parse((json.dumps(target, ensure_ascii=False) + "\n").encode("utf-8"))
