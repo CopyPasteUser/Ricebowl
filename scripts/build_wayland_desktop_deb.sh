@@ -42,6 +42,20 @@ if [ ! -f "$control" ] || [ -L "$control" ]; then
     echo "Desktop control source is missing or a symlink" >&2; exit 1
 fi
 install -D -m 0644 "$control" "$stage/DEBIAN/control"
+source_commit=unverified
+if command -v git >/dev/null 2>&1 && \
+   git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    source_commit=$(git -C "$root" rev-parse --verify HEAD)
+fi
+case "$source_commit" in
+    unverified) ;;
+    *[!0-9a-f]*|'') echo "Invalid package source commit" >&2; exit 1 ;;
+esac
+if [ "$source_commit" != unverified ] && [ "${#source_commit}" -ne 40 ]; then
+    echo "Invalid package source commit length" >&2
+    exit 1
+fi
+printf 'X-RiceBowl-Source-Commit: %s\n' "$source_commit" >> "$stage/DEBIAN/control"
 # No maintainer scripts or postinst side effects: the default DM session is
 # unchanged and all user settings remain in XDG directories.
 find "$stage" -exec touch -h -d "@$epoch" -- {} +
