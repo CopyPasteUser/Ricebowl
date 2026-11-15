@@ -1469,8 +1469,38 @@ impl RicePlate {
         self.begin_desktop_keyboard_focus(position, output, DesktopFocusTarget::File(key), qh);
     }
 
+    fn can_reuse_shortcut_keyboard_focus(&self, index: usize) -> bool {
+        let Some(icon) = self.icon_layers.get(index) else { return false; };
+        let Some(focus) = self.desktop_keyboard_focus_layer.as_ref() else { return false; };
+        let DesktopFocusTarget::Shortcut(current) = &focus.target else { return false; };
+        if current != icon.surface.wl_surface() || Instant::now() >= focus.expires {
+            return false;
+        }
+        // The pointer action must belong to the SAME compositor seat and
+        // output as the prior request. Reuse never grants pending input or
+        // extends its timeout; real wl_keyboard.enter remains indispensable.
+        let Ok(seat) = self.seat_assignments.focus_seat_for_pointer_gesture() else {
+            return false;
+        };
+        let Some(output) = icon.bound_output.as_ref()
+            .or(self.primary_output.as_ref()).or(icon.output.as_ref()) else {
+            return false;
+        };
+        let pending_is_live = self.desktop_keyboard_focus_lease.pending_deadline()
+            .is_none_or(|deadline| Instant::now() < deadline);
+        pending_is_live && self.desktop_keyboard_focus_lease.matches_live_request(
+            seat, output, focus.surface.wl_surface())
+    }
+
     fn open_shortcut_keyboard_focus(&mut self, index: usize, qh: &QueueHandle<Self>) {
         if self.recipe.id != "xp-luna-columns" { return; }
+        if self.can_reuse_shortcut_keyboard_focus(index) {
+            if self.desktop_keyboard_focus_lease.phase() == input_core::DesktopFocusPhase::Confirmed
+                && std::env::var("RICEBOWL_DE_TRACE_FOCUS").as_deref() == Ok("1") {
+                eprintln!("RicePlate: preserved compositor-confirmed Luna shortcut keyboard focus");
+            }
+            return;
+        }
         let Some(layer) = self.icon_layers.get(index) else { return; };
         let Some(position) = layer.placed else { return; };
         let target = layer.surface.wl_surface().clone();
@@ -8446,7 +8476,6 @@ impl PointerHandler for RicePlate {
                     }
                     PointerEventKind::Press { button: BTN_LEFT, .. } => {
                         self.close_desktop_context();
-                        self.close_desktop_keyboard_focus();
                         let mode = if self.recipe.id == "xp-luna-columns" {
                             if self.selection_modifiers.ctrl {
                                 desktop_selection::Mode::Toggle
@@ -8454,6 +8483,14 @@ impl PointerHandler for RicePlate {
                                 desktop_selection::Mode::Range
                             } else { desktop_selection::Mode::Replace }
                         } else { desktop_selection::Mode::Replace };
+                        // A second click on the same still-owned shortcut must
+                        // not tear down its confirmed/pending 8px focus layer.
+                        // Destructive gestures, modifiers, output changes and
+                        // other-seat input always revoke it immediately.
+                        if mode != desktop_selection::Mode::Replace
+                            || !self.can_reuse_shortcut_keyboard_focus(index) {
+                            self.close_desktop_keyboard_focus();
+                        }
                         self.select_luna_icon_mode(index, mode);
                         // Modified selections are not draggable and never
                         // count toward the plain double-click launch sequence.
