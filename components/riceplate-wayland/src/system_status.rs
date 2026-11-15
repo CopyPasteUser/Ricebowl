@@ -13,6 +13,7 @@ use std::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ControlAction {
     WifiToggle,
+    BluetoothToggle,
     AudioMute,
     AudioUp,
     AudioDown,
@@ -22,6 +23,7 @@ impl ControlAction {
     pub fn from_id(id: &str) -> Option<Self> {
         match id {
             "wifi-toggle" => Some(Self::WifiToggle),
+            "bluetooth-toggle" => Some(Self::BluetoothToggle),
             "audio-mute" => Some(Self::AudioMute),
             "audio-up" => Some(Self::AudioUp),
             "audio-down" => Some(Self::AudioDown),
@@ -40,6 +42,16 @@ impl ControlAction {
                     _ => return false,
                 }
             }
+            Self::BluetoothToggle => {
+                let Some(state) = command_output("bluetoothctl", &["show"]) else {
+                    return false;
+                };
+                match BluetoothRadio::parse(&state) {
+                    BluetoothRadio::Enabled => ("bluetoothctl", vec!["power", "off"]),
+                    BluetoothRadio::Disabled => ("bluetoothctl", vec!["power", "on"]),
+                    BluetoothRadio::Unavailable => return false,
+                }
+            }
             Self::AudioMute => ("wpctl", vec!["set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"]),
             Self::AudioUp => ("wpctl", vec!["set-volume", "@DEFAULT_AUDIO_SINK@", "5%+",
                                              "--limit", "1.0"]),
@@ -52,6 +64,7 @@ impl ControlAction {
     pub fn available(self, status: &SystemStatus) -> bool {
         match self {
             Self::WifiToggle => status.wifi != WifiRadio::Unavailable,
+            Self::BluetoothToggle => status.bluetooth != BluetoothRadio::Unavailable,
             Self::AudioMute | Self::AudioUp | Self::AudioDown =>
                 status.audio != Audio::Unavailable,
         }
@@ -60,6 +73,7 @@ impl ControlAction {
     pub fn state_label(self, status: &SystemStatus) -> String {
         match self {
             Self::WifiToggle => status.wifi.label().into(),
+            Self::BluetoothToggle => status.bluetooth.label().into(),
             Self::AudioMute => match status.audio {
                 Audio::Muted => "Muted".into(),
                 Audio::Unavailable => "N/A".into(),
@@ -74,6 +88,7 @@ impl ControlAction {
         if !exit_ok || !self.available(before) || !self.available(after) { return false; }
         match self {
             Self::WifiToggle => before.wifi != after.wifi,
+            Self::BluetoothToggle => before.bluetooth != after.bluetooth,
             Self::AudioMute => before.audio != after.audio,
             Self::AudioUp | Self::AudioDown => match (&before.audio, &after.audio) {
                 (Audio::Volume(first), Audio::Volume(second)) =>
@@ -94,6 +109,34 @@ impl WifiRadio {
             "disabled" => Self::Disabled,
             _ => Self::Unavailable,
         }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Enabled => "On",
+            Self::Disabled => "Off",
+            Self::Unavailable => "N/A",
+        }
+    }
+}
+
+/// Default controller radio power, never the state of a paired device.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BluetoothRadio { Enabled, Disabled, Unavailable }
+
+impl BluetoothRadio {
+    fn parse(output: &str) -> Self {
+        let mut observed = None;
+        for line in output.lines().take(64) {
+            let Some(value) = line.trim().strip_prefix("Powered:") else { continue; };
+            let state = match value.trim() {
+                "yes" => Self::Enabled,
+                "no" => Self::Disabled,
+                _ => return Self::Unavailable,
+            };
+            if observed.replace(state).is_some() { return Self::Unavailable; }
+        }
+        observed.unwrap_or(Self::Unavailable)
     }
 
     pub fn label(self) -> &'static str {
@@ -174,17 +217,18 @@ pub struct SystemStatus {
     pub network: Network,
     pub audio: Audio,
     pub wifi: WifiRadio,
+    pub bluetooth: BluetoothRadio,
 }
 
 impl Default for SystemStatus {
     fn default() -> Self {
         Self { network: Network::Unavailable, audio: Audio::Unavailable,
-               wifi: WifiRadio::Unavailable }
+               wifi: WifiRadio::Unavailable, bluetooth: BluetoothRadio::Unavailable }
     }
 }
 
 impl SystemStatus {
-    pub fn read(include_network: bool, include_audio: bool) -> Self {
+    pub fn read(include_network: bool, include_audio: bool, include_bluetooth: bool) -> Self {
         Self {
             network: if include_network {
                 command_output("nmcli", &["--wait", "1", "-t", "-f", "STATE", "general"])
@@ -198,6 +242,11 @@ impl SystemStatus {
                 command_output("nmcli", &["--wait", "1", "radio", "wifi"])
                     .map(|output| WifiRadio::parse(&output)).unwrap_or(WifiRadio::Unavailable)
             } else { WifiRadio::Unavailable },
+            bluetooth: if include_bluetooth {
+                command_output("bluetoothctl", &["show"])
+                    .map(|output| BluetoothRadio::parse(&output))
+                    .unwrap_or(BluetoothRadio::Unavailable)
+            } else { BluetoothRadio::Unavailable },
         }
     }
 }
@@ -323,6 +372,7 @@ mod tests {
     #[test]
     fn quick_actions_are_fixed_allowlisted_ids() {
         assert_eq!(ControlAction::from_id("wifi-toggle"), Some(ControlAction::WifiToggle));
+        assert_eq!(ControlAction::from_id("bluetooth-toggle"), Some(ControlAction::BluetoothToggle));
         assert_eq!(ControlAction::from_id("audio-mute"), Some(ControlAction::AudioMute));
         assert_eq!(ControlAction::from_id("audio-up"), Some(ControlAction::AudioUp));
         assert_eq!(ControlAction::from_id("audio-down"), Some(ControlAction::AudioDown));
@@ -354,6 +404,27 @@ mod tests {
         assert!(ControlAction::AudioMute.verified(&before, &after, true));
         assert!(!ControlAction::AudioUp.verified(&before, &after, true));
         assert_eq!(ControlAction::AudioMute.state_label(&after), "Muted");
+    }
+
+    #[test]
+    fn bluetooth_requires_explicit_controller_readback_and_verified_transition() {
+        assert_eq!(BluetoothRadio::parse("Controller AB:CD\n\tPowered: yes\n"), BluetoothRadio::Enabled);
+        assert_eq!(BluetoothRadio::parse("Controller AB:CD\n\tPowered: no\n"), BluetoothRadio::Disabled);
+        for value in ["", "No default controller available", "Powered: maybe",
+                      "Powered: yes\nPowered: no", "Powered: yes extra"] {
+            assert_eq!(BluetoothRadio::parse(value), BluetoothRadio::Unavailable);
+        }
+        let mut before = SystemStatus::default();
+        before.bluetooth = BluetoothRadio::Enabled;
+        assert!(ControlAction::BluetoothToggle.available(&before));
+        assert_eq!(ControlAction::BluetoothToggle.state_label(&before), "On");
+        let mut after = before.clone();
+        after.bluetooth = BluetoothRadio::Disabled;
+        assert!(ControlAction::BluetoothToggle.verified(&before, &after, true));
+        assert!(!ControlAction::BluetoothToggle.verified(&before, &before, true));
+        assert!(!ControlAction::BluetoothToggle.verified(&before, &after, false));
+        after.bluetooth = BluetoothRadio::Unavailable;
+        assert!(!ControlAction::BluetoothToggle.verified(&before, &after, true));
     }
 
     #[test]
