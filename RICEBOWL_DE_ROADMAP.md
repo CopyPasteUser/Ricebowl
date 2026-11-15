@@ -5,6 +5,22 @@ physical acceptance outstanding.** RiceBowl 0.9.x is still an XFCE/X11
 rice manager. The separate Wayland login-session package requires explicit
 installation and is not yet a finished desktop environment.
 
+### Hard stop: shared software BEFORE XP Luna polish and hardware sign-off (15 November 2026)
+
+[Issue #417](https://github.com/CopyPasteUser/Ricebowl/issues/417) is the
+single, binary acceptance checklist for **all seven shared DE software gates**
+(SG1–SG7): shell/input, RiceSpice, RicePop, Creator/RicePack, text/IME,
+distribution/recovery and exact-main acceptance. The software is **not
+complete** just because Sprint 9 and its CI are green. Close individual gates
+only with real implementation + negative tests + exact-head and post-merge
+evidence; no invented progress percentage. Existing native features documented
+below remain valuable incremental evidence, not blanket release acceptance.
+
+After all shared software gates pass, polish XP Luna's OS-specific visual and
+interaction fidelity through the shared engine. Only then perform the physical
+Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
+Optional RiceClip/RiceShot P1 features remain outside the core release block.
+
 ### Sprint 9+ – Native Creator capture decode gate (15 November 2026; CI candidate)
 
 The isolated two-rice Creator handoff now checks both valid PNG chunk CRCs

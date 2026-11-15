@@ -5,6 +5,18 @@ unfinished** labwc/Wayland desktop preview. The two must not be presented
 as the same release state. This file is a release checklist, not proof of
 physical-device compatibility.
 
+## Software-first release sequence
+
+The comprehensive **hardware-independent** DE acceptance contract is tracked
+in [issue #417](https://github.com/CopyPasteUser/Ricebowl/issues/417)
+(SG1–SG7). All seven software gates must have implementation and traceable CI
+evidence before XP Luna-specific polish and the subsequent **physical**
+Mint/ThinkPad/GPU/IME/Orca sign-off. A green isolated workflow or one
+previously satisfied roadmap checkbox does **not** close the feature-parity
+gate. Optional RiceClip/RiceShot P1 utilities do not block the core DE.
+The stable public 1.0 release additionally requires the physical sign-off
+below; this new sequence does not weaken that safeguard.
+
 ## Automated checks
 
 **Active development priority:** close the software-only checklist first.
