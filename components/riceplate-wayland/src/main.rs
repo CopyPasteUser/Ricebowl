@@ -64,6 +64,34 @@ enum StatusEvent {
     State(SystemStatus),
     Control { action: ControlAction, success: bool, state: SystemStatus },
     ObservedAudio(Audio),
+    WorkerStopped,
+}
+
+/// Notify the Wayland event loop on *any* ordinary worker exit, including
+/// unwind. The audio observer may keep another status sender alive, so merely
+/// waiting for the channel's final Closed event is insufficient.
+struct StatusWorkerExit(channel::Sender<StatusEvent>);
+
+impl Drop for StatusWorkerExit {
+    fn drop(&mut self) {
+        let _ = self.0.send(StatusEvent::WorkerStopped);
+    }
+}
+
+/// Fail closed without starting a replacement worker on the Wayland thread.
+/// The opt-in session supervisor remains responsible for lifecycle recovery.
+fn revoke_status_owner(app: &mut RicePlate, qh: &QueueHandle<RicePlate>) {
+    let previously_available = app.control_sender.take().is_some();
+    app.control_pending = None;
+    app.control_result = None;
+    app.system_status = SystemStatus::default();
+    app.menu_state.notice = Some("Hardware status unavailable");
+    if previously_available {
+        eprintln!("RicePlate: hardware status/control owner exited");
+    }
+    app.request_redraw(qh);
+    app.redraw_widgets();
+    if app.menu_state.visible { app.redraw_menu(qh); }
 }
 
 /// Preserve the zero-capacity control queue's backpressure. A full queue means
@@ -797,22 +825,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         let redraw_qh = qh.clone();
         event_loop.handle().insert_source(receiver, move |event, _, app: &mut RicePlate| {
             if matches!(&event, channel::Event::Closed) {
-                // The status owner exited and cannot provide fresh readbacks.
-                // Clear its stale status, in-flight action and capabilities
-                // without starting a second worker or blocking Wayland input.
-                app.control_sender = None;
-                app.control_pending = None;
-                app.control_result = None;
-                app.system_status = SystemStatus::default();
-                app.menu_state.notice = Some("Hardware status unavailable");
-                app.request_redraw(&redraw_qh);
-                app.redraw_widgets();
-                if app.menu_state.visible { app.redraw_menu(&redraw_qh); }
+                revoke_status_owner(app, &redraw_qh);
+                return;
             }
             if let channel::Event::Msg(message) = event {
                 let control_completed = matches!(&message, StatusEvent::Control { .. });
                 let status = match message {
                     StatusEvent::State(status) => status,
+                    StatusEvent::WorkerStopped => {
+                        revoke_status_owner(app, &redraw_qh);
+                        return;
+                    }
                     StatusEvent::ObservedAudio(audio) => {
                         if app.osd_state.show_external(&app.system_status.audio, &audio,
                                                        Instant::now()) {
@@ -863,6 +886,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         // One sleeping worker, enabled only for rices using these widgets;
         // bounded subprocesses never block Wayland input or the frame loop.
         std::thread::spawn(move || {
+            let _exit_notice = StatusWorkerExit(sender.clone());
             if sender.send(StatusEvent::State(SystemStatus::read(poll_network, poll_audio, poll_bluetooth))).is_err() {
                 return;
             }
