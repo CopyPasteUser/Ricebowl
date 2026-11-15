@@ -5,6 +5,30 @@
 //! is kept by the short-lived, compositor-confirmed focus lease.
 pub const MAX_PREFIX: usize = 48;
 
+/// A Wayland keyboard event may deliver more than one Unicode scalar for a
+/// *single* user-perceived character. Accept exactly one extended grapheme,
+/// never arbitrary pasted words, control sequences or unbounded input.
+/// This does not implement text-input-v3/IME preedit or normalization.
+pub(crate) fn is_single_grapheme_input(input: &str) -> bool {
+    use unicode_segmentation::UnicodeSegmentation;
+    !input.is_empty()
+        && input.chars().count() <= MAX_PREFIX
+        && input.chars().all(|letter| !letter.is_control())
+        && input.graphemes(true).count() == 1
+}
+
+/// Keep type-to-select bounded by Unicode scalar count, including a complete
+/// multi-scalar grapheme. Overflow resets the old prefix before appending.
+pub(crate) fn append_grapheme_input(prefix: &mut String, input: &str) -> bool {
+    if !is_single_grapheme_input(input) { return false; }
+    if prefix.chars().count().saturating_add(input.chars().count()) > MAX_PREFIX {
+        prefix.clear();
+    }
+    prefix.push_str(input);
+    true
+}
+
+
 /// A compositor output notification does not necessarily move a desktop icon.
 /// Keep its existing, short-lived keyboard lease only if the selected icon
 /// remains on the exact same output at the exact same logical coordinates.
@@ -33,6 +57,25 @@ pub fn match_visible_prefix<'a>(query: &str, peers: impl IntoIterator<Item = Opt
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn composed_text_is_one_safe_keyboard_input_not_multiple_presses() {
+        for character in ["a\u{301}", "👩‍💻", "👍🏽", "🇩🇪", "Ä", "A"] {
+            assert!(is_single_grapheme_input(character), "{character:?}");
+        }
+        for invalid in ["", "ab", "a\n", "\u{0000}", "👩‍💻x", &"b".repeat(49)] {
+            assert!(!is_single_grapheme_input(invalid), "{invalid:?}");
+        }
+        let mut input = "a".repeat(MAX_PREFIX - 1);
+        assert!(append_grapheme_input(&mut input, "👩‍💻"));
+        assert_eq!(input, "👩‍💻");
+        assert!(append_grapheme_input(&mut input, "x"));
+        assert_eq!(input, "👩‍💻x");
+        assert!(!append_grapheme_input(&mut input, "xy"));
+        assert_eq!(input, "👩‍💻x");
+        assert_eq!(match_visible_prefix("a\u{301}",
+                   [Some("a\u{301}pplications"), Some("programs")]), Some(0));
+    }
+
     #[test]
     fn unicode_prefix_matches_only_live_same_output_shortcuts() {
         let peers = [Some("Recycle Bin"), None, Some("Programs"),

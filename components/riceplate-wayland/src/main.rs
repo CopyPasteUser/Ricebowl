@@ -1557,14 +1557,14 @@ impl RicePlate {
             _ => {
                 if self.selection_modifiers.ctrl || self.selection_modifiers.alt { return true; }
                 let Some(character) = event.utf8.as_ref()
-                    .filter(|str| str.chars().count() == 1
-                        && str.chars().all(|c| !c.is_control())) else { return true };
+                    .filter(|text| shortcut_focus::is_single_grapheme_input(text)) else { return true };
                 let Some(layer) = self.desktop_keyboard_focus_layer.as_mut() else { return true };
                 if layer.last_typed.elapsed() > Duration::from_secs(1) {
                     layer.typed.clear();
                 }
-                if layer.typed.chars().count() >= 48 { layer.typed.clear(); }
-                layer.typed.push_str(character);
+                if !shortcut_focus::append_grapheme_input(&mut layer.typed, character) {
+                    return true;
+                }
                 layer.last_typed = Instant::now();
                 layer.expires = Instant::now() + Duration::from_secs(5);
                 let needle = layer.typed.to_lowercase();
@@ -1640,16 +1640,14 @@ impl RicePlate {
             _ => {
                 if self.selection_modifiers.ctrl || self.selection_modifiers.alt { return true; }
                 let Some(character) = event.utf8.as_ref()
-                    .filter(|s| s.chars().count() == 1
-                        && s.chars().all(|c| !c.is_control())) else { return true; };
+                    .filter(|text| shortcut_focus::is_single_grapheme_input(text)) else { return true; };
                 let Some(layer) = self.desktop_keyboard_focus_layer.as_mut() else { return true; };
                 if layer.last_typed.elapsed() > Duration::from_secs(1) {
                     layer.typed.clear();
                 }
-                if layer.typed.chars().count() >= shortcut_focus::MAX_PREFIX {
-                    layer.typed.clear();
+                if !shortcut_focus::append_grapheme_input(&mut layer.typed, character) {
+                    return true;
                 }
-                layer.typed.push_str(character);
                 layer.last_typed = Instant::now();
                 layer.expires = Instant::now() + Duration::from_secs(5);
                 let query = layer.typed.clone();
