@@ -5,6 +5,7 @@
 //! changes or text worker are needed.
 
 use font8x8::{UnicodeFonts, BASIC_FONTS, LATIN_FONTS, GREEK_FONTS, HIRAGANA_FONTS, MISC_FONTS};
+use unicode_segmentation::UnicodeSegmentation;
 use crate::{raster::fill_rect, recipe::PanelStyle};
 
 pub(crate) fn draw_text(canvas: &mut [u8], width: u32, height: u32, x: u32, y: u32, text: &str, color: u32) {
@@ -42,8 +43,10 @@ pub(crate) fn rice_text_width(text: &str, style: &PanelStyle) -> u32 {
     text_pixel_width(text, style.font_scale)
 }
 
-/// Constrain labels to their actual task/menu hit rectangles, without splitting
-/// UTF-8 characters or letting long localized XDG names overlap neighbours.
+/// Constrain labels to their actual task/menu hit rectangles, preserving
+/// extended grapheme clusters (UAX #29) rather than only UTF-8 scalar values.
+/// This prevents dangling accents, half of a regional flag or a partial ZWJ
+/// emoji after elision. Pixel drawing/shaping remains the font renderer's job.
 pub(crate) fn fit_rice_text(label: &str, available: u32, style: &PanelStyle) -> String {
     if rice_text_width(label, style) <= available {
         return label.to_owned();
@@ -55,14 +58,13 @@ pub(crate) fn fit_rice_text(label: &str, available: u32, style: &PanelStyle) -> 
     }
     let mut clipped = String::new();
     let mut width = 0_u32;
-    for letter in label.chars() {
-        let mut utf8 = [0; 4];
-        let next = rice_text_width(letter.encode_utf8(&mut utf8), style);
+    for cluster in UnicodeSegmentation::graphemes(label, true) {
+        let next = rice_text_width(cluster, style);
         if width.saturating_add(next) > available - suffix_width {
             break;
         }
         width = width.saturating_add(next);
-        clipped.push(letter);
+        clipped.push_str(cluster);
     }
     clipped.push_str(suffix);
     clipped
@@ -131,6 +133,24 @@ mod tests {
         assert_eq!(fit_rice_text("ÄBC", cell * 2, &classic), "Ä…");
         assert_eq!(fit_rice_text("ÄBC", cell - 1, &classic), "");
         assert_eq!(fit_rice_text("ÄB", cell * 2, &classic), "ÄB");
+    }
+
+    #[test]
+    fn ellipsis_does_not_cut_accent_zwj_emoji_or_regional_flag_pairs() {
+        let classic = crate::recipe::load("classic").unwrap();
+        let cell = 8 * classic.font_scale;
+        // Fitting a base character while cutting away its combining mark
+        // would produce visibly incomplete user-facing text.
+        assert_eq!(fit_rice_text("a\\u{301}bc", cell * 2, &classic), "…");
+        assert_eq!(fit_rice_text("a\\u{301}bc", cell * 3, &classic),
+                   "a\\u{301}…");
+        // Emoji modifiers, joined emoji and flags each form indivisible
+        // extended graphemes even if their code points span many bytes.
+        assert_eq!(fit_rice_text("👩‍💻 task", cell * 2, &classic), "…");
+        assert_eq!(fit_rice_text("🇩🇪 done", cell * 2, &classic), "…");
+        assert_eq!(fit_rice_text("👍🏽 done", cell * 2, &classic), "…");
+        assert_eq!(fit_rice_text("ABC", cell * 3, &classic), "ABC");
+        assert_eq!(fit_rice_text("A長い", cell * 2, &classic), "A…");
     }
 
     #[test]
