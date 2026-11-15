@@ -51,6 +51,111 @@ class CreatorImportedTests(unittest.TestCase):
         self.assertEqual(source.read_bytes(), source_bytes)
         self.assertEqual(recipes.current_selection(), ("classic", None))
 
+    def test_legacy_v1_through_v9_are_migrated_as_private_editable_v11_versions(self):
+        from macrice.de import creator_history
+        for version in range(1, 10):
+            with self.subTest(schema=version):
+                original, payload = recipes._prepare_template(
+                    source="chrome", recipe_id=f"legacy-test-v{version}",
+                    name=f"Legacy {version}", schema_version=version)
+                source_path = self.root / f"legacy-v{version}.json"
+                source_path.write_bytes(payload)
+                source_path.chmod(0o600)
+                installed, destination = recipes.import_recipe(source_path)
+                installed_bytes = destination.read_bytes()
+                candidate = next(item for item in workspace.installed_editable()
+                                 if item["id"] == installed.recipe_id)
+                self.assertEqual(candidate["schema_version"], version)
+                count = len(workspace.list_drafts())
+                with self.assertRaisesRegex(workspace.WorkspaceError, "changed"):
+                    workspace.create_draft_from_installed(
+                        installed.recipe_id, expected_sha256="0" * 64)
+                self.assertEqual(len(workspace.list_drafts()), count)
+                migrated = workspace.create_draft_from_installed(
+                    installed.recipe_id,
+                    expected_sha256=candidate["semantic_sha256"])
+                draft = review.review(str(migrated.path))["recipe"]
+                source = review._manifest(original)
+                self.assertEqual(draft["schema_version"], 11)
+                self.assertEqual(draft["name"], source["name"])
+                self.assertNotEqual(draft["id"], source["id"])
+                self.assertEqual(draft["panel"]["position"],
+                                 source["panel"]["position"])
+                self.assertEqual(draft["panel"]["height"],
+                                 source["panel"]["height"])
+                self.assertEqual(draft["colors"], source["colors"])
+                if version >= 3:
+                    self.assertEqual(draft["panel"]["layout"],
+                                     source["panel"]["layout"])
+                else:
+                    expected = {section: [
+                        {"type": "widget", "id": widget}
+                        for widget in source["panel"]["sections"][section]]
+                        for section in recipes.SECTIONS}
+                    self.assertEqual(draft["panel"]["layout"], expected)
+                if version >= 4:
+                    self.assertEqual(draft["menu"], source["menu"])
+                    self.assertEqual(draft["desktop"]["wallpaper"],
+                                     source["desktop"]["wallpaper"])
+                    self.assertEqual(draft["tokens"], source["tokens"])
+                    self.assertEqual(draft["responsive"], source["responsive"])
+                if version >= 5:
+                    self.assertEqual(draft["desktop"]["icons"],
+                                     source["desktop"]["icons"])
+                else:
+                    self.assertEqual(draft["desktop"]["icons"], [
+                        {"label": "Applications", "action": "applications",
+                         "x": 32, "y": 96}
+                    ])
+                if version >= 8:
+                    self.assertEqual(draft["composition"], source["composition"])
+                else:
+                    self.assertEqual(draft["composition"]["widgets"], [])
+                    self.assertEqual(draft["composition"]["compact_hide_widgets"], [])
+                if version >= 9:
+                    self.assertEqual(draft["components"], source["components"])
+                else:
+                    self.assertGreaterEqual(len(draft["components"]), 1)
+                    # Pre-v9 layouts must remain free of injected components.
+                    self.assertNotIn('"type": "component"',
+                                     json.dumps(draft["panel"]["layout"]))
+                self.assertEqual(draft["artwork"]["font"], "builtin")
+                self.assertEqual(creator_history.read(
+                    migrated.path, migrated.semantic_sha256)["kind"], "migrate")
+                self.assertEqual(destination.read_bytes(), installed_bytes)
+                self.assertEqual(recipes.current_selection(), ("classic", None))
+                revision, _ = workspace.save_revision(migrated.path,
+                    {"/panel/height": 48}, expected_sha256=migrated.semantic_sha256)
+                outgoing = self.root / f"export-v{version}.ricepack"
+                workspace.export_draft(revision, outgoing)
+                self.assertTrue(pack.inspect_pack(outgoing)["valid"])
+                self.assertEqual(destination.read_bytes(), installed_bytes)
+
+    def test_legacy_custom_layout_is_preserved_without_inserting_demo_widgets(self):
+        source, payload = recipes._prepare_template(
+            source="classic", recipe_id="legacy-custom", name="Legacy custom",
+            schema_version=8)
+        manifest = json.loads(payload)
+        manifest["panel"]["layout"]["start"] = [
+            {"type": "widget", "id": "launcher"},
+            {"type": "label", "text": "Programs"}
+        ]
+        manifest["composition"]["widgets"] = []
+        manifest["composition"]["compact_hide_widgets"] = []
+        raw = (json.dumps(manifest) + "\n").encode()
+        path = self.root / "custom.json"
+        path.write_bytes(raw)
+        path.chmod(0o600)
+        source, installed_path = recipes.import_recipe(path)
+        digest = review._semantic_hash(review._manifest(source))
+        target = workspace.create_draft_from_installed(
+            "legacy-custom", expected_sha256=digest)
+        actual = review.review(str(target.path))["recipe"]
+        self.assertEqual(actual["panel"]["layout"]["start"],
+                         manifest["panel"]["layout"]["start"])
+        self.assertEqual(actual["composition"]["widgets"], [])
+        self.assertEqual(installed_path.read_bytes(), raw)
+
     def test_schema_twelve_luna_is_editable_without_dropping_distinct_layout(self):
         example = Path(__file__).resolve().parents[1] / "examples/wayland/xp-luna-columns.json"
         imported, source = recipes.import_recipe(example)
