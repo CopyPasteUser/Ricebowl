@@ -373,7 +373,7 @@ class WaylandSessionTests(unittest.TestCase):
             session._stop_process(stuck)
         self.assertEqual(stuck.signals, ["TERM", "KILL"])
         self.assertEqual(stuck.timeouts, [3, 2])
-        self.assertTrue(log.called)
+        self.assertTrue(log.write.called)
         # Teardown must continue to later independent children after failure.
         sibling = _FakeProcess()
         session._stop_process(sibling)
