@@ -17,7 +17,8 @@
   "menu": {"title": "RiceBowl Controls", "groups": [
     {"title": "Applications", "actions": ["applications", "terminal", "settings"]},
     {"title": "Quick actions", "actions": ["wifi-toggle", "audio-mute", "audio-up", "audio-down"]},
-    {"title": "Session", "actions": ["notifications", "lock", "logout"]}
+    {"title": "Session", "actions": ["notifications", "lock", "logout"]},
+    {"title": "Bluetooth", "actions": ["bluetooth-toggle"]}
   ]},
   "desktop": {"wallpaper": "classic-teal"},
   "tokens": {"label_padding": 4, "task_radius": 6},
