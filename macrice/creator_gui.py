@@ -3626,6 +3626,33 @@ def run() -> int:
             assert window.info.recipe_id not in (installed_id, forked_id)
             assert recipes.load(installed_id).recipe_id == installed_id
             assert "Original untouched" in window.status.get_text()
+            # Sprint 7: use a real Gtk.FileChooserDialog and the production
+            # RicePack import path, not only the offline backend. The approval
+            # is explicit and test-scoped; no session is applied or selected.
+            with tempfile.TemporaryDirectory(prefix="ricebowl-gtk-import-") as stage:
+                previous_draft = window.info
+                archive = Path(stage) / "gtk-import.ricepack"
+                workspace.export_draft(previous_draft, archive)
+                original_selection = recipes.current_selection()
+                def select_import_archive():
+                    choosers = [dialog for dialog in Gtk.Window.list_toplevels()
+                                if isinstance(dialog, Gtk.FileChooserDialog)
+                                and dialog.get_title() == "Import a RicePack"]
+                    assert len(choosers) == 1, "GTK RicePack chooser missing"
+                    assert choosers[0].set_filename(str(archive))
+                    choosers[0].response(Gtk.ResponseType.ACCEPT)
+                    return False
+
+                GLib.idle_add(select_import_archive)
+                with patch.object(window, "_confirm_handoff", return_value=True) as approval:
+                    window.import_pack_btn.clicked()
+                    approval.assert_called_once()
+                assert window.info is not None
+                assert window.info.recipe_id != previous_draft.recipe_id
+                assert recipes.load(previous_draft.recipe_id).recipe_id == previous_draft.recipe_id
+                assert recipes.current_selection() == original_selection
+                assert "Not applied" in window.status.get_text()
+                assert window.info.path.stat().st_mode & 0o077 == 0
             # Exercise the real GTK interaction state without launching a
             # compositor in CI. Nested process behavior has separate tests.
             from unittest.mock import Mock
