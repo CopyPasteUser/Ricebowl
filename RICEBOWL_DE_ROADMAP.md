@@ -5,6 +5,19 @@ physical acceptance outstanding.** RiceBowl 0.9.x is still an XFCE/X11
 rice manager. The separate Wayland login-session package requires explicit
 installation and is not yet a finished desktop environment.
 
+### Sprint 5 native menu AT-SPI control state parity (15 November 2026, CI-gated candidate)
+
+The shared native menu now exposes the **same** verified Wi-Fi/Bluetooth/audio
+readback, pending/busy/unavailable/failed labels and safe retry policy as its
+panel and desktop control counterparts. AT-SPI targets for unavailable or
+in-flight hardware are removed until the current owner worker confirms its
+state; recipe-provided app actions retain their labels and existing launch
+policy. The existing explicit logout guard also announces unavailability.
+No duplicate backend or untrusted command execution is introduced. Unit and
+real compositor CI must pass on the final PR head; physical Orca interaction
+is deferred to the hardware acceptance phase. This is an incremental Sprint 5
+step, **not** blanket shell parity acceptance.
+
 ### Sprint 5 shared-shell status parity (15 November 2026, CI-gated candidate)
 
 The schema-v9 shared status component vocabulary is extended with a
