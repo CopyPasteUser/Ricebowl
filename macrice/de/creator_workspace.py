@@ -191,11 +191,64 @@ def installed_editable() -> list[dict[str, str | int]]:
     """List validated installed rices that the current Creator can edit."""
     found = []
     for recipe, _ in recipes.imported_recipes():
-        if recipe.schema_version >= 10:
-            found.append({"id": recipe.recipe_id, "name": recipe.name,
-                          "schema_version": recipe.schema_version,
-                          "semantic_sha256": review._semantic_hash(review._manifest(recipe))})
+        found.append({"id": recipe.recipe_id, "name": recipe.name,
+                      "schema_version": recipe.schema_version,
+                      "semantic_sha256": review._semantic_hash(review._manifest(recipe))})
     return found
+
+
+def _migrate_legacy_to_v11(parsed: recipes.PanelRecipe) -> dict[str, Any]:
+    """Project validated schema-v1..v9 data into an *unapplied* v11 draft.
+
+    Start from the installed v11 contract for explicitly missing features, but
+    never copy the template's arbitrary demo desktop widgets or icon actions.
+    Existing layouts, colors, menu, desktop and composition are reconstructed
+    from the parser's canonical representation, not untrusted raw JSON.
+    """
+    if not 1 <= parsed.schema_version < 10:
+        raise WorkspaceError("Legacy Creator migration requires schema v1–v9")
+    source = review._manifest(parsed)
+    _template, default_bytes = recipes._prepare_template(
+        source="classic", recipe_id=parsed.recipe_id,
+        name=parsed.name, schema_version=11)
+    target = json.loads(default_bytes)
+    target["panel"]["position"] = source["panel"]["position"]
+    target["panel"]["height"] = source["panel"]["height"]
+    target["panel"]["metrics"] = source["panel"].get(
+        "metrics", dict(zip(recipes.METRIC_FIELDS, recipes.METRIC_DEFAULTS)))
+    if parsed.schema_version < 3:
+        target["panel"]["layout"] = {
+            section: [{"type": "widget", "id": name}
+                      for name in source["panel"]["sections"][section]]
+            for section in recipes.SECTIONS
+        }
+    else:
+        target["panel"]["layout"] = source["panel"]["layout"]
+    target["colors"] = source["colors"]
+    if parsed.schema_version >= 4:
+        target["menu"] = source["menu"]
+        target["desktop"] = dict(source["desktop"])
+        if parsed.schema_version == 4:
+            target["desktop"]["icons"] = []
+        target["tokens"] = source["tokens"]
+        target["responsive"] = source["responsive"]
+    else:
+        # Early schemas did not define a desktop, menu or compact layout.
+        # Do not populate the migrated desktop with demo shortcuts.
+        target["desktop"]["icons"] = []
+    if parsed.schema_version >= 8:
+        target["composition"] = source["composition"]
+    else:
+        target["composition"]["widgets"] = []
+        target["composition"]["compact_hide_widgets"] = []
+    target["components"] = source["components"] if parsed.schema_version >= 9 else []
+    target["artwork"] = {"font": "builtin",
+                         "icons": {key: "builtin" for key in
+                                   __import__("macrice.de.style_assets", fromlist=["ICON_ACTIONS"]).ICON_ACTIONS}}
+    # This result is validated by the same full parser as ordinary Creator
+    # edits *before* a receipt or private draft file can be published.
+    recipes.parse((json.dumps(target, ensure_ascii=False) + "\n").encode("utf-8"))
+    return target
 
 
 def create_draft_from_installed(recipe_id: str, *, expected_sha256: str) -> DraftInfo:
@@ -213,8 +266,6 @@ def create_draft_from_installed(recipe_id: str, *, expected_sha256: str) -> Draf
     digest = review._semantic_hash(review._manifest(parsed))
     if parsed.recipe_id != recipe_id or digest != expected_sha256:
         raise WorkspaceError("Installed rice changed since selection. Reopen the list")
-    if parsed.schema_version < 10:
-        raise WorkspaceError("Creator editing requires recipe schema v10 or newer")
     # Resolve referenced data-only assets now, before publishing a draft that
     # cannot render or be exported again.
     wallpaper_id, _ = pack._wallpaper_identity(parsed)
@@ -222,11 +273,13 @@ def create_draft_from_installed(recipe_id: str, *, expected_sha256: str) -> Draf
     source_credit = pack._stored_provenance(parsed)
     attribution = ({"wallpaper_id": wallpaper_id, "rice": source_credit[0],
                     "wallpaper": source_credit[1]} if source_credit is not None else None)
-    manifest = json.loads(raw)
+    migrated = parsed.schema_version < 10
+    manifest = (_migrate_legacy_to_v11(parsed) if migrated else json.loads(raw))
     manifest["id"] = f"creator-{secrets.token_hex(6)}"
     payload = (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
     recipes.parse(payload)
-    return _publish_version(_new_file(_private_directory()), payload, "import",
+    return _publish_version(_new_file(_private_directory()), payload,
+                            "migrate" if migrated else "import",
                             attribution=attribution)
 
 
