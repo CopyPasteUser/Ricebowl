@@ -417,7 +417,7 @@ class WaylandSessionTests(unittest.TestCase):
                    "lxpolkit": "/usr/bin/lxpolkit", "swayidle": "/usr/bin/swayidle"}
         env = {"RICEBOWL_DE_SHELL_CHILD": "1", "RICEBOWL_DE_NESTED": "0",
                "WAYLAND_DISPLAY": "wayland-0", "XDG_RUNTIME_DIR": self.runtime.name}
-        with mock.patch("macrice.de.session.signal.signal"), \\
+        with mock.patch("macrice.de.session.signal.signal"), \
              mock.patch("macrice.de.notification_prefs.load_optional", return_value=None):
             self.assertEqual(session.shell(environment=env, which=choices.get,
                                            spawn=spawn), 0)
