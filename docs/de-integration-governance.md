@@ -49,55 +49,70 @@ small and reviewed by integration, while behavior lives in owned modules.
 4. Never silently cherry-pick/duplicate unmerged private branch behavior.
 5. Rebase/retarget only after the parent lands and rerun CI for the new head.
 
-## Integration dependency snapshot (2026-11-14; refresh before each merge)
+## Integration dependency snapshot (15 November 2026; verified main)
 
-This is an **evidence snapshot**, not a branch lock or release certificate.
-Live coordination: [issue #360](https://github.com/CopyPasteUser/Ricebowl/issues/360).
-Current refs and exact-head checks must always override this snapshot.
+This snapshot supersedes the obsolete 14 November unmerged-PR graph; earlier
+states remain available in Git history. Refresh live GitHub refs before every
+new merge. Coordination: [issue #360](https://github.com/CopyPasteUser/Ricebowl/issues/360).
 
 ```text
-main @ 7fd55f44832d3e15be4bcd00daf719fa56d687af (verified at snapshot)
-├── #367 Core focus lease/seat fallback — MERGED 23f524e7
-├── #370 XDG inventory/inotify/file state — MERGED 7fd55f4
-├── #366 XP Run pointer/focus — Draft; native CI failed
-├── #368 strict portal ScreenCast — Draft; strict DRM frame gate outstanding
-├── #369 governance refresh — this documentation PR
-├── #371 native file-desktop assembly — Draft; native E2E outstanding
-├── #372 file actions/RiceField — Draft; reconciled with main, CI pending
-└── #373 compositor focus timeout/probe — Draft; reconciled, CI pending
+main @ fca6910d5a885d0bfd0f37d757f199775f821983
+├── #376 native XDG context/rename/Trash — MERGED 1eb682a
+├── #377 bounded shortcut keyboard focus — MERGED 5dcf4f6
+├── #378 durable XDG file positions — MERGED fb47082
+├── #379 native New Folder surface — MERGED b017b4b
+├── #380 icon drag/output handoff — MERGED 576416b
+├── #381 compositor-ready shared Rice live transaction — MERGED 134851e
+├── #382 CI-only generic/pixman real PipeWire video frame — MERGED 16daf0a
+├── #384 optional production wlr/GLES2 GPU test preparation — MERGED b3431ad
+└── #383 native desktop → external GTK keyboard handoff — MERGED fca6910
 ```
 
-**Main includes foundations, not a completed interactive file desktop.**
-#367 owns the seat-safe focus state machine; it does not prove real
-compositor keyboard focus on Bottom-layer icons. #370 supplies bounded
-XDG inventory/inotify/file state without completed native UI surfaces.
+**At this snapshot:** no open GitHub pull requests. No other agent's active
+branch is implicitly approved for merging.
 
-**Pending runtime:** #371 must deliver live file layers, calloop watcher
-wiring, real keyboard handling and return-to-client E2E under labwc.
-#372 exposes verified file actions, no-overwrite rename and RiceField
-intents, but does not prove UI integration. #373 provides bounded focus
-acquisition and a diagnostic probe, not standalone production focus.
-#366 must satisfy its full exact-head Run/Help native capture gate.
+### Verified post-merge acceptance
 
-**Portals (#368):** D-Bus negotiation and a socket FD are not delivered
-video. The strict gate requires a nonempty GStreamer frame on a compatible
-DRM/GLES2 runner. Pixman response=2 remains a documented limitation.
-A missing render node is an infrastructure blocker; never weaken the
-frame assertion to force green CI.
+On the exact merged `main@fca6910` (not only on `#383` head):
 
-### Safe merge sequence
+- [Tests #43678051131](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43678051131)
+  — **success**, push event, including the legacy XFCE/X11 and Python suite.
+- [Native RicePlate #43678051154](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43678051154)
+  — **success**, push event. Actual headless labwc smoke verifies native
+  keyboard Enter and return to a real GTK Wayland text-entry client,
+  shortcut typing/Escape, file rename/Trash/New Folder/icon drag,
+  two-output icon move and hotplug, XWayland taskbar/clipboard,
+  compositor-confirmed Rice switching (Classic → Chrome → XP Luna → Chrome),
+  private Creator recovery and failure rollback, installed-session
+  lock guard, package downgrade/upgrade, and XFCE/test-user data preservation.
+- The strict **generic/pixman software frame** test (PR #382) proved an
+  actual PipeWire/GStreamer sample without a DRM node. That is a CI-private
+  backend with CI-only patches; the production selection remains wlr.
+  PR #384 prepared a GPU runner lane but did **not** certify real
+  GPU/GLES2 production capture. Keep [#304](https://github.com/CopyPasteUser/Ricebowl/issues/304)
+  open. Likewise keep [#328](https://github.com/CopyPasteUser/Ricebowl/issues/328)
+  open for physical Mint/IME/Orca/client-matrix signoff.
+- The separate Wayland session preview / strict portal GPU workflows were
+  not both shown as fresh post-merge push runs for this exact `main` SHA:
+  do not infer they passed on it. Relevant installed-session recovery and
+  portal software smoke run inside the successful Native CI; physical
+  login, hardware/Flatpak and final release evidence remain **unverified**.
 
-1. Recheck current main, all PR heads, ancestry, review and exact-head
-   Tests/Native status before each guarded merge.
-2. After each merge, validate current main and shared-path regressions.
-3. Finish #366 and #371 native runtime proof before claiming UX parity.
-4. Integrate #372/#373 only after fresh CI on their main-based heads and
-   relevant interaction/security review; no force-push of live branches.
-5. Keep #368 unmerged without the required delivered-frame evidence.
-6. Keep physical Mint/IME/accessibility/multioutput/Flatpak/real-GPU release
-   gates open until validated on hardware.
+### Safe next integration sequence
 
-Previously closed nonmerged 13 November PRs are not active dependencies.
+1. Continue feature implementation on isolated, owner-scoped branches only;
+   inspect the latest main/PR state before opening or merging anything.
+2. Use verified typed Core/desktop/system/shell APIs; do not reintroduce
+   duplicate focus managers, independent Linux settings adapters or multiple
+   per-rice execution engines.
+3. Require exact-head CI and real compositor regressions for input/desktop
+   changes; check upgrade/rollback, owner-private state and XFCE invariants.
+4. After every future merge, validate new `main` via GitHub push runs and
+   record actual SHA/run links in #360. If failed, investigate and revert;
+   never substitute PR-green evidence for post-merge checks.
+5. Reserve physical Mint/ThinkPad, IME/Orca, DRM/GLES2, Flatpak consent,
+   multi-monitor and final reproducibility/performance certification for
+   their explicit hardware/release gates, not a fictitious CI pass.
 
 ## Mandatory PR pre-merge checklist
 
