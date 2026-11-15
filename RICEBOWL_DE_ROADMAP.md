@@ -25,6 +25,22 @@ bidirectional layout or IME support. All of those remain mandatory separate
 software gates. Do not mark the typography or RiceBowl 1.0 release as complete
 from this slice alone.
 
+### Sprint 9 – portable Creator fonts in native two-rice acceptance (15 November 2026; candidate)
+
+The isolated two-rice Creator export/import → native labwc screenshot matrix
+now imports a real bundled, OFL-licensed TrueType font as a private asset.
+Both distinct Creator drafts reference it; both RicePacks preserve identical
+font bytes, content IDs and attribution across separate author and importer
+`XDG_CONFIG_HOME` trees. The QA path validates the imported IDs and
+licensing before capturing each installed rice at two output geometries and
+testing selection rollback. It never mutates a live user session or relies on
+whatever fonts happen to be installed on the CI host.
+
+This is a real portable-asset/render round trip, not a GTK file-picker,
+physical interactive authoring, universal font fallback or complete 1.0
+Creator parity claim. Exact-head native CI and post-merge `main` checks
+remain mandatory.
+
 ### Sprint 8b – single-revision Wayland package provenance (15 November 2026; CI-gated)
 
 The four optional Wayland Debian packages now stamp the committed Git source

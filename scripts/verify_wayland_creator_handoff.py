@@ -68,15 +68,29 @@ def capture_installed(destination: Path) -> dict:
                     provenance={"author": "RiceBowl test suite", "license": "CC0-1.0",
                                 "origin": "original", "source_reference": ""})
                 icons.append(item.identifier)
+            # A genuine, portable TTF asset must survive a fresh importer
+            # profile as well as icons. Reuse the pinned, bundled OFL font
+            # instead of requiring an unpredictable host font installation.
+            font_source = root / "creator-qa-font.ttf"
+            font_source.write_bytes((ROOT / "assets/fonts/LiberationSans-Regular.ttf").read_bytes())
+            font_source.chmod(0o600)
+            font = style_assets.import_asset(
+                font_source, kind="font", label="Liberation Sans",
+                provenance={"author": "Liberation Fonts contributors",
+                            "license": "OFL-1.1", "origin": "unspecified",
+                            "source_reference": "assets/fonts/LiberationSans-Regular.ttf"})
+            font_digest = hashlib.sha256(font_source.read_bytes()).hexdigest()
             heritage = creator_workspace.create_draft("heritage")
             revised, _ = creator_workspace.save_revision(
                 heritage.path, {"/panel/height": 48,
+                                "/artwork/font": font.identifier,
                                 "/artwork/icons/applications": icons[0]},
                 expected_sha256=heritage.semantic_sha256)
             updated_heritage = creator_workspace.fork_version(revised)
             orbit = creator_workspace.create_draft("orbit")
             revised_orbit, _ = creator_workspace.save_revision(
                 orbit.path, {"/name": "Orbit Studio offline QA",
+                             "/artwork/font": font.identifier,
                              "/artwork/icons/applications": icons[1]},
                 expected_sha256=orbit.semantic_sha256)
             drafts = (updated_heritage, revised_orbit)
@@ -105,6 +119,8 @@ def capture_installed(destination: Path) -> dict:
                     "pack_version": imported["pack_version"],
                     "semantic_sha256": draft.semantic_sha256,
                     "package_sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+                    "portable_font_id": font.identifier,
+                    "portable_font_sha256": font_digest,
                 })
                 if recipes.current_selection() != ("classic", None):
                     raise ValueError("Offline RicePack import changed the login selection")
@@ -119,6 +135,16 @@ def capture_installed(destination: Path) -> dict:
                 if (imported_icon.provenance["license"] != "CC0-1.0"
                         or style_assets.read(visual_id) != source_icon.read_bytes()):
                     raise ValueError("RicePack v4 lost portable icon bytes or attribution")
+                if installed_recipe.artwork.font != font.identifier:
+                    raise ValueError("RicePack v4 lost the Creator font reference")
+                imported_font = style_assets.entry(font.identifier)
+                if (imported_font.provenance["license"] != "OFL-1.1"
+                        or imported_font.provenance["author"] !=
+                        "Liberation Fonts contributors"
+                        or style_assets.read(font.identifier) != font_source.read_bytes()
+                        or hashlib.sha256(style_assets.read(font.identifier)).hexdigest()
+                        != font_digest):
+                    raise ValueError("RicePack v4 lost portable font bytes or attribution")
                 for width, height, scale in GEOMETRIES:
                     name = (f"{draft.recipe_id}-{width}x{height}-"
                             f"scale-{str(scale).replace('.', '-')}.png")
