@@ -131,6 +131,18 @@ class LiveRiceTests(unittest.TestCase):
                           "screen_reader": "not_managed",
                           "lock_guard": "not_managed"})
 
+    def test_private_nested_live_status_reports_its_owned_mako_only(self):
+        self.controller.nested = True
+        self.controller.env["RICEBOWL_DE_PRIVATE_BUS"] = "1"
+        self.controller.optional_services = [
+            SimpleNamespace(name="RicePop notifications", process=FakeProcess()),
+        ]
+        self.assertEqual(self.controller.status()["services"],
+                         {"notifications": "running",
+                          "authorization": "not_managed",
+                          "screen_reader": "not_managed",
+                          "lock_guard": "not_managed"})
+
     def test_shared_native_rice_switch_waits_for_exact_compositor_ack(self):
         # The faked child writes to the *real inherited pipe* before the
         # supervisor commits the previously running recipe.
