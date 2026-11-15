@@ -5,6 +5,17 @@
 //! is kept by the short-lived, compositor-confirmed focus lease.
 pub const MAX_PREFIX: usize = 48;
 
+/// A compositor output notification does not necessarily move a desktop icon.
+/// Keep its existing, short-lived keyboard lease only if the selected icon
+/// remains on the exact same output at the exact same logical coordinates.
+/// Removed icons, output replacement and real placement changes still revoke.
+pub(crate) fn preserves_focus_on_reflow<O: PartialEq>(
+    before: Option<(O, (u32, u32))>,
+    after: Option<(O, (u32, u32))>,
+) -> bool {
+    before.is_some() && before == after
+}
+
 /// Choose the first matching visible peer in recipe order, not a hidden icon
 /// or a different output's mirrored shortcut. Unicode lowercasing is supported
 /// without interpreting the label as a path or executable command.
@@ -32,6 +43,18 @@ mod tests {
         assert_eq!(match_visible_prefix("pizza 🍚", peers), Some(5));
         assert_eq!(match_visible_prefix("x", peers), None);
     }
+    #[test]
+    fn noop_output_notification_must_not_drop_real_keyboard_focus() {
+        assert!(preserves_focus_on_reflow(Some((1_u32, (128, 400))),
+                                          Some((1_u32, (128, 400)))));
+        assert!(!preserves_focus_on_reflow(Some((1_u32, (128, 400))),
+                                           Some((1_u32, (129, 400)))));
+        assert!(!preserves_focus_on_reflow(Some((1_u32, (128, 400))),
+                                           Some((2_u32, (128, 400)))));
+        assert!(!preserves_focus_on_reflow(Some((1_u32, (128, 400))), None));
+        assert!(!preserves_focus_on_reflow(None::<(u32, (u32, u32))>, None));
+    }
+
     #[test]
     fn never_selects_out_of_bounds_hidden_and_malformed_prefixes() {
         assert_eq!(match_visible_prefix("Programs", [None, None, Some("Other")]), None);
