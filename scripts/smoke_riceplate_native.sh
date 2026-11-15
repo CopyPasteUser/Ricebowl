@@ -783,6 +783,9 @@ PY
             shortcut_confirms_before=$(grep -Fc \
                 "RicePlate: compositor confirmed Luna shortcut keyboard focus" \
                 "$runtime/plate-$label.log" || :)
+            shortcut_preserved_before=$(grep -Fc \
+                "RicePlate: preserved compositor-confirmed Luna shortcut keyboard focus" \
+                "$runtime/plate-$label.log" || :)
             # Maintain one real Wayland pointer connection while labwc moves
             # keyboard focus. Disconnecting immediately after pointer up can
             # remove the only CI pointer device and revoke a pending lease.
@@ -795,12 +798,20 @@ PY
                 shortcut_confirms_after=$(grep -Fc \
                     "RicePlate: compositor confirmed Luna shortcut keyboard focus" \
                     "$runtime/plate-$label.log" || :)
+                shortcut_preserved_after=$(grep -Fc \
+                    "RicePlate: preserved compositor-confirmed Luna shortcut keyboard focus" \
+                    "$runtime/plate-$label.log" || :)
+                # A prior, same-seat compositor confirmation remains valid when
+                # selecting the same target: expect either NEW real Enter or
+                # explicit reuse of that ALREADY confirmed lease.
                 test "$shortcut_confirms_after" -gt "$shortcut_confirms_before" && break
+                test "$shortcut_preserved_after" -gt "$shortcut_preserved_before" && break
                 count=$((count + 1))
                 sleep 0.1
             done
-            test "$shortcut_confirms_after" -gt "$shortcut_confirms_before" || {
-                echo "Compositor did not grant real shortcut keyboard focus" >&2
+            test "$shortcut_confirms_after" -gt "$shortcut_confirms_before" ||
+                test "$shortcut_preserved_after" -gt "$shortcut_preserved_before" || {
+                echo "Compositor did not grant or retain real shortcut keyboard focus" >&2
                 cat "$runtime/luna-shortcut-pointer.log" >&2
                 tail -n 50 "$runtime/plate-$label.log" >&2
                 exit 1
@@ -853,6 +864,9 @@ PY
             shortcut_confirms_before=$(grep -Fc \
                 "RicePlate: compositor confirmed Luna shortcut keyboard focus" \
                 "$runtime/plate-$label.log" || :)
+            shortcut_preserved_before=$(grep -Fc \
+                "RicePlate: preserved compositor-confirmed Luna shortcut keyboard focus" \
+                "$runtime/plate-$label.log" || :)
             # Release the first pointer after proving real composited typing.
             # The second gesture uses a new pointer and must independently
             # reacquire a new compositor-authorized keyboard lease.
@@ -869,12 +883,20 @@ PY
                 shortcut_confirms_after=$(grep -Fc \
                     "RicePlate: compositor confirmed Luna shortcut keyboard focus" \
                     "$runtime/plate-$label.log" || :)
+                shortcut_preserved_after=$(grep -Fc \
+                    "RicePlate: preserved compositor-confirmed Luna shortcut keyboard focus" \
+                    "$runtime/plate-$label.log" || :)
+                # A prior, same-seat compositor confirmation remains valid when
+                # selecting the same target: expect either NEW real Enter or
+                # explicit reuse of that ALREADY confirmed lease.
                 test "$shortcut_confirms_after" -gt "$shortcut_confirms_before" && break
+                test "$shortcut_preserved_after" -gt "$shortcut_preserved_before" && break
                 count=$((count + 1))
                 sleep 0.1
             done
-            test "$shortcut_confirms_after" -gt "$shortcut_confirms_before" || {
-                echo "Compositor did not grant fresh focus before shortcut Escape" >&2
+            test "$shortcut_confirms_after" -gt "$shortcut_confirms_before" ||
+                test "$shortcut_preserved_after" -gt "$shortcut_preserved_before" || {
+                echo "Compositor did not grant or retain focus before shortcut Escape" >&2
                 cat "$runtime/luna-shortcut-escape-pointer.log" >&2
                 tail -n 45 "$runtime/plate-$label.log" >&2
                 exit 1
