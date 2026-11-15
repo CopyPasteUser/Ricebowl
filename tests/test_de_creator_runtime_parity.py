@@ -105,6 +105,42 @@ class CreatorRuntimeParityTests(unittest.TestCase):
                                 if row["kind"] == "widget" and
                                 row["binding"] in ("launcher", "tasks")))
 
+
+    def test_schema_v3_panel_composition_does_not_require_v4_responsive_keys(self):
+        source_fixture = ROOT / "tests/fixtures/riceplate-nested-v3.json"
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "nested-v3.json"
+            source.write_bytes(source_fixture.read_bytes())
+            source.chmod(0o600)
+            report = parity.describe(str(source))
+        self.assertEqual(report["recipe"]["schema_version"], 3)
+        self.assertTrue(any(row["area"] == "panel-wide" for row in report["components"]))
+        self.assertFalse(any(row["area"] == "panel-compact" for row in report["components"]))
+        self.assertTrue(all(case["panel_mode"] == "wide"
+                            for case in report["output_cases"]))
+
+    def test_menu_control_state_contract_matches_native_shared_feedback(self):
+        source_fixture = ROOT / "examples/wayland/quick-controls.json"
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "controls.json"
+            source.write_bytes(source_fixture.read_bytes())
+            source.chmod(0o600)
+            report = parity.describe(str(source))
+        menu = [row for row in report["components"] if row["area"] == "menu"]
+        controls = [row for row in menu if row["binding"] in recipes.PANEL_CONTROLS]
+        self.assertEqual({row["binding"] for row in controls},
+                         {"wifi-toggle", "bluetooth-toggle", "audio-mute",
+                          "audio-up", "audio-down"})
+        for row in controls:
+            self.assertTrue(row["interactive"])
+            self.assertTrue(row["verified_control_feedback"])
+            self.assertEqual(row["state_contract"],
+                             ["unavailable", "ready", "applying", "busy", "failed"])
+            self.assertEqual(row["allowed_action"], row["binding"])
+        for row in menu:
+            if row["binding"] not in recipes.PANEL_CONTROLS:
+                self.assertFalse(row["verified_control_feedback"])
+
     def test_declarative_shortcut_widget_overlap_is_a_review_warning(self):
         payload = json.loads(DEMOS[0].read_text())
         payload["composition"]["widgets"][0]["x"] = payload["desktop"]["icons"][0]["x"]
