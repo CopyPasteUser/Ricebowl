@@ -340,16 +340,32 @@ def start(
 
 
 def _stop_process(process: subprocess.Popen[bytes]) -> None:
+    """Best-effort, bounded teardown of a child owned by this supervisor.
+
+    PIDs can disappear between poll, TERM, wait and KILL. One misbehaving
+    child must not abort the remaining cleanup callbacks or leak another
+    owned service, and this path must never wait forever after SIGKILL.
+    """
     if process.poll() is not None:
         return
     try:
         process.terminate()
-        process.wait(timeout=3)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        process.wait(timeout=2)
     except ProcessLookupError:
+        return
+    try:
+        process.wait(timeout=3)
+        return
+    except subprocess.TimeoutExpired:
         pass
+    try:
+        process.kill()
+    except ProcessLookupError:
+        return
+    try:
+        process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        print("RiceBowl: owned child did not exit after bounded termination",
+              file=sys.stderr)
 
 
 def _spawn_optional_process(
