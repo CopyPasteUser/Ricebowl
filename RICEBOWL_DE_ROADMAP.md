@@ -23,6 +23,21 @@ hosts, cryptographic signatures or a public 1.0 distribution. The CI assembly
 must still build the native ELF from the matching commit and verify its
 checksum, and clean-install/real-hardware signoff remains open.
 
+### Sprint 8b – Unicode grapheme-aware native missing-glyph fallback (15 November 2026; CI-gated)
+
+The native TrueType path now maps any **unsupported extended grapheme**
+(combining sequences, flags or ZWJ emoji) to one visible replacement glyph
+instead of a misleading series of question marks for individual scalars.
+The same allocation-free grapheme iterator drives drawing, width measurement
+and ellipsis-fitting, including fixed-cell custom TrueType recipes; supported
+Latin text and kerning are unchanged. Regressions compare actual painted
+pixels and widths for flags, joined emoji and modifier sequences.
+
+This is a readable, bounded missing-glyph fallback **within the selected
+font**, not multi-font fallback, HarfBuzz shaping, RTL/BiDi, glyph
+substitution or IME support. Those are still separate open typography and
+hardware gates, not accepted by this slice.
+
 ### Sprint 8b – compositor-delivered composed shortcut input (15 November 2026; CI-gated)
 
 The native Luna and XDG desktop Type-to-Select paths now accept **one complete
