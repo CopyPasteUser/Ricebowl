@@ -4400,13 +4400,24 @@ impl RicePlate {
     }
 
     fn reflow_icons(&mut self) {
-        // A context menu and ephemeral keyboard focus are anchored to a
-        // physical output. Hotplug/reflow invalidates their coordinates.
+        // A context menu is anchored to its original output coordinates.
+        // Compositors also emit harmless output updates with no actual icon
+        // movement. Do not tear down a compositor-confirmed shortcut keyboard
+        // lease on such a no-op: this caused intermittent lost Type-to-Select.
         self.close_desktop_context();
-        if self.desktop_keyboard_focus_layer.as_ref().is_some_and(|layer|
-            matches!(layer.target, DesktopFocusTarget::Shortcut(_))) {
-            self.close_desktop_keyboard_focus();
-        }
+        let shortcut_before = self.desktop_keyboard_focus_layer.as_ref().and_then(|focus| {
+            let DesktopFocusTarget::Shortcut(surface) = &focus.target else {
+                return None;
+            };
+            let placement = self.icon_layers.iter()
+                .find(|icon| icon.surface.wl_surface() == surface)
+                .and_then(|icon| {
+                    let output = icon.bound_output.as_ref()
+                        .or(self.primary_output.as_ref()).or(icon.output.as_ref())?;
+                    icon.placed.map(|position| (output.clone(), position))
+                });
+            Some((surface.clone(), placement))
+        });
         // Output reflow and icon dragging invalidate pending pointer timing.
         self.desktop_selection.cancel();
         // An advertised output without a shell surface must not swallow
@@ -4472,6 +4483,18 @@ impl RicePlate {
             };
             if restored {
                 self.redraw_icon(index);
+            }
+        }
+        if let Some((surface, before)) = shortcut_before {
+            let after = self.icon_layers.iter()
+                .find(|icon| icon.surface.wl_surface() == &surface)
+                .and_then(|icon| {
+                    let output = icon.bound_output.as_ref()
+                        .or(self.primary_output.as_ref()).or(icon.output.as_ref())?;
+                    icon.placed.map(|position| (output.clone(), position))
+                });
+            if !shortcut_focus::preserves_focus_on_reflow(before, after) {
+                self.close_desktop_keyboard_focus();
             }
         }
         // No stale selection is retained after output loss or a compact

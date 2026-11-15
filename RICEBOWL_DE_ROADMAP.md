@@ -23,6 +23,24 @@ hosts, cryptographic signatures or a public 1.0 distribution. The CI assembly
 must still build the native ELF from the matching commit and verify its
 checksum, and clean-install/real-hardware signoff remains open.
 
+### Sprint 8b – preserve compositor keyboard focus on unchanged output layout (15 November 2026; CI-gated)
+
+The native Luna desktop previously tore down an active or pending keyboard
+focus lease on **every** output reflow, including redundant compositor output
+notifications where the selected shortcut did not move. The reflow path now
+compares the selected shortcut's actual output identity and logical position
+before/after layout. An unchanged target retains its existing
+compositor-confirmed lease; moved/removed targets and output replacement
+still revoke it. This preserves genuine user-initiated compositor
+`wl_keyboard.enter` requirements, never fabricates focus and never expands
+the 8px temporary focus surface or background input-grab lifetime.
+
+A pure Rust regression covers no-op, moved, replaced-output and removed
+icons, while native CI exercises the existing real labwc shortcut focus,
+Escape, app handoff and multi-output contract. Issue #328 remains open until
+a repeated-focus stress test and actual Mint/ThinkPad keyboard/IME/Orca
+acceptance confirm that the intermittent failure has disappeared.
+
 ### Sprint 8 release-source and CI provenance (15 November 2026; integrated)
 
 - [#401](https://github.com/CopyPasteUser/Ricebowl/pull/401) binds a stable
