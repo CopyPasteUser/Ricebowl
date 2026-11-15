@@ -55,6 +55,22 @@ class ReleaseWorkflowGateTests(unittest.TestCase):
                     WorkflowGateError, "Missing"):
                 validate_runs({"workflow_runs": runs}, SHA)
 
+    def test_path_filtered_wayland_ci_accepts_exact_main_dispatch_only(self):
+        for path in (".github/workflows/riceplate-native.yml",
+                     ".github/workflows/wayland-session.yml"):
+            runs = self.good_runs()
+            index = next(i for i, run in enumerate(runs) if run["path"] == path)
+            runs[index]["event"] = "workflow_dispatch"
+            self.assertIn(path, validate_runs({"workflow_runs": runs}, SHA))
+            runs[index]["head_branch"] = "feature"
+            with self.assertRaisesRegex(WorkflowGateError, "Missing"):
+                validate_runs({"workflow_runs": runs}, SHA)
+
+        tests = self.good_runs()
+        tests[0]["event"] = "workflow_dispatch"
+        with self.assertRaisesRegex(WorkflowGateError, "Missing"):
+            validate_runs({"workflow_runs": tests}, SHA)
+
     def test_malformed_or_absent_evidence_fails_closed(self):
         for value in (None, [], {}, {"workflow_runs": "invalid"},
                       {"workflow_runs": []}):
