@@ -807,3 +807,43 @@ jobs:
           path: dist/riceplate-native-preview/
           if-no-files-found: error
           retention-days: 14
+
+  # A separate least-privilege job signs the *downloaded tested artifact*.
+  # PRs, nested previews and forks never receive signing credentials.
+  attest-native-preview:
+    name: Attest main native preview build provenance
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: native-layer-shell
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Download tested native preview artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: riceplate-native-preview-${{ github.sha }}
+          path: dist/riceplate-native-preview/
+      - name: Verify downloaded package and committed-source identity
+        run: |
+          set -eu
+          directory=dist/riceplate-native-preview
+          package="$directory/ricebowl-riceplate-native_0.1.0~preview2_amd64.deb"
+          test -f "$package"
+          (cd "$directory" && sha256sum -c SHA256SUMS)
+          test "$(dpkg-deb -f "$package" X-RiceBowl-Source-Commit)" = "$GITHUB_SHA"
+          declared=$(dpkg-deb -f "$package" X-RiceBowl-Native-SHA256)
+          actual=$(sha256sum "$directory/riceplate-native")
+          actual=${actual%% *}
+          test "$declared" = "$actual"
+          extracted=$(mktemp -d)
+          trap 'rm -rf -- "$extracted"' EXIT
+          dpkg-deb -x "$package" "$extracted"
+          cmp "$directory/riceplate-native" "$extracted/usr/bin/riceplate-native"
+      - name: Sign native Debian preview provenance (not a 1.0 release)
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/riceplate-native-preview/ricebowl-riceplate-native_0.1.0~preview2_amd64.deb
