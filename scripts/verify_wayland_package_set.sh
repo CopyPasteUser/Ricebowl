@@ -94,15 +94,45 @@ for i in 1 2 3; do
 done
 
 depends=$(dpkg-deb -f "${files[3]}" Depends)
-if [[ "$depends" != *"ricebowl-wayland-core (= ${versions[0]})"* ]]; then
-    echo "Desktop package does not pin this core version" >&2
+# Debian dependencies are comma-delimited relationship atoms. Substring
+# matching could accept e.g. notricebowl-wayland-core (= VERSION) as the
+# actual core dependency. Never trust an in-name-only package identifier,
+# an alternate provider, a duplicate or a weaker version relation.
+IFS=',' read -r -a dependency_atoms <<< "$depends"
+dependency_fields=()
+for entry in "${dependency_atoms[@]}"; do
+    entry="${entry#"${entry%%[![:space:]]*}"}"
+    entry="${entry%"${entry##*[![:space:]]}"}"
+    dependency_fields+=("$entry")
+done
+core_matches=0
+for entry in "${dependency_fields[@]}"; do
+    if [[ "$entry" == "ricebowl-wayland-core (= ${versions[0]})" ]]; then
+        core_matches=$((core_matches + 1))
+    fi
+done
+if (( core_matches != 1 )); then
+    echo "Desktop package does not pin exactly this core package/version" >&2
     exit 1
 fi
 for i in 1 2; do
-    if [[ "$depends" =~ ${names[$i]}\ \(\>\=\ ([^\)]*)\) ]]; then
-        minimum=${BASH_REMATCH[1]}
-    else
-        echo "Desktop package lacks versioned dependency on ${names[$i]}" >&2
+    prefix="${names[$i]} (>= "
+    minimum=
+    matches=0
+    for entry in "${dependency_fields[@]}"; do
+        if [[ "$entry" == "$prefix"* && "$entry" == *")" ]]; then
+            candidate=${entry#"$prefix"}
+            candidate=${candidate%")"}
+            # Reconstruct the atom exactly: no suffix, prefix tricks or
+            # alternative dependencies may satisfy a mandatory package.
+            if [[ -n "$candidate" && "$entry" == "$prefix$candidate)" ]]; then
+                matches=$((matches + 1))
+                minimum=$candidate
+            fi
+        fi
+    done
+    if (( matches != 1 )); then
+        echo "Desktop package lacks one exact versioned dependency on ${names[$i]}" >&2
         exit 1
     fi
     if ! dpkg --compare-versions "${versions[$i]}" ge "$minimum"; then
