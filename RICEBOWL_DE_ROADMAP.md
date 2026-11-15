@@ -5,7 +5,35 @@ physical acceptance outstanding.** RiceBowl 0.9.x is still an XFCE/X11
 rice manager. The separate Wayland login-session package requires explicit
 installation and is not yet a finished desktop environment.
 
-### Sprint 8 native TrueType missing-glyph consistency (15 November 2026; pending CI)
+### Sprint 8 release-source and CI provenance (15 November 2026; integrated)
+
+- [#401](https://github.com/CopyPasteUser/Ricebowl/pull/401) binds a stable
+  1.0 hardware sign-off to the **actual tested ancestor commit**, rejecting
+  source changes after the physical test (except the sign-off JSON).
+- [#403](https://github.com/CopyPasteUser/Ricebowl/pull/403) blocks release
+  source artifact assembly unless the exact code revision has completed,
+  successful Tests, Native RicePlate and Wayland session workflows on
+  `main`. Native/session CI may be manually dispatched on that exact commit
+  because their ordinary triggers are path-filtered.
+- A 1.0 release remains blocked by the pending
+  `.github/release-signoff-1.0.json` and all real-device gates. These
+  software checks do not certify physical Mint/ThinkPad hardware, IME/Orca,
+  real GPU ScreenCast or a finished release.
+- CI reliability follow-up: [#328](https://github.com/CopyPasteUser/Ricebowl/issues/328)
+  records one transient failure to obtain compositor-confirmed desktop shortcut
+  focus on `main@91b1276` (Native CI attempt 1). The identical run passed
+  on retry without relaxing assertions; stress and physical acceptance remain
+  open.
+
+Integration: [#400](https://github.com/CopyPasteUser/Ricebowl/pull/400),
+[#401](https://github.com/CopyPasteUser/Ricebowl/pull/401),
+[#402](https://github.com/CopyPasteUser/Ricebowl/pull/402) and
+[#403](https://github.com/CopyPasteUser/Ricebowl/pull/403) are merged.
+Final-head tests passed for all four changes; the exact merged-main run of
+`#403` is evaluated separately under
+[CI run history](https://github.com/CopyPasteUser/Ricebowl/actions).
+
+### Sprint 8 native TrueType missing-glyph consistency (15 November 2026; merged, CI-gated)
 
 The native font rasterizer now resolves unmapped Unicode codepoints to
 the **same visible '?' glyph for advance, kerning and painting**. Its eager
@@ -15,9 +43,9 @@ pixels and measured width against the fallback for a valid missing Unicode
 noncharacter. This improves honest unavailable-glyph behavior without a new
 font worker, host font changes or extra dependencies. It is **not** a complete
 font fallback stack, bidirectional layout or OpenType shaping implementation;
-native CI and real-device script coverage remain separately required.
+native PR and post-merge compositor CI passed; physical device and mixed-script rendering remain separate release gates.
 
-### Sprint 8 native proportional label fit (15 November 2026; pending CI)
+### Sprint 8 native proportional label fit (15 November 2026; merged, CI-gated)
 
 Native text fitting now considers the **whole grapheme prefix together with
 its ellipsis**. Independent per-grapheme width sums ignored TrueType kerning
@@ -27,8 +55,8 @@ including a bounded fixed-cell path, and preserves the original bitmap
 rendering and UAX #29 boundaries. Regression coverage compares results
 against a complete-prefix reference across Latin kerning, combining marks,
 joined emoji and flags. This is **not** bidirectional layout, OpenType
-shaping or fallback-font acceptance. Mark complete only after final-head
-and post-merge native CI; physical device testing remains separate.
+shaping or fallback-font acceptance. Final-head and post-merge native CI passed, including the compositor smoke;
+physical device and complex-script acceptance remain separate.
 
 ### Sprint 7 native Unicode grapheme-safe labels (15 November 2026; CI-gated)
 
