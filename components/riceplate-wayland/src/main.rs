@@ -9129,8 +9129,8 @@ mod tests {
                 let offset = ((y * width + x) * 4) as usize;
                 left[offset..offset + 4] != right[offset..offset + 4]
             })));
-        assert!(matches!(recipe::hit_test(&style, width, 0, 0,
-            f64::from(indicator.x + indicator.width / 2)), None));
+        assert!(matches!(recipe::hit(
+            f64::from(indicator.x + indicator.width / 2), width, 0, 0, &style), None));
     }
 
     #[test]
