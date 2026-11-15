@@ -59,6 +59,8 @@ class WaylandBundleTests(unittest.TestCase):
                 ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
                 text=True, timeout=10).strip()
             self.assertIn(f"source_commit={commit}", lines)
+            self.assertEqual(run("dpkg-deb", "-f", str(first),
+                                 "X-RiceBowl-Source-Commit").stdout.strip(), commit)
             self.assertTrue((extracted / "usr/bin/ricebowl-wayland-app").is_file())
             private_command = extracted / "usr/lib/ricebowl-wayland/bin/ricebowl"
             self.assertTrue(private_command.is_file())
@@ -149,9 +151,13 @@ class WaylandBundleTests(unittest.TestCase):
             fixture = folder / "native-stage"
             (fixture / "DEBIAN").mkdir(parents=True)
             (fixture / "usr/bin").mkdir(parents=True)
+            source_commit = subprocess.check_output(
+                ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
+                text=True, timeout=10).strip()
             (fixture / "DEBIAN/control").write_text(
                 "Package: ricebowl-riceplate-native\nVersion: 0.1.0~preview2\n"
                 "Architecture: amd64\nMaintainer: RiceBowl QA\n"
+                f"X-RiceBowl-Source-Commit: {source_commit}\n"
                 "Description: isolated package-set fixture\n")
             shutil.copy2("/bin/true", fixture / "usr/bin/riceplate-native")
             built = run("dpkg-deb", "--build", "--root-owner-group", str(fixture), str(native))
@@ -160,6 +166,35 @@ class WaylandBundleTests(unittest.TestCase):
             checked = run(*argv)
             self.assertEqual(checked.returncode, 0, checked.stderr)
             self.assertIn("Verified four opt-in", checked.stdout)
+            # Every package must independently attest the same reviewed
+            # source commit, not merely satisfy loose version dependencies.
+            for package in (core, session, native, desktop):
+                self.assertEqual(run("dpkg-deb", "-f", str(package),
+                                     "X-RiceBowl-Source-Commit").stdout.strip(),
+                                 source_commit)
+
+            mixed_stage = folder / "mixed-native-stage"
+            self.assertEqual(run("dpkg-deb", "-R", str(native), str(mixed_stage)).returncode, 0)
+            metadata = mixed_stage / "DEBIAN/control"
+            metadata.write_text(metadata.read_text().replace(
+                source_commit, "0" * 40), encoding="utf-8")
+            mixed_native = folder / "mixed-native.deb"
+            self.assertEqual(run("dpkg-deb", "--build", "--root-owner-group",
+                                 str(mixed_stage), str(mixed_native)).returncode, 0)
+            rejected = run("bash", str(VERIFY), str(core), str(session),
+                           str(mixed_native), str(desktop))
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn("Mixed source commits", rejected.stderr)
+
+            metadata.write_text(metadata.read_text().replace("0" * 40, "unverified"),
+                                encoding="utf-8")
+            unverified_native = folder / "unverified-native.deb"
+            self.assertEqual(run("dpkg-deb", "--build", "--root-owner-group",
+                                 str(mixed_stage), str(unverified_native)).returncode, 0)
+            rejected = run("bash", str(VERIFY), str(core), str(session),
+                           str(unverified_native), str(desktop))
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn("invalid package source commit", rejected.stderr)
 
             extracted = folder / "tamper-stage"
             self.assertEqual(run("dpkg-deb", "-R", str(core), str(extracted)).returncode, 0)
