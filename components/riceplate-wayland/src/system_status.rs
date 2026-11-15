@@ -283,7 +283,7 @@ impl AudioWatcher {
         thread::spawn(move || {
             while pending.recv().is_ok() {
                 thread::sleep(Duration::from_millis(80));
-                if !callback(SystemStatus::read(false, true).audio) {
+                if !callback(SystemStatus::read(false, true, false).audio) {
                     break;
                 }
             }
