@@ -5,6 +5,26 @@ physical acceptance outstanding.** RiceBowl 0.9.x is still an XFCE/X11
 rice manager. The separate Wayland login-session package requires explicit
 installation and is not yet a finished desktop environment.
 
+### Sprint 9 – bounded native font fallback for private recipes (15 November 2026; candidate)
+
+Private Creator-selected fonts now resolve each extended grapheme cluster to
+**one complete face**: the selected font first, then the bundled, OFL-licensed
+Liberation Sans face. Measurement, clipping and painting use the same resolved
+font/character pairs and font-specific kerning. The dynamically rasterized
+glyph cache distinguishes primary and fallback faces and keeps its existing
+512-entry cap. The bundled fallback parses at most once per RicePlate process;
+no host font discovery, network, resident worker, new crate or changed default
+Luna/bitmap font rendering is required. Rust tests verify a real missing
+primary glyph renders through the secondary face (not '?'), that glyph pixels
+and cached face identity agree, and that the default Luna font is untouched.
+
+**Limits:** This is a portable fallback for glyphs contained in Liberation Sans,
+not a CJK/emoji font stack or automatic arbitrary-font fallback. Per-codepoint
+fontdue rasterization still cannot claim HarfBuzz/OpenType shaping, Unicode
+bidirectional layout or IME support. All of those remain mandatory separate
+software gates. Do not mark the typography or RiceBowl 1.0 release as complete
+from this slice alone.
+
 ### Sprint 9 – portable Creator fonts in native two-rice acceptance (15 November 2026; candidate)
 
 The isolated two-rice Creator export/import → native labwc screenshot matrix
