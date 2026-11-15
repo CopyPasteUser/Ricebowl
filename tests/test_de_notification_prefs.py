@@ -57,9 +57,11 @@ class NotificationAppearanceTests(unittest.TestCase):
             env["RICEBOWL_DE_NESTED"] = "1"
             with mock.patch.object(session.signal, "signal"):
                 session.shell(environment=env, which=choices.get, spawn=spawn)
-            self.assertEqual(len(captured), 1)
-            self.assertEqual(captured[0][0], session.resources() / "mako.conf")
-            self.assertNotIn("RICEBOWL_DE_MAKO_CONFIG", captured[0][2])
+            # The nested preview inherits the parent user's bus; never start
+            # another notification server or write a separate Mako config.
+            self.assertEqual(captured, [])
+            self.assertFalse(any(path.name.startswith("ricebowl-pop-")
+                                 for path in Path(runtime).iterdir()))
 
     def test_private_versioned_preferences_and_stale_write_guard(self):
         with tempfile.TemporaryDirectory() as config, \
