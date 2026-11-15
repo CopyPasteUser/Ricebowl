@@ -324,6 +324,14 @@ impl<S: PartialEq, O: PartialEq, W: PartialEq + Clone> DesktopFocusLease<S, O, W
         self.request.as_ref().map(|target| target.intent)
     }
 
+    /// A second gesture on the same still-live target must not destroy and
+    /// recreate its compositor-owned focus surface. This matches only the
+    /// original seat/output/surface; it never confirms pending keyboard access.
+    pub(crate) fn matches_live_request(&self, seat: &S, output: &O, surface: &W) -> bool {
+        self.request.as_ref().is_some_and(|target|
+            &target.seat == seat && &target.output == output && &target.surface == surface)
+    }
+
     pub(crate) fn surface_closed(&mut self, surface: &W) -> bool {
         self.revoke_when(|target| &target.surface == surface)
     }
@@ -440,6 +448,26 @@ mod tests {
                       "seat-a", "DP-1", "surface-c");
         assert!(focus.surface_closed(&"surface-c"));
         assert_eq!(focus.phase(), DesktopFocusPhase::Idle);
+    }
+
+    #[test]
+    fn same_target_gesture_keeps_existing_real_lease_without_new_enter() {
+        let mut focus = DesktopFocusLease::default();
+        focus.request(DesktopFocusIntent::PointerSelection, 1, 10, 100);
+        assert!(focus.matches_live_request(&1, &10, &100));
+        assert_eq!(focus.phase(), DesktopFocusPhase::AwaitingCompositor);
+        assert!(!focus.can_dispatch(&1, &100),
+            "matching a target is not fabricated compositor confirmation");
+        for mismatch in [(2, 10, 100), (1, 11, 100), (1, 10, 101)] {
+            assert!(!focus.matches_live_request(&mismatch.0, &mismatch.1, &mismatch.2));
+        }
+        assert!(focus.compositor_enter(&1, &100));
+        let ticket = focus.ticket().unwrap();
+        assert!(focus.matches_live_request(&1, &10, &100));
+        assert!(focus.can_dispatch_ticket(ticket, &1, &100));
+        assert!(focus.compositor_leave(&1, &100));
+        assert!(!focus.matches_live_request(&1, &10, &100),
+            "real keyboard Leave cancels authorization, even for the same target");
     }
 
     #[test]
