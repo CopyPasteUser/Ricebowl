@@ -101,10 +101,12 @@ pub(crate) fn draw_bitmap_text(canvas: &mut [u8], width: u32, height: u32, x: u3
         // misleading '?' per scalar in a user-perceived glyph or detach a
         // combining mark. Unsupported clusters show ONE replacement cell;
         // single scalar Latin/Greek/Hiragana retain byte-identical sprites.
+        // CRLF is one UAX #29 cluster, but remains control text. It must
+        // never accidentally become a visible '?' after grapheme grouping.
+        if cluster.chars().any(char::is_control) { continue; }
         let mut letters = cluster.chars();
         let first = letters.next();
         let single = first.filter(|_| letters.next().is_none());
-        if single.is_some_and(char::is_control) { continue; }
         let bitmap = single.and_then(|letter|
             BASIC_FONTS.get(letter)
             .or_else(|| LATIN_FONTS.get(letter))
@@ -158,6 +160,16 @@ mod tests {
         draw_bitmap_text(&mut expected, 40, 8, 0, 0, "A???V", 0xffff_ffff, 1, false);
         assert_eq!(actual, expected, "Fallback and hit-measurement disagree");
         assert!(actual.iter().any(|&value| value != 0));
+    }
+
+    #[test]
+    fn joined_control_cluster_remains_blank_not_a_visible_replacement() {
+        let mut actual = vec![0_u8; 24 * 8 * 4];
+        let mut expected = actual.clone();
+        draw_bitmap_text(&mut actual, 24, 8, 0, 0, "A\r\nB", 0xffff_ffff, 1, false);
+        draw_bitmap_text(&mut expected, 24, 8, 0, 0, "A B", 0xffff_ffff, 1, false);
+        assert_eq!(actual, expected);
+        assert_eq!(text_pixel_width("A\r\nB", 1), 24);
     }
 
     #[test]
