@@ -134,6 +134,9 @@ fn font_glyphs(data: Vec<u8>, scale: u32, proportional: bool)
     // Unsupported Unicode falls back to the built-in bitmap tables.
     for code in 32..=255_u32 {
         let Some(character) = char::from_u32(code) else { continue; };
+        // A missing cmap entry must use the visible '?' fallback; otherwise
+        // prewarming .notdef under the original scalar hides the fallback.
+        if font.lookup_glyph_index(character) == 0 { continue; }
         let bounds = font.metrics(character, size);
         if bounds.width > 32 || bounds.height > 32 { continue; }
         let (metrics, pixels) = font.rasterize(character, size);
@@ -276,6 +279,12 @@ pub fn paint_icon(canvas: &mut [u8], canvas_width: u32,
 }
 
 impl FontSprites {
+    fn display_letter(&self, letter: char) -> char {
+        // Keep painted glyph, advance and kern pairs in sync for fonts with
+        // incomplete Unicode cmaps. No system-wide fallback font is invented.
+        if self.font.lookup_glyph_index(letter) == 0 { '?' } else { letter }
+    }
+
     fn proportional_advance(&self, text: &str) -> f32 {
         // Use the same fontdue horizontal kern pairs as the painting cursor,
         // instead of overestimating widths for common pairs like A/V and T/o.
@@ -283,6 +292,7 @@ impl FontSprites {
         let mut width = 0.0_f32;
         let mut previous = None;
         for letter in text.chars().filter(|letter| !letter.is_control()) {
+            let letter = self.display_letter(letter);
             if let Some(left) = previous {
                 width += self.font.horizontal_kern(left, letter, self.size).unwrap_or(0.0);
             }
@@ -320,6 +330,7 @@ impl FontSprites {
         let mut best_end = 0_usize;
         for (offset, cluster) in label.grapheme_indices(true) {
             for letter in cluster.chars().filter(|letter| !letter.is_control()) {
+                let letter = self.display_letter(letter);
                 if let Some(left) = previous {
                     width += self.font.horizontal_kern(left, letter, self.size).unwrap_or(0.0);
                 }
@@ -352,6 +363,7 @@ impl FontSprites {
         let mut previous = None;
         for (offset, letter) in text.chars().enumerate() {
             if letter.is_control() { continue; }
+            let letter = self.display_letter(letter);
             if self.proportional {
                 if let Some(left) = previous {
                     cursor += self.font.horizontal_kern(left, letter, self.size)
@@ -443,6 +455,24 @@ mod tests {
         let mut pixels = vec![0_u8; 180 * 32 * 4];
         font.draw(&mut pixels, 180, 32, 5, 4, "Luna text", 0xff_ff_ff_ff, false);
         assert!(pixels.chunks_exact(4).any(|pixel| pixel[3] > 0));
+    }
+
+    #[test]
+    fn missing_font_cmap_entries_use_visible_fallback_metrics_and_pixels() {
+        let selection = ArtworkSelection { font: Some("builtin-luna-ui".into()),
+                                           icons: [None, None, None] };
+        let art = load(&selection, 1).unwrap();
+        let font = art.font.unwrap();
+        // Valid Unicode noncharacter, deliberately absent from the bundled font.
+        let missing = '\u{10ffff}';
+        assert_eq!(font.font.lookup_glyph_index(missing), 0);
+        assert_eq!(font.measure_text(&format!("A{missing}V")), font.measure_text("A?V"));
+        let mut actual = vec![0_u8; 180 * 32 * 4];
+        let mut expected = actual.clone();
+        font.draw(&mut actual, 180, 32, 4, 4, &format!("A{missing}V"), 0xffff_ffff, false);
+        font.draw(&mut expected, 180, 32, 4, 4, "A?V", 0xffff_ffff, false);
+        assert_eq!(actual, expected);
+        assert!(actual.iter().any(|byte| *byte != 0));
     }
 
     #[test]
