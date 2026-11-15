@@ -3576,7 +3576,7 @@ impl RicePlate {
         paint_panel_pointer(canvas, mirror.width, mirror.height, &self.recipe, &groups,
                     &self.clock, &self.power, &self.system_status, &self.tray_state,
                     mirror.task_offset, selected, self.control_pending, self.control_result,
-                    visual);
+                    self.control_sender.is_some(), visual);
         surface.damage_buffer(0, 0, mirror.width as i32, mirror.height as i32);
         if let Err(error) = buffer.attach_to(surface) {
             eprintln!("RicePlate: cannot attach output panel: {error}");
@@ -4903,7 +4903,7 @@ impl RicePlate {
         paint_panel_pointer(canvas, width, height, &self.recipe, &groups,
                     &self.clock, &self.power, &self.system_status, &self.tray_state,
                     self.task_offset, selected, self.control_pending, self.control_result,
-                    visual);
+                    self.control_sender.is_some(), visual);
         surface.damage_buffer(0, 0, width as i32, height as i32);
         if let Err(error) = buffer.attach_to(surface) {
             eprintln!("RicePlate: failed to attach Wayland buffer: {error}");
@@ -4930,14 +4930,15 @@ fn paint_panel(canvas: &mut [u8], width: u32, height: u32,
                result: Option<(ControlAction, bool)>) {
     paint_panel_pointer(canvas, width, height, style, groups, clock,
                         power, status, tray_state, offset, selected, pending, result,
-                        PanelPointerVisual::default());
+                        true, PanelPointerVisual::default());
 }
 
 fn paint_panel_pointer(canvas: &mut [u8], width: u32, height: u32,
                style: &PanelStyle, groups: &[TaskGroup], clock: &str,
                power: &PowerStatus, status: &SystemStatus, tray_state: &tray::State, offset: usize,
                selected: Option<KeyboardTarget>, pending: Option<ControlAction>,
-               result: Option<(ControlAction, bool)>, visual: PanelPointerVisual) {
+               result: Option<(ControlAction, bool)>, worker_ready: bool,
+               visual: PanelPointerVisual) {
     // Unrelated recipes and the original xp-luna preview retain byte-identical
     // historical framebuffers: native pointer effects are strictly opt in.
     let visual = if style.id == "xp-luna-columns" {
@@ -5026,7 +5027,7 @@ fn paint_panel_pointer(canvas: &mut [u8], width: u32, height: u32,
                     }
                     let control = action.control.then(|| ControlAction::from_id(&action.id)).flatten();
                     let feedback = control.map(|item|
-                        ControlFeedback::snapshot(item, status, pending, result, true));
+                        ControlFeedback::snapshot(item, status, pending, result, worker_ready));
                     let available = feedback.is_none_or(ControlFeedback::is_actionable);
                     if available {
                         fill_rounded_rect(canvas, width, height, placed.x + 2, 3,
@@ -9029,7 +9030,7 @@ mod tests {
             let mut frame = vec![0; (width * style.height * 4) as usize];
             paint_panel_pointer(&mut frame, width, style.height, style, &groups, "12:00",
                                 &PowerStatus::NotPresent, &SystemStatus::default(),
-                                &tray::State::default(), 0, None, None, None, visual);
+                                &tray::State::default(), 0, None, None, None, true, visual);
             frame
         };
         let idle = render(&luna, PanelPointerVisual::default());
@@ -9193,6 +9194,41 @@ mod tests {
                                     Some((ControlAction::WifiToggle, false))));
         let muted = SystemStatus { audio: Audio::Muted, ..working };
         assert_ne!(available, render(&muted, None, None));
+    }
+
+    #[test]
+    fn panel_paint_disables_controls_when_the_worker_is_missing() {
+        let style = recipe::parse(
+            include_str!("../../../tests/fixtures/riceplate-controls-v7.json"),
+            Some("mockup-controls")).unwrap();
+        let width = 1280;
+        let status = SystemStatus {
+            network: system_status::Network::Global,
+            audio: Audio::Volume(45),
+            wifi: system_status::WifiRadio::Enabled,
+            bluetooth: system_status::BluetoothRadio::Unavailable,
+        };
+        let render = |worker_ready| {
+            let mut pixels = vec![0; (width * style.height * 4) as usize];
+            paint_panel_pointer(&mut pixels, width, style.height, &style, &[], "12:00",
+                &PowerStatus::NotPresent, &status, &tray::State::default(), 0,
+                None, None, None, worker_ready, PanelPointerVisual::default());
+            pixels
+        };
+        let live = render(true);
+        let missing_worker = render(false);
+        let control = recipe::layout(&style, width, 0).into_iter()
+            .find(|item| matches!(item.widget, Widget::Action(_)))
+            .expect("fixture must contain an actionable control");
+        assert!((control.x..control.x + control.width).any(|x| {
+            (0..style.height).any(|y| {
+                let offset = ((y * width + x) * 4) as usize;
+                live[offset..offset + 4] != missing_worker[offset..offset + 4]
+            })
+        }), "an unavailable worker must change real control pixels");
+        assert_eq!(ControlFeedback::snapshot(ControlAction::WifiToggle, &status,
+                                             None, None, false),
+                   ControlFeedback::Unavailable);
     }
 
     #[test]
