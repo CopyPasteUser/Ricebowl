@@ -353,6 +353,57 @@ class WaylandSessionTests(unittest.TestCase):
         self.assertEqual([cmd[0] for cmd in commands],
                          ["/usr/bin/swayidle", "/usr/bin/waybar"])
 
+    def test_supervisor_cleanup_is_bounded_even_if_killed_child_never_reaps(self):
+        class StuckChild:
+            def __init__(self):
+                self.signals = []
+                self.timeouts = []
+            def poll(self):
+                return None
+            def terminate(self):
+                self.signals.append("TERM")
+            def kill(self):
+                self.signals.append("KILL")
+            def wait(self, timeout=None):
+                self.timeouts.append(timeout)
+                raise session.subprocess.TimeoutExpired("owned-child", timeout)
+
+        stuck = StuckChild()
+        with mock.patch("sys.stderr") as log:
+            session._stop_process(stuck)
+        self.assertEqual(stuck.signals, ["TERM", "KILL"])
+        self.assertEqual(stuck.timeouts, [3, 2])
+        self.assertTrue(log.called)
+        # Teardown must continue to later independent children after failure.
+        sibling = _FakeProcess()
+        session._stop_process(sibling)
+        self.assertTrue(sibling.terminated)
+
+    def test_supervisor_cleanup_tolerates_exit_races_during_term_and_kill(self):
+        class ExitDuringTerm:
+            def poll(self):
+                return None
+            def terminate(self):
+                raise ProcessLookupError("gone")
+            def wait(self, timeout=None):
+                self.fail("must not wait for nonexisting child")
+        class ExitDuringKill:
+            def __init__(self):
+                self.timeouts = []
+            def poll(self):
+                return None
+            def terminate(self):
+                pass
+            def wait(self, timeout=None):
+                self.timeouts.append(timeout)
+                raise session.subprocess.TimeoutExpired("owned-child", timeout)
+            def kill(self):
+                raise ProcessLookupError("child already reaped")
+        session._stop_process(ExitDuringTerm())
+        child = ExitDuringKill()
+        session._stop_process(child)
+        self.assertEqual(child.timeouts, [3])
+
     def test_no_idle_guard_keeps_nested_immediate_wait(self):
         proc = _FakeProcess()
         self.assertEqual(session._wait_with_idle_guard(proc, None), (0, False))
