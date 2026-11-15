@@ -1660,9 +1660,10 @@ mod tests {
                            Some("quick-controls")).unwrap();
         let menu = recipe.menu.as_ref().unwrap();
         assert_eq!(menu.groups[1].actions,
-                   ["wifi-toggle", "bluetooth-toggle", "audio-mute", "audio-up", "audio-down"]);
+                   ["wifi-toggle", "audio-mute", "audio-up", "audio-down"]);
         assert_eq!(menu.groups[2].actions,
                    ["notifications", "lock", "logout"]);
+        assert_eq!(menu.groups[3].actions, ["bluetooth-toggle"]);
     }
 
     #[test]
