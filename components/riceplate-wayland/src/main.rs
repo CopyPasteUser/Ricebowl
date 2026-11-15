@@ -6971,6 +6971,21 @@ impl KeyboardHandler for RicePlate {
                 eprintln!("RicePlate: XDG focus lease observed keyboard enter elsewhere");
             }
             if self.desktop_keyboard_focus_lease.compositor_enter(&seat, surface) {
+                // Exclusive is needed only for acquiring initial focus from
+                // labwc when Bottom-layer desktop icons cannot focus directly.
+                // Downgrade the confirmed, 8px temporary Overlay surface to
+                // OnDemand immediately. Retaining Exclusive here can prevent
+                // ordinary XDG toplevels from obtaining keyboard focus even
+                // after they map and receive a real pointer gesture.
+                // Ownership still requires the exact compositor-confirmed
+                // wl_keyboard.enter, and Leave always revokes the lease.
+                if let Some(focus) = self.desktop_keyboard_focus_layer.as_ref() {
+                    if focus.surface.wl_surface() == surface {
+                        focus.surface.set_keyboard_interactivity(
+                            KeyboardInteractivity::OnDemand);
+                        focus.surface.commit();
+                    }
+                }
                 if std::env::var("RICEBOWL_DE_TRACE_FOCUS").as_deref() == Ok("1") {
                     match self.desktop_keyboard_focus_layer.as_ref().map(|l| &l.target) {
                         Some(DesktopFocusTarget::File(_)) =>
@@ -7057,6 +7072,13 @@ impl KeyboardHandler for RicePlate {
         _: u32,
     ) {
         if self.keyboard.as_ref() != Some(keyboard) { return; }
+        // Closing the ephemeral 8px desktop keyboard focus on the next mouse
+        // Press generates an asynchronous wl_keyboard.leave. That event must
+        // NOT erase the preceding mouse Release: otherwise a normal second
+        // click can never be recognized as a double-click with a connected
+        // keyboard. Different application/menu surfaces still invalidate it.
+        let temporary_desktop_leave =
+            self.desktop_keyboard_focus_lease.was_last_surface(surface);
         if let Some(seat) = self.seat_assignments.keyboard_owner().cloned() {
             if self.desktop_keyboard_focus_lease.compositor_leave(&seat, surface) {
                 self.close_desktop_keyboard_focus();
@@ -7064,7 +7086,9 @@ impl KeyboardHandler for RicePlate {
         }
         // Never retain Ctrl/Shift after compositor keyboard focus leaves.
         self.selection_modifiers = Modifiers::default();
-        self.desktop_selection.cancel();
+        if !temporary_desktop_leave {
+            self.desktop_selection.cancel();
+        }
         if self.luna_dialog.as_ref().is_some_and(|dialog|
             dialog.surface.wl_surface() == surface) {
             // A modal Run/Help dialog outlives temporary keyboard-seat
@@ -8517,6 +8541,15 @@ impl Dispatch<ZwlrForeignToplevelManagerV1, ()> for RicePlate {
     ) {
         match event {
             zwlr_foreign_toplevel_manager_v1::Event::Toplevel { toplevel } => {
+                // A newly created ordinary application must not be starved by
+                // the 8px Exclusive desktop keyboard lease. Waiting for that
+                // window to become active is circular: the lease can prevent
+                // the compositor from granting its first keyboard focus.
+                // Retire the lease on this actual compositor new-toplevel
+                // event; the app still needs its own normal focus negotiation.
+                if state.desktop_keyboard_focus_layer.is_some() {
+                    state.close_desktop_keyboard_focus();
+                }
                 if state.tasks.len() >= recipe::MAX_TRACKED_TASKS {
                     toplevel.destroy();
                 } else {

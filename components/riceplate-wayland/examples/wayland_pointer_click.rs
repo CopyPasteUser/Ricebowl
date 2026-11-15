@@ -44,6 +44,17 @@ impl Dispatch<wl_seat::WlSeat, ()> for Probe {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let values = std::env::args().skip(1).collect::<Vec<_>>();
+    // CI-only: keep the real virtual pointer attached briefly after a
+    // click while an independent virtual keyboard types into the new client.
+    // Destroying the pointer immediately may withdraw compositor seat focus.
+    // The duration is hard-capped; never leave an indefinite input device.
+    let hold_ms = if values.first().map(String::as_str) == Some("--hold-ms") {
+        let amount = values.get(1).ok_or("Missing --hold-ms duration")?.parse::<u32>()?;
+        if !(1..=15000).contains(&amount) {
+            return Err("Pointer hold must be 1..15000 milliseconds".into());
+        }
+        Some(amount)
+    } else { None };
     let move_only = values.first().map(String::as_str) == Some("--move-only");
     let scroll = match values.first().map(String::as_str) {
         Some("--scroll-down") => 1.0,
@@ -52,11 +63,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
     let right_click = values.first().map(String::as_str) == Some("--right-click");
     let drag = values.first().map(String::as_str) == Some("--drag-to");
-    let args = if move_only || scroll != 0.0 || right_click || drag {
-        &values[1..]
-    } else { &values[..] };
+    let args = if hold_ms.is_some() { &values[2..] }
+        else if move_only || scroll != 0.0 || right_click || drag {
+            &values[1..]
+        } else { &values[..] };
     if args.len() != if drag { 6 } else { 4 } {
-        return Err("Usage: wayland_pointer_click [--move-only|--scroll-down|--scroll-up|--right-click|--drag-to END_X END_Y] X Y OUTPUT_WIDTH OUTPUT_HEIGHT".into());
+        return Err("Usage: wayland_pointer_click [--hold-ms N|--move-only|--scroll-down|--scroll-up|--right-click|--drag-to END_X END_Y] X Y OUTPUT_WIDTH OUTPUT_HEIGHT".into());
     }
     let coordinates = args.iter().map(|arg| arg.parse::<u32>())
         .collect::<Result<Vec<_>, _>>()?;
@@ -117,6 +129,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         pointer.frame();
     }
     queue.roundtrip(&mut Probe)?;
+    if let Some(duration) = hold_ms {
+        println!("Pointer remains connected for {duration} ms after real click");
+        std::thread::sleep(Duration::from_millis(u64::from(duration)));
+    }
     pointer.destroy();
     manager.destroy();
     conn.flush()?;

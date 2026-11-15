@@ -345,6 +345,14 @@ impl<S: PartialEq, O: PartialEq, W: PartialEq + Clone> DesktopFocusLease<S, O, W
         }
     }
 
+    /// Identify a compositor Leave from a previously owned temporary
+    /// desktop focus surface, even if the caller already destroyed its layer
+    /// during the next pointer Press. This must not cancel pointer double-click
+    /// recognition: keyboard focus teardown is independent of mouse timing.
+    pub(crate) fn was_last_surface(&self, surface: &W) -> bool {
+        self.last_surface.as_ref() == Some(surface)
+    }
+
     pub(crate) fn cancel(&mut self) {
         self.request = None;
         self.confirmed = false;
@@ -355,6 +363,19 @@ impl<S: PartialEq, O: PartialEq, W: PartialEq + Clone> DesktopFocusLease<S, O, W
 mod tests {
     use super::*;
     use crate::recipe::Widget;
+
+    #[test]
+    fn recently_closed_focus_surface_remains_identifiable_for_late_keyboard_leave() {
+        let mut lease = DesktopFocusLease::<&str, &str, &str>::default();
+        lease.request(DesktopFocusIntent::PointerSelection, "seat", "output", "ephemeral");
+        assert!(lease.was_last_surface(&"ephemeral"));
+        assert!(!lease.was_last_surface(&"unrelated"));
+        lease.cancel();
+        assert!(lease.was_last_surface(&"ephemeral"));
+        lease.request(DesktopFocusIntent::PointerSelection, "seat", "output", "next");
+        assert!(!lease.was_last_surface(&"ephemeral"));
+        assert!(lease.was_last_surface(&"next"));
+    }
 
     #[test]
     fn desktop_focus_is_not_fabricated_by_a_pointer_selection() {

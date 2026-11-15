@@ -168,6 +168,9 @@ dbus-run-session -- sh -eu -c '
     compositor=$!
     plate=
     wallpaper=
+    keyboard_keeper=
+    focus_clicker=
+    focus_typer=
     cleanup() {
         if [ -s "$runtime/clip-action-gui.pid" ]; then
             clip_pid=$(cat "$runtime/clip-action-gui.pid" 2>/dev/null || :)
@@ -179,6 +182,18 @@ dbus-run-session -- sh -eu -c '
         if [ -n "$wallpaper" ]; then
             kill "$wallpaper" 2>/dev/null || :
             wait "$wallpaper" 2>/dev/null || :
+        fi
+        if [ -n "$focus_clicker" ]; then
+            kill -TERM "$focus_clicker" 2>/dev/null || :
+            wait "$focus_clicker" 2>/dev/null || :
+        fi
+        if [ -n "$focus_typer" ]; then
+            kill -TERM "$focus_typer" 2>/dev/null || :
+            wait "$focus_typer" 2>/dev/null || :
+        fi
+        if [ -n "$keyboard_keeper" ]; then
+            kill -TERM "$keyboard_keeper" 2>/dev/null || :
+            wait "$keyboard_keeper" 2>/dev/null || :
         fi
         if [ -n "$plate" ]; then
             kill "$plate" 2>/dev/null || :
@@ -204,6 +219,20 @@ dbus-run-session -- sh -eu -c '
         sed -n "1,70p" "$runtime/labwc.log" >&2
         exit 1
     fi
+    # An actual connected keyboard is persistent in a desktop session. Keep
+    # this inert, private virtual keyboard connected to headless labwc across
+    # every test. Without it, wtype disconnect/reconnect changes wl_seat
+    # capabilities and races pointer focus. F13 has no desktop side effects.
+    # Long sleep is bounded by owning this exact PID and terminating on EXIT.
+    WAYLAND_DISPLAY=wayland-0 wtype -k F13 -s 1800000 -k F13 \
+        > "$runtime/keyboard-keeper.log" 2>&1 &
+    keyboard_keeper=$!
+    sleep 0.3
+    kill -0 "$keyboard_keeper" || {
+        echo "Private persistent keyboard failed to connect" >&2
+        cat "$runtime/keyboard-keeper.log" >&2
+        exit 1
+    }
     for recipe in classic chrome "$runtime/custom.json" "$runtime/nested.json" "$runtime/shell-v4.json" "$runtime/desktop-v5.json" "$runtime/actions-v6.json" "$runtime/riceclip-actions.json" "$runtime/controls-v7.json" "$runtime/layout-v8.json" "$runtime/components-v9.json" "$runtime/desktop-actions-v9.json" "$runtime/appearance-v10.json" "$runtime/xp-luna-columns.json" "$runtime/xp-luna-default-icons.json" "$runtime/xp-luna-columns-menu" "$runtime/xp-luna-font-menu" "$runtime/xp-luna-columns-calendar" "$runtime/xp-luna-font-calendar" "$runtime/xp-luna-columns-osd" "$runtime/xp-luna-font-osd" "$runtime/xp-luna-columns-notifications" "$runtime/xp-luna-columns-notifications-scroll" "$runtime/xp-luna-font-notifications" "$runtime/xp-luna-columns-notification-detail" "$runtime/xp-luna-font-notification-detail" "$runtime/overflow-v5.json" "$runtime/desktop-v5-menu" "$runtime/sidebar-v6-menu" "$runtime/composed-v6-menu" "$runtime/desktop-v5-calendar"; do
         case "$recipe" in
             */desktop-v5-calendar) label=calendar-v5 ;;
@@ -739,21 +768,36 @@ PY
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/luna-shortcut-before-prefix.png"
             cp "$runtime/luna-shortcut-before-prefix.png" \
                 "$source_root/dist/riceplate-native-preview/luna-shortcut-before-prefix.png"
-            # labwc headless has no physical keyboard. Its real virtual
-            # keyboard MUST exist before the pointer gesture; the same-seat
-            # policy correctly rejects late keyboard capabilities.
-            WAYLAND_DISPLAY=wayland-0 wtype -d 600 -k F13 -k F13 -k F13 p -k F13 -k F13 \
-                > "$runtime/luna-shortcut-wtype.log" 2>&1 &
-            shortcut_typer=$!
-            sleep 0.2
-            kill -0 "$shortcut_typer" || {
-                echo "Shortcut virtual keyboard exited before pointer gesture" >&2
-                cat "$runtime/luna-shortcut-wtype.log" >&2
+            # The persistent keyboard must have been announced to this
+            # RicePlate instance before the pointer initiates keyboard focus.
+            # Only the real compositor keyboard Enter authorizes typing.
+            test "$(grep -Fc "RicePlate: XDG seat keyboard announced" \
+                "$runtime/plate-$label.log" || :)" -gt 0 || {
+                echo "Persistent keyboard was not announced to native shortcuts" >&2
+                tail -n 40 "$runtime/plate-$label.log" >&2
                 exit 1
             }
+            shortcut_confirms_before=$(grep -Fc \
+                "RicePlate: compositor confirmed Luna shortcut keyboard focus" \
+                "$runtime/plate-$label.log" || :)
             WAYLAND_DISPLAY=wayland-0 "$clicker" 68 435 1366 768
-            wait "$shortcut_typer" || {
-                echo "Virtual keyboard failed during Luna focus check" >&2
+            count=0
+            while [ "$count" -lt 30 ]; do
+                shortcut_confirms_after=$(grep -Fc \
+                    "RicePlate: compositor confirmed Luna shortcut keyboard focus" \
+                    "$runtime/plate-$label.log" || :)
+                test "$shortcut_confirms_after" -gt "$shortcut_confirms_before" && break
+                count=$((count + 1))
+                sleep 0.1
+            done
+            test "$shortcut_confirms_after" -gt "$shortcut_confirms_before" || {
+                echo "Compositor did not grant real shortcut keyboard focus" >&2
+                tail -n 50 "$runtime/plate-$label.log" >&2
+                exit 1
+            }
+            WAYLAND_DISPLAY=wayland-0 wtype -d 120 p \
+                > "$runtime/luna-shortcut-wtype.log" 2>&1 || {
+                echo "Typing via connected virtual keyboard failed" >&2
                 cat "$runtime/luna-shortcut-wtype.log" >&2
                 exit 1
             }
@@ -796,13 +840,28 @@ PY
             # Reacquire via a fresh physical pointer gesture while a REAL
             # virtual keyboard remains connected, then send Escape on that
             # very seat. Detached wtype cannot retroactively claim focus.
-            WAYLAND_DISPLAY=wayland-0 wtype -d 600 -k F13 -k F13 -k F13 -k Escape -k F13 -k F13 \
-                > "$runtime/luna-shortcut-escape-wtype.log" 2>&1 &
-            escape_typer=$!
-            sleep 0.2
-            kill -0 "$escape_typer"
+            shortcut_confirms_before=$(grep -Fc \
+                "RicePlate: compositor confirmed Luna shortcut keyboard focus" \
+                "$runtime/plate-$label.log" || :)
+            # Re-enter the desktop via a genuine pointer gesture before
+            # typing Escape. No keyboard reconnection or fixed typing delay.
             WAYLAND_DISPLAY=wayland-0 "$clicker" 68 435 1366 768
-            wait "$escape_typer" || {
+            count=0
+            while [ "$count" -lt 30 ]; do
+                shortcut_confirms_after=$(grep -Fc \
+                    "RicePlate: compositor confirmed Luna shortcut keyboard focus" \
+                    "$runtime/plate-$label.log" || :)
+                test "$shortcut_confirms_after" -gt "$shortcut_confirms_before" && break
+                count=$((count + 1))
+                sleep 0.1
+            done
+            test "$shortcut_confirms_after" -gt "$shortcut_confirms_before" || {
+                echo "Compositor did not grant fresh focus before shortcut Escape" >&2
+                tail -n 45 "$runtime/plate-$label.log" >&2
+                exit 1
+            }
+            WAYLAND_DISPLAY=wayland-0 wtype -k Escape \
+                > "$runtime/luna-shortcut-escape-wtype.log" 2>&1 || {
                 cat "$runtime/luna-shortcut-escape-wtype.log" >&2
                 exit 1
             }
@@ -1166,6 +1225,7 @@ PY
     ln -s /etc/passwd "$runtime/file-home/Desktop/02-outside-link"
     HOME="$runtime/file-home" XDG_CONFIG_HOME="$runtime/file-config" \
         RICEBOWL_DE_NESTED=0 RICEBOWL_DE_TRACE_FILES=1 RICEBOWL_DE_TRACE_FOCUS=1 \
+        RICEBOWL_DE_TRACE_WINDOWS=1 \
         PATH="$runtime/mock-bin:$PATH" \
         RICEBOWL_CI_TRASH_LOG="$runtime/full-gio.log" \
         RICEBOWL_CI_RICEFIELD_LOG="$runtime/full-ricefield.log" \
@@ -1246,10 +1306,12 @@ PY
     # wtype creates the only keyboard seat after the focus lease request and
     # the fail-closed same-seat policy correctly rejects it. Never fabricate
     # keyboard.enter or bypass seat routing in the production runtime.
-    WAYLAND_DISPLAY=wayland-0 wtype -d 650 -k F13 0 -k Return \
+    WAYLAND_DISPLAY=wayland-0 wtype -d 650 -k F13 -k F13 0 -k Return \
         > "$runtime/xdg-wtype.log" 2>&1 &
     xdg_typer=$!
-    sleep 0.20
+    # Give the virtual keyboard wl_seat capability time to arrive
+    # before requesting a same-seat focus lease. Never inject fake Enter.
+    sleep 0.55
     kill -0 "$xdg_typer" || {
         echo "Headless XDG virtual keyboard exited before pointer focus request" >&2
         cat "$runtime/xdg-wtype.log" >&2
@@ -1608,37 +1670,246 @@ with Image.open(sys.argv[1]) as a, Image.open(sys.argv[2]) as b:
 PY
     echo "Verified actual XDG icon pointer drag, owner-private persistence, screenshot change and no file operation"
     # A real external Wayland application must regain the keyboard after a
-    # desktop icon is intentionally selected. No global grab may survive.
+    # desktop icon is intentionally selected. Headless labwc has no physical
+    # keyboard: connect the test keyboard BEFORE requesting focus and retain
+    # the same live seat across desktop -> GTK -> typed input. A late wtype
+    # invocation does not test this focus transition and previously generated
+    # NoKeyboardProxy errors instead of a meaningful external-app assertion.
     file_position=$(sed -n "s/.*XDG mapped x=\([0-9][0-9]*\) y=\([0-9][0-9]*\) kind=File.*/\1 \2/p" \
         "$runtime/file-plate.log" | tail -n 1)
     test -n "$file_position"
     set -- $file_position
-    WAYLAND_DISPLAY=wayland-0 "$clicker" "$(($1 + 52))" "$(($2 + 43))" 1366 768
-    sleep 0.2
-    grep -Fq "RicePlate: XDG file focus surface requested" "$runtime/file-plate.log" || {
-        echo "Native desktop failed to request compositor-confirmed keyboard focus" >&2
+    # wtype - reads stdin only after creating its virtual keyboard and
+    # uploading the keymap. Keep the SAME real keyboard device attached
+    # from before desktop selection through external GTK focus and typing.
+    # A fresh wtype launched after focus can race labwc input-device routing.
+    # The producer is bounded and emits text only after both the actual
+    # GTK focus event and a real compositor pointer click.
+    (
+        count=0
+        while [ "$count" -lt 150 ]; do
+            if [ -s "$runtime/focus-focused.log" ] &&
+                grep -Fq "Pointer remains connected" "$runtime/focus-pointer-click.log" 2>/dev/null; then
+                printf "%s" ricebowl-focus-ok
+                exit 0
+            fi
+            count=$((count + 1))
+            sleep 0.1
+        done
+        exit 1
+    ) | WAYLAND_DISPLAY=wayland-0 wtype - -k Return \
+        > "$runtime/focus-wtype.log" 2>&1 &
+    focus_typer=$!
+    sleep 0.3
+    kill -0 "$focus_typer" || {
+        echo "Persistent external-app virtual keyboard failed to attach" >&2
+        cat "$runtime/focus-wtype.log" >&2
+        exit 1
+    }
+    focus_confirmations_before=$(grep -Fc "RicePlate: compositor confirmed XDG file keyboard focus" "$runtime/file-plate.log" || :)
+    focus_releases_before=$(grep -Fc "RicePlate: XDG file keyboard focus released" "$runtime/file-plate.log" || :)
+    # Use the same long-lived keyboard seat as all earlier XDG acceptance.
+    # A new wl_seat capability announcement is NOT needed per wtype process.
+    test "$(grep -Fc "RicePlate: XDG seat keyboard announced" \
+        "$runtime/file-plate.log" || :)" -gt 0 || {
+        echo "Persistent keyboard not announced to XDG file desktop" >&2
         tail -n 45 "$runtime/file-plate.log" >&2
         exit 1
     }
-    cat > "$runtime/focus-receiver.sh" <<"RECEIVER"
-#!/bin/sh
-set -eu
-IFS= read -r input
-printf %s "$input" > "$FOCUS_RECEIVER_LOG"
+    WAYLAND_DISPLAY=wayland-0 "$clicker" "$(($1 + 52))" "$(($2 + 43))" 1366 768
+    count=0
+    while [ "$count" -lt 18 ]; do
+        focus_confirmations_after=$(grep -Fc "RicePlate: compositor confirmed XDG file keyboard focus" "$runtime/file-plate.log" || :)
+        test "$focus_confirmations_after" -gt "$focus_confirmations_before" && break
+        count=$((count + 1))
+        sleep 0.1
+    done
+    test "$focus_confirmations_after" -gt "$focus_confirmations_before" || {
+        echo "Real compositor did not deliver fresh XDG keyboard Enter on this seat" >&2
+        tail -n 45 "$runtime/file-plate.log" >&2
+        exit 1
+    }
+    # New external-app handoff must release this confirmed lease, not a
+    # previous desktop selection that happened earlier in the test.
+    focus_releases_after_icon=$(grep -Fc "RicePlate: XDG file keyboard focus released" "$runtime/file-plate.log" || :)
+    # Framebuffer before a real external toplevel lets the failing CI show
+    # whether that application became visible, independent of keyboard events.
+    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/focus-before-app.png"
+    # Fullscreen is confined to this disposable headless compositor. This
+    # is a real, normal GTK3 Wayland client, not an input mock or synthetic
+    # wl_keyboard event. Its actual Entry activates only on typed Return.
+    cat > "$runtime/focus-receiver.py" <<"RECEIVER"
+import os
+from pathlib import Path
+
+import gi
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+from gi.repository import GLib, Gdk, Gtk
+
+ready = Path(os.environ["FOCUS_RECEIVER_READY"])
+focused = Path(os.environ["FOCUS_RECEIVER_FOCUSED"])
+received = Path(os.environ["FOCUS_RECEIVER_LOG"])
+pointer = Path(os.environ["FOCUS_RECEIVER_POINTER"])
+geometry = Path(os.environ["FOCUS_RECEIVER_GEOMETRY"])
+keys = Path(os.environ["FOCUS_RECEIVER_KEYS"])
+typed = Path(os.environ["FOCUS_RECEIVER_TEXT"])
+window = Gtk.Window(title="RiceBowl external Wayland keyboard witness")
+window.set_default_size(880, 520)
+window.fullscreen()
+entry = Gtk.Entry()
+entry.set_hexpand(True)
+entry.set_vexpand(True)
+window.add(entry)
+
+def mapped(*unused):
+    ready.write_text("mapped\n")
+    x, y = window.get_position()
+    w, h = window.get_size()
+    geometry.write_text(f"mapped position={x},{y} size={w}x{h}\n")
+    return False
+
+def clicked(widget, event):
+    pointer.write_text(f"hit widget={type(widget).__name__} at={event.x:.0f},{event.y:.0f}\n")
+    return False
+
+def keyboard_focused(*unused):
+    # The compositor has focused the real XDG window. Also focus the child
+    # entry *after* the window focus-in; focus before map is not sufficient
+    # evidence that a specific GTK widget can consume keyboard input.
+    entry.grab_focus()
+    def confirm_entry_focus():
+        if window.is_active() and entry.has_focus():
+            focused.write_text("compositor-window-and-gtk-entry-focused\n")
+        else:
+            geometry.write_text(geometry.read_text() +
+                f"gtk-focus-failed window={window.is_active()} entry={entry.has_focus()}\n")
+        return False
+    GLib.idle_add(confirm_entry_focus)
+    return False
+
+def record_key(widget, event):
+    with keys.open("a") as log:
+        log.write(f"{Gdk.keyval_name(event.keyval)}\n")
+    return False
+
+def record_text(widget):
+    typed.write_text(widget.get_text())
+
+def activated(widget):
+    received.write_text(widget.get_text())
+    Gtk.main_quit()
+
+def focus_left(*unused):
+    with geometry.open("a") as log:
+        log.write("window-focus-out\\n")
+    return False
+
+def entry_focus_left(*unused):
+    with geometry.open("a") as log:
+        log.write("entry-focus-out\\n")
+    return False
+
+window.connect("focus-in-event", keyboard_focused)
+window.connect("focus-out-event", focus_left)
+window.connect("map-event", mapped)
+window.connect("button-press-event", clicked)
+window.connect("destroy", Gtk.main_quit)
+entry.connect("button-press-event", clicked)
+entry.connect("focus-out-event", entry_focus_left)
+entry.connect("key-press-event", record_key)
+entry.connect("changed", record_text)
+entry.connect("activate", activated)
+window.show_all()
+window.set_focus(entry)
+entry.grab_focus()
+GLib.timeout_add_seconds(20, Gtk.main_quit)
+Gtk.main()
 RECEIVER
-    chmod 0700 "$runtime/focus-receiver.sh"
-    FOCUS_RECEIVER_LOG="$runtime/focus-input.log" \
-        WAYLAND_DISPLAY=wayland-0 \
-        foot --app-id=ricebowl-focus-receiver --title=RiceBowl-Focus-Probe \
-        /bin/sh "$runtime/focus-receiver.sh" >"$runtime/focus-app.log" 2>&1 &
+    FOCUS_RECEIVER_READY="$runtime/focus-ready.log" \
+        FOCUS_RECEIVER_FOCUSED="$runtime/focus-focused.log" \
+        FOCUS_RECEIVER_POINTER="$runtime/focus-pointer.log" \
+        FOCUS_RECEIVER_GEOMETRY="$runtime/focus-geometry.log" \
+        FOCUS_RECEIVER_KEYS="$runtime/focus-keys.log" \
+        FOCUS_RECEIVER_TEXT="$runtime/focus-text.log" \
+        FOCUS_RECEIVER_LOG="$runtime/focus-input.log" \
+        GDK_BACKEND=wayland WAYLAND_DISPLAY=wayland-0 WAYLAND_DEBUG=1 \
+        /usr/bin/python3 -B "$runtime/focus-receiver.py" \
+        >"$runtime/focus-app.log" 2>&1 &
     focus_app=$!
-    sleep 0.7
+    count=0
+    while [ ! -s "$runtime/focus-ready.log" ] && [ "$count" -lt 40 ]; do
+        kill -0 "$focus_app" 2>/dev/null || break
+        count=$((count + 1))
+        sleep 0.1
+    done
+    test -s "$runtime/focus-ready.log" || {
+        echo "Real external GTK Wayland window did not map" >&2
+        tail -n 50 "$runtime/focus-app.log" >&2
+        exit 1
+    }
     kill -0 "$focus_app" || {
-        echo "External Wayland keyboard receiver exited early" >&2
+        echo "External Wayland keyboard witness exited early" >&2
         cat "$runtime/focus-app.log" >&2
         exit 1
     }
-    WAYLAND_DISPLAY=wayland-0 wtype -d 100 ricebowl-focus-ok -k Return
+    WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/focus-after-map.png"
+    /usr/bin/python3 - "$runtime/focus-before-app.png" "$runtime/focus-after-map.png" <<"PY"
+from PIL import Image, ImageChops
+import sys
+with Image.open(sys.argv[1]) as before, Image.open(sys.argv[2]) as after:
+    assert before.size == after.size == (1366, 768)
+    crop = (250, 100, 1100, 650)
+    delta = ImageChops.difference(before.convert("RGB").crop(crop),
+                                  after.convert("RGB").crop(crop))
+    changed = sum(max(px) > 20 for px in delta.getdata())
+    print(f"External GTK toplevel compositor framebuffer changed pixels: {changed}", flush=True)
+PY
+    # The compositor must report the new toplevel and RicePlate must
+    # retire its Exclusive desktop focus before the pointer activates it.
+    # A map-event is not sufficient proof of compositor keyboard ownership.
+    count=0
+    while [ "$count" -lt 40 ]; do
+        focus_releases_on_map=$(grep -Fc "RicePlate: XDG file keyboard focus released" "$runtime/file-plate.log" || :)
+        test "$focus_releases_on_map" -gt "$focus_releases_after_icon" && break
+        count=$((count + 1))
+        sleep 0.1
+    done
+    test "$focus_releases_on_map" -gt "$focus_releases_after_icon" || {
+        echo "New app toplevel did not revoke exclusive desktop keyboard surface" >&2
+        tail -n 50 "$runtime/file-plate.log" >&2
+        exit 1
+    }
+    # Keep the actual compositor-assigned pointer connection alive until
+    # GTK has received a real keyboard event. Otherwise the CI clicker tears
+    # down the virtual pointer immediately and can withdraw seat focus before
+    # a separate wtype client even starts.
+    WAYLAND_DISPLAY=wayland-0 "$clicker" --hold-ms 12000 683 384 1366 768 \
+        > "$runtime/focus-pointer-click.log" 2>&1 &
+    focus_clicker=$!
+    count=0
+    while [ ! -s "$runtime/focus-focused.log" ] && [ "$count" -lt 30 ]; do
+        count=$((count + 1))
+        sleep 0.1
+    done
+    test -s "$runtime/focus-focused.log" || {
+        echo "External GTK Wayland client never received compositor keyboard focus" >&2
+        cat "$runtime/focus-pointer-click.log" >&2
+        cat "$runtime/focus-geometry.log" 2>/dev/null || :
+        cat "$runtime/focus-pointer.log" 2>/dev/null || :
+        tail -n 45 "$runtime/file-plate.log" >&2
+        tail -n 45 "$runtime/focus-app.log" >&2
+        exit 1
+    }
+    # Input comes from the already-connected wtype process above, which
+    # receives stdin only after the compositor click and GTK focus signal.
+    # Never create a replacement keyboard at the critical handoff.
+    wait "$focus_typer" || {
+        echo "Preconnected external-app virtual keyboard failed" >&2
+        cat "$runtime/focus-wtype.log" >&2
+        exit 1
+    }
+    focus_typer=
     count=0
     while [ ! -s "$runtime/focus-input.log" ] && [ "$count" -lt 30 ]; do
         count=$((count + 1))
@@ -1646,12 +1917,30 @@ RECEIVER
     done
     test "$(cat "$runtime/focus-input.log" 2>/dev/null || :)" = ricebowl-focus-ok || {
         echo "External Wayland app did not receive keyboard after XDG desktop focus" >&2
+        cat "$runtime/focus-geometry.log" 2>/dev/null >&2 || :
+        cat "$runtime/focus-pointer-click.log" >&2
+        echo "GTK text observed:" >&2
+        cat "$runtime/focus-text.log" 2>/dev/null >&2 || :
+        echo "GTK key events observed:" >&2
+        tail -n 35 "$runtime/focus-keys.log" 2>/dev/null >&2 || :
         tail -n 50 "$runtime/file-plate.log" >&2
         tail -n 35 "$runtime/focus-app.log" >&2
+        cat "$runtime/focus-wtype.log" >&2
+        echo "External GTK Wayland keyboard/pointer protocol events:" >&2
+        grep -E "wl_(keyboard|pointer)@.*\.(enter|leave|key|modifiers|button)" \
+            "$runtime/focus-app.log" | tail -n 70 >&2 || :
+        echo "External GTK Wayland focused state:" >&2
+        cat "$runtime/focus-focused.log" "$runtime/focus-geometry.log" \
+            "$runtime/focus-pointer.log" 2>/dev/null >&2 || :
         exit 1
     }
-    grep -Fq "RicePlate: XDG file keyboard focus released" "$runtime/file-plate.log" || {
-        echo "Desktop exclusive keyboard surface was not revoked on app activation" >&2
+    kill -TERM "$focus_clicker" 2>/dev/null || :
+    wait "$focus_clicker" 2>/dev/null || :
+    focus_clicker=
+    focus_releases_after=$(grep -Fc "RicePlate: XDG file keyboard focus released" "$runtime/file-plate.log" || :)
+    test "$focus_releases_after" -gt "$focus_releases_after_icon" || {
+        echo "Compositor never revoked the fresh desktop keyboard lease on external app activation" >&2
+        tail -n 50 "$runtime/file-plate.log" >&2
         exit 1
     }
     echo "Verified keyboard input returned to an actual Wayland client after desktop icon focus"
