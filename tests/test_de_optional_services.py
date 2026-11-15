@@ -46,8 +46,11 @@ class OptionalWaylandServiceTests(unittest.TestCase):
                 raise OSError("executable failed after PATH lookup")
             return FakeProcess()
 
-        env = {**self.nested, "RICEBOWL_DE_PANEL": "native"}
-        with mock.patch("macrice.de.session.signal.signal"), mock.patch("sys.stderr"):
+        # Polkit and Mako are owned only by a separately selected full login.
+        env = {**self.nested, "RICEBOWL_DE_NESTED": "0",
+               "RICEBOWL_DE_PANEL": "native"}
+        with mock.patch("macrice.de.session.signal.signal"), mock.patch("sys.stderr"), \
+             mock.patch("macrice.de.notification_prefs.load_optional", return_value=None):
             result = session.shell(environment=env, which=self.tools.get, spawn=spawn)
         self.assertEqual(result, 0)
         self.assertIn("/usr/bin/mako", attempts)
@@ -97,9 +100,12 @@ class OptionalWaylandServiceTests(unittest.TestCase):
                 return FakeProcess(exit_code=1)
             return FakeProcess()
 
-        choices = {"waybar": "/usr/bin/waybar", "mako": "/usr/bin/mako"}
-        with mock.patch("macrice.de.session.signal.signal"), mock.patch("sys.stderr"):
-            self.assertEqual(session.shell(environment=self.nested,
+        choices = {"waybar": "/usr/bin/waybar", "mako": "/usr/bin/mako",
+                   "swayidle": "/usr/bin/swayidle", "swaylock": "/usr/bin/swaylock"}
+        with mock.patch("macrice.de.session.signal.signal"), mock.patch("sys.stderr"), \
+             mock.patch("macrice.de.notification_prefs.load_optional", return_value=None):
+            self.assertEqual(session.shell(environment={**self.nested,
+                                           "RICEBOWL_DE_NESTED": "0"},
                                            which=choices.get, spawn=spawn), 0)
         self.assertEqual(attempts.count("/usr/bin/mako"), 2)
         self.assertEqual(attempts.count("/usr/bin/waybar"), 1)
@@ -114,12 +120,31 @@ class OptionalWaylandServiceTests(unittest.TestCase):
                 return FakeProcess(exit_code=9) if attempts.count("/usr/bin/mako") == 1 else restarted
             return FakeProcess()
 
-        choices = {"waybar": "/usr/bin/waybar", "mako": "/usr/bin/mako"}
-        with mock.patch("macrice.de.session.signal.signal"), mock.patch("sys.stderr"):
-            self.assertEqual(session.shell(environment=self.nested,
+        choices = {"waybar": "/usr/bin/waybar", "mako": "/usr/bin/mako",
+                   "swayidle": "/usr/bin/swayidle", "swaylock": "/usr/bin/swaylock"}
+        with mock.patch("macrice.de.session.signal.signal"), mock.patch("sys.stderr"), \
+             mock.patch("macrice.de.notification_prefs.load_optional", return_value=None):
+            self.assertEqual(session.shell(environment={**self.nested,
+                                           "RICEBOWL_DE_NESTED": "0"},
                                            which=choices.get, spawn=spawn), 0)
         self.assertEqual(attempts.count("/usr/bin/mako"), 2)
         self.assertTrue(restarted.terminated)
+
+    def test_nested_preview_does_not_compete_for_optional_parent_bus_names(self):
+        attempts = []
+
+        def spawn(command, **kwargs):
+            attempts.append(command[0])
+            return FakeProcess()
+
+        with mock.patch("macrice.de.session.signal.signal"):
+            self.assertEqual(session.shell(environment=self.nested,
+                                           which=self.tools.get, spawn=spawn), 0)
+        self.assertNotIn("/usr/bin/mako", attempts)
+        self.assertNotIn("/usr/bin/lxpolkit", attempts)
+        self.assertNotIn("/usr/bin/mate-polkit", attempts)
+        self.assertNotIn("/usr/bin/swayidle", attempts)
+        self.assertIn("/usr/bin/waybar", attempts)
 
     def test_lock_watcher_starts_before_optional_full_session_clients(self):
         attempts = []
