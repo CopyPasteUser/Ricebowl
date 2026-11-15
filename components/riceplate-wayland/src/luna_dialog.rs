@@ -2,6 +2,7 @@
 //! Only explicit user input may
 //! launch programs; never interpret recipe data or invoke a command shell.
 use std::path::Path;
+use unicode_segmentation::UnicodeSegmentation;
 
 pub const WIDTH: u32 = 448;
 pub const HEIGHT: u32 = 232;
@@ -21,7 +22,8 @@ pub enum CursorMove { Left, Right, Home, End }
 pub struct State {
     pub kind: Kind,
     pub input: String,
-    /// Unicode scalar position, not a byte offset; never points into UTF-8.
+    /// Extended grapheme position, not a byte/scalar offset. Never splits
+    /// combining sequences, flags or ZWJ emoji during a rename/Run edit.
     pub cursor: usize,
     pub notice: Option<&'static str>,
     pub hover: Option<Hit>,
@@ -31,6 +33,15 @@ pub struct State {
 impl State {
     fn editable(&self) -> bool { matches!(self.kind, Kind::Run | Kind::FileRename) }
 
+    /// Byte boundaries of complete extended graphemes, including a final
+    /// end-of-input sentinel. The 192-scalar input cap bounds this Vec.
+    fn boundaries(&self) -> Vec<usize> {
+        let mut points: Vec<usize> = self.input.grapheme_indices(true)
+            .map(|(offset, _)| offset).collect();
+        points.push(self.input.len());
+        points
+    }
+
     /// Prefill a name only for an owner-selected verified Desktop entry.
     /// Refuse names outside the editor's representable bounds; never truncate.
     pub fn prefill_name(&mut self, name: &str) -> bool {
@@ -38,7 +49,7 @@ impl State {
             || name.chars().count() > MAX_INPUT
             || name.chars().any(char::is_control) { return false; }
         self.input = name.to_owned();
-        self.cursor = self.input.chars().count();
+        self.cursor = self.input.graphemes(true).count();
         true
     }
 
@@ -47,38 +58,40 @@ impl State {
     }
 
     pub fn enter(&mut self, content: &str) -> bool {
-        if !self.editable() || content.chars().count() != 1
-            || self.input.chars().count() >= MAX_INPUT
-            || !content.chars().all(|c| !c.is_control()) {
+        if !self.editable() || content.is_empty()
+            || content.graphemes(true).count() != 1
+            || self.input.chars().count().saturating_add(content.chars().count()) > MAX_INPUT
+            || content.chars().any(char::is_control) {
             return false;
         }
-        let offset = self.input.char_indices().nth(self.cursor)
-            .map_or(self.input.len(), |(byte, _)| byte);
+        let points = self.boundaries();
+        let offset = points[self.cursor.min(points.len() - 1)];
         self.input.insert_str(offset, content);
-        self.cursor += 1;
+        // A combining mark or ZWJ may merge with its neighbor. Recompute
+        // the visible caret, rather than incrementing by a scalar and leaving
+        // the cursor inside the newly composed grapheme.
+        self.cursor = self.input[..offset + content.len()].graphemes(true).count();
         self.notice = None;
         true
     }
 
-    /// Backspace removes the Unicode scalar immediately before the caret.
+    /// Backspace removes the COMPLETE grapheme immediately before the caret.
     pub fn erase(&mut self) -> bool {
         if !self.editable() || self.cursor == 0 { return false; }
-        let Some((offset, _)) = self.input.char_indices().nth(self.cursor - 1) else {
-            return false;
-        };
-        self.input.remove(offset);
+        let points = self.boundaries();
+        if self.cursor >= points.len() { return false; }
+        self.input.replace_range(points[self.cursor - 1]..points[self.cursor], "");
         self.cursor -= 1;
         self.notice = None;
         true
     }
 
-    /// Delete removes the next scalar without changing caret position.
+    /// Delete removes the next complete grapheme, keeping caret position.
     pub fn delete(&mut self) -> bool {
         if !self.editable() { return false; }
-        let Some((offset, _)) = self.input.char_indices().nth(self.cursor) else {
-            return false;
-        };
-        self.input.remove(offset);
+        let points = self.boundaries();
+        if self.cursor + 1 >= points.len() { return false; }
+        self.input.replace_range(points[self.cursor]..points[self.cursor + 1], "");
         self.notice = None;
         true
     }
@@ -86,7 +99,7 @@ impl State {
     pub fn move_cursor(&mut self, movement: CursorMove) -> bool {
         if !self.editable() { return false; }
         let previous = self.cursor;
-        let count = self.input.chars().count();
+        let count = self.input.graphemes(true).count();
         self.cursor = match movement {
             CursorMove::Left => self.cursor.saturating_sub(1),
             CursorMove::Right => self.cursor.saturating_add(1).min(count),
@@ -97,58 +110,59 @@ impl State {
     }
 
     /// Use identical glyph advances for painting and mouse hit-testing.
-    /// The caret is always within the visible Unicode scalar window.
+    /// The caret stays on a visible complete grapheme boundary.
     fn visible_range<F: Fn(&str) -> u32>(
-        &self, max_width: u32, measure: &F,
+        &self, max_width: u32, measure: &F, points: &[usize],
     ) -> (usize, usize) {
-        let chars: Vec<char> = self.input.chars().collect();
-        let cursor = self.cursor.min(chars.len());
+        let count = points.len() - 1;
+        let cursor = self.cursor.min(count);
         let mut start = cursor;
         while start > 0 {
-            let candidate: String = chars[start - 1..cursor].iter().collect();
-            if measure(&candidate).saturating_add(2) > max_width { break; }
+            let candidate = &self.input[points[start - 1]..points[cursor]];
+            if measure(candidate).saturating_add(2) > max_width { break; }
             start -= 1;
         }
         let mut end = cursor;
-        while end < chars.len() {
-            let candidate: String = chars[start..end + 1].iter().collect();
-            if measure(&candidate).saturating_add(2) > max_width { break; }
+        while end < count {
+            let candidate = &self.input[points[start]..points[end + 1]];
+            if measure(candidate).saturating_add(2) > max_width { break; }
             end += 1;
         }
         (start, end)
     }
 
     /// Calculate the visible input and caret from the exact active font
-    /// metrics. Long input scrolls horizontally towards the caret instead
-    /// of painting across the dialog or leaving the caret off-screen.
+    /// metrics. Never clip a combining cluster or position a caret inside
+    /// the invisible half of an emoji during horizontal scrolling.
     pub fn input_view<F: Fn(&str) -> u32>(&self, max_width: u32, measure: F)
         -> (String, u32)
     {
-        let chars: Vec<char> = self.input.chars().collect();
-        let (start, end) = self.visible_range(max_width, &measure);
-        let display: String = chars[start..end].iter().collect();
-        let prefix: String = chars[start..self.cursor.min(chars.len())].iter().collect();
-        (display, measure(&prefix).min(max_width.saturating_sub(1)))
+        let points = self.boundaries();
+        let (start, end) = self.visible_range(max_width, &measure, &points);
+        let cursor = self.cursor.min(points.len() - 1);
+        let display = self.input[points[start]..points[end]].to_owned();
+        let prefix = &self.input[points[start]..points[cursor]];
+        (display, measure(prefix).min(max_width.saturating_sub(1)))
     }
 
-    /// Move the caret to the nearest glyph boundary in the *painted* input.
-    /// A scrolled field must not place it on hidden characters. The caller
-    /// supplies mouse X relative to the rendered text origin (128px).
+    /// Place the caret at the nearest *painted* complete glyph boundary.
+    /// A scrolled field must not select hidden characters. x is relative to
+    /// the rendered input text origin in the native dialog.
     pub fn place_cursor_at<F: Fn(&str) -> u32>(
         &mut self, x: f64, max_width: u32, measure: F,
     ) -> bool {
         if !self.editable() || !x.is_finite() || max_width == 0 {
             return false;
         }
-        let chars: Vec<char> = self.input.chars().collect();
-        let (start, end) = self.visible_range(max_width, &measure);
+        let points = self.boundaries();
+        let (start, end) = self.visible_range(max_width, &measure, &points);
         let x = x.clamp(0.0, f64::from(max_width));
         let mut selected = start;
         let mut previous = 0_u32;
         for index in start..end {
-            let segment: String = chars[start..index + 1].iter().collect();
-            let next = measure(&segment);
-            let midpoint = f64::from(previous) + f64::from(next.saturating_sub(previous)) / 2.0;
+            let next = measure(&self.input[points[start]..points[index + 1]]);
+            let midpoint = f64::from(previous) +
+                f64::from(next.saturating_sub(previous)) / 2.0;
             if x < midpoint { break; }
             selected = index + 1;
             previous = next;
@@ -312,6 +326,52 @@ mod tests {
         assert!(!help.move_cursor(CursorMove::Right));
         assert!(!help.delete());
         assert_eq!(help.cursor, 0);
+    }
+
+    #[test]
+    fn grapheme_editor_never_splits_emoji_or_combining_sequences() {
+        let mut state = State::new(Kind::FileRename);
+        assert!(state.enter("a"));
+        assert!(state.enter("\u{301}")); // attaches to the existing 'a'
+        assert_eq!(state.input, "a\u{301}");
+        assert_eq!(state.cursor, 1);
+        assert!(state.enter("👩‍💻")); // one grapheme, three Unicode scalars
+        assert!(state.enter("🇩🇪"));
+        assert_eq!(state.cursor, 3);
+        assert_eq!(state.input.graphemes(true).count(), 3);
+        assert!(state.move_cursor(CursorMove::Left));
+        assert_eq!(state.cursor, 2);
+        assert!(state.erase()); // must erase all of 👩‍💻
+        assert_eq!(state.input, "a\u{301}🇩🇪");
+        assert!(state.delete()); // must erase the whole flag
+        assert_eq!(state.input, "a\u{301}");
+        assert!(state.move_cursor(CursorMove::Home));
+        assert!(!state.erase());
+        assert!(state.delete()); // base+combining mark are inseparable
+        assert_eq!(state.input, "");
+        assert_eq!(state.cursor, 0);
+        assert!(!state.enter("A\n"));
+        assert!(!state.enter("ab"));
+        assert!(!state.enter(&"x".repeat(MAX_INPUT + 1)));
+    }
+
+    #[test]
+    fn mouse_caret_and_scrolling_use_visible_grapheme_boundaries() {
+        let mut state = State::new(Kind::Run);
+        for cluster in ["a\u{301}", "👩‍💻", "b"] {
+            assert!(state.enter(cluster));
+        }
+        let measure = |text: &str| text.graphemes(true).count() as u32 * 8;
+        assert_eq!(state.input_view(18, measure), ("👩‍💻b".into(), 16));
+        assert!(state.place_cursor_at(0.0, 18, measure));
+        assert_eq!(state.cursor, 1);
+        assert_eq!(state.input_view(18, measure), ("a\u{301}👩‍💻".into(), 8));
+        assert!(state.place_cursor_at(14.0, 18, measure));
+        assert_eq!(state.cursor, 2);
+        assert!(state.enter("Z"));
+        assert_eq!(state.input, "a\u{301}👩‍💻Zb");
+        assert!(state.erase());
+        assert_eq!(state.input, "a\u{301}👩‍💻b");
     }
 
     #[test]
