@@ -5,6 +5,22 @@ physical acceptance outstanding.** RiceBowl 0.9.x is still an XFCE/X11
 rice manager. The separate Wayland login-session package requires explicit
 installation and is not yet a finished desktop environment.
 
+### Sprint 6 system integration: non-activating D-Bus owner diagnostics (15 November 2026)
+
+`ricebowl de integration-health --json` provides an explicitly on-demand,
+read-only inventory of six allowlisted service owners: the existing
+desktop portal, notifications, logind, PolicyKit authority, NetworkManager and
+BlueZ. It calls only the D-Bus daemon's `NameHasOwner` method with a fixed
+argument list, 1s bus-reply limit and 2s process timeout. It never starts a
+service, changes device state or returns private bus endpoints or raw output.
+
+The command requires markers and an owned Wayland socket from a **full**
+RiceBowl login; when invoked under XFCE, another desktop, a nested preview or
+a missing/unsafe Wayland socket, every provider remains `not-run`.
+`not-owned` means no current name owner, **not** that a package is missing
+or its functionality broken. PipeWire, hardware, GPU portal consent,
+application behavior and physical suspend remain separate release tests.
+
 ### Sprint 5 disconnected control-owner recovery (15 November 2026, CI-gated candidate)
 
 The existing bounded zero-capacity radio/audio control channel now distinguishes
