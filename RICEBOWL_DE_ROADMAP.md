@@ -5,6 +5,26 @@ physical acceptance outstanding.** RiceBowl 0.9.x is still an XFCE/X11
 rice manager. The separate Wayland login-session package requires explicit
 installation and is not yet a finished desktop environment.
 
+### Sprint 5 control availability and Creator contract integration (15 November 2026)
+
+The native primary and mirror panel painters now read the same actual control
+worker availability as their AT-SPI buttons, desktop action widgets and menu.
+If the bounded owner worker disappears, panel controls must paint disabled
+rather than visually advertise a clickable radio/audio action. The common
+ControlFeedback state machine remains the authority; native pixel regression
+tests inject a healthy hardware snapshot with an absent worker. Unrelated
+static actions, fallback menus and legacy rices keep their prior behavior.
+
+The Creator's read-only runtime inventory now announces the native
+ready/applying/busy/unavailable/failed contract for both panel and menu
+verified controls. It also handles schema-v3 grouped panels with no schema-v4
+compact layout without inventing responsive behavior. Neither inventory nor
+this software regression is a live backend or hardware proof.
+
+These fixes are an incremental Sprint 5 integration, **not** a completed
+RicePlate/RiceSpice/RicePop 1.0 or physical release sign-off. Exact-head and
+post-merge native/Tests CI must pass before calling them accepted.
+
 ### Sprint 5 native menu AT-SPI control state parity (15 November 2026, CI-gated candidate)
 
 The shared native menu now exposes the **same** verified Wi-Fi/Bluetooth/audio
