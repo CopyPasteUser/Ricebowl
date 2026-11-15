@@ -206,6 +206,7 @@ class ResourceMeasurementTests(unittest.TestCase):
         self.assertEqual(results["rss_kib"], 3200)
         self.assertTrue(results["profile_matches"])
         self.assertTrue(results["process_role_verified"])
+        self.assertTrue(results["sample_continuity_verified"])
         self.assertFalse(results["hardware_accepted"])
         self.assertIsNone(results["cold_login_to_ready_ms"])
 
@@ -241,6 +242,47 @@ class ResourceMeasurementTests(unittest.TestCase):
                 "RICEBOWL_DE_SHELL_CHILD": "1", "RICEBOWL_DE_PANEL": "native"})
         self.assertFalse(result["profile_matches"])
         self.assertTrue(result["process_restart_or_exit_detected"])
+
+    def test_restarted_native_panel_invalidates_resource_rate_window(self):
+        env = {"XDG_SESSION_TYPE": "wayland",
+               "RICEBOWL_DE_SHELL_CHILD": "1", "RICEBOWL_DE_PANEL": "native"}
+        observed = iter([
+            (sample(pid=41, role="native-panel", start=3, cpu=10),
+             sample(pid=42, role="compositor", start=7, cpu=100)),
+            (sample(pid=41, role="native-panel", start=4, cpu=1, rss=4000, pss=2400),
+             sample(pid=42, role="compositor", start=7, cpu=120)),
+        ])
+        result = measure(
+            "native", seconds=1, reader=lambda: next(observed),
+            sleep=lambda _: None, clock=iter([0., 1.]).__next__,
+            ticks_per_second=100, environment=env)
+        self.assertTrue(result["process_restart_or_exit_detected"])
+        self.assertFalse(result["sample_continuity_verified"])
+        self.assertFalse(result["process_role_verified"])
+        self.assertFalse(result["profile_matches"])
+        self.assertIsNone(result["cpu_percent_one_core"])
+        self.assertIsNone(result["context_switches_per_s"])
+        self.assertIsNone(result["kernel_wakeups_per_s"])
+        self.assertEqual(result["pss_kib"], 2400 + 512,
+                         "final resident snapshot remains useful despite churn")
+
+    def test_unrelated_session_process_churn_does_not_fake_cpu(self):
+        env = {"XDG_SESSION_TYPE": "wayland",
+               "RICEBOWL_DE_SHELL_CHILD": "1", "RICEBOWL_DE_PANEL": "native"}
+        observed = iter([
+            (sample(pid=41, role="native-panel", start=3),
+             sample(pid=42, role="notifications", start=8)),
+            (sample(pid=41, role="native-panel", start=3, cpu=250),
+             sample(pid=43, role="notifications", start=9)),
+        ])
+        result = measure(
+            "native", seconds=1, reader=lambda: next(observed),
+            sleep=lambda _: None, clock=iter([0., 1.]).__next__,
+            ticks_per_second=100, environment=env)
+        self.assertTrue(result["process_role_verified"])
+        self.assertFalse(result["profile_matches"])
+        self.assertFalse(result["sample_continuity_verified"])
+        self.assertIsNone(result["cpu_percent_one_core"])
 
     def test_missing_kernel_wakeups_and_pid_reuse_are_not_fake_zero(self):
         observed = iter([
