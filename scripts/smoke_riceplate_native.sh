@@ -1567,6 +1567,16 @@ PY
     folder_x=$(($1 + 52))
     folder_y=$(($2 + 45))
     WAYLAND_DISPLAY=wayland-0 "$clicker" "$folder_x" "$folder_y" 1366 768
+    # A freshly created icon is first selected. Give labwc and the native
+    # Wayland dispatch queue one turn to apply that selection before the
+    # second physical click; a back-to-back virtual-pointer reconnection
+    # can otherwise race the new layer's focus/commit.
+    sleep 0.1
+    test ! -e "$runtime/full-ricefield.log" || {
+        echo "XDG folder single click unexpectedly opened RiceField" >&2
+        tail -n 60 "$runtime/file-plate.log" >&2
+        exit 1
+    }
     WAYLAND_DISPLAY=wayland-0 "$clicker" "$folder_x" "$folder_y" 1366 768
     count=0
     while [ ! -s "$runtime/full-ricefield.log" ] && [ "$count" -lt 25 ]; do
