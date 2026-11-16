@@ -34,7 +34,7 @@ class LunaFirstPassTests(unittest.TestCase):
     def test_same_uid_resource_snapshot_never_reads_argv_or_other_processes(self):
         current = self.parent / "123"
         current.mkdir()
-        (current / "comm").write_text("riceplate-native\n")
+        (current / "comm").write_text("riceplate-nativ\n")
         (current / "status").write_text(f"Uid:\t{os.getuid()}\t{os.getuid()}\n")
         (current / "smaps_rollup").write_text("Rss: 100 kB\nPss: 65 kB\n")
         foreign = self.parent / "456"
