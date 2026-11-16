@@ -15,6 +15,7 @@ import shutil
 import stat
 import struct
 import subprocess
+import zlib
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -98,6 +99,68 @@ def prepare_directory(path: Path) -> Path:
     return path
 
 
+def validate_png(png: bytes) -> None:
+    """Verify the whole bounded PNG container, not merely its magic bytes.
+
+    grim normally emits a small, conventional PNG. A header-only or truncated
+    capture must not become a successful QA receipt. Walk all chunks without
+    decompressing attacker-controlled image data or allocating extra frames.
+    """
+    if not (33 <= len(png) <= MAX_SCREENSHOT) or not png.startswith(
+        b"\\x89PNG\\r\\n\\x1a\\n"
+    ):
+        raise RuntimeError("invalid-png")
+
+    offset = 8
+    seen_idat = False
+    idat_finished = False
+    view = memoryview(png)
+    while offset < len(png):
+        if len(png) - offset < 12:
+            raise RuntimeError("invalid-png")
+        length = struct.unpack_from(">I", png, offset)[0]
+        end = offset + 12 + length
+        if end > len(png):
+            raise RuntimeError("invalid-png")
+        kind = png[offset + 4:offset + 8]
+        if not all(65 <= byte <= 90 or 97 <= byte <= 122 for byte in kind):
+            raise RuntimeError("invalid-png")
+        expected_crc = struct.unpack_from(">I", png, offset + 8 + length)[0]
+        actual_crc = zlib.crc32(view[offset + 4:offset + 8 + length])
+        if expected_crc != actual_crc:
+            raise RuntimeError("invalid-png")
+
+        if offset == 8:
+            if kind != b"IHDR" or length != 13:
+                raise RuntimeError("invalid-png")
+            width, height, depth, color, compression, filtering, interlace = (
+                struct.unpack_from(">IIBBBBB", png, offset + 8)
+            )
+            if not (0 < width <= 32768 and 0 < height <= 32768):
+                raise RuntimeError("invalid-dimensions")
+            valid_depths = {
+                0: (1, 2, 4, 8, 16), 2: (8, 16), 3: (1, 2, 4, 8),
+                4: (8, 16), 6: (8, 16),
+            }
+            if (depth not in valid_depths.get(color, ())
+                    or compression != 0 or filtering != 0 or interlace not in (0, 1)):
+                raise RuntimeError("invalid-png")
+        elif kind == b"IHDR":
+            raise RuntimeError("invalid-png")
+        elif kind == b"IDAT":
+            if idat_finished:
+                raise RuntimeError("invalid-png")
+            seen_idat = True
+        elif kind == b"IEND":
+            if length != 0 or not seen_idat or end != len(png):
+                raise RuntimeError("invalid-png")
+            return
+        elif seen_idat:
+            idat_finished = True
+        offset = end
+    raise RuntimeError("invalid-png")
+
+
 def grab_frame(*, run=subprocess.run, binary: str | None = None) -> bytes:
     """Only call after a deliberate --capture in an observed native session."""
     grim = binary if binary is not None else shutil.which("grim")
@@ -108,13 +171,7 @@ def grab_frame(*, run=subprocess.run, binary: str | None = None) -> bytes:
     except (OSError, subprocess.SubprocessError) as exc:
         raise RuntimeError("grim-failed") from exc
     png = result.stdout
-    if len(png) < 24 or len(png) > MAX_SCREENSHOT or not png.startswith(
-        b"\x89PNG\r\n\x1a\n"
-    ):
-        raise RuntimeError("invalid-png")
-    width, height = struct.unpack(">II", png[16:24])
-    if not (0 < width <= 32768 and 0 < height <= 32768):
-        raise RuntimeError("invalid-dimensions")
+    validate_png(png)
     return png
 
 
