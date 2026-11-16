@@ -46,7 +46,8 @@ pub fn fitted_luna_size(output_width: u32, output_height: u32,
         (480, 456)
     } else if output_width >= 960 && available_width >= 400 && available_height >= 380 {
         (400, 380)
-    } else if output_width >= 760 && available_width >= 360 && available_height >= 342 {
+    } else if (760..1280).contains(&output_width)
+        && available_width >= 360 && available_height >= 342 {
         (360, 342)
     } else {
         return fitted_size(output_width, output_height, panel_height);
@@ -1604,6 +1605,8 @@ mod tests {
         assert_eq!(fitted_luna_size(1024, 768, 40), (400, 380));
         assert_eq!(fitted_luna_size(1366, 768, 40), (400, 380));
         assert_eq!(fitted_luna_size(1920, 1080, 40), (480, 456));
+        // Extremely wide but shallow outputs must not grow the menu into
+        // nearly all of the available vertical work area.
         assert_eq!(fitted_luna_size(1920, 400, 40), (WIDTH, HEIGHT));
         assert_eq!(fitted_luna_size(320, 240, 40), fitted_size(320, 240, 40));
         for size in [(360, 342), (400, 380), (480, 456)] {
