@@ -188,7 +188,16 @@ impl State {
         if !extend {
             if let Some((start, end)) = self.selected_graphemes() {
                 if matches!(movement, CursorMove::Left | CursorMove::Right) {
-                    self.cursor = if movement == CursorMove::Left { start } else { end };
+                    // For a pure RTL run the visual left edge is the
+                    // logical end. Collapse towards the painted side,
+                    // not towards the smaller stored character index.
+                    let (left, right) =
+                        if let Some(map) = crate::bidi_layout::visual_cluster_map(&self.input) {
+                            if map.caret_edge(start) <= map.caret_edge(end) {
+                                (start, end)
+                            } else { (end, start) }
+                        } else { (start, end) };
+                    self.cursor = if movement == CursorMove::Left { left } else { right };
                     self.selection_anchor = None;
                     self.preedit = None;
                     return true;
@@ -901,6 +910,19 @@ mod tests {
         assert!(state.place_cursor_at_bidi(8.0, 80, measure, measure));
         assert!(state.selected_graphemes().is_none());
         assert_eq!(state.input, "abcdef");
+    }
+
+    #[test]
+    fn unshifted_rtl_arrows_collapse_selection_to_painted_edges() {
+        let mut state = State::new(Kind::Run);
+        assert!(state.commit_text("אבג"));
+        assert!(state.select_all());
+        assert!(state.move_cursor(CursorMove::Left));
+        assert_eq!(state.cursor, 3, "painted left is logical end");
+        assert!(state.select_all());
+        assert!(state.move_cursor(CursorMove::Right));
+        assert_eq!(state.cursor, 0, "painted right is logical start");
+        assert!(state.selection_anchor.is_none());
     }
 
     #[test]
