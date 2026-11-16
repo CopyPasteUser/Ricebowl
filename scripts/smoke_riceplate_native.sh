@@ -1138,7 +1138,7 @@ PY
             # Read actual native menu geometry instead of clicking coordinates
             # from the obsolete 400x380 screenshot. Fail closed if the
             # 1366x768 Luna preset or compositor trace regresses.
-            parity_menu_size=$(sed -n 's/.*menu trace show Some(((\([0-9][0-9]*\), \([0-9][0-9]*\)), true)).*/\1 \2/p' "$runtime/plate-$label.log" | tail -n 1)
+            parity_menu_size=$(sed -n "s/.*menu trace show Some(((\([0-9][0-9]*\), \([0-9][0-9]*\)), true)).*/\1 \2/p" "$runtime/plate-$label.log" | tail -n 1)
             if [ "$parity_menu_size" != "480 456" ]; then
                 echo "Native Luna 1366x768 menu size not confirmed: $parity_menu_size" >&2
                 tail -n 25 "$runtime/plate-$label.log" >&2
