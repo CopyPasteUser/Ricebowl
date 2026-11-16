@@ -65,8 +65,12 @@ WALLPAPERS = frozenset(("aero-seven-blue", "aero-seven-night", "luna-hills",
 BUILTINS = {
     "classic": Path(__file__).resolve().parent / "resources/recipes/classic.json",
     "chrome": Path(__file__).resolve().parent / "resources/recipes/chrome.json",
-    # A shipped, immutable reference recipe, not a user-imported ID.
-    # The installed user-local bundle includes examples/wayland.
+}
+
+# The opt-in Luna demo is shipped but not a RESERVED built-in identifier:
+# existing owner-private XP Luna imports must retain priority and stay valid.
+# Installer copies examples/wayland into its user-local bundle.
+SHIPPED_PRESETS = {
     "xp-luna-columns": Path(__file__).resolve().parents[2]
                        / "examples/wayland/xp-luna-columns.json",
 }
@@ -723,6 +727,19 @@ def parse(raw: bytes) -> PanelRecipe:
                        launcher, menu_palette)
 
 
+def _unshadowed_shipped_preset(token: str) -> Path | None:
+    """Use a shipped demo only when no owner-private recipe shadows its ID.
+
+    lexists observes a broken/private symlink too: unsafe user state must
+    continue to fail closed instead of silently selecting different artwork.
+    """
+    source = SHIPPED_PRESETS.get(token)
+    if source is None:
+        return None
+    custom = _private_recipe_dir(create=False) / f"{token}.json"
+    return None if os.path.lexists(custom) else source
+
+
 def load(token: str) -> PanelRecipe:
     """Read a bundled recipe or an explicit owner-private absolute JSON file."""
     if token in BUILTINS:
@@ -730,6 +747,12 @@ def load(token: str) -> PanelRecipe:
         result = parse(raw)
         if result.recipe_id != token:
             raise RecipeError("Bundled recipe ID does not match its name")
+        return result
+    shipped = _unshadowed_shipped_preset(token)
+    if shipped is not None:
+        result = parse(shipped.read_bytes())
+        if result.recipe_id != token:
+            raise RecipeError("Shipped recipe ID does not match its name")
         return result
     installed_id = bool(re.fullmatch(r"[a-z][a-z0-9-]{1,31}", token))
     path = _private_recipe_dir(create=False) / f"{token}.json" if installed_id else Path(token)
@@ -848,8 +871,11 @@ def import_recipe(source: Path, *, expected_semantic_sha256: str | None = None
 
 def export_recipe(token: str, destination: Path) -> PanelRecipe:
     """Export a validated recipe as owner-private portable JSON; never overwrite."""
+    shipped = _unshadowed_shipped_preset(token)
     if token in BUILTINS:
         payload = BUILTINS[token].read_bytes()
+    elif shipped is not None:
+        payload = shipped.read_bytes()
     else:
         installed_id = bool(re.fullmatch(r"[a-z][a-z0-9-]{1,31}", token))
         source = (_private_recipe_dir(create=False) / f"{token}.json"
@@ -884,7 +910,7 @@ def imported_recipes() -> list[tuple[PanelRecipe, Path]]:
 
 def native_token(token: str) -> str:
     """Resolve an imported ID for native Rust, which accepts private abs paths."""
-    if token in BUILTINS:
+    if token in BUILTINS or _unshadowed_shipped_preset(token) is not None:
         return token
     if re.fullmatch(r"[a-z][a-z0-9-]{1,31}", token):
         return str(_private_recipe_dir(create=False) / f"{token}.json")
