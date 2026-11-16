@@ -1728,7 +1728,7 @@ PY
     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xdg-before-new-folder.png"
     # This file-desktop owner is launched with RICEBOWL_DE_NESTED=0 above.
     # The sender must use the same session namespace, never the separate
-    # outer headless test harness's inherited NESTED=1 context.
+    # outer headless test harness inherited NESTED=1 context.
     HOME="$runtime/file-home" XDG_CONFIG_HOME="$runtime/file-config" \
         RICEBOWL_DE_NESTED=0 PATH="$runtime/mock-bin:$PATH" \
         "$native" --desktop-command new-folder
@@ -1772,7 +1772,7 @@ PY
     # avoid opening RiceField or clobbering the first folder.
     # This file-desktop owner is launched with RICEBOWL_DE_NESTED=0 above.
     # The sender must use the same session namespace, never the separate
-    # outer headless test harness's inherited NESTED=1 context.
+    # outer headless test harness inherited NESTED=1 context.
     HOME="$runtime/file-home" XDG_CONFIG_HOME="$runtime/file-config" \
         RICEBOWL_DE_NESTED=0 PATH="$runtime/mock-bin:$PATH" \
         "$native" --desktop-command new-folder
