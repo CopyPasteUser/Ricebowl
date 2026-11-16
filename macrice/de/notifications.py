@@ -323,6 +323,23 @@ def inspect() -> dict[str, Any]:
             "mutates_active_desktop": False, "source_contains_private_messages": True}
 
 
+
+def inspect_owned() -> dict[str, Any]:
+    """Explicitly reveal only this RiceBowl session's current Mako inbox.
+
+    No polling, persistence or host mutation. Verify the D-Bus owner on both
+    sides of the two independent reads; never accidentally expose the active
+    XFCE/foreign session's notification contents in RiceSpice.
+    """
+    host = _mutation_host()
+    snapshot = inspect()
+    if _mutation_host() != host:
+        raise NotificationBridgeError(
+            "RicePop notification host changed while reading the inbox",
+            "notification_host_changed")
+    return snapshot
+
+
 def _fresh_active(*, include_actions: bool = False) -> list[dict[str, Any]]:
     """Revalidate the exact bounded current inventory before any mutation."""
     active, truncated = _read_mako("ListNotifications", include_actions=include_actions)
