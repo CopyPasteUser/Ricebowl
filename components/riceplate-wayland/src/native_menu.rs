@@ -1099,8 +1099,8 @@ mod tests {
         assert!(left.iter().all(|tile| tile.y >= 38 &&
             tile.y + tile.height <= LUNA_FOOTER_Y));
         assert_eq!(state.hit(menu, 60.0, 255.0), Some(Hit::Action(3)));
-        assert_eq!(state.hit(menu, 60.0, 150.0), Some(Hit::Action(2)));
-        assert_eq!(state.hit(menu, 60.0, 222.0), None);
+        assert_eq!(state.hit(menu, 60.0, 205.0), Some(Hit::Action(2)));
+        assert_eq!(state.hit(menu, 60.0, 180.0), None);
         // Keyboard and pointer order must remain consistent after the move.
         state.selected = 2;
         assert_eq!(state.current_action(menu), Some("terminal"));
@@ -1124,8 +1124,8 @@ mod tests {
         let plain_menu = plain.menu.as_mut().unwrap();
         plain_menu.palette = None;
         assert_eq!(state.visible_label(plain_menu, "applications", false), "Applications");
-        assert_eq!(state.hit(menu, 20.0, 255.0), Some(Hit::Action(3)));
-        assert_eq!(state.actions(menu)[3], "applications");
+        assert_eq!(state.hit(menu, 20.0, 255.0), Some(Hit::Action(5)));
+        assert_eq!(state.actions(menu)[5], "applications");
 
         state.show_programs();
         assert_eq!(state.view, View::Programs);
@@ -1529,7 +1529,7 @@ mod tests {
             "pictures", "music", "settings", "notifications", "help", "run",
             "lock", "logout"
         ]);
-        assert_eq!(state.hit(menu, 20.0, 155.0), Some(Hit::Action(0)));
+        assert_eq!(state.hit(menu, 20.0, 205.0), Some(Hit::Action(0)));
         assert_eq!(state.hit(menu, 20.0, 255.0), Some(Hit::Action(1)));
         assert_eq!(state.hit(menu, 200.0, 80.0), Some(Hit::Action(2)));
         assert_eq!(state.hit(menu, 200.0, 116.0), Some(Hit::Action(4)));
