@@ -270,6 +270,14 @@ impl<S: PartialEq, O: PartialEq, W: PartialEq + Clone> DesktopFocusLease<S, O, W
         }
     }
 
+    /// A temporary Exclusive layer must be torn down at the *acquisition*
+    /// deadline if labwc never granted wl_keyboard.enter. The longer visual
+    /// lifetime only applies to a compositor-confirmed focus lease. The caller
+    /// must destroy the mapped layer when true, not merely cancel the ticket.
+    pub(crate) fn should_close_layer_at(&mut self, layer_expires: Instant, now: Instant) -> bool {
+        self.expire_pending_at(now) || now >= layer_expires
+    }
+
     /// Returns true *only* on the first matching real wl_keyboard.enter.
     pub(crate) fn compositor_enter(&mut self, seat: &S, surface: &W) -> bool {
         self.compositor_enter_at(seat, surface, Instant::now())
@@ -501,6 +509,49 @@ mod tests {
         assert_eq!(focus.phase(), DesktopFocusPhase::Idle);
         assert!(!focus.can_dispatch_ticket(ticket, &"seat", &"temporary-1"));
         assert!(!focus.compositor_enter(&"seat", &"temporary-1"));
+    }
+
+    #[test]
+    fn unconfirmed_exclusive_layer_retires_at_acquisition_deadline() {
+        let now = Instant::now();
+        let mut focus = DesktopFocusLease::default();
+        let ticket = focus.request_at(DesktopFocusIntent::PointerSelection,
+            1, 10, 50, now).unwrap();
+        // The overlay's five-second UI lifetime must not extend a pending
+        // exclusive keyboard grab when the compositor never confirms Enter.
+        let visual_expires = now + Duration::from_secs(5);
+        assert!(!focus.should_close_layer_at(visual_expires,
+            now + DESKTOP_FOCUS_TIMEOUT - Duration::from_nanos(1)));
+        assert_eq!(focus.phase(), DesktopFocusPhase::AwaitingCompositor);
+        assert!(focus.should_close_layer_at(visual_expires,
+            now + DESKTOP_FOCUS_TIMEOUT));
+        assert_eq!(focus.phase(), DesktopFocusPhase::Idle);
+        assert_eq!(focus.ticket(), None);
+        assert_eq!(focus.pending_deadline(), None);
+        assert!(!focus.can_dispatch_ticket(ticket, &1, &50));
+        assert!(!focus.compositor_enter_at(&1, &50,
+            now + DESKTOP_FOCUS_TIMEOUT + Duration::from_millis(1)));
+    }
+
+    #[test]
+    fn compositor_confirmed_layer_uses_its_visual_lifetime_not_pending_deadline() {
+        let now = Instant::now();
+        let mut focus = DesktopFocusLease::default();
+        let ticket = focus.request_at(DesktopFocusIntent::PointerSelection,
+            1, 10, 51, now).unwrap();
+        assert!(focus.compositor_enter_at(&1, &51,
+            now + Duration::from_millis(100)));
+        assert_eq!(focus.pending_deadline(), None);
+        let visual_expires = now + Duration::from_secs(5);
+        assert!(!focus.should_close_layer_at(visual_expires,
+            now + DESKTOP_FOCUS_TIMEOUT));
+        assert!(focus.can_dispatch_ticket(ticket, &1, &51));
+        assert!(!focus.should_close_layer_at(visual_expires,
+            visual_expires - Duration::from_nanos(1)));
+        assert!(focus.should_close_layer_at(visual_expires, visual_expires));
+        // Integration closes the surface and cancels the ticket at this point.
+        focus.cancel();
+        assert!(!focus.can_dispatch_ticket(ticket, &1, &51));
     }
 
     #[test]
