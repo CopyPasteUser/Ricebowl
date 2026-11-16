@@ -21,6 +21,24 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
+### SG1 cross-output context placement integration (16 November 2026; CI candidate)
+
+- The keyboard focus and file/shortcut context paths now share the same output
+  precedence: actual compositor **bound output**, then explicitly associated
+  Wayland surface output, and only then the primary fallback. A secondary
+  monitor must not be overridden by a primary-output shortcut during menu
+  positioning, desktop file reflow, or icon output hotplug/recovery.
+- Both XDG file and XP shortcut context menus use the common output resolver;
+  layout, drag and reflow callsites consistently retain surface-over-primary
+  precedence. No new compositor, monitor override or persistent configuration.
+- Pure Rust regression proves missing-bound secondary-output choice, valid bound
+  precedence and absent-output fail-closed behavior. Require exact stacked-head
+  Native Rust/Clippy, labwc multi-output and Python tests, followed by both
+  ordered integration merges and post-merge main verification.
+
+This does **not** substitute for physical multi-monitor, mixed-DPI, IME or
+Orca/AT-SPI acceptance, and SG1/SG5 remain open.
+
 ### SG1 cross-output desktop keyboard and context-menu isolation (16 November 2026; pending CI)
 
 - **File contexts:** The native Menu and Shift+F10 actions now resolve a file
