@@ -27,6 +27,8 @@ pub struct State {
     /// Extended grapheme position, not a byte/scalar offset. Never splits
     /// combining sequences, flags or ZWJ emoji during a rename/Run edit.
     pub cursor: usize,
+    /// Opposite logical grapheme edge for a live nonempty selection.
+    pub selection_anchor: Option<usize>,
     pub notice: Option<&'static str>,
     pub hover: Option<Hit>,
     pub pressed: Option<Hit>,
@@ -71,11 +73,13 @@ impl State {
         self.input = name.to_owned();
         self.preedit = None;
         self.cursor = self.input.graphemes(true).count();
+        self.selection_anchor = None;
         true
     }
 
     pub fn new(kind: Kind) -> Self {
-        Self { kind, input: String::new(), preedit: None, cursor: 0, notice: None, hover: None, pressed: None }
+        Self { kind, input: String::new(), preedit: None, cursor: 0,
+               selection_anchor: None, notice: None, hover: None, pressed: None }
     }
 
     /// Insert exactly one user-perceived character from a native key event.
@@ -85,58 +89,121 @@ impl State {
         self.commit_text(content)
     }
 
-    /// Commit a whole compositor-delivered text event atomically. Compose
-    /// sequences can contain multiple graphemes; rejecting everything after
-    /// the first would silently lose text. A rejected event must not insert a
-    /// partial string, move the caret or clear an existing error notice.
-    ///
-    /// This is the native keyboard/compose path, not a text-input-v3 IME
-    /// implementation. IME preedit, surrounding-text and protocol focus
-    /// ownership still require their own Wayland integration.
-    pub fn commit_text(&mut self, content: &str) -> bool {
-        let incoming = content.chars().count();
-        if !self.editable() || incoming == 0 || incoming > MAX_INPUT
-            || self.input.chars().count() > MAX_INPUT - incoming
-            || content.chars().any(char::is_control) {
-            return false;
-        }
+    /// Nonempty logical selection, independent of the visual BiDi ordering.
+    /// The end points are UAX #29 grapheme indices, never byte offsets.
+    pub fn selected_graphemes(&self) -> Option<(usize, usize)> {
+        let count = self.input.graphemes(true).count();
+        let a = self.selection_anchor?.min(count);
+        let b = self.cursor.min(count);
+        (a != b).then_some((a.min(b), a.max(b)))
+    }
+
+    fn remove_selection(&mut self) -> bool {
+        let Some((start, end)) = self.selected_graphemes() else { return false };
         let points = self.boundaries();
-        let offset = points[self.cursor.min(points.len() - 1)];
-        self.input.insert_str(offset, content);
+        self.input.replace_range(points[start]..points[end], "");
+        self.cursor = start;
+        self.selection_anchor = None;
         self.preedit = None;
-        // Both sides can join into a new grapheme. Recalculate from the
-        // actual resulting text, never by adding UTF-8 bytes or scalars.
-        self.cursor = self.input[..offset + content.len()].graphemes(true).count();
         self.notice = None;
         true
     }
 
-    /// Backspace removes the COMPLETE grapheme immediately before the caret.
+    /// Ctrl+A selects only the real editable Run/Rename buffer. Neither
+    /// recipe data nor background desktop shortcuts can invoke this path.
+    pub fn select_all(&mut self) -> bool {
+        if !self.editable() { return false; }
+        let end = self.input.graphemes(true).count();
+        if end == 0 { return false; }
+        let previous = (self.cursor, self.selection_anchor);
+        self.cursor = end;
+        self.selection_anchor = Some(0);
+        let changed = previous != (self.cursor, self.selection_anchor);
+        if changed { self.preedit = None; }
+        changed
+    }
+
+    /// Commit one compositor-delivered text event atomically, replacing a
+    /// selected range if present. Validate against the post-replacement scalar
+    /// count rather than rejecting valid replacement at MAX_INPUT.
+    pub fn commit_text(&mut self, content: &str) -> bool {
+        let incoming = content.chars().count();
+        if !self.editable() || incoming == 0 || incoming > MAX_INPUT
+            || content.chars().any(char::is_control) { return false; }
+        let points = self.boundaries();
+        let caret = self.cursor.min(points.len() - 1);
+        let (start, end) = self.selected_graphemes().unwrap_or((caret, caret));
+        let existing = self.input.chars().count();
+        let replaced = self.input[points[start]..points[end]].chars().count();
+        if existing.saturating_sub(replaced) > MAX_INPUT - incoming { return false; }
+        let byte_start = points[start];
+        self.input.replace_range(points[start]..points[end], content);
+        // Unicode joining across replacement boundaries changes grapheme
+        // counts, so derive the new cursor from the final stored buffer.
+        self.cursor = self.input[..byte_start + content.len()].graphemes(true).count();
+        self.selection_anchor = None;
+        self.preedit = None;
+        self.notice = None;
+        true
+    }
+
+    /// Backspace removes the selected graphemes, otherwise the preceding one.
     pub fn erase(&mut self) -> bool {
-        if !self.editable() || self.cursor == 0 { return false; }
+        if !self.editable() { return false; }
+        if self.remove_selection() { return true; }
+        if self.cursor == 0 { return false; }
         let points = self.boundaries();
         if self.cursor >= points.len() { return false; }
         self.input.replace_range(points[self.cursor - 1]..points[self.cursor], "");
         self.cursor -= 1;
+        self.selection_anchor = None;
         self.preedit = None;
         self.notice = None;
         true
     }
 
-    /// Delete removes the next complete grapheme, keeping caret position.
+    /// Delete removes the selection or the next complete grapheme.
     pub fn delete(&mut self) -> bool {
         if !self.editable() { return false; }
+        if self.remove_selection() { return true; }
         let points = self.boundaries();
         if self.cursor + 1 >= points.len() { return false; }
         self.input.replace_range(points[self.cursor]..points[self.cursor + 1], "");
+        self.selection_anchor = None;
         self.preedit = None;
         self.notice = None;
         true
     }
 
     pub fn move_cursor(&mut self, movement: CursorMove) -> bool {
+        self.move_cursor_select(movement, false)
+    }
+
+    /// Shift extends selection from the first logical caret. A plain arrow
+    /// collapses an existing selection before moving further; pure RTL
+    /// movement still follows the previously validated visual caret map.
+    pub fn move_cursor_select(&mut self, movement: CursorMove, extend: bool) -> bool {
         if !self.editable() { return false; }
-        let previous = self.cursor;
+        let previous = (self.cursor, self.selection_anchor);
+        if !extend {
+            if let Some((start, end)) = self.selected_graphemes() {
+                if matches!(movement, CursorMove::Left | CursorMove::Right) {
+                    // For a pure RTL run the visual left edge is the
+                    // logical end. Collapse towards the painted side,
+                    // not towards the smaller stored character index.
+                    let (left, right) =
+                        if let Some(map) = crate::bidi_layout::visual_cluster_map(&self.input) {
+                            if map.caret_edge(start) <= map.caret_edge(end) {
+                                (start, end)
+                            } else { (end, start) }
+                        } else { (start, end) };
+                    self.cursor = if movement == CursorMove::Left { left } else { right };
+                    self.selection_anchor = None;
+                    self.preedit = None;
+                    return true;
+                }
+            }
+        }
         let count = self.input.graphemes(true).count();
         self.cursor = match movement {
             CursorMove::Left => crate::bidi_layout::visual_arrow_target(
@@ -148,8 +215,15 @@ impl State {
             CursorMove::Home => 0,
             CursorMove::End => count,
         };
-        if self.cursor != previous { self.preedit = None; }
-        self.cursor != previous
+        self.selection_anchor = if extend && self.cursor != previous.0 {
+            Some(previous.1.unwrap_or(previous.0))
+        } else if extend {
+            previous.1
+        } else { None };
+        if self.selection_anchor == Some(self.cursor) { self.selection_anchor = None; }
+        let changed = previous != (self.cursor, self.selection_anchor);
+        if changed { self.preedit = None; }
+        changed
     }
 
     /// Use identical glyph advances for painting and mouse hit-testing.
@@ -210,8 +284,9 @@ impl State {
             selected = index + 1;
             previous = next;
         }
-        let changed = self.cursor != selected;
+        let changed = self.cursor != selected || self.selection_anchor.is_some();
         self.cursor = selected;
+        self.selection_anchor = None;
         if changed { self.preedit = None; }
         changed
     }
@@ -260,17 +335,61 @@ impl State {
             }
         }
         self.cursor = selected;
-        if self.cursor != old { self.preedit = None; }
-        self.cursor != old
+        let changed = self.cursor != old || self.selection_anchor.is_some();
+        self.selection_anchor = None;
+        if changed { self.preedit = None; }
+        changed
+    }
+
+    /// Visible highlight segments in painted order, clipped to the same
+    /// one-line viewport and measured with the same visual glyph advances
+    /// as the cursor. Disjoint BiDi ranges are not joined into a false span.
+    pub fn selection_pixels<F: Fn(&str) -> u32, G: Fn(&str) -> u32>(
+        &self, max_width: u32, measure: F, measure_visual: G,
+    ) -> Vec<(u32, u32)> {
+        let Some((lower, upper)) = self.selected_graphemes() else { return Vec::new() };
+        if max_width == 0 { return Vec::new(); }
+        let points = self.boundaries();
+        let (start, end) = self.visible_range(max_width, &measure, &points);
+        if lower >= end || upper <= start || start == end { return Vec::new(); }
+        let visible = &self.input[points[start]..points[end]];
+        let clusters: Vec<&str> = visible.graphemes(true).collect();
+        let order = crate::bidi_layout::visual_cluster_map(visible)
+            .map(|map| map.visual_to_logical)
+            .unwrap_or_else(|| (0..clusters.len()).collect());
+        let mut prefix = String::with_capacity(visible.len());
+        let mut spans: Vec<(u32, u32)> = Vec::new();
+        for logical in order {
+            let left = measure_visual(&prefix).min(max_width);
+            prefix.push_str(clusters[logical]);
+            let right = measure_visual(&prefix).min(max_width);
+            if start + logical >= lower && start + logical < upper && right > left {
+                if let Some(last) = spans.last_mut() {
+                    if last.1 == left {
+                        last.1 = right;
+                        continue;
+                    }
+                }
+                spans.push((left, right));
+            }
+        }
+        spans
     }
 
     /// The text-input-v3 protocol expresses all offsets in UTF-8 *bytes*.
     /// This editor stores a bounded line, so the full string is safe to send
     /// without shortening a grapheme or leaking it to disk.
-    pub fn surrounding_text(&self) -> (String, i32) {
+    pub fn surrounding_selection(&self) -> (String, i32, i32) {
         let points = self.boundaries();
         let cursor = points[self.cursor.min(points.len() - 1)] as i32;
-        (self.input.clone(), cursor)
+        let anchor = points[self.selection_anchor.unwrap_or(self.cursor)
+            .min(points.len() - 1)] as i32;
+        (self.input.clone(), cursor, anchor)
+    }
+
+    pub fn surrounding_text(&self) -> (String, i32) {
+        let (text, cursor, _) = self.surrounding_selection();
+        (text, cursor)
     }
 
     /// Apply one complete IME Done batch. Delete, commit and preedit are
@@ -291,6 +410,7 @@ impl State {
             }
             candidate.input.replace_range(start..end, "");
             candidate.cursor = candidate.input[..start].graphemes(true).count();
+            candidate.selection_anchor = None;
         }
         if let Some(content) = pending.commit.as_deref() {
             if !content.is_empty() && !candidate.commit_text(content) { return false; }
@@ -750,6 +870,90 @@ mod tests {
         assert_eq!(state.cursor, 0);
         assert!(state.place_cursor_at(999.0, 26, width));
         assert_eq!(state.cursor, 3, "right click selects last visible boundary");
+    }
+
+    #[test]
+    fn shift_selection_replace_and_delete_preserve_unicode_clusters() {
+        let mut state = State::new(Kind::FileRename);
+        assert!(state.commit_text("a\u{301}👩‍💻🇩🇪.txt"));
+        assert_eq!(state.cursor, 7);
+        assert!(state.move_cursor_select(CursorMove::Left, true));
+        assert_eq!(state.selected_graphemes(), Some((6, 7)));
+        assert!(state.move_cursor_select(CursorMove::Home, true));
+        assert_eq!(state.selected_graphemes(), Some((0, 7)));
+        assert!(state.commit_text("新.txt"));
+        assert_eq!(state.input, "新.txt");
+        assert!(state.selection_anchor.is_none());
+        assert_eq!(state.cursor, 5);
+        assert!(state.select_all());
+        assert_eq!(state.selected_graphemes(), Some((0, 5)));
+        assert!(state.erase());
+        assert_eq!(state.input, "");
+        assert_eq!(state.cursor, 0);
+        assert!(!state.select_all());
+        assert!(!state.erase());
+    }
+
+    #[test]
+    fn keyboard_selection_collapses_on_unshifted_arrows_and_click() {
+        let mut state = State::new(Kind::Run);
+        assert!(state.commit_text("abcdef"));
+        assert!(state.move_cursor_select(CursorMove::Left, true));
+        assert!(state.move_cursor_select(CursorMove::Left, true));
+        assert_eq!(state.selected_graphemes(), Some((4, 6)));
+        assert!(state.move_cursor(CursorMove::Left));
+        assert_eq!(state.cursor, 4);
+        assert!(state.selected_graphemes().is_none());
+        assert!(state.move_cursor_select(CursorMove::Home, true));
+        assert_eq!(state.selected_graphemes(), Some((0, 4)));
+        let measure = |t: &str| (t.graphemes(true).count() * 8) as u32;
+        assert!(state.place_cursor_at_bidi(8.0, 80, measure, measure));
+        assert!(state.selected_graphemes().is_none());
+        assert_eq!(state.input, "abcdef");
+    }
+
+    #[test]
+    fn unshifted_rtl_arrows_collapse_selection_to_painted_edges() {
+        let mut state = State::new(Kind::Run);
+        assert!(state.commit_text("אבג"));
+        assert!(state.select_all());
+        assert!(state.move_cursor(CursorMove::Left));
+        assert_eq!(state.cursor, 3, "painted left is logical end");
+        assert!(state.select_all());
+        assert!(state.move_cursor(CursorMove::Right));
+        assert_eq!(state.cursor, 0, "painted right is logical start");
+        assert!(state.selection_anchor.is_none());
+    }
+
+    #[test]
+    fn selected_bidi_visual_clusters_are_not_painted_as_one_false_span() {
+        let mut state = State::new(Kind::FileRename);
+        assert!(state.commit_text("abc אבג"));
+        state.selection_anchor = Some(2);
+        state.cursor = 5;
+        let measure = |t: &str| (t.graphemes(true).count() * 8) as u32;
+        // Two separate painted ranges across the LTR/RTL run boundary.
+        assert_eq!(state.selection_pixels(80, measure, measure),
+                   vec![(16, 32), (48, 56)]);
+        assert_eq!(state.surrounding_selection(), ("abc אבג".into(), 6, 2));
+        assert!(state.delete());
+        assert_eq!(state.input, "abבג");
+        assert_eq!(state.cursor, 2);
+    }
+
+    #[test]
+    fn replacing_full_capacity_selection_is_permitted_but_overflow_is_atomic() {
+        let mut state = State::new(Kind::Run);
+        assert!(state.commit_text(&"x".repeat(MAX_INPUT)));
+        assert!(state.select_all());
+        assert!(state.commit_text("🦀"));
+        assert_eq!(state.input, "🦀");
+        assert!(state.select_all());
+        let snapshot = (state.input.clone(), state.cursor, state.selection_anchor);
+        assert!(!state.commit_text(&"x".repeat(MAX_INPUT + 1)));
+        assert_eq!((state.input.clone(), state.cursor, state.selection_anchor), snapshot);
+        assert!(state.commit_text("foot"));
+        assert_eq!(state.argv().unwrap(), ["foot"]);
     }
 
     #[test]

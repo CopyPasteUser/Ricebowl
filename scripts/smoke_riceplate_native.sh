@@ -1169,6 +1169,29 @@ PY
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-pointer-restored.png"
             cp "$runtime/xp-luna-parity-run-pointer-restored.png" \
                "$source_root/dist/riceplate-native-preview/xp-luna-parity-run-pointer-restored.png"
+            # Exercise actual compositor-delivered Shift selections and
+            # Ctrl+A replacement. These screenshots come from the same live
+            # Run dialog and prove that the selection is visibly painted.
+            WAYLAND_DISPLAY=wayland-0 wtype -d 85 -k F13 -M shift -k Left -k Left -m shift
+            sleep 0.25
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-shift-selection.png"
+            cp "$runtime/xp-luna-parity-run-shift-selection.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-parity-run-shift-selection.png"
+            WAYLAND_DISPLAY=wayland-0 wtype -d 85 -k F13 X
+            sleep 0.25
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-selection-replaced.png"
+            cp "$runtime/xp-luna-parity-run-selection-replaced.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-parity-run-selection-replaced.png"
+            WAYLAND_DISPLAY=wayland-0 wtype -d 85 -k F13 -M ctrl -k a -m ctrl
+            sleep 0.25
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-select-all.png"
+            cp "$runtime/xp-luna-parity-run-select-all.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-parity-run-select-all.png"
+            WAYLAND_DISPLAY=wayland-0 wtype -d 85 -k F13 abcd
+            sleep 0.35
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run-selection-restored.png"
+            cp "$runtime/xp-luna-parity-run-selection-restored.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-parity-run-selection-restored.png"
             # Left, Backspace, and an insertion must edit in-place:
             # "abcd" -> "abd" -> "abXd", never execute anything.
             WAYLAND_DISPLAY=wayland-0 wtype -d 85 -k F13 -k Left -k BackSpace X
@@ -1211,7 +1234,8 @@ from PIL import Image, ImageChops
 folder = Path("$runtime")
 names = ["start", "help", "run", "run-typed", "run-pointer-caret",
          "run-pointer-insert", "run-pointer-restored",
-         "run-edited", "run-cleared", "run-empty"]
+         "run-shift-selection", "run-selection-replaced", "run-select-all",
+         "run-selection-restored", "run-edited", "run-cleared", "run-empty"]
 images = {name: Image.open(folder / f"xp-luna-parity-{name}.png").convert("RGB")
           for name in names}
 assert all(img.size == (1366, 768) for img in images.values())
@@ -1259,6 +1283,20 @@ if text_changed("run-typed", "run-pointer-restored") >= 8:
               flush=True)
 assert text_changed("run-typed", "run-pointer-restored") < 8, (
     "Run pointer insertion could not be undone to original text and caret"
+)
+# Real compositor keyboard delivery must visibly highlight a selection,
+# replace only its selected range, then restore the original Run glyphs.
+assert text_changed("run-pointer-restored", "run-shift-selection") > 45, (
+    "Shift+Left did not produce a visible native text selection"
+)
+assert text_changed("run-shift-selection", "run-selection-replaced") > 45, (
+    "Typing did not replace the selected native Run graphemes"
+)
+assert text_changed("run-selection-replaced", "run-select-all") > 45, (
+    "Ctrl+A did not repaint a full-buffer selection"
+)
+assert text_changed("run-pointer-restored", "run-selection-restored") < 8, (
+    "Selected Run text was not restored to the original content/caret"
 )
 assert text_changed("run-typed", "run-edited") > 20, (
     "Wayland Left/Backspace/insertion did not repaint Run"
