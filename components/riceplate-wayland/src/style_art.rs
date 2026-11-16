@@ -361,10 +361,12 @@ impl FontSprites {
     }
 
     fn proportional_advance(&self, text: &str) -> f32 {
-        // Kerning applies within a single font, never between distinct faces.
+        // Width and rasterization must consume the SAME visual order.
+        // LTR strings remain borrowed; only RTL labels need Unicode BiDi.
+        let visual = crate::bidi_layout::visual_order(text);
         let mut width = 0.0_f32;
         let mut previous: Option<GlyphKey> = None;
-        for (face, letter) in self.resolved_letters(text) {
+        for (face, letter) in self.resolved_letters(&visual) {
             let font = self.font_for(face);
             if let Some((left_face, left)) = previous {
                 if left_face == face {
@@ -382,6 +384,25 @@ impl FontSprites {
     /// only when both glyphs are from the same selected face.
     pub fn fitting_prefix_end(&self, label: &str, available: u32, suffix: char) -> usize {
         use unicode_segmentation::UnicodeSegmentation;
+
+        if self.proportional && crate::bidi_layout::has_rtl(label) {
+            // Bidi runs can reorder when the ellipsis is added. For bounded
+            // native labels test the complete painted candidate rather than
+            // accumulating logical-order kerning pairs and overshooting.
+            // Only RTL labels enter this branch; ordinary LTR fitting stays
+            // on the existing linear, allocation-free path.
+            let mut prefix = String::new();
+            let mut best_end = 0_usize;
+            for (offset, cluster) in label.grapheme_indices(true).take(512) {
+                prefix.push_str(cluster);
+                let mut candidate = prefix.clone();
+                candidate.push(suffix);
+                if self.measure_text(&candidate) <= available {
+                    best_end = offset + cluster.len();
+                }
+            }
+            return best_end;
+        }
 
         if !self.proportional {
             let budget = available.saturating_sub(self.cell);
@@ -440,10 +461,11 @@ impl FontSprites {
 
     pub fn draw(&self, canvas: &mut [u8], width: u32, height: u32,
                 x: u32, y: u32, text: &str, color: u32, bold: bool) {
+        let visual = crate::bidi_layout::visual_order(text);
         let mut cache = self.cache.lock().unwrap_or_else(|poison| poison.into_inner());
         let mut cursor = x as f32;
         let mut previous: Option<GlyphKey> = None;
-        for (offset, (face, letter)) in self.resolved_letters(text).enumerate() {
+        for (offset, (face, letter)) in self.resolved_letters(&visual).enumerate() {
             let font = self.font_for(face);
             if self.proportional {
                 if let Some((left_face, left)) = previous {
