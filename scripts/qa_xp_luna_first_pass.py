@@ -107,7 +107,7 @@ def validate_png(png: bytes) -> None:
     decompressing attacker-controlled image data or allocating extra frames.
     """
     if not (33 <= len(png) <= MAX_SCREENSHOT) or not png.startswith(
-        b"\\x89PNG\\r\\n\\x1a\\n"
+        b"\x89PNG\r\n\x1a\n"
     ):
         raise RuntimeError("invalid-png")
 
