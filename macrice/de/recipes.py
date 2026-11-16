@@ -871,13 +871,13 @@ def import_recipe(source: Path, *, expected_semantic_sha256: str | None = None
 
 def export_recipe(token: str, destination: Path) -> PanelRecipe:
     """Export a validated recipe as owner-private portable JSON; never overwrite."""
+    installed_id = bool(re.fullmatch(r"[a-z][a-z0-9-]{1,31}", token))
     shipped = _unshadowed_shipped_preset(token)
     if token in BUILTINS:
         payload = BUILTINS[token].read_bytes()
     elif shipped is not None:
         payload = shipped.read_bytes()
     else:
-        installed_id = bool(re.fullmatch(r"[a-z][a-z0-9-]{1,31}", token))
         source = (_private_recipe_dir(create=False) / f"{token}.json"
                   if installed_id else Path(token))
         payload = _read_import_source(source)
