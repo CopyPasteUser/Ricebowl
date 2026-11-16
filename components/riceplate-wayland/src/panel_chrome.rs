@@ -169,18 +169,48 @@ pub fn launcher(
 pub fn luna_launcher_finish(canvas: &mut [u8], width: u32, height: u32,
                             x: u32, span: u32, visual: ButtonVisual) {
     if span < 40 || height < 28 { return; }
-    let top = if visual == ButtonVisual::Pressed { 5 } else { 4 };
-    // An asymmetric raised highlight and a dark-green lower return reproduce
-    // the XP taskbar's characteristic chunky, glassy Start silhouette.
-    fill_rect(canvas, width, height, x + 15, top, span.saturating_sub(34),
-              1, if visual == ButtonVisual::Pressed { 0xff78_bf5a } else { 0xffd9_ffb8 });
-    fill_rect(canvas, width, height, x + 9, 7, 1, height.saturating_sub(16),
-              0xffa0_ea6d);
-    fill_rect(canvas, width, height, x + 13, height.saturating_sub(7),
-              span.saturating_sub(27), 1, 0xff1d_5f1b);
+    let depressed = visual == ButtonVisual::Pressed;
+    let offset = u32::from(depressed);
+    let top = 3 + offset;
+    // The X11 Luna counterpart has a luminous left medallion and a raised,
+    // asymmetric green bezel. Preserve the exact 94px native hit rectangle.
+    fill_rect(canvas, width, height, x + 9, top,
+              span.saturating_sub(26), 1,
+              if depressed { 0xff62_a04d } else { 0xffdc_ffc5 });
+    fill_rect(canvas, width, height, x + 11, height.saturating_sub(6),
+              span.saturating_sub(23), 1, 0xff1b_581a);
+    fill_rect(canvas, width, height, x + span - 7, 10,
+              1, height.saturating_sub(20), 0xff1f_6025);
+    fill_rect(canvas, width, height, x + span - 8, 11,
+              1, height.saturating_sub(22), 0xff8a_d965);
+
+    // Original RiceBowl four-pane seal, redrawn as a coherent 22px medallion.
+    // No borrowed Windows logo/bitmap. All decoration is clipped by canvas.
+    let cx = x + 8 + offset;
+    let cy = (height - 23) / 2 + offset;
+    fill_rounded_rect(canvas, width, height, cx, cy + 1, 23, 23, 11,
+                      0xff1a_4c1c);
+    fill_rounded_rect(canvas, width, height, cx + 1, cy + 1, 21, 21, 10,
+                      if depressed { 0xff87_c263 } else { 0xffec_ffda });
+    fill_rounded_rect(canvas, width, height, cx + 3, cy + 3, 17, 17, 8,
+                      0xff2e_822f);
+    fill_rect(canvas, width, height, cx + 5, cy + 4, 11, 1, 0xffb8_f79b);
+    for (dx, dy, color) in [
+        (0, 0, 0xffe9_9250), (6, 0, 0xffff_dd70),
+        (0, 6, 0xff7d_c9f3), (6, 6, 0xffc2_e979),
+    ] {
+        fill_rounded_rect(canvas, width, height, cx + 6 + dx, cy + 7 + dy,
+                          5, 5, 1, color);
+    }
+    // Optical states are visible at a glance, unlike a generic green pill.
     if visual == ButtonVisual::Hovered {
-        fill_rect(canvas, width, height, x + 17, top + 1,
-                  span.saturating_sub(37), 1, 0xfff2_ffd8);
+        fill_rect(canvas, width, height, x + 34, 5,
+                  span.saturating_sub(48), 2, 0xfff2_ffda);
+        fill_rect(canvas, width, height, cx + 4, cy + 4, 14, 1,
+                  0xffff_ffff);
+    } else if depressed {
+        fill_rect(canvas, width, height, x + 35, 5,
+                  span.saturating_sub(49), 2, 0xff1f_5518);
     }
 }
 
