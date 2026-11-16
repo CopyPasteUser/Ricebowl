@@ -1566,6 +1566,28 @@ PY
     set -- $folder_position
     folder_x=$(($1 + 52))
     folder_y=$(($2 + 45))
+    # The earlier Start-menu Terminal action can leave a real foot toplevel
+    # covering this newly placed Bottom-layer folder. Exercise the actual
+    # session-scoped Show Desktop IPC instead of pretending the pointer can
+    # click through an application window. This keeps real hit testing intact
+    # and does not change the native desktop implementation.
+    if grep -Fq "app_id=\"foot\" active=true minimized=false" "$runtime/file-plate.log"; then
+        HOME="$runtime/file-home" XDG_CONFIG_HOME="$runtime/file-config" \
+            RICEBOWL_DE_NESTED=0 PATH="$runtime/mock-bin:$PATH" \
+            "$native" --desktop-command show-desktop
+        count=0
+        while ! grep -Fq "app_id=\"foot\" active=false minimized=true" \
+            "$runtime/file-plate.log" && [ "$count" -lt 30 ]; do
+            count=$((count + 1))
+            sleep 0.1
+        done
+        grep -Fq "app_id=\"foot\" active=false minimized=true" \
+            "$runtime/file-plate.log" || {
+            echo "Native Show Desktop failed to minimize the occluding terminal" >&2
+            tail -n 35 "$runtime/file-plate.log" >&2
+            exit 1
+        }
+    fi
     WAYLAND_DISPLAY=wayland-0 "$clicker" "$folder_x" "$folder_y" 1366 768
     # A freshly created icon is first selected. Give labwc and the native
     # Wayland dispatch queue one turn to apply that selection before the
