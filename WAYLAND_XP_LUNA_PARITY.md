@@ -19,6 +19,19 @@ Wayland uses upstream labwc plus RicePlate. Original/licensed art only.
 | Window decorations | XFWM Luna borders/buttons | labwc-managed decoration/theme support | Cannot skin all Wayland CSD windows |
 | Display/login/recovery | Existing XFCE/X11 session | Opt-in labwc native preview; package rollback in CI | Physical Mint/ThinkPad sign-off |
 
+## Native Luna IME editing-key ownership (16 November 2026; CI candidate)
+
+A live Wayland text-input-v3 preedit now owns the native Run/Rename editor's
+Backspace, Delete, Left/Right, Home/End and Ctrl+A, in addition to printable
+text and Enter/Escape. The previous editor path could modify the underlying
+command/filename while the compositor was still composing. After a successful
+IME Done, Escape immediately closes the dialog even inside the 80 ms
+single-key echo window; Enter keeps its existing bounded echo guard to avoid
+accidental command execution from a duplicate compositor event. Non-composing
+navigation and deletion remain responsive. Pure Rust regressions cover this
+policy; native compositor CI is required and external IME/physical keyboard,
+Orca and localized screen-reader sign-off remain open. No X11 behavior changes.
+
 ## XP Luna fidelity Sprint 1 – Desktop freedom and nested context (16 November 2026)
 
 The first real ThinkPad nested-Wayland review identified two concrete desktop

@@ -7654,18 +7654,26 @@ impl KeyboardHandler for RicePlate {
         if self.luna_dialog_focused {
             let current_dialog = self.luna_dialog.as_ref()
                 .map(|layer| layer.surface.wl_surface());
+            // While composing, native editor commands must not mutate the
+            // underlying Run/Rename text. After Done, Escape is *never* a
+            // stale keyboard echo: it must close the dialog immediately.
+            let escape_key = event.keysym == Keysym::Escape;
+            let editor_control = matches!(event.keysym,
+                Keysym::Return | Keysym::KP_Enter | Keysym::Escape |
+                Keysym::BackSpace | Keysym::Delete | Keysym::Left |
+                Keysym::Right | Keysym::Home | Keysym::End)
+                || (self.selection_modifiers.ctrl
+                    && matches!(event.keysym, Keysym::a | Keysym::A));
             let echo_key = matches!(event.keysym,
-                Keysym::Return | Keysym::KP_Enter | Keysym::Escape)
+                Keysym::Return | Keysym::KP_Enter)
                 || event.utf8.as_deref().is_some_and(|text| !text.is_empty());
             let ime_handling_text = self.native_ime.as_mut().is_some_and(|ime|
                 ime.enabled_surface.is_some()
                 && ime.enabled_surface.as_ref() == current_dialog
-                && native_ime::suppress_keyboard_echo(
-                    ime.composing, &mut ime.recent_commit, Instant::now(), echo_key));
-            // A composing IME owns Return/Escape and text keys until its
-            // double-buffered Done; never execute a partially composed Run.
-            if ime_handling_text && matches!(event.keysym,
-                    Keysym::Return | Keysym::KP_Enter | Keysym::Escape) {
+                && native_ime::owns_keyboard_edit(
+                    ime.composing, &mut ime.recent_commit, Instant::now(),
+                    echo_key, editor_control, escape_key));
+            if ime_handling_text && editor_control {
                 return;
             }
             // Do not log keysyms or UTF-8 from the Run dialog: they can
