@@ -1161,7 +1161,7 @@ struct NativeIme {
     committed_serial: u32,
     pending: native_ime::Pending,
     composing: bool,
-    received_commit: bool,
+    recent_commit: Option<Instant>,
 }
 
 struct FileContextLayer {
@@ -2369,7 +2369,7 @@ impl RicePlate {
         }
         ime.pending.reset();
         ime.composing = false;
-        ime.received_commit = false;
+        ime.recent_commit = None;
     }
 
     /// Synchronize at the same logical edit/caret boundary used by the
@@ -7375,7 +7375,7 @@ impl SeatHandler for RicePlate {
                             seat: seat.clone(), input,
                             focused_surface: None, enabled_surface: None,
                             committed_serial: 0, pending: native_ime::Pending::default(),
-                            composing: false, received_commit: false,
+                            composing: false, recent_commit: None,
                         });
                     }
                     self.keyboard = Some(keyboard);
@@ -7652,10 +7652,16 @@ impl KeyboardHandler for RicePlate {
         if self.keyboard.as_ref() != Some(keyboard) { return; }
         if self.dispatch_desktop_keyboard_focus(&event, qh) { return; }
         if self.luna_dialog_focused {
-            let ime_handling_text = self.native_ime.as_ref().is_some_and(|ime|
-                ime.enabled_surface.as_ref() == self.luna_dialog.as_ref()
-                    .map(|layer| layer.surface.wl_surface())
-                && (ime.composing || ime.received_commit));
+            let current_dialog = self.luna_dialog.as_ref()
+                .map(|layer| layer.surface.wl_surface());
+            let echo_key = matches!(event.keysym,
+                Keysym::Return | Keysym::KP_Enter | Keysym::Escape)
+                || event.utf8.as_deref().is_some_and(|text| !text.is_empty());
+            let ime_handling_text = self.native_ime.as_mut().is_some_and(|ime|
+                ime.enabled_surface.is_some()
+                && ime.enabled_surface.as_ref() == current_dialog
+                && native_ime::suppress_keyboard_echo(
+                    ime.composing, &mut ime.recent_commit, Instant::now(), echo_key));
             // A composing IME owns Return/Escape and text keys until its
             // double-buffered Done; never execute a partially composed Run.
             if ime_handling_text && matches!(event.keysym,
@@ -9097,7 +9103,7 @@ impl Dispatch<ZwpTextInputV3, ()> for RicePlate {
                 ime.focused_surface = Some(surface.clone());
                 ime.pending.reset();
                 ime.composing = false;
-                ime.received_commit = false;
+                ime.recent_commit = None;
                 if editable {
                     ime.enabled_surface = Some(surface);
                     ime.input.enable();
@@ -9117,7 +9123,7 @@ impl Dispatch<ZwpTextInputV3, ()> for RicePlate {
                 ime.enabled_surface = None;
                 ime.pending.reset();
                 ime.composing = false;
-                ime.received_commit = false;
+                ime.recent_commit = None;
                 if let Some(dialog) = state.luna_dialog.as_mut() {
                     if dialog.surface.wl_surface() == &surface {
                         dialog.state.preedit = None;
@@ -9158,8 +9164,13 @@ impl Dispatch<ZwpTextInputV3, ()> for RicePlate {
                     if let Some(ime) = state.native_ime.as_mut() {
                         ime.composing = state.luna_dialog.as_ref()
                             .is_some_and(|dialog| dialog.state.preedit.is_some());
-                        ime.received_commit |= pending.commit.as_ref()
-                            .is_some_and(|commit| !commit.is_empty());
+                        if pending.commit.as_ref().is_some_and(|commit| !commit.is_empty()) {
+                            // A compositor IME commit may be followed by one
+                            // redundant wl_keyboard event. Bound this guard
+                            // to a single editable key / short time window,
+                            // never keep the Run editor permanently locked.
+                            ime.recent_commit = Some(Instant::now());
+                        }
                     }
                     state.redraw_luna_dialog();
                     // A mismatched Done is still an edit per protocol, but

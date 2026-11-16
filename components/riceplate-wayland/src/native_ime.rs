@@ -3,6 +3,26 @@
 //! Done; editor mutations happen only at Done as one validated transaction.
 //! This module owns neither a Wayland proxy nor any persisted user text.
 
+use std::time::{Duration, Instant};
+
+/// Only a single compositor-delivered key can be discarded as the trailing
+/// echo of a successful text-input-v3 commit. A permanent received_commit
+/// latch blocked every later Run keystroke, Escape and Return until focus loss.
+const IME_ECHO_WINDOW: Duration = Duration::from_millis(80);
+
+pub(crate) fn suppress_keyboard_echo(
+    composing: bool, recent_commit: &mut Option<Instant>, now: Instant,
+    echo_candidate: bool,
+) -> bool {
+    // Preserve composition ownership but do not accidentally clear a
+    // pending marker when labwc sends unrelated modifiers/navigation.
+    if composing { return echo_candidate; }
+    if !echo_candidate { return false; }
+    recent_commit.take().is_some_and(|at|
+        now.checked_duration_since(at)
+            .is_some_and(|elapsed| elapsed <= IME_ECHO_WINDOW))
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Preedit {
     pub(crate) text: String,
@@ -64,6 +84,44 @@ impl Pending {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keyboard_echo_guard_is_bounded_and_never_latches_run_editor() {
+        let t = Instant::now();
+        let mut last = Some(t);
+        // Modifiers/arrows do not consume a possible trailing text event.
+        assert!(!suppress_keyboard_echo(false, &mut last, t, false));
+        assert_eq!(last, Some(t));
+        assert!(suppress_keyboard_echo(false, &mut last,
+                                      t + Duration::from_millis(20), true));
+        assert!(last.is_none());
+        // Further real keyboard input, Enter and Escape remain usable.
+        assert!(!suppress_keyboard_echo(false, &mut last,
+                                       t + Duration::from_millis(21), true));
+        assert!(!suppress_keyboard_echo(false, &mut last,
+                                       t + Duration::from_millis(40), true));
+        last = Some(t);
+        assert!(!suppress_keyboard_echo(false, &mut last,
+                                       t + IME_ECHO_WINDOW + Duration::from_millis(1), true));
+        assert!(last.is_none(), "stale echo marker must also be cleared");
+        last = Some(t);
+        assert!(!suppress_keyboard_echo(false, &mut last,
+                                       t - Duration::from_millis(1), true));
+        assert!(last.is_none(), "out-of-order events cannot hold a guard");
+    }
+
+    #[test]
+    fn active_composition_defers_only_editable_keys_and_keeps_its_marker() {
+        let t = Instant::now();
+        let mut last = Some(t);
+        assert!(!suppress_keyboard_echo(true, &mut last, t, false));
+        assert!(suppress_keyboard_echo(true, &mut last, t, true));
+        assert_eq!(last, Some(t));
+        assert!(suppress_keyboard_echo(false, &mut last, t, true));
+        assert!(!suppress_keyboard_echo(false, &mut last, t, true));
+    }
+
+
     use crate::luna_dialog::{Kind, State};
 
     #[test]

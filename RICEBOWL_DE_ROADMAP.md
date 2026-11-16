@@ -21,6 +21,12 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
+### SG5 text-input-v3 post-commit keyboard recovery (16 November 2026; gated)
+
+- The native Run/Rename IME handler no longer retains a permanent `received_commit` latch after a successful compositor `Done` event. That state previously blocked subsequent printable input and Run Enter/Escape until the dialog lost/reacquired focus.
+- A recent IME commit can suppress **at most one** eligible compositor key event within an 80 ms echo window; an unrelated modifier/navigation key does not consume the allowance. Later keyboard input, Return and Escape resume their normal handling without changing the compositor-owned IME focus policy.
+- Pure Rust regressions cover the transient duplicate echo, expiry, out-of-order events and active preedit ownership. Exact-head Native Rust/Clippy and labwc CI plus post-merge main verification are required. No physical IME keyboard/Orca sign-off or SG5 completion is claimed by these tests.
+
 ### SG5 IME selected-text preview correctness (16 November 2026; CI gate)
 
 - Native Run and file-rename text-input-v3 preedit now renders at the **start of the selected range** rather than at the old caret byte offset. Previously a short IME preedit after Ctrl+A / Shift-selection could index past the shortened preview string and crash the native renderer.
