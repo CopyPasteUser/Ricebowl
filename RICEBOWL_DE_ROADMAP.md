@@ -2444,6 +2444,23 @@ shaping, mirrored punctuation, bidirectional selections/affinity and
 accessibility metadata. Keep original SG5/SG7 issue #417 unchecked until
 software-only acceptance is traceable on the exact final main commit.
 
+### SG5 — keyboard visual-arrow navigation in Luna editors (16 November 2026; CI candidate)
+
+Native Run and Desktop Rename now resolve Left/Right caret movement against
+UAX #9 *visual grapheme boundaries* when a single-line input contains RTL
+text, rather than moving in the opposite on-screen direction. Mixed Latin
+and Hebrew run crossings follow the same visual caret map already used for
+pointer hit-testing; logical Unicode input, Home/End policy, Backspace/Delete
+and shell-free execution remain unchanged. Common LTR input keeps the
+old allocation-free shortcut. Unit regressions cover pure RTL, mixed run
+transitions, joined emoji and malformed multiline fallback; a movement
+cancels stale IME preedit only when the caret actually changes.
+
+This is one SG5 correctness increment, not full dual-affinity BiDi
+selection, rendering/shaping parity, accessibility or real external IME
+acceptance. Gate it on exact-head Rust/Clippy/native labwc CI plus post-merge
+main; leave issue #417's SG5 checkbox open.
+
 ### SG5 — native RTL caret and pointer hit mapping (16 November 2026; CI candidate)
 
 The shared single-line BiDi cluster permutation now also exposes the painted
