@@ -30,7 +30,7 @@ class WaylandLunaTests(unittest.TestCase):
         # Execute only the read-only diagnostic/printf tail with a checkout
         # containing spaces. No cargo build, profile mutation or desktop
         # session startup is involved.
-        tail = source.split("# The old hard-coded checkout path", 1)[1]
+        tail = source[source.index("if ! command -v labwc >/dev/null 2>&1; then"):]
         with tempfile.TemporaryDirectory() as base:
             root = Path(base) / "Rice Bowl"
             env = {**os.environ, "project_root": str(root),
