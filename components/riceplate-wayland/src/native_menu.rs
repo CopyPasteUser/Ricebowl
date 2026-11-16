@@ -1217,6 +1217,34 @@ mod tests {
 
 
     #[test]
+    fn luna_x11_parity_shows_four_real_apps_without_overlapping_system_actions() {
+        let style = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let menu = style.menu.as_ref().unwrap();
+        let mut state = MenuState::default();
+        state.apps = demo_apps(8);
+        state.open();
+        let sections = state.composed_sections(menu).unwrap();
+        let recent = &sections[0].items;
+        assert_eq!(recent.len(), 4);
+        assert_eq!(recent.iter().map(|item| item.y).collect::<Vec<_>>(),
+                   vec![58, 88, 118, 148]);
+        let terminal = &sections[1].items[0];
+        let all_programs = &sections[1].items[1];
+        assert_eq!(terminal.action, "terminal");
+        assert_eq!(terminal.y, 191);
+        assert!(recent.last().unwrap().y + recent.last().unwrap().height < terminal.y);
+        assert_eq!(all_programs.action, "applications");
+        assert_eq!(all_programs.y, 242);
+        assert!(terminal.y + terminal.height < all_programs.y);
+        for tile in recent.iter().chain(sections[1].items.iter()) {
+            assert_eq!(state.hit(menu, f64::from(tile.x + 12),
+                                       f64::from(tile.y + 12)), Some(Hit::Action(tile.index)));
+        }
+    }
+
+    #[test]
     fn luna_preview_prefers_real_browser_and_mail_on_fresh_login() {
         let recipe = crate::recipe::parse(
             include_str!("../../../examples/wayland/xp-luna-columns.json"),
