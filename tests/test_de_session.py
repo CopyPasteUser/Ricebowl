@@ -635,30 +635,37 @@ class WaylandSessionTests(unittest.TestCase):
 
     def test_native_crash_restores_waybar_instead_of_exiting_the_session(self):
         commands = []
+        child_envs = []
 
         class FailedNative(_FakeProcess):
             def wait(self, timeout=None):
                 return -11
 
-        def spawn(command, **_kwargs):
+        def spawn(command, **kwargs):
             commands.append(command)
+            child_envs.append(kwargs["env"])
             if command[0] == "/usr/bin/riceplate-native":
                 return FailedNative()
             return _FakeProcess()
 
         env = {"RICEBOWL_DE_SHELL_CHILD": "1", "RICEBOWL_DE_NESTED": "1",
-               "RICEBOWL_DE_PANEL": "native", "WAYLAND_DISPLAY": "wayland-0"}
+               "RICEBOWL_DE_PANEL": "native", "WAYLAND_DISPLAY": "wayland-0",
+               "GDK_BACKEND": "x11"}
         tools = {**self.tools, "riceplate-native": "/usr/bin/riceplate-native"}
         with mock.patch("macrice.de.session.signal.signal"), \
              mock.patch("sys.stderr"):
             self.assertEqual(session.shell(environment=env, which=tools.get, spawn=spawn), 0)
         self.assertEqual(commands[0], ["/usr/bin/riceplate-native", "--recipe", "classic"])
         self.assertEqual(commands[1][0], "/usr/bin/waybar")
+        self.assertEqual(child_envs[0]["GDK_BACKEND"], "x11")
+        self.assertEqual(child_envs[1]["GDK_BACKEND"], "wayland")
+        self.assertEqual(env["GDK_BACKEND"], "x11")
 
     def test_live_waybar_crash_rescues_once_without_touching_saved_selection(self):
         from macrice.de import recipes
 
         commands = []
+        child_envs = []
         handlers = {}
         panels = 0
 
@@ -669,9 +676,10 @@ class WaylandSessionTests(unittest.TestCase):
             def wait(self, timeout=None):
                 return 9
 
-        def spawn(command, **_kwargs):
+        def spawn(command, **kwargs):
             nonlocal panels
             commands.append(command)
+            child_envs.append(kwargs["env"])
             if command[0] == "/usr/bin/waybar":
                 panels += 1
                 return FailedWaybar() if panels == 1 else _FakeProcess()
@@ -684,7 +692,8 @@ class WaylandSessionTests(unittest.TestCase):
                "RICEBOWL_DE_PANEL": "waybar", "RICEBOWL_DE_LIVE": "1",
                "RICEBOWL_DE_RECIPE": "classic", "WAYLAND_DISPLAY": "wayland-0",
                "XDG_RUNTIME_DIR": self.runtime.name,
-               "RICEBOWL_DE_SESSION_CONFIG": self.runtime.name}
+               "RICEBOWL_DE_SESSION_CONFIG": self.runtime.name,
+               "GDK_BACKEND": "x11"}
         with mock.patch("macrice.de.session.signal.signal", side_effect=handlers.__setitem__), \
              mock.patch("macrice.de.live.listen", return_value=nullcontext(object())), \
              mock.patch("macrice.de.live.serve_once", side_effect=stop_after_rescue), \
@@ -693,6 +702,10 @@ class WaylandSessionTests(unittest.TestCase):
             self.assertEqual(session.shell(environment=env, which=self.which, spawn=spawn), 0)
             self.assertEqual(recipes.current_selection()[0], "classic")
         self.assertEqual(panels, 2)
+        for command, child_env in zip(commands, child_envs):
+            if command[0] == "/usr/bin/waybar":
+                self.assertEqual(child_env["GDK_BACKEND"], "wayland")
+        self.assertEqual(env["GDK_BACKEND"], "x11")
 
     def test_failed_waybar_rescue_does_not_restart_forever(self):
         commands = []
