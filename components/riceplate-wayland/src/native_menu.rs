@@ -1541,8 +1541,10 @@ mod tests {
         assert_eq!(state.hit(menu, 200.0, 290.0), None); // inert footer gap
         assert_eq!(state.hit(menu, 275.0, 290.0), Some(Hit::Close));
 
+        // Cross-column arrow navigation tracks the nearest vertical row,
+        // including the relocated Terminal beneath four recent programs.
         state.horizontal_by(menu, 1);
-        assert_eq!(state.current_action(menu), Some("settings"));
+        assert_eq!(state.current_action(menu), Some("run"));
         state.horizontal_by(menu, -1);
         assert_eq!(state.current_action(menu), Some("terminal"));
         state.select_group(menu, 2);
