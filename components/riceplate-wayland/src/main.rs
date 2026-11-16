@@ -943,6 +943,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         let timeout = [Some(next_clock_timeout()), osd_timeout, reconnect_timeout, backlight_timeout,
                        app.desktop_keyboard_focus_layer.as_ref().map(|focus|
                            focus.expires.saturating_duration_since(Instant::now())),
+                       // An unconfirmed 8px Exclusive surface must never outlive
+                       // the 1.5s lease acquisition deadline (the five-second
+                       // UI lifetime only applies after compositor confirmation).
+                       app.desktop_keyboard_focus_lease.pending_deadline().map(|at|
+                           at.saturating_duration_since(Instant::now())),
                        app.primary_output_handoff.deadline().map(|at|
                            at.saturating_duration_since(Instant::now())),
                        app.file_watcher.as_ref().and_then(|w| w.next_deadline())
@@ -958,9 +963,13 @@ fn main() -> Result<(), Box<dyn Error>> {
             app.sync_mirrors(&qh);
         }
         app.reap_file_launches_if_due();
-        if app.desktop_keyboard_focus_layer.as_ref().is_some_and(|focus|
-            Instant::now() >= focus.expires) {
-            app.close_desktop_keyboard_focus();
+        // Expire a still-pending keyboard lease independently of the longer
+        // focused UI lifetime. Dropping the actual layer is essential: only
+        // cancelling the lease could leave an unowned Exclusive input grab.
+        if let Some(expires) = app.desktop_keyboard_focus_layer.as_ref().map(|focus| focus.expires) {
+            if app.desktop_keyboard_focus_lease.should_close_layer_at(expires, Instant::now()) {
+                app.close_desktop_keyboard_focus();
+            }
         }
         // Calloop observes the inotify fd; a deadline exists only after a
         // kernel event. No resident desktop polling loop is introduced.
