@@ -64,7 +64,7 @@ def network_browsing_available(schemes) -> bool:
     return "network" in (schemes or ())
 
 
-def open_location(shell, uri: str, Gio, *, which=shutil.which,
+def open_location(shell, uri: str, Gio, *, which=None,
                   spawn=subprocess.Popen) -> str:
     """Use RiceField's real Win98 shell for local folders if installed.
 
@@ -78,7 +78,7 @@ def open_location(shell, uri: str, Gio, *, which=shutil.which,
             path = Gio.File.new_for_uri(uri).get_path()
         except Exception as exc:
             LOG.warning("Could not resolve local Explorer location %s: %s", uri, exc)
-    executable = which("ricefield") if path else None
+    executable = (shutil.which if which is None else which)("ricefield") if path else None
     if executable:
         try:
             spawn([executable, "--theme", "win98", "--separate-window", path],
