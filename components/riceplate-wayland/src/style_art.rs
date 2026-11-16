@@ -888,7 +888,9 @@ mod tests {
 
     #[test]
     fn extra_unicode_glyph_cache_is_bounded_and_evicts_oldest() {
-        let mut cache = GlyphCache { glyphs: HashMap::new(), dynamic: VecDeque::new() };
+        let mut cache = GlyphCache { glyphs: HashMap::new(), dynamic: VecDeque::new(),
+            shaped: HashMap::new(), shaped_dynamic: VecDeque::new(),
+            layouts: HashMap::new(), layout_order: VecDeque::new() };
         for index in 0..DYNAMIC_GLYPH_LIMIT + 1 {
             let letter = char::from_u32(0x400 + index as u32).unwrap();
             cache.insert_dynamic((FontFace::Primary, letter), Glyph {
