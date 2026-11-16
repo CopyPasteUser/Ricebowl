@@ -6137,6 +6137,14 @@ fn luna_dialog_text_width(style: &PanelStyle, text: &str) -> u32 {
         )
 }
 
+fn luna_dialog_visual_width(style: &PanelStyle, visual: &str) -> u32 {
+    style.native_art.as_ref().and_then(|art| art.font.as_ref())
+        .map_or_else(
+            || text_pixel_width(visual, style.font_scale.max(1)),
+            |font| font.measure_visual_text(visual),
+        )
+}
+
 fn paint_luna_dialog(canvas: &mut [u8], style: &PanelStyle, state: &luna_dialog::State) {
     let (w, h) = (luna_dialog::WIDTH, luna_dialog::HEIGHT);
     canvas.fill(0);
@@ -6174,8 +6182,9 @@ fn paint_luna_dialog(canvas: &mut [u8], style: &PanelStyle, state: &luna_dialog:
             fill_rect(canvas, w, h, 120, 113, 302, 28, 0xffff_ffff);
             // Use the same font advances as actual glyph drawing: a
             // proportional selected font must not misplace the caret.
-            let (text, cursor_x) = state.input_view(282, |value|
-                luna_dialog_text_width(style, value));
+            let (text, cursor_x) = state.input_view_bidi(282,
+                |value| luna_dialog_text_width(style, value),
+                |visual| luna_dialog_visual_width(style, visual));
             draw_rice_text(canvas, w, h, 128, 122, &text, 0xff10_2849, style);
             fill_rect(canvas, w, h, 128 + cursor_x, 120, 2, 16, 0xff10_2849);
             let notice = state.notice.unwrap_or(if state.kind == luna_dialog::Kind::Run {
@@ -7975,8 +7984,9 @@ impl PointerHandler for RicePlate {
                         // no synthetic key event or compositor focus grab.
                         let style = &self.recipe;
                         let moved = self.luna_dialog.as_mut().is_some_and(|dialog|
-                            dialog.state.place_cursor_at(event.position.0 - 128.0, 282,
-                                |text| luna_dialog_text_width(style, text)));
+                            dialog.state.place_cursor_at_bidi(event.position.0 - 128.0, 282,
+                                |text| luna_dialog_text_width(style, text),
+                                |visual| luna_dialog_visual_width(style, visual)));
                         if moved || repaint { self.redraw_luna_dialog(); }
                     }
                     None => if repaint { self.redraw_luna_dialog(); },

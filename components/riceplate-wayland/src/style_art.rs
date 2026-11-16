@@ -360,10 +360,9 @@ impl FontSprites {
         self.resolved_letters(text).map(|(_, letter)| letter)
     }
 
-    fn proportional_advance(&self, text: &str) -> f32 {
-        // Width and rasterization must consume the SAME visual order.
-        // LTR strings remain borrowed; only RTL labels need Unicode BiDi.
-        let visual = crate::bidi_layout::visual_order(text);
+    fn proportional_advance_visual(&self, visual: &str) -> f32 {
+        // Width and rasterization must consume the same already-reordered
+        // clusters, including cross-cluster kerning in the selected face.
         let mut width = 0.0_f32;
         let mut previous: Option<GlyphKey> = None;
         for (face, letter) in self.resolved_letters(&visual) {
@@ -451,12 +450,19 @@ impl FontSprites {
         best_end
     }
 
-    pub fn measure_text(&self, text: &str) -> u32 {
+    /// Measure text in *painted* order without applying Unicode BiDi twice.
+    /// The editor uses this for visual prefix caret advances only.
+    pub fn measure_visual_text(&self, visual: &str) -> u32 {
         if !self.proportional {
-            return u32::try_from(self.resolved_letters(text).count())
+            return u32::try_from(self.resolved_letters(visual).count())
                 .unwrap_or(u32::MAX).saturating_mul(self.cell);
         }
-        self.proportional_advance(text).ceil() as u32
+        self.proportional_advance_visual(visual).ceil() as u32
+    }
+
+    pub fn measure_text(&self, text: &str) -> u32 {
+        let visual = crate::bidi_layout::visual_order(text);
+        self.measure_visual_text(&visual)
     }
 
     pub fn draw(&self, canvas: &mut [u8], width: u32, height: u32,
@@ -654,7 +660,7 @@ mod tests {
         let second = font.font.metrics('V', font.size).advance_width;
         let kerning = font.font.horizontal_kern('A', 'V', font.size).unwrap_or(0.0);
         let expected = first + second + kerning;
-        assert!((font.proportional_advance(pair) - expected).abs() < 0.001);
+        assert!((font.proportional_advance_visual(pair) - expected).abs() < 0.001);
         assert_eq!(font.measure_text(pair), expected.ceil() as u32);
         let mut paint = vec![0; 96 * 24 * 4];
         font.draw(&mut paint, 96, 24, 0, 0, pair, 0xffff_ffff, false);

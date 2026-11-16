@@ -2394,7 +2394,24 @@ RTL/Latin, combined accents, emoji, bitmap pixel receipts and legacy LTR.
 This is intentionally not a full international text-engine acceptance:
 fontdue does **not** support HarfBuzz/OpenType GSUB/GPOS contextual shaping,
 mirrored glyph substitution, multi-line paragraph layout, complex-script
-font coverage, cursor hit mapping or Wayland text-input-v3 IME preedit.
+font coverage or Wayland text-input-v3 IME preedit.
 Keep SG5 and SG7 open pending those independently implemented and tested
 capabilities, and preserve all classic/XP LTR screenshot baselines.
+
+### SG5 — native RTL caret and pointer hit mapping (16 November 2026; CI candidate)
+
+The shared single-line BiDi cluster permutation now also exposes the painted
+edge for each **logical** grapheme caret position. XP Luna Run and Desktop
+rename use this map to place the caret and reverse-map actual pointer clicks
+without modifying logical input storage, clipping or the shell-free Run
+execution contract. For proportional native fonts the pointer path measures
+the already-reordered visual prefix directly, avoiding a second UAX #9 pass;
+bitmap fonts retain one cell per grapheme. Mixed LTR/RTL runs, fully RTL
+strings, horizontal scrolling, combined text and joined emoji have Rust
+regression cases. Ordinary LTR interactions retain their existing path.
+
+The BiDi run-boundary caret uses a documented, deterministic leading-edge
+affinity; full dual-affinity selection, text highlighting, mirrored glyphs,
+complex shaping, external IME protocol and device/Orca acceptance remain open.
+The software-wide SG5 gate must **not** be marked complete by this slice.
 
