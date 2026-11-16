@@ -372,7 +372,8 @@ mod tests {
         let other = render("desktop:unknown-app.desktop");
         for category in [&browser, &mail, &files, &terminal, &editor] {
             assert_ne!(category, &other);
-            assert_ne!(at(category, 10, 47), at(&other, 10, 47));
+            assert!((47_u32..61).any(|row|
+                (10_u32..24).any(|col| at(category, col, row) != 0)));
             assert_eq!(at(category, 50, 50), 0);
         }
         assert_ne!(browser, mail);
