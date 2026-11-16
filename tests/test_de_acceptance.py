@@ -120,6 +120,37 @@ class WaylandPhysicalAcceptanceTests(unittest.TestCase):
         with patch.object(Path, "lstat", foreign_socket):
             self.assertEqual(_socket_state(self.env), "invalid")
 
+    def test_absolute_wayland_socket_cannot_cross_private_runtime_boundary(self):
+        """An owned socket in another session is not evidence for this login."""
+        original_lstat = Path.lstat
+
+        def fake_socket(path):
+            candidate = Path(path)
+            if candidate.name == "wayland-0" and candidate.parent == Path(self.temp.name):
+                return SimpleNamespace(st_mode=stat.S_IFSOCK | 0o600,
+                                       st_uid=os.getuid())
+            return original_lstat(candidate)
+
+        runtime = Path(self.temp.name)
+        with patch.object(Path, "lstat", fake_socket):
+            self.assertEqual(_socket_state(self.env), "present")
+            self.assertEqual(
+                _socket_state(self.env | {"WAYLAND_DISPLAY": str(runtime / "wayland-0")}),
+                "present")
+            for unsafe in ("/tmp/wayland-0", "../wayland-0",
+                           "nested/wayland-0", "./wayland-0",
+                           str(runtime / "nested" / "wayland-0"),
+                           str(runtime / ".." / "wayland-0")):
+                with self.subTest(display=unsafe):
+                    self.assertEqual(
+                        _socket_state(self.env | {"WAYLAND_DISPLAY": unsafe}), "invalid")
+                    # Do not attempt output discovery for an invalid socket.
+                    report = inspect(
+                        environment=self.env | {"WAYLAND_DISPLAY": unsafe},
+                        which=executable, run=lambda *a, **kw: self.fail("unsafe output probe"))
+                    self.assertFalse(report.ready_for_manual_checks)
+                    self.assertEqual(report.output_probe, "not-run")
+
     def test_invalid_or_unresponsive_output_reports_are_not_readiness(self):
         invalid = ["not json", "{}", "[]" ,
                    json.dumps([{"enabled": True, "scale": "secret"}]),

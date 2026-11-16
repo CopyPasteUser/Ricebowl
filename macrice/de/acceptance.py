@@ -107,8 +107,18 @@ def _socket_state(env: Mapping[str, str]) -> str:
             or runtime_info.st_uid != os.getuid() or runtime_info.st_mode & 0o077):
         return "invalid"
     path = Path(display)
-    if not path.is_absolute():
-        path = Path(runtime) / path
+    # A readiness/capture probe must inspect the current session socket,
+    # never an arbitrary same-UID Wayland server outside our private runtime.
+    # The Wayland protocol permits an absolute WAYLAND_DISPLAY; allow it
+    # only when it names a socket directly under XDG_RUNTIME_DIR.
+    root = Path(runtime)
+    if path.is_absolute():
+        if path.parent != root:
+            return "invalid"
+    else:
+        if "/" in display or len(path.parts) != 1 or path.name in (".", ".."):
+            return "invalid"
+        path = root / path
     try:
         details = path.lstat()  # Do not follow untrusted socket symlinks.
     except OSError:
