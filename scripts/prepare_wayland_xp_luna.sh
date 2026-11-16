@@ -3,6 +3,15 @@
 set -euo pipefail
 project_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 cd "$project_root"
+# Cargo defaults to the manifest-local target directory in this standalone
+# crate. Honour a caller-specified target directory as well, so the printed
+# nested preview actually uses the binary produced by this build.
+binary_dir="${CARGO_TARGET_DIR:-$project_root/components/riceplate-wayland/target}"
+case "$binary_dir" in
+    /*) ;;
+    *) binary_dir="$project_root/$binary_dir" ;;
+esac
+binary_dir="$binary_dir/release"
 
 if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
     echo "Build XP Luna as your normal desktop user, without sudo." >&2
