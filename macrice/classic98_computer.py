@@ -169,7 +169,7 @@ def show(shell, Gtk, Gio):
 
     tree.get_selection().connect("changed", selection_changed)
     tree.connect("row-activated", open_selected)
-    search.connect("search-changed", refresh)
+    search.connect("changed", refresh)
     for signal in ("mount-added", "mount-removed", "mount-changed"):
         connections.append(monitor.connect(signal, refresh))
     network.connect("clicked", lambda _button: shell._open_uri("network:///"))
