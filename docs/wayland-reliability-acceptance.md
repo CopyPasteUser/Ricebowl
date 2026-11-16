@@ -115,7 +115,9 @@ Context switches are **not** CPU wakeups. No `nr_wakeups` data means
 the stable CPU delta and flagged, not counted as free CPU. The tool reports
 `idle_confirmed: false`, because software cannot prove the user stayed
 idle. Values are per named process groups, **not total desktop memory or
-a system-wide energy figure**.
+a system-wide energy figure**. The Mint acceptance report requires the new explicit
+counter-continuity and single-panel identity fields; **recapture older resource
+JSON** with the current sampler before comparing profiles.
 
 Use the **same physical device**, power profile, display configuration, open
 apps, measurement interval and ambient workload. Prefer 3+ runs, report
