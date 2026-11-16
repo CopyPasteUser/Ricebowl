@@ -867,11 +867,11 @@ mod tests {
     fn shift_selection_replace_and_delete_preserve_unicode_clusters() {
         let mut state = State::new(Kind::FileRename);
         assert!(state.commit_text("a\u{301}👩‍💻🇩🇪.txt"));
-        assert_eq!(state.cursor, 6);
+        assert_eq!(state.cursor, 7);
         assert!(state.move_cursor_select(CursorMove::Left, true));
-        assert_eq!(state.selected_graphemes(), Some((5, 6)));
+        assert_eq!(state.selected_graphemes(), Some((6, 7)));
         assert!(state.move_cursor_select(CursorMove::Home, true));
-        assert_eq!(state.selected_graphemes(), Some((0, 6)));
+        assert_eq!(state.selected_graphemes(), Some((0, 7)));
         assert!(state.commit_text("新.txt"));
         assert_eq!(state.input, "新.txt");
         assert!(state.selection_anchor.is_none());
@@ -913,7 +913,7 @@ mod tests {
         // Two separate painted ranges across the LTR/RTL run boundary.
         assert_eq!(state.selection_pixels(80, measure, measure),
                    vec![(16, 32), (48, 56)]);
-        assert_eq!(state.surrounding_selection(), ("abc אבג".into(), 10, 2));
+        assert_eq!(state.surrounding_selection(), ("abc אבג".into(), 6, 2));
         assert!(state.delete());
         assert_eq!(state.input, "abבג");
         assert_eq!(state.cursor, 2);
