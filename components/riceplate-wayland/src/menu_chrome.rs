@@ -81,8 +81,12 @@ pub fn shelf(canvas: &mut [u8], palette: MenuPalette) {
 pub fn left_all_programs_rule(canvas: &mut [u8]) {
     let (w, h) = (native_menu::WIDTH, native_menu::HEIGHT);
     let span = native_menu::COLUMNS_SPLIT.saturating_sub(20);
-    fill_rect(canvas, w, h, 10, 232, span, 1, 0xffbd_bab0);
-    fill_rect(canvas, w, h, 10, 233, span, 1, 0xffff_ffff);
+    // X11 separates frequently used programs, utilities and All Programs
+    // with understated etched rules rather than generic section headers.
+    for y in [181_u32, 232] {
+        fill_rect(canvas, w, h, 10, y, span, 1, 0xffbd_bab0);
+        fill_rect(canvas, w, h, 10, y + 1, span, 1, 0xffff_ffff);
+    }
 }
 
 /// Original bevelled footer buttons, using shared native_menu hit rectangles.
