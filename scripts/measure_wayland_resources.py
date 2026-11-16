@@ -69,7 +69,21 @@ def measure(profile: str, *, seconds: float = 10.0,
     # rate window. Never report a misleading 0% CPU for a vanished PID, or
     # silently average only the processes that happened to survive.
     stable_window = bool(first) and set(first) == set(last)
-    cpu = sum(max(0, last[key].cpu_ticks - first[key].cpu_ticks) for key in matched)
+    # PID + starttime identifies one kernel process, but a broken proc/sched
+    # sample can still reset a counter without changing that identity.
+    # Never turn a negative delta into a persuasive zero-percent CPU result
+    # or publish impossible negative wakeup/context-switch rates.
+    def counter_decreased(before: int | None, after: int | None) -> bool:
+        return before is not None and after is not None and after < before
+
+    counter_reset = any(
+        counter_decreased(first[key].cpu_ticks, last[key].cpu_ticks)
+        or counter_decreased(first[key].switches, last[key].switches)
+        or counter_decreased(first[key].wakeups, last[key].wakeups)
+        for key in matched
+    )
+    valid_window = stable_window and not counter_reset
+    cpu = sum(last[key].cpu_ticks - first[key].cpu_ticks for key in matched)
     switches = _total([last[key].switches - first[key].switches
                        if first[key].switches is not None and last[key].switches is not None
                        else None for key in matched])
@@ -91,15 +105,24 @@ def measure(profile: str, *, seconds: float = 10.0,
     }[profile]
     other_role = "fallback-panel" if profile == "native" else (
         "native-panel" if profile == "waybar" else None)
+    expected_before = [p for p in first_seen if p.role == expected_role]
+    expected_after = [p for p in last_seen if p.role == expected_role]
+    # An extra same-UID native panel is common while a nested labwc preview
+    # coexists with a full login. Counting both as one "verified" profile
+    # produces unusable performance acceptance numbers.
+    ambiguous_panel = len(expected_before) != 1 or len(expected_after) != 1
     process_role_verified = (
-        expected_role in before_roles and expected_role in after_roles
+        not ambiguous_panel
+        and expected_role in before_roles and expected_role in after_roles
         and (other_role is None or (other_role not in before_roles
                                     and other_role not in after_roles))
         and any(first[key].role == expected_role for key in matched))
     return {
         "schema_version": 1, "profile_requested": profile, "profile_observed": actual,
-        "profile_matches": actual == profile and process_role_verified and stable_window,
-        "sample_continuity_verified": stable_window,
+        "profile_matches": actual == profile and process_role_verified and valid_window,
+        "sample_continuity_verified": valid_window,
+        "counter_reset_detected": counter_reset,
+        "ambiguous_profile_processes": ambiguous_panel,
         "process_role_verified": process_role_verified, "read_only": True,
         "hardware_accepted": False, "idle_confirmed": False,
         "cold_login_to_ready_ms": None,
@@ -111,17 +134,17 @@ def measure(profile: str, *, seconds: float = 10.0,
         # 100% = one logical core. Only processes present in both samples are
         # included; a restarted process is not silently counted as CPU-free.
         "cpu_percent_one_core": round(100 * cpu / (ticks * elapsed), 3)
-        if stable_window else None,
+        if valid_window else None,
         "context_switches_per_s": round(switches / elapsed, 3)
-        if stable_window and switches is not None else None,
+        if valid_window and switches is not None else None,
         "kernel_wakeups_per_s": round(wakeups / elapsed, 3)
-        if stable_window and wakeups is not None else None,
+        if valid_window and wakeups is not None else None,
         "process_restart_or_exit_detected": set(first) != set(last),
         "notes": [
             "Kernel wakeups only when /proc/PID/sched exports nr_wakeups; "
             "context switches are not wakeups",
-            "Requested panel must have one stable PID/start-time across both samples",
-            "CPU and activity rates are unknown if the observed process set changes",
+            "Requested panel must have exactly one stable PID/start-time across both samples",
+            "CPU and activity rates are unknown if process identities or kernel counters reset",
             "A per-user process-name sample cannot prove session membership",
             "Cold greeter-to-ready timing and idle status require manual on-device observation",
             "Compare three separately captured profiles on identical hardware and workload",
