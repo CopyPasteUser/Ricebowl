@@ -5,6 +5,7 @@ import os
 import subprocess
 import unittest
 from types import SimpleNamespace
+from pathlib import Path
 from unittest import mock
 
 from macrice.cli import main
@@ -224,6 +225,17 @@ class WaylandRicePopReadTests(unittest.TestCase):
             output = json.loads(printed.call_args.args[0])
         self.assertEqual(output["error"]["code"], "notifications_unavailable")
         self.assertFalse(output["ok"])
+
+    def test_nested_private_bus_smoke_keeps_literal_shell_payload(self):
+        path = Path(__file__).resolve().parents[1] / "scripts/smoke_wayland_session.sh"
+        content = path.read_text(encoding="utf-8")
+        embedded = content.split("dbus-run-session -- sh -eu -c '", 1)[1].split(
+            "' sh \"$project_root\"", 1)[0]
+        # A literal apostrophe terminates the enclosing shell argument,
+        # even inside a comment; real Wayland smoke must remain executable.
+        self.assertNotIn("'", embedded)
+        self.assertIn("RICEBOWL_DE_PRIVATE_BUS=1", embedded)
+        self.assertIn("RICEBOWL_DE_NESTED=1 XDG_SESSION_DESKTOP=ricebowl", embedded)
 
     def test_notification_mutations_reject_inherited_bus_and_verify_private_owner(self):
         config = str(session.resources() / "mako.conf")
