@@ -934,6 +934,95 @@ PY
             shortcut_clicker=
             test ! -e "$runtime/trash-gio.log"
             echo "Verified real Bottom shortcut keyboard focus, Unicode prefix dispatch and Escape release"
+            # Repeat the actual same-seat compositor acquisition/typing/Escape
+            # lifecycle. Earlier tests covered only one or two gestures and
+            # could miss the intermittent labwc focus race (#328/#417).
+            # No synthetic keyboard-enter injection, fixed success sleep,
+            # changes to the active XFCE desktop, or weakened assertions.
+            for stress_round in 1 2 3; do
+                before_confirm=$(grep -Fc \
+                    "RicePlate: compositor confirmed Luna shortcut keyboard focus" \
+                    "$runtime/plate-$label.log" || :)
+                before_preserve=$(grep -Fc \
+                    "RicePlate: preserved compositor-confirmed Luna shortcut keyboard focus" \
+                    "$runtime/plate-$label.log" || :)
+                WAYLAND_DISPLAY=wayland-0 "$clicker" --hold-ms 8000 68 435 1366 768 \
+                    >"$runtime/luna-stress-$stress_round-pointer.log" 2>&1 &
+                shortcut_clicker=$!
+                stress_seen=0
+                count=0
+                while [ "$count" -lt 30 ]; do
+                    now_confirm=$(grep -Fc \
+                        "RicePlate: compositor confirmed Luna shortcut keyboard focus" \
+                        "$runtime/plate-$label.log" || :)
+                    now_preserve=$(grep -Fc \
+                        "RicePlate: preserved compositor-confirmed Luna shortcut keyboard focus" \
+                        "$runtime/plate-$label.log" || :)
+                    if [ "$now_confirm" -gt "$before_confirm" ] ||
+                       [ "$now_preserve" -gt "$before_preserve" ]; then
+                        stress_seen=1
+                        break
+                    fi
+                    kill -0 "$plate" || {
+                        echo "Luna focus stress: native process exited in round $stress_round" >&2
+                        exit 1
+                    }
+                    count=$((count + 1))
+                    sleep 0.1
+                done
+                if [ "$stress_seen" -ne 1 ]; then
+                    echo "Luna focus stress: no real Enter in round $stress_round" >&2
+                    cat "$runtime/luna-stress-$stress_round-pointer.log" >&2
+                    tail -n 50 "$runtime/plate-$label.log" >&2
+                    exit 1
+                fi
+                before_prefix=$(grep -Fc "RicePlate: Luna shortcut prefix selected index=" \
+                    "$runtime/plate-$label.log" || :)
+                WAYLAND_DISPLAY=wayland-0 wtype -d 120 p \
+                    >"$runtime/luna-stress-$stress_round-keys.log" 2>&1 || {
+                    echo "Luna focus stress: compositor keyboard typing failed" >&2
+                    exit 1
+                }
+                count=0
+                while [ "$count" -lt 20 ]; do
+                    now_prefix=$(grep -Fc "RicePlate: Luna shortcut prefix selected index=" \
+                        "$runtime/plate-$label.log" || :)
+                    [ "$now_prefix" -gt "$before_prefix" ] && break
+                    count=$((count + 1))
+                    sleep 0.1
+                done
+                if [ "$now_prefix" -le "$before_prefix" ]; then
+                    echo "Luna focus stress: no real typing dispatch in round $stress_round" >&2
+                    tail -n 50 "$runtime/plate-$label.log" >&2
+                    exit 1
+                fi
+                before_escape=$(grep -Fc \
+                    "RicePlate: Luna shortcut keyboard focus canceled by Escape" \
+                    "$runtime/plate-$label.log" || :)
+                WAYLAND_DISPLAY=wayland-0 wtype -k Escape \
+                    >>"$runtime/luna-stress-$stress_round-keys.log" 2>&1 || exit 1
+                count=0
+                while [ "$count" -lt 20 ]; do
+                    now_escape=$(grep -Fc \
+                        "RicePlate: Luna shortcut keyboard focus canceled by Escape" \
+                        "$runtime/plate-$label.log" || :)
+                    [ "$now_escape" -gt "$before_escape" ] && break
+                    count=$((count + 1))
+                    sleep 0.1
+                done
+                if [ "$now_escape" -le "$before_escape" ]; then
+                    echo "Luna focus stress: Escape failed to revoke focus in round $stress_round" >&2
+                    tail -n 50 "$runtime/plate-$label.log" >&2
+                    exit 1
+                fi
+                kill -TERM "$shortcut_clicker" 2>/dev/null || :
+                wait "$shortcut_clicker" 2>/dev/null || :
+                shortcut_clicker=
+                kill -0 "$plate"
+                test ! -e "$runtime/trash-gio.log"
+                sleep 0.1
+            done
+            echo "Verified 3 repeated compositor-confirmed Luna focus/typing/Escape rounds"
             # Right-click must open a bounded popup, never launch a shortcut.
             rm -f "$runtime/trash-gio.log"
             WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click 68 435 1366 768
