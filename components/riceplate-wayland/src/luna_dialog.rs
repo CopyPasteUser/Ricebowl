@@ -139,8 +139,12 @@ impl State {
         let previous = self.cursor;
         let count = self.input.graphemes(true).count();
         self.cursor = match movement {
-            CursorMove::Left => self.cursor.saturating_sub(1),
-            CursorMove::Right => self.cursor.saturating_add(1).min(count),
+            CursorMove::Left => crate::bidi_layout::visual_arrow_target(
+                &self.input, self.cursor, false,
+            ).unwrap_or_else(|| self.cursor.saturating_sub(1)),
+            CursorMove::Right => crate::bidi_layout::visual_arrow_target(
+                &self.input, self.cursor, true,
+            ).unwrap_or_else(|| self.cursor.saturating_add(1).min(count)),
             CursorMove::Home => 0,
             CursorMove::End => count,
         };
@@ -614,6 +618,38 @@ mod tests {
         assert!(state.apply_ime(&pending));
         assert_eq!(state.input, "not新");
         assert_eq!(state.cursor, 4);
+    }
+
+    #[test]
+    fn native_keyboard_arrows_follow_visual_rtl_carets() {
+        let mut state = State::new(Kind::Run);
+        assert!(state.commit_text("אבג"));
+        assert_eq!(state.cursor, 3);
+        assert!(!state.move_cursor(CursorMove::Left),
+            "at the visually leftmost edge");
+        assert!(state.move_cursor(CursorMove::Right));
+        assert_eq!(state.cursor, 2);
+        assert!(state.move_cursor(CursorMove::Left));
+        assert_eq!(state.cursor, 3);
+        assert!(state.move_cursor(CursorMove::Home));
+        assert!(state.move_cursor(CursorMove::Left));
+        assert_eq!(state.cursor, 1);
+        assert_eq!(state.input, "אבג", "never reorder stored filename/argv");
+
+        let mut mixed = State::new(Kind::FileRename);
+        assert!(mixed.commit_text("abc אבג"));
+        assert_eq!(mixed.cursor, 7);
+        assert!(mixed.move_cursor(CursorMove::Left));
+        assert_eq!(mixed.cursor, 3, "cross the run boundary visually");
+        assert!(mixed.move_cursor(CursorMove::Right));
+        assert_eq!(mixed.cursor, 7);
+        assert_eq!(mixed.input, "abc אבג");
+
+        let mut ltr = State::new(Kind::Run);
+        assert!(ltr.commit_text("A👩‍💻B"));
+        assert_eq!(ltr.cursor, 3);
+        assert!(ltr.move_cursor(CursorMove::Left));
+        assert_eq!(ltr.cursor, 2, "keep LTR grapheme movement unchanged");
     }
 
     #[test]

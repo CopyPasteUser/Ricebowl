@@ -2398,6 +2398,26 @@ font coverage or Wayland text-input-v3 IME preedit.
 Keep SG5 and SG7 open pending those independently implemented and tested
 capabilities, and preserve all classic/XP LTR screenshot baselines.
 
+### SG5 — native OpenType shaping and measured glyph advances (16 November 2026; CI candidate)
+
+The built-in native TrueType renderer adds source-pinned pure-Rust rustybuzz
+(0.20.1, reviewed Cargo.lock) and uses glyph-index rasterization through
+the existing fontdue cache. It performs UAX #9 visual run ordering *without
+reversing the logical input* before GSUB/GPOS; script shaping and combining
+mark positions come from rustybuzz while glyph pixels remain clipped to the
+actual native surface. The old allocation-free ASCII path and the classic
+8x8 bitmap profiles are unchanged. Missing font clusters continue to render
+one visible fallback glyph; shaped glyph and layout caches are bounded.
+Native regression tests check Arabic contextual substitution, mixed LTR/RTL
+layout, pixel paint and malformed/overflowing canvas bounds.
+
+This step deliberately does not claim full font coverage (particularly CJK
+on installations without a suitable font), an independent fontconfig family
+selection, dual-affinity bidi caret/hit testing or a real IME client/browser
+hardware sign-off. Exact-head Rust/Clippy/Wayland compositor tests and
+screenshot baseline checks must pass before integration. SG5 and SG7 remain
+blocked by issue #417 until the complete software text/input matrix passes.
+
 ### SG5 — AT-SPI native editor text/caret exposure (16 November 2026; CI candidate)
 
 The composited Luna Run and Desktop Rename dialogs now publish a real
@@ -2442,6 +2462,23 @@ key/IME duplicate delivery, and implement full HarfBuzz-grade complex-script
 shaping, mirrored punctuation, bidirectional selections/affinity and
 accessibility metadata. Keep original SG5/SG7 issue #417 unchecked until
 software-only acceptance is traceable on the exact final main commit.
+
+### SG5 — keyboard visual-arrow navigation in Luna editors (16 November 2026; CI candidate)
+
+Native Run and Desktop Rename now resolve Left/Right caret movement against
+UAX #9 *visual grapheme boundaries* when a single-line input contains RTL
+text, rather than moving in the opposite on-screen direction. Mixed Latin
+and Hebrew run crossings follow the same visual caret map already used for
+pointer hit-testing; logical Unicode input, Home/End policy, Backspace/Delete
+and shell-free execution remain unchanged. Common LTR input keeps the
+old allocation-free shortcut. Unit regressions cover pure RTL, mixed run
+transitions, joined emoji and malformed multiline fallback; a movement
+cancels stale IME preedit only when the caret actually changes.
+
+This is one SG5 correctness increment, not full dual-affinity BiDi
+selection, rendering/shaping parity, accessibility or real external IME
+acceptance. Gate it on exact-head Rust/Clippy/native labwc CI plus post-merge
+main; leave issue #417's SG5 checkbox open.
 
 ### SG5 — native RTL caret and pointer hit mapping (16 November 2026; CI candidate)
 

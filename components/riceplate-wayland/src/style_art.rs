@@ -13,6 +13,7 @@ const FONT_MAX: usize = 1024 * 1024;
 // Keep the common Latin glyphs warm and bound any additional Unicode masks.
 // A glyph occupies no more than 32x32 bytes at the two supported scales.
 const DYNAMIC_GLYPH_LIMIT: usize = 512;
+const SHAPED_LAYOUT_LIMIT: usize = 96;
 
 pub struct IconPixels(pub Vec<u8>);
 
@@ -25,6 +26,15 @@ struct Glyph {
     pixels: Vec<u8>,
 }
 
+#[derive(Clone, Copy)]
+struct PositionedGlyph {
+    face: FontFace,
+    index: u16,
+    advance: f32,
+    x_offset: f32,
+    y_offset: f32,
+}
+
 // Loaded once per process, not once per output/surface. Private recipe fonts
 // can fall back to the already-distributed OFL font without host discovery.
 static BUNDLED_FALLBACK: OnceLock<fontdue::Font> = OnceLock::new();
@@ -35,6 +45,7 @@ type GlyphKey = (FontFace, char);
 
 pub struct FontSprites {
     font: fontdue::Font,
+    source: Vec<u8>,
     fallback: Option<&'static fontdue::Font>,
     cache: Mutex<GlyphCache>,
     cell: u32,
@@ -45,6 +56,10 @@ pub struct FontSprites {
 struct GlyphCache {
     glyphs: HashMap<GlyphKey, Glyph>,
     dynamic: VecDeque<GlyphKey>,
+    shaped: HashMap<(FontFace, u16), Glyph>,
+    shaped_dynamic: VecDeque<(FontFace, u16)>,
+    layouts: HashMap<String, Vec<PositionedGlyph>>,
+    layout_order: VecDeque<String>,
 }
 
 impl GlyphCache {
@@ -56,6 +71,26 @@ impl GlyphCache {
         }
         self.dynamic.push_back(key);
         self.glyphs.insert(key, glyph);
+    }
+
+    fn insert_shaped(&mut self, key: (FontFace, u16), glyph: Glyph) {
+        if self.shaped_dynamic.len() >= DYNAMIC_GLYPH_LIMIT {
+            if let Some(oldest) = self.shaped_dynamic.pop_front() {
+                self.shaped.remove(&oldest);
+            }
+        }
+        self.shaped_dynamic.push_back(key);
+        self.shaped.insert(key, glyph);
+    }
+
+    fn insert_layout(&mut self, label: &str, layout: Vec<PositionedGlyph>) {
+        if self.layout_order.len() >= SHAPED_LAYOUT_LIMIT {
+            if let Some(oldest) = self.layout_order.pop_front() {
+                self.layouts.remove(&oldest);
+            }
+        }
+        self.layout_order.push_back(label.to_owned());
+        self.layouts.insert(label.to_owned(), layout);
     }
 }
 
@@ -135,7 +170,7 @@ fn icon_png(data: &[u8]) -> Result<IconPixels, Box<dyn Error>> {
 
 fn font_glyphs(data: Vec<u8>, scale: u32, proportional: bool)
                -> Result<FontSprites, Box<dyn Error>> {
-    let font = fontdue::Font::from_bytes(data, fontdue::FontSettings::default())?;
+    let font = fontdue::Font::from_bytes(data.clone(), fontdue::FontSettings::default())?;
     let cell = 8 * scale;
     let size = if proportional { 11.0 * scale as f32 } else { (cell + 2) as f32 };
     let mut glyphs = HashMap::new();
@@ -163,8 +198,10 @@ fn font_glyphs(data: Vec<u8>, scale: u32, proportional: bool)
             ).expect("bundled OFL fallback font must be valid")
         }))
     };
-    Ok(FontSprites { font, fallback, cache: Mutex::new(GlyphCache {
+    Ok(FontSprites { font, source: data, fallback, cache: Mutex::new(GlyphCache {
         glyphs, dynamic: VecDeque::new(),
+        shaped: HashMap::new(), shaped_dynamic: VecDeque::new(),
+        layouts: HashMap::new(), layout_order: VecDeque::new(),
     }), cell, size, proportional })
 }
 
@@ -360,6 +397,141 @@ impl FontSprites {
         self.resolved_letters(text).map(|(_, letter)| letter)
     }
 
+    fn font_source(&self, face: FontFace) -> &[u8] {
+        match face {
+            FontFace::Primary => &self.source,
+            FontFace::Fallback =>
+                include_bytes!("../../../assets/fonts/LiberationSans-Regular.ttf"),
+        }
+    }
+
+    /// A source-locked, bounded OpenType layout: preserve the old zero-work
+    /// ASCII fast path and bitmap profiles, but shape non-ASCII native text
+    /// by logical script/direction runs *before* glyph rasterization.
+    fn shape_layout(&self, text: &str) -> Option<Vec<PositionedGlyph>> {
+        use unicode_segmentation::UnicodeSegmentation;
+        if !self.proportional || text.is_ascii() || text.len() > 2048
+            || text.contains('\n') || text.contains('\r') {
+            return None;
+        }
+        {
+            let guard = self.cache.lock().unwrap_or_else(|p| p.into_inner());
+            if let Some(cached) = guard.layouts.get(text) {
+                return Some(cached.clone());
+            }
+        }
+        let info = unicode_bidi::BidiInfo::new(text, None);
+        let para = (info.paragraphs.len() == 1).then(|| &info.paragraphs[0])?;
+        let (levels, visual_runs) = info.visual_runs(para, para.range.clone());
+        let mut glyphs = Vec::new();
+        for run in visual_runs {
+            if !text.is_char_boundary(run.start) || !text.is_char_boundary(run.end) {
+                return None;
+            }
+            let rtl = levels.get(run.start).is_some_and(|l| l.is_rtl());
+            let mut segments: Vec<(FontFace, String)> = Vec::new();
+            for cluster in text[run].graphemes(true) {
+                let face = self.select_face(cluster);
+                let (face, chars) = match face {
+                    Some(face) => (face, cluster),
+                    None => {
+                        // Missing entire grapheme: render one explicit fallback
+                        // glyph, not broken codepoints or detached joiners.
+                        let fallback = self.select_face("?").unwrap_or(FontFace::Primary);
+                        (fallback, "?")
+                    }
+                };
+                if let Some(last) = segments.last_mut() {
+                    if last.0 == face {
+                        last.1.push_str(chars);
+                        continue;
+                    }
+                }
+                segments.push((face, chars.to_owned()));
+            }
+            if rtl { segments.reverse(); }
+            for (face, segment) in segments {
+                let shaped = crate::native_shaping::shape_segment(
+                    self.font_source(face), self.size, &segment, rtl,
+                )?;
+                for g in shaped {
+                    // A fontdue metrics index must never exceed its cmap.
+                    let id = if g.id == 0 || g.id >= self.font_for(face).glyph_count() {
+                        self.font_for(face).lookup_glyph_index('?')
+                    } else { g.id };
+                    glyphs.push(PositionedGlyph {
+                        face, index: id, advance: g.advance,
+                        x_offset: g.x_offset, y_offset: g.y_offset,
+                    });
+                    if glyphs.len() > 1024 { return None; }
+                }
+            }
+        }
+        let mut guard = self.cache.lock().unwrap_or_else(|p| p.into_inner());
+        guard.insert_layout(text, glyphs.clone());
+        Some(glyphs)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn paint_shaped(
+        &self, canvas: &mut [u8], width: u32, height: u32,
+        x: u32, y: u32, color: u32, bold: bool,
+        layout: &[PositionedGlyph],
+    ) {
+        let mut cache = self.cache.lock().unwrap_or_else(|p| p.into_inner());
+        let mut pen = x as f32;
+        for item in layout {
+            let key = (item.face, item.index);
+            if !cache.shaped.contains_key(&key) {
+                let font = self.font_for(item.face);
+                let bounds = font.metrics_indexed(item.index, self.size);
+                if bounds.width <= 48 && bounds.height <= 48 {
+                    let (metrics, pixels) = font.rasterize_indexed(item.index, self.size);
+                    cache.insert_shaped(key, Glyph {
+                        width: metrics.width as u32,
+                        height: metrics.height as u32,
+                        xmin: metrics.xmin, ymin: metrics.ymin,
+                        advance: metrics.advance_width, pixels,
+                    });
+                }
+            }
+            if let Some(glyph) = cache.shaped.get(&key) {
+                let left = ((pen + item.x_offset).round() as i32)
+                    .saturating_add(glyph.xmin);
+                let top = (y as i32).saturating_add(self.size.ceil() as i32)
+                    .saturating_sub(glyph.ymin)
+                    .saturating_sub(glyph.height as i32)
+                    .saturating_sub(item.y_offset.round() as i32);
+                for row in 0..glyph.height {
+                    for col in 0..glyph.width {
+                        let dx = left.saturating_add(col as i32);
+                        let dy = top.saturating_add(row as i32);
+                        if dx < 0 || dy < 0 || dx >= width as i32 || dy >= height as i32 {
+                            continue;
+                        }
+                        let dx = dx as u32;
+                        let dy = dy as u32;
+                        let opacity = glyph.pixels[(row * glyph.width + col) as usize];
+                        let alpha = (u32::from(opacity) * ((color >> 24) & 0xff) / 255) as u8;
+                        let offset = ((dy * width + dx) * 4) as usize;
+                        if offset + 4 <= canvas.len() {
+                            blend_pixel(canvas, offset, (color >> 16) as u8,
+                                (color >> 8) as u8, color as u8, alpha);
+                        }
+                        if bold && dx + 1 < width && opacity > 0 {
+                            let next = ((dy * width + dx + 1) * 4) as usize;
+                            if next + 4 <= canvas.len() {
+                                blend_pixel(canvas, next, (color >> 16) as u8,
+                                    (color >> 8) as u8, color as u8, alpha);
+                            }
+                        }
+                    }
+                }
+            }
+            pen += item.advance.max(0.0);
+        }
+    }
+
     fn proportional_advance_visual(&self, visual: &str) -> f32 {
         // Width and rasterization must consume the same already-reordered
         // clusters, including cross-cluster kerning in the selected face.
@@ -384,7 +556,7 @@ impl FontSprites {
     pub fn fitting_prefix_end(&self, label: &str, available: u32, suffix: char) -> usize {
         use unicode_segmentation::UnicodeSegmentation;
 
-        if self.proportional && crate::bidi_layout::has_rtl(label) {
+        if self.proportional && !label.is_ascii() {
             // Bidi runs can reorder when the ellipsis is added. For bounded
             // native labels test the complete painted candidate rather than
             // accumulating logical-order kerning pairs and overshooting.
@@ -461,12 +633,19 @@ impl FontSprites {
     }
 
     pub fn measure_text(&self, text: &str) -> u32 {
+        if let Some(layout) = self.shape_layout(text) {
+            return layout.iter().map(|g| g.advance.max(0.0)).sum::<f32>().ceil() as u32;
+        }
         let visual = crate::bidi_layout::visual_order(text);
         self.measure_visual_text(&visual)
     }
 
     pub fn draw(&self, canvas: &mut [u8], width: u32, height: u32,
                 x: u32, y: u32, text: &str, color: u32, bold: bool) {
+        if let Some(layout) = self.shape_layout(text) {
+            self.paint_shaped(canvas, width, height, x, y, color, bold, &layout);
+            return;
+        }
         let visual = crate::bidi_layout::visual_order(text);
         let mut cache = self.cache.lock().unwrap_or_else(|poison| poison.into_inner());
         let mut cursor = x as f32;
@@ -539,6 +718,63 @@ impl FontSprites {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn open_type_shaping_uses_real_glyph_indices_for_non_ascii_labels() {
+        let bytes = fs::read("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
+            .expect("native CI installs DejaVu Sans font");
+        let font = font_glyphs(bytes, 1, true).unwrap();
+        assert!(font.shape_layout("AVATAR").is_none(), "keep ASCII screenshot parity");
+        let logical = "سلام";
+        let layout = font.shape_layout(logical).expect("Arabic OpenType layout");
+        assert!(layout.iter().all(|g| g.index > 0 && g.advance.is_finite()));
+        let direct: Vec<u16> = logical.chars()
+            .map(|ch| font.font.lookup_glyph_index(ch)).collect();
+        let shaped: Vec<u16> = layout.iter().map(|g| g.index).collect();
+        assert_ne!(shaped, direct, "Arabic contextual forms require GSUB");
+        assert!(font.measure_text(logical) > 0);
+        let mut canvas = vec![0; 240 * 32 * 4];
+        font.draw(&mut canvas, 240, 32, 2, 1, logical, 0xff00_0000, false);
+        assert!(canvas.iter().any(|&v| v != 0));
+    }
+
+    #[test]
+    fn cjk_font_coverage_is_never_misrepresented_as_successful_shaping() {
+        // Liberation Sans does not necessarily contain every CJK glyph;
+        // no missing glyph may disappear or turn into an empty zero-width
+        // span. Real coverage still requires a suitable installed font.
+        let font = font_glyphs(
+            include_bytes!("../../../assets/fonts/LiberationSans-Regular.ttf").to_vec(),
+            1, true,
+        ).unwrap();
+        for label in ["日本語", "中文", "한국어", "किताब", "שלום"] {
+            let layout = font.shape_layout(label).expect("safe Unicode layout");
+            assert!(!layout.is_empty(), "missing glyph must be visibly replaced");
+            assert!(layout.iter().all(|g|
+                g.advance.is_finite() && g.x_offset.is_finite() && g.y_offset.is_finite()));
+            assert!(font.measure_text(label) > 0);
+            let mut pixels = vec![0_u8; 192 * 32 * 4];
+            font.draw(&mut pixels, 192, 32, 0, 0, label, 0xfffd_fdff, false);
+            assert!(pixels.iter().any(|&value| value != 0),
+                    "missing CJK glyph is not equivalent to font support");
+        }
+    }
+
+    #[test]
+    fn bidi_mixed_open_type_uses_bounded_face_cache_and_pixel_clipping() {
+        let bytes = fs::read("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf").unwrap();
+        let font = font_glyphs(bytes, 1, true).unwrap();
+        let label = "مرحبا ABC 42";
+        let layout = font.shape_layout(label).unwrap();
+        assert!(!layout.is_empty());
+        assert_eq!(font.shape_layout(label).unwrap().len(), layout.len());
+        let mut canvas = vec![0; 40 * 16 * 4];
+        font.draw(&mut canvas, 40, 16, 0, 0, label, 0xffdd_eeff, true);
+        font.draw(&mut [], 40, 16, u32::MAX, 0, label, 0xffdd_eeff, false);
+        assert!(canvas.iter().any(|&v| v != 0));
+        let mut smaller = vec![0; 40 * 16 * 4];
+        font.draw(&mut smaller, 40, 16, 0, 0, "á\u{301}", 0xffdd_eeff, false);
+    }
 
     #[test]
     fn luna_icons_are_distinct_alpha_art_without_private_directory() {
@@ -674,7 +910,9 @@ mod tests {
 
     #[test]
     fn extra_unicode_glyph_cache_is_bounded_and_evicts_oldest() {
-        let mut cache = GlyphCache { glyphs: HashMap::new(), dynamic: VecDeque::new() };
+        let mut cache = GlyphCache { glyphs: HashMap::new(), dynamic: VecDeque::new(),
+            shaped: HashMap::new(), shaped_dynamic: VecDeque::new(),
+            layouts: HashMap::new(), layout_order: VecDeque::new() };
         for index in 0..DYNAMIC_GLYPH_LIMIT + 1 {
             let letter = char::from_u32(0x400 + index as u32).unwrap();
             cache.insert_dynamic((FontFace::Primary, letter), Glyph {
