@@ -9548,6 +9548,17 @@ mod tests {
         let pressed_launcher_frame = render(&luna, launcher_press);
         let hovered_task_frame = render(&luna, task_hover);
         let pressed_task_frame = render(&luna, task_press);
+        let action_hover = PanelPointerVisual {
+            hovered: Some(Hit::Action(0)), pressed: None,
+        };
+        let action_press = PanelPointerVisual {
+            hovered: Some(Hit::Action(0)), pressed: Some(Hit::Action(0)),
+        };
+        let hovered_action_frame = render(&luna, action_hover);
+        let pressed_action_frame = render(&luna, action_press);
+        assert_ne!(idle, hovered_action_frame);
+        assert_ne!(idle, pressed_action_frame);
+        assert_ne!(hovered_action_frame, pressed_action_frame);
         assert_ne!(idle, hovered_launcher_frame);
         assert_ne!(idle, pressed_launcher_frame);
         assert_ne!(hovered_launcher_frame, pressed_launcher_frame);
@@ -9560,6 +9571,7 @@ mod tests {
         let baseline = render(&classic_luna, PanelPointerVisual::default());
         assert_eq!(baseline, render(&classic_luna, launcher_press));
         assert_eq!(baseline, render(&classic_luna, task_press));
+        assert_eq!(baseline, render(&classic_luna, action_press));
         let classic = recipe::load("classic").unwrap();
         assert_eq!(render(&classic, PanelPointerVisual::default()),
                    render(&classic, task_press));
