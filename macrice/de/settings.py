@@ -943,6 +943,10 @@ class RiceSpiceWindow:
         self._text("This setting is available only when the full RiceBowl Wayland "
                    "session owns its Mako notification service.", css="ricespice-note")
         self._button("Refresh notification state", lambda: self.show_page("notifications"))
+        # Notification text is private: load it only after an explicit click,
+        # never on opening RiceSpice or while browsing an unrelated XFCE bus.
+        self._button("Show RicePop inbox", lambda: self._background(
+            notifications.inspect_owned, self._render_notification_inbox))
 
         def present(status):
             enabled = status["do_not_disturb"]
@@ -955,6 +959,47 @@ class RiceSpiceWindow:
 
         self._background(notifications.dnd_status, present)
         self._notification_appearance()
+
+    def _render_notification_inbox(self, snapshot):
+        """Accessible, ephemeral Mako inbox; buttons revalidate their target."""
+        self._text("RicePop inbox · current session", css="ricespice-section")
+        self._text("Only messages from this verified RiceBowl notification host are "
+                   "shown. They are not saved by RiceSpice.", css="ricespice-note")
+        if snapshot["truncated"]:
+            self._text("Showing at most 64 entries per section. Refresh to check "
+                       "for changes.", css="ricespice-note")
+        for source, heading, empty in (
+            ("active", "Active notifications", "No active notifications."),
+            ("history", "Previous notifications", "No notification history."),
+        ):
+            rows = snapshot[source]
+            self._text(f"{heading} ({len(rows)})", css="ricespice-section")
+            if not rows:
+                self._text(empty, css="ricespice-note")
+                continue
+            for record in rows:
+                app = record["app_name"] or "Unknown application"
+                summary = record["summary"] or "(untitled)"
+                identifier = record["id"]
+                self._text(f"{app} · {summary}")
+                if record["body"]:
+                    preview = record["body"][:360]
+                    if len(record["body"]) > 360:
+                        preview += "…"
+                    self._text(preview, css="ricespice-note")
+                if source != "active":
+                    continue  # History is strictly read-only.
+                self._button(f"Dismiss · {app} · #{identifier}",
+                             lambda nid=identifier: self._background(
+                                 lambda: notifications.dismiss(nid),
+                                 lambda _result: self.show_page("notifications")))
+                for action in record.get("actions", []):
+                    key = action["key"]
+                    self._button(f"{action['label']} · {app} · #{identifier}",
+                                 lambda nid=identifier, action_key=key: self._background(
+                                     lambda: notifications.invoke(nid, action_key),
+                                     lambda _result: self.show_page("notifications")))
+        self._show_content()
 
     def _notification_appearance(self):
         """Change only the next full Wayland login's RicePop Mako styling."""
