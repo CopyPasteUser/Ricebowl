@@ -59,7 +59,16 @@ def main() -> int:
     dismissed = _command(*LAUNCHER, "notification-dismiss", "--notification-id",
                          str(notification_id), "--json")
     if dismissed.returncode:
-        raise RuntimeError(f"RicePop could not dismiss its test notification: {dismissed.stderr[:400]}")
+        # CLI errors are structured JSON on stdout. Print only the bounded
+        # error *code*, never any live notification text or host paths.
+        try:
+            failure = json.loads(dismissed.stdout)
+            code = failure.get("error", {}).get("code", "unknown")
+            if not isinstance(code, str) or len(code) > 64 or not code.isidentifier():
+                code = "invalid_error"
+        except (ValueError, TypeError, AttributeError):
+            code = "invalid_response"
+        raise RuntimeError(f"RicePop could not dismiss its isolated notification ({code})")
     if json.loads(dismissed.stdout).get("notification_id") != notification_id:
         raise RuntimeError("RicePop dismissed an unexpected notification")
     if any(item["id"] == notification_id for item in _inventory()["active"]):
