@@ -55,10 +55,15 @@ Critical contracts:
   treating those integrations as prerequisites for login.
 - An unreachable or timed-out D-Bus Ping is reported separately from an
   undeclared bus; neither state triggers automatic restarts.
-- The requested native/Waybar backend must be observed in both resource
-  samples without a competing panel process; a post-crash Waybar rescue
-  cannot be silently reported as an accepted native profile. This still
-  does not establish exclusive session ownership.
+- The requested native/Waybar backend must have **exactly one**
+  same-UID panel process in each snapshot, with no competing panel.
+  A simultaneous nested preview or post-crash Waybar rescue cannot silently
+  certify the wrong profile. This still does not establish exclusive session ownership.
+- A reset of CPU, context-switch or kernel-wakeup counters on an otherwise
+  stable PID invalidates all interval rates and `profile_matches`; unknown
+  counter data remains unknown instead of being treated as zero. The final
+  PSS/RSS snapshot remains available, tagged with `counter_reset_detected`
+  and `ambiguous_profile_processes` when applicable.
 - Process counts cover only **same-UID kernel process names**. Without
   session-specific cgroup membership they can contain another session's
   processes. An absent entry does not prove an optional service crashed.
@@ -110,7 +115,9 @@ Context switches are **not** CPU wakeups. No `nr_wakeups` data means
 the stable CPU delta and flagged, not counted as free CPU. The tool reports
 `idle_confirmed: false`, because software cannot prove the user stayed
 idle. Values are per named process groups, **not total desktop memory or
-a system-wide energy figure**.
+a system-wide energy figure**. The Mint acceptance report requires the new explicit
+counter-continuity and single-panel identity fields; **recapture older resource
+JSON** with the current sampler before comparing profiles.
 
 Use the **same physical device**, power profile, display configuration, open
 apps, measurement interval and ambient workload. Prefer 3+ runs, report

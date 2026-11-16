@@ -229,6 +229,47 @@ class ResourceMeasurementTests(unittest.TestCase):
                 self.assertFalse(result["profile_matches"])
                 self.assertFalse(result["hardware_accepted"])
 
+    def test_two_same_uid_native_panels_cannot_certify_one_profile(self):
+        env = {"XDG_SESSION_TYPE": "wayland",
+               "RICEBOWL_DE_SHELL_CHILD": "1", "RICEBOWL_DE_PANEL": "native"}
+        # A full login and a nested preview can run under the same Unix UID.
+        # Stable PIDs are not sufficient to attribute both to one session.
+        processes = (sample(pid=41, role="native-panel", start=3),
+                     sample(pid=42, role="native-panel", start=7))
+        result = measure(
+            "native", seconds=1, reader=lambda: processes,
+            sleep=lambda _: None, clock=iter([0., 1.]).__next__,
+            ticks_per_second=100, environment=env)
+        self.assertTrue(result["sample_continuity_verified"])
+        self.assertTrue(result["ambiguous_profile_processes"])
+        self.assertFalse(result["process_role_verified"])
+        self.assertFalse(result["profile_matches"])
+        self.assertFalse(result["hardware_accepted"])
+
+    def test_counter_regression_invalidates_rate_and_profile_even_with_same_pid(self):
+        env = {"XDG_SESSION_TYPE": "wayland",
+               "RICEBOWL_DE_SHELL_CHILD": "1", "RICEBOWL_DE_PANEL": "native"}
+        for changed in ("cpu", "switches", "wakeups"):
+            with self.subTest(changed=changed):
+                first = sample(pid=41, role="native-panel", cpu=100,
+                               switches=200, wakeups=80, start=7)
+                after = {"cpu": 120, "switches": 220, "wakeups": 100}
+                after[changed] = {"cpu": 99, "switches": 199, "wakeups": 79}[changed]
+                last = sample(pid=41, role="native-panel", start=7, **after)
+                observed = iter([(first,), (last,)])
+                result = measure(
+                    "native", seconds=1, reader=lambda: next(observed),
+                    sleep=lambda _: None, clock=iter([0., 1.]).__next__,
+                    ticks_per_second=100, environment=env)
+                self.assertTrue(result["counter_reset_detected"])
+                self.assertFalse(result["sample_continuity_verified"])
+                self.assertFalse(result["process_restart_or_exit_detected"])
+                self.assertFalse(result["profile_matches"])
+                self.assertIsNone(result["cpu_percent_one_core"])
+                self.assertIsNone(result["context_switches_per_s"])
+                self.assertIsNone(result["kernel_wakeups_per_s"])
+                self.assertEqual(result["pss_kib"], last.pss_kib)
+
     def test_profile_role_must_survive_both_samples(self):
         records = iter([
             (sample(pid=41, role="native-panel"),),

@@ -15,6 +15,9 @@ def fixture(profile):
         "schema_version": 1, "profile_requested": profile,
         "profile_observed": profile, "profile_matches": True,
         "process_scope": "same-uid-comm-matches-not-exclusive-session",
+        "sample_continuity_verified": True, "process_role_verified": True,
+        "counter_reset_detected": False, "ambiguous_profile_processes": False,
+        "process_restart_or_exit_detected": False,
         "process_count": 4, "elapsed_s": 10,
         "read_only": True, "hardware_accepted": False, "idle_confirmed": False,
         "rss_kib": 5000, "pss_kib": 2000,
@@ -68,6 +71,11 @@ class HardwareReportTests(unittest.TestCase):
             mutations = [
                 {"profile_observed": "xfce"},
                 {"profile_matches": False},
+                {"sample_continuity_verified": False},
+                {"process_role_verified": False},
+                {"counter_reset_detected": True},
+                {"ambiguous_profile_processes": True},
+                {"process_restart_or_exit_detected": True},
                 {"hardware_accepted": True},
                 {"elapsed_s": 0},
                 {"process_count": 0},
@@ -80,6 +88,13 @@ class HardwareReportTests(unittest.TestCase):
                     path.write_text(json.dumps(good | changes))
                     with self.assertRaises(ValueError):
                         load_sample(path, profile="native")
+            # Older samples with the same schema but no explicit
+            # ambiguity/counter receipts must never pass a newer SG7 gate.
+            old = dict(good)
+            old.pop("counter_reset_detected")
+            path.write_text(json.dumps(old))
+            with self.assertRaises(ValueError):
+                load_sample(path, profile="native")
             path.write_text(json.dumps(good))
             alias = Path(directory) / "alias.json"
             alias.symlink_to(path)
