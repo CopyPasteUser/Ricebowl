@@ -96,7 +96,8 @@ pub(crate) fn draw_rice_text(canvas: &mut [u8], width: u32, height: u32, x: u32,
 
 pub(crate) fn draw_bitmap_text(canvas: &mut [u8], width: u32, height: u32, x: u32, y: u32,
                     text: &str, color: u32, scale: u32, bold: bool) {
-    for (offset, cluster) in text.graphemes(true).enumerate() {
+    let visual = crate::bidi_layout::visual_order(text);
+    for (offset, cluster) in visual.graphemes(true).enumerate() {
         // The 8x8 table has no combining/ligature shaping. Never paint one
         // misleading '?' per scalar in a user-perceived glyph or detach a
         // combining mark. Unsupported clusters show ONE replacement cell;
@@ -141,6 +142,23 @@ pub(crate) fn draw_bitmap_text(canvas: &mut [u8], width: u32, height: u32, x: u3
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rtl_bitmap_raster_follows_unicode_runs_without_split_clusters() {
+        // Bitmap glyphs are available for ASCII; compare a mixed label
+        // against its Unicode BiDi visual order at the pixel level.
+        let logical = "אבגabc";
+        let visual = crate::bidi_layout::visual_order(logical);
+        assert_eq!(visual, "abcגבא");
+        let mut actual = vec![0_u8; 6 * 8 * 8 * 4];
+        let mut reference = actual.clone();
+        draw_bitmap_text(&mut actual, 48, 8, 0, 0, logical, 0xffff_ffff, 1, false);
+        // Hebrew is unsupported in this 8x8 table: exactly three '?' cells,
+        // after the Latin run, without affecting existing Latin glyphs.
+        draw_bitmap_text(&mut reference, 48, 8, 0, 0, "abc???", 0xffff_ffff, 1, false);
+        assert_eq!(actual, reference);
+        assert_eq!(text_pixel_width(logical, 1), 48);
+    }
 
     #[test]
     fn glyph_widths_count_complete_graphemes_not_utf8_bytes_or_scalars() {

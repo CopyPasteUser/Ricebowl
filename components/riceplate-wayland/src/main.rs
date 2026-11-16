@@ -42,6 +42,7 @@ mod ricepop;
 mod system_status;
 mod task_groups;
 mod task_navigation;
+mod bidi_layout;
 mod text_render;
 mod tray;
 use tray::{MenuChoice as TrayMenuChoice, MenuHit as TrayMenuHit, PopupHit as TrayHit};
