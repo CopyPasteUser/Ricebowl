@@ -193,8 +193,18 @@ pub fn compose_visible(
         .filter(|(index, _)| visible.get(*index).copied().unwrap_or(false))
         .map(|(index, icon)| (index, (icon.x, icon.y))).collect();
     let icon_requests: Vec<_> = active_icons.iter().map(|(_, pos)| *pos).collect();
+    // A widget-free XP desktop is not a static dashboard. The historical
+    // window_region is advisory layout metadata, not a forbidden area for
+    // movable icons when no widgets actually occupy it. Existing dashboard
+    // compositions with widgets retain their collision-free work region.
+    let region_storage = [region];
+    let icon_exclusions: &[Rect] = if composition.widgets.is_empty() {
+        &[]
+    } else {
+        &region_storage
+    };
     let placed_icons = place_rects(&icon_requests, ICON_WIDTH, ICON_HEIGHT,
-                                   width, height, panel_top, panel_height, &[region]);
+                                   width, height, panel_top, panel_height, icon_exclusions);
     let mut icon_positions = vec![None; icons.len()];
     for ((index, _), position) in active_icons.into_iter().zip(placed_icons) {
         icon_positions[index] = position;
@@ -265,6 +275,30 @@ mod tests {
             }
             if width <= 840 { assert!(widget_placements[1].is_none()); }
         }
+    }
+
+    #[test]
+    fn widget_free_luna_desktop_accepts_icons_across_the_entire_work_area() {
+        let mut shell = composition();
+        shell.widgets.clear();
+        shell.compact_hide_widgets.clear();
+        let icons = [icon(24, 88), icon(1000, 336), icon(1540, 720)];
+        let (placed, widgets) = compose(&icons, &shell, 1920, 1080, false, 40, 1024);
+        assert!(widgets.is_empty());
+        assert_eq!(placed, vec![
+            Some((24, 88)), Some((1000, 336)), Some((1540, 720))
+        ], "the historical window reservation may not move freely dragged Luna icons");
+        for (i, &p) in placed.iter().enumerate() {
+            let (x, y) = p.expect("full Luna desktop has enough space");
+            assert!(x + ICON_WIDTH <= 1920 && y + ICON_HEIGHT <= 1080 - 40 - GAP);
+            for other in placed.iter().skip(i + 1).flatten() {
+                assert!(!overlaps(x, y, other.0, other.1));
+            }
+        }
+        // The legacy dashboard contract still preserves its window-safe region.
+        let (reserved, _) = compose(&[icon(1000, 336)], &composition(),
+                                     1920, 1080, false, 40, 1024);
+        assert_ne!(reserved[0], Some((1000, 336)));
     }
 
     #[test]

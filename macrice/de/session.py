@@ -130,7 +130,8 @@ def _check_runtime_dir(environment: Mapping[str, str]) -> None:
 
 def _custom_labwc_config(recipe: object | None, runtime: str,
                          preferences: Mapping | None = None, *,
-                         native_luna_hotkeys: bool = False) -> Path:
+                         native_luna_hotkeys: bool = False,
+                         nested: bool = False) -> Path:
     """Build private compositor settings without touching installed labwc config."""
     from .recipes import labwc_menu
     from . import preferences as spice_prefs
@@ -141,7 +142,7 @@ def _custom_labwc_config(recipe: object | None, runtime: str,
         for name in ("rc.xml", "autostart", "shutdown", "menu.xml"):
             shutil.copyfile(source / name, directory / name)
         if recipe is not None:
-            (directory / "menu.xml").write_text(labwc_menu(recipe), encoding="utf-8")
+            (directory / "menu.xml").write_text(labwc_menu(recipe, nested=nested), encoding="utf-8")
             chrome = labwc_chrome(recipe)
             if chrome is not None:
                 _atomic_labwc_text(directory / "themerc-override", chrome)
@@ -323,7 +324,8 @@ def start(
     config = _custom_labwc_config(
         loaded_recipe if loaded_recipe is not None and loaded_recipe.menu is not None else None,
         env["XDG_RUNTIME_DIR"], spice_values,
-        native_luna_hotkeys=(panel == "native" and not nested))
+        native_luna_hotkeys=(panel == "native" and not nested),
+        nested=nested)
     env["RICEBOWL_DE_SESSION_CONFIG"] = str(config)
     env["RICEBOWL_DE_LIVE"] = "1"
     try:
@@ -826,7 +828,7 @@ class _LiveSwitch:
             wallpaper_binary = self.which("swaybg")
             if not wallpaper_binary or not wallpaper_path.is_file():
                 raise LiveError("Wallpaper component is unavailable", code="component_unavailable")
-            new_menu = (recipes.labwc_menu(recipe) if recipe.menu is not None else
+            new_menu = (recipes.labwc_menu(recipe, nested=self.nested) if recipe.menu is not None else
                         (resources() / "labwc/menu.xml").read_text(encoding="utf-8"))
             old_menu = self.menu.read_text(encoding="utf-8")
             new_chrome = labwc_chrome(recipe)

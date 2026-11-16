@@ -19,6 +19,37 @@ Wayland uses upstream labwc plus RicePlate. Original/licensed art only.
 | Window decorations | XFWM Luna borders/buttons | labwc-managed decoration/theme support | Cannot skin all Wayland CSD windows |
 | Display/login/recovery | Existing XFCE/X11 session | Opt-in labwc native preview; package rollback in CI | Physical Mint/ThinkPad sign-off |
 
+## XP Luna fidelity Sprint 1 – Desktop freedom and nested context (16 November 2026)
+
+The first real ThinkPad nested-Wayland review identified two concrete desktop
+faults that were hidden by headless component tests:
+
+- **Free icon movement:** With no desktop widgets, the v12 composition's
+  decorative `window_region` must not reserve 76% of the screen against icon
+  drops. The bounded layout keeps actual icon collisions, taskbar exclusion,
+  monitor bounds, per-output saved positions and cross-monitor rollback. Rices
+  with real desktop widgets keep their original window-space reservation.
+- **Distinct desktop clicks in a nested session:** Left-click selects a
+  shortcut, double-click opens it, right-click on an icon opens its dedicated
+  context menu. Right-click on an empty desktop uses labwc's root menu.
+  Previously the root commands were deliberately disconnected in nested
+  previews. They now use a **per-compositor, owner-private IPC socket** inside
+  the disposable `ricebowl-labwc-*` session directory. The full-login socket
+  is never addressed by a nested command, even for the same Unix user.
+  Missing, symlinked, foreign-owned, world-accessible and unmanaged directories
+  are rejected before binding or sending. Only Arrange, Refresh and Properties
+  are exposed in nested previews. **New Folder is deliberately absent and
+  rejected by native IPC in preview mode**: the file-backed XDG desktop is
+  disabled there, so creating folders in the live XFCE Desktop would be an
+  unexpected persistent side effect. Full Luna logins retain the existing safe
+  New Folder behavior. No global input-grabbing wallpaper surface is
+  introduced, so underlying app windows retain pointer input.
+
+**Physical setup caveat:** The genuine Luna wallpaper only appears when the
+optional `swaybg` binary is installed. The user's Mint nested review found it
+missing; the compositor and taskbar can nevertheless function. A nested review
+does not certify standalone session, hardware input fidelity or exact artwork.
+
 ## Luna native preference write efficiency (14 November 2026)
 
 The opt-in native taskbar (Auto-hide/Quick Launch) and panel clock (12/24h)

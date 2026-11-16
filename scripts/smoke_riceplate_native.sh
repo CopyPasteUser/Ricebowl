@@ -1726,8 +1726,11 @@ PY
     WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 1100 450 1366 768
     sleep 0.15
     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xdg-before-new-folder.png"
+    # This file-desktop owner is launched with RICEBOWL_DE_NESTED=0 above.
+    # The sender must use the same session namespace, never the separate
+    # outer headless test harness inherited NESTED=1 context.
     HOME="$runtime/file-home" XDG_CONFIG_HOME="$runtime/file-config" \
-        PATH="$runtime/mock-bin:$PATH" \
+        RICEBOWL_DE_NESTED=0 PATH="$runtime/mock-bin:$PATH" \
         "$native" --desktop-command new-folder
     count=0
     while ! grep -Fq "RicePlate: XDG created folder selected on native desktop" \
@@ -1767,8 +1770,11 @@ with Image.open(sys.argv[1]) as a, Image.open(sys.argv[2]) as b:
 PY
     # A second command must use the collision-safe next name, and still
     # avoid opening RiceField or clobbering the first folder.
+    # This file-desktop owner is launched with RICEBOWL_DE_NESTED=0 above.
+    # The sender must use the same session namespace, never the separate
+    # outer headless test harness inherited NESTED=1 context.
     HOME="$runtime/file-home" XDG_CONFIG_HOME="$runtime/file-config" \
-        PATH="$runtime/mock-bin:$PATH" \
+        RICEBOWL_DE_NESTED=0 PATH="$runtime/mock-bin:$PATH" \
         "$native" --desktop-command new-folder
     count=0
     while [ ! -d "$runtime/file-home/Desktop/New Folder (2)" ] && [ "$count" -lt 40 ]; do

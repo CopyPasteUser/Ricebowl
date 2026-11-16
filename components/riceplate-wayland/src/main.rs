@@ -715,10 +715,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             app.file_watcher = None;
         }
     }
-    // Only a real standalone Luna session owns the root-menu command socket.
-    // Never let nested design previews steal an active user's socket.
-    let desktop_listener = if app.recipe.id == "xp-luna-columns"
-        && std::env::var("RICEBOWL_DE_NESTED").as_deref() != Ok("1") {
+    // The real login uses the legacy owner-private runtime socket. A nested
+    // preview instead binds under its unique validated labwc config, so its
+    // root-menu commands work without touching any full-login Luna session.
+    let desktop_listener = if app.recipe.id == "xp-luna-columns" {
         match luna_desktop_ipc::bind() {
             Ok(listener) => Some(listener),
             Err(error) => {
@@ -2270,6 +2270,13 @@ impl RicePlate {
                 }
                 self.save_icon_positions();
             }
+            Request::NewFolder if std::env::var("RICEBOWL_DE_NESTED").as_deref() == Ok("1") => {
+                // An XFCE-hosted nested preview has no file-backed desktop
+                // inventory. Never write into the user's actual XDG Desktop
+                // from a design preview, even if an IPC client bypassed the
+                // intentionally omitted root-menu entry.
+                eprintln!("RicePlate: New Folder is available only in the full Luna session");
+            },
             Request::NewFolder => match luna_desktop_ipc::new_folder() {
                 Ok(path) => {
                     // File-backed XDG icons now exist in full Luna sessions.
