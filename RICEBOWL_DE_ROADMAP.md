@@ -2398,6 +2398,26 @@ font coverage or Wayland text-input-v3 IME preedit.
 Keep SG5 and SG7 open pending those independently implemented and tested
 capabilities, and preserve all classic/XP LTR screenshot baselines.
 
+### SG5 — native OpenType shaping and measured glyph advances (16 November 2026; CI candidate)
+
+The built-in native TrueType renderer adds source-pinned pure-Rust rustybuzz
+(0.20.1, reviewed Cargo.lock) and uses glyph-index rasterization through
+the existing fontdue cache. It performs UAX #9 visual run ordering *without
+reversing the logical input* before GSUB/GPOS; script shaping and combining
+mark positions come from rustybuzz while glyph pixels remain clipped to the
+actual native surface. The old allocation-free ASCII path and the classic
+8x8 bitmap profiles are unchanged. Missing font clusters continue to render
+one visible fallback glyph; shaped glyph and layout caches are bounded.
+Native regression tests check Arabic contextual substitution, mixed LTR/RTL
+layout, pixel paint and malformed/overflowing canvas bounds.
+
+This step deliberately does not claim full font coverage (particularly CJK
+on installations without a suitable font), an independent fontconfig family
+selection, dual-affinity bidi caret/hit testing or a real IME client/browser
+hardware sign-off. Exact-head Rust/Clippy/Wayland compositor tests and
+screenshot baseline checks must pass before integration. SG5 and SG7 remain
+blocked by issue #417 until the complete software text/input matrix passes.
+
 ### SG5 — compositor text-input-v3 IME transport (16 November 2026; CI candidate)
 
 Native Luna Run and Desktop Rename now bind the compositor-advertised
