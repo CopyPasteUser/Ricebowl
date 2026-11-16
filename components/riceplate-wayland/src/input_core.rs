@@ -618,6 +618,67 @@ mod tests {
     }
 
     #[test]
+    fn focus_acquisition_interleaving_stress_never_authorizes_stale_input() {
+        // Exercise every six-event sequence across confirmation, wrong-seat
+        // events, Leave and the event-loop deadline. This is deterministic:
+        // the test does not depend on CI wall-clock scheduling or a GPU.
+        // The separate native labwc smoke still proves actual keyboard Enter.
+        let start = Instant::now();
+        for sequence in 0..4096_u32 { // 4^6 event orderings
+            let mut focus = DesktopFocusLease::<u8, u8, u32>::default();
+            let ticket = focus.request_at(
+                DesktopFocusIntent::PointerSelection, 1, 7, 100, start,
+            ).expect("fresh temporary surface");
+            let mut choices = sequence;
+            let mut at = start;
+            for _ in 0..6 {
+                at += Duration::from_millis(310);
+                match choices & 3 {
+                    0 => { focus.compositor_enter_at(&1, &100, at); }
+                    1 => { focus.compositor_enter_at(&2, &100, at); }
+                    2 => { focus.compositor_leave(&1, &100); }
+                    _ => { focus.expire_pending_at(at); }
+                }
+                choices >>= 2;
+                assert_eq!(
+                    focus.can_dispatch_ticket(ticket, &1, &100),
+                    focus.phase() == DesktopFocusPhase::Confirmed,
+                    "sequence {sequence}: only compositor confirmation may authorize keys",
+                );
+                assert!(!focus.can_dispatch_ticket(ticket, &2, &100));
+                assert!(!focus.can_dispatch_ticket(ticket, &1, &999));
+                if focus.phase() == DesktopFocusPhase::Idle {
+                    assert!(focus.pending_deadline().is_none());
+                }
+            }
+            // Reacquisition must use a new surface/ticket. A late Enter for
+            // the old surface cannot authenticate the new request, and a
+            // later old Leave must not revoke genuinely new ownership.
+            let newer = focus.request_at(
+                DesktopFocusIntent::KeyboardNavigation, 1, 7, 101,
+                start + Duration::from_secs(10),
+            ).expect("new user gesture requires fresh surface");
+            assert_ne!(ticket, newer);
+            assert!(!focus.can_dispatch_ticket(ticket, &1, &100));
+            assert!(!focus.can_dispatch_ticket(ticket, &1, &101));
+            if sequence & 1 == 0 {
+                assert!(!focus.compositor_enter_at(
+                    &1, &100, start + Duration::from_secs(10),
+                ));
+                assert_eq!(focus.phase(), DesktopFocusPhase::Idle,
+                    "stale Enter from the same seat must fail closed");
+            } else {
+                assert!(focus.compositor_enter_at(
+                    &1, &101, start + Duration::from_secs(10),
+                ));
+                assert!(!focus.compositor_leave(&1, &100));
+                assert!(focus.can_dispatch_ticket(newer, &1, &101));
+                assert!(!focus.can_dispatch_ticket(ticket, &1, &101));
+            }
+        }
+    }
+
+    #[test]
     fn standalone_focus_smoke_is_valid_posix_shell() {
         // Syntax-only: actual labwc compositor evidence remains a separate
         // acceptance step, and must never be inferred from this test.
