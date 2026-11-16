@@ -284,15 +284,15 @@ pub fn action_icon(canvas: &mut [u8], x: u32, y: u32, action: &str, selected: bo
             // legibility. These are original, non-vendor bitmap glyphs.
             let app_id = app.to_ascii_lowercase();
             let browser = ["firefox", "chrom", "brave", "epiphany", "vivaldi",
-                           "browser", "edge"].iter().any(|part| app_id.contains(part));
+                           "browser", "edge"].iter().any(|part| app_id.contains(*part));
             let mail = ["thunderbird", "geary", "evolution", "kmail", "mail"]
-                .iter().any(|part| app_id.contains(part));
+                .iter().any(|part| app_id.contains(*part));
             let files = ["thunar", "ricefield", "nautilus", "dolphin", "nemo", "caja"]
-                .iter().any(|part| app_id.contains(part));
+                .iter().any(|part| app_id.contains(*part));
             let terminal = ["alacritty", "foot.desktop", "kitty", "konsole",
-                            "terminal", "xterm"].iter().any(|part| app_id.contains(part));
+                            "terminal", "xterm"].iter().any(|part| app_id.contains(*part));
             let editor = ["code.desktop", "mousepad", "gedit", "kate",
-                          "editor", "notepad"].iter().any(|part| app_id.contains(part));
+                          "editor", "notepad"].iter().any(|part| app_id.contains(*part));
             if browser {
                 fill_rounded_rect(canvas, w, h, x, y, 14, 14, 7, 0xff1f_5699);
                 fill_rounded_rect(canvas, w, h, x + 2, y + 2, 10, 10, 5, 0xff5f_c5ea);
