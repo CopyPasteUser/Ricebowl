@@ -234,7 +234,7 @@ class WaylandRicePopReadTests(unittest.TestCase):
             {"XDG_SESSION_DESKTOP": "ricebowl", "RICEBOWL_DE_NESTED": "1",
              "RICEBOWL_DE_PRIVATE_BUS": "0", "WAYLAND_DISPLAY": "wayland-0"},
         ):
-            with self.subTest(env=env), mock.patch.dict(os.environ, env, clear=True), \\
+            with self.subTest(env=env), mock.patch.dict(os.environ, env, clear=True), \
                  mock.patch.object(notifications.subprocess, "run") as run:
                 with self.assertRaises(notifications.NotificationBridgeError):
                     notifications._owned_mako(allow_private_nested=True)
@@ -243,12 +243,12 @@ class WaylandRicePopReadTests(unittest.TestCase):
         # notifications. DND remains restricted to a full RiceBowl login.
         env = {"XDG_SESSION_DESKTOP": "ricebowl", "RICEBOWL_DE_NESTED": "1",
                "RICEBOWL_DE_PRIVATE_BUS": "1", "WAYLAND_DISPLAY": "wayland-0"}
-        with mock.patch.dict(os.environ, env, clear=True), \\
-             mock.patch.object(notifications.shutil, "which", side_effect=lambda x: x), \\
+        with mock.patch.dict(os.environ, env, clear=True), \
+             mock.patch.object(notifications.shutil, "which", side_effect=lambda x: x), \
              mock.patch.object(notifications.subprocess, "run", return_value=
-                subprocess.CompletedProcess([], 0, b"PID=1245\\n", b"")), \\
+                subprocess.CompletedProcess([], 0, b"PID=1245\n", b"")), \
              mock.patch("builtins.open", mock.mock_open(
-                 read_data=("/usr/bin/mako\\0--config\\0" + config + "\\0").encode())):
+                 read_data=("/usr/bin/mako\0--config\0" + config + "\0").encode())):
             with self.assertRaises(notifications.NotificationBridgeError):
                 notifications._owned_mako()  # DND still rejects nested
             self.assertEqual(
@@ -257,11 +257,11 @@ class WaylandRicePopReadTests(unittest.TestCase):
     def test_ricepop_host_must_not_change_between_active_inventory_and_mutation(self):
         active = [{"id": 12, "actions": [{"key": "open", "label": "Open"}]}]
         for kind in ("dismiss", "invoke"):
-            with self.subTest(kind=kind), \\
+            with self.subTest(kind=kind), \
                  mock.patch.object(notifications, "_mutation_host",
-                                   side_effect=[("makoctl", 42), ("makoctl", 43)]), \\
+                                   side_effect=[("makoctl", 42), ("makoctl", 43)]), \
                  mock.patch.object(notifications, "_read_mako",
-                                   return_value=(active, False)) as read, \\
+                                   return_value=(active, False)) as read, \
                  mock.patch.object(notifications.subprocess, "run") as run:
                 with self.assertRaises(notifications.NotificationBridgeError) as error:
                     if kind == "dismiss":
@@ -273,8 +273,8 @@ class WaylandRicePopReadTests(unittest.TestCase):
                 run.assert_not_called()
 
         with mock.patch.object(notifications, "_mutation_host", side_effect=
-                               notifications.NotificationBridgeError("host unavailable")), \\
-             mock.patch.object(notifications, "_read_mako") as read, \\
+                               notifications.NotificationBridgeError("host unavailable")), \
+             mock.patch.object(notifications, "_read_mako") as read, \
              mock.patch.object(notifications.subprocess, "run") as run:
             for operation in (lambda: notifications.dismiss(12),
                               lambda: notifications.invoke(12, "open")):
