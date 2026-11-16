@@ -277,9 +277,58 @@ pub fn action_icon(canvas: &mut [u8], x: u32, y: u32, action: &str, selected: bo
             fill_rect(canvas, w, h, x + 5, y + 11, 3, 2, 0xffba_7826);
         }
         app if app.starts_with("desktop:") => {
-            // Missing vendor icon artwork is not replaced with a fake app
-            // logo. An original framed application-window symbol communicates
-            // an installed XDG program without relying on host icon paths.
+            // Small but distinguishable silhouettes use only the validated
+            // XDG desktop ID for *painting*, never for launching commands.
+            // The X11 preview has instantly recognizable app categories;
+            // drawing the same placeholder window for every app lost that
+            // legibility. These are original, non-vendor bitmap glyphs.
+            let browser = ["firefox", "chrom", "brave", "epiphany", "vivaldi",
+                           "browser", "edge"].iter().any(|part| app.to_ascii_lowercase().contains(part));
+            let mail = ["thunderbird", "geary", "evolution", "kmail", "mail"]
+                .iter().any(|part| app.to_ascii_lowercase().contains(part));
+            let files = ["thunar", "ricefield", "nautilus", "dolphin", "nemo", "caja"]
+                .iter().any(|part| app.to_ascii_lowercase().contains(part));
+            let terminal = ["alacritty", "foot.desktop", "kitty", "konsole",
+                            "terminal", "xterm"].iter().any(|part| app.to_ascii_lowercase().contains(part));
+            let editor = ["code.desktop", "mousepad", "gedit", "kate",
+                          "editor", "notepad"].iter().any(|part| app.to_ascii_lowercase().contains(part));
+            if browser {
+                fill_rounded_rect(canvas, w, h, x, y, 14, 14, 7, 0xff1f_5699);
+                fill_rounded_rect(canvas, w, h, x + 2, y + 2, 10, 10, 5, 0xff5f_c5ea);
+                fill_rect(canvas, w, h, x + 2, y + 6, 10, 1, 0xffc9_f1f5);
+                fill_rect(canvas, w, h, x + 6, y + 3, 1, 9, 0xffc9_f1f5);
+                fill_rect(canvas, w, h, x + 10, y + 4, 2, 6, 0xfff5_a64a);
+                fill_rect(canvas, w, h, x + 8, y + 10, 3, 2, 0xffe6_6930);
+            } else if mail {
+                fill_rounded_rect(canvas, w, h, x, y + 1, 14, 12, 2, 0xff33_70ac);
+                fill_rect(canvas, w, h, x + 2, y + 3, 10, 8, 0xffec_f4fb);
+                for step in 0..5_u32 {
+                    fill_rect(canvas, w, h, x + 2 + step, y + 3 + step,
+                              1, 1, 0xff79_b9dd);
+                    fill_rect(canvas, w, h, x + 11 - step, y + 3 + step,
+                              1, 1, 0xff79_b9dd);
+                }
+            } else if files {
+                fill_rect(canvas, w, h, x, y + 3, 14, 10, 0xffa3_7229);
+                fill_rect(canvas, w, h, x + 2, y + 1, 7, 4, 0xffff_dc80);
+                fill_rect(canvas, w, h, x + 1, y + 5, 12, 7, 0xfff1_c257);
+                fill_rect(canvas, w, h, x + 2, y + 6, 10, 1, 0xffff_f0ac);
+            } else if terminal {
+                fill_rounded_rect(canvas, w, h, x, y + 1, 14, 12, 2, 0xff4d_6693);
+                fill_rect(canvas, w, h, x + 2, y + 3, 10, 8, 0xff15_2d4c);
+                fill_rect(canvas, w, h, x + 3, y + 5, 3, 1, 0xff91_e8db);
+                fill_rect(canvas, w, h, x + 5, y + 6, 2, 1, 0xff91_e8db);
+                fill_rect(canvas, w, h, x + 7, y + 8, 4, 1, 0xffdb_f3ff);
+            } else if editor {
+                fill_rounded_rect(canvas, w, h, x + 1, y, 12, 14, 2, 0xff57_83b7);
+                fill_rect(canvas, w, h, x + 3, y + 2, 8, 10, 0xfff6_f8fa);
+                for line in [4_u32, 7, 10] {
+                    fill_rect(canvas, w, h, x + 4, y + line, 6, 1, 0xff8a_b4d9);
+                }
+                fill_rect(canvas, w, h, x + 10, y + 9, 2, 4, 0xffdd_b34f);
+            } else {
+            // Unknown applications retain a truthful generic app glyph, not
+            // a guessed logo or an identifier-derived executable action.
             let tint = match app.bytes().fold(0_u8, |acc, b| acc.wrapping_add(b)) % 3 {
                 0 => 0xff59_9ad5,
                 1 => 0xff64_a755,
@@ -290,6 +339,7 @@ pub fn action_icon(canvas: &mut [u8], x: u32, y: u32, action: &str, selected: bo
             fill_rect(canvas, w, h, x + 2, y + 3, 10, 3, tint);
             fill_rect(canvas, w, h, x + 3, y + 8, 7, 1, 0xff70_9ec7);
             fill_rect(canvas, w, h, x + 3, y + 10, 5, 1, 0xffa5_bac8);
+            }
         }
         _ => fill_rounded_rect(canvas, w, h, x + 3, y + 3, 7, 7, 3, light),
     }
