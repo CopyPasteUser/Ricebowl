@@ -66,6 +66,16 @@ pub(crate) fn next_visible_file<T: PartialEq + Clone>(
     Some(visible[next].clone())
 }
 
+/// Resolve a context-menu target using only icon indices which were
+/// compositor-placed on the *confirmed focus-lease output*. Mirrored Desktop
+/// files may share a key across monitors, so looking up the key in every
+/// file layer could open an unrelated output's menu.
+pub(crate) fn visible_file_index<'a, T: PartialEq + 'a>(
+    visible: impl IntoIterator<Item = (usize, &'a T)>, current: &T,
+) -> Option<usize> {
+    visible.into_iter().find_map(|(index, key)| (key == current).then_some(index))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -101,6 +111,17 @@ mod tests {
         assert_eq!(next_visible_file(&same_output_visible, &5, true), None);
         assert_eq!(next_visible_file::<u32>(&[], &1, true), None);
         assert_eq!(next_visible_file(&[8_u32], &8, false), Some(8));
+    }
+
+    #[test]
+    fn context_menu_target_cannot_escape_confirmed_output() {
+        // A mirrored file on another monitor may have the same file key.
+        // The first global match (index 0) must never win over the icon
+        // actually visible on the keyboard lease's output (index 7).
+        let file = "Desktop/example.txt";
+        assert_eq!(visible_file_index([(7, &file), (12, &"another")], &file), Some(7));
+        assert_eq!(visible_file_index([(5, &"other")], &file), None);
+        assert_eq!(visible_file_index(std::iter::empty::<(usize, &&str)>(), &file), None);
     }
 
     #[test]
