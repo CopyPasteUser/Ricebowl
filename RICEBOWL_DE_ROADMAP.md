@@ -21,22 +21,25 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
-### SG1/SG5 keyboard focus and direct-commit Enter follow-up (16 November 2026; pending CI)
+### SG1 cross-output desktop keyboard and context-menu isolation (16 November 2026; pending CI)
 
-- **SG1:** The native file context-menu and Shift+F10 paths now resolve a
-  target only among compositor-placed icons on the confirmed keyboard-focus
-  output. Mirrored file keys on another monitor cannot steal the context menu.
-  A deterministic Rust test exercises the duplicate-key and stale-target cases.
-- **SG5:** After a direct `text-input-v3` commit without active preedit,
-  an immediate Return is treated as a legitimate dialog action. The brief
-  one-shot Return echo suppression is retained only when the editor was
-  actually composing before the successful commit. Matching text echoes
-  remain bounded to 80 ms and disarm on a different key. The deterministic
-  tests distinguish direct commits from candidate confirmation.
-- Require a green exact-head Rust/Clippy and real labwc CI run, then green
-  post-merge `main` before accepting these regressions. **Neither SG1 nor
-  SG5 is complete:** an external IME client, AT-SPI/Orca interaction and
-  physical multi-display/IME acceptance still need independent evidence.
+- **File contexts:** The native Menu and Shift+F10 actions now resolve a file
+  target exclusively among compositor-placed icons on the confirmed keyboard
+  focus output. Duplicate file keys on another monitor are never used for a
+  context action, even when that monitor's layer appears first.
+- **XP Luna shortcuts:** Before invoking actions, opening context menus, or
+  navigating, the existing compositor-granted keyboard lease must still
+  match the shortcut's real current output. Displaced/hidden icons revoke
+  stale focus. Tab, arrow, type-to-select and Ctrl+A operate on peers on the
+  same resolved output; an explicit secondary output cannot be incorrectly
+  shadowed by the primary-output fallback.
+- Deterministic Rust regressions check duplicate keys, missing/hidden
+  targets, output precedence and missing leases. Native Rust/Clippy, real
+  headless labwc and package tests plus exact-main CI must pass before merge.
+- The conservative IME Return echo guard is **unchanged**: without external
+  IME timing evidence, relaxing it could accidentally execute a Run command.
+  External IME, keyboard/Orca AT-SPI interaction and hardware multi-display
+  testing remain separate SG1/SG5 release gates; neither is signed off.
 
 ### SG1/SG5 input, focus and AccessKit correctness (16 November 2026; gated)
 
