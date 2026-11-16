@@ -1453,7 +1453,7 @@ def wallpaper_path(recipe: PanelRecipe) -> Path:
     return Path(__file__).resolve().parents[2] / "assets" / "wallpapers" / f"{name}.jpg"
 
 
-def labwc_menu(recipe: PanelRecipe) -> str:
+def labwc_menu(recipe: PanelRecipe, *, nested: bool = False) -> str:
     """Compile the restricted menu vocabulary into real labwc root-menu XML.
 
     No string from a rice is ever interpreted as a command or XML markup.
@@ -1481,6 +1481,11 @@ def labwc_menu(recipe: PanelRecipe) -> str:
             ("Refresh", "refresh"),
             ("Properties", "properties"),
         ):
+            # Nested design previews share the user HOME with XFCE but do not
+            # expose its real XDG file desktop. Never advertise a file write
+            # to the user's actual Desktop from a non-persistent preview.
+            if nested and operation == "new-folder":
+                continue
             entry = ET.SubElement(menu, "item", {"label": label})
             ET.SubElement(entry, "action", {
                 "name": "Execute",

@@ -47,18 +47,56 @@ impl Listener {
     }
 }
 
+fn socket_path_for(runtime: &Path, nested: bool, session: Option<&Path>)
+    -> io::Result<PathBuf>
+{
+    if !runtime.is_absolute() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput,
+                                  "Non-absolute runtime directory"));
+    }
+    let uid = unsafe { libc::geteuid() };
+    let stat = fs::symlink_metadata(runtime)?;
+    if !stat.is_dir() || stat.uid() != uid || stat.permissions().mode() & 0o077 != 0 {
+        return Err(io::Error::new(io::ErrorKind::PermissionDenied,
+                                  "Unsafe runtime directory"));
+    }
+    if !nested {
+        return Ok(runtime.join("riceplate-luna-desktop.sock"));
+    }
+    // Nested previews run under the *same* user account as a real session.
+    // Never reuse the full-login socket or send nested actions to that session.
+    // The disposable private labwc config is unique to the running compositor
+    // and inherited by both the panel and labwc's root-menu commands.
+    let directory = session.ok_or_else(|| io::Error::new(
+        io::ErrorKind::NotFound, "Missing isolated nested session directory"))?;
+    if !directory.is_absolute() || directory.parent() != Some(runtime)
+        || !directory.file_name().is_some_and(|name|
+            name.to_str().is_some_and(|name| name.starts_with("ricebowl-labwc-")))
+    {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput,
+                                  "Invalid nested session directory"));
+    }
+    let info = fs::symlink_metadata(directory)?;
+    if !info.is_dir() || info.uid() != uid
+        || info.permissions().mode() & 0o077 != 0 {
+        return Err(io::Error::new(io::ErrorKind::PermissionDenied,
+                                  "Unsafe nested session directory"));
+    }
+    let marker = fs::symlink_metadata(directory.join(".ricebowl-managed"))?;
+    if !marker.is_file() || marker.uid() != uid
+        || marker.permissions().mode() & 0o077 != 0 {
+        return Err(io::Error::new(io::ErrorKind::PermissionDenied,
+                                  "Unmanaged nested session directory"));
+    }
+    Ok(directory.join("riceplate-luna-desktop.sock"))
+}
+
 fn socket_path() -> io::Result<PathBuf> {
     let dir = env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from)
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound,"No runtime directory"))?;
-    if !dir.is_absolute() {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput,"Non-absolute runtime directory"));
-    }
-    let stat = fs::symlink_metadata(&dir)?;
-    if !stat.is_dir() || stat.uid() != unsafe { libc::geteuid() }
-        || stat.permissions().mode() & 0o077 != 0 {
-        return Err(io::Error::new(io::ErrorKind::PermissionDenied,"Unsafe runtime directory"));
-    }
-    Ok(dir.join("riceplate-luna-desktop.sock"))
+    let nested = env::var("RICEBOWL_DE_NESTED").as_deref() == Ok("1");
+    let session = env::var_os("RICEBOWL_DE_SESSION_CONFIG").map(PathBuf::from);
+    socket_path_for(&dir, nested, session.as_deref())
 }
 
 pub fn bind() -> io::Result<Listener> {
@@ -222,6 +260,43 @@ mod tests {
         assert_eq!(fs::read(target.join("keep")).unwrap(), b"important");
         fs::remove_file(alias).unwrap();
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn nested_root_menu_socket_is_unique_and_never_targets_real_session() {
+        use std::{os::unix::fs::{DirBuilderExt, symlink},
+                  time::{SystemTime, UNIX_EPOCH}};
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let runtime = env::temp_dir().join(format!("luna-nested-{}-{now}",std::process::id()));
+        fs::DirBuilder::new().mode(0o700).create(&runtime).unwrap();
+        let nested = runtime.join("ricebowl-labwc-accepted");
+        fs::DirBuilder::new().mode(0o700).create(&nested).unwrap();
+        let marker = nested.join(".ricebowl-managed");
+        fs::write(&marker, b"").unwrap();
+        fs::set_permissions(&marker, fs::Permissions::from_mode(0o600)).unwrap();
+
+        let real = socket_path_for(&runtime, false, None).unwrap();
+        let private = socket_path_for(&runtime, true, Some(&nested)).unwrap();
+        assert_ne!(real, private);
+        assert_eq!(real.parent(), Some(runtime.as_path()));
+        assert_eq!(private.parent(), Some(nested.as_path()));
+        assert!(socket_path_for(&runtime, true, None).is_err());
+        assert!(socket_path_for(&runtime, true, Some(&runtime)).is_err());
+        let other = runtime.join("unmanaged");
+        fs::DirBuilder::new().mode(0o700).create(&other).unwrap();
+        assert!(socket_path_for(&runtime, true, Some(&other)).is_err());
+        let alias = runtime.join("ricebowl-labwc-alias");
+        symlink(&nested, &alias).unwrap();
+        assert!(socket_path_for(&runtime, true, Some(&alias)).is_err());
+        fs::remove_file(&alias).unwrap();
+        fs::remove_dir(&other).unwrap();
+        fs::set_permissions(&nested, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(socket_path_for(&runtime, true, Some(&nested)).is_err());
+        fs::set_permissions(&nested, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::remove_file(&marker).unwrap();
+        assert!(socket_path_for(&runtime, true, Some(&nested)).is_err());
+        fs::remove_dir(&nested).unwrap();
+        fs::remove_dir(&runtime).unwrap();
     }
 
     #[test]
