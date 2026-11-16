@@ -38,15 +38,46 @@ class RecipeTests(unittest.TestCase):
             self.assertIn("custom/rice-launcher", json.dumps(parsed))
             self.assertIn(recipe.colors[0], css)
 
-    def test_luna_columns_is_shipped_as_a_named_bundled_recipe(self):
-        # The native demo is not an imported user file. A bare token must
-        # never be redirected to ~/.config/ricebowl/recipes/ and fail ENOENT.
-        luna = recipes.load("xp-luna-columns")
-        self.assertEqual(luna.recipe_id, "xp-luna-columns")
-        self.assertEqual(luna.schema_version, 12)
-        self.assertEqual(luna.menu_presentation, "columns")
-        self.assertEqual(recipes.native_token("xp-luna-columns"), "xp-luna-columns")
-        self.assertTrue(recipes.BUILTINS["xp-luna-columns"].is_file())
+    def test_luna_columns_shipped_preset_and_private_import_keep_distinct_semantics(self):
+        # The built-in demo must work by name when no custom import exists.
+        # Importing a same-ID Luna rice was supported before this change and
+        # must remain possible, including for live-switch/rollback tests.
+        with tempfile.TemporaryDirectory() as folder:
+            config = Path(folder) / "config"
+            config.mkdir(mode=0o700)
+            source = Path(folder) / "custom-luna.json"
+            data = json.loads(recipes.SHIPPED_PRESETS["xp-luna-columns"].read_text())
+            data["name"] = "My existing custom XP Luna"
+            source.write_text(json.dumps(data), encoding="utf-8")
+            source.chmod(0o600)
+            with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config)}):
+                shipped = recipes.load("xp-luna-columns")
+                self.assertEqual(shipped.recipe_id, "xp-luna-columns")
+                self.assertEqual(shipped.schema_version, 12)
+                self.assertEqual(shipped.menu_presentation, "columns")
+                self.assertEqual(recipes.native_token("xp-luna-columns"), "xp-luna-columns")
+                exported = Path(folder) / "shipped.json"
+                recipes.export_recipe("xp-luna-columns", exported)
+                self.assertEqual(json.loads(exported.read_text())["name"], shipped.name)
+
+                _, imported = recipes.import_recipe(source)
+                self.assertEqual(imported.name, "xp-luna-columns.json")
+                self.assertEqual(recipes.load("xp-luna-columns").name,
+                                 "My existing custom XP Luna")
+                self.assertEqual(recipes.native_token("xp-luna-columns"), str(imported))
+                private_export = Path(folder) / "private-export.json"
+                recipes.export_recipe("xp-luna-columns", private_export)
+                self.assertEqual(json.loads(private_export.read_text())["name"],
+                                 "My existing custom XP Luna")
+                imported.chmod(0o644)
+                with self.assertRaisesRegex(recipes.RecipeError, "owner-only"):
+                    recipes.load("xp-luna-columns")
+                imported.chmod(0o600)
+                imported.unlink()
+                imported.symlink_to(source)
+                with self.assertRaisesRegex(recipes.RecipeError, "safely"):
+                    recipes.load("xp-luna-columns")
+                self.assertEqual(recipes.native_token("xp-luna-columns"), str(imported))
         with self.assertRaisesRegex(recipes.RecipeError, "safely"):
             recipes.load("unavailable-user-recipe")
 
