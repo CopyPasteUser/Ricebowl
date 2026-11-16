@@ -3036,6 +3036,24 @@ impl RicePlate {
                 }
             }
         }
+        if let Some(dialog) = self.luna_dialog.as_ref().filter(|dialog| dialog.configured) {
+            // The editable modal is a real accessible text field with a
+            // grapheme-aligned caret. Private Run text exists only inside this
+            // transient AT-SPI tree while the modal is open and compositor
+            // keyboard focus still controls editing and execution.
+            let (title, label) = match dialog.state.kind {
+                luna_dialog::Kind::Run => ("Run", Some("Command")),
+                luna_dialog::Kind::FileRename => ("Rename File", Some("File name")),
+                luna_dialog::Kind::FileTrash => ("Move to Recycle Bin", None),
+                luna_dialog::Kind::Help => ("Help and Support", None),
+            };
+            model.add(60_000, ROOT, AccessibleRole::Dialog, title, None);
+            if let Some(label) = label {
+                model.add_text_input(60_100, 60_000, label,
+                    &dialog.state.input, dialog.state.cursor);
+                if self.luna_dialog_focused { model.focus = 60_100; }
+            }
+        }
         if self.calendar_state.visible && self.active_calendar.is_some() {
             model.add(40_000, ROOT, AccessibleRole::Dialog,
                       format!("Calendar {}", self.calendar_state.month.format("%B %Y")), None);
@@ -3123,7 +3141,8 @@ impl RicePlate {
             }
         }
         model.window_focused = self.menu_focused || self.calendar_focused
-            || self.tray_popup_focused || self.context_focused || self.focused_panel.is_some()
+            || self.luna_dialog_focused || self.tray_popup_focused
+            || self.context_focused || self.focused_panel.is_some()
             || self.keyboard_icon_surface.is_some() || self.keyboard_widget_surface.is_some();
         model
     }
