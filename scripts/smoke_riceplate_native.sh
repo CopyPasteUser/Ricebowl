@@ -1577,6 +1577,16 @@ PY
         "$runtime/file-home/Desktop/04-folder")
     test "$(cat "$runtime/full-ricefield.log" 2>/dev/null || :)" = "$expected_ricefield" || {
         echo "Native XDG folder double click did not dispatch the exact RiceField argv" >&2
+        echo "Expected argv: $expected_ricefield" >&2
+        echo "Actual argv:" >&2
+        if [ -f "$runtime/full-ricefield.log" ]; then
+            cat "$runtime/full-ricefield.log" >&2
+        else
+            echo "(no RiceField invocation)" >&2
+        fi
+        echo "Folder mapped at: $folder_position; clicked: $folder_x,$folder_y" >&2
+        echo "Recent native XDG event trace:" >&2
+        tail -n 90 "$runtime/file-plate.log" >&2
         exit 1
     }
     WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 1100 450 1366 768
