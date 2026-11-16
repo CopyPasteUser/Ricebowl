@@ -82,6 +82,8 @@ mod tests {
     fn done_transaction_is_atomic_on_invalid_delete_or_commit() {
         let mut state = State::new(Kind::FileRename);
         assert!(state.commit_text("a\u{301}🦀.txt"));
+        assert!(state.move_cursor(crate::luna_dialog::CursorMove::Home));
+        assert!(state.move_cursor(crate::luna_dialog::CursorMove::Right));
         let before = (state.input.clone(), state.cursor);
         let mut pending = Pending::default();
         pending.delete(1, 0); // one byte inside a multi-byte grapheme
@@ -89,7 +91,7 @@ mod tests {
         assert!(!state.apply_ime(&pending));
         assert_eq!((state.input.clone(), state.cursor), before);
         pending.reset();
-        pending.delete(0, 4); // now after cursor, beyond input
+        pending.delete(0, 2); // splitting the next multi-byte emoji
         assert!(!state.apply_ime(&pending));
         assert_eq!((state.input.clone(), state.cursor), before);
         pending.reset();
@@ -108,7 +110,7 @@ mod tests {
         p.commit(Some("日本語".into()));
         p.preedit(Some("あ".into()), 3, 3);
         assert!(state.apply_ime(&p));
-        assert_eq!(state.input, "日本語hello.txt");
+        assert_eq!(state.input, "日本語.txt");
         assert_eq!(state.cursor, 3);
         assert_eq!(state.preedit.as_ref().unwrap().text, "あ");
         assert_eq!(state.surrounding_text().1, "日本語".len() as i32);
