@@ -26,6 +26,22 @@ class WaylandLunaTests(unittest.TestCase):
         self.assertIn('command -v swaybg', source)
         self.assertIn('command -v labwc', source)
         self.assertIn('PATH=%q:$PATH', source)
+        setup = source[source.index('binary_dir="${CARGO_TARGET_DIR:-'):
+                       source.index("for binary in cargo")]
+        with tempfile.TemporaryDirectory() as base:
+            root = Path(base) / "Rice Bowl"
+            for override, target in ((None, root / "components/riceplate-wayland/target"),
+                                     ("my target", root / "my target"),
+                                     (str(root / "external"), root / "external")):
+                env = {**os.environ, "project_root": str(root)}
+                if override is None:
+                    env.pop("CARGO_TARGET_DIR", None)
+                else:
+                    env["CARGO_TARGET_DIR"] = override
+                command = setup + '\nprintf "%s\\n" "$binary_dir"\n'
+                result = subprocess.run(["bash", "-eu", "-c", command], env=env,
+                                        capture_output=True, text=True, check=True, timeout=4)
+                self.assertEqual(result.stdout.strip(), str(target / "release"))
 
         # Execute only the read-only diagnostic/printf tail with a checkout
         # containing spaces. No cargo build, profile mutation or desktop
