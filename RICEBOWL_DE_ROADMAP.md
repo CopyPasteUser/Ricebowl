@@ -21,6 +21,12 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
+### SG3 active RicePop host ownership (16 November 2026; CI pending)
+
+- Active notification **Dismiss** and **Invoke** now validate the exact active Mako D-Bus owner PID and owner-private Mako configuration both before the fresh active-ID/action inventory and again just before mutation. A different host, unexpected owner, stale ID, unsupported action, or D-Bus failure stops with an explicit error rather than invoking a notification in a different session.
+- Normal XFCE and a nested labwc preview inheriting XFCE's user bus cannot mutate an unrelated notification owner. A nested RiceBowl session with an explicitly new private `dbus-run-session` may still dismiss its **own** Mako messages, preserving the disposable real-host CI smoke. The existing Do Not Disturb action remains full-login-only.
+- Tests cover foreign/inherited sessions, private nested ownership, host changes between read and write, and non-mutating failure. This is partial SG3 correctness, not notification history, action accessibility or physical hardware release sign-off. Exact PR-head CI required before merging.
+
 ### SG5 IME selected-text preview correctness (16 November 2026; CI gate)
 
 - Native Run and file-rename text-input-v3 preedit now renders at the **start of the selected range** rather than at the old caret byte offset. Previously a short IME preedit after Ctrl+A / Shift-selection could index past the shortened preview string and crash the native renderer.
