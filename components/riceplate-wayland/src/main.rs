@@ -2374,11 +2374,11 @@ impl RicePlate {
             || ime.focused_surface.as_ref() != Some(dialog.surface.wl_surface()) {
             return;
         }
-        let (text, cursor) = dialog.state.surrounding_text();
+        let (text, cursor, anchor) = dialog.state.surrounding_selection();
         let (_, x, _) = dialog.state.input_view_composing(282,
             |text| luna_dialog_text_width(&self.recipe, text),
             |visual| luna_dialog_visual_width(&self.recipe, visual));
-        ime.input.set_surrounding_text(text, cursor, cursor);
+        ime.input.set_surrounding_text(text, cursor, anchor);
         ime.input.set_text_change_cause(cause);
         ime.input.set_cursor_rectangle(128 + x as i32, 120, 2, 16);
         ime.input.commit();
@@ -3051,7 +3051,8 @@ impl RicePlate {
             model.add(60_000, ROOT, AccessibleRole::Dialog, title, None);
             if let Some(label) = label {
                 model.add_text_input(60_100, 60_000, label,
-                    &dialog.state.input, dialog.state.cursor);
+                    &dialog.state.input, dialog.state.cursor,
+                    dialog.state.selection_anchor);
                 if self.luna_dialog_focused { model.focus = 60_100; }
             }
         }
@@ -6263,6 +6264,16 @@ fn paint_luna_dialog(canvas: &mut [u8], style: &PanelStyle, state: &luna_dialog:
             let (text, cursor_x, composing) = state.input_view_composing(282,
                 |value| luna_dialog_text_width(style, value),
                 |visual| luna_dialog_visual_width(style, visual));
+            for (left, right) in state.selection_pixels(282,
+                |value| luna_dialog_text_width(style, value),
+                |visual| luna_dialog_visual_width(style, visual)) {
+                if right > left {
+                    // Pale selection remains legible with the ordinary
+                    // dark ink, without changing the existing glyph raster.
+                    fill_rect(canvas, w, h, 128 + left, 118,
+                              right - left, 20, 0xffa9_d0fa);
+                }
+            }
             draw_rice_text(canvas, w, h, 128, 122, &text, 0xff10_2849, style);
             if let Some((a, b)) = composing {
                 // Underline only live, noncommitted preedit; not stored in the
@@ -7520,6 +7531,11 @@ impl KeyboardHandler for RicePlate {
                     self.close_luna_dialog();
                     return;
                 }
+                Keysym::a | Keysym::A if self.selection_modifiers.ctrl => {
+                    if let Some(dialog) = self.luna_dialog.as_mut() {
+                        repaint = dialog.state.select_all();
+                    }
+                }
                 Keysym::Return | Keysym::KP_Enter => execute = true,
                 Keysym::BackSpace => {
                     if let Some(dialog) = self.luna_dialog.as_mut() {
@@ -7533,20 +7549,23 @@ impl KeyboardHandler for RicePlate {
                 }
                 Keysym::Left | Keysym::Right | Keysym::Home | Keysym::End => {
                     if let Some(dialog) = self.luna_dialog.as_mut() {
-                        repaint = dialog.state.move_cursor(match event.keysym {
+                        repaint = dialog.state.move_cursor_select(match event.keysym {
                             Keysym::Left => luna_dialog::CursorMove::Left,
                             Keysym::Right => luna_dialog::CursorMove::Right,
                             Keysym::Home => luna_dialog::CursorMove::Home,
                             _ => luna_dialog::CursorMove::End,
-                        });
+                        }, self.selection_modifiers.shift);
                     }
                 }
                 _ => {
-                    if !ime_handling_text {
+                    if !ime_handling_text
+                        && !self.selection_modifiers.ctrl
+                        && !self.selection_modifiers.alt {
                         if let (Some(dialog), Some(text)) =
                             (self.luna_dialog.as_mut(), event.utf8.as_deref()) {
-                            // The direct-keyboard fallback stays enabled until
-                            // the compositor actually sends IME text events.
+                            // Ctrl/Alt shortcuts must never be interpreted as
+                            // literal text; only real printable key commits
+                            // can replace a selected command or file name.
                             repaint = dialog.state.commit_text(text);
                         }
                     }
