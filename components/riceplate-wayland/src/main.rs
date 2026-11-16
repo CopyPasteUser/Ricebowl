@@ -9604,6 +9604,34 @@ mod tests {
     }
 
     #[test]
+    fn luna_tray_popups_keep_the_ivory_background_and_cobalt_chrome() {
+        let luna = recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let (width, height) = (tray::POPUP_WIDTH, tray::POPUP_HEIGHT);
+        let at = |frame: &[u8], x: u32, y: u32| {
+            let i = ((y * width + x) * 4) as usize;
+            u32::from_le_bytes(frame[i..i + 4].try_into().unwrap())
+        };
+        let mut icon_popup = tray::Popup::default();
+        icon_popup.open(0);
+        let mut icon_frame = vec![0; (width * height * 4) as usize];
+        paint_tray_popup(&mut icon_frame, &luna, &tray::State::default(), &icon_popup);
+        assert_eq!(at(&icon_frame, 0, 60), 0xff0b_387e);
+        assert_eq!(at(&icon_frame, 5, 60), 0xfff8_f6ee);
+        assert_eq!(at(&icon_frame, 5, 4), 0xff1a_56b0);
+        let (title, rows) = luna_status_rows(
+            Widget::Network, &SystemStatus::default(), &PowerStatus::NotPresent).unwrap();
+        let mut status_popup = tray::MenuPopup::default();
+        assert!(status_popup.open_local(title, rows));
+        let mut status_frame = vec![0; icon_frame.len()];
+        paint_tray_menu(&mut status_frame, &luna, &status_popup);
+        assert_eq!(at(&status_frame, 0, 60), 0xff0b_387e);
+        assert_eq!(at(&status_frame, 5, 60), 0xfff8_f6ee);
+        assert_eq!(at(&status_frame, 5, 4), 0xff1a_56b0);
+    }
+
+    #[test]
     fn luna_native_status_menus_have_real_capability_gates() {
         let unavailable = SystemStatus::default();
         let (_, network) = luna_status_rows(Widget::Network, &unavailable,
