@@ -67,14 +67,18 @@ dbus-run-session -- sh -eu -c '
     WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 120 585 1024 768
     sleep .4
     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/menu-open.png"
-    # Actual native menu size is compositor-specific: the real labwc
-    # configure can keep 320x304 even when a 480x456 resize was requested.
-    # Use the active menu geometry observed in RicePlate trace, never a
-    # guessed visual size. The XP footer Close is logical x251..315,
-    # y276..304. Both variants end 40px above the bottom panel.
+    # Follow the actual compositor-confirmed Luna menu geometry, not
+    # the historic 320px-only assumption. The logical Close hitbox remains
+    # x251..315 and y276..304, scaled with the entire menu. At this 1024px
+    # output Luna currently requests 400x380. y710 is inside the footer at
+    # all four validated presentation sizes.
     # Deliberately fail closed for any unexpected size.
     if grep -Fq "menu trace show Some(((320, 304), true))" "$runtime/plate.log"; then
         close_x=280
+    elif grep -Fq "menu trace show Some(((360, 342), true))" "$runtime/plate.log"; then
+        close_x=315
+    elif grep -Fq "menu trace show Some(((400, 380), true))" "$runtime/plate.log"; then
+        close_x=350
     elif grep -Fq "menu trace show Some(((480, 456), true))" "$runtime/plate.log"; then
         close_x=420
     else

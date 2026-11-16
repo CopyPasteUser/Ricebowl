@@ -681,14 +681,18 @@ jobs:
               print(f'Native virtual-pointer Luna Start toggle {suffix}: '
                     f'{menu_delta} menu pixels, {restore_delta} restore delta')
           # The real native Find and Saved header buttons must switch visible
-          # menu content and return to the same open-menu state. The checks
-          # operate on raw headless labwc frames, not a model-only unit test.
+          # menu content and return to the same open-menu state. At 1024x768
+          # the 320x304 logical Luna menu renders as a 400x380 pixel surface,
+          # anchored immediately above the 40px taskbar. Compare the entire
+          # compositor-visible menu instead of the obsolete 320px sub-rectangle.
+          # Checks use real labwc frames, not Rust-only hit tests.
+          luna_menu_crop = (0, 348, 400, 728)
           modes = ('open', 'find', 'saved', 'return')
           frames = {}
           for mode in modes:
               with Image.open(directory / f'xp-luna-pointer-{mode}-1024x768.png') as image:
                   assert image.size == (1024, 768), (mode, image.size)
-                  frames[mode] = image.convert('RGB').crop((0, 424, 320, 728))
+                  frames[mode] = image.convert('RGB').crop(luna_menu_crop)
           def changed_pixels(left, right):
               return sum(a != b for a, b in zip(left.getdata(), right.getdata()))
           find_delta = changed_pixels(frames['open'], frames['find'])
@@ -701,19 +705,19 @@ jobs:
           with Image.open(directory / 'xp-luna-pointer-programs-1024x768.png') as image, \
                Image.open(directory / 'xp-luna-pointer-programs-back-1024x768.png') as back_image:
               assert image.size == back_image.size == (1024, 768)
-              programs = image.convert('RGB').crop((0, 424, 320, 728))
-              programs_back = back_image.convert('RGB').crop((0, 424, 320, 728))
+              programs = image.convert('RGB').crop(luna_menu_crop)
+              programs_back = back_image.convert('RGB').crop(luna_menu_crop)
           programs_delta = changed_pixels(frames['return'], programs)
           programs_back_delta = changed_pixels(frames['return'], programs_back)
           with Image.open(directory / 'xp-luna-pointer-find-paged-1024x768.png') as image, \
                Image.open(directory / 'xp-luna-pointer-find-hover-1024x768.png') as hovered_image:
               assert image.size == hovered_image.size == (1024, 768), 'Wheel capture geometry'
-              paged = image.convert('RGB').crop((0, 424, 320, 728))
-              hovered = hovered_image.convert('RGB').crop((0, 424, 320, 728))
+              paged = image.convert('RGB').crop(luna_menu_crop)
+              hovered = hovered_image.convert('RGB').crop(luna_menu_crop)
           wheel_delta = changed_pixels(hovered, paged)
           with Image.open(directory / 'xp-luna-pointer-find-restored-1024x768.png') as image:
               assert image.size == (1024, 768), 'Reverse wheel capture geometry'
-              restored = image.convert('RGB').crop((0, 424, 320, 728))
+              restored = image.convert('RGB').crop(luna_menu_crop)
           # The return pointer stays over the scrolled page's selected row;
           # hover cannot itself jump back. Negative axis must restore the
           # entire original menu, including the active item highlight.
@@ -726,7 +730,7 @@ jobs:
           for state in ('saved', 'saved-pinned', 'saved-unpinned'):
               with Image.open(directory / f'xp-luna-pointer-{state}-1024x768.png') as image:
                   assert image.size == (1024, 768), (state, image.size)
-                  pin_frames[state] = image.convert('RGB').crop((0, 532, 320, 695))
+                  pin_frames[state] = image.convert('RGB').crop((0, 483, 400, 688))
           pinned_delta = changed_pixels(pin_frames['saved'], pin_frames['saved-pinned'])
           unpin_delta = changed_pixels(pin_frames['saved'], pin_frames['saved-unpinned'])
           assert find_delta > 2000, f'Find click had no visible native effect: {find_delta}'
