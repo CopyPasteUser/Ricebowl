@@ -41,6 +41,14 @@ def load_sample(path: Path, *, profile: str) -> dict[str, object]:
             or data.get("profile_requested") != profile
             or data.get("profile_observed") != profile
             or data.get("profile_matches") is not True
+            # Legacy single-field "profile_matches" claims do not establish
+            # the newer counter and one-panel identity acceptance rules.
+            # Old snapshots must be recaptured, not silently grandfathered.
+            or data.get("sample_continuity_verified") is not True
+            or data.get("process_role_verified") is not True
+            or data.get("counter_reset_detected") is not False
+            or data.get("ambiguous_profile_processes") is not False
+            or data.get("process_restart_or_exit_detected") is not False
             or data.get("read_only") is not True
             or data.get("hardware_accepted") is not False
             or data.get("process_scope") != "same-uid-comm-matches-not-exclusive-session"
