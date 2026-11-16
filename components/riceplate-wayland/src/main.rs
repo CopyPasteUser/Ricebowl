@@ -1592,8 +1592,30 @@ impl RicePlate {
         layer.surface.commit();
     }
 
+    /// Only compositor-placed file icons on the output of the confirmed
+    /// temporary keyboard lease are legal navigation/activation targets.
+    /// A removed/hotplugged output yields no peers and revokes stale focus.
+    fn focused_visible_file_indices(&self) -> Vec<usize> {
+        let Some(output) = self.desktop_keyboard_focus_lease.active_output() else {
+            return Vec::new();
+        };
+        self.file_layers.iter().enumerate().filter_map(|(index, file)| {
+            let placed_output = file.bound_output.as_ref()
+                .or(file.output.as_ref()).or(self.primary_output.as_ref());
+            (file.placed.is_some() && placed_output == Some(output)).then_some(index)
+        }).collect()
+    }
+
     fn dispatch_desktop_keyboard_focus(&mut self, event: &KeyEvent,
                                     qh: &QueueHandle<Self>) -> bool {
+        // The compositor-confirmed active overlay owns its keyboard events.
+        // A stale desktop lease must not swallow Run, Rename, menus or
+        // notification inputs before their own event handlers can process them.
+        if self.luna_dialog_focused || self.file_context_focused
+            || self.context_focused || self.menu_focused
+            || self.calendar_focused || self.tray_popup_focused {
+            return false;
+        }
         let Some(layer) = self.desktop_keyboard_focus_layer.as_ref() else { return false };
         let Some(seat) = self.seat_assignments.keyboard_owner() else { return false };
         if !self.desktop_keyboard_focus_lease.can_dispatch(seat, layer.surface.wl_surface()) {
@@ -1604,6 +1626,13 @@ impl RicePlate {
             DesktopFocusTarget::Shortcut(surface) =>
                 return self.dispatch_shortcut_keyboard_focus(surface.clone(), event, qh),
         };
+        let peers = self.focused_visible_file_indices();
+        if !peers.iter().any(|&index| self.file_layers[index].entry.key == selected) {
+            // The icon was removed, hidden or moved to another output after
+            // the compositor granted the 8px keyboard focus overlay.
+            self.close_desktop_keyboard_focus();
+            return true;
+        }
         match event.keysym {
             Keysym::Escape => self.close_desktop_keyboard_focus(),
             Keysym::F2 => {
@@ -1633,15 +1662,14 @@ impl RicePlate {
                 self.activate_file_icon(&selected);
             }
             Keysym::Up | Keysym::Down | Keysym::Left | Keysym::Right => {
-                let Some(snapshot) = self.file_snapshot.as_ref() else { return true };
-                let entries = &snapshot.entries;
-                if entries.is_empty() { return true; }
-                let current = entries.iter().position(|e| e.key == selected).unwrap_or(0);
+                let visible: Vec<_> = peers.iter().map(|&index|
+                    self.file_layers[index].entry.key.clone()).collect();
                 let backwards = matches!(event.keysym, Keysym::Up | Keysym::Left);
-                let index = if backwards {
-                    (current + entries.len() - 1) % entries.len()
-                } else { (current + 1) % entries.len() };
-                let key = entries[index].key.clone();
+                let Some(key) = shortcut_focus::next_visible_file(
+                    &visible, &selected, backwards) else {
+                    self.close_desktop_keyboard_focus();
+                    return true;
+                };
                 if let Some(layer) = self.desktop_keyboard_focus_layer.as_mut() {
                     layer.target = DesktopFocusTarget::File(key.clone());
                     layer.expires = Instant::now() + Duration::from_secs(5);
@@ -1663,9 +1691,9 @@ impl RicePlate {
                 layer.last_typed = Instant::now();
                 layer.expires = Instant::now() + Duration::from_secs(5);
                 let needle = layer.typed.to_lowercase();
-                if let Some(key) = self.file_snapshot.as_ref()
-                    .and_then(|snapshot| snapshot.entries.iter()
-                        .find(|item| item.label.to_lowercase().starts_with(&needle)))
+                if let Some(key) = peers.iter()
+                    .map(|&index| &self.file_layers[index].entry)
+                    .find(|item| item.label.to_lowercase().starts_with(&needle))
                     .map(|item| item.key.clone()) {
                     self.file_selection.select(&key, false);
                     if let Some(layer) = self.desktop_keyboard_focus_layer.as_mut() {
