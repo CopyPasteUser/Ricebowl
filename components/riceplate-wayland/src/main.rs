@@ -5477,34 +5477,59 @@ fn paint_osd(canvas: &mut [u8], style: &PanelStyle, notice: &osd::Notice) {
     }
 }
 
+/// XP Luna's notification-area menus use the same portable typeface as
+/// Start and the taskbar, rather than unscaled 5x7 legacy glyphs.
+fn paint_popup_label(canvas: &mut [u8], width: u32, height: u32,
+                     x: u32, y: u32, label: &str, color: u32,
+                     style: &PanelStyle) {
+    if style.id == "xp-luna-columns" {
+        draw_rice_text(canvas, width, height, x, y, label, color, style);
+    } else {
+        draw_text(canvas, width, height, x, y, label, color);
+    }
+}
+
 fn paint_tray_popup(canvas: &mut [u8], style: &PanelStyle,
                     tray_state: &tray::State, popup: &tray::Popup) {
     let width = tray::POPUP_WIDTH;
     let height = tray::POPUP_HEIGHT;
+    let luna = style.id == "xp-luna-columns";
+    let bg = if luna { 0xfff8_f6ee } else { style.background };
+    let fg = if luna { 0xff21_293c } else { style.foreground };
+    let header = if luna { 0xff1a_56b0 } else { style.active };
     for pixel in canvas.chunks_exact_mut(4) {
-        pixel.copy_from_slice(&style.background.to_le_bytes());
+        pixel.copy_from_slice(&bg.to_le_bytes());
     }
-    fill_rect(canvas, width, height, 0, 0, width, 36, style.active);
-    draw_text(canvas, width, height, 12, 13,
-              &format!("Tray icons ({})", tray_state.entries.len()), style.foreground);
-    draw_text(canvas, width, height, width - 24, 13, "X", style.foreground);
+    fill_rect(canvas, width, height, 0, 0, width, 36, header);
+    if luna {
+        fill_rect(canvas, width, height, 0, 0, 2, height, 0xff0b_387e);
+        fill_rect(canvas, width, height, width - 2, 0, 2, height, 0xff0b_387e);
+        fill_rect(canvas, width, height, 0, height - 2, width, 2, 0xff0b_387e);
+        fill_rect(canvas, width, height, 4, 36, width - 8, 2, 0xffa5_c9f2);
+    }
+    paint_popup_label(canvas, width, height, 12, 13,
+              &format!("Tray icons ({})", tray_state.entries.len()), style.foreground, style);
+    paint_popup_label(canvas, width, height, width - 24, 13, "X", style.foreground, style);
     for (row, entry) in tray_state.entries.iter().skip(popup.first)
         .take(tray::POPUP_ROWS).enumerate() {
         let top = tray::POPUP_ROW_TOP + row as u32 * tray::POPUP_ROW_HEIGHT;
         if popup.selected == popup.first + row {
             fill_rounded_rect(canvas, width, height, 6, top + 1,
-                width - 12, tray::POPUP_ROW_HEIGHT - 2, style.task_radius, style.active);
+                width - 12, tray::POPUP_ROW_HEIGHT - 2,
+                if luna { 2 } else { style.task_radius },
+                if luna { 0xff31_6ac5 } else { style.active });
         }
         if let Some(icon) = &entry.icon {
             tray::paint_icon(canvas, width, height, 12, top + 5, icon);
         } else {
             let initial = entry.title.chars().find(|c| c.is_ascii_alphanumeric())
                 .map(|c| c.to_ascii_uppercase()).unwrap_or('?');
-            draw_text(canvas, width, height, 18, top + 10,
-                      &initial.to_string(), style.foreground);
+            paint_popup_label(canvas, width, height, 18, top + 10,
+                      &initial.to_string(), style.foreground, style);
         }
         let title: String = entry.title.chars().take(26).collect();
-        draw_text(canvas, width, height, 42, top + 11, &title, style.foreground);
+        paint_popup_label(canvas, width, height, 42, top + 11, &title, if luna && popup.selected == popup.first + row {
+                  0xffff_ffff } else { fg }, style);
         if entry.needs_attention {
             fill_rect(canvas, width, height, width - 12, top + 10, 4, 9,
                       style.foreground);
@@ -5514,10 +5539,10 @@ fn paint_tray_popup(canvas: &mut [u8], style: &PanelStyle,
     fill_rect(canvas, width, height, 0, footer_top, width, 1, style.active);
     let previous = popup.first > 0;
     let next = popup.first + tray::POPUP_ROWS < tray_state.entries.len();
-    draw_text(canvas, width, height, 12, 216,
-              if previous { "< Previous" } else { "  First page" }, style.foreground);
-    draw_text(canvas, width, height, 169, 216,
-              if next { "Next >" } else { "Last page" }, style.foreground);
+    paint_popup_label(canvas, width, height, 12, 216,
+              if previous { "< Previous" } else { "  First page" }, style.foreground, style);
+    paint_popup_label(canvas, width, height, 169, 216,
+              if next { "Next >" } else { "Last page" }, style.foreground, style);
 }
 
 /// XP notification-area menus use the same on-demand native popup as
@@ -5576,14 +5601,14 @@ fn paint_tray_menu(canvas: &mut [u8], style: &PanelStyle, popup: &tray::MenuPopu
         fill_rect(canvas, width, height, 4, 36, width - 8, 2, 0xffa5_c9f2);
     }
     if popup.parent_id() != popup.root_id {
-        draw_text(canvas, width, height, 12, 13, "<", header_fg);
+        paint_popup_label(canvas, width, height, 12, 13, "<", header_fg, style);
     }
     let header: String = popup.title.chars().take(if popup.parent_id() == popup.root_id {
         24
     } else { 20 }).collect();
-    draw_text(canvas, width, height, if popup.parent_id() == popup.root_id { 12 } else { 36 },
-              13, &header, header_fg);
-    draw_text(canvas, width, height, width - 24, 13, "X", header_fg);
+    paint_popup_label(canvas, width, height, if popup.parent_id() == popup.root_id { 12 } else { 36 },
+              13, &header, header_fg, style);
+    paint_popup_label(canvas, width, height, width - 24, 13, "X", header_fg, style);
     for (index, row) in popup.rows().iter().enumerate().skip(popup.first)
         .take(tray::POPUP_ROWS) {
         let top = tray::POPUP_ROW_TOP + (index - popup.first) as u32 * tray::POPUP_ROW_HEIGHT;
@@ -5603,8 +5628,8 @@ fn paint_tray_menu(canvas: &mut [u8], style: &PanelStyle, popup: &tray::MenuPopu
             tray::MenuKind::Action { checked: true, .. } => "x",
             _ => "",
         };
-        draw_text(canvas, width, height, 12, top + 11, marker,
-                  if luna && selected { header_fg } else { fg });
+        paint_popup_label(canvas, width, height, 12, top + 11, marker,
+                  if luna && selected { header_fg } else { fg }, style);
         let label: String = row.label.chars().take(25).collect();
         let color = if !row.enabled && luna { 0xff91_9191 }
         else if row.enabled && luna && selected { header_fg }
@@ -5619,19 +5644,19 @@ fn paint_tray_menu(canvas: &mut [u8], style: &PanelStyle, popup: &tray::MenuPopu
                 255,
             ])
         };
-        draw_text(canvas, width, height, 32, top + 11, &label, color);
+        paint_popup_label(canvas, width, height, 32, top + 11, &label, color, style);
         if matches!(&row.kind, tray::MenuKind::Submenu(_)) {
-            draw_text(canvas, width, height, width - 20, top + 11, ">", color);
+            paint_popup_label(canvas, width, height, width - 20, top + 11, ">", color, style);
         }
     }
     fill_rect(canvas, width, height, 0, 201, width, 1,
               if luna { 0xffba_cae0 } else { style.active });
-    draw_text(canvas, width, height, 12, 216,
-              if popup.first > 0 { "< Previous" } else { "First page" }, fg);
-    draw_text(canvas, width, height, 169, 216,
+    paint_popup_label(canvas, width, height, 12, 216,
+              if popup.first > 0 { "< Previous" } else { "First page" }, fg, style);
+    paint_popup_label(canvas, width, height, 169, 216,
               if popup.first + tray::POPUP_ROWS < popup.rows().len() {
                   "Next >"
-              } else { "Last page" }, fg);
+              } else { "Last page" }, fg, style);
 }
 
 fn paint_focus_border(canvas: &mut [u8], width: u32, height: u32,
