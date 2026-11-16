@@ -513,7 +513,13 @@ mod tests {
         assert!(focus.can_dispatch_ticket(first, &1, &10));
         assert_eq!(focus.request_at(DesktopFocusIntent::PointerSelection,
             1, 2, 10, now), Err(DesktopFocusError::ReusedSurface));
+        // The layer-shell integration must not map an Exclusive surface for
+        // this denied request. No stale ticket/deadline/input authorization
+        // survives, even after the original compositor Enter succeeded.
         assert_eq!(focus.phase(), DesktopFocusPhase::Idle);
+        assert_eq!(focus.ticket(), None);
+        assert_eq!(focus.pending_deadline(), None);
+        assert!(!focus.can_dispatch(&1, &10));
         assert!(!focus.compositor_enter_at(&1, &10, now));
         let second = focus.request_at(DesktopFocusIntent::KeyboardNavigation,
             1, 2, 11, now).unwrap();

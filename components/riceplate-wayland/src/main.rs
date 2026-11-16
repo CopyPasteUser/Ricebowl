@@ -1437,13 +1437,22 @@ impl RicePlate {
         surface.set_size(8, 8);
         surface.set_margin(y as i32, 0, 0, x as i32);
         surface.set_exclusive_zone(-1);
-        // Exclusive is used ONLY while this adjacent 8x8 target exists;
-        // original Bottom icon layers remain OnDemand/None. No full-screen
-        // keyboard or pointer grab. A regular app activation drops it.
-        surface.set_keyboard_interactivity(KeyboardInteractivity::Exclusive);
-        self.desktop_keyboard_focus_lease.request(
+        // Do not map an Exclusive keyboard surface unless the same-seat
+        // lease accepted THIS exact wl_surface. request() silently discarded
+        // ReusedSurface/GenerationExhausted errors and could leave an
+        // unowned overlay intercepting input without dispatch authorization.
+        if let Err(reason) = self.desktop_keyboard_focus_lease.request_at(
             input_core::DesktopFocusIntent::PointerSelection,
-            seat, output, surface.wl_surface().clone());
+            seat, output, surface.wl_surface().clone(), Instant::now(),
+        ) {
+            if std::env::var("RICEBOWL_DE_TRACE_FOCUS").as_deref() == Ok("1") {
+                eprintln!("RicePlate: refusing unowned desktop keyboard focus: {reason:?}");
+            }
+            return; // The never-committed surface cannot steal application focus.
+        }
+        // Exclusive is used ONLY for this accepted adjacent 8x8 target;
+        // original Bottom icons remain OnDemand/None. No full-screen grab.
+        surface.set_keyboard_interactivity(KeyboardInteractivity::Exclusive);
         let source = match target {
             DesktopFocusTarget::File(_) => "XDG file",
             DesktopFocusTarget::Shortcut(_) => "Luna shortcut",
