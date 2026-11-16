@@ -1521,7 +1521,7 @@ impl RicePlate {
         let Some(position) = layer.placed else { return; };
         let key = layer.entry.key.clone();
         let Some(output) = layer.bound_output.as_ref()
-            .or(self.primary_output.as_ref()).or(layer.output.as_ref()).cloned()
+            .or(layer.output.as_ref()).or(self.primary_output.as_ref()).cloned()
             else { return; };
         self.begin_desktop_keyboard_focus(position, output, DesktopFocusTarget::File(key), qh);
     }
@@ -1540,7 +1540,7 @@ impl RicePlate {
             return false;
         };
         let Some(output) = icon.bound_output.as_ref()
-            .or(self.primary_output.as_ref()).or(icon.output.as_ref()) else {
+            .or(icon.output.as_ref()).or(self.primary_output.as_ref()) else {
             return false;
         };
         let pending_is_live = self.desktop_keyboard_focus_lease.pending_deadline()
@@ -1562,7 +1562,7 @@ impl RicePlate {
         let Some(position) = layer.placed else { return; };
         let target = layer.surface.wl_surface().clone();
         let Some(output) = layer.bound_output.as_ref()
-            .or(self.primary_output.as_ref()).or(layer.output.as_ref()).cloned()
+            .or(layer.output.as_ref()).or(self.primary_output.as_ref()).cloned()
             else { return; };
         self.begin_desktop_keyboard_focus(position, output,
             DesktopFocusTarget::Shortcut(target), qh);
@@ -1600,9 +1600,10 @@ impl RicePlate {
             return Vec::new();
         };
         self.file_layers.iter().enumerate().filter_map(|(index, file)| {
-            let placed_output = file.bound_output.as_ref()
-                .or(file.output.as_ref()).or(self.primary_output.as_ref());
-            (file.placed.is_some() && placed_output == Some(output)).then_some(index)
+            shortcut_focus::focus_output_matches(
+                Some(output), file.bound_output.as_ref(), file.output.as_ref(),
+                self.primary_output.as_ref(), file.placed.is_some(),
+            ).then_some(index)
         }).collect()
     }
 
@@ -1714,8 +1715,12 @@ impl RicePlate {
     /// already confirmed by wl_keyboard.enter in dispatch_desktop_keyboard_focus.
     fn dispatch_shortcut_keyboard_focus(&mut self, target: wl_surface::WlSurface,
                                         event: &KeyEvent, qh: &QueueHandle<Self>) -> bool {
+        let confirmed = self.desktop_keyboard_focus_lease.active_output();
         let Some(index) = self.icon_layers.iter().position(|icon|
-            icon.surface.wl_surface() == &target && icon.placed.is_some()) else {
+            icon.surface.wl_surface() == &target && shortcut_focus::focus_output_matches(
+                confirmed, icon.bound_output.as_ref(), icon.output.as_ref(),
+                self.primary_output.as_ref(), icon.placed.is_some(),
+            )) else {
             self.close_desktop_keyboard_focus();
             return true;
         };
@@ -1778,9 +1783,15 @@ impl RicePlate {
                 layer.last_typed = Instant::now();
                 layer.expires = Instant::now() + Duration::from_secs(5);
                 let query = layer.typed.clone();
-                let output = self.icon_layers[index].bound_output.clone();
+                let output = self.icon_layers[index].bound_output.as_ref()
+                    .or(self.icon_layers[index].output.as_ref())
+                    .or(self.primary_output.as_ref());
                 let peers = self.icon_layers.iter().map(|candidate| {
-                    if candidate.placed.is_some() && candidate.bound_output == output {
+                    if shortcut_focus::focus_output_matches(
+                        output, candidate.bound_output.as_ref(),
+                        candidate.output.as_ref(), self.primary_output.as_ref(),
+                        candidate.placed.is_some(),
+                    ) {
                         self.recipe.desktop_icons.get(candidate.recipe_index)
                             .map(|icon| icon.label.as_str())
                     } else { None }
@@ -2359,9 +2370,15 @@ impl RicePlate {
 
     fn luna_icon_peers(&self, index: usize) -> Vec<bool> {
         let Some(source) = self.icon_layers.get(index) else { return Vec::new() };
-        // Restrict selection to visible icons on the same logical output.
+        // Use the actual mapped output rather than matching unbound None
+        // values or falling back to primary ahead of explicit surfaces.
+        let output = source.bound_output.as_ref()
+            .or(source.output.as_ref()).or(self.primary_output.as_ref());
         self.icon_layers.iter().map(|icon|
-            icon.placed.is_some() && icon.bound_output == source.bound_output
+            shortcut_focus::focus_output_matches(
+                output, icon.bound_output.as_ref(), icon.output.as_ref(),
+                self.primary_output.as_ref(), icon.placed.is_some(),
+            )
         ).collect()
     }
 
@@ -9211,7 +9228,6 @@ impl Dispatch<ZwpTextInputV3, ()> for RicePlate {
                     dialog.state.apply_ime(&pending));
                 if updated {
                     if let Some(ime) = state.native_ime.as_mut() {
-                        let was_composing = ime.composing;
                         ime.composing = state.luna_dialog.as_ref()
                             .is_some_and(|dialog| dialog.state.preedit.is_some());
                         if let Some(text) = pending.commit.as_ref()
@@ -9221,7 +9237,6 @@ impl Dispatch<ZwpTextInputV3, ()> for RicePlate {
                             // A different immediate key remains responsive.
                             ime.recent_commit = Some(native_ime::RecentCommit {
                                 at: Instant::now(), text: text.clone(),
-                                candidate_confirmation: was_composing,
                             });
                         } else if pending.preedit.is_some() {
                             // A fresh composition invalidates any old echo.
