@@ -54,6 +54,18 @@ pub fn match_visible_prefix<'a>(query: &str, peers: impl IntoIterator<Item = Opt
         label.filter(|name| name.to_lowercase().starts_with(&needle)).map(|_| index))
 }
 
+/// Navigate only real placed peers on the active compositor output.
+/// A removed/hidden current icon cannot be silently replaced with an
+/// unrelated file. The caller revokes that stale focus lease instead.
+pub(crate) fn next_visible_file<T: PartialEq + Clone>(
+    visible: &[T], current: &T, backwards: bool,
+) -> Option<T> {
+    let at = visible.iter().position(|item| item == current)?;
+    let len = visible.len();
+    let next = if backwards { (at + len - 1) % len } else { (at + 1) % len };
+    Some(visible[next].clone())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -74,6 +86,21 @@ mod tests {
         assert_eq!(input, "👩‍💻x");
         assert_eq!(match_visible_prefix("a\u{301}",
                    [Some("a\u{301}pplications"), Some("programs")]), Some(0));
+    }
+
+    #[test]
+    fn file_keyboard_navigation_skips_unplaced_peers_and_refuses_stale_target() {
+        let same_output_visible = [1_u32, 4, 8];
+        // Hidden icon 2 and other-output icon 5 are not present in peers.
+        assert_eq!(next_visible_file(&same_output_visible, &1, false), Some(4));
+        assert_eq!(next_visible_file(&same_output_visible, &4, false), Some(8));
+        assert_eq!(next_visible_file(&same_output_visible, &8, false), Some(1));
+        assert_eq!(next_visible_file(&same_output_visible, &1, true), Some(8));
+        assert_eq!(next_visible_file(&same_output_visible, &8, true), Some(4));
+        assert_eq!(next_visible_file(&same_output_visible, &2, false), None);
+        assert_eq!(next_visible_file(&same_output_visible, &5, true), None);
+        assert_eq!(next_visible_file::<u32>(&[], &1, true), None);
+        assert_eq!(next_visible_file(&[8_u32], &8, false), Some(8));
     }
 
     #[test]

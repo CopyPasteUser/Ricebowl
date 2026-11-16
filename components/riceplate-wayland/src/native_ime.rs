@@ -5,38 +5,40 @@
 
 use std::time::{Duration, Instant};
 
-/// Only a single compositor-delivered key can be discarded as the trailing
-/// echo of a successful text-input-v3 commit. A permanent received_commit
-/// latch blocked every later Run keystroke, Escape and Return until focus loss.
+/// Suppress at most the matching keyboard echo of an IME commit, within a
+/// short interval. Never consume a different, genuine next printable key.
+/// Return can be an echo of the key used to accept a candidate, so retain
+/// that guard; Escape and non-text editing keys always remain responsive.
 const IME_ECHO_WINDOW: Duration = Duration::from_millis(80);
 
-pub(crate) fn suppress_keyboard_echo(
-    composing: bool, recent_commit: &mut Option<Instant>, now: Instant,
-    echo_candidate: bool,
-) -> bool {
-    // Preserve composition ownership but do not accidentally clear a
-    // pending marker when labwc sends unrelated modifiers/navigation.
-    if composing { return echo_candidate; }
-    if !echo_candidate { return false; }
-    recent_commit.take().is_some_and(|at|
-        now.checked_duration_since(at)
-            .is_some_and(|elapsed| elapsed <= IME_ECHO_WINDOW))
+#[derive(Clone, Debug)]
+pub(crate) struct RecentCommit {
+    pub(crate) at: Instant,
+    pub(crate) text: String,
 }
 
-
-/** IME ownership policy for the native Run/Rename editor.
-
-An unfinished preedit owns destructive/editing keys, not just printable
-text. A completed commit can still have one trailing key echo, but Escape
-must always close the dialog immediately once composition has ended.
-*/
-pub(crate) fn owns_keyboard_edit(
-    composing: bool, recent_commit: &mut Option<Instant>, now: Instant,
-    echo_candidate: bool, editor_control: bool, escape: bool,
+pub(crate) fn suppress_keyboard_echo(
+    composing: bool, recent_commit: &mut Option<RecentCommit>, now: Instant,
+    text: Option<&str>, return_key: bool,
 ) -> bool {
-    if composing { return echo_candidate || editor_control; }
+    if composing { return text.is_some() || return_key; }
+    if text.is_none() && !return_key { return false; }
+    let Some(committed) = recent_commit.take() else { return false; };
+    now.checked_duration_since(committed.at)
+        .is_some_and(|elapsed| elapsed <= IME_ECHO_WINDOW)
+        && (return_key || text == Some(committed.text.as_str()))
+}
+
+/// A preedit owns the editing keys of the current Run/Rename field. Outside
+/// composition, only the matching text echo or candidate-confirming Return
+/// may be suppressed. Other characters must never vanish after IME Done.
+pub(crate) fn owns_keyboard_edit(
+    composing: bool, recent_commit: &mut Option<RecentCommit>, now: Instant,
+    text: Option<&str>, return_key: bool, editor_control: bool, escape: bool,
+) -> bool {
+    if composing { return text.is_some() || editor_control; }
     if escape { return false; }
-    suppress_keyboard_echo(false, recent_commit, now, echo_candidate)
+    suppress_keyboard_echo(false, recent_commit, now, text, return_key)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -101,68 +103,74 @@ impl Pending {
 mod tests {
     use super::*;
 
-    #[test]
-    fn keyboard_echo_guard_is_bounded_and_never_latches_run_editor() {
-        let t = Instant::now();
-        let mut last = Some(t);
-        // Modifiers/arrows do not consume a possible trailing text event.
-        assert!(!suppress_keyboard_echo(false, &mut last, t, false));
-        assert_eq!(last, Some(t));
-        assert!(suppress_keyboard_echo(false, &mut last,
-                                      t + Duration::from_millis(20), true));
-        assert!(last.is_none());
-        // Further real keyboard input, Enter and Escape remain usable.
-        assert!(!suppress_keyboard_echo(false, &mut last,
-                                       t + Duration::from_millis(21), true));
-        assert!(!suppress_keyboard_echo(false, &mut last,
-                                       t + Duration::from_millis(40), true));
-        last = Some(t);
-        assert!(!suppress_keyboard_echo(false, &mut last,
-                                       t + IME_ECHO_WINDOW + Duration::from_millis(1), true));
-        assert!(last.is_none(), "stale echo marker must also be cleared");
-        last = Some(t);
-        assert!(!suppress_keyboard_echo(false, &mut last,
-                                       t - Duration::from_millis(1), true));
-        assert!(last.is_none(), "out-of-order events cannot hold a guard");
+    fn committed(text: &str, at: Instant) -> Option<RecentCommit> {
+        Some(RecentCommit { at, text: text.to_owned() })
     }
 
     #[test]
-    fn active_composition_defers_only_editable_keys_and_keeps_its_marker() {
-        let t = Instant::now();
-        let mut last = Some(t);
-        assert!(!suppress_keyboard_echo(true, &mut last, t, false));
-        assert!(suppress_keyboard_echo(true, &mut last, t, true));
-        assert_eq!(last, Some(t));
-        assert!(suppress_keyboard_echo(false, &mut last, t, true));
-        assert!(!suppress_keyboard_echo(false, &mut last, t, true));
-    }
-
-
-    #[test]
-    fn composing_ime_owns_native_edit_commands_but_escape_recovers_after_done() {
+    fn ime_echo_only_matches_actual_commit_not_first_new_character() {
         let now = Instant::now();
-        let mut commit = Some(now);
-        // Backspace, arrows, Delete and Ctrl+A are native editing keys and
-        // must not mutate underlying Run text during a live IME preedit.
-        assert!(owns_keyboard_edit(true, &mut commit, now, false, true, false));
-        assert!(owns_keyboard_edit(true, &mut commit, now, false, true, true));
-        assert!(!owns_keyboard_edit(true, &mut commit, now, false, false, false));
-        assert_eq!(commit, Some(now));
-        // Escape immediately closes the dialog after Done, even within the
-        // short echo-suppression interval. It never consumes the marker.
-        assert!(!owns_keyboard_edit(false, &mut commit,
-                                    now + Duration::from_millis(1), true, true, true));
-        assert_eq!(commit, Some(now));
-        // Navigation/Backspace stay available after Done and do not consume
-        // a potential trailing printable/Return key echo.
-        assert!(!owns_keyboard_edit(false, &mut commit,
-                                    now + Duration::from_millis(2), false, true, false));
-        assert_eq!(commit, Some(now));
-        assert!(owns_keyboard_edit(false, &mut commit,
-                                   now + Duration::from_millis(3), true, true, false));
-        assert!(commit.is_none());
-        assert!(!owns_keyboard_edit(false, &mut commit,
-                                    now + Duration::from_millis(4), true, true, false));
+        let mut last = committed("あ", now);
+        // Navigation, Backspace and modifiers neither block nor consume.
+        assert!(!suppress_keyboard_echo(false, &mut last, now, None, false));
+        assert!(last.is_some());
+        // This is a new character typed immediately after the IME commit.
+        // The old any-key guard incorrectly lost it.
+        assert!(!suppress_keyboard_echo(false, &mut last,
+                                       now + Duration::from_millis(4), Some("b"), false));
+        assert!(last.is_none(), "unmatched text must disarm the old echo");
+        assert!(!suppress_keyboard_echo(false, &mut last,
+                                       now + Duration::from_millis(5), Some("あ"), false));
+
+        let mut duplicate = committed("é", now);
+        assert!(suppress_keyboard_echo(false, &mut duplicate,
+                                      now + Duration::from_millis(3), Some("é"), false));
+        assert!(duplicate.is_none());
+        assert!(!suppress_keyboard_echo(false, &mut duplicate,
+                                       now + Duration::from_millis(4), Some("é"), false));
+        // A candidate-confirming Return may be mirrored by wl_keyboard.
+        let mut accept = committed("日本語", now);
+        assert!(suppress_keyboard_echo(false, &mut accept,
+                                      now + Duration::from_millis(6), None, true));
+        assert!(accept.is_none());
+        let mut expired = committed("x", now);
+        assert!(!suppress_keyboard_echo(false, &mut expired,
+                                       now + IME_ECHO_WINDOW + Duration::from_millis(1),
+                                       Some("x"), false));
+        assert!(expired.is_none());
+        let mut out_of_order = committed("x", now);
+        assert!(!suppress_keyboard_echo(false, &mut out_of_order,
+                                       now - Duration::from_millis(1), Some("x"), false));
+        assert!(out_of_order.is_none());
+    }
+
+    #[test]
+    fn preedit_owns_editing_and_escape_recovers_without_eating_next_text() {
+        let now = Instant::now();
+        let mut marker = committed("字", now);
+        // Active preedit defers printable text and all destructive/nav keys.
+        assert!(owns_keyboard_edit(true, &mut marker, now,
+                                   Some("a"), false, false, false));
+        assert!(owns_keyboard_edit(true, &mut marker, now,
+                                   None, false, true, false));
+        assert!(owns_keyboard_edit(true, &mut marker, now,
+                                   None, true, true, false));
+        assert!(!owns_keyboard_edit(true, &mut marker, now,
+                                    None, false, false, false));
+        assert!(marker.is_some());
+        // Done releases Escape immediately even within the guard window.
+        assert!(!owns_keyboard_edit(false, &mut marker,
+                                    now + Duration::from_millis(1),
+                                    None, false, true, true));
+        assert!(marker.is_some());
+        assert!(!owns_keyboard_edit(false, &mut marker,
+                                    now + Duration::from_millis(2),
+                                    None, false, true, false));
+        assert!(marker.is_some());
+        assert!(!owns_keyboard_edit(false, &mut marker,
+                                    now + Duration::from_millis(3),
+                                    Some("x"), false, false, false));
+        assert!(marker.is_none());
     }
 
     use crate::luna_dialog::{Kind, State};

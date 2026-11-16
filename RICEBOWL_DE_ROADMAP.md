@@ -21,6 +21,34 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
+### SG1/SG5 input, focus and AccessKit correctness (16 November 2026; gated)
+
+- **IME echo:** The 80 ms text-input-v3 keyboard echo guard now records the
+  actual bounded committed UTF-8 text. It consumes only the exact duplicate
+  text or a candidate-confirming Return. A different freshly typed character
+  immediately after IME Done is never eaten; the mismatch disarms the guard.
+  Escape, Backspace, pointer and ordinary navigation retain precedence.
+  Composing preedits still own editor keys; all text is transient and unlogged.
+- **Desktop focus:** An active modal/menu receives keyboard events ahead of a
+  stale desktop focus lease. File arrows and type-to-select now consider only
+  compositor-placed icons on the exact focus-lease output, not hidden inventory
+  or another monitor. Hotplug, file disappearance or output movement revokes
+  the invalid target without launching or deleting an unrelated file.
+- **Accessibility:** Native AccessKit editor and label snapshots preserve full
+  extended grapheme boundaries under the scalar cap. A sanitized control or
+  truncated multi-scalar cluster cannot leave its caret/selection pointing
+  inside a missing character. Temporary user text remains only in the active
+  semantic editor model and is never copied into the node label.
+- Deterministic Rust regressions cover unmatched/matching IME echoes, expiry,
+  preedit ownership, same-output navigation, stale focus output, Unicode
+  text sanitization and caret projection. Require exact-head Rust/Clippy,
+  true compositor smoke and post-merge main tests before acceptance.
+
+**Scope:** This is a focused SG1/SG5 correctness improvement, **not** a
+claim of complete software gate closure. External real IME client injection,
+multi-device IME/Orca and full AT-SPI interaction acceptance are still pending;
+the separate hardware sign-off remains mandatory.
+
 ### SG3 explicit RicePop inbox in RiceSpice (16 November 2026; CI candidate)
 
 - RiceSpice now offers a session-scoped **Show RicePop inbox** action. It loads active

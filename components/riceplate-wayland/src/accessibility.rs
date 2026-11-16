@@ -33,6 +33,47 @@ fn access_character_lengths(text: &str) -> Vec<u8> {
 }
 
 
+ 
+/// Keep accessibility strings complete at extended-grapheme boundaries.
+/// AccessKit's character table is built from the same filtered string used
+/// for caret projection; it must not expose a half-emoji or isolated mark.
+fn bounded_accessible_text(text: &str, limit: usize) -> String {
+    let mut cleaned = String::new();
+    let mut used = 0_usize;
+    for grapheme in text.graphemes(true) {
+        if grapheme.chars().any(char::is_control) { continue; }
+        let scalars = grapheme.chars().count();
+        if scalars > limit.saturating_sub(used) { break; }
+        cleaned.push_str(grapheme);
+        used += scalars;
+    }
+    cleaned
+}
+
+/// Project editor caret/selection through the same control-stripping and
+/// grapheme-preserving truncation as the exposed text. The normal editor
+/// cannot contain controls, but an invalid external snapshot must still be
+/// internally coherent and never point into a discarded cluster.
+fn bounded_editor_text(
+    text: &str, caret: usize, anchor: Option<usize>,
+) -> (String, usize, Option<usize>) {
+    let mut cleaned = String::new();
+    let mut used = 0_usize;
+    let mut projected_caret = 0_usize;
+    let mut projected_anchor = 0_usize;
+    for (index, grapheme) in text.graphemes(true).enumerate() {
+        if grapheme.chars().any(char::is_control) { continue; }
+        let scalars = grapheme.chars().count();
+        if scalars > crate::luna_dialog::MAX_INPUT.saturating_sub(used) { break; }
+        cleaned.push_str(grapheme);
+        used += scalars;
+        if index < caret { projected_caret += 1; }
+        if anchor.is_some_and(|a| index < a) { projected_anchor += 1; }
+    }
+    (cleaned, projected_caret, anchor.map(|_| projected_anchor))
+}
+
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Target {
     Launcher(usize),
@@ -120,11 +161,7 @@ impl Model {
             id,
             parent,
             role,
-            label: label
-                .chars()
-                .filter(|c| !c.is_control())
-                .take(160)
-                .collect(),
+            label: bounded_accessible_text(&label, 160),
             description: None,
             action,
             value: None,
@@ -147,15 +184,13 @@ impl Model {
         }
         // The native editor already restricts length, but isolate external
         // accessibility consumers from unbounded/invalid snapshot content.
-        let value: String = value.chars().filter(|ch| !ch.is_control())
-            .take(crate::luna_dialog::MAX_INPUT).collect();
+        let (value, safe_caret, safe_anchor) = bounded_editor_text(value, caret, anchor);
         self.add(id, parent, Role::TextInput, label, None);
         self.add(id + 1, id, Role::TextRun, "", None);
         if let Some(input) = self.elements.iter_mut().find(|item| item.id == id) {
-            let graphemes = value.graphemes(true).count();
             input.value = Some(value.clone());
-            input.caret = Some(caret.min(graphemes));
-            input.selection_anchor = anchor.map(|a| a.min(graphemes));
+            input.caret = Some(safe_caret);
+            input.selection_anchor = safe_anchor;
         }
         if let Some(run) = self.elements.iter_mut().find(|item| item.id == id + 1) {
             run.value = Some(value);
@@ -385,6 +420,49 @@ mod tests {
         let lengths = access_character_lengths(&huge);
         assert!(lengths.iter().all(|n| *n > 0));
         assert_eq!(lengths.iter().map(|n| *n as usize).sum::<usize>(), huge.len());
+    }
+
+    #[test]
+    fn accesskit_editor_caret_and_selection_follow_sanitized_clusters() {
+        let mut model = Model::new();
+        model.add(60_000, ROOT, Role::Dialog, "Rename File", None);
+        // Raw caret=3 follows A + newline + the emoji. Newline is invalid
+        // editor text: AT-SPI must place the caret after A + emoji (index 2).
+        model.add_text_input(60_100, 60_000, "File name",
+                             "A\n👩‍💻B", 3, Some(2));
+        let tree = model.tree();
+        let editor = &tree.nodes.iter().find(|(id, _)| *id == NodeId(60_100))
+            .unwrap().1;
+        let run = &tree.nodes.iter().find(|(id, _)| *id == NodeId(60_101))
+            .unwrap().1;
+        assert_eq!(run.value(), Some("A👩‍💻B"));
+        assert_eq!(run.character_lengths(), [1, 11, 1]);
+        let selection = editor.text_selection().unwrap();
+        assert_eq!(selection.anchor.character_index, 1);
+        assert_eq!(selection.focus.character_index, 2);
+        assert_eq!(selection.focus.node, NodeId(60_101));
+    }
+
+    #[test]
+    fn accessible_names_and_text_never_truncate_inside_graphemes() {
+        let mut model = Model::new();
+        let label = format!("{}a\u{301}", "x".repeat(159));
+        model.add(8, ROOT, Role::Label, label, None);
+        assert_eq!(model.elements[0].label, "x".repeat(159));
+        model.add_text_input(60_100, ROOT, "Command",
+            &format!("{}👩‍💻", "x".repeat(190)), 999, Some(999));
+        let tree = model.tree();
+        let run = &tree.nodes.iter().find(|(id, _)| *id == NodeId(60_101))
+            .unwrap().1;
+        let editor = &tree.nodes.iter().find(|(id, _)| *id == NodeId(60_100))
+            .unwrap().1;
+        assert_eq!(run.value(), Some("x".repeat(190).as_str()));
+        assert_eq!(run.character_lengths().len(), 190);
+        let sel = editor.text_selection().unwrap();
+        assert_eq!(sel.focus.character_index, 190);
+        assert_eq!(sel.anchor.character_index, 190);
+        // The original renderer value is never put into the node label.
+        assert_eq!(editor.label(), Some("Command"));
     }
 
     #[test]
