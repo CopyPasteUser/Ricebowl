@@ -1161,7 +1161,7 @@ struct NativeIme {
     committed_serial: u32,
     pending: native_ime::Pending,
     composing: bool,
-    recent_commit: Option<Instant>,
+    recent_commit: Option<native_ime::RecentCommit>,
 }
 
 struct FileContextLayer {
@@ -7664,15 +7664,24 @@ impl KeyboardHandler for RicePlate {
                 Keysym::Right | Keysym::Home | Keysym::End)
                 || (self.selection_modifiers.ctrl
                     && matches!(event.keysym, Keysym::a | Keysym::A));
-            let echo_key = matches!(event.keysym,
-                Keysym::Return | Keysym::KP_Enter)
-                || event.utf8.as_deref().is_some_and(|text| !text.is_empty());
+            let return_key = matches!(event.keysym,
+                Keysym::Return | Keysym::KP_Enter);
+            // Compare a possible keyboard echo with the *actual* IME commit.
+            // A different key immediately after Done is genuine user input.
+            // Never classify Ctrl/Alt or editing controls as printable echoes.
+            let echo_text = if editor_control
+                || self.selection_modifiers.ctrl || self.selection_modifiers.alt {
+                None
+            } else {
+                event.utf8.as_deref().filter(|text|
+                    !text.is_empty() && text.chars().all(|c| !c.is_control()))
+            };
             let ime_handling_text = self.native_ime.as_mut().is_some_and(|ime|
                 ime.enabled_surface.is_some()
                 && ime.enabled_surface.as_ref() == current_dialog
                 && native_ime::owns_keyboard_edit(
                     ime.composing, &mut ime.recent_commit, Instant::now(),
-                    echo_key, editor_control, escape_key));
+                    echo_text, return_key, editor_control, escape_key));
             if ime_handling_text && editor_control {
                 return;
             }
@@ -9172,12 +9181,17 @@ impl Dispatch<ZwpTextInputV3, ()> for RicePlate {
                     if let Some(ime) = state.native_ime.as_mut() {
                         ime.composing = state.luna_dialog.as_ref()
                             .is_some_and(|dialog| dialog.state.preedit.is_some());
-                        if pending.commit.as_ref().is_some_and(|commit| !commit.is_empty()) {
-                            // A compositor IME commit may be followed by one
-                            // redundant wl_keyboard event. Bound this guard
-                            // to a single editable key / short time window,
-                            // never keep the Run editor permanently locked.
-                            ime.recent_commit = Some(Instant::now());
+                        if let Some(text) = pending.commit.as_ref()
+                            .filter(|text| !text.is_empty()) {
+                            // Retain only a short-lived, in-memory identity
+                            // of the accepted commit for exact echo matching.
+                            // A different immediate key remains responsive.
+                            ime.recent_commit = Some(native_ime::RecentCommit {
+                                at: Instant::now(), text: text.clone(),
+                            });
+                        } else if pending.preedit.is_some() {
+                            // A fresh composition invalidates any old echo.
+                            ime.recent_commit = None;
                         }
                     }
                     state.redraw_luna_dialog();
