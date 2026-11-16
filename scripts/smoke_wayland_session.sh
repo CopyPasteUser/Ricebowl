@@ -79,7 +79,7 @@ dbus-run-session -- sh -eu -c '
     if [ "${RICEBOWL_SMOKE_RICEPOP:-0}" = 1 ]; then
         # This test driver is a sibling of the nested shell (not its child):
         # it shares the disposable compositor socket and private D-Bus but
-        # cannot inherit the shell supervisor's environment. Pass the exact
+        # cannot inherit the shell supervisor environment. Pass the exact
         # CI-owned markers *only* to this notification smoke process.
         RICEBOWL_DE_NESTED=1 XDG_SESSION_DESKTOP=ricebowl \
             /usr/bin/python3 "$project_root/scripts/smoke_wayland_ricepop.py"
