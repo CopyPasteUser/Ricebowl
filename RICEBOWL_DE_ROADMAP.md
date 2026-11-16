@@ -21,6 +21,23 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
+### SG5 — native single-line BiDi label ordering (16 November 2026; CI candidate)
+
+The native shared text paint path now uses pinned unicode-bidi 0.3.18
+(UAX #9 resolved embedding levels) to reorder **complete extended graphemes**
+(UAX #29) in mixed Hebrew/Latin single-line shell labels. The same visual
+order is used by the existing bitmap painter and TrueType measurement and
+painting; proportional RTL clipping measures complete candidate plus ellipsis.
+Ordinary LTR labels take a borrowed/allocation-free path. Tests cover mixed
+RTL/Latin, combined accents, emoji, bitmap pixel receipts and legacy LTR.
+
+This is intentionally not a full international text-engine acceptance:
+fontdue does **not** support HarfBuzz/OpenType GSUB/GPOS contextual shaping,
+mirrored glyph substitution, multi-line paragraph layout, complex-script
+font coverage, cursor hit mapping or Wayland text-input-v3 IME preedit.
+Keep SG5 and SG7 open pending those independently implemented and tested
+capabilities, and preserve all classic/XP LTR screenshot baselines.
+
 ### SG1 focus stress + SG5 atomic native compose events (16 November 2026)
 
 - **SG1:** The pure DesktopFocusLease CI test now explores 4,096
