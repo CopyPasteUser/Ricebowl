@@ -166,7 +166,7 @@ mod tests {
         assert_eq!(visual_arrow_target(mixed, 4, false), Some(5));
 
         assert_eq!(visual_arrow_target("plain English", 2, true), None);
-        assert_eq!(visual_arrow_target("אבג\\nabc", 2, false), None);
+        assert_eq!(visual_arrow_target("אבג\nabc", 2, false), None);
     }
 
     #[test]
