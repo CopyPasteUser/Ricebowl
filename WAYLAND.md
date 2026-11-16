@@ -57,6 +57,22 @@ cannot run. The physical acceptance report intentionally marks XFCE/X11
 as **not ready**; run it only after entering the opt-in native Wayland login
 session.
 
+### Nested-preview diagnostics on an XFCE/X11 host
+
+A nested labwc instance may report an occupied XWayland `X0` socket
+because XFCE already owns it; that message alone does not show the nested
+Wayland socket failed. A `RicePlate: primary panel entered` message means
+the native layer surface was initialized. Pressing **Ctrl+C** in the launching
+terminal terminates the preview process group and can then produce harmless
+`Broken pipe` shutdown messages; it is not evidence of an earlier native
+panel crash. Always inspect the screen before interrupting the launcher.
+
+Waybar is a GTK Wayland layer-shell client. The session supervisor explicitly
+sets `GDK_BACKEND=wayland` **only for Waybar children**, including live
+rescue; a parent XFCE `GDK_BACKEND=x11` setting is never changed. If a
+fallback still cannot open a display after the compositor was terminated,
+that is expected and is not repaired by switching Waybar to X11.
+
 For a separate **Wayland login-session choice**, follow the
 [reviewed Debian/Ubuntu/Mint installation procedure](WAYLAND_SESSION.md#build-and-opt-in-debianubuntumint).
 It is not created by ordinary `bash install.sh`. Keep XFCE selectable at the
