@@ -660,7 +660,7 @@ mod tests {
         let second = font.font.metrics('V', font.size).advance_width;
         let kerning = font.font.horizontal_kern('A', 'V', font.size).unwrap_or(0.0);
         let expected = first + second + kerning;
-        assert!((font.proportional_advance(pair) - expected).abs() < 0.001);
+        assert!((font.proportional_advance_visual(pair) - expected).abs() < 0.001);
         assert_eq!(font.measure_text(pair), expected.ceil() as u32);
         let mut paint = vec![0; 96 * 24 * 4];
         font.draw(&mut paint, 96, 24, 0, 0, pair, 0xffff_ffff, false);
