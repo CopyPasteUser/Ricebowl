@@ -52,7 +52,7 @@ class Classic98ComputerGuiTests(unittest.TestCase):
             search.set_text("File System")
             self.assertEqual(len(tree.get_model()), 1)
             self.assertEqual(tree.get_model()[0][0], "File System")
-            tree.get_selection().select_path(0)
+            tree.get_selection().select_path(Gtk.TreePath.new_from_indices([0]))
             open_button = dialog.get_widget_for_response(Gtk.ResponseType.OK)
             self.assertTrue(open_button.get_sensitive())
             dialog.response(Gtk.ResponseType.OK)
