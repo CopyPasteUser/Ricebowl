@@ -5525,14 +5525,15 @@ fn paint_tray_popup(canvas: &mut [u8], style: &PanelStyle,
             let initial = entry.title.chars().find(|c| c.is_ascii_alphanumeric())
                 .map(|c| c.to_ascii_uppercase()).unwrap_or('?');
             paint_popup_label(canvas, width, height, 18, top + 10,
-                      &initial.to_string(), style.foreground, style);
+                      &initial.to_string(), if luna && popup.selected == popup.first + row {
+                          0xffff_ffff } else { fg }, style);
         }
         let title: String = entry.title.chars().take(26).collect();
         paint_popup_label(canvas, width, height, 42, top + 11, &title, if luna && popup.selected == popup.first + row {
                   0xffff_ffff } else { fg }, style);
         if entry.needs_attention {
             fill_rect(canvas, width, height, width - 12, top + 10, 4, 9,
-                      style.foreground);
+                      if luna { 0xffb7_3f2e } else { style.foreground });
         }
     }
     let footer_top = 201;
@@ -5540,9 +5541,9 @@ fn paint_tray_popup(canvas: &mut [u8], style: &PanelStyle,
     let previous = popup.first > 0;
     let next = popup.first + tray::POPUP_ROWS < tray_state.entries.len();
     paint_popup_label(canvas, width, height, 12, 216,
-              if previous { "< Previous" } else { "  First page" }, style.foreground, style);
+              if previous { "< Previous" } else { "  First page" }, fg, style);
     paint_popup_label(canvas, width, height, 169, 216,
-              if next { "Next >" } else { "Last page" }, style.foreground, style);
+              if next { "Next >" } else { "Last page" }, fg, style);
 }
 
 /// XP notification-area menus use the same on-demand native popup as
