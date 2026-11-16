@@ -1645,15 +1645,19 @@ impl RicePlate {
             }
             Keysym::Menu => {
                 self.close_desktop_keyboard_focus();
-                if let Some(index) = self.file_layers.iter().position(|item|
-                    item.entry.key == selected && item.placed.is_some()) {
+                if let Some(index) = shortcut_focus::visible_file_index(
+                    peers.iter().map(|&index| (index, &self.file_layers[index].entry.key)),
+                    &selected,
+                ) {
                     self.open_file_context(index, (52.0, 42.0), qh);
                 }
             }
             Keysym::F10 if self.selection_modifiers.shift => {
                 self.close_desktop_keyboard_focus();
-                if let Some(index) = self.file_layers.iter().position(|item|
-                    item.entry.key == selected && item.placed.is_some()) {
+                if let Some(index) = shortcut_focus::visible_file_index(
+                    peers.iter().map(|&index| (index, &self.file_layers[index].entry.key)),
+                    &selected,
+                ) {
                     self.open_file_context(index, (52.0, 42.0), qh);
                 }
             }
