@@ -48,7 +48,10 @@ ricebowl de start --nested --panel native --recipe xp-luna-columns
 ```
 
 Run this from an updated RiceBowl installation with `riceplate-native`
-available in `PATH`. `standalone_de_ready: false` in the read-only check
+available in `PATH`. If you have already imported a private recipe named
+`xp-luna-columns`, that owner-private customization takes precedence over the
+shipped demo; an invalid or symlinked private copy fails closed rather than
+silently switching to the demo. `standalone_de_ready: false` in the read-only check
 still means full DE 1.0 sign-off is outstanding, not that nested preview
 cannot run. The physical acceptance report intentionally marks XFCE/X11
 as **not ready**; run it only after entering the opt-in native Wayland login
