@@ -71,6 +71,39 @@ pub(crate) fn visual_cluster_map(text: &str) -> Option<VisualClusterMap> {
     })
 }
 
+/// Resolve an editor Left/Right key against *painted* bidi caret edges.
+/// The selected text stays in logical order; only navigation order changes.
+/// LTR text does not allocate or enter this path. At run boundaries with
+/// multiple equivalent visual positions, prefer the nearest logical caret
+/// deterministically instead of jumping unpredictably.
+pub(crate) fn visual_arrow_target(
+    text: &str, cursor: usize, toward_right: bool,
+) -> Option<usize> {
+    let map = visual_cluster_map(text)?;
+    let count = map.visual_to_logical.len();
+    let current = cursor.min(count);
+    let current_edge = map.caret_edge(current);
+    let mut best: Option<(usize, usize)> = None;
+    for candidate in 0..=count {
+        let edge = map.caret_edge(candidate);
+        if (toward_right && edge <= current_edge)
+            || (!toward_right && edge >= current_edge) {
+            continue;
+        }
+        let better = match best {
+            None => true,
+            Some((other, other_edge)) => {
+                let closer = if toward_right { edge < other_edge }
+                    else { edge > other_edge };
+                closer || (edge == other_edge
+                    && candidate.abs_diff(current) < other.abs_diff(current))
+            }
+        };
+        if better { best = Some((candidate, edge)); }
+    }
+    Some(best.map(|(candidate, _)| candidate).unwrap_or(current))
+}
+
 /// Return the visual-order grapheme sequence for a *single-line* label.
 /// LTR and unsupported paragraph inputs keep their existing borrowed path.
 pub(crate) fn visual_order(text: &str) -> Cow<'_, str> {
@@ -117,6 +150,25 @@ mod tests {
             assert_eq!(input.chars().count(), output.chars().count());
         }
     }
+    #[test]
+    fn arrows_follow_visual_caret_order_without_reversing_stored_text() {
+        let rtl = "אבג";
+        assert_eq!(visual_arrow_target(rtl, 0, false), Some(1));
+        assert_eq!(visual_arrow_target(rtl, 1, false), Some(2));
+        assert_eq!(visual_arrow_target(rtl, 2, true), Some(1));
+        assert_eq!(visual_arrow_target(rtl, 3, false), Some(3));
+        assert_eq!(visual_arrow_target(rtl, 0, true), Some(0));
+
+        let mixed = "abc אבג";
+        assert_eq!(visual_arrow_target(mixed, 3, true), Some(7));
+        assert_eq!(visual_arrow_target(mixed, 7, true), Some(6));
+        assert_eq!(visual_arrow_target(mixed, 6, false), Some(7));
+        assert_eq!(visual_arrow_target(mixed, 4, false), Some(5));
+
+        assert_eq!(visual_arrow_target("plain English", 2, true), None);
+        assert_eq!(visual_arrow_target("אבג\\nabc", 2, false), None);
+    }
+
     #[test]
     fn pure_rtl_caret_edges_follow_painted_visual_clusters() {
         let map = visual_cluster_map("אבג").unwrap();
