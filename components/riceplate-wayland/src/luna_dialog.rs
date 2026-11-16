@@ -30,6 +30,24 @@ pub struct State {
     pub pressed: Option<Hit>,
 }
 
+/// Pixel position of each *logical* caret in the visible, painted run.
+/// The visual measurement callback must not apply Unicode BiDi a second
+/// time. Text and the permutation are bounded by MAX_INPUT scalars.
+fn bidi_caret_pixels<F: Fn(&str) -> u32>(display: &str, measure_visual: &F)
+    -> Option<Vec<u32>>
+{
+    let map = crate::bidi_layout::visual_cluster_map(display)?;
+    let clusters: Vec<&str> = display.graphemes(true).collect();
+    let mut visual_text = String::with_capacity(display.len());
+    let mut visual_edges = Vec::with_capacity(clusters.len() + 1);
+    visual_edges.push(0);
+    for logical in &map.visual_to_logical {
+        visual_text.push_str(clusters[*logical]);
+        visual_edges.push(measure_visual(&visual_text));
+    }
+    Some((0..=clusters.len()).map(|caret| visual_edges[map.caret_edge(caret)]).collect())
+}
+
 impl State {
     fn editable(&self) -> bool { matches!(self.kind, Kind::Run | Kind::FileRename) }
 
@@ -184,6 +202,53 @@ impl State {
         let changed = self.cursor != selected;
         self.cursor = selected;
         changed
+    }
+
+    /// BiDi-aware painted caret position, using the same visible logical
+    /// substring and glyph advances as the native renderer. Existing LTR
+    /// input keeps the allocation-free, legacy hit-testing behavior.
+    pub fn input_view_bidi<F: Fn(&str) -> u32, G: Fn(&str) -> u32>(
+        &self, max_width: u32, measure: F, measure_visual: G,
+    ) -> (String, u32) {
+        let (display, legacy_x) = self.input_view(max_width, &measure);
+        let points = self.boundaries();
+        let (start, end) = self.visible_range(max_width, &measure, &points);
+        let logical_caret = self.cursor.min(end).saturating_sub(start);
+        let x = bidi_caret_pixels(&display, &measure_visual)
+            .and_then(|edges| edges.get(logical_caret).copied())
+            .unwrap_or(legacy_x);
+        (display, x.min(max_width.saturating_sub(1)))
+    }
+
+    /// Map a pointer position back to a complete logical grapheme boundary,
+    /// including reversed RTL runs. Ties prefer the existing caret where
+    /// two logical positions share the same visual BiDi boundary.
+    pub fn place_cursor_at_bidi<F: Fn(&str) -> u32, G: Fn(&str) -> u32>(
+        &mut self, x: f64, max_width: u32, measure: F, measure_visual: G,
+    ) -> bool {
+        if !self.editable() || !x.is_finite() || max_width == 0 {
+            return false;
+        }
+        let points = self.boundaries();
+        let (start, end) = self.visible_range(max_width, &measure, &points);
+        let display = &self.input[points[start]..points[end]];
+        let Some(edges) = bidi_caret_pixels(display, &measure_visual) else {
+            return self.place_cursor_at(x, max_width, measure);
+        };
+        let x = x.clamp(0.0, f64::from(max_width));
+        let old = self.cursor;
+        let mut selected = start;
+        let mut best = f64::INFINITY;
+        for (at, pixel) in edges.into_iter().enumerate() {
+            let target = start + at;
+            let distance = (x - f64::from(pixel)).abs();
+            if distance < best || (distance == best && target == old) {
+                best = distance;
+                selected = target;
+            }
+        }
+        self.cursor = selected;
+        self.cursor != old
     }
 
     /// A tiny argv lexer, not a shell. Only explicit user keystrokes feed
@@ -420,6 +485,50 @@ mod tests {
         assert_eq!(state.input, "a\u{301}👩‍💻Zb");
         assert!(state.erase());
         assert_eq!(state.input, "a\u{301}👩‍💻b");
+    }
+
+
+    #[test]
+    fn rtl_caret_and_mouse_hits_follow_painted_order() {
+        let measure = |s: &str| (s.graphemes(true).count() * 8) as u32;
+        let mut state = State::new(Kind::FileRename);
+        assert!(state.commit_text("אבג"));
+        assert_eq!(state.input_view_bidi(80, measure, measure), ("אבג".into(), 0));
+        assert!(state.move_cursor(CursorMove::Home));
+        assert_eq!(state.input_view_bidi(80, measure, measure), ("אבג".into(), 24));
+        assert!(state.place_cursor_at_bidi(9.0, 80, measure, measure));
+        assert_eq!(state.cursor, 2);
+        assert!(state.enter("Z"));
+        assert_eq!(state.input, "אבZג");
+        assert!(state.erase());
+        assert_eq!(state.input, "אבג");
+
+        let mut mixed = State::new(Kind::FileRename);
+        assert!(mixed.commit_text("abc אבג"));
+        assert!(mixed.move_cursor(CursorMove::Home));
+        assert_eq!(mixed.input_view_bidi(80, measure, measure), ("abc אבג".into(), 0));
+        assert!(mixed.place_cursor_at_bidi(55.0, 80, measure, measure));
+        assert_eq!(mixed.cursor, 4, "the RTL run starts at its right edge");
+        assert!(mixed.place_cursor_at_bidi(33.0, 80, measure, measure));
+        assert_eq!(mixed.cursor, 7, "the RTL run ends at its left edge");
+    }
+
+    #[test]
+    fn scrolled_rtl_editor_keeps_grapheme_and_click_boundaries() {
+        let measure = |s: &str| (s.graphemes(true).count() * 8) as u32;
+        let mut state = State::new(Kind::FileRename);
+        assert!(state.commit_text("אבגדה"));
+        assert_eq!(state.input_view_bidi(18, measure, measure), ("דה".into(), 0));
+        assert!(state.place_cursor_at_bidi(15.0, 18, measure, measure));
+        assert_eq!(state.cursor, 3);
+        assert_eq!(state.input_view_bidi(18, measure, measure), ("גדה".into(), 16));
+        // A joined emoji is one grapheme/caret, even inside a BiDi run.
+        let mut emoji = State::new(Kind::FileRename);
+        assert!(emoji.commit_text("אב👩‍💻"));
+        assert!(emoji.move_cursor(CursorMove::Home));
+        assert_eq!(emoji.input_view_bidi(80, measure, measure).1, 24);
+        assert!(emoji.place_cursor_at_bidi(1.0, 80, measure, measure));
+        assert_eq!(emoji.cursor, 3);
     }
 
     #[test]
