@@ -17,7 +17,7 @@ jobs:
       - name: Resolve pinned native text dependencies
         run: |
           cd components/riceplate-wayland
-          cargo update -p rustybuzz --precise 0.20.1
+          cargo metadata --format-version 1 >/dev/null
           echo SG5_LOCK_BEGIN
           cat Cargo.lock
           echo SG5_LOCK_END
