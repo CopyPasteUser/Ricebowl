@@ -116,7 +116,7 @@ def _socket_state(env: Mapping[str, str]) -> str:
         if path.parent != root:
             return "invalid"
     else:
-        if len(path.parts) != 1 or path.name in (".", ".."):
+        if "/" in display or len(path.parts) != 1 or path.name in (".", ".."):
             return "invalid"
         path = root / path
     try:
