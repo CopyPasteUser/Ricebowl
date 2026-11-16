@@ -1135,6 +1135,51 @@ PY
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-start.png"
             cp "$runtime/xp-luna-parity-start.png" \
                "$source_root/dist/riceplate-native-preview/xp-luna-parity-start.png"
+            # Real compositor visual contract: Luna must still have a
+            # distinct blue title strip, ivory program pane, blue places
+            # pane, cobalt bottom chrome and green Start. These samples
+            # deliberately target flat interior pixels (not text or cursor)
+            # and allow tonal variation rather than pinning exact RGB.
+            # This is a regression tripwire, not a 1:1 XP image diff.
+            /usr/bin/python3 - "$runtime/xp-luna-parity-start.png" <<'PY'
+from PIL import Image
+import sys
+
+with Image.open(sys.argv[1]) as frame:
+    screenshot = frame.convert("RGB")
+if screenshot.size != (1366, 768):
+    raise SystemExit(f"Luna visual frame is not 1366x768: {screenshot.size}")
+
+samples = {
+    "header": screenshot.getpixel((140, 295)),
+    "programs": screenshot.getpixel((200, 550)),
+    "places": screenshot.getpixel((300, 550)),
+    "menu_footer": screenshot.getpixel((320, 705)),
+    "start_button": screenshot.getpixel((60, 735)),
+    "taskbar": screenshot.getpixel((700, 750)),
+    "outside_menu": screenshot.getpixel((482, 550)),
+}
+r, g, b = samples["header"]
+conditions = {
+    "cobalt menu header": b > r + 80 and b > g + 60,
+    "ivory left program pane": min(samples["programs"]) > 225
+        and max(samples["programs"]) - min(samples["programs"]) < 35,
+    "blue right places pane": samples["places"][2] > samples["places"][0] + 25
+        and samples["places"][2] > samples["places"][1] + 15,
+    "distinct two-column split": sum(abs(a - b) for a, b in
+        zip(samples["programs"], samples["places"])) > 55,
+    "cobalt session footer": samples["menu_footer"][2] > samples["menu_footer"][0] + 90,
+    "green XP Start button": samples["start_button"][1] > samples["start_button"][0] + 40
+        and samples["start_button"][1] > samples["start_button"][2] + 40,
+    "live cobalt taskbar": samples["taskbar"][2] > samples["taskbar"][0] + 90,
+    "menu has a visible right boundary": sum(abs(a - b) for a, b in
+        zip(samples["places"], samples["outside_menu"])) > 45,
+}
+failed = [name for name, passes in conditions.items() if not passes]
+if failed:
+    raise SystemExit(f"Native Luna visual identity regression: {failed}; samples={samples}")
+print("Verified real native Luna header, two panes, footer, Start and taskbar pixels")
+PY
             # Read actual native menu geometry instead of clicking coordinates
             # from the obsolete 400x380 screenshot. Fail closed if the
             # 1366x768 Luna preset or compositor trace regresses.
