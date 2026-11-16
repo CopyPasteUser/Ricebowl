@@ -655,7 +655,7 @@ def build(shell, Gtk, Gdk, Gio, GLib, Pango):
         entries = [item("My Computer", "computer", lambda:
                         open_computer()),
                    item("Windows Explorer (Home)", "folder", lambda:
-                        shell._open_uri(Path.home().as_uri()))]
+                        open_classic_home())]
         entries.append(Gtk.SeparatorMenuItem())
         for group, apps in groups.items():
             if not apps:
@@ -776,6 +776,10 @@ def build(shell, Gtk, Gdk, Gio, GLib, Pango):
     def open_computer():
         from .classic98_computer import show as show_computer
         return show_computer(shell, Gtk, Gio)
+
+    def open_classic_home():
+        from .classic98_computer import open_location
+        return open_location(shell, Path.home().as_uri(), Gio)
 
     replace_children(finder, (
         item("Files or Folders…", "edit-find", lambda: show_file_search(shell, Gtk, GLib)),
