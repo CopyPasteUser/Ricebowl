@@ -82,6 +82,8 @@ pub struct Element {
     pub value: Option<String>,
     /// A logical extended-grapheme caret (TextInput nodes only).
     pub caret: Option<usize>,
+    /// Logical selection anchor, separate from the focused caret.
+    pub selection_anchor: Option<usize>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -127,6 +129,7 @@ impl Model {
             action,
             value: None,
             caret: None,
+            selection_anchor: None,
         });
     }
 
@@ -136,7 +139,8 @@ impl Model {
     /// User text is copied into the transient AT-SPI snapshot *only* while
     /// the modal is active; it is never added to labels, logs or saved state.
     pub fn add_text_input(
-        &mut self, id: u64, parent: u64, label: &str, value: &str, caret: usize,
+        &mut self, id: u64, parent: u64, label: &str, value: &str,
+        caret: usize, anchor: Option<usize>,
     ) {
         if self.elements.iter().any(|element| element.id == id || element.id == id + 1) {
             return;
@@ -148,8 +152,10 @@ impl Model {
         self.add(id, parent, Role::TextInput, label, None);
         self.add(id + 1, id, Role::TextRun, "", None);
         if let Some(input) = self.elements.iter_mut().find(|item| item.id == id) {
+            let graphemes = value.graphemes(true).count();
             input.value = Some(value.clone());
-            input.caret = Some(caret.min(value.graphemes(true).count()));
+            input.caret = Some(caret.min(graphemes));
+            input.selection_anchor = anchor.map(|a| a.min(graphemes));
         }
         if let Some(run) = self.elements.iter_mut().find(|item| item.id == id + 1) {
             run.value = Some(value);
@@ -200,15 +206,18 @@ impl Model {
                     // split exceptionally long clusters by scalar otherwise.
                     node.set_character_lengths(access_character_lengths(value));
                 } else if element.role == Role::TextInput {
-                    let graphemes = element.caret.unwrap_or(0);
-                    let offset = value.grapheme_indices(true).nth(graphemes)
-                        .map_or(value.len(), |(index, _)| index);
-                    let character_index = access_character_lengths(&value[..offset]).len();
-                    let position = TextPosition {
-                        node: NodeId(element.id + 1), character_index,
+                    let to_position = |graphemes: usize| {
+                        let offset = value.grapheme_indices(true).nth(graphemes)
+                            .map_or(value.len(), |(index, _)| index);
+                        TextPosition {
+                            node: NodeId(element.id + 1),
+                            character_index: access_character_lengths(&value[..offset]).len(),
+                        }
                     };
+                    let caret = element.caret.unwrap_or(0);
                     node.set_text_selection(TextSelection {
-                        anchor: position, focus: position,
+                        anchor: to_position(element.selection_anchor.unwrap_or(caret)),
+                        focus: to_position(caret),
                     });
                 }
             }
@@ -315,7 +324,7 @@ mod tests {
         let mut model = Model::new();
         model.add(60_000, ROOT, Role::Dialog, "Rename File", None);
         let secret = "a\u{301}👩‍💻🇩🇪.txt";
-        model.add_text_input(60_100, 60_000, "File name", secret, 2);
+        model.add_text_input(60_100, 60_000, "File name", secret, 2, None);
         model.focus = 60_100;
         model.window_focused = true;
         let tree = model.tree();
@@ -343,10 +352,27 @@ mod tests {
     }
 
     #[test]
+    fn selected_unicode_text_reports_distinct_accesskit_anchor_and_focus() {
+        let mut model = Model::new();
+        model.add(60_000, ROOT, Role::Dialog, "Rename File", None);
+        model.add_text_input(60_100, 60_000, "File name",
+                             "a\u{301}👩‍💻Z.txt", 3, Some(1));
+        let tree = model.tree();
+        let editor = &tree.nodes.iter().find(|(id,_)| *id == NodeId(60_100)).unwrap().1;
+        let selection = editor.text_selection().unwrap();
+        assert_eq!(selection.anchor.node, NodeId(60_101));
+        assert_eq!(selection.anchor.character_index, 1);
+        assert_eq!(selection.focus.character_index, 3);
+        // Bounds belong to the *transient* accessibility model; stale
+        // file names and Run argv are not present after modal teardown.
+        assert!(!format!("{:?}", Model::new().tree()).contains("Z.txt"));
+    }
+
+    #[test]
     fn accessibility_editor_handles_long_clusters_and_empty_input() {
         let mut model = Model::new();
         model.add(60_000, ROOT, Role::Dialog, "Run", None);
-        model.add_text_input(60_100, 60_000, "Command", "", 0);
+        model.add_text_input(60_100, 60_000, "Command", "", 0, None);
         let tree = model.tree();
         let empty = &tree.nodes.iter().find(|(id,_)| *id == NodeId(60_101)).unwrap().1;
         assert!(empty.character_lengths().is_empty());
