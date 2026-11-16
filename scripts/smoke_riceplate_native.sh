@@ -1141,7 +1141,7 @@ PY
             # deliberately target flat interior pixels (not text or cursor)
             # and allow tonal variation rather than pinning exact RGB.
             # This is a regression tripwire, not a 1:1 XP image diff.
-            /usr/bin/python3 - "$runtime/xp-luna-parity-start.png" <<'PY'
+            /usr/bin/python3 - "$runtime/xp-luna-parity-start.png" <<"PY"
 from PIL import Image
 import sys
 
