@@ -282,16 +282,17 @@ pub fn action_icon(canvas: &mut [u8], x: u32, y: u32, action: &str, selected: bo
             // The X11 preview has instantly recognizable app categories;
             // drawing the same placeholder window for every app lost that
             // legibility. These are original, non-vendor bitmap glyphs.
+            let app_id = app.to_ascii_lowercase();
             let browser = ["firefox", "chrom", "brave", "epiphany", "vivaldi",
-                           "browser", "edge"].iter().any(|part| app.to_ascii_lowercase().contains(part));
+                           "browser", "edge"].iter().any(|part| app_id.contains(part));
             let mail = ["thunderbird", "geary", "evolution", "kmail", "mail"]
-                .iter().any(|part| app.to_ascii_lowercase().contains(part));
+                .iter().any(|part| app_id.contains(part));
             let files = ["thunar", "ricefield", "nautilus", "dolphin", "nemo", "caja"]
-                .iter().any(|part| app.to_ascii_lowercase().contains(part));
+                .iter().any(|part| app_id.contains(part));
             let terminal = ["alacritty", "foot.desktop", "kitty", "konsole",
-                            "terminal", "xterm"].iter().any(|part| app.to_ascii_lowercase().contains(part));
+                            "terminal", "xterm"].iter().any(|part| app_id.contains(part));
             let editor = ["code.desktop", "mousepad", "gedit", "kate",
-                          "editor", "notepad"].iter().any(|part| app.to_ascii_lowercase().contains(part));
+                          "editor", "notepad"].iter().any(|part| app_id.contains(part));
             if browser {
                 fill_rounded_rect(canvas, w, h, x, y, 14, 14, 7, 0xff1f_5699);
                 fill_rounded_rect(canvas, w, h, x + 2, y + 2, 10, 10, 5, 0xff5f_c5ea);
@@ -353,6 +354,30 @@ mod tests {
     fn at(pixels: &[u8], x: u32, y: u32) -> u32 {
         u32::from_le_bytes(pixels[((y * native_menu::WIDTH + x) * 4) as usize..]
             [..4].try_into().unwrap())
+    }
+
+    #[test]
+    fn native_start_icons_match_real_app_categories_without_vendor_artwork() {
+        let render = |action: &str| {
+            let mut pixels = vec![0_u8;
+                (native_menu::WIDTH * native_menu::HEIGHT * 4) as usize];
+            action_icon(&mut pixels, 10, 47, action, false);
+            pixels
+        };
+        let browser = render("desktop:firefox.desktop");
+        let mail = render("desktop:thunderbird.desktop");
+        let files = render("desktop:thunar.desktop");
+        let terminal = render("desktop:org.alacritty.Alacritty.desktop");
+        let editor = render("desktop:org.xfce.mousepad.desktop");
+        let other = render("desktop:unknown-app.desktop");
+        for category in [&browser, &mail, &files, &terminal, &editor] {
+            assert_ne!(category, &other);
+            assert_ne!(at(category, 10, 47), at(&other, 10, 47));
+            assert_eq!(at(category, 50, 50), 0);
+        }
+        assert_ne!(browser, mail);
+        assert_ne!(files, terminal);
+        assert_ne!(editor, browser);
     }
 
     #[test]
