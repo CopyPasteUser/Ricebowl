@@ -32,8 +32,8 @@ fi
 if ! command -v swaybg >/dev/null 2>&1; then
     echo "Warning: swaybg is missing; XP Luna will launch without its wallpaper." >&2
 fi
-printf 'Built and validated XP Luna from %s\\n' "$project_root"
-printf 'Safe nested preview from XFCE:\\n  cd %q && PATH=%q:\\$PATH python3 launcher.py de start --nested --panel native --recipe xp-luna-columns\\n' \\
+printf 'Built and validated XP Luna from %s\n' "$project_root"
+printf 'Safe nested preview from XFCE:\n  cd %q && PATH=%q:$PATH python3 launcher.py de start --nested --panel native --recipe xp-luna-columns\n' \
     "$project_root" "$binary_dir"
-printf 'Optional supervised full-session TTY trial:\\n  bash %q\\n' \\
+printf 'Optional supervised full-session TTY trial:\n  bash %q\n' \
     "$project_root/scripts/try_wayland_xp_luna.sh"
