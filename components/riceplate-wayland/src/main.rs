@@ -5964,13 +5964,26 @@ fn paint_menu_state(canvas: &mut [u8], menu: &recipe::NativeMenu,
     } else {
         fill_rect(canvas, width, height, 0, 0, width, 38, header);
     }
+    // The native X11 Luna menu identifies the logged-in user in its blue
+    // account banner. Keep the same hierarchy without reading passwd files
+    // or allowing control characters from an untrusted environment variable.
+    let heading = if luna_columns {
+        std::env::var("USER").ok()
+            .map(|value| value.chars().filter(|ch|
+                ch.is_alphanumeric() || matches!(ch, '_' | '-' | '.'))
+                .take(18).collect::<String>())
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| "RiceBowl".to_owned())
+    } else {
+        menu.title.clone()
+    };
     draw_rice_text(
         canvas,
         width,
         height,
         if luna_columns { 43 } else { 16 },
         if style.font_scale == 1 { 15 } else { 11 },
-        &menu.title.chars().take((width.saturating_sub(native_menu::HEADER_ACTIONS_WIDTH
+        &heading.chars().take((width.saturating_sub(native_menu::HEADER_ACTIONS_WIDTH
             + if luna_columns { 43 } else { 16 })
             / (8 * style.font_scale)) as usize)
             .collect::<String>(),
@@ -6479,8 +6492,10 @@ fn paint_icon(canvas: &mut [u8], icon: &recipe::DesktopIcon, style: &PanelStyle,
     let active = style.active;
     let foreground = style.foreground;
     canvas.fill(0); // Leave the surrounding desktop visible.
-    if focused {
-        // Narrow focus frame: keep the rest of the desktop hit area transparent.
+    if focused && style.id != "xp-luna-columns" {
+        // Other recipes retain their original focus frame. Classic Luna
+        // highlights only the label, like its X11 counterpart, instead of
+        // drawing a visible 104x88 box around every selected desktop icon.
         fill_rect(canvas, width, height, 0, 0, width, 2, foreground);
         fill_rect(canvas, width, height, 0, height - 2, width, 2, foreground);
         fill_rect(canvas, width, height, 0, 0, 2, height, foreground);
@@ -6582,6 +6597,86 @@ fn paint_file_icon(
 ) {
     let (w, h) = (recipe::ICON_WIDTH, recipe::ICON_HEIGHT);
     canvas.fill(0);
+    if style.id == "xp-luna-columns" {
+        // Native file-backed Desktop icons now share the visual language of
+        // Luna shortcut artwork: dimensional 48px symbols, no words painted
+        // over the icon and no permanent translucent label pill.
+        match entry.kind {
+            desktop_layout::inventory::Kind::Directory => {
+                // Recessed tab, ivory lip and layered golden folder front.
+                fill_rounded_rect(canvas, w, h, 27, 14, 52, 37, 4, 0xff4b_5c72);
+                fill_rect(canvas, w, h, 30, 11, 26, 9, 0xffa9_6c21);
+                fill_rect(canvas, w, h, 32, 10, 22, 7, 0xffff_d781);
+                fill_rect(canvas, w, h, 32, 12, 20, 2, 0xffff_efb1);
+                fill_rect(canvas, w, h, 30, 19, 46, 26, 0xffe8_b74e);
+                fill_rect(canvas, w, h, 31, 19, 44, 3, 0xffff_f4bd);
+                fill_rounded_rect(canvas, w, h, 29, 23, 48, 26, 3, 0xffa8_6c21);
+                for dy in 0..19 {
+                    let tint = if dy < 8 { 0xffff_e18a } else { 0xffed_b746 };
+                    fill_rect(canvas, w, h, 31, 25 + dy, 44, 1, tint);
+                }
+                fill_rect(canvas, w, h, 34, 26, 37, 1, 0xffff_f6c4);
+                fill_rect(canvas, w, h, 34, 44, 38, 2, 0xffc0_8133);
+            }
+            desktop_layout::inventory::Kind::File => {
+                // White document with a folded top-right corner and ink lines.
+                fill_rounded_rect(canvas, w, h, 33, 6, 39, 47, 2, 0xff53_718d);
+                fill_rect(canvas, w, h, 35, 8, 35, 42, 0xfff5_f8fc);
+                fill_rect(canvas, w, h, 37, 10, 29, 1, 0xffff_ffff);
+                fill_rect(canvas, w, h, 60, 8, 10, 10, 0xffbd_d1e5);
+                fill_rect(canvas, w, h, 60, 8, 2, 8, 0xff73_91b7);
+                fill_rect(canvas, w, h, 62, 17, 8, 1, 0xff6f_8bb0);
+                for dy in [22_u32, 28, 34, 40] {
+                    fill_rect(canvas, w, h, 40, dy, if dy == 40 { 17 } else { 23 },
+                              2, 0xff8c_b5d3);
+                }
+                fill_rect(canvas, w, h, 40, 45, 12, 1, 0xffc0_d0e0);
+            }
+            desktop_layout::inventory::Kind::DesktopFile => {
+                // Inert launcher is recognizable as an application but has no
+                // execution badge: file activation remains separately guarded.
+                fill_rounded_rect(canvas, w, h, 28, 12, 49, 37, 4, 0xff37_5577);
+                fill_rect(canvas, w, h, 30, 15, 45, 7, 0xff2d_6ab5);
+                fill_rect(canvas, w, h, 32, 17, 25, 1, 0xffd8_effb);
+                fill_rect(canvas, w, h, 30, 23, 45, 23, 0xfff4_f8f8);
+                for (dx, dy, color) in [
+                    (0, 0, 0xffdb_8e56), (11, 0, 0xfff2_c85a),
+                    (0, 11, 0xff79_b7d8), (11, 11, 0xff81_b967),
+                ] {
+                    fill_rounded_rect(canvas, w, h, 41 + dx, 24 + dy,
+                                      9, 9, 2, color);
+                }
+                fill_rect(canvas, w, h, 35, 48, 33, 2, 0xff62_83a3);
+            }
+            desktop_layout::inventory::Kind::Symlink => {
+                // Muted document plus a distinct shortcut arrow. Symlinks
+                // stay inert regardless of what their target points at.
+                fill_rounded_rect(canvas, w, h, 34, 6, 38, 46, 3, 0xff65_778c);
+                fill_rect(canvas, w, h, 36, 8, 34, 40, 0xffda_e1e8);
+                fill_rect(canvas, w, h, 40, 19, 24, 2, 0xffa0_b0c2);
+                fill_rect(canvas, w, h, 40, 26, 21, 2, 0xffa0_b0c2);
+                fill_rounded_rect(canvas, w, h, 23, 35, 25, 21, 4, 0xff3d_5c94);
+                fill_rounded_rect(canvas, w, h, 25, 37, 21, 17, 3, 0xffe7_f2ff);
+                fill_rect(canvas, w, h, 29, 44, 12, 3, 0xff2e_62b2);
+                for step in 0..5 {
+                    fill_rect(canvas, w, h, 37 + step, 41 + step,
+                              1, 9 - 2 * step, 0xff2e_62b2);
+                }
+            }
+        }
+        if selected {
+            fill_rounded_rect(canvas, w, h, 2, 59, w - 4, 25, 3, 0xe722_5bb9);
+        }
+        let label = fit_rice_text(&entry.label, w.saturating_sub(9), style);
+        let left = w.saturating_sub(rice_text_width(&label, style)) / 2;
+        if !selected {
+            draw_rice_text(canvas, w, h, left + 1, 68,
+                           &label, 0xdd0c_284c, style);
+        }
+        draw_rice_text(canvas, w, h, left, 67,
+                       &label, 0xffff_ffff, style);
+        return;
+    }
     let (fill, title) = match entry.kind {
         desktop_layout::inventory::Kind::Directory => (0xffe3_b751, "Folder"),
         desktop_layout::inventory::Kind::File => (0xffec_eee8, "File"),
