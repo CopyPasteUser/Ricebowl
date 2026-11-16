@@ -349,7 +349,7 @@ mod tests {
         model.add_text_input(60_100, 60_000, "Command", "", 0);
         let tree = model.tree();
         let empty = &tree.nodes.iter().find(|(id,_)| *id == NodeId(60_101)).unwrap().1;
-        assert_eq!(empty.character_lengths(), []);
+        assert!(empty.character_lengths().is_empty());
         assert_eq!(empty.value(), Some(""));
         let huge = format!("{}z", "a\u{301}".repeat(150));
         // A synthetic oversized grapheme is only for the AccessKit data
