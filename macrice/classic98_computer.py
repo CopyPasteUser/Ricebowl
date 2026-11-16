@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import logging
+import shutil
+import subprocess
 from urllib.parse import urlsplit
 
 
@@ -60,6 +62,36 @@ def filter_locations(locations: tuple[ComputerLocation, ...],
 def network_browsing_available(schemes) -> bool:
     """A network:/// entry requires a GVfs network backend, not a guessed host."""
     return "network" in (schemes or ())
+
+
+def open_location(shell, uri: str, Gio, *, which=shutil.which,
+                  spawn=subprocess.Popen) -> str:
+    """Use RiceField's real Win98 shell for local folders if installed.
+
+    The explicit Classic Explorer entry does not alter XDG MIME handlers or
+    the user's default manager. Network URIs stay with GIO/the current handler.
+    A failed spawn falls back to that same handler rather than losing the click.
+    """
+    path = None
+    if urlsplit(uri).scheme == "file":
+        try:
+            path = Gio.File.new_for_uri(uri).get_path()
+        except Exception as exc:
+            LOG.warning("Could not resolve local Explorer location %s: %s", uri, exc)
+    executable = which("ricefield") if path else None
+    if executable:
+        try:
+            spawn([executable, "--theme", "win98", "--separate-window", path],
+                  stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                  stderr=subprocess.DEVNULL, close_fds=True,
+                  start_new_session=True)
+        except OSError as exc:
+            LOG.warning("RiceField launch failed, falling back to default handler: %s", exc)
+        else:
+            shell._hide_menu()
+            return "ricefield"
+    shell._open_uri(uri)
+    return "default"
 
 
 def show(shell, Gtk, Gio):
@@ -151,7 +183,7 @@ def show(shell, Gtk, Gio):
             return
         uri = model[selected][2]
         # The system's configured file manager handles authentication and I/O.
-        shell._open_uri(uri)
+        open_location(shell, uri, Gio)
 
     def respond(_dialog, response):
         if response == Gtk.ResponseType.OK:
