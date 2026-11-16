@@ -1996,7 +1996,7 @@ impl RicePlate {
         for index in 0..self.file_layers.len() {
             let layer = &self.file_layers[index];
             let output = layer.bound_output.as_ref()
-                .or(self.primary_output.as_ref()).or(layer.output.as_ref());
+                .or(layer.output.as_ref()).or(self.primary_output.as_ref());
             let Some((width, height)) = output.and_then(|o| self.logical_output_size(o))
                 else { continue };
             let Some(name) = output.and_then(|o| self.outputs.info(o))
@@ -2102,9 +2102,9 @@ impl RicePlate {
         if self.recipe.id != "xp-luna-columns" { return; }
         let Some(icon) = self.file_layers.get(index) else { return; };
         let Some(position) = icon.placed else { return; };
-        let Some(output) = icon.bound_output.as_ref()
-            .or(self.primary_output.as_ref()).or(icon.output.as_ref()).cloned()
-            else { return; };
+        let Some(output) = shortcut_focus::resolved_output(
+            icon.bound_output.as_ref(), icon.output.as_ref(), self.primary_output.as_ref()
+        ).cloned() else { return; };
         let Some(size) = self.logical_output_size(&output) else { return; };
         let Some((x, y)) = desktop_file_menu::placement(
             position, pointer, size, self.recipe.height, self.recipe.top)
@@ -2295,7 +2295,7 @@ impl RicePlate {
                     .filter_map(|(index, layer)| {
                         if layer.placed.is_none() { return None; }
                         let output = layer.bound_output.as_ref()
-                            .or(self.primary_output.as_ref()).or(layer.output.as_ref())?;
+                            .or(layer.output.as_ref()).or(self.primary_output.as_ref())?;
                         Some((index, self.icon_output_name(index),
                               self.logical_output_size(output)?))
                     }).collect();
@@ -2612,9 +2612,9 @@ impl RicePlate {
         if self.recipe.id != "xp-luna-columns" { return; }
         let Some(icon) = self.icon_layers.get(index) else { return; };
         let Some(position) = icon.placed else { return; };
-        let Some(output) = icon.bound_output.as_ref()
-            .or(self.primary_output.as_ref()).or(icon.output.as_ref()).cloned()
-            else { return };
+        let Some(output) = shortcut_focus::resolved_output(
+            icon.bound_output.as_ref(), icon.output.as_ref(), self.primary_output.as_ref()
+        ).cloned() else { return };
         let Some(size) = self.logical_output_size(&output) else { return };
         let Some((x, y)) = desktop_context::placement(
             position, pointer, size, self.recipe.height, self.recipe.top)
@@ -2624,7 +2624,7 @@ impl RicePlate {
             .filter(|layer| layer.recipe_index == recipe_index)
             .filter_map(|layer| {
                 let output = layer.bound_output.as_ref()
-                    .or(self.primary_output.as_ref()).or(layer.output.as_ref())?;
+                    .or(layer.output.as_ref()).or(self.primary_output.as_ref())?;
                 self.logical_output_size(output)?;
                 self.outputs.info(output)?.name
             }).collect();
@@ -4484,7 +4484,7 @@ impl RicePlate {
         let Some(source_layer) = self.icon_layers.get(drag.index) else { return false };
         let Some(current) = source_layer.placed else { return false };
         let Some(source_output) = source_layer.bound_output.as_ref()
-            .or(self.primary_output.as_ref()).or(source_layer.output.as_ref()) else {
+            .or(source_layer.output.as_ref()).or(self.primary_output.as_ref()) else {
             return false;
         };
         let Some(source_origin) = self.outputs.info(source_output)
@@ -4498,7 +4498,7 @@ impl RicePlate {
                 return None;
             }
             let output = layer.bound_output.as_ref()
-                .or(self.primary_output.as_ref()).or(layer.output.as_ref())?;
+                .or(layer.output.as_ref()).or(self.primary_output.as_ref())?;
             let info = self.outputs.info(output)?;
             let name = info.name.as_ref()?;
             if name == &source_name { return None; }
@@ -4617,7 +4617,7 @@ impl RicePlate {
                 .find(|icon| icon.surface.wl_surface() == surface)
                 .and_then(|icon| {
                     let output = icon.bound_output.as_ref()
-                        .or(self.primary_output.as_ref()).or(icon.output.as_ref())?;
+                        .or(icon.output.as_ref()).or(self.primary_output.as_ref())?;
                     icon.placed.map(|position| (output.clone(), position))
                 });
             Some((surface.clone(), placement))
@@ -4694,7 +4694,7 @@ impl RicePlate {
                 .find(|icon| icon.surface.wl_surface() == &surface)
                 .and_then(|icon| {
                     let output = icon.bound_output.as_ref()
-                        .or(self.primary_output.as_ref()).or(icon.output.as_ref())?;
+                        .or(icon.output.as_ref()).or(self.primary_output.as_ref())?;
                     icon.placed.map(|position| (output.clone(), position))
                 });
             if !shortcut_focus::preserves_focus_on_reflow(before, after) {
