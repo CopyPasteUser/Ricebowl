@@ -426,7 +426,10 @@ mod tests {
         let before = pixels.clone();
         action_icon(&mut pixels, 14, 80, "desktop:firefox.desktop", false);
         assert_ne!(pixels, before);
-        assert_ne!(at(&pixels, 14, 81), 0);
+        // The browser badge is round now: the transparent corner stays
+        // transparent, while the body occupies the original 14x14 cell.
+        assert!((80_u32..94).any(|y|
+            (14_u32..28).any(|x| at(&pixels, x, y) != 0)));
         assert_eq!(at(&pixels, 14, 100), 0);
     }
 
