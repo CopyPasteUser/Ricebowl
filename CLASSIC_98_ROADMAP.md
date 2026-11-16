@@ -176,6 +176,41 @@ advanced tray hosting and the other fidelity milestones below.
 
 **Gate:** the System applet must report correct real Linux facts and remain usable without privileged access or a process-monitoring daemon.
 
+### Implementation checkpoint — mounted Computer browser (16 November 2026)
+
+**Code delivered on a dedicated branch; CI and physical Mint acceptance pending.**
+This is a narrow functional increment, not completion of Milestone 1, 3, or 5.
+
+- [x] Replace the disabled Start > Find > Computer action with a native
+  nonmodal Classic window. Also expose the same browser from Start > Programs >
+  My Computer while retaining the original Explorer (Home) entry.
+- [x] Display actual GIO mounted volumes, with local Home and filesystem
+  fallback. Deduplicate URIs, cap the list at 128 mounts, and update only on
+  real mount changes or user-initiated searches. Never invent Windows drives,
+  mount devices implicitly or access remote data in the background.
+- [x] Show Network Neighborhood browsing only when the active GVfs advertises
+  the `network:///` handler; the installed file manager retains URI,
+  authentication and error-handling ownership.
+- [x] Implement search, keyboard-activatable list, Open/Close, unavailable
+  messages and clean GIO signal disconnect when closing the window. Add pure
+  tests for device removal, invalid mounts, duplicate roots, search privacy,
+  bounds and unsupported GVfs.
+- [x] On the explicit Classic Explorer Home entry and mounted local folders,
+  prefer installed **RiceField 1.0** with its real `win98` UI via
+  `ricefield --theme win98 --separate-window PATH`. Use argument vectors
+  (never a shell) and fall back to the current GIO default file manager
+  if the binary is absent or cannot start; keep remote URIs with GIO.
+  Do not change systemwide MIME defaults or replace XFDesktop.
+- [ ] Pass branch CI, including native GTK/X11 second-click smoke and updated
+  screenshots from the exact branch commit.
+- [ ] Validate USB, GVfs/SMB, no-network-backend, permission failures and
+  keyboard navigation on the owner's physical Mint XFCE installation.
+
+**Still open:** discovering *unmounted* network computers and full Network
+Neighborhood, Computer desktop icon interactions, volume mount/eject workflows,
+Recycle Bin integration, RiceExplorer virtual locations, and all other unchecked
+milestones below.
+
 ### Milestone 0 — Freeze references, safe state and test harness (P0)
 
 - [ ] Create an era-specific Win98 SE reference matrix with reference screenshots and behavior notes for: blank desktop, Start plus **each** flyout, crowded taskbar, Quick Launch, tray menus, My Computer, Explorer in classic and Web View, Control Panel and representative applets, Run, Find, shutdown, properties, copy conflict and error dialogs. Record source/date and observable behavior; never copy proprietary assets.
@@ -253,7 +288,16 @@ advanced tray hosting and the other fidelity milestones below.
 
 **Gate:** open every icon, complete one representative real setting per category, cancel/restore and retest on the ThinkPad; missing tools never masquerade as working applets.
 
-### Milestone 5 — RiceExplorer: a structural Windows 98 Explorer, not Thunar CSS (P0 dependency)
+### Milestone 5 — RiceField: structural Windows 98 Explorer integration, not Thunar CSS (P0 dependency)
+
+**Dependency update (16 November 2026):** The repository previously named
+riceExplorer is now [RiceField](https://github.com/CopyPasteUser/Ricefield).
+RiceField 1.0.0 already has a tested Rust file-management core and a distinct
+`win98` style. The Classic shell can now launch that style for local locations;
+that does **not** prove the complete legacy Explorer menu tree, virtual My
+Computer/Network Neighborhood/Recycle Bin, all dialog styles, DnD or hardware
+acceptance below. Earlier references to riceExplorer in historical checkpoints
+refer to the same renamed project, not a second file manager.
 
 **Owner:** `CopyPasteUser/riceExplorer`. Do **not** fork a second file-operations engine into RiceBowl. RiceExplorer's backend safety/recovery work (0.3), GIO volumes/network (0.4), everyday navigation (0.6) and shell integration (0.9) must pass their own gates before it becomes the default. Thunar stays installed and one-click recoverable.
 

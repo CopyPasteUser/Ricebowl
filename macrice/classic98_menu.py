@@ -652,8 +652,10 @@ def build(shell, Gtk, Gdk, Gio, GLib, Pango):
             names = set((app.get_categories() or "").split(";")) if hasattr(app, "get_categories") else set()
             target = next((title for title, tags in categories if names & tags), "Other Programs")
             groups[target].append(app)
-        entries = [item("Windows Explorer (Home)", "folder", lambda:
-                        shell._open_uri(Path.home().as_uri()))]
+        entries = [item("My Computer", "computer", lambda:
+                        open_computer()),
+                   item("Windows Explorer (Home)", "folder", lambda:
+                        open_classic_home())]
         entries.append(Gtk.SeparatorMenuItem())
         for group, apps in groups.items():
             if not apps:
@@ -771,10 +773,17 @@ def build(shell, Gtk, Gdk, Gio, GLib, Pango):
              shell.classic98_open_taskbar_properties),
         available_tool("Folder Options", ("xfce4-settings-manager",)),
     ))
+    def open_computer():
+        from .classic98_computer import show as show_computer
+        return show_computer(shell, Gtk, Gio)
+
+    def open_classic_home():
+        from .classic98_computer import open_location
+        return open_location(shell, Path.home().as_uri(), Gio)
+
     replace_children(finder, (
         item("Files or Folders…", "edit-find", lambda: show_file_search(shell, Gtk, GLib)),
-        item("Computer…", "network-workgroup", enabled=False,
-             explanation="Network computer discovery is not yet available"),
+        item("Computer…", "network-workgroup", open_computer),
     ))
 
     def refresh():
