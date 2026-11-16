@@ -21,6 +21,12 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
+### SG5 IME selected-text preview correctness (16 November 2026; CI gate)
+
+- Native Run and file-rename text-input-v3 preedit now renders at the **start of the selected range** rather than at the old caret byte offset. Previously a short IME preedit after Ctrl+A / Shift-selection could index past the shortened preview string and crash the native renderer.
+- The 192-scalar input budget counts the **post-replacement** text, so a 192-character filename can be entirely selected and preview-replaced by a short Japanese/Arabic IME composition. Invalid over-budget partial replacements still fail atomically; neither noncommitted preedit nor a rejected edit changes the real command or filename.
+- Rust tests cover selection replacement, Unicode graphemes, full-capacity and over-budget cases. Require exact-head Rust/Clippy and real native labwc CI and post-merge `main` verification. **SG5 is still open:** external compositor/IME end-to-end, font fallback, selection/Orca behavior and physical hardware remain separate checks.
+
 ### SG1 repeated real compositor focus handoff (16 November 2026; CI candidate)
 
 The native labwc integration smoke now performs three additional genuine

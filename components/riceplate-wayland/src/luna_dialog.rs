@@ -417,7 +417,16 @@ impl State {
         }
         if let Some(ref result) = pending.preedit {
             let Ok(preedit) = result else { return false; };
-            if candidate.input.chars().count() + preedit.text.chars().count() > MAX_INPUT {
+            // Preedit is *displayed in place of* the current selection,
+            // not appended after it. Counting selected characters twice
+            // rejects valid IME replacements at the 192-scalar boundary.
+            let points = candidate.boundaries();
+            let caret = candidate.cursor.min(points.len() - 1);
+            let (start, end) = candidate.selected_graphemes()
+                .unwrap_or((caret, caret));
+            let replaced = candidate.input[points[start]..points[end]].chars().count();
+            let base = candidate.input.chars().count().saturating_sub(replaced);
+            if base > MAX_INPUT.saturating_sub(preedit.text.chars().count()) {
                 return false;
             }
             candidate.preedit = (!preedit.text.is_empty()).then(|| preedit.clone());
@@ -439,7 +448,13 @@ impl State {
         let mut preview = self.clone();
         preview.preedit = None;
         let points = self.boundaries();
-        let insertion = points[self.cursor.min(points.len() - 1)];
+        let caret = self.cursor.min(points.len() - 1);
+        // commit_text() replaces the selected range. The old cursor can be
+        // *after* that range; using its former byte offset after replacement
+        // panics when a shorter preedit replaces a longer selection.
+        let (selection_start, _) = self.selected_graphemes()
+            .unwrap_or((caret, caret));
+        let insertion = points[selection_start];
         if !preview.commit_text(&preedit.text) {
             let (text, caret) = self.input_view_bidi(max_width, measure, measure_visual);
             return (text, caret, None);
@@ -722,6 +737,76 @@ mod tests {
         assert!(state.preedit.is_none());
         assert_eq!(state.input_view_composing(200, metric, metric),
                    ("foot".into(), 0, None));
+    }
+
+    #[test]
+    fn selected_preedit_renders_from_replacement_start_without_mutating_argv() {
+        let metric = |text: &str| (text.graphemes(true).count() as u32) * 8;
+        let mut state = State::new(Kind::Run);
+        assert!(state.commit_text("original-command"));
+        assert!(state.select_all()); // caret is at the old end, anchor at 0
+        let mut pending = crate::native_ime::Pending::default();
+        pending.preedit(Some("é".to_owned()), 2, 2);
+        assert!(state.apply_ime(&pending));
+        let (painted, caret, underline) =
+            state.input_view_composing(200, metric, metric);
+        assert_eq!(painted, "é");
+        assert_eq!(caret, 8);
+        assert_eq!(underline, Some((0, 8)));
+        assert_eq!(state.input, "original-command");
+        assert_eq!(state.selected_graphemes(), Some((0, 16)));
+        assert_eq!(state.argv().unwrap(), ["original-command"]);
+
+        // A composition edit replaces the selection only on a later Done.
+        pending.reset();
+        pending.commit(Some("foot".to_owned()));
+        assert!(state.apply_ime(&pending));
+        assert_eq!(state.input, "foot");
+        assert!(state.preedit.is_none());
+        assert_eq!(state.argv().unwrap(), ["foot"]);
+    }
+
+    #[test]
+    fn ime_preview_accepts_bounded_full_selection_and_unicode_partial_selection() {
+        let metric = |text: &str| (text.graphemes(true).count() as u32) * 8;
+        let mut state = State::new(Kind::FileRename);
+        assert!(state.commit_text(&"a".repeat(MAX_INPUT)));
+        assert!(state.select_all());
+        let mut pending = crate::native_ime::Pending::default();
+        pending.preedit(Some("日本語".to_owned()), 9, 9);
+        assert!(state.apply_ime(&pending),
+                "selected characters must not count against the preview limit");
+        let (painted, caret, underline) =
+            state.input_view_composing(200, metric, metric);
+        assert_eq!(painted, "日本語");
+        assert_eq!(caret, 24);
+        assert_eq!(underline, Some((0, 24)));
+        assert_eq!(state.input.chars().count(), MAX_INPUT);
+
+        // Verify the symmetric case: a short selection plus too much preedit
+        // still fails atomically, without clearing the selected text.
+        let mut excess = State::new(Kind::FileRename);
+        assert!(excess.commit_text(&"b".repeat(MAX_INPUT)));
+        assert!(excess.move_cursor(CursorMove::Home));
+        assert!(excess.move_cursor_select(CursorMove::Right, true));
+        let prior = (excess.input.clone(), excess.cursor, excess.selection_anchor);
+        pending.reset();
+        pending.preedit(Some("XYZ".to_owned()), 3, 3);
+        assert!(!excess.apply_ime(&pending));
+        assert_eq!((excess.input.clone(), excess.cursor, excess.selection_anchor), prior);
+
+        let mut mixed = State::new(Kind::FileRename);
+        assert!(mixed.commit_text("prefix-👩‍💻-suffix"));
+        assert!(mixed.move_cursor(CursorMove::Home));
+        for _ in 0..7 { assert!(mixed.move_cursor_select(CursorMove::Right, true)); }
+        pending.reset();
+        pending.preedit(Some("漢".to_owned()), 3, 3);
+        assert!(mixed.apply_ime(&pending));
+        let (painted, _, underline) =
+            mixed.input_view_composing(200, metric, metric);
+        assert_eq!(painted, "漢👩‍💻-suffix");
+        assert!(underline.is_some());
+        assert_eq!(mixed.input, "prefix-👩‍💻-suffix");
     }
 
     #[test]
