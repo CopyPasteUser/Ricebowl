@@ -153,8 +153,9 @@ mod tests {
         let mut actual = vec![0_u8; 6 * 8 * 8 * 4];
         let mut reference = actual.clone();
         draw_bitmap_text(&mut actual, 48, 8, 0, 0, logical, 0xffff_ffff, 1, false);
-        // Visual strings are idempotent on the embedding-level layout.
-        draw_bitmap_text(&mut reference, 48, 8, 0, 0, &visual, 0xffff_ffff, 1, false);
+        // Hebrew is unsupported in this 8x8 table: exactly three '?' cells,
+        // after the Latin run, without affecting existing Latin glyphs.
+        draw_bitmap_text(&mut reference, 48, 8, 0, 0, "abc???", 0xffff_ffff, 1, false);
         assert_eq!(actual, reference);
         assert_eq!(text_pixel_width(logical, 1), 48);
     }
