@@ -56,17 +56,23 @@ def _expected_mako_config(candidate: bytes) -> bytes:
     return os.fsencode(path)
 
 
-def _owned_mako() -> tuple[str, int]:
-    """Prove Mako's *D-Bus owner*, not just a Wayland environment marker.
+def _owned_mako(*, allow_private_nested: bool = False) -> tuple[str, int]:
+    """Prove the actual Mako D-Bus owner and exact owned config.
 
-    An existing XFCE/nested notification host must never receive a global
-    makoctl mode mutation. Missing busctl or an opaque /proc fails closed.
+    Do Not Disturb always requires the full RiceBowl login. An explicit
+    dismiss/invoke may also target a separately launched nested compositor
+    only if RiceBowl created its own isolated D-Bus session; never touch a
+    normal nested preview that inherits XFCE's notification bus.
     """
+    nested = os.environ.get("RICEBOWL_DE_NESTED")
+    isolated_nested = (allow_private_nested and nested == "1"
+                       and os.environ.get("RICEBOWL_DE_PRIVATE_BUS") == "1")
     if (os.environ.get("XDG_SESSION_DESKTOP") != "ricebowl"
-            or os.environ.get("RICEBOWL_DE_NESTED") != "0"
+            or not (nested == "0" or isolated_nested)
             or not os.environ.get("WAYLAND_DISPLAY")):
-        raise NotificationBridgeError("Do Not Disturb requires a full RiceBowl Wayland session",
-                                      "dnd_session_unavailable")
+        raise NotificationBridgeError(
+            "RicePop changes require an owned RiceBowl Wayland notification host",
+            "dnd_session_unavailable")
     command = shutil.which("makoctl")
     busctl = shutil.which("busctl")
     if not command or not busctl:
@@ -152,6 +158,20 @@ def set_dnd(enabled: bool, *, expected: bool | None = None) -> dict[str, Any]:
     return {"ok": True, "backend": "mako", "do_not_disturb": enabled,
             "changed": previous != enabled, "read_only": False,
             "mutates_active_desktop": previous != enabled}
+
+
+def _mutation_host() -> tuple[str, int]:
+    """Scope one explicit active notification mutation to the current Mako.
+
+    Every operation verifies the owner's PID and config *before* reading
+    active notifications and immediately before sending the fixed command.
+    """
+    try:
+        return _owned_mako(allow_private_nested=True)
+    except NotificationBridgeError as exc:
+        raise NotificationBridgeError(
+            "RicePop notification host is not owned by this RiceBowl session",
+            "notification_host_unverified") from exc
 
 
 def _action_key(key: object) -> bool:
@@ -317,13 +337,14 @@ def dismiss(notification_id: int) -> dict[str, Any]:
     if type(notification_id) is not int or not 0 < notification_id <= 2**32 - 1:
         raise NotificationBridgeError("Notification ID must be a nonzero uint32",
                                       "invalid_notification_id")
-    command = shutil.which("makoctl")
-    if command is None:
-        raise NotificationBridgeError("makoctl is not installed")
+    command, pid = _mutation_host()
     active = _fresh_active()
     if notification_id not in {record["id"] for record in active}:
         raise NotificationBridgeError("Notification is no longer active",
                                       "notification_not_found")
+    if _mutation_host() != (command, pid):
+        raise NotificationBridgeError("RicePop notification host changed before dismissal",
+                                      "notification_host_changed")
     try:
         outcome = subprocess.run([command, "dismiss", "-n", str(notification_id)],
                                  capture_output=True, timeout=3, check=False)
@@ -349,9 +370,7 @@ def invoke(notification_id: int, action_key: str) -> dict[str, Any]:
                                       "invalid_notification_id")
     if not _action_key(action_key):
         raise NotificationBridgeError("Action key is invalid", "invalid_action_key")
-    command = shutil.which("makoctl")
-    if command is None:
-        raise NotificationBridgeError("makoctl is not installed")
+    command, pid = _mutation_host()
     active = _fresh_active(include_actions=True)
     matching = next((item for item in active if item["id"] == notification_id), None)
     if matching is None:
@@ -359,6 +378,9 @@ def invoke(notification_id: int, action_key: str) -> dict[str, Any]:
     if action_key not in {action["key"] for action in matching["actions"]}:
         raise NotificationBridgeError("Notification action is no longer available",
                                       "notification_action_not_found")
+    if _mutation_host() != (command, pid):
+        raise NotificationBridgeError("RicePop notification host changed before action",
+                                      "notification_host_changed")
     try:
         outcome = subprocess.run([command, "invoke", "-n", str(notification_id), "--", action_key],
                                  capture_output=True, timeout=3, check=False)
