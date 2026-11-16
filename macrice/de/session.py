@@ -828,7 +828,7 @@ class _LiveSwitch:
             wallpaper_binary = self.which("swaybg")
             if not wallpaper_binary or not wallpaper_path.is_file():
                 raise LiveError("Wallpaper component is unavailable", code="component_unavailable")
-            new_menu = (recipes.labwc_menu(recipe) if recipe.menu is not None else
+            new_menu = (recipes.labwc_menu(recipe, nested=self.nested) if recipe.menu is not None else
                         (resources() / "labwc/menu.xml").read_text(encoding="utf-8"))
             old_menu = self.menu.read_text(encoding="utf-8")
             new_chrome = labwc_chrome(recipe)
