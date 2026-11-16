@@ -2437,6 +2437,33 @@ text-selection editing, AT-SPI programmatic text replacement or real IME
 hardware acceptance. Leave SG5 incomplete until those software checks,
 complex-script font coverage and exact-main CI are evidenced.
 
+### SG5 — native Luna editable text selection (16 November 2026; CI candidate)
+
+The actual Run and Desktop Rename modal editors now use bounded extended
+grapheme selection: Shift+Left/Right/Home/End extends an anchor, Ctrl+A selects
+all, regular arrows collapse a selection towards the visual edge, and typing,
+Backspace or Delete atomically replace/remove the selected text. Selections
+cannot split Unicode emoji, joined sequences or combined accents; replacement
+at the 192-scalar limit is validated against the post-replacement size, with
+rejected edits leaving the selection intact. Pointer caret placement cancels
+selection without mutating the stored buffer.
+
+Native painting highlights the selected visual grapheme spans, including
+separate spans across BiDi runs rather than painting a false intermediate
+range. The existing text-input-v3 surrounding-text transaction sends distinct
+cursor and anchor UTF-8 byte offsets to the compositor. The transient AccessKit
+TextInput now publishes a selection anchor separate from its caret; no key,
+file name or command string is logged or persisted by this UI state.
+Ctrl/Alt combinations cannot accidentally insert printable characters.
+All of this is opt-in Luna native UI; XFCE/X11 and other rice engines are
+unchanged. Unit regressions cover emoji/combining/RTL, selection replacement,
+overflow, keyboard collapse, pointer cancellation and AccessKit metadata.
+
+This patch does not establish full Unicode shaping/font coverage, discontiguous
+BiDi dual-affinity, selection-by-pointer-drag, clipboard integration or real
+external IME/Orca device acceptance. Keep SG5 and SG7 open until the
+end-to-end software matrix and physical checks are separately evidenced.
+
 ### SG5 — RTL bitmap punctuation mirroring (16 November 2026; CI candidate)
 
 Native 8x8 and unshaped text labels now apply Unicode BiDi L4 mirrored
