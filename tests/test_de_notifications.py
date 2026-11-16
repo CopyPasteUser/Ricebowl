@@ -24,6 +24,20 @@ def _legacy_busctl(records):
 
 
 class WaylandRicePopReadTests(unittest.TestCase):
+    def setUp(self):
+        # Unit tests inject the verified D-Bus owner rather than contacting
+        # the developer's real user session. Negative ownership tests below
+        # override this verifier and require fail-closed behavior.
+        def owned():
+            command = notifications.shutil.which("makoctl")
+            if command is None:
+                raise notifications.NotificationBridgeError("Mako is missing")
+            return (command, 7)
+
+        patcher = mock.patch.object(notifications, "_mutation_host", side_effect=owned)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_dnd_only_controls_one_mode_with_explicit_previous_state(self):
         calls = []
         modes = ["default"]
@@ -210,6 +224,64 @@ class WaylandRicePopReadTests(unittest.TestCase):
             output = json.loads(printed.call_args.args[0])
         self.assertEqual(output["error"]["code"], "notifications_unavailable")
         self.assertFalse(output["ok"])
+
+    def test_notification_mutations_reject_inherited_bus_and_verify_private_owner(self):
+        config = str(session.resources() / "mako.conf")
+        for env in (
+            {"XDG_SESSION_DESKTOP": "XFCE", "WAYLAND_DISPLAY": "wayland-0"},
+            {"XDG_SESSION_DESKTOP": "ricebowl", "RICEBOWL_DE_NESTED": "1",
+             "WAYLAND_DISPLAY": "wayland-0"},
+            {"XDG_SESSION_DESKTOP": "ricebowl", "RICEBOWL_DE_NESTED": "1",
+             "RICEBOWL_DE_PRIVATE_BUS": "0", "WAYLAND_DISPLAY": "wayland-0"},
+        ):
+            with self.subTest(env=env), mock.patch.dict(os.environ, env, clear=True), \\
+                 mock.patch.object(notifications.subprocess, "run") as run:
+                with self.assertRaises(notifications.NotificationBridgeError):
+                    notifications._owned_mako(allow_private_nested=True)
+                run.assert_not_called()
+        # A genuinely isolated nested D-Bus host may dismiss only its own
+        # notifications. DND remains restricted to a full RiceBowl login.
+        env = {"XDG_SESSION_DESKTOP": "ricebowl", "RICEBOWL_DE_NESTED": "1",
+               "RICEBOWL_DE_PRIVATE_BUS": "1", "WAYLAND_DISPLAY": "wayland-0"}
+        with mock.patch.dict(os.environ, env, clear=True), \\
+             mock.patch.object(notifications.shutil, "which", side_effect=lambda x: x), \\
+             mock.patch.object(notifications.subprocess, "run", return_value=
+                subprocess.CompletedProcess([], 0, b"PID=1245\\n", b"")), \\
+             mock.patch("builtins.open", mock.mock_open(
+                 read_data=("/usr/bin/mako\\0--config\\0" + config + "\\0").encode())):
+            with self.assertRaises(notifications.NotificationBridgeError):
+                notifications._owned_mako()  # DND still rejects nested
+            self.assertEqual(
+                notifications._owned_mako(allow_private_nested=True), ("makoctl", 1245))
+
+    def test_ricepop_host_must_not_change_between_active_inventory_and_mutation(self):
+        active = [{"id": 12, "actions": [{"key": "open", "label": "Open"}]}]
+        for kind in ("dismiss", "invoke"):
+            with self.subTest(kind=kind), \\
+                 mock.patch.object(notifications, "_mutation_host",
+                                   side_effect=[("makoctl", 42), ("makoctl", 43)]), \\
+                 mock.patch.object(notifications, "_read_mako",
+                                   return_value=(active, False)) as read, \\
+                 mock.patch.object(notifications.subprocess, "run") as run:
+                with self.assertRaises(notifications.NotificationBridgeError) as error:
+                    if kind == "dismiss":
+                        notifications.dismiss(12)
+                    else:
+                        notifications.invoke(12, "open")
+                self.assertEqual(error.exception.code, "notification_host_changed")
+                read.assert_called_once()
+                run.assert_not_called()
+
+        with mock.patch.object(notifications, "_mutation_host", side_effect=
+                               notifications.NotificationBridgeError("host unavailable")), \\
+             mock.patch.object(notifications, "_read_mako") as read, \\
+             mock.patch.object(notifications.subprocess, "run") as run:
+            for operation in (lambda: notifications.dismiss(12),
+                              lambda: notifications.invoke(12, "open")):
+                with self.assertRaises(notifications.NotificationBridgeError):
+                    operation()
+            read.assert_not_called()
+            run.assert_not_called()
 
     def test_explicit_dismiss_is_id_scoped_and_never_invokes_actions(self):
         calls = []
