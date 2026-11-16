@@ -601,11 +601,29 @@ PY
                 cp "$runtime/xp-luna-pointer-open-$geometry.png" \
                    "$source_root/dist/riceplate-native-preview/xp-luna-pointer-open-$geometry.png"
                 if [ "$geometry" = 1024x768 ]; then
-                    # Exercise the actual menu header hit targets via labwc,
-                    # not the Rust hit tester or a --preview-menu shortcut.
-                    # The 320x304 popup sits directly above the 40px panel.
-                    header_y=$((height - 40 - 304 + 16))
-                    WAYLAND_DISPLAY=wayland-0 "$clicker" 220 "$header_y" "$width" "$height"
+                    # Exercise real header and list hits through labwc. The
+                    # logical menu is 320x304, but 1024px Luna presents it at
+                    # a larger compositor-confirmed size (normally 400x380).
+                    # Derive pointer axes from the real visible surface.
+                    menu_size=$(sed -n "s/.*menu trace show Some(((\([0-9][0-9]*\), \([0-9][0-9]*\)), true)).*/\1 \2/p" \
+                        "$runtime/plate-$label.log" | tail -n 1)
+                    case "$menu_size" in
+                        "320 304"|"360 342"|"400 380"|"480 456") ;;
+                        *)
+                            echo "Native Luna menu geometry trace is missing or unsupported: $menu_size" >&2
+                            tail -n 25 "$runtime/plate-$label.log" >&2
+                            exit 1 ;;
+                    esac
+                    menu_width=${menu_size% *}
+                    menu_height=${menu_size#* }
+                    luna_pointer_x() {
+                        printf "%s\n" "$(($1 * menu_width / 320))"
+                    }
+                    luna_pointer_y() {
+                        printf "%s\n" "$((height - 40 - menu_height + $1 * menu_height / 304))"
+                    }
+                    header_y=$(luna_pointer_y 16)
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" "$(luna_pointer_x 220)" "$header_y" "$width" "$height"
                     sleep 0.35
                     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-find-$geometry.png"
                     cp "$runtime/xp-luna-pointer-find-$geometry.png" \
@@ -618,12 +636,12 @@ PY
                     # cannot change the selected search row between the hover
                     # baseline and the reverse-wheel restoration. This matters
                     # now that Luna searches eight rather than six actions.
-                    WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 220 685 "$width" "$height"
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only "$(luna_pointer_x 220)" "$(luna_pointer_y 261)" "$width" "$height"
                     sleep 0.35
                     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-find-hover-$geometry.png"
                     cp "$runtime/xp-luna-pointer-find-hover-$geometry.png" \
                        "$source_root/dist/riceplate-native-preview/xp-luna-pointer-find-hover-$geometry.png"
-                    WAYLAND_DISPLAY=wayland-0 "$clicker" --scroll-down 220 600 "$width" "$height"
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" --scroll-down "$(luna_pointer_x 220)" "$(luna_pointer_y 176)" "$width" "$height"
                     sleep 0.35
                     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-find-paged-$geometry.png"
                     cp "$runtime/xp-luna-pointer-find-paged-$geometry.png" \
@@ -632,31 +650,31 @@ PY
                     # Land on the last selected row of the scrolled page:
                     # pointer motion alone must NOT restore the first page.
                     # Only the negative compositor axis event can do that.
-                    WAYLAND_DISPLAY=wayland-0 "$clicker" --scroll-up 220 685 "$width" "$height"
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" --scroll-up "$(luna_pointer_x 220)" "$(luna_pointer_y 261)" "$width" "$height"
                     sleep 0.35
                     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-find-restored-$geometry.png"
                     cp "$runtime/xp-luna-pointer-find-restored-$geometry.png" \
                        "$source_root/dist/riceplate-native-preview/xp-luna-pointer-find-restored-$geometry.png"
-                    WAYLAND_DISPLAY=wayland-0 "$clicker" 220 "$header_y" "$width" "$height"
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" "$(luna_pointer_x 220)" "$header_y" "$width" "$height"
                     sleep 0.35
-                    WAYLAND_DISPLAY=wayland-0 "$clicker" 284 "$header_y" "$width" "$height"
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" "$(luna_pointer_x 284)" "$header_y" "$width" "$height"
                     sleep 0.35
                     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-saved-$geometry.png"
                     cp "$runtime/xp-luna-pointer-saved-$geometry.png" \
                        "$source_root/dist/riceplate-native-preview/xp-luna-pointer-saved-$geometry.png"
-                    WAYLAND_DISPLAY=wayland-0 "$clicker" 284 "$header_y" "$width" "$height"
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" "$(luna_pointer_x 284)" "$header_y" "$width" "$height"
                     sleep 0.35
                     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-return-$geometry.png"
                     cp "$runtime/xp-luna-pointer-return-$geometry.png" \
                        "$source_root/dist/riceplate-native-preview/xp-luna-pointer-return-$geometry.png"
                     # All Programs is now the actual bottom-left XP tile;
                     # click its moved real hitbox, then test the real Back action.
-                    WAYLAND_DISPLAY=wayland-0 "$clicker" 60 680 "$width" "$height"
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" "$(luna_pointer_x 60)" "$(luna_pointer_y 256)" "$width" "$height"
                     sleep 0.35
                     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-programs-$geometry.png"
                     cp "$runtime/xp-luna-pointer-programs-$geometry.png" \
                        "$source_root/dist/riceplate-native-preview/xp-luna-pointer-programs-$geometry.png"
-                    WAYLAND_DISPLAY=wayland-0 "$clicker" 220 "$header_y" "$width" "$height"
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" "$(luna_pointer_x 220)" "$header_y" "$width" "$height"
                     sleep 0.35
                     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-programs-back-$geometry.png"
                     cp "$runtime/xp-luna-pointer-programs-back-$geometry.png" \
@@ -664,12 +682,12 @@ PY
                     # The real full-size XP footer now has three independent
                     # hit boxes. Move without clicking: do not lock CI or log
                     # out the isolated labwc session during visual QA.
-                    WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 45 713 "$width" "$height"
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only "$(luna_pointer_x 45)" "$(luna_pointer_y 289)" "$width" "$height"
                     sleep 0.25
                     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-footer-lock-hover-$geometry.png"
                     cp "$runtime/xp-luna-footer-lock-hover-$geometry.png" \
                        "$source_root/dist/riceplate-native-preview/xp-luna-footer-lock-hover-$geometry.png"
-                    WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 138 713 "$width" "$height"
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only "$(luna_pointer_x 138)" "$(luna_pointer_y 289)" "$width" "$height"
                     sleep 0.25
                     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-footer-logout-hover-$geometry.png"
                     cp "$runtime/xp-luna-footer-logout-hover-$geometry.png" \
@@ -681,14 +699,14 @@ PY
                     fi
                     # Exercise real labwc pointer motion across the new XP
                     # places and existing Session rows on 1024x768. The popup
-                    # starts at screen y=424; native hit centers are y=80 and
-                    # y=234. Capture both without launching host applications.
-                    WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 190 504 "$width" "$height"
+                    # has compositor-reported geometry; hit centers remain
+                    # logical y=80 and y=234 at every presentation size.
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only "$(luna_pointer_x 190)" "$(luna_pointer_y 80)" "$width" "$height"
                     sleep 0.35
                     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-places-documents-$geometry.png"
                     cp "$runtime/xp-luna-pointer-places-documents-$geometry.png" \
                        "$source_root/dist/riceplate-native-preview/xp-luna-pointer-places-documents-$geometry.png"
-                    WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 190 658 "$width" "$height"
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only "$(luna_pointer_x 190)" "$(luna_pointer_y 234)" "$width" "$height"
                     sleep 0.35
                     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-session-logout-$geometry.png"
                     cp "$runtime/xp-luna-pointer-session-logout-$geometry.png" \
@@ -701,21 +719,21 @@ PY
                     # Pin one validated action with a real compositor
                     # right-button press, open Saved, then unpin it there.
                     # This must work without any keyboard-only F2 shortcut.
-                    WAYLAND_DISPLAY=wayland-0 "$clicker" 220 "$header_y" "$width" "$height"
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" "$(luna_pointer_x 220)" "$header_y" "$width" "$height"
                     sleep 0.2
-                    WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click 60 680 "$width" "$height"
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click "$(luna_pointer_x 60)" "$(luna_pointer_y 256)" "$width" "$height"
                     sleep 0.2
-                    WAYLAND_DISPLAY=wayland-0 "$clicker" 284 "$header_y" "$width" "$height"
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" "$(luna_pointer_x 284)" "$header_y" "$width" "$height"
                     sleep 0.35
                     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-saved-pinned-$geometry.png"
                     cp "$runtime/xp-luna-pointer-saved-pinned-$geometry.png" \
                        "$source_root/dist/riceplate-native-preview/xp-luna-pointer-saved-pinned-$geometry.png"
-                    WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click 60 552 "$width" "$height"
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click "$(luna_pointer_x 60)" "$(luna_pointer_y 128)" "$width" "$height"
                     sleep 0.35
                     WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-pointer-saved-unpinned-$geometry.png"
                     cp "$runtime/xp-luna-pointer-saved-unpinned-$geometry.png" \
                        "$source_root/dist/riceplate-native-preview/xp-luna-pointer-saved-unpinned-$geometry.png"
-                    WAYLAND_DISPLAY=wayland-0 "$clicker" 284 "$header_y" "$width" "$height"
+                    WAYLAND_DISPLAY=wayland-0 "$clicker" "$(luna_pointer_x 284)" "$header_y" "$width" "$height"
                     sleep 0.2
                     kill -0 "$plate"
                     echo "Clicked native Luna Find/Back, Saved/Back and right-click pin/unpin at $geometry"
