@@ -21,6 +21,23 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
+### SG1/SG5 keyboard focus and direct-commit Enter follow-up (16 November 2026; pending CI)
+
+- **SG1:** The native file context-menu and Shift+F10 paths now resolve a
+  target only among compositor-placed icons on the confirmed keyboard-focus
+  output. Mirrored file keys on another monitor cannot steal the context menu.
+  A deterministic Rust test exercises the duplicate-key and stale-target cases.
+- **SG5:** After a direct `text-input-v3` commit without active preedit,
+  an immediate Return is treated as a legitimate dialog action. The brief
+  one-shot Return echo suppression is retained only when the editor was
+  actually composing before the successful commit. Matching text echoes
+  remain bounded to 80 ms and disarm on a different key. The deterministic
+  tests distinguish direct commits from candidate confirmation.
+- Require a green exact-head Rust/Clippy and real labwc CI run, then green
+  post-merge `main` before accepting these regressions. **Neither SG1 nor
+  SG5 is complete:** an external IME client, AT-SPI/Orca interaction and
+  physical multi-display/IME acceptance still need independent evidence.
+
 ### SG1/SG5 input, focus and AccessKit correctness (16 November 2026; gated)
 
 - **IME echo:** The 80 ms text-input-v3 keyboard echo guard now records the
