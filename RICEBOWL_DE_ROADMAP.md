@@ -2398,6 +2398,32 @@ font coverage or Wayland text-input-v3 IME preedit.
 Keep SG5 and SG7 open pending those independently implemented and tested
 capabilities, and preserve all classic/XP LTR screenshot baselines.
 
+### SG5 — compositor text-input-v3 IME transport (16 November 2026; CI candidate)
+
+Native Luna Run and Desktop Rename now bind the compositor-advertised
+zwp_text_input_manager_v3 to the actual keyboard seat. Only a real text-input
+Enter for an editable, live modal surface enables the protocol. Surfaces,
+capability loss and dismissal revoke the IME. Non-Luna, help, shell and
+XFCE/X11 sessions do not acquire an IME editor or change global input settings.
+
+The receiver buffers preedit_string, commit_string and
+delete_surrounding_text until Done; the bounded editor validates complete
+UTF-8/grapheme deletion, scalar caps and preedit cursor byte offsets before
+applying edits atomically. The preedit is drawn underlined and remains outside
+Run argv and filesystem rename storage until committed. Surrounding text uses
+byte-offset cursor/anchor and is only sent to the focused compositor input
+method. The direct-keyboard fallback is retained until an IME begins
+delivering text events. Transport and editor tests cover malformed byte offsets,
+partial failures, deletion/commit ordering, preedit visual state and Unicode.
+
+**Not yet SG5 complete:** independently run a real external input-method
+client (e.g. Fcitx5/IBus) against the compositor under headless CI, verify
+IME real keyboard focus and multiple sessions, guard simultaneous physical
+key/IME duplicate delivery, and implement full HarfBuzz-grade complex-script
+shaping, mirrored punctuation, bidirectional selections/affinity and
+accessibility metadata. Keep original SG5/SG7 issue #417 unchecked until
+software-only acceptance is traceable on the exact final main commit.
+
 ### SG5 — native RTL caret and pointer hit mapping (16 November 2026; CI candidate)
 
 The shared single-line BiDi cluster permutation now also exposes the painted
