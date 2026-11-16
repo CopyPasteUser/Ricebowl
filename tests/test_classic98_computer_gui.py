@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import unittest
+from unittest.mock import patch
 
 
 class Classic98ComputerGuiTests(unittest.TestCase):
@@ -55,7 +56,8 @@ class Classic98ComputerGuiTests(unittest.TestCase):
             tree.get_selection().select_path(Gtk.TreePath.new_from_indices([0]))
             open_button = dialog.get_widget_for_response(Gtk.ResponseType.OK)
             self.assertTrue(open_button.get_sensitive())
-            dialog.response(Gtk.ResponseType.OK)
+            with patch("macrice.classic98_computer.shutil.which", return_value=None):
+                dialog.response(Gtk.ResponseType.OK)
             self.assertEqual(shell.opened, ["file:///"])
             dialog.response(Gtk.ResponseType.CLOSE)
             self.assertIsNone(shell._classic98_computer_dialog)
