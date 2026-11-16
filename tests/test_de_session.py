@@ -79,6 +79,27 @@ class WaylandSessionTests(unittest.TestCase):
                          "XDG_RUNTIME_DIR": self.runtime.name})
         self.assertFalse((classic / "themerc-override").exists())
 
+    def test_nested_luna_background_context_never_advertises_file_writes(self):
+        luna = recipes.parse((Path(__file__).resolve().parents[1] /
+                              "examples/wayland/xp-luna-columns.json").read_bytes())
+        commands = {}
+        for nested in (True, False):
+            config = session._custom_labwc_config(
+                luna, self.runtime.name, nested=nested)
+            self.addCleanup(session._cleanup_labwc_config,
+                            {"RICEBOWL_DE_SESSION_CONFIG": str(config),
+                             "XDG_RUNTIME_DIR": self.runtime.name})
+            root = ET.parse(config / "menu.xml").getroot()
+            commands[nested] = [element.get("command") for element
+                                in root.iter("action") if element.get("command")]
+        for operation in ("arrange", "refresh", "properties"):
+            self.assertIn(f"riceplate-native --desktop-command {operation}",
+                          commands[True])
+        self.assertNotIn("riceplate-native --desktop-command new-folder",
+                         commands[True])
+        self.assertIn("riceplate-native --desktop-command new-folder",
+                      commands[False])
+
     @mock.patch("macrice.de.session.os.geteuid", return_value=1000)
     @mock.patch("macrice.de.session._check_runtime_dir")
     def test_nested_exec_uses_isolated_config_and_preserves_parent_bus(self, _runtime, _uid):
