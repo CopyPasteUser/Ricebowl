@@ -7429,7 +7429,10 @@ impl KeyboardHandler for RicePlate {
                 _ => {
                     if let (Some(dialog), Some(text)) =
                         (self.luna_dialog.as_mut(), event.utf8.as_deref()) {
-                        repaint = dialog.state.enter(text);
+                        // A compositor key/compose event may commit multiple
+                        // graphemes in one UTF-8 payload. Insert the whole
+                        // validated event or none; never execute as a shell.
+                        repaint = dialog.state.commit_text(text);
                     }
                 }
             }

@@ -57,19 +57,33 @@ impl State {
         Self { kind, input: String::new(), cursor: 0, notice: None, hover: None, pressed: None }
     }
 
+    /// Insert exactly one user-perceived character from a native key event.
+    /// Retain this narrow API for callers that dispatch individual graphemes.
     pub fn enter(&mut self, content: &str) -> bool {
-        if !self.editable() || content.is_empty()
-            || content.graphemes(true).count() != 1
-            || self.input.chars().count().saturating_add(content.chars().count()) > MAX_INPUT
+        if content.graphemes(true).count() != 1 { return false; }
+        self.commit_text(content)
+    }
+
+    /// Commit a whole compositor-delivered text event atomically. Compose
+    /// sequences can contain multiple graphemes; rejecting everything after
+    /// the first would silently lose text. A rejected event must not insert a
+    /// partial string, move the caret or clear an existing error notice.
+    ///
+    /// This is the native keyboard/compose path, not a text-input-v3 IME
+    /// implementation. IME preedit, surrounding-text and protocol focus
+    /// ownership still require their own Wayland integration.
+    pub fn commit_text(&mut self, content: &str) -> bool {
+        let incoming = content.chars().count();
+        if !self.editable() || incoming == 0 || incoming > MAX_INPUT
+            || self.input.chars().count() > MAX_INPUT - incoming
             || content.chars().any(char::is_control) {
             return false;
         }
         let points = self.boundaries();
         let offset = points[self.cursor.min(points.len() - 1)];
         self.input.insert_str(offset, content);
-        // A combining mark or ZWJ may merge with its neighbor. Recompute
-        // the visible caret, rather than incrementing by a scalar and leaving
-        // the cursor inside the newly composed grapheme.
+        // Both sides can join into a new grapheme. Recalculate from the
+        // actual resulting text, never by adding UTF-8 bytes or scalars.
         self.cursor = self.input[..offset + content.len()].graphemes(true).count();
         self.notice = None;
         true
@@ -263,6 +277,40 @@ pub fn parse_argv(raw: &str) -> Result<Vec<String>, &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compositor_compose_commit_is_atomic_and_grapheme_safe() {
+        let mut dialog = State::new(Kind::FileRename);
+        assert!(dialog.commit_text("Datei_日本語_"));
+        assert_eq!(dialog.input, "Datei_日本語_");
+        assert_eq!(dialog.cursor, "Datei_日本語_".graphemes(true).count());
+        dialog.move_cursor(CursorMove::Home);
+        assert!(dialog.commit_text("👩‍💻a\u{301}"));
+        assert_eq!(dialog.cursor, 2);
+        assert_eq!(dialog.input, "👩‍💻a\u{301}Datei_日本語_");
+        assert!(dialog.erase());
+        assert_eq!(dialog.input, "👩‍💻Datei_日本語_");
+        assert_eq!(dialog.cursor, 1);
+
+        dialog.notice = Some("Keep failure notice");
+        let before = (dialog.input.clone(), dialog.cursor);
+        for invalid in ["", "bad\ntext", "\u{0000}", "a\r\nb"] {
+            assert!(!dialog.commit_text(invalid));
+            assert_eq!((dialog.input.clone(), dialog.cursor), before);
+            assert_eq!(dialog.notice, Some("Keep failure notice"));
+        }
+        assert!(!dialog.commit_text(&"🧪".repeat(MAX_INPUT + 1)));
+        assert_eq!((dialog.input.clone(), dialog.cursor), before);
+        assert_eq!(dialog.notice, Some("Keep failure notice"));
+        let remaining = MAX_INPUT - dialog.input.chars().count();
+        assert!(dialog.commit_text(&"x".repeat(remaining)));
+        assert!(!dialog.commit_text("z"));
+        assert_eq!(dialog.input.chars().count(), MAX_INPUT);
+        assert!(dialog.enter("a") == false);
+        let mut help = State::new(Kind::Help);
+        assert!(!help.commit_text("Japanese 日本語"));
+        assert!(help.input.is_empty());
+    }
 
     #[test]
     fn quoted_args_are_passed_literally_without_shell() {
