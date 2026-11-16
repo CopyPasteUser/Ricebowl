@@ -216,6 +216,28 @@ class WaylandSessionTests(unittest.TestCase):
 
     @mock.patch("macrice.de.session.os.geteuid", return_value=os.getuid())
     @mock.patch("macrice.de.session._check_runtime_dir")
+    def test_named_luna_recipe_can_start_native_nested_with_isolated_config(
+            self, _runtime, _uid):
+        tools = {**self.tools, "riceplate-native": "/usr/bin/riceplate-native"}
+        env = {**self.env, "DISPLAY": ":0", "XDG_CURRENT_DESKTOP": "XFCE"}
+        with self.assertRaises(_ExecCalled) as caught:
+            session.start(nested=True, panel="native", recipe="xp-luna-columns",
+                          environment=env, which=tools.get, execute=_record_exec)
+        call = caught.exception
+        self.assertEqual(call.program, "/usr/bin/labwc")
+        self.assertEqual(call.env["RICEBOWL_DE_RECIPE"], "xp-luna-columns")
+        self.assertEqual(call.env["RICEBOWL_DE_PANEL"], "native")
+        self.assertEqual(call.env["LABWC_UPDATE_ACTIVATION_ENV"], "0")
+        self.assertEqual(env["XDG_CURRENT_DESKTOP"], "XFCE")
+        directory = Path(call.argv[call.argv.index("--config-dir") + 1])
+        self.addCleanup(session._cleanup_labwc_config,
+                        {"RICEBOWL_DE_SESSION_CONFIG": str(directory),
+                         "XDG_RUNTIME_DIR": self.runtime.name})
+        self.assertTrue((directory / ".ricebowl-managed").is_file())
+        self.assertTrue((directory / "themerc-override").is_file())
+
+    @mock.patch("macrice.de.session.os.geteuid", return_value=os.getuid())
+    @mock.patch("macrice.de.session._check_runtime_dir")
     def test_imported_recipe_id_is_resolved_for_native_and_dbus_reexec(self, _runtime, _uid):
         from macrice.de import recipes
         with tempfile.TemporaryDirectory() as folder:

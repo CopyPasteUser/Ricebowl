@@ -42,7 +42,20 @@ logging out of XFCE:
 
 ```bash
 ricebowl de start --nested --panel native
+
+# Shipped XP Luna v12 recipe: safe to name directly, no manual JSON copy.
+ricebowl de start --nested --panel native --recipe xp-luna-columns
 ```
+
+Run this from an updated RiceBowl installation with `riceplate-native`
+available in `PATH`. If you have already imported a private recipe named
+`xp-luna-columns`, that owner-private customization takes precedence over the
+shipped demo; an invalid or symlinked private copy fails closed rather than
+silently switching to the demo. `standalone_de_ready: false` in the read-only check
+still means full DE 1.0 sign-off is outstanding, not that nested preview
+cannot run. The physical acceptance report intentionally marks XFCE/X11
+as **not ready**; run it only after entering the opt-in native Wayland login
+session.
 
 For a separate **Wayland login-session choice**, follow the
 [reviewed Debian/Ubuntu/Mint installation procedure](WAYLAND_SESSION.md#build-and-opt-in-debianubuntumint).
