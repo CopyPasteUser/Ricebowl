@@ -42,12 +42,17 @@ pub fn fitted_luna_size(output_width: u32, output_height: u32,
                         panel_height: u32) -> (u32, u32) {
     let available_width = output_width.saturating_sub(8);
     let available_height = output_height.saturating_sub(panel_height.saturating_add(8));
-    let desired = if output_width >= 1600 && available_width >= 480 && available_height >= 456 {
+    // XP X11 gives the Start menu a substantial portion of the desktop.
+    // Preserve the 20:19 source aspect ratio and the exact logical hit
+    // rectangles, but grow the presentation for laptop/desktop-sized outputs.
+    // 1024px remains unchanged to protect small/nested workstation layouts.
+    let desired = if output_width >= 1600 && available_width >= 560 && available_height >= 532 {
+        (560, 532)
+    } else if output_width >= 1280 && available_width >= 480 && available_height >= 456 {
         (480, 456)
     } else if output_width >= 960 && available_width >= 400 && available_height >= 380 {
         (400, 380)
-    } else if (760..1280).contains(&output_width)
-        && available_width >= 360 && available_height >= 342 {
+    } else if output_width >= 760 && available_width >= 360 && available_height >= 342 {
         (360, 342)
     } else {
         return fitted_size(output_width, output_height, panel_height);
@@ -1636,13 +1641,14 @@ mod tests {
     fn luna_presentation_is_legible_on_wide_outputs_and_hit_coordinates_stay_native() {
         assert_eq!(fitted_luna_size(800, 600, 40), (360, 342));
         assert_eq!(fitted_luna_size(1024, 768, 40), (400, 380));
-        assert_eq!(fitted_luna_size(1366, 768, 40), (400, 380));
-        assert_eq!(fitted_luna_size(1920, 1080, 40), (480, 456));
+        assert_eq!(fitted_luna_size(1366, 768, 40), (480, 456));
+        assert_eq!(fitted_luna_size(1600, 900, 40), (560, 532));
+        assert_eq!(fitted_luna_size(1920, 1080, 40), (560, 532));
         // Extremely wide but shallow outputs must not grow the menu into
         // nearly all of the available vertical work area.
         assert_eq!(fitted_luna_size(1920, 400, 40), (WIDTH, HEIGHT));
         assert_eq!(fitted_luna_size(320, 240, 40), fitted_size(320, 240, 40));
-        for size in [(360, 342), (400, 380), (480, 456)] {
+        for size in [(360, 342), (400, 380), (480, 456), (560, 532)] {
             assert!(!compact_layout(size));
             let scale_x = f64::from(size.0) / f64::from(WIDTH);
             let scale_y = f64::from(size.1) / f64::from(HEIGHT);
