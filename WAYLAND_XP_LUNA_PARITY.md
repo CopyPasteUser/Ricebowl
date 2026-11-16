@@ -37,8 +37,13 @@ faults that were hidden by headless component tests:
   the disposable `ricebowl-labwc-*` session directory. The full-login socket
   is never addressed by a nested command, even for the same Unix user.
   Missing, symlinked, foreign-owned, world-accessible and unmanaged directories
-  are rejected before binding or sending. No global input-grabbing wallpaper
-  surface is introduced, so underlying app windows retain pointer input.
+  are rejected before binding or sending. Only Arrange, Refresh and Properties
+  are exposed in nested previews. **New Folder is deliberately absent and
+  rejected by native IPC in preview mode**: the file-backed XDG desktop is
+  disabled there, so creating folders in the live XFCE Desktop would be an
+  unexpected persistent side effect. Full Luna logins retain the existing safe
+  New Folder behavior. No global input-grabbing wallpaper surface is
+  introduced, so underlying app windows retain pointer input.
 
 **Physical setup caveat:** The genuine Luna wallpaper only appears when the
 optional `swaybg` binary is installed. The user's Mint nested review found it
