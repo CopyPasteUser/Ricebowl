@@ -2418,6 +2418,25 @@ hardware sign-off. Exact-head Rust/Clippy/Wayland compositor tests and
 screenshot baseline checks must pass before integration. SG5 and SG7 remain
 blocked by issue #417 until the complete software text/input matrix passes.
 
+### SG5 — AT-SPI native editor text/caret exposure (16 November 2026; CI candidate)
+
+The composited Luna Run and Desktop Rename dialogs now publish a real
+AccessKit TextInput with a single UTF-8 TextRun child and a grapheme-aligned
+TextSelection caret. Character lengths use UTF-8 bytes per *extended
+grapheme* where representable in AccessKit u8 units; exceptionally long
+clusters use explicit scalar lengths rather than overflowing. The text is
+attached to the AT-SPI snapshot only while the editable native modal is
+open, never inserted into the action labels or persisted in logs. Model
+removal discards text and stale focus. The actual compositor keyboard Enter
+determines whether the node is focused; accessibility cannot fabricate input
+ownership or execute Run commands. Unicode, empty-buffer, caret and teardown
+regressions are tested. XFCE/X11 and non-Luna menus are unchanged.
+
+This provides live text/caret metadata, not validated Orca speech feedback,
+text-selection editing, AT-SPI programmatic text replacement or real IME
+hardware acceptance. Leave SG5 incomplete until those software checks,
+complex-script font coverage and exact-main CI are evidenced.
+
 ### SG5 — compositor text-input-v3 IME transport (16 November 2026; CI candidate)
 
 Native Luna Run and Desktop Rename now bind the compositor-advertised

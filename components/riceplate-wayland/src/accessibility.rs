@@ -9,13 +9,29 @@ use std::sync::{Arc, Mutex};
 
 use accesskit::{
     Action, ActionHandler, ActionRequest, ActivationHandler, DeactivationHandler, Node, NodeId,
-    Role, TreeId, TreeInfo, TreeUpdate,
+    Role, TextPosition, TextSelection, TreeId, TreeInfo, TreeUpdate,
 };
 use accesskit_unix::Adapter;
 use chrono::NaiveDate;
+use unicode_segmentation::UnicodeSegmentation;
 use crate::desktop_context::Action as ShortcutAction;
 
 pub const ROOT: u64 = 1;
+
+fn access_character_lengths(text: &str) -> Vec<u8> {
+    let mut lengths = Vec::new();
+    for grapheme in text.graphemes(true) {
+        if let Ok(size) = u8::try_from(grapheme.len()) {
+            lengths.push(size);
+        } else {
+            // Oversized ZWJ sequences cannot fit AccessKit's u8 encoding.
+            // Keep the value whole, expressing multiple scalar positions.
+            lengths.extend(grapheme.chars().map(|c| c.len_utf8() as u8));
+        }
+    }
+    lengths
+}
+
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Target {
@@ -62,6 +78,10 @@ pub struct Element {
     pub label: String,
     pub description: Option<String>,
     pub action: Option<Target>,
+    /// Present only while the real editable modal is open. Never persisted.
+    pub value: Option<String>,
+    /// A logical extended-grapheme caret (TextInput nodes only).
+    pub caret: Option<usize>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -105,7 +125,35 @@ impl Model {
                 .collect(),
             description: None,
             action,
+            value: None,
+            caret: None,
         });
+    }
+
+    /// One real accessible text editor plus a TextRun child. AccessKit
+    /// requires the child's UTF-8-length table and a selection on that child
+    /// for screen-reader caret/character reporting, including empty fields.
+    /// User text is copied into the transient AT-SPI snapshot *only* while
+    /// the modal is active; it is never added to labels, logs or saved state.
+    pub fn add_text_input(
+        &mut self, id: u64, parent: u64, label: &str, value: &str, caret: usize,
+    ) {
+        if self.elements.iter().any(|element| element.id == id || element.id == id + 1) {
+            return;
+        }
+        // The native editor already restricts length, but isolate external
+        // accessibility consumers from unbounded/invalid snapshot content.
+        let value: String = value.chars().filter(|ch| !ch.is_control())
+            .take(crate::luna_dialog::MAX_INPUT).collect();
+        self.add(id, parent, Role::TextInput, label, None);
+        self.add(id + 1, id, Role::TextRun, "", None);
+        if let Some(input) = self.elements.iter_mut().find(|item| item.id == id) {
+            input.value = Some(value.clone());
+            input.caret = Some(caret.min(value.graphemes(true).count()));
+        }
+        if let Some(run) = self.elements.iter_mut().find(|item| item.id == id + 1) {
+            run.value = Some(value);
+        }
     }
 
     pub fn action_for(&self, request: &ActionRequest) -> Option<Target> {
@@ -144,6 +192,26 @@ impl Model {
         for element in &self.elements {
             let mut node = Node::new(element.role);
             node.set_label(element.label.clone());
+            if let Some(value) = &element.value {
+                node.set_value(value.clone());
+                if element.role == Role::TextRun {
+                    // AccessKit character lengths are UTF-8 byte lengths in
+                    // u8. Preserve full graphemes whenever representable;
+                    // split exceptionally long clusters by scalar otherwise.
+                    node.set_character_lengths(access_character_lengths(value));
+                } else if element.role == Role::TextInput {
+                    let graphemes = element.caret.unwrap_or(0);
+                    let offset = value.grapheme_indices(true).nth(graphemes)
+                        .map_or(value.len(), |(index, _)| index);
+                    let character_index = access_character_lengths(&value[..offset]).len();
+                    let position = TextPosition {
+                        node: NodeId(element.id + 1), character_index,
+                    };
+                    node.set_text_selection(TextSelection {
+                        anchor: position, focus: position,
+                    });
+                }
+            }
             if let Some(description) = &element.description {
                 node.set_description(description.clone());
             }
@@ -241,6 +309,57 @@ impl Bridge {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unicode_editor_exposes_text_run_and_grapheme_caret_only_while_live() {
+        let mut model = Model::new();
+        model.add(60_000, ROOT, Role::Dialog, "Rename File", None);
+        let secret = "a\u{301}👩‍💻🇩🇪.txt";
+        model.add_text_input(60_100, 60_000, "File name", secret, 2);
+        model.focus = 60_100;
+        model.window_focused = true;
+        let tree = model.tree();
+        let editor = &tree.nodes.iter().find(|(id,_)| *id == NodeId(60_100)).unwrap().1;
+        let run = &tree.nodes.iter().find(|(id,_)| *id == NodeId(60_101)).unwrap().1;
+        assert_eq!(editor.role(), Role::TextInput);
+        assert_eq!(editor.label(), Some("File name"));
+        assert_eq!(run.role(), Role::TextRun);
+        assert_eq!(run.value(), Some(secret));
+        assert_eq!(run.character_lengths(), [3, 11, 8, 1, 1, 1, 1]);
+        assert_eq!(run.character_lengths().iter().map(|n| *n as usize).sum::<usize>(),
+                   secret.len());
+        let selection = editor.text_selection().unwrap();
+        assert_eq!(selection.focus.node, NodeId(60_101));
+        assert_eq!(selection.focus.character_index, 2);
+        assert_eq!(tree.focus, NodeId(60_100));
+        assert!(format!("{tree:?}").contains("👩"));
+
+        // Destroying a dialog removes all command and filename text from
+        // the published model, not merely a stale focused element.
+        let closed = Model::new();
+        let next = closed.tree();
+        assert!(!format!("{next:?}").contains(secret));
+        assert_eq!(next.nodes.len(), 1);
+    }
+
+    #[test]
+    fn accessibility_editor_handles_long_clusters_and_empty_input() {
+        let mut model = Model::new();
+        model.add(60_000, ROOT, Role::Dialog, "Run", None);
+        model.add_text_input(60_100, 60_000, "Command", "", 0);
+        let tree = model.tree();
+        let empty = &tree.nodes.iter().find(|(id,_)| *id == NodeId(60_101)).unwrap().1;
+        assert!(empty.character_lengths().is_empty());
+        assert_eq!(empty.value(), Some(""));
+        let huge = format!("a{}z", "\u{301}".repeat(150));
+        assert_eq!(huge.graphemes(true).count(), 2,
+                   "test must include one cluster larger than u8::MAX");
+        // A synthetic oversized grapheme is only for the AccessKit data
+        // contract; the production Luna editor caps 192 Unicode scalars.
+        let lengths = access_character_lengths(&huge);
+        assert!(lengths.iter().all(|n| *n > 0));
+        assert_eq!(lengths.iter().map(|n| *n as usize).sum::<usize>(), huge.len());
+    }
 
     #[test]
     fn context_actions_include_a_revision_to_reject_stale_popup_reuse() {
