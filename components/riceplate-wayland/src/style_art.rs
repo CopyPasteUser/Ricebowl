@@ -496,13 +496,16 @@ impl FontSprites {
                 }
             }
             if let Some(glyph) = cache.shaped.get(&key) {
-                let left = (pen + item.x_offset).round() as i32 + glyph.xmin;
-                let top = y as i32 + self.size.ceil() as i32
-                    - glyph.ymin - glyph.height as i32 - item.y_offset.round() as i32;
+                let left = ((pen + item.x_offset).round() as i32)
+                    .saturating_add(glyph.xmin);
+                let top = (y as i32).saturating_add(self.size.ceil() as i32)
+                    .saturating_sub(glyph.ymin)
+                    .saturating_sub(glyph.height as i32)
+                    .saturating_sub(item.y_offset.round() as i32);
                 for row in 0..glyph.height {
                     for col in 0..glyph.width {
-                        let dx = left + col as i32;
-                        let dy = top + row as i32;
+                        let dx = left.saturating_add(col as i32);
+                        let dy = top.saturating_add(row as i32);
                         if dx < 0 || dy < 0 || dx >= width as i32 || dy >= height as i32 {
                             continue;
                         }
