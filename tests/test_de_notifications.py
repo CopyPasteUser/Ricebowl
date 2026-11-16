@@ -156,6 +156,90 @@ class WaylandRicePopReadTests(unittest.TestCase):
             setter.assert_called_once_with(True, expected=False)
             self.assertIn("page:notifications", statuses)
 
+    def test_owner_verified_inbox_fail_closed_on_foreign_or_restarted_bus(self):
+        active = [{"id": 2, "summary": "Private", "body": "Never log this",
+                   "app_name": "Mail", "actions": []}]
+        history = [{"id": 1, "summary": "Done", "app_name": "Mail"}]
+        with mock.patch.object(notifications, "_mutation_host",
+                               return_value=("makoctl", 7)) as owner, \
+             mock.patch.object(notifications, "_read_mako", side_effect=[
+                 (active, False), (history, False)]) as read:
+            snapshot = notifications.inspect_owned()
+            self.assertEqual(snapshot["active"], active)
+            self.assertEqual(snapshot["history"], history)
+            self.assertEqual(owner.call_count, 2)
+            self.assertEqual(read.call_count, 2)
+            self.assertTrue(snapshot["read_only"])
+        with mock.patch.object(notifications, "_mutation_host",
+                               side_effect=[("makoctl", 7), ("makoctl", 8)]), \
+             mock.patch.object(notifications, "_read_mako", side_effect=[
+                 (active, False), (history, False)]):
+            with self.assertRaises(notifications.NotificationBridgeError) as error:
+                notifications.inspect_owned()
+            self.assertEqual(error.exception.code, "notification_host_changed")
+        with mock.patch.object(notifications, "_mutation_host", side_effect=
+                               notifications.NotificationBridgeError(
+                                   "Not this session", "notification_host_unverified")), \
+             mock.patch.object(notifications, "_read_mako") as read:
+            with self.assertRaises(notifications.NotificationBridgeError):
+                notifications.inspect_owned()
+            read.assert_not_called()
+
+    def test_ricespice_inbox_actions_are_explicit_accessible_and_history_read_only(self):
+        texts, buttons, pages = [], {}, []
+        page = SimpleNamespace()
+        page._text = lambda message, **_kw: texts.append(message)
+        page._button = lambda label, callback, **_kw: buttons.setdefault(label, callback)
+        page._show_content = lambda: pages.append("relayout")
+        page._background = lambda work, done: done(work())
+        page.show_page = pages.append
+        snapshot = {
+            "active": [{"id": 12, "app_name": "Files", "summary": "Upload done",
+                        "body": "Uploaded safely", "actions": [
+                            {"key": "open", "label": "Open file"}]}],
+            "history": [{"id": 9, "app_name": "Mail", "summary": "Old message",
+                         "body": "Not actionable"}], "truncated": False,
+        }
+        settings.RiceSpiceWindow._render_notification_inbox(page, snapshot)
+        self.assertIn("Active notifications (1)", texts)
+        self.assertIn("Previous notifications (1)", texts)
+        self.assertIn("Mail · Old message", texts)
+        self.assertIn("Dismiss · Files · #12", buttons)
+        self.assertIn("Open file · Files · #12", buttons)
+        self.assertNotIn("Dismiss · Mail · #9", buttons)
+        self.assertNotIn("Open file · Mail · #9", buttons)
+        self.assertIn("relayout", pages)
+        with mock.patch.object(notifications, "dismiss", return_value={"ok": True}) as dismiss, \
+             mock.patch.object(notifications, "invoke", return_value={"ok": True}) as invoke:
+            buttons["Dismiss · Files · #12"]()
+            buttons["Open file · Files · #12"]()
+            dismiss.assert_called_once_with(12)
+            invoke.assert_called_once_with(12, "open")
+        self.assertEqual(pages.count("notifications"), 2)
+
+    def test_ricespice_inbox_is_not_read_until_user_requests_it(self):
+        controls, seen = {}, []
+        page = SimpleNamespace()
+        page._text = lambda *_args, **_kwargs: None
+        page._state = lambda *_args: None
+        page._button = lambda label, cb, **_kwargs: controls.setdefault(label, cb)
+        page._show_content = lambda: None
+        page._notification_appearance = lambda: None
+        page._render_notification_inbox = seen.append
+        page._background = lambda work, done: done(work())
+        page.show_page = lambda *_args: None
+        with mock.patch.object(notifications, "dnd_status",
+                               return_value={"do_not_disturb": False}), \
+             mock.patch.object(notifications, "inspect_owned",
+                               return_value={"active": [], "history": [],
+                                             "truncated": False}) as read:
+            settings.RiceSpiceWindow._notifications(page)
+            read.assert_not_called()
+            self.assertEqual(seen, [])
+            controls["Show RicePop inbox"]()
+            read.assert_called_once_with()
+            self.assertEqual(len(seen), 1)
+
     def test_reads_mako_live_and_history_without_replaying_actions(self):
         active = [{"id": 12, "summary": "Download", "body": "Finished",
                    "app_name": "Files", "urgency": 1,
