@@ -739,6 +739,28 @@ mod tests {
     }
 
     #[test]
+    fn cjk_font_coverage_is_never_misrepresented_as_successful_shaping() {
+        // Liberation Sans does not necessarily contain every CJK glyph;
+        // no missing glyph may disappear or turn into an empty zero-width
+        // span. Real coverage still requires a suitable installed font.
+        let font = font_glyphs(
+            include_bytes!("../../../assets/fonts/LiberationSans-Regular.ttf").to_vec(),
+            1, true,
+        ).unwrap();
+        for label in ["日本語", "中文", "한국어", "किताब", "שלום"] {
+            let layout = font.shape_layout(label).expect("safe Unicode layout");
+            assert!(!layout.is_empty(), "missing glyph must be visibly replaced");
+            assert!(layout.iter().all(|g|
+                g.advance.is_finite() && g.x_offset.is_finite() && g.y_offset.is_finite()));
+            assert!(font.measure_text(label) > 0);
+            let mut pixels = vec![0_u8; 192 * 32 * 4];
+            font.draw(&mut pixels, 192, 32, 0, 0, label, 0xfffd_fdff, false);
+            assert!(pixels.iter().any(|&value| value != 0),
+                    "missing CJK glyph is not equivalent to font support");
+        }
+    }
+
+    #[test]
     fn bidi_mixed_open_type_uses_bounded_face_cache_and_pixel_clipping() {
         let bytes = fs::read("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf").unwrap();
         let font = font_glyphs(bytes, 1, true).unwrap();
