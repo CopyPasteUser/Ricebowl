@@ -16,32 +16,43 @@ fn blend(base: u32, tint: u32, amount: u32) -> u32 {
 
 pub fn header(canvas: &mut [u8], palette: MenuPalette) {
     let (w, h) = (native_menu::WIDTH, native_menu::HEIGHT);
-    // The first 38 logical pixels remain one hit-free title band. A bright
-    // rounded-edge-style reflection over cobalt, followed by a dark bottom
-    // lip, gives Luna its original visual depth without importing XP assets.
+    // The X11 Luna menu has an unusually deep blue enamel account header.
+    // Three optical bands and a hairline gold return make this feel like an
+    // early-2000s desktop surface rather than a generic toolbar.
     for y in 0..38 {
-        let tone = if y == 0 { 0xffa4_d3ff }
-            else if y < 5 {
-                blend(palette.header, 0xffa3_d5ff, 144 - y * 13)
-            } else if y < 20 {
-                blend(palette.header, 0xff52_a2f0, 84 - (y - 5) * 3)
+        let tone = if y == 0 { 0xffd2_ecff }
+            else if y <= 3 {
+                blend(palette.header, 0xffb0_dcff, 174 - y * 18)
+            } else if y <= 14 {
+                blend(palette.header, 0xff64_a4f3, 110 - (y - 4) * 4)
+            } else if y <= 29 {
+                blend(palette.header, 0xff03_317c, (y - 14) * 5)
             } else {
-                blend(palette.header, 0xff00_205f, (y - 20) * 6)
+                blend(palette.header, 0xff07_245c, 90 + (y - 30) * 10)
             };
         fill_rect(canvas, w, h, 0, y, w, 1, tone);
     }
-    fill_rect(canvas, w, h, 0, 36, w, 1, 0xff08_357b);
-    fill_rect(canvas, w, h, 0, 37, w, 1, 0xffff_c368);
+    fill_rect(canvas, w, h, 0, 1, 1, 35, 0xffd0_eaff);
+    fill_rect(canvas, w, h, w - 1, 1, 1, 35, 0xff08_347d);
+    fill_rect(canvas, w, h, 0, 36, w, 1, 0xff0a_2e72);
+    fill_rect(canvas, w, h, 0, 37, w, 1, 0xffff_d28a);
 
-    // Original RiceBowl account artwork in the familiar XP identity square,
-    // including a recessed navy rim, pale-gold bevel and inset glossy portrait.
-    fill_rounded_rect(canvas, w, h, 6, 3, 32, 32, 5, 0xff0b_387a);
-    fill_rounded_rect(canvas, w, h, 7, 4, 30, 30, 4, 0xffff_d88e);
-    fill_rounded_rect(canvas, w, h, 9, 6, 26, 26, 3, 0xffee_f7ff);
-    fill_rounded_rect(canvas, w, h, 11, 8, 22, 22, 2, 0xff63_b6ef);
-    fill_rect(canvas, w, h, 13, 9, 18, 1, 0xffc6_efff);
-    fill_rounded_rect(canvas, w, h, 14, 20, 16, 7, 3, 0xff48_963b);
-    fill_rounded_rect(canvas, w, h, 20, 12, 6, 6, 3, 0xffff_e4a2);
+    // Native, original pixel-art RiceBowl penguin. The warm user tile and
+    // silhouette mirror the hierarchy of the richer X11 account banner.
+    // This is not a copied Windows XP user picture or trademark bitmap.
+    fill_rounded_rect(canvas, w, h, 5, 2, 34, 34, 4, 0xff0a_3874);
+    fill_rounded_rect(canvas, w, h, 6, 3, 32, 32, 4, 0xffff_e9aa);
+    fill_rounded_rect(canvas, w, h, 8, 5, 28, 28, 2, 0xff88_cdf3);
+    fill_rect(canvas, w, h, 10, 6, 24, 1, 0xffec_faff);
+    fill_rounded_rect(canvas, w, h, 14, 7, 16, 24, 7, 0xff20_3043);
+    fill_rounded_rect(canvas, w, h, 18, 15, 8, 14, 4, 0xffff_f9eb);
+    fill_rect(canvas, w, h, 17, 12, 3, 3, 0xffff_ffff);
+    fill_rect(canvas, w, h, 24, 12, 3, 3, 0xffff_ffff);
+    fill_rect(canvas, w, h, 19, 13, 1, 2, 0xff1d_273a);
+    fill_rect(canvas, w, h, 24, 13, 1, 2, 0xff1d_273a);
+    fill_rect(canvas, w, h, 20, 16, 5, 2, 0xffff_be43);
+    fill_rect(canvas, w, h, 17, 29, 5, 2, 0xffff_bb55);
+    fill_rect(canvas, w, h, 24, 29, 5, 2, 0xffff_bb55);
 }
 
 pub fn shelf(canvas: &mut [u8], palette: MenuPalette) {
