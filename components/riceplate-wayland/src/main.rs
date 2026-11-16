@@ -10067,12 +10067,12 @@ mod tests {
         assert_ne!(pixel(&canvas, 260, 70), pixel(&canvas, 260, 240));
         assert_ne!(pixel(&canvas, native_menu::COLUMNS_SPLIT, 70), palette.header);
         assert_ne!(pixel(&canvas, 260, height - 10), palette.header);
-        assert_eq!(pixel(&canvas, 12, 150), palette.header); // current Terminal row
+        assert_eq!(pixel(&canvas, 12, 205), palette.header); // current Terminal row after four-app spacing
 
         state.select_group(menu, 1);
         paint_menu(&mut canvas, menu, &style, &state);
         assert_eq!(pixel(&canvas, 176, 80), palette.header); // current right action
-        assert_ne!(pixel(&canvas, 12, 150), palette.header);
+        assert_ne!(pixel(&canvas, 12, 205), palette.header);
     }
 
     #[test]
@@ -10450,7 +10450,13 @@ mod tests {
             "accessible shortcut label must still be rendered");
         let mut focused = vec![0; pixels.len()];
         paint_icon(&mut focused, icon, &style, true, None);
-        assert_eq!(&focused[..4], &style.foreground.to_le_bytes());
+        // X11 Luna selects the shortcut label, not the complete 104x88
+        // compositor surface. The raster and accessible label remain real.
+        assert_eq!(&focused[..4], &[0, 0, 0, 0]);
+        let selected_row = (60 * recipe::ICON_WIDTH * 4) as usize;
+        let end = (84 * recipe::ICON_WIDTH * 4) as usize;
+        assert_ne!(&focused[selected_row..end], &pixels[selected_row..end]);
+        assert_eq!(pixel(45, 35), 0xffac_d3e7);
     }
 
     #[test]
