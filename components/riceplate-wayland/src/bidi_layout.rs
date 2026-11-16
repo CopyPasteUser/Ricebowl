@@ -24,7 +24,7 @@ pub(crate) fn has_rtl(text: &str) -> bool {
 /// joined emoji. The underlying font renderer still uses fontdue per glyph;
 /// this is not contextual Arabic shaping or bracket glyph mirroring.
 pub(crate) fn visual_order(text: &str) -> Cow<'_, str> {
-    if !has_rtl(text) || text.contains(['\r', '\n']) {
+    if !has_rtl(text) || text.contains('\r') || text.contains('\n') {
         return Cow::Borrowed(text);
     }
     let info = BidiInfo::new(text, None);
