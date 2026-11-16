@@ -1570,7 +1570,7 @@ PY
     # A freshly created icon is first selected. Give labwc and the native
     # Wayland dispatch queue one turn to apply that selection before the
     # second physical click; a back-to-back virtual-pointer reconnection
-    # can otherwise race the new layer's focus/commit.
+    # can otherwise race the new layer focus/commit.
     sleep 0.1
     test ! -e "$runtime/full-ricefield.log" || {
         echo "XDG folder single click unexpectedly opened RiceField" >&2
