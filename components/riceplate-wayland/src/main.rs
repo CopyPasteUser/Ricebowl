@@ -2270,6 +2270,13 @@ impl RicePlate {
                 }
                 self.save_icon_positions();
             }
+            Request::NewFolder if std::env::var("RICEBOWL_DE_NESTED").as_deref() == Ok("1") => {
+                // An XFCE-hosted nested preview has no file-backed desktop
+                // inventory. Never write into the user's actual XDG Desktop
+                // from a design preview, even if an IPC client bypassed the
+                // intentionally omitted root-menu entry.
+                eprintln!("RicePlate: New Folder is available only in the full Luna session");
+            },
             Request::NewFolder => match luna_desktop_ipc::new_folder() {
                 Ok(path) => {
                     // File-backed XDG icons now exist in full Luna sessions.
