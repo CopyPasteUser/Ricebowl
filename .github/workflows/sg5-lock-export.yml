@@ -1,0 +1,23 @@
+name: SG5 one-time Cargo lockfile export
+on:
+  push:
+    branches:
+      - sg5/native-opentype-shaping-20261116
+    paths:
+      - components/riceplate-wayland/Cargo.toml
+      - .github/workflows/sg5-lock-export.yml
+permissions:
+  contents: read
+jobs:
+  lockfile:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - name: Resolve pinned native text dependencies
+        run: |
+          cd components/riceplate-wayland
+          cargo update -p rustybuzz --precise 0.20.1
+          echo SG5_LOCK_BEGIN
+          cat Cargo.lock
+          echo SG5_LOCK_END
