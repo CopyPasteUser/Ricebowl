@@ -6,11 +6,12 @@ import struct
 import subprocess
 import tempfile
 import unittest
+import zlib
 from pathlib import Path
 
 from scripts.qa_xp_luna_first_pass import (
     build_report, create_bundle, grab_frame, prepare_directory,
-    process_memory, write_private,
+    process_memory, validate_png, write_private,
 )
 
 
@@ -23,6 +24,21 @@ class FakeAcceptance:
                 "hardware_accepted": False,
                 "manual_checks": [{"key": "login", "status": "pending"}],
                 "session": {"type": "wayland", "nested": False}}
+
+
+
+def png_chunk(kind: bytes, content: bytes) -> bytes:
+    return (struct.pack(">I", len(content)) + kind + content
+            + struct.pack(">I", zlib.crc32(kind + content)))
+
+
+def valid_frame(width: int = 64, height: int = 32) -> bytes:
+    """Real decodable RGBA PNG; malformed headers must not pass QA tests."""
+    header = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
+    rows = (b"\x00" + b"\x00\x40\x80\xff" * width) * height
+    return (b"\x89PNG\r\n\x1a\n" + png_chunk(b"IHDR", header)
+            + png_chunk(b"IDAT", zlib.compress(rows))
+            + png_chunk(b"IEND", b""))
 
 
 class LunaFirstPassTests(unittest.TestCase):
@@ -71,7 +87,7 @@ class LunaFirstPassTests(unittest.TestCase):
             write_private(folder / "report.json", b"must not overwrite")
 
     def test_explicit_capture_is_private_and_has_integrity_receipt(self):
-        png = b"\x89PNG\r\n\x1a\n" + b"\0" * 8 + struct.pack(">II", 64, 32) + b"fake-frame"
+        png = valid_frame()
         def fake_grim(command, **kwargs):
             self.assertEqual(command[-1], "-")
             self.assertTrue(kwargs["capture_output"])
@@ -95,6 +111,24 @@ class LunaFirstPassTests(unittest.TestCase):
         self.assertEqual(report["screenshot"]["error"], "not-a-ready-native-session")
         self.assertFalse(report["screenshot"]["captured"])
         self.assertFalse((self.parent / "not-ready" / "native-frame.png").exists())
+
+    def test_png_receipts_reject_header_only_truncation_crc_and_trailing_data(self):
+        good = valid_frame()
+        validate_png(good)
+        corrupt = bytearray(good)
+        # IHDR (25 bytes) ends at offset 33; IDAT payload begins at 41.
+        corrupt[41] ^= 1
+        malformed = (
+            b"\x89PNG\r\n\x1a\n" + b"\x00" * 24,
+            good[:-12],  # missing IEND, formerly accepted by header check
+            good + b"unexpected tail",
+            bytes(corrupt),
+            valid_frame(width=0),
+        )
+        for frame in malformed:
+            with self.subTest(frame_size=len(frame)):
+                with self.assertRaises(RuntimeError):
+                    validate_png(frame)
 
     def test_corrupt_png_and_unsafe_paths_fail_closed(self):
         with self.assertRaises(ValueError):
