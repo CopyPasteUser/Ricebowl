@@ -360,10 +360,9 @@ impl FontSprites {
         self.resolved_letters(text).map(|(_, letter)| letter)
     }
 
-    fn proportional_advance(&self, text: &str) -> f32 {
-        // Width and rasterization must consume the SAME visual order.
-        // LTR strings remain borrowed; only RTL labels need Unicode BiDi.
-        let visual = crate::bidi_layout::visual_order(text);
+    fn proportional_advance_visual(&self, visual: &str) -> f32 {
+        // Width and rasterization must consume the same already-reordered
+        // clusters, including cross-cluster kerning in the selected face.
         let mut width = 0.0_f32;
         let mut previous: Option<GlyphKey> = None;
         for (face, letter) in self.resolved_letters(&visual) {
@@ -451,12 +450,19 @@ impl FontSprites {
         best_end
     }
 
-    pub fn measure_text(&self, text: &str) -> u32 {
+    /// Measure text in *painted* order without applying Unicode BiDi twice.
+    /// The editor uses this for visual prefix caret advances only.
+    pub fn measure_visual_text(&self, visual: &str) -> u32 {
         if !self.proportional {
-            return u32::try_from(self.resolved_letters(text).count())
+            return u32::try_from(self.resolved_letters(visual).count())
                 .unwrap_or(u32::MAX).saturating_mul(self.cell);
         }
-        self.proportional_advance(text).ceil() as u32
+        self.proportional_advance_visual(visual).ceil() as u32
+    }
+
+    pub fn measure_text(&self, text: &str) -> u32 {
+        let visual = crate::bidi_layout::visual_order(text);
+        self.measure_visual_text(&visual)
     }
 
     pub fn draw(&self, canvas: &mut [u8], width: u32, height: u32,
