@@ -332,6 +332,13 @@ impl<S: PartialEq, O: PartialEq, W: PartialEq + Clone> DesktopFocusLease<S, O, W
         self.request.as_ref().map(|target| target.intent)
     }
 
+    /// The output granted to this exact gesture; never infer another
+    /// monitor from a stale selection after an output reconfiguration.
+    pub(crate) fn active_output(&self) -> Option<&O> {
+        self.request.as_ref().map(|target| &target.output)
+    }
+
+
     /// A second gesture on the same still-live target must not destroy and
     /// recreate its compositor-owned focus surface. This matches only the
     /// original seat/output/surface; it never confirms pending keyboard access.
@@ -391,6 +398,25 @@ mod tests {
         lease.request(DesktopFocusIntent::PointerSelection, "seat", "output", "next");
         assert!(!lease.was_last_surface(&"ephemeral"));
         assert!(lease.was_last_surface(&"next"));
+    }
+
+    #[test]
+    fn focus_lease_never_retargets_a_different_output_or_stale_gesture() {
+        let mut lease = DesktopFocusLease::<&str, &str, &str>::default();
+        assert_eq!(lease.active_output(), None);
+        lease.request(DesktopFocusIntent::PointerSelection,
+                      "seat", "HDMI-A-1", "temporary");
+        assert_eq!(lease.active_output(), Some(&"HDMI-A-1"));
+        assert!(!lease.can_dispatch(&"seat", &"temporary"));
+        assert!(lease.compositor_enter(&"seat", &"temporary"));
+        assert!(lease.can_dispatch(&"seat", &"temporary"));
+        lease.output_removed(&"HDMI-A-1");
+        assert_eq!(lease.active_output(), None);
+        assert!(!lease.can_dispatch(&"seat", &"temporary"));
+        lease.request(DesktopFocusIntent::PointerSelection,
+                      "seat", "DP-1", "fresh-surface");
+        assert_eq!(lease.active_output(), Some(&"DP-1"));
+        assert!(!lease.can_dispatch(&"seat", &"fresh-surface"));
     }
 
     #[test]
