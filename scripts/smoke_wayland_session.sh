@@ -77,7 +77,12 @@ dbus-run-session -- sh -eu -c '
         exit 1
     fi
     if [ "${RICEBOWL_SMOKE_RICEPOP:-0}" = 1 ]; then
-        /usr/bin/python3 "$project_root/scripts/smoke_wayland_ricepop.py"
+        # This test driver is a sibling of the nested shell (not its child):
+        # it shares the disposable compositor socket and private D-Bus but
+        # cannot inherit the shell supervisor's environment. Pass the exact
+        # CI-owned markers *only* to this notification smoke process.
+        RICEBOWL_DE_NESTED=1 XDG_SESSION_DESKTOP=ricebowl \
+            /usr/bin/python3 "$project_root/scripts/smoke_wayland_ricepop.py"
     fi
     # The nested session must not import or override the parent activation
     # environment. A native panel still needs to start successfully.
