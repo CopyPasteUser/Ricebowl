@@ -9211,6 +9211,7 @@ impl Dispatch<ZwpTextInputV3, ()> for RicePlate {
                     dialog.state.apply_ime(&pending));
                 if updated {
                     if let Some(ime) = state.native_ime.as_mut() {
+                        let was_composing = ime.composing;
                         ime.composing = state.luna_dialog.as_ref()
                             .is_some_and(|dialog| dialog.state.preedit.is_some());
                         if let Some(text) = pending.commit.as_ref()
@@ -9220,6 +9221,7 @@ impl Dispatch<ZwpTextInputV3, ()> for RicePlate {
                             // A different immediate key remains responsive.
                             ime.recent_commit = Some(native_ime::RecentCommit {
                                 at: Instant::now(), text: text.clone(),
+                                candidate_confirmation: was_composing,
                             });
                         } else if pending.preedit.is_some() {
                             // A fresh composition invalidates any old echo.
