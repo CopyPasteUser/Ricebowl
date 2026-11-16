@@ -351,7 +351,9 @@ mod tests {
         let empty = &tree.nodes.iter().find(|(id,_)| *id == NodeId(60_101)).unwrap().1;
         assert!(empty.character_lengths().is_empty());
         assert_eq!(empty.value(), Some(""));
-        let huge = format!("{}z", "a\u{301}".repeat(150));
+        let huge = format!("a{}z", "\u{301}".repeat(150));
+        assert_eq!(huge.graphemes(true).count(), 2,
+                   "test must include one cluster larger than u8::MAX");
         // A synthetic oversized grapheme is only for the AccessKit data
         // contract; the production Luna editor caps 192 Unicode scalars.
         let lengths = access_character_lengths(&huge);
