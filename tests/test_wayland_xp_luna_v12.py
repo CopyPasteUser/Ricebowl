@@ -38,6 +38,14 @@ class WaylandLunaTests(unittest.TestCase):
         parsed = recipes.parse(path.read_bytes())
         self.assertEqual(parsed.recipe_id, "xp-luna-columns")
         self.assertEqual(parsed.menu_presentation, "columns")
+        self.assertEqual([source.limit for source in parsed.menu[1][0].content],
+                         [2, 4])
+        # Only opted-in Luna columns may reserve six Start entries. Other
+        # presentations keep the historic four-item security/layout budget.
+        oversized = copy.deepcopy(json.loads(path.read_text(encoding="utf-8")))
+        oversized["menu"]["groups"][0]["content"][0]["limit"] = 3
+        with self.assertRaises(recipes.RecipeError):
+            recipes.parse(json.dumps(oversized).encode("utf-8"))
         self.assertEqual(review._manifest(parsed),
                          json.loads(path.read_text(encoding="utf-8")))
         self.assertEqual([item.title for item in parsed.menu[1]],
