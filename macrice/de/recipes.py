@@ -65,6 +65,10 @@ WALLPAPERS = frozenset(("aero-seven-blue", "aero-seven-night", "luna-hills",
 BUILTINS = {
     "classic": Path(__file__).resolve().parent / "resources/recipes/classic.json",
     "chrome": Path(__file__).resolve().parent / "resources/recipes/chrome.json",
+    # A shipped, immutable reference recipe, not a user-imported ID.
+    # The installed user-local bundle includes examples/wayland.
+    "xp-luna-columns": Path(__file__).resolve().parents[2]
+                       / "examples/wayland/xp-luna-columns.json",
 }
 
 
