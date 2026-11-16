@@ -21,6 +21,26 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
+### SG1 cross-output desktop keyboard and context-menu isolation (16 November 2026; pending CI)
+
+- **File contexts:** The native Menu and Shift+F10 actions now resolve a file
+  target exclusively among compositor-placed icons on the confirmed keyboard
+  focus output. Duplicate file keys on another monitor are never used for a
+  context action, even when that monitor's layer appears first.
+- **XP Luna shortcuts:** Before invoking actions, opening context menus, or
+  navigating, the existing compositor-granted keyboard lease must still
+  match the shortcut's real current output. Displaced/hidden icons revoke
+  stale focus. Tab, arrow, type-to-select and Ctrl+A operate on peers on the
+  same resolved output; an explicit secondary output cannot be incorrectly
+  shadowed by the primary-output fallback.
+- Deterministic Rust regressions check duplicate keys, missing/hidden
+  targets, output precedence and missing leases. Native Rust/Clippy, real
+  headless labwc and package tests plus exact-main CI must pass before merge.
+- The conservative IME Return echo guard is **unchanged**: without external
+  IME timing evidence, relaxing it could accidentally execute a Run command.
+  External IME, keyboard/Orca AT-SPI interaction and hardware multi-display
+  testing remain separate SG1/SG5 release gates; neither is signed off.
+
 ### SG1/SG5 input, focus and AccessKit correctness (16 November 2026; gated)
 
 - **IME echo:** The 80 ms text-input-v3 keyboard echo guard now records the

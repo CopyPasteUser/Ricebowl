@@ -66,6 +66,26 @@ pub(crate) fn next_visible_file<T: PartialEq + Clone>(
     Some(visible[next].clone())
 }
 
+/// Resolve a context-menu target using only icon indices which were
+/// compositor-placed on the *confirmed focus-lease output*. Mirrored Desktop
+/// files may share a key across monitors, so looking up the key in every
+/// file layer could open an unrelated output's menu.
+pub(crate) fn visible_file_index<'a, T: PartialEq + 'a>(
+    visible: impl IntoIterator<Item = (usize, &'a T)>, current: &T,
+) -> Option<usize> {
+    visible.into_iter().find_map(|(index, key)| (key == current).then_some(index))
+}
+
+/// A live focus target must still be visibly placed on the same output
+/// that granted the compositor keyboard lease. Explicit surface membership
+/// takes precedence over the primary-output fallback during hotplug/reflow.
+pub(crate) fn focus_output_matches<O: PartialEq>(
+    confirmed: Option<&O>, bound: Option<&O>, surface: Option<&O>,
+    primary: Option<&O>, placed: bool,
+) -> bool {
+    placed && confirmed.is_some() && confirmed == bound.or(surface).or(primary)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -101,6 +121,37 @@ mod tests {
         assert_eq!(next_visible_file(&same_output_visible, &5, true), None);
         assert_eq!(next_visible_file::<u32>(&[], &1, true), None);
         assert_eq!(next_visible_file(&[8_u32], &8, false), Some(8));
+    }
+
+    #[test]
+    fn focus_output_precedence_and_stale_icon_rejection() {
+        let primary = "eDP-1";
+        let secondary = "HDMI-A-1";
+        // An explicit secondary surface cannot silently fall back to primary.
+        assert!(focus_output_matches(Some(&secondary), None,
+                                     Some(&secondary), Some(&primary), true));
+        assert!(!focus_output_matches(Some(&primary), None,
+                                      Some(&secondary), Some(&primary), true));
+        // A compositor-bound output is authoritative over a stale surface.
+        assert!(!focus_output_matches(Some(&secondary), Some(&primary),
+                                      Some(&secondary), Some(&primary), true));
+        assert!(focus_output_matches(Some(&primary), None, None,
+                                     Some(&primary), true));
+        assert!(!focus_output_matches(Some(&primary), None, None,
+                                      Some(&primary), false));
+        assert!(!focus_output_matches(None, None, None, Some(&primary), true));
+        assert!(!focus_output_matches(Some(&primary), None, None, None, true));
+    }
+
+    #[test]
+    fn context_menu_target_cannot_escape_confirmed_output() {
+        // A mirrored file on another monitor may have the same file key.
+        // The first global match (index 0) must never win over the icon
+        // actually visible on the keyboard lease's output (index 7).
+        let file = "Desktop/example.txt";
+        assert_eq!(visible_file_index([(7, &file), (12, &"another")], &file), Some(7));
+        assert_eq!(visible_file_index([(5, &"other")], &file), None);
+        assert_eq!(visible_file_index(std::iter::empty::<(usize, &&str)>(), &file), None);
     }
 
     #[test]
