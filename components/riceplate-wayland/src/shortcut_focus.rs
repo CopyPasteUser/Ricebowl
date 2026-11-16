@@ -79,11 +79,20 @@ pub(crate) fn visible_file_index<'a, T: PartialEq + 'a>(
 /// A live focus target must still be visibly placed on the same output
 /// that granted the compositor keyboard lease. Explicit surface membership
 /// takes precedence over the primary-output fallback during hotplug/reflow.
+/// For a placed icon, the explicit compositor surface wins over the
+/// primary-monitor fallback. A stale bound output remains authoritative until
+/// a reflow replaces it: never silently retarget actions to another monitor.
+pub(crate) fn resolved_output<'a, O>(
+    bound: Option<&'a O>, surface: Option<&'a O>, primary: Option<&'a O>,
+) -> Option<&'a O> {
+    bound.or(surface).or(primary)
+}
+
 pub(crate) fn focus_output_matches<O: PartialEq>(
     confirmed: Option<&O>, bound: Option<&O>, surface: Option<&O>,
     primary: Option<&O>, placed: bool,
 ) -> bool {
-    placed && confirmed.is_some() && confirmed == bound.or(surface).or(primary)
+    placed && confirmed.is_some() && confirmed == resolved_output(bound, surface, primary)
 }
 
 #[cfg(test)]
@@ -121,6 +130,16 @@ mod tests {
         assert_eq!(next_visible_file(&same_output_visible, &5, true), None);
         assert_eq!(next_visible_file::<u32>(&[], &1, true), None);
         assert_eq!(next_visible_file(&[8_u32], &8, false), Some(8));
+    }
+
+    #[test]
+    fn context_popup_output_prefers_surface_over_primary_fallback() {
+        let main = "eDP-1";
+        let second = "HDMI-A-1";
+        assert_eq!(resolved_output::<&str>(None, Some(&second), Some(&main)), Some(&second));
+        assert_eq!(resolved_output(Some(&main), Some(&second), Some(&second)), Some(&main));
+        assert_eq!(resolved_output(None, None, Some(&main)), Some(&main));
+        assert_eq!(resolved_output(None::<&&str>, None, None), None);
     }
 
     #[test]
