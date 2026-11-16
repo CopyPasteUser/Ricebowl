@@ -21,6 +21,21 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
+### SG1 repeated real compositor focus handoff (16 November 2026; CI candidate)
+
+The native labwc integration smoke now performs three additional genuine
+pointer-selection → compositor keyboard Enter → typed shortcut prefix →
+Escape/revoke cycles using the same seat, then continues the existing
+context-menu and XWayland checks. Every round requires fresh focus and input
+receipts in the RicePlate log. No mock keyboard-enter events, elevated host
+privileges or XFCE mutations are involved.
+
+This tests a previously intermittent handshake under repeated activation.
+It does **not** establish the historical race's root cause is fully fixed,
+does not include physical input/IME/Orca acceptance and does not close
+parent SG1/SG7 or issue #417. Only a successful exact-head native workflow
+and a successful post-merge main run can accept this regression gate.
+
 ### SG1 focus stress + SG5 atomic native compose events (16 November 2026)
 
 - **SG1:** The pure DesktopFocusLease CI test now explores 4,096
