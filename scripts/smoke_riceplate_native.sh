@@ -608,7 +608,7 @@ PY
                     menu_size=$(sed -n "s/.*menu trace show Some(((\([0-9][0-9]*\), \([0-9][0-9]*\)), true)).*/\1 \2/p" \
                         "$runtime/plate-$label.log" | tail -n 1)
                     case "$menu_size" in
-                        "320 304"|"360 342"|"400 380"|"480 456") ;;
+                        "320 304"|"360 342"|"400 380"|"480 456"|"560 532") ;;
                         *)
                             echo "Native Luna menu geometry trace is missing or unsupported: $menu_size" >&2
                             tail -n 25 "$runtime/plate-$label.log" >&2
@@ -1135,9 +1135,25 @@ PY
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-start.png"
             cp "$runtime/xp-luna-parity-start.png" \
                "$source_root/dist/riceplate-native-preview/xp-luna-parity-start.png"
-            # On 1366x768 the 400x380 Start popup is at y348. The 10-row
-            # native right shelf places Help at logical y176..194.
-            WAYLAND_DISPLAY=wayland-0 "$clicker" 265 580 1366 768
+            # Read actual native menu geometry instead of clicking coordinates
+            # from the obsolete 400x380 screenshot. Fail closed if the
+            # 1366x768 Luna preset or compositor trace regresses.
+            parity_menu_size=$(sed -n "s/.*menu trace show Some(((\([0-9][0-9]*\), \([0-9][0-9]*\)), true)).*/\1 \2/p" "$runtime/plate-$label.log" | tail -n 1)
+            if [ "$parity_menu_size" != "480 456" ]; then
+                echo "Native Luna 1366x768 menu size not confirmed: $parity_menu_size" >&2
+                tail -n 25 "$runtime/plate-$label.log" >&2
+                exit 1
+            fi
+            parity_menu_width=${parity_menu_size% *}
+            parity_menu_height=${parity_menu_size#* }
+            luna_parity_x() {
+                printf "%s\n" "$(($1 * parity_menu_width / 320))"
+            }
+            luna_parity_y() {
+                printf "%s\n" "$((768 - 40 - parity_menu_height + $1 * parity_menu_height / 304))"
+            }
+            # The right shelf places Help at logical y176..194.
+            WAYLAND_DISPLAY=wayland-0 "$clicker" "$(luna_parity_x 210)" "$(luna_parity_y 185)" 1366 768
             sleep 0.35
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-help.png"
             cp "$runtime/xp-luna-parity-help.png" \
@@ -1149,7 +1165,7 @@ PY
             WAYLAND_DISPLAY=wayland-0 "$clicker" 35 748 1366 768
             sleep 0.25
             # Run is the next right-shelf action: logical y194..212.
-            WAYLAND_DISPLAY=wayland-0 "$clicker" 265 602 1366 768
+            WAYLAND_DISPLAY=wayland-0 "$clicker" "$(luna_parity_x 210)" "$(luna_parity_y 203)" 1366 768
             sleep 0.35
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-parity-run.png"
             cp "$runtime/xp-luna-parity-run.png" \
