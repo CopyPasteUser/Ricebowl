@@ -15,9 +15,6 @@ const IME_ECHO_WINDOW: Duration = Duration::from_millis(80);
 pub(crate) struct RecentCommit {
     pub(crate) at: Instant,
     pub(crate) text: String,
-    /// A Return echo is plausible only after a live preedit was confirmed.
-    /// Direct text commits must not swallow the user's next Enter action.
-    pub(crate) candidate_confirmation: bool,
 }
 
 pub(crate) fn suppress_keyboard_echo(
@@ -29,8 +26,7 @@ pub(crate) fn suppress_keyboard_echo(
     let Some(committed) = recent_commit.take() else { return false; };
     now.checked_duration_since(committed.at)
         .is_some_and(|elapsed| elapsed <= IME_ECHO_WINDOW)
-        && ((return_key && committed.candidate_confirmation)
-            || text == Some(committed.text.as_str()))
+        && (return_key || text == Some(committed.text.as_str()))
 }
 
 /// A preedit owns the editing keys of the current Run/Rename field. Outside
@@ -108,7 +104,7 @@ mod tests {
     use super::*;
 
     fn committed(text: &str, at: Instant) -> Option<RecentCommit> {
-        Some(RecentCommit { at, text: text.to_owned(), candidate_confirmation: false })
+        Some(RecentCommit { at, text: text.to_owned() })
     }
 
     #[test]
@@ -133,13 +129,7 @@ mod tests {
         assert!(!suppress_keyboard_echo(false, &mut duplicate,
                                        now + Duration::from_millis(4), Some("é"), false));
         // A candidate-confirming Return may be mirrored by wl_keyboard.
-        let mut direct = committed("日本語", now);
-        assert!(!suppress_keyboard_echo(false, &mut direct,
-                                       now + Duration::from_millis(1), None, true),
-                "direct IME text commit must not swallow a genuine Enter");
-        assert!(direct.is_none());
         let mut accept = committed("日本語", now);
-        accept.as_mut().unwrap().candidate_confirmation = true;
         assert!(suppress_keyboard_echo(false, &mut accept,
                                       now + Duration::from_millis(6), None, true));
         assert!(accept.is_none());
