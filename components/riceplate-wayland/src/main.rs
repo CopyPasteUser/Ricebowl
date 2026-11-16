@@ -33,6 +33,7 @@ mod panel_chrome;
 mod osd;
 mod overlay_renderer;
 mod output_watch;
+mod output_handoff;
 mod power;
 mod raster;
 mod recipe;
@@ -677,6 +678,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         seat_assignments: seat_routing::SeatAssignments::default(),
         primary_output: None,
         primary_output_seen: false,
+        primary_output_handoff: output_handoff::PrimaryOutputHandoff::default(),
         toplevel_manager,
         trace_window_events: std::env::var("RICEBOWL_DE_TRACE_WINDOWS").as_deref() == Ok("1"),
         trace_frames: std::env::var("RICEBOWL_DE_TRACE_FRAMES").as_deref() == Ok("1"),
@@ -941,11 +943,20 @@ fn main() -> Result<(), Box<dyn Error>> {
         let timeout = [Some(next_clock_timeout()), osd_timeout, reconnect_timeout, backlight_timeout,
                        app.desktop_keyboard_focus_layer.as_ref().map(|focus|
                            focus.expires.saturating_duration_since(Instant::now())),
+                       app.primary_output_handoff.deadline().map(|at|
+                           at.saturating_duration_since(Instant::now())),
                        app.file_watcher.as_ref().and_then(|w| w.next_deadline())
                            .map(|at| at.saturating_duration_since(Instant::now())),
                        app.notification_state.refresh_timeout(Instant::now())]
             .into_iter().flatten().min().unwrap_or_else(next_clock_timeout);
         event_loop.dispatch(Some(timeout), &mut app)?;
+        // Only a genuinely unbound primary needs a mirror after the bounded
+        // leave/enter handoff. Avoid creating and immediately destroying
+        // focusable mirror panels during ordinary compositor reconfiguration.
+        if app.primary_output_handoff.take_due(Instant::now())
+            && app.primary_output.is_none() {
+            app.sync_mirrors(&qh);
+        }
         app.reap_file_launches_if_due();
         if app.desktop_keyboard_focus_layer.as_ref().is_some_and(|focus|
             Instant::now() >= focus.expires) {
@@ -1291,6 +1302,7 @@ struct RicePlate {
     seat_assignments: seat_routing::SeatAssignments<wl_seat::WlSeat>,
     primary_output: Option<wl_output::WlOutput>,
     primary_output_seen: bool,
+    primary_output_handoff: output_handoff::PrimaryOutputHandoff,
     toplevel_manager: Option<ZwlrForeignToplevelManagerV1>,
     trace_window_events: bool,
     trace_frames: bool,
@@ -3350,12 +3362,14 @@ impl RicePlate {
     }
 
     fn sync_mirrors(&mut self, qh: &QueueHandle<Self>) {
-        // An output can disappear between wl_surface.leave and its eventual
-        // enter on another output. Never leave the remaining display blank
-        // while the compositor is deciding where the unbound primary goes.
-        // Before the very first enter, defer to the compositor's initial
-        // placement to avoid redundant startup panels.
-        if !self.primary_output_seen { return; }
+        // A transient primary-panel Leave is not proof of output removal.
+        // Building a temporary mirror during the compositor's same-output
+        // rebind can introduce a focusable panel, then destroy it on Enter.
+        // Coalesce that handoff; real output destruction clears the guard.
+        // Before first Enter, avoid redundant startup panels as before.
+        if !self.primary_output_seen || self.primary_output_handoff.deadline().is_some() {
+            return;
+        }
         let outputs: Vec<_> = self.outputs.outputs()
             .filter(|output| self.primary_output.as_ref() != Some(output))
             .filter(|output| self.logical_output_size(output).is_some())
@@ -6546,6 +6560,7 @@ impl CompositorHandler for RicePlate {
             eprintln!("RicePlate: primary panel entered {output:?}");
             self.primary_output = Some(output.clone());
             self.primary_output_seen = true;
+            self.primary_output_handoff.clear();
             self.reflow_icons();
             self.sync_mirrors(qh);
             return;
@@ -6575,8 +6590,10 @@ impl CompositorHandler for RicePlate {
             eprintln!("RicePlate: primary panel left {output:?}");
             if self.primary_output.as_ref() == Some(output) {
                 self.primary_output = None;
+                self.primary_output_handoff.left(Instant::now());
             }
-            self.sync_mirrors(qh);
+            // A matching Enter cancels this pending handoff; a real removal
+            // takes the immediate OutputHandler::output_destroyed path.
             return;
         }
         if let Some(layer) = self
@@ -7067,6 +7084,7 @@ impl OutputHandler for RicePlate {
             if icon.output.as_ref() == Some(&output) { icon.output = None; }
         }
         self.restore_file_drag(qh);
+        self.primary_output_handoff.clear();
         self.reflow_icons();
         self.sync_mirrors(qh);
     }
