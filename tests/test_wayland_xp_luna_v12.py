@@ -2,6 +2,8 @@
 
 import copy
 import json
+import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,6 +17,32 @@ LUNA = Path(__file__).resolve().parents[1] / "examples/wayland/xp-luna.json"
 class WaylandLunaTests(unittest.TestCase):
     def setUp(self):
         self.source = json.loads(LUNA.read_text(encoding="utf-8"))
+
+    def test_prepare_helper_reports_actual_checkout_commands_without_running_them(self):
+        """An XP preview must never instruct users to launch a stale checkout."""
+        script = Path(__file__).resolve().parents[1] / "scripts/prepare_wayland_xp_luna.sh"
+        source = script.read_text(encoding="utf-8")
+        self.assertNotIn("RiceBowl-Wayland-Test", source)
+        self.assertIn('command -v swaybg', source)
+        self.assertIn('command -v labwc', source)
+        self.assertIn('PATH=%q:$PATH', source)
+
+        # Execute only the read-only diagnostic/printf tail with a checkout
+        # containing spaces. No cargo build, profile mutation or desktop
+        # session startup is involved.
+        tail = source.split("# The old hard-coded checkout path", 1)[1]
+        with tempfile.TemporaryDirectory() as base:
+            root = Path(base) / "Rice Bowl"
+            env = {**os.environ, "project_root": str(root),
+                   "binary_dir": str(root / "components/riceplate-wayland/target/release")}
+            report = subprocess.run(["bash", "-eu", "-c", tail], env=env,
+                                    capture_output=True, text=True, check=True, timeout=4)
+            self.assertIn("Built and validated XP Luna from ", report.stdout)
+            self.assertIn("cd " + str(root).replace(" ", r"\ ") + " && PATH=", report.stdout)
+            self.assertIn(":$PATH python3 launcher.py de start --nested", report.stdout)
+            self.assertIn("bash " + str(root / "scripts/try_wayland_xp_luna.sh")
+                          .replace(" ", r"\ "), report.stdout)
+            self.assertNotIn("RiceBowl-Wayland-Test", report.stdout)
 
     def test_real_luna_recipe_roundtrips_and_preserves_x11(self):
         parsed = recipes.parse(LUNA.read_bytes())
