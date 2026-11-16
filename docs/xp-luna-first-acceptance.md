@@ -22,6 +22,10 @@ ricebowl de start --nested --panel native --recipe xp-luna-columns
 
 A nested test can exercise desktop interaction but **cannot** certify
 display-manager login, lid/suspend, physical lock/unlock or a real GPU portal.
+The native preflight accepts an owned Wayland socket **directly below**
+`XDG_RUNTIME_DIR`, whether referenced by basename or absolute runtime path.
+An absolute socket from another Wayland session is not proof of this login
+and cannot authorize a screenshot evidence run.
 
 ## 1. Real session, only when ready
 
