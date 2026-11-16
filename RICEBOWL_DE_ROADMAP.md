@@ -21,6 +21,22 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
+### SG3 explicit RicePop inbox in RiceSpice (16 November 2026; CI candidate)
+
+- RiceSpice now offers a session-scoped **Show RicePop inbox** action. It loads active
+  notifications and bounded Mako history only after deliberate activation, never
+  automatically during settings navigation. The GTK inbox uses normal selectable
+  text and keyboard-focusable, individually labelled buttons; history is read-only.
+- The backend revalidates the owned Mako D-Bus PID/config **before and after**
+  both inventory reads. Foreign XFCE buses and owner switches fail closed; active
+  Dismiss/Invoke use the existing independent live ID/action and owner checks.
+  No second notification daemon, resident poller, persistence or global desktop
+  change is introduced. A page refresh removes the transient inbox.
+- Software regression tests cover unverified/restarted hosts, lazy privacy,
+  button bindings, stale-action delegation and history immutability. This is a
+  **partial** SG3 UX improvement, not live push updates, complete AT-SPI,
+  translated interface, accessible OSD or physical Mint/Orca sign-off.
+
 ### SG3 active RicePop host ownership (16 November 2026; CI pending)
 
 - Active notification **Dismiss** and **Invoke** now validate the exact active Mako D-Bus owner PID and owner-private Mako configuration both before the fresh active-ID/action inventory and again just before mutation. A different host, unexpected owner, stale ID, unsupported action, or D-Bus failure stops with an explicit error rather than invoking a notification in a different session.
