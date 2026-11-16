@@ -23,6 +23,7 @@ mod installed_apps;
 mod luna_places;
 mod luna_dialog;
 mod native_ime;
+mod native_shaping;
 mod luna_clock;
 mod luna_taskbar;
 mod luna_desktop_ipc;
