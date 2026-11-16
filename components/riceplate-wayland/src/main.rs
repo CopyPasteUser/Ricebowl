@@ -5755,15 +5755,18 @@ fn paint_menu_header_controls(canvas: &mut [u8], size: (u32, u32),
             continue;
         };
         if luna_columns {
-            // Both buttons retain the same native hit rectangles; the two
-            // tone treatment is purely visual and carries no fake controls.
-            fill_rounded_rect(canvas, size.0, size.1, x, y, width, height,
-                              5, 0xff0d_357f);
-            fill_rounded_rect(canvas, size.0, size.1, x + 1, y + 1,
-                              width - 2, height - 3, 4,
-                              if active { 0xff4b_80c8 } else { 0xff2b_67bd });
-            fill_rect(canvas, size.0, size.1, x + 6, y + 3,
-                      width - 12, 1, 0xff8c_c2f1);
+            // X11-style account header: Find/Saved are still genuine, large
+            // keyboard/pointer hit targets, but no longer compete with the
+            // profile portrait as two prominent toolbar buttons.
+            fill_rounded_rect(canvas, size.0, size.1, x + 2, y + 3,
+                              width - 4, height - 6, 3, 0xff0e_377d);
+            fill_rounded_rect(canvas, size.0, size.1, x + 3, y + 4,
+                              width - 6, height - 8, 2,
+                              if active { 0xff376_dbe } else { 0xff1b_4f99 });
+            fill_rect(canvas, size.0, size.1, x + 6, y + 4,
+                      width - 12, 1, 0xff81_b9f0);
+            fill_rect(canvas, size.0, size.1, x + 6, y + height - 5,
+                      width - 12, 1, 0xff0f_357b);
         } else {
             fill_rounded_rect(canvas, size.0, size.1, x, y, width, height,
                               style.task_radius.max(2), if active { selection } else { background });
