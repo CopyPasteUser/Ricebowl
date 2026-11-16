@@ -697,6 +697,11 @@ class _LiveSwitch:
             command = [binary, "--config", str(directory / "config.jsonc"),
                        "--style", str(directory / "style.css")]
         spawn_env = {**self.env, "RICEBOWL_DE_RECIPE": recipes.native_token(token)}
+        if not native:
+            # XFCE/X11 may export GDK_BACKEND=x11. Waybar is a Wayland-only
+            # layer-shell client; scope the override to this child process.
+            # Never change the parent's XFCE environment or native clients.
+            spawn_env["GDK_BACKEND"] = "wayland"
         # Never leak a readiness descriptor inherited from an outer process
         # into the wallpaper, rescue bar or a later replacement.
         spawn_env.pop("RICEBOWL_DE_READY_FD", None)
@@ -1356,7 +1361,9 @@ def shell(
                 style.write_text(generated_style, encoding="utf-8")
             panel = spawn(
                 [waybar, "--config", str(config), "--style", str(style)],
-                env=env, stdin=subprocess.DEVNULL,
+                # Do not inherit the XFCE/X11 GTK display backend on a
+                # nested compositor's initial or post-native-failure bar.
+                env={**env, "GDK_BACKEND": "wayland"}, stdin=subprocess.DEVNULL,
             )
             if shutting_down:
                 _stop_process(panel)
