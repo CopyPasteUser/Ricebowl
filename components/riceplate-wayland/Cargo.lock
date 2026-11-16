@@ -1000,6 +1000,7 @@ dependencies = [
  "unicode-bidi",
  "unicode-segmentation",
  "wayland-client",
+ "wayland-protocols",
  "wayland-protocols-wlr",
 ]
 

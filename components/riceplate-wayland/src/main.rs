@@ -22,6 +22,7 @@ mod icon_positions;
 mod installed_apps;
 mod luna_places;
 mod luna_dialog;
+mod native_ime;
 mod luna_clock;
 mod luna_taskbar;
 mod luna_desktop_ipc;
@@ -141,6 +142,10 @@ use wayland_client::{
     globals::registry_queue_init,
     protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_shm, wl_surface},
     Connection, Dispatch, QueueHandle,
+};
+use wayland_protocols::wp::text_input::zv3::client::{
+    zwp_text_input_manager_v3::{self, ZwpTextInputManagerV3},
+    zwp_text_input_v3::{self, ChangeCause, ContentHint, ContentPurpose, ZwpTextInputV3},
 };
 use wayland_protocols_wlr::foreign_toplevel::v1::client::{
     zwlr_foreign_toplevel_handle_v1::{self, ZwlrForeignToplevelHandleV1},
@@ -394,6 +399,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let layer_shell = LayerShell::bind(&globals, &qh)?;
     let shm = Shm::bind(&globals, &qh)?;
     let toplevel_manager: Option<ZwlrForeignToplevelManagerV1> = globals.bind(&qh, 1..=3, ()).ok();
+    let text_input_manager: Option<ZwpTextInputManagerV3> = globals.bind(&qh, 1..=2, ()).ok();
     if toplevel_manager.is_none() {
         eprintln!("RicePlate: compositor lacks wlr-foreign-toplevel-management; taskbar disabled");
     }
@@ -601,6 +607,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         registry: RegistryState::new(&globals),
         outputs: OutputState::new(&globals, &qh),
         seats: SeatState::new(&globals, &qh),
+        text_input_manager,
+        native_ime: None,
         shm,
         layer,
         mirrors: Vec::new(),
@@ -1141,6 +1149,20 @@ struct LunaDialogLayer {
     state: luna_dialog::State,
 }
 
+/// The keyboard seat owns one text-input-v3 proxy; only a compositor Enter
+/// for the exact live editable Luna surface enables it. Commands, filenames,
+/// preedit and surrounding text remain private and are never logged.
+struct NativeIme {
+    seat: wl_seat::WlSeat,
+    input: ZwpTextInputV3,
+    focused_surface: Option<wl_surface::WlSurface>,
+    enabled_surface: Option<wl_surface::WlSurface>,
+    committed_serial: u32,
+    pending: native_ime::Pending,
+    composing: bool,
+    received_commit: bool,
+}
+
 struct FileContextLayer {
     surface: LayerSurface,
     pool: Option<SlotPool>,
@@ -1231,6 +1253,9 @@ struct RicePlate {
     outputs: OutputState,
     seats: SeatState,
     shm: Shm,
+    // Optional compositor-owned text-input-v3 (one editor on one keyboard seat).
+    text_input_manager: Option<ZwpTextInputManagerV3>,
+    native_ime: Option<NativeIme>,
     layer: LayerSurface,
     mirrors: Vec<PanelMirror>,
     icon_layers: Vec<IconLayer>,
@@ -2327,7 +2352,40 @@ impl RicePlate {
 
 
 
+    fn deactivate_ime(&mut self) {
+        let Some(ime) = self.native_ime.as_mut() else { return; };
+        if ime.enabled_surface.take().is_some() {
+            ime.input.disable();
+            ime.input.commit();
+            ime.committed_serial = ime.committed_serial.wrapping_add(1);
+        }
+        ime.pending.reset();
+        ime.composing = false;
+        ime.received_commit = false;
+    }
+
+    /// Synchronize at the same logical edit/caret boundary used by the
+    /// native renderer. This sends no private text to any persistence layer.
+    fn refresh_ime_state(&mut self, cause: ChangeCause) {
+        let Some(dialog) = self.luna_dialog.as_ref() else { return; };
+        let Some(ime) = self.native_ime.as_mut() else { return; };
+        if ime.enabled_surface.as_ref() != Some(dialog.surface.wl_surface())
+            || ime.focused_surface.as_ref() != Some(dialog.surface.wl_surface()) {
+            return;
+        }
+        let (text, cursor) = dialog.state.surrounding_text();
+        let (_, x, _) = dialog.state.input_view_composing(282,
+            |text| luna_dialog_text_width(&self.recipe, text),
+            |visual| luna_dialog_visual_width(&self.recipe, visual));
+        ime.input.set_surrounding_text(text, cursor, cursor);
+        ime.input.set_text_change_cause(cause);
+        ime.input.set_cursor_rectangle(128 + x as i32, 120, 2, 16);
+        ime.input.commit();
+        ime.committed_serial = ime.committed_serial.wrapping_add(1);
+    }
+
     fn close_luna_dialog(&mut self) {
+        self.deactivate_ime();
         // Drop the real overlay surface on dismissal; no transparent
         // fullscreen input grab, background worker or hidden popup survives.
         self.luna_dialog = None;
@@ -6182,10 +6240,15 @@ fn paint_luna_dialog(canvas: &mut [u8], style: &PanelStyle, state: &luna_dialog:
             fill_rect(canvas, w, h, 120, 113, 302, 28, 0xffff_ffff);
             // Use the same font advances as actual glyph drawing: a
             // proportional selected font must not misplace the caret.
-            let (text, cursor_x) = state.input_view_bidi(282,
+            let (text, cursor_x, composing) = state.input_view_composing(282,
                 |value| luna_dialog_text_width(style, value),
                 |visual| luna_dialog_visual_width(style, visual));
             draw_rice_text(canvas, w, h, 128, 122, &text, 0xff10_2849, style);
+            if let Some((a, b)) = composing {
+                // Underline only live, noncommitted preedit; not stored in the
+                // command buffer, and never painted after a focus teardown.
+                fill_rect(canvas, w, h, 128 + a, 138, (b - a).max(1), 1, 0xff19_61bb);
+            }
             fill_rect(canvas, w, h, 128 + cursor_x, 120, 2, 16, 0xff10_2849);
             let notice = state.notice.unwrap_or(if state.kind == luna_dialog::Kind::Run {
                 "Executes a command directly as your user."
@@ -7134,6 +7197,15 @@ impl SeatHandler for RicePlate {
             match self.seats.get_keyboard(qh, &seat, None) {
                 Ok(keyboard) => {
                     self.seat_assignments.claim_keyboard(seat.clone());
+                    if let Some(manager) = self.text_input_manager.as_ref() {
+                        let input = manager.get_text_input(&seat, qh, ());
+                        self.native_ime = Some(NativeIme {
+                            seat: seat.clone(), input,
+                            focused_surface: None, enabled_surface: None,
+                            committed_serial: 0, pending: native_ime::Pending::default(),
+                            composing: false, received_commit: false,
+                        });
+                    }
                     self.keyboard = Some(keyboard);
                 },
                 Err(error) => eprintln!("RicePlate: keyboard unavailable: {error}"),
@@ -7172,6 +7244,9 @@ impl SeatHandler for RicePlate {
             // A removed keyboard never sends release/modifier updates.
             self.selection_modifiers = Modifiers::default();
             self.desktop_selection.cancel();
+            if let Some(ime) = self.native_ime.take() {
+                ime.input.destroy();
+            }
             if let Some(keyboard) = self.keyboard.take() {
                 keyboard.release();
             }
@@ -7405,6 +7480,16 @@ impl KeyboardHandler for RicePlate {
         if self.keyboard.as_ref() != Some(keyboard) { return; }
         if self.dispatch_desktop_keyboard_focus(&event, qh) { return; }
         if self.luna_dialog_focused {
+            let ime_handling_text = self.native_ime.as_ref().is_some_and(|ime|
+                ime.enabled_surface.as_ref() == self.luna_dialog.as_ref()
+                    .map(|layer| layer.surface.wl_surface())
+                && (ime.composing || ime.received_commit));
+            // A composing IME owns Return/Escape and text keys until its
+            // double-buffered Done; never execute a partially composed Run.
+            if ime_handling_text && matches!(event.keysym,
+                    Keysym::Return | Keysym::KP_Enter | Keysym::Escape) {
+                return;
+            }
             // Do not log keysyms or UTF-8 from the Run dialog: they can
             // contain sensitive commands. Test diagnostics report only
             // cursor and character count after an edit below.
@@ -7437,17 +7522,21 @@ impl KeyboardHandler for RicePlate {
                     }
                 }
                 _ => {
-                    if let (Some(dialog), Some(text)) =
-                        (self.luna_dialog.as_mut(), event.utf8.as_deref()) {
-                        // A compositor key/compose event may commit multiple
-                        // graphemes in one UTF-8 payload. Insert the whole
-                        // validated event or none; never execute as a shell.
-                        repaint = dialog.state.commit_text(text);
+                    if !ime_handling_text {
+                        if let (Some(dialog), Some(text)) =
+                            (self.luna_dialog.as_mut(), event.utf8.as_deref()) {
+                            // The direct-keyboard fallback stays enabled until
+                            // the compositor actually sends IME text events.
+                            repaint = dialog.state.commit_text(text);
+                        }
                     }
                 }
             }
             if execute { self.execute_luna_dialog(qh); }
-            else if repaint { self.redraw_luna_dialog(); }
+            else if repaint {
+                self.redraw_luna_dialog();
+                self.refresh_ime_state(ChangeCause::Other);
+            }
             if std::env::var_os("RICEBOWL_DE_TRACE_MENU").is_some() {
                 if let Some(dialog) = self.luna_dialog.as_ref() {
                     // No command text in logs: only non-sensitive edit state
@@ -7987,7 +8076,10 @@ impl PointerHandler for RicePlate {
                             dialog.state.place_cursor_at_bidi(event.position.0 - 128.0, 282,
                                 |text| luna_dialog_text_width(style, text),
                                 |visual| luna_dialog_visual_width(style, visual)));
-                        if moved || repaint { self.redraw_luna_dialog(); }
+                        if moved || repaint {
+                            self.redraw_luna_dialog();
+                            if moved { self.refresh_ime_state(ChangeCause::Other); }
+                        }
                     }
                     None => if repaint { self.redraw_luna_dialog(); },
                 }
@@ -8792,6 +8884,113 @@ impl PointerHandler for RicePlate {
                     }
                 }
             }
+        }
+    }
+}
+
+// The text-input manager has no runtime events, but the proxy's typed
+// dispatch must still be registered for wayland-client.
+impl Dispatch<ZwpTextInputManagerV3, ()> for RicePlate {
+    fn event(
+        _: &mut Self, _: &ZwpTextInputManagerV3,
+        _: zwp_text_input_manager_v3::Event,
+        _: &(), _: &Connection, _: &QueueHandle<Self>,
+    ) {}
+}
+
+impl Dispatch<ZwpTextInputV3, ()> for RicePlate {
+    fn event(
+        state: &mut Self, proxy: &ZwpTextInputV3,
+        event: zwp_text_input_v3::Event,
+        _: &(), _: &Connection, _: &QueueHandle<Self>,
+    ) {
+        if state.native_ime.as_ref().is_none_or(|ime| ime.input != *proxy) {
+            return;
+        }
+        match event {
+            zwp_text_input_v3::Event::Enter { surface } => {
+                let editable = state.luna_dialog.as_ref().is_some_and(|dialog|
+                    dialog.surface.wl_surface() == &surface
+                    && matches!(dialog.state.kind,
+                        luna_dialog::Kind::Run | luna_dialog::Kind::FileRename));
+                let ime = state.native_ime.as_mut().expect("checked above");
+                ime.focused_surface = Some(surface.clone());
+                ime.pending.reset();
+                ime.composing = false;
+                ime.received_commit = false;
+                if editable {
+                    ime.enabled_surface = Some(surface);
+                    ime.input.enable();
+                    ime.input.set_content_type(
+                        ContentHint::PreeditShown, ContentPurpose::Normal);
+                    state.refresh_ime_state(ChangeCause::Other);
+                } else {
+                    state.deactivate_ime();
+                }
+            }
+            zwp_text_input_v3::Event::Leave { surface } => {
+                let ime = state.native_ime.as_mut().expect("checked above");
+                if ime.focused_surface.as_ref() != Some(&surface) { return; }
+                ime.focused_surface = None;
+                // After Leave the protocol rejects requests until Enter:
+                // do not issue a late disable/commit on the old surface.
+                ime.enabled_surface = None;
+                ime.pending.reset();
+                ime.composing = false;
+                ime.received_commit = false;
+                if let Some(dialog) = state.luna_dialog.as_mut() {
+                    if dialog.surface.wl_surface() == &surface {
+                        dialog.state.preedit = None;
+                        state.redraw_luna_dialog();
+                    }
+                }
+            }
+            zwp_text_input_v3::Event::PreeditString { text, cursor_begin, cursor_end } => {
+                if let Some(ime) = state.native_ime.as_mut() {
+                    ime.pending.preedit(text, cursor_begin, cursor_end);
+                }
+            }
+            zwp_text_input_v3::Event::CommitString { text } => {
+                if let Some(ime) = state.native_ime.as_mut() {
+                    ime.pending.commit(text);
+                }
+            }
+            zwp_text_input_v3::Event::DeleteSurroundingText {
+                before_length, after_length,
+            } => {
+                if let Some(ime) = state.native_ime.as_mut() {
+                    ime.pending.delete(before_length, after_length);
+                }
+            }
+            zwp_text_input_v3::Event::Done { serial } => {
+                let (pending, owned, matches_serial) = {
+                    let ime = state.native_ime.as_mut().expect("checked above");
+                    (std::mem::take(&mut ime.pending),
+                     ime.enabled_surface.clone(), ime.committed_serial == serial)
+                };
+                let matching = owned.as_ref().is_some_and(|surface|
+                    state.luna_dialog.as_ref().is_some_and(|dialog|
+                        dialog.surface.wl_surface() == surface));
+                if !matching { return; }
+                let updated = state.luna_dialog.as_mut().is_some_and(|dialog|
+                    dialog.state.apply_ime(&pending));
+                if updated {
+                    if let Some(ime) = state.native_ime.as_mut() {
+                        ime.composing = state.luna_dialog.as_ref()
+                            .is_some_and(|dialog| dialog.state.preedit.is_some());
+                        ime.received_commit |= pending.commit.as_ref()
+                            .is_some_and(|commit| !commit.is_empty());
+                    }
+                    state.redraw_luna_dialog();
+                    // A mismatched Done is still an edit per protocol, but
+                    // the IME-facing state must not be synchronized until
+                    // the compositor catches up with the committed serial.
+                    if matches_serial { state.refresh_ime_state(ChangeCause::InputMethod); }
+                }
+            }
+            // Action events are not authority to execute a Run command.
+            // Only explicit Return/key/click in the user's focused dialog can.
+            _ => {}
         }
     }
 }

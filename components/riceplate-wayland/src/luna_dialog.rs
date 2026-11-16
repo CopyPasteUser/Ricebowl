@@ -18,10 +18,12 @@ pub enum Hit { Input, Accept, Cancel }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CursorMove { Left, Right, Home, End }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct State {
     pub kind: Kind,
     pub input: String,
+    /// Noncommitted IME preedit; never included in argv or filesystem actions.
+    pub preedit: Option<crate::native_ime::Preedit>,
     /// Extended grapheme position, not a byte/scalar offset. Never splits
     /// combining sequences, flags or ZWJ emoji during a rename/Run edit.
     pub cursor: usize,
@@ -67,12 +69,13 @@ impl State {
             || name.chars().count() > MAX_INPUT
             || name.chars().any(char::is_control) { return false; }
         self.input = name.to_owned();
+        self.preedit = None;
         self.cursor = self.input.graphemes(true).count();
         true
     }
 
     pub fn new(kind: Kind) -> Self {
-        Self { kind, input: String::new(), cursor: 0, notice: None, hover: None, pressed: None }
+        Self { kind, input: String::new(), preedit: None, cursor: 0, notice: None, hover: None, pressed: None }
     }
 
     /// Insert exactly one user-perceived character from a native key event.
@@ -100,6 +103,7 @@ impl State {
         let points = self.boundaries();
         let offset = points[self.cursor.min(points.len() - 1)];
         self.input.insert_str(offset, content);
+        self.preedit = None;
         // Both sides can join into a new grapheme. Recalculate from the
         // actual resulting text, never by adding UTF-8 bytes or scalars.
         self.cursor = self.input[..offset + content.len()].graphemes(true).count();
@@ -114,6 +118,7 @@ impl State {
         if self.cursor >= points.len() { return false; }
         self.input.replace_range(points[self.cursor - 1]..points[self.cursor], "");
         self.cursor -= 1;
+        self.preedit = None;
         self.notice = None;
         true
     }
@@ -124,6 +129,7 @@ impl State {
         let points = self.boundaries();
         if self.cursor + 1 >= points.len() { return false; }
         self.input.replace_range(points[self.cursor]..points[self.cursor + 1], "");
+        self.preedit = None;
         self.notice = None;
         true
     }
@@ -138,6 +144,7 @@ impl State {
             CursorMove::Home => 0,
             CursorMove::End => count,
         };
+        if self.cursor != previous { self.preedit = None; }
         self.cursor != previous
     }
 
@@ -201,6 +208,7 @@ impl State {
         }
         let changed = self.cursor != selected;
         self.cursor = selected;
+        if changed { self.preedit = None; }
         changed
     }
 
@@ -248,7 +256,90 @@ impl State {
             }
         }
         self.cursor = selected;
+        if self.cursor != old { self.preedit = None; }
         self.cursor != old
+    }
+
+    /// The text-input-v3 protocol expresses all offsets in UTF-8 *bytes*.
+    /// This editor stores a bounded line, so the full string is safe to send
+    /// without shortening a grapheme or leaking it to disk.
+    pub fn surrounding_text(&self) -> (String, i32) {
+        let points = self.boundaries();
+        let cursor = points[self.cursor.min(points.len() - 1)] as i32;
+        (self.input.clone(), cursor)
+    }
+
+    /// Apply one complete IME Done batch. Delete, commit and preedit are
+    /// validated against a clone first; a malformed byte boundary cannot
+    /// mutate the original filename, command or error state.
+    pub fn apply_ime(&mut self, pending: &crate::native_ime::Pending) -> bool {
+        if !self.editable() { return false; }
+        let mut candidate = self.clone();
+        candidate.preedit = None;
+        if let Some((before, after)) = pending.delete {
+            let (text, cursor) = candidate.surrounding_text();
+            let cursor = cursor as usize;
+            let Some(start) = cursor.checked_sub(before as usize) else { return false; };
+            let Some(end) = cursor.checked_add(after as usize) else { return false; };
+            let points = candidate.boundaries();
+            if end > text.len() || !points.contains(&start) || !points.contains(&end) {
+                return false;
+            }
+            candidate.input.replace_range(start..end, "");
+            candidate.cursor = candidate.input[..start].graphemes(true).count();
+        }
+        if let Some(content) = pending.commit.as_deref() {
+            if !content.is_empty() && !candidate.commit_text(content) { return false; }
+        }
+        if let Some(ref result) = pending.preedit {
+            let Ok(preedit) = result else { return false; };
+            if candidate.input.chars().count() + preedit.text.chars().count() > MAX_INPUT {
+                return false;
+            }
+            candidate.preedit = (!preedit.text.is_empty()).then(|| preedit.clone());
+        }
+        *self = candidate;
+        true
+    }
+
+    /// Paint preedit at its logical insertion point, with IME-specified
+    /// caret and underline. This is a view only: the committed input remains
+    /// unchanged until a valid Done commit transaction arrives.
+    pub fn input_view_composing<F: Fn(&str) -> u32, G: Fn(&str) -> u32>(
+        &self, max_width: u32, measure: F, measure_visual: G,
+    ) -> (String, u32, Option<(u32, u32)>) {
+        let Some(preedit) = self.preedit.as_ref() else {
+            let (text, caret) = self.input_view_bidi(max_width, measure, measure_visual);
+            return (text, caret, None);
+        };
+        let mut preview = self.clone();
+        preview.preedit = None;
+        let points = self.boundaries();
+        let insertion = points[self.cursor.min(points.len() - 1)];
+        if !preview.commit_text(&preedit.text) {
+            let (text, caret) = self.input_view_bidi(max_width, measure, measure_visual);
+            return (text, caret, None);
+        }
+        let end = insertion + preedit.text.len();
+        let begin_cursor = preview.input[..insertion].graphemes(true).count();
+        let end_cursor = preview.input[..end].graphemes(true).count();
+        let caret_byte = insertion + preedit.cursor.unwrap_or(preedit.text.len());
+        preview.cursor = preview.input[..caret_byte].graphemes(true).count();
+        let (display, caret) = preview.input_view_bidi(max_width, &measure, &measure_visual);
+        let points = preview.boundaries();
+        let (first, last) = preview.visible_range(max_width, &measure, &points);
+        let edges = bidi_caret_pixels(&display, &measure_visual);
+        let display_points: Vec<usize> = display.grapheme_indices(true)
+            .map(|(i, _)| i).chain(std::iter::once(display.len())).collect();
+        let locate = |cursor: usize| {
+            let local = cursor.saturating_sub(first).min(last - first);
+            edges.as_ref().map(|pixel| pixel[local])
+                .unwrap_or_else(|| measure(&display[..display_points[local]]))
+                .min(max_width.saturating_sub(1))
+        };
+        let a = locate(begin_cursor);
+        let b = locate(end_cursor);
+        (display, caret, Some((a.min(b), a.max(b))))
     }
 
     /// A tiny argv lexer, not a shell. Only explicit user keystrokes feed
@@ -487,6 +578,43 @@ mod tests {
         assert_eq!(state.input, "a\u{301}👩‍💻b");
     }
 
+
+    #[test]
+    fn wayland_preedit_is_visible_but_never_committed_before_done() {
+        let mut state = State::new(Kind::Run);
+        assert!(state.commit_text("foot"));
+        let mut pending = crate::native_ime::Pending::default();
+        pending.preedit(Some(" あ".to_string()), 4, 4);
+        assert!(state.apply_ime(&pending));
+        let metric = |text: &str| (text.graphemes(true).count() as u32) * 8;
+        let (painted, caret, underline) =
+            state.input_view_composing(200, metric, metric);
+        assert_eq!(painted, "foot あ");
+        assert_eq!(caret, 48);
+        assert_eq!(underline, Some((32, 48)));
+        assert_eq!(state.input, "foot");
+        assert_eq!(state.argv().unwrap(), ["foot"]);
+        assert!(state.move_cursor(CursorMove::Home));
+        assert!(state.preedit.is_none());
+        assert_eq!(state.input_view_composing(200, metric, metric),
+                   ("foot".into(), 0, None));
+    }
+
+    #[test]
+    fn invalid_ime_commit_is_atomic_even_with_valid_delete() {
+        let mut state = State::new(Kind::FileRename);
+        assert!(state.commit_text("notes"));
+        let mut pending = crate::native_ime::Pending::default();
+        pending.delete(2, 0);
+        pending.commit(Some("bad\nname".into()));
+        let initial = (state.input.clone(), state.cursor);
+        assert!(!state.apply_ime(&pending));
+        assert_eq!((state.input.clone(), state.cursor), initial);
+        pending.commit(Some("新".into()));
+        assert!(state.apply_ime(&pending));
+        assert_eq!(state.input, "not新");
+        assert_eq!(state.cursor, 4);
+    }
 
     #[test]
     fn rtl_caret_and_mouse_hits_follow_painted_order() {
