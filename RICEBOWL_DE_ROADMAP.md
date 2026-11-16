@@ -21,6 +21,24 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
+### SG1 focus stress + SG5 atomic native compose events (16 November 2026)
+
+- **SG1:** The pure DesktopFocusLease CI test now explores 4,096
+  deterministic six-event sequences (compositor Enter, wrong seat, Leave,
+  deadline), then verifies fresh-surface reacquisition, rejection of stale
+  tickets and fail-closed late Enter. This supplements, but never replaces,
+  the separate real headless labwc keyboard/seat acceptance.
+- **SG5:** Native Luna Run and Desktop file-rename editors now accept one
+  complete compositor-provided UTF-8 commit event containing multiple
+  grapheme clusters. The editor checks the complete input and scalar limit
+  *before* insertion, atomically rejects invalid commits and recalculates
+  the cursor at grapheme boundaries. Existing individual-key semantics
+  and the no-shell Run execution contract are preserved.
+- **Not yet covered:** Real Wayland text-input-v3 IME preedit/surrounding
+  text, HarfBuzz/OpenType complex-script shaping, BiDi layout, keyboard-only
+  assistive technology and physical Mint/GPU release sign-off. All parent
+  SG1–SG7 acceptance gates remain open until separately evidenced.
+
 ### Shared software mega-sprint – SG1/SG3/SG4/SG5 correctness slice (15 November 2026)
 
 - **SG1 / native desktop stability:** Owner-private 48px icon paints clip to
