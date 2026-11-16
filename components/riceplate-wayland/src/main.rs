@@ -160,7 +160,7 @@ const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
 
 fn luna_hover_target(hit: Option<Hit>) -> Option<Hit> {
-    hit.filter(|target| matches!(target, Hit::Launcher | Hit::Task(_)))
+    hit.filter(|target| matches!(target, Hit::Launcher | Hit::Task(_) | Hit::Action(_)))
 }
 
 
@@ -5241,10 +5241,20 @@ fn paint_panel_pointer(canvas: &mut [u8], width: u32, height: u32,
                         "applications" | "terminal" | "show-desktop") {
                         // Actual 32px input targets with original lightweight
                         // quick-launch glyphs; no vendor artwork or dummy icon.
-                        let left = placed.x + 2;
+                        let state = visual.button(Hit::Action(index));
+                        let (edge, rim) = match state {
+                            panel_chrome::ButtonVisual::Normal => (0xff1b_4a9f, 0xffa4_d7ff),
+                            panel_chrome::ButtonVisual::Hovered => (0xff54_9ef0, 0xfff2_faff),
+                            panel_chrome::ButtonVisual::Pressed => (0xff0b_327f, 0xff10_2765),
+                        };
+                        // Native XP quick-launch buttons have a 32px hitbox,
+                        // but a compact raised/pressed face. Pointer feedback
+                        // must be visible without inventing a second action.
+                        let left = placed.x + 2 +
+                            u32::from(state == panel_chrome::ButtonVisual::Pressed);
                         fill_rounded_rect(canvas, width, height, left, 5, 28,
-                                          height.saturating_sub(10), 3, 0xff1b_4a9f);
-                        fill_rect(canvas, width, height, left + 2, 7, 24, 1, 0xffa4_d7ff);
+                                          height.saturating_sub(10), 3, edge);
+                        fill_rect(canvas, width, height, left + 2, 7, 24, 1, rim);
                         match action.id.as_str() {
                             "applications" => {
                                 fill_rect(canvas, width, height, left + 7, 12, 14, 12, 0xfff2_e0a3);
@@ -9531,6 +9541,7 @@ mod tests {
         assert_eq!(PanelPointerVisual { pressed: Some(Hit::Launcher), hovered: None }
                    .button(Hit::Launcher), panel_chrome::ButtonVisual::Normal);
         assert_eq!(luna_hover_target(Some(Hit::Task(0))), Some(Hit::Task(0)));
+        assert_eq!(luna_hover_target(Some(Hit::Action(0))), Some(Hit::Action(0)));
         assert_eq!(luna_hover_target(Some(Hit::Clock)), None);
         assert_eq!(luna_hover_target(Some(Hit::Tray(0))), None);
         let hovered_launcher_frame = render(&luna, launcher_hover);
