@@ -8,6 +8,7 @@ import unittest
 
 from macrice.classic98_computer import (
     MAX_MOUNTS, filter_locations, mounted_locations, network_browsing_available,
+    open_location,
 )
 
 
@@ -70,6 +71,57 @@ class Classic98ComputerTests(unittest.TestCase):
         self.assertEqual([x.name for x in filter_locations(found, "nas")], ["Archive NAS"])
         self.assertEqual(filter_locations(found, "secret"), ())
         self.assertEqual(len(filter_locations(found, "")), len(found))
+
+    def test_local_explorer_uses_win98_ricefield_without_shell(self):
+        class GioFile:
+            def get_path(self):
+                return "/home/test/My Documents"
+
+        class Gio:
+            class File:
+                @staticmethod
+                def new_for_uri(uri):
+                    return GioFile()
+
+        class Shell:
+            calls = []
+            def _hide_menu(self):
+                self.calls.append(("hide",))
+            def _open_uri(self, uri):
+                self.calls.append(("fallback", uri))
+
+        shell = Shell()
+        calls = []
+        def spawn(argv, **kwargs):
+            calls.append((argv, kwargs))
+
+        result = open_location(
+            shell, "file:///home/test/My%20Documents", Gio,
+            which=lambda name: "/usr/local/bin/ricefield", spawn=spawn)
+        self.assertEqual(result, "ricefield")
+        self.assertEqual(calls[0][0], [
+            "/usr/local/bin/ricefield", "--theme", "win98",
+            "--separate-window", "/home/test/My Documents"])
+        self.assertEqual(calls[0][1]["close_fds"], True)
+        self.assertNotIn("shell", calls[0][1])
+        self.assertEqual(shell.calls, [("hide",)])
+
+    def test_network_uri_and_missing_binary_fall_back_to_default_handler(self):
+        class Gio:
+            class File:
+                @staticmethod
+                def new_for_uri(uri):
+                    raise AssertionError("Network URI must not be converted to a local path")
+
+        class Shell:
+            opened = []
+            def _open_uri(self, uri):
+                self.opened.append(uri)
+
+        shell = Shell()
+        self.assertEqual(open_location(shell, "smb://nas/share", Gio,
+                                       which=lambda _: "/usr/bin/ricefield"), "default")
+        self.assertEqual(shell.opened, ["smb://nas/share"])
 
     def test_no_automatic_remote_browsing_and_unavailable_backend(self):
         self.assertFalse(network_browsing_available(["file", "trash", "smb"]))
