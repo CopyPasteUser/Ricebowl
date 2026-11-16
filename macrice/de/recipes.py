@@ -417,8 +417,11 @@ def _parse_menu(value: Any, *, schema_version: int = 4) -> tuple[str, tuple[Menu
                     raise RecipeError("Invalid or repeated menu content source")
                 sources.add(kind)
                 parsed.append(MenuContent(kind, section["title"], section["limit"]))
-            if sum(section.limit for section in parsed) > 4:
-                raise RecipeError("Menu content exceeds four visible items")
+            # X11-parity Luna columns reserve four real recent applications
+            # and two action tiles. All other recipes retain the four-item cap.
+            max_visible = 6 if luna_columns and group_index == 0 else 4
+            if sum(section.limit for section in parsed) > max_visible:
+                raise RecipeError("Menu content exceeds its presentation item budget")
             content = tuple(parsed)
         result.append(MenuGroup(group["title"], tuple(actions), content))
     return data["title"], tuple(result)

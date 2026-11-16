@@ -623,10 +623,16 @@ fn validate_menu(menu: &Menu, version: u32) -> Result<(), Box<dyn Error>> {
             return Err("Invalid menu group".into());
         }
         if let Some(content) = &group.content {
+            // The full XP Luna two-column Start surface can show four real
+            // recent apps plus two native action entries. Keep every other
+            // menu constrained to the existing four-item layout contract.
+            let max_visible = if version >= 12 && index == 0
+                && menu.presentation.as_deref() == Some("columns")
+                && menu.colors.is_some() { 6 } else { 4 };
             if version < 6 || !(1..=2).contains(&content.len())
-                || content.iter().map(|section| section.limit as usize).sum::<usize>() > 4
+                || content.iter().map(|section| section.limit as usize).sum::<usize>() > max_visible
             {
-                return Err("Menu content needs schema v6 and at most four visible items".into());
+                return Err("Menu content exceeds its presentation item budget".into());
             }
             let mut sources = HashSet::new();
             for section in content {

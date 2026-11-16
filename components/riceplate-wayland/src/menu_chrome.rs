@@ -16,32 +16,43 @@ fn blend(base: u32, tint: u32, amount: u32) -> u32 {
 
 pub fn header(canvas: &mut [u8], palette: MenuPalette) {
     let (w, h) = (native_menu::WIDTH, native_menu::HEIGHT);
-    // The first 38 logical pixels remain one hit-free title band. A bright
-    // rounded-edge-style reflection over cobalt, followed by a dark bottom
-    // lip, gives Luna its original visual depth without importing XP assets.
+    // The X11 Luna menu has an unusually deep blue enamel account header.
+    // Three optical bands and a hairline gold return make this feel like an
+    // early-2000s desktop surface rather than a generic toolbar.
     for y in 0..38 {
-        let tone = if y == 0 { 0xffa4_d3ff }
-            else if y < 5 {
-                blend(palette.header, 0xffa3_d5ff, 144 - y * 13)
-            } else if y < 20 {
-                blend(palette.header, 0xff52_a2f0, 84 - (y - 5) * 3)
+        let tone = if y == 0 { 0xffd2_ecff }
+            else if y <= 3 {
+                blend(palette.header, 0xffb0_dcff, 174 - y * 18)
+            } else if y <= 14 {
+                blend(palette.header, 0xff64_a4f3, 110 - (y - 4) * 4)
+            } else if y <= 29 {
+                blend(palette.header, 0xff03_317c, (y - 14) * 5)
             } else {
-                blend(palette.header, 0xff00_205f, (y - 20) * 6)
+                blend(palette.header, 0xff07_245c, 90 + (y - 30) * 10)
             };
         fill_rect(canvas, w, h, 0, y, w, 1, tone);
     }
-    fill_rect(canvas, w, h, 0, 36, w, 1, 0xff08_357b);
-    fill_rect(canvas, w, h, 0, 37, w, 1, 0xffff_c368);
+    fill_rect(canvas, w, h, 0, 1, 1, 35, 0xffd0_eaff);
+    fill_rect(canvas, w, h, w - 1, 1, 1, 35, 0xff08_347d);
+    fill_rect(canvas, w, h, 0, 36, w, 1, 0xff0a_2e72);
+    fill_rect(canvas, w, h, 0, 37, w, 1, 0xffff_d28a);
 
-    // Original RiceBowl account artwork in the familiar XP identity square,
-    // including a recessed navy rim, pale-gold bevel and inset glossy portrait.
-    fill_rounded_rect(canvas, w, h, 6, 3, 32, 32, 5, 0xff0b_387a);
-    fill_rounded_rect(canvas, w, h, 7, 4, 30, 30, 4, 0xffff_d88e);
-    fill_rounded_rect(canvas, w, h, 9, 6, 26, 26, 3, 0xffee_f7ff);
-    fill_rounded_rect(canvas, w, h, 11, 8, 22, 22, 2, 0xff63_b6ef);
-    fill_rect(canvas, w, h, 13, 9, 18, 1, 0xffc6_efff);
-    fill_rounded_rect(canvas, w, h, 14, 20, 16, 7, 3, 0xff48_963b);
-    fill_rounded_rect(canvas, w, h, 20, 12, 6, 6, 3, 0xffff_e4a2);
+    // Native, original pixel-art RiceBowl penguin. The warm user tile and
+    // silhouette mirror the hierarchy of the richer X11 account banner.
+    // This is not a copied Windows XP user picture or trademark bitmap.
+    fill_rounded_rect(canvas, w, h, 5, 2, 34, 34, 4, 0xff0a_3874);
+    fill_rounded_rect(canvas, w, h, 6, 3, 32, 32, 4, 0xffff_e9aa);
+    fill_rounded_rect(canvas, w, h, 8, 5, 28, 28, 2, 0xff88_cdf3);
+    fill_rect(canvas, w, h, 10, 6, 24, 1, 0xffec_faff);
+    fill_rounded_rect(canvas, w, h, 14, 7, 16, 24, 7, 0xff20_3043);
+    fill_rounded_rect(canvas, w, h, 18, 15, 8, 14, 4, 0xffff_f9eb);
+    fill_rect(canvas, w, h, 17, 12, 3, 3, 0xffff_ffff);
+    fill_rect(canvas, w, h, 24, 12, 3, 3, 0xffff_ffff);
+    fill_rect(canvas, w, h, 19, 13, 1, 2, 0xff1d_273a);
+    fill_rect(canvas, w, h, 24, 13, 1, 2, 0xff1d_273a);
+    fill_rect(canvas, w, h, 20, 16, 5, 2, 0xffff_be43);
+    fill_rect(canvas, w, h, 17, 29, 5, 2, 0xffff_bb55);
+    fill_rect(canvas, w, h, 24, 29, 5, 2, 0xffff_bb55);
 }
 
 pub fn shelf(canvas: &mut [u8], palette: MenuPalette) {
@@ -70,8 +81,12 @@ pub fn shelf(canvas: &mut [u8], palette: MenuPalette) {
 pub fn left_all_programs_rule(canvas: &mut [u8]) {
     let (w, h) = (native_menu::WIDTH, native_menu::HEIGHT);
     let span = native_menu::COLUMNS_SPLIT.saturating_sub(20);
-    fill_rect(canvas, w, h, 10, 232, span, 1, 0xffbd_bab0);
-    fill_rect(canvas, w, h, 10, 233, span, 1, 0xffff_ffff);
+    // X11 separates frequently used programs, utilities and All Programs
+    // with understated etched rules rather than generic section headers.
+    for y in [181_u32, 232] {
+        fill_rect(canvas, w, h, 10, y, span, 1, 0xffbd_bab0);
+        fill_rect(canvas, w, h, 10, y + 1, span, 1, 0xffff_ffff);
+    }
 }
 
 /// Original bevelled footer buttons, using shared native_menu hit rectangles.
@@ -262,9 +277,59 @@ pub fn action_icon(canvas: &mut [u8], x: u32, y: u32, action: &str, selected: bo
             fill_rect(canvas, w, h, x + 5, y + 11, 3, 2, 0xffba_7826);
         }
         app if app.starts_with("desktop:") => {
-            // Missing vendor icon artwork is not replaced with a fake app
-            // logo. An original framed application-window symbol communicates
-            // an installed XDG program without relying on host icon paths.
+            // Small but distinguishable silhouettes use only the validated
+            // XDG desktop ID for *painting*, never for launching commands.
+            // The X11 preview has instantly recognizable app categories;
+            // drawing the same placeholder window for every app lost that
+            // legibility. These are original, non-vendor bitmap glyphs.
+            let app_id = app.to_ascii_lowercase();
+            let browser = ["firefox", "chrom", "brave", "epiphany", "vivaldi",
+                           "browser", "edge"].iter().any(|part| app_id.contains(*part));
+            let mail = ["thunderbird", "geary", "evolution", "kmail", "mail"]
+                .iter().any(|part| app_id.contains(*part));
+            let files = ["thunar", "ricefield", "nautilus", "dolphin", "nemo", "caja"]
+                .iter().any(|part| app_id.contains(*part));
+            let terminal = ["alacritty", "foot.desktop", "kitty", "konsole",
+                            "terminal", "xterm"].iter().any(|part| app_id.contains(*part));
+            let editor = ["code.desktop", "mousepad", "gedit", "kate",
+                          "editor", "notepad"].iter().any(|part| app_id.contains(*part));
+            if browser {
+                fill_rounded_rect(canvas, w, h, x, y, 14, 14, 7, 0xff1f_5699);
+                fill_rounded_rect(canvas, w, h, x + 2, y + 2, 10, 10, 5, 0xff5f_c5ea);
+                fill_rect(canvas, w, h, x + 2, y + 6, 10, 1, 0xffc9_f1f5);
+                fill_rect(canvas, w, h, x + 6, y + 3, 1, 9, 0xffc9_f1f5);
+                fill_rect(canvas, w, h, x + 10, y + 4, 2, 6, 0xfff5_a64a);
+                fill_rect(canvas, w, h, x + 8, y + 10, 3, 2, 0xffe6_6930);
+            } else if mail {
+                fill_rounded_rect(canvas, w, h, x, y + 1, 14, 12, 2, 0xff33_70ac);
+                fill_rect(canvas, w, h, x + 2, y + 3, 10, 8, 0xffec_f4fb);
+                for step in 0..5_u32 {
+                    fill_rect(canvas, w, h, x + 2 + step, y + 3 + step,
+                              1, 1, 0xff79_b9dd);
+                    fill_rect(canvas, w, h, x + 11 - step, y + 3 + step,
+                              1, 1, 0xff79_b9dd);
+                }
+            } else if files {
+                fill_rect(canvas, w, h, x, y + 3, 14, 10, 0xffa3_7229);
+                fill_rect(canvas, w, h, x + 2, y + 1, 7, 4, 0xffff_dc80);
+                fill_rect(canvas, w, h, x + 1, y + 5, 12, 7, 0xfff1_c257);
+                fill_rect(canvas, w, h, x + 2, y + 6, 10, 1, 0xffff_f0ac);
+            } else if terminal {
+                fill_rounded_rect(canvas, w, h, x, y + 1, 14, 12, 2, 0xff4d_6693);
+                fill_rect(canvas, w, h, x + 2, y + 3, 10, 8, 0xff15_2d4c);
+                fill_rect(canvas, w, h, x + 3, y + 5, 3, 1, 0xff91_e8db);
+                fill_rect(canvas, w, h, x + 5, y + 6, 2, 1, 0xff91_e8db);
+                fill_rect(canvas, w, h, x + 7, y + 8, 4, 1, 0xffdb_f3ff);
+            } else if editor {
+                fill_rounded_rect(canvas, w, h, x + 1, y, 12, 14, 2, 0xff57_83b7);
+                fill_rect(canvas, w, h, x + 3, y + 2, 8, 10, 0xfff6_f8fa);
+                for line in [4_u32, 7, 10] {
+                    fill_rect(canvas, w, h, x + 4, y + line, 6, 1, 0xff8a_b4d9);
+                }
+                fill_rect(canvas, w, h, x + 10, y + 9, 2, 4, 0xffdd_b34f);
+            } else {
+            // Unknown applications retain a truthful generic app glyph, not
+            // a guessed logo or an identifier-derived executable action.
             let tint = match app.bytes().fold(0_u8, |acc, b| acc.wrapping_add(b)) % 3 {
                 0 => 0xff59_9ad5,
                 1 => 0xff64_a755,
@@ -275,6 +340,7 @@ pub fn action_icon(canvas: &mut [u8], x: u32, y: u32, action: &str, selected: bo
             fill_rect(canvas, w, h, x + 2, y + 3, 10, 3, tint);
             fill_rect(canvas, w, h, x + 3, y + 8, 7, 1, 0xff70_9ec7);
             fill_rect(canvas, w, h, x + 3, y + 10, 5, 1, 0xffa5_bac8);
+            }
         }
         _ => fill_rounded_rect(canvas, w, h, x + 3, y + 3, 7, 7, 3, light),
     }
@@ -288,6 +354,31 @@ mod tests {
     fn at(pixels: &[u8], x: u32, y: u32) -> u32 {
         u32::from_le_bytes(pixels[((y * native_menu::WIDTH + x) * 4) as usize..]
             [..4].try_into().unwrap())
+    }
+
+    #[test]
+    fn native_start_icons_match_real_app_categories_without_vendor_artwork() {
+        let render = |action: &str| {
+            let mut pixels = vec![0_u8;
+                (native_menu::WIDTH * native_menu::HEIGHT * 4) as usize];
+            action_icon(&mut pixels, 10, 47, action, false);
+            pixels
+        };
+        let browser = render("desktop:firefox.desktop");
+        let mail = render("desktop:thunderbird.desktop");
+        let files = render("desktop:thunar.desktop");
+        let terminal = render("desktop:org.alacritty.Alacritty.desktop");
+        let editor = render("desktop:org.xfce.mousepad.desktop");
+        let other = render("desktop:unknown-app.desktop");
+        for category in [&browser, &mail, &files, &terminal, &editor] {
+            assert_ne!(category, &other);
+            assert!((47_u32..61).any(|row|
+                (10_u32..24).any(|col| at(category, col, row) != 0)));
+            assert_eq!(at(category, 50, 50), 0);
+        }
+        assert_ne!(browser, mail);
+        assert_ne!(files, terminal);
+        assert_ne!(editor, browser);
     }
 
     #[test]
@@ -335,7 +426,10 @@ mod tests {
         let before = pixels.clone();
         action_icon(&mut pixels, 14, 80, "desktop:firefox.desktop", false);
         assert_ne!(pixels, before);
-        assert_ne!(at(&pixels, 14, 81), 0);
+        // The browser badge is round now: the transparent corner stays
+        // transparent, while the body occupies the original 14x14 cell.
+        assert!((80_u32..94).any(|y|
+            (14_u32..28).any(|x| at(&pixels, x, y) != 0)));
         assert_eq!(at(&pixels, 14, 100), 0);
     }
 

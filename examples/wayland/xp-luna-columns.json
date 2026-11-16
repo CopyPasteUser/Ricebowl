@@ -120,7 +120,7 @@
           {
             "type": "apps-list",
             "title": "Installed Apps",
-            "limit": 2
+            "limit": 4
           }
         ]
       },

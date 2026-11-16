@@ -511,7 +511,10 @@ impl MenuState {
                 kind: MenuContentKind::AppsList, top: 42, items,
             });
             let mut items = Vec::with_capacity(2);
-            for (action, y, h) in [("terminal", 142_u32, 30_u32),
+            // Four genuine, recent/discovered applications now fill the
+            // program pane, followed by a distinct Terminal row. All Programs
+            // keeps its longstanding real footer-adjacent hit rectangle.
+            for (action, y, h) in [("terminal", 191_u32, 30_u32),
                                    ("applications", 242, 28)] {
                 items.push(MenuTile {
                     action, index, x: COLUMNS_LEFT, y,
@@ -1096,8 +1099,8 @@ mod tests {
         assert!(left.iter().all(|tile| tile.y >= 38 &&
             tile.y + tile.height <= LUNA_FOOTER_Y));
         assert_eq!(state.hit(menu, 60.0, 255.0), Some(Hit::Action(3)));
-        assert_eq!(state.hit(menu, 60.0, 150.0), Some(Hit::Action(2)));
-        assert_eq!(state.hit(menu, 60.0, 222.0), None);
+        assert_eq!(state.hit(menu, 60.0, 205.0), Some(Hit::Action(2)));
+        assert_eq!(state.hit(menu, 60.0, 180.0), None);
         // Keyboard and pointer order must remain consistent after the move.
         state.selected = 2;
         assert_eq!(state.current_action(menu), Some("terminal"));
@@ -1121,8 +1124,8 @@ mod tests {
         let plain_menu = plain.menu.as_mut().unwrap();
         plain_menu.palette = None;
         assert_eq!(state.visible_label(plain_menu, "applications", false), "Applications");
-        assert_eq!(state.hit(menu, 20.0, 255.0), Some(Hit::Action(3)));
-        assert_eq!(state.actions(menu)[3], "applications");
+        assert_eq!(state.hit(menu, 20.0, 255.0), Some(Hit::Action(5)));
+        assert_eq!(state.actions(menu)[5], "applications");
 
         state.show_programs();
         assert_eq!(state.view, View::Programs);
@@ -1212,6 +1215,34 @@ mod tests {
         assert_eq!(state.view, View::Programs);
     }
 
+
+    #[test]
+    fn luna_x11_parity_shows_four_real_apps_without_overlapping_system_actions() {
+        let style = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns")).unwrap();
+        let menu = style.menu.as_ref().unwrap();
+        let mut state = MenuState::default();
+        state.apps = demo_apps(8);
+        state.open();
+        let sections = state.composed_sections(menu).unwrap();
+        let recent = &sections[0].items;
+        assert_eq!(recent.len(), 4);
+        assert_eq!(recent.iter().map(|item| item.y).collect::<Vec<_>>(),
+                   vec![58, 88, 118, 148]);
+        let terminal = &sections[1].items[0];
+        let all_programs = &sections[1].items[1];
+        assert_eq!(terminal.action, "terminal");
+        assert_eq!(terminal.y, 191);
+        assert!(recent.last().unwrap().y + recent.last().unwrap().height < terminal.y);
+        assert_eq!(all_programs.action, "applications");
+        assert_eq!(all_programs.y, 242);
+        assert!(terminal.y + terminal.height < all_programs.y);
+        for tile in recent.iter().chain(sections[1].items.iter()) {
+            assert_eq!(state.hit(menu, f64::from(tile.x + 12),
+                                       f64::from(tile.y + 12)), Some(Hit::Action(tile.index)));
+        }
+    }
 
     #[test]
     fn luna_preview_prefers_real_browser_and_mail_on_fresh_login() {
@@ -1498,7 +1529,7 @@ mod tests {
             "pictures", "music", "settings", "notifications", "help", "run",
             "lock", "logout"
         ]);
-        assert_eq!(state.hit(menu, 20.0, 155.0), Some(Hit::Action(0)));
+        assert_eq!(state.hit(menu, 20.0, 205.0), Some(Hit::Action(0)));
         assert_eq!(state.hit(menu, 20.0, 255.0), Some(Hit::Action(1)));
         assert_eq!(state.hit(menu, 200.0, 80.0), Some(Hit::Action(2)));
         assert_eq!(state.hit(menu, 200.0, 116.0), Some(Hit::Action(4)));
@@ -1510,8 +1541,10 @@ mod tests {
         assert_eq!(state.hit(menu, 200.0, 290.0), None); // inert footer gap
         assert_eq!(state.hit(menu, 275.0, 290.0), Some(Hit::Close));
 
+        // Cross-column arrow navigation tracks the nearest vertical row,
+        // including the relocated Terminal beneath four recent programs.
         state.horizontal_by(menu, 1);
-        assert_eq!(state.current_action(menu), Some("settings"));
+        assert_eq!(state.current_action(menu), Some("run"));
         state.horizontal_by(menu, -1);
         assert_eq!(state.current_action(menu), Some("terminal"));
         state.select_group(menu, 2);
