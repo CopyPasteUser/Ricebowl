@@ -44,6 +44,10 @@ def process_memory(proc: Path = Path("/proc"), uid: int | None = None) -> dict[s
             continue
         try:
             name = (child / "comm").read_text(encoding="utf-8")[:64].strip()
+            # Linux TASK_COMM_LEN is 16 including NUL: the native binary's
+            # 16-character name appears as "riceplate-nativ" in /proc/comm.
+            if name == "riceplate-nativ":
+                name = "riceplate-native"
             if name not in PROCESS_NAMES:
                 continue
             status = (child / "status").read_text(encoding="ascii")
