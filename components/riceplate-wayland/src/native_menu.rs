@@ -511,7 +511,10 @@ impl MenuState {
                 kind: MenuContentKind::AppsList, top: 42, items,
             });
             let mut items = Vec::with_capacity(2);
-            for (action, y, h) in [("terminal", 142_u32, 30_u32),
+            // Four genuine, recent/discovered applications now fill the
+            // program pane, followed by a distinct Terminal row. All Programs
+            // keeps its longstanding real footer-adjacent hit rectangle.
+            for (action, y, h) in [("terminal", 191_u32, 30_u32),
                                    ("applications", 242, 28)] {
                 items.push(MenuTile {
                     action, index, x: COLUMNS_LEFT, y,
