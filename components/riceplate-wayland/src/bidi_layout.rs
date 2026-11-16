@@ -3,8 +3,9 @@
 //! Resolves UAX #9 embedding levels and reorders whole *grapheme clusters*
 //! (UAX #29), never bytes or combining marks. Existing LTR labels remain
 //! borrowed, allocation-free and byte-identical. Glyph shaping, mirroring,
-//! multi-line paragraphs, input-method preedit and caret mapping are separate
-//! SG5 requirements, not provided by this module.
+//! multi-line paragraphs and input-method preedit remain separate SG5
+//! requirements. This module also exposes visual grapheme edges for single-line
+//! editor caret hit-testing; it does not perform OpenType shaping.
 use std::borrow::Cow;
 use unicode_bidi::{bidi_class, BidiClass, BidiInfo};
 use unicode_segmentation::UnicodeSegmentation;
@@ -23,33 +24,62 @@ pub(crate) fn has_rtl(text: &str) -> bool {
 /// This avoids separating base letters from their combining marks, flags and
 /// joined emoji. The underlying font renderer still uses fontdue per glyph;
 /// this is not contextual Arabic shaping or bracket glyph mirroring.
-pub(crate) fn visual_order(text: &str) -> Cow<'_, str> {
+/// Visual cluster permutation and directional edges for a *single-line*
+/// editor. Indices refer to UAX #29 graphemes in logical storage order.
+/// Always derive a map from the exact visible substring: UAX #9 embedding
+/// levels may change at a truncation or paragraph boundary.
+pub(crate) struct VisualClusterMap {
+    pub(crate) visual_to_logical: Vec<usize>,
+    rtl_by_logical: Vec<bool>,
+}
+
+impl VisualClusterMap {
+    /// A logical caret is before grapheme N (or after the last grapheme).
+    /// At a BiDi run boundary two visual positions may be valid; consistently
+    /// prefer the leading edge of the following logical grapheme.
+    pub(crate) fn caret_edge(&self, cursor: usize) -> usize {
+        let len = self.visual_to_logical.len();
+        if len == 0 { return 0; }
+        let at_end = cursor >= len;
+        let logical = if at_end { len - 1 } else { cursor };
+        let visual = self.visual_to_logical.iter().position(|&i| i == logical)
+            .expect("reordering is a permutation");
+        if self.rtl_by_logical[logical] == at_end { visual } else { visual + 1 }
+    }
+}
+
+pub(crate) fn visual_cluster_map(text: &str) -> Option<VisualClusterMap> {
     if !has_rtl(text) || text.contains('\r') || text.contains('\n') {
-        return Cow::Borrowed(text);
+        return None;
     }
     let info = BidiInfo::new(text, None);
-    let Some(para) = (info.paragraphs.len() == 1).then(|| &info.paragraphs[0]) else {
-        return Cow::Borrowed(text);
-    };
-    if !info.has_rtl() { return Cow::Borrowed(text); }
+    let para = (info.paragraphs.len() == 1).then(|| &info.paragraphs[0])?;
+    if !info.has_rtl() { return None; }
     let per_char = info.reordered_levels_per_char(para, para.range.clone());
     let clusters: Vec<&str> = text.graphemes(true).collect();
     let mut levels = Vec::with_capacity(clusters.len());
-    let mut character_offset = 0_usize;
+    let mut offset = 0_usize;
     for cluster in &clusters {
-        let Some(level) = per_char.get(character_offset) else {
-            // Refuse a partial or malformed mapping rather than split text.
-            return Cow::Borrowed(text);
-        };
-        levels.push(*level);
-        character_offset += cluster.chars().count();
+        levels.push(*per_char.get(offset)?);
+        offset += cluster.chars().count();
     }
-    if character_offset != per_char.len() {
+    if offset != per_char.len() { return None; }
+    let rtl_by_logical = levels.iter().map(|level| level.is_rtl()).collect();
+    Some(VisualClusterMap {
+        visual_to_logical: BidiInfo::reorder_visual(&levels),
+        rtl_by_logical,
+    })
+}
+
+/// Return the visual-order grapheme sequence for a *single-line* label.
+/// LTR and unsupported paragraph inputs keep their existing borrowed path.
+pub(crate) fn visual_order(text: &str) -> Cow<'_, str> {
+    let Some(map) = visual_cluster_map(text) else {
         return Cow::Borrowed(text);
-    }
-    let visual = BidiInfo::reorder_visual(&levels);
+    };
+    let clusters: Vec<&str> = text.graphemes(true).collect();
     let mut reordered = String::with_capacity(text.len());
-    for index in visual {
+    for index in map.visual_to_logical {
         reordered.push_str(clusters[index]);
     }
     Cow::Owned(reordered)
@@ -87,4 +117,22 @@ mod tests {
             assert_eq!(input.chars().count(), output.chars().count());
         }
     }
+    #[test]
+    fn pure_rtl_caret_edges_follow_painted_visual_clusters() {
+        let map = visual_cluster_map("אבג").unwrap();
+        assert_eq!(map.visual_to_logical, [2, 1, 0]);
+        assert_eq!((0..=3).map(|i| map.caret_edge(i)).collect::<Vec<_>>(),
+                   [3, 2, 1, 0]);
+    }
+
+    #[test]
+    fn mixed_bidi_run_boundaries_preserve_logical_storage() {
+        let map = visual_cluster_map("abc אבג").unwrap();
+        assert_eq!(map.visual_to_logical, [0, 1, 2, 3, 6, 5, 4]);
+        assert_eq!((0..=7).map(|i| map.caret_edge(i)).collect::<Vec<_>>(),
+                   [0, 1, 2, 3, 7, 6, 5, 4]);
+        assert!(visual_cluster_map("regular ASCII").is_none());
+        assert!(visual_cluster_map("אבג\nabc").is_none());
+    }
+
 }
