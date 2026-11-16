@@ -144,6 +144,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn rtl_bitmap_raster_follows_unicode_runs_without_split_clusters() {
+        // Bitmap glyphs are available for ASCII; compare a mixed label
+        // against its Unicode BiDi visual order at the pixel level.
+        let logical = "אבגabc";
+        let visual = crate::bidi_layout::visual_order(logical);
+        assert_eq!(visual, "abcגבא");
+        let mut actual = vec![0_u8; 6 * 8 * 8 * 4];
+        let mut reference = actual.clone();
+        draw_bitmap_text(&mut actual, 48, 8, 0, 0, logical, 0xffff_ffff, 1, false);
+        // Visual strings are idempotent on the embedding-level layout.
+        draw_bitmap_text(&mut reference, 48, 8, 0, 0, &visual, 0xffff_ffff, 1, false);
+        assert_eq!(actual, reference);
+        assert_eq!(text_pixel_width(logical, 1), 48);
+    }
+
+    #[test]
     fn glyph_widths_count_complete_graphemes_not_utf8_bytes_or_scalars() {
         assert_eq!(text_pixel_width("Aéλ", 2), 48);
         assert_eq!(text_pixel_width("a\u{301}👩‍💻🇩🇪", 2), 48);
