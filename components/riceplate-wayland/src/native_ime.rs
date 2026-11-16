@@ -23,6 +23,22 @@ pub(crate) fn suppress_keyboard_echo(
             .is_some_and(|elapsed| elapsed <= IME_ECHO_WINDOW))
 }
 
+
+/** IME ownership policy for the native Run/Rename editor.
+
+An unfinished preedit owns destructive/editing keys, not just printable
+text. A completed commit can still have one trailing key echo, but Escape
+must always close the dialog immediately once composition has ended.
+*/
+pub(crate) fn owns_keyboard_edit(
+    composing: bool, recent_commit: &mut Option<Instant>, now: Instant,
+    echo_candidate: bool, editor_control: bool, escape: bool,
+) -> bool {
+    if composing { return echo_candidate || editor_control; }
+    if escape { return false; }
+    suppress_keyboard_echo(false, recent_commit, now, echo_candidate)
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Preedit {
     pub(crate) text: String,
@@ -121,6 +137,33 @@ mod tests {
         assert!(!suppress_keyboard_echo(false, &mut last, t, true));
     }
 
+
+    #[test]
+    fn composing_ime_owns_native_edit_commands_but_escape_recovers_after_done() {
+        let now = Instant::now();
+        let mut commit = Some(now);
+        // Backspace, arrows, Delete and Ctrl+A are native editing keys and
+        // must not mutate underlying Run text during a live IME preedit.
+        assert!(owns_keyboard_edit(true, &mut commit, now, false, true, false));
+        assert!(owns_keyboard_edit(true, &mut commit, now, false, true, true));
+        assert!(!owns_keyboard_edit(true, &mut commit, now, false, false, false));
+        assert_eq!(commit, Some(now));
+        // Escape immediately closes the dialog after Done, even within the
+        // short echo-suppression interval. It never consumes the marker.
+        assert!(!owns_keyboard_edit(false, &mut commit,
+                                    now + Duration::from_millis(1), true, true, true));
+        assert_eq!(commit, Some(now));
+        // Navigation/Backspace stay available after Done and do not consume
+        // a potential trailing printable/Return key echo.
+        assert!(!owns_keyboard_edit(false, &mut commit,
+                                    now + Duration::from_millis(2), false, true, false));
+        assert_eq!(commit, Some(now));
+        assert!(owns_keyboard_edit(false, &mut commit,
+                                   now + Duration::from_millis(3), true, true, false));
+        assert!(commit.is_none());
+        assert!(!owns_keyboard_edit(false, &mut commit,
+                                    now + Duration::from_millis(4), true, true, false));
+    }
 
     use crate::luna_dialog::{Kind, State};
 
