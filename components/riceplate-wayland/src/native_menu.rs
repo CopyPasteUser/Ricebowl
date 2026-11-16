@@ -52,7 +52,8 @@ pub fn fitted_luna_size(output_width: u32, output_height: u32,
         (480, 456)
     } else if output_width >= 960 && available_width >= 400 && available_height >= 380 {
         (400, 380)
-    } else if output_width >= 760 && available_width >= 360 && available_height >= 342 {
+    } else if (760..1280).contains(&output_width)
+        && available_width >= 360 && available_height >= 342 {
         (360, 342)
     } else {
         return fitted_size(output_width, output_height, panel_height);
