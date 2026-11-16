@@ -580,6 +580,43 @@ mod tests {
 
 
     #[test]
+    fn wayland_preedit_is_visible_but_never_committed_before_done() {
+        let mut state = State::new(Kind::Run);
+        assert!(state.commit_text("foot"));
+        let mut pending = crate::native_ime::Pending::default();
+        pending.preedit(Some(" あ".to_string()), 4, 4);
+        assert!(state.apply_ime(&pending));
+        let metric = |text: &str| (text.graphemes(true).count() as u32) * 8;
+        let (painted, caret, underline) =
+            state.input_view_composing(200, metric, metric);
+        assert_eq!(painted, "foot あ");
+        assert_eq!(caret, 48);
+        assert_eq!(underline, Some((32, 48)));
+        assert_eq!(state.input, "foot");
+        assert_eq!(state.argv().unwrap(), ["foot"]);
+        assert!(state.move_cursor(CursorMove::Home));
+        assert!(state.preedit.is_none());
+        assert_eq!(state.input_view_composing(200, metric, metric),
+                   ("foot".into(), 0, None));
+    }
+
+    #[test]
+    fn invalid_ime_commit_is_atomic_even_with_valid_delete() {
+        let mut state = State::new(Kind::FileRename);
+        assert!(state.commit_text("notes"));
+        let mut pending = crate::native_ime::Pending::default();
+        pending.delete(2, 0);
+        pending.commit(Some("bad\nname".into()));
+        let initial = (state.input.clone(), state.cursor);
+        assert!(!state.apply_ime(&pending));
+        assert_eq!((state.input.clone(), state.cursor), initial);
+        pending.commit(Some("新".into()));
+        assert!(state.apply_ime(&pending));
+        assert_eq!(state.input, "not新");
+        assert_eq!(state.cursor, 4);
+    }
+
+    #[test]
     fn rtl_caret_and_mouse_hits_follow_painted_order() {
         let measure = |s: &str| (s.graphemes(true).count() * 8) as u32;
         let mut state = State::new(Kind::FileRename);
