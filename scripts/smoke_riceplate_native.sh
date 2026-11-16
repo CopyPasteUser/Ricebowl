@@ -730,6 +730,12 @@ PY
             done
             WAYLAND_DISPLAY=wayland-0 wlr-randr --output "$output" --custom-mode 1366x768@60Hz --scale 1
             sleep 0.5
+            # Restore a neutral desktop state after opening and closing the
+            # Start menu at three resolutions. The new larger Luna menu can
+            # otherwise still own input while the compositor finishes its
+            # output reconfiguration, invalidating a desktop-icon click test.
+            WAYLAND_DISPLAY=wayland-0 wtype -k Escape
+            sleep 0.9
             # XP semantics: first compositor-delivered click selects;
             # two subsequent clicks within 650 ms activate the safe Gio target.
             # All events run in isolated labwc with a private Gio stand-in.
@@ -738,6 +744,9 @@ PY
             sleep 0.2
             if [ -e "$runtime/trash-gio.log" ]; then
                 echo "Luna single-select unexpectedly opened a desktop location" >&2
+                echo "Unexpected Gio argv:" >&2
+                cat "$runtime/trash-gio.log" >&2
+                tail -n 35 "$runtime/plate-$label.log" >&2
                 exit 1
             fi
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-icon-selected.png"
