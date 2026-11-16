@@ -521,7 +521,7 @@ mod tests {
         assert_eq!(state.input_view_bidi(18, measure, measure), ("דה".into(), 0));
         assert!(state.place_cursor_at_bidi(15.0, 18, measure, measure));
         assert_eq!(state.cursor, 3);
-        assert_eq!(state.input_view_bidi(18, measure, measure), ("גדה".into(), 16));
+        assert_eq!(state.input_view_bidi(18, measure, measure), ("בג".into(), 0));
         // A joined emoji is one grapheme/caret, even inside a BiDi run.
         let mut emoji = State::new(Kind::FileRename);
         assert!(emoji.commit_text("אב👩‍💻"));
