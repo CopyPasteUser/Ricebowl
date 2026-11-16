@@ -1105,10 +1105,14 @@ pub fn load(name_or_path: &str) -> Result<PanelStyle, Box<dyn Error>> {
             include_str!("../../../macrice/de/resources/recipes/chrome.json").into(),
             Some("chrome"),
         ),
+        "xp-luna-columns" => (
+            include_str!("../../../examples/wayland/xp-luna-columns.json").into(),
+            Some("xp-luna-columns"),
+        ),
         path => {
             let path = Path::new(path);
             if !path.is_absolute() {
-                return Err("Choose classic, chrome or an absolute private JSON path".into());
+                return Err("Choose classic, chrome, xp-luna-columns or an absolute private JSON path".into());
             }
             let file = OpenOptions::new()
                 .read(true)
@@ -1392,6 +1396,15 @@ mod tests {
         assert!(parse(&data.to_string(), None).is_err());
         data.as_object_mut().unwrap().remove("artwork");
         assert!(parse(&data.to_string(), None).is_ok());
+    }
+
+    #[test]
+    fn bundled_luna_columns_is_resolved_without_a_private_recipe_file() {
+        let style = load("xp-luna-columns").expect("bundled Luna must be loadable by name");
+        assert_eq!(style.id, "xp-luna-columns");
+        assert_eq!(style.launcher.as_ref().unwrap().label, "start");
+        assert!(style.menu.is_some());
+        assert!(load("unknown-private-rice").is_err());
     }
 
     #[test]
