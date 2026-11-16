@@ -2,9 +2,9 @@
 //!
 //! Resolves UAX #9 embedding levels and reorders whole *grapheme clusters*
 //! (UAX #29), never bytes or combining marks. Existing LTR labels remain
-//! borrowed, allocation-free and byte-identical. Glyph shaping, mirroring,
-//! multi-line paragraphs and input-method preedit remain separate SG5
-//! requirements. This module also exposes visual grapheme edges for single-line
+//! borrowed, allocation-free and byte-identical. Common paired punctuation
+//! gets Unicode BiDi L4 mirrored glyph substitution in odd-level runs; full
+//! mirroring coverage, multi-line layout and IME remain separate SG5 work. This module also exposes visual grapheme edges for single-line
 //! editor caret hit-testing; it does not perform OpenType shaping.
 use std::borrow::Cow;
 use unicode_bidi::{bidi_class, BidiClass, BidiInfo};
@@ -104,6 +104,26 @@ pub(crate) fn visual_arrow_target(
     Some(best.map(|(candidate, _)| candidate).unwrap_or(current))
 }
 
+/// Unicode BiDi rule L4: use the *display glyph* of common paired
+/// punctuation in odd-level runs. This intentionally does not rewrite the
+/// logical label or editor buffer. Leave unfamiliar characters unchanged
+/// rather than guessing at a visually or semantically incorrect substitute.
+/// U+FD3E/U+FD3F ornate parentheses deliberately are not mirrored.
+fn mirrored_punctuation(ch: char) -> char {
+    match ch {
+        '(' => ')', ')' => '(',
+        '[' => ']', ']' => '[',
+        '{' => '}', '}' => '{',
+        '<' => '>', '>' => '<',
+        '«' => '»', '»' => '«',
+        '‹' => '›', '›' => '‹',
+        '⟨' => '⟩', '⟩' => '⟨',
+        '〈' => '〉', '〉' => '〈',
+        '（' => '）', '）' => '（',
+        _ => ch,
+    }
+}
+
 /// Return the visual-order grapheme sequence for a *single-line* label.
 /// LTR and unsupported paragraph inputs keep their existing borrowed path.
 pub(crate) fn visual_order(text: &str) -> Cow<'_, str> {
@@ -113,7 +133,18 @@ pub(crate) fn visual_order(text: &str) -> Cow<'_, str> {
     let clusters: Vec<&str> = text.graphemes(true).collect();
     let mut reordered = String::with_capacity(text.len());
     for index in map.visual_to_logical {
-        reordered.push_str(clusters[index]);
+        let cluster = clusters[index];
+        if map.rtl_by_logical[index] {
+            let mut chars = cluster.chars();
+            if let Some(first) = chars.next() {
+                reordered.push(mirrored_punctuation(first));
+                // Keep grapheme-internal combining marks and ZWJ sequences
+                // together; only the visible base punctuation can change.
+                reordered.extend(chars);
+            }
+        } else {
+            reordered.push_str(cluster);
+        }
     }
     Cow::Owned(reordered)
 }
@@ -136,6 +167,26 @@ mod tests {
         assert_eq!(visual_order("אבג 👩‍💻"), "👩‍💻 גבא");
         assert_eq!(visual_order("abc אבג"), "abc גבא");
         assert_eq!(visual_order("אבג\nabc"), "אבג\nabc");
+    }
+
+    #[test]
+    fn unicode_l4_brackets_mirror_only_in_rtl_visual_runs() {
+        for (a, b) in [('(', ')'), ('[', ']'), ('{', '}'),
+                       ('<', '>'), ('«', '»'), ('‹', '›'),
+                       ('⟨', '⟩'), ('〈', '〉'), ('（', '）')] {
+            assert_eq!(mirrored_punctuation(a), b);
+            assert_eq!(mirrored_punctuation(b), a);
+        }
+        // The mirrored glyph is a paint-only transform: the logical text,
+        // classic LTR screenshots and the caret map remain unchanged.
+        let rtl = "אבג(";
+        let before = visual_cluster_map(rtl).unwrap();
+        assert_eq!(visual_order(rtl), ")גבא");
+        let after = visual_cluster_map(rtl).unwrap();
+        assert_eq!(before.visual_to_logical, after.visual_to_logical);
+        assert!(matches!(visual_order("Hello (world)"), Cow::Borrowed(_)));
+        assert_eq!(mirrored_punctuation('﴾'), '﴾');
+        assert_eq!(mirrored_punctuation('﴿'), '﴿');
     }
 
     #[test]

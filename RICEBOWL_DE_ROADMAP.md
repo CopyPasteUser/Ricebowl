@@ -2437,6 +2437,21 @@ text-selection editing, AT-SPI programmatic text replacement or real IME
 hardware acceptance. Leave SG5 incomplete until those software checks,
 complex-script font coverage and exact-main CI are evidenced.
 
+### SG5 — RTL bitmap punctuation mirroring (16 November 2026; CI candidate)
+
+Native 8x8 and unshaped text labels now apply Unicode BiDi L4 mirrored
+display glyphs for a bounded set of common brackets in odd-level runs.
+This uses the same UAX #9 grapheme-level reordering map as the existing
+label painter; all logical text, caret positions, editable Run argv and
+file names remain unchanged. LTR labels retain the borrowed zero-allocation
+path and byte-identical classic screenshot layout. Regression coverage
+includes bracket pairs, Hebrew run ordering, Unicode cluster handling
+and the explicit non-mirrored ornate-parenthesis exception.
+
+This is a scoped bitmap/unshaped display correction, not Unicode's complete
+Bidi_Mirroring_Glyph database, shaped-font/hardware validation or dual-affinity
+editor selection. SG5 and SG7 remain open until their complete gates pass.
+
 ### SG5 — compositor text-input-v3 IME transport (16 November 2026; CI candidate)
 
 Native Luna Run and Desktop Rename now bind the compositor-advertised
