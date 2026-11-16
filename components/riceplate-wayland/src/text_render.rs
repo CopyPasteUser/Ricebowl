@@ -96,7 +96,8 @@ pub(crate) fn draw_rice_text(canvas: &mut [u8], width: u32, height: u32, x: u32,
 
 pub(crate) fn draw_bitmap_text(canvas: &mut [u8], width: u32, height: u32, x: u32, y: u32,
                     text: &str, color: u32, scale: u32, bold: bool) {
-    for (offset, cluster) in text.graphemes(true).enumerate() {
+    let visual = crate::bidi_layout::visual_order(text);
+    for (offset, cluster) in visual.graphemes(true).enumerate() {
         // The 8x8 table has no combining/ligature shaping. Never paint one
         // misleading '?' per scalar in a user-perceived glyph or detach a
         // combining mark. Unsupported clusters show ONE replacement cell;
