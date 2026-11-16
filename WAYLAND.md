@@ -73,6 +73,25 @@ rescue; a parent XFCE `GDK_BACKEND=x11` setting is never changed. If a
 fallback still cannot open a display after the compositor was terminated,
 that is expected and is not repaired by switching Waybar to X11.
 
+### XP Luna fidelity – taskbar and Start menu
+
+The optional native XP Luna rice now uses three visible Quick Launch states
+(normal, hover, pressed) for real 32px actions, without adding decorative
+targets or changing the action allowlist. Its two-column Start menu uses a
+larger, input-coordinate-synchronized surface at 800px and 1024px output
+widths instead of presenting the small 320px reference at those sizes.
+Notification-area overflow and network/audio/power popups use the same
+portable RiceBowl typography as the native Luna Start menu, with matching
+cobalt header, ivory content and high-contrast footer. Underlying
+StatusNotifier menus retain their actual D-Bus actions and capability gates.
+Other rice recipes and the approved Control Panel implementation are unchanged.
+
+These are code-level UX improvements with exact-head native compositor CI
+coverage, not a claim of pixel-identical original XP artwork or of a physical
+hardware fidelity certificate. On Mint the optional `swaybg` executable
+provides the existing Luna wallpaper; the compositor can start without it,
+but the background will be bare. No package is installed automatically.
+
 For a separate **Wayland login-session choice**, follow the
 [reviewed Debian/Ubuntu/Mint installation procedure](WAYLAND_SESSION.md#build-and-opt-in-debianubuntumint).
 It is not created by ordinary `bash install.sh`. Keep XFCE selectable at the
