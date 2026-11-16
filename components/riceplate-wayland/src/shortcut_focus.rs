@@ -76,6 +76,16 @@ pub(crate) fn visible_file_index<'a, T: PartialEq + 'a>(
     visible.into_iter().find_map(|(index, key)| (key == current).then_some(index))
 }
 
+/// A live focus target must still be visibly placed on the same output
+/// that granted the compositor keyboard lease. Explicit surface membership
+/// takes precedence over the primary-output fallback during hotplug/reflow.
+pub(crate) fn focus_output_matches<O: PartialEq>(
+    confirmed: Option<&O>, bound: Option<&O>, surface: Option<&O>,
+    primary: Option<&O>, placed: bool,
+) -> bool {
+    placed && confirmed.is_some() && confirmed == bound.or(surface).or(primary)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -111,6 +121,26 @@ mod tests {
         assert_eq!(next_visible_file(&same_output_visible, &5, true), None);
         assert_eq!(next_visible_file::<u32>(&[], &1, true), None);
         assert_eq!(next_visible_file(&[8_u32], &8, false), Some(8));
+    }
+
+    #[test]
+    fn focus_output_precedence_and_stale_icon_rejection() {
+        let primary = "eDP-1";
+        let secondary = "HDMI-A-1";
+        // An explicit secondary surface cannot silently fall back to primary.
+        assert!(focus_output_matches(Some(&secondary), None,
+                                     Some(&secondary), Some(&primary), true));
+        assert!(!focus_output_matches(Some(&primary), None,
+                                      Some(&secondary), Some(&primary), true));
+        // A compositor-bound output is authoritative over a stale surface.
+        assert!(!focus_output_matches(Some(&secondary), Some(&primary),
+                                      Some(&secondary), Some(&primary), true));
+        assert!(focus_output_matches(Some(&primary), None, None,
+                                     Some(&primary), true));
+        assert!(!focus_output_matches(Some(&primary), None, None,
+                                      Some(&primary), false));
+        assert!(!focus_output_matches(None, None, None, Some(&primary), true));
+        assert!(!focus_output_matches(Some(&primary), None, None, None, true));
     }
 
     #[test]
