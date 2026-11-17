@@ -15,14 +15,27 @@ UUID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
 class NetworkEnrollmentTests(unittest.TestCase):
     def test_enterprise_eap_requires_server_identity_and_never_saves_password(self):
         added = {"uuid": UUID, "kind": "802-11-wireless", "active": False}
+        values = {
+            "connection.autoconnect": "no",
+            "802-11-wireless-security.key-mgmt": "wpa-eap",
+            "802-1x.eap": "peap", "802-1x.phase2-auth": "mschapv2",
+            "802-1x.domain-suffix-match": "radius.school.edu",
+            "802-1x.system-ca-certs": "yes", "802-1x.ca-cert": "",
+            "802-1x.password-flags": "2",
+        }
+
+        def runner(*args, **kwargs):
+            return values[args[1]] if args[0] == "-g" else ""
+
         with mock.patch.object(enrollment.uuidlib, "uuid4", return_value=UUID), \
                 mock.patch.object(backend, "connection_profiles", side_effect=[[], [added]]), \
-                mock.patch.object(enrollment, "_run", return_value="") as run:
+                mock.patch.object(enrollment, "_run", side_effect=runner) as run:
             result = enrollment.create_enterprise_wifi(
                 ssid="Campus", identity="user@school.edu", domain="radius.school.edu",
                 eap="peap", inner="mschapv2")
         self.assertEqual(result, UUID)
-        arguments = run.call_args.args
+        arguments = run.call_args_list[0].args
+        self.assertIn((" -g",), ()) if False else None
         self.assertIn("802-1x.domain-suffix-match", arguments)
         self.assertIn("radius.school.edu", arguments)
         self.assertEqual(arguments[arguments.index("802-1x.password-flags") + 1], "2")
@@ -58,6 +71,8 @@ class NetworkEnrollmentTests(unittest.TestCase):
                 return {
                     "802-11-wireless-security.key-mgmt": "wpa-eap",
                     "802-1x.eap": "peap",
+                    "802-1x.phase2-auth": "mschapv2",
+                    "802-1x.password-flags": "2",
                     "802-1x.domain-suffix-match": "radius.school.edu",
                     "802-1x.system-ca-certs": "yes",
                     "802-1x.ca-cert": "",
@@ -85,7 +100,7 @@ class NetworkEnrollmentTests(unittest.TestCase):
 
     def test_existing_eap_profile_without_cert_verification_cannot_receive_password(self):
         fields = {"802-11-wireless-security.key-mgmt": "wpa-eap",
-                  "802-1x.eap": "peap",
+                  "802-1x.eap": "peap", "802-1x.phase2-auth": "mschapv2",
                   "802-1x.domain-suffix-match": "radius.school.edu",
                   "802-1x.system-ca-certs": "no", "802-1x.ca-cert": ""}
         with mock.patch.object(enrollment, "_run", side_effect=lambda *args, **kwargs:
@@ -93,6 +108,82 @@ class NetworkEnrollmentTests(unittest.TestCase):
             with self.assertRaisesRegex(backend.SettingsError, "verify a CA"):
                 enrollment.enterprise_password_ready(UUID)
             self.assertFalse(any("passwd-file" in str(call.args) for call in run.call_args_list))
+
+    def test_password_prompt_rejects_unsupported_inner_auth_and_saved_secrets(self):
+        fields = {
+            "802-11-wireless-security.key-mgmt": "wpa-eap",
+            "802-1x.eap": "peap", "802-1x.phase2-auth": "mschapv2",
+            "802-1x.domain-suffix-match": "radius.school.edu",
+            "802-1x.system-ca-certs": "yes", "802-1x.ca-cert": "",
+            "802-1x.password-flags": "2",
+        }
+
+        def runner(*args, **kwargs):
+            self.assertEqual(args[0], "-g")
+            return fields[args[1]]
+
+        with mock.patch.object(enrollment, "_run", side_effect=runner) as run:
+            for eap, inner, flags in (
+                ("peap", "pap", "2"), ("ttls", "gtc", "2"),
+                ("peap", "mschapv2", "0"), ("peap", "mschapv2", "1"),
+                ("peap", "mschapv2", ""),
+            ):
+                with self.subTest(eap=eap, inner=inner, flags=flags):
+                    fields.update({"802-1x.eap": eap,
+                                   "802-1x.phase2-auth": inner,
+                                   "802-1x.password-flags": flags})
+                    with self.assertRaises(backend.SettingsError):
+                        enrollment.enterprise_password_ready(UUID)
+            self.assertFalse(any("passwd-file" in str(call.args)
+                                 for call in run.call_args_list))
+            fields.update({"802-1x.eap": "ttls", "802-1x.phase2-auth": "pap",
+                           "802-1x.password-flags": "2"})
+            self.assertTrue(enrollment.enterprise_password_ready(UUID))
+            fields["802-1x.phase2-auth"] = "mschapv2"
+            self.assertTrue(enrollment.enterprise_password_ready(UUID))
+
+    def test_creation_refuses_unverified_networkmanager_security_policy(self):
+        added = {"uuid": UUID, "kind": "802-11-wireless", "active": False}
+        values = {
+            "connection.autoconnect": "no",
+            "802-11-wireless-security.key-mgmt": "wpa-eap",
+            "802-1x.eap": "peap", "802-1x.phase2-auth": "mschapv2",
+            "802-1x.domain-suffix-match": "radius.school.edu",
+            "802-1x.system-ca-certs": "yes", "802-1x.ca-cert": "",
+            "802-1x.password-flags": "2",
+        }
+
+        def runner(*args, **kwargs):
+            return values[args[1]] if args[0] == "-g" else ""
+
+        for field, unsafe in (
+            ("connection.autoconnect", "yes"),
+            ("802-1x.domain-suffix-match", ""),
+            ("802-1x.password-flags", "0"),
+            ("802-1x.phase2-auth", "pap"),
+        ):
+            with self.subTest(field=field):
+                values[field] = unsafe
+                with mock.patch.object(enrollment.uuidlib, "uuid4", return_value=UUID), \
+                        mock.patch.object(backend, "connection_profiles",
+                                          side_effect=[[], [added]]), \
+                        mock.patch.object(enrollment, "_run", side_effect=runner) as run:
+                    with self.assertRaisesRegex(backend.SettingsError,
+                                                "profile was added, but its safety"):
+                        enrollment.create_enterprise_wifi(
+                            ssid="Campus", identity="user@school.edu",
+                            domain="radius.school.edu", eap="peap",
+                            inner="mschapv2")
+                self.assertTrue(any(call.args[:2] == ("con", "add")
+                                    for call in run.call_args_list))
+                self.assertFalse(any("passwd-file" in str(call.args)
+                                     for call in run.call_args_list))
+                values[field] = {
+                    "connection.autoconnect": "no",
+                    "802-1x.domain-suffix-match": "radius.school.edu",
+                    "802-1x.password-flags": "2",
+                    "802-1x.phase2-auth": "mschapv2",
+                }[field]
 
     def test_subprocess_secret_is_stdin_only_and_errors_hide_output(self):
         with mock.patch.object(enrollment.shutil, "which", return_value="/usr/bin/nmcli"), \
