@@ -35,7 +35,6 @@ class NetworkEnrollmentTests(unittest.TestCase):
                 eap="peap", inner="mschapv2")
         self.assertEqual(result, UUID)
         arguments = run.call_args_list[0].args
-        self.assertIn((" -g",), ()) if False else None
         self.assertIn("802-1x.domain-suffix-match", arguments)
         self.assertIn("radius.school.edu", arguments)
         self.assertEqual(arguments[arguments.index("802-1x.password-flags") + 1], "2")
