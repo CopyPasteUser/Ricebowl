@@ -370,6 +370,7 @@ class RiceSpiceWindow:
         self._ricepop_signals = None
         self._ricepop_focus_buttons = {}
         self._ricepop_dirty = False
+        self._ricepop_open_pending = False
         self._ricepop_owner_epoch = 0
         self.page = "network"
         self._selecting_nav = False
@@ -540,6 +541,7 @@ class RiceSpiceWindow:
         # when leaving the inbox/window.
         self._ricepop_focus_buttons = {}
         self._ricepop_dirty = False
+        self._ricepop_open_pending = False
         if signals is not None:
             signals.close()
 
@@ -571,6 +573,22 @@ class RiceSpiceWindow:
             self._state("Notification host changed; verifying RicePop owner")
         self._ricepop_dirty = True
         self._ricepop_try_refresh()
+
+    def _open_ricepop_inbox(self):
+        """Do not lose an explicit click while another settings read is busy.
+
+        A queued open is private, one-shot and view-local; unlike a D-Bus
+        notification event it is permitted even before live subscriptions
+        exist. Leaving this page or closing the window cancels it.
+        """
+        if self.closed or self.page != "notifications":
+            return
+        if self.busy:
+            self._ricepop_open_pending = True
+            self._state("RicePop inbox queued until the current request completes")
+            return
+        self._ricepop_open_pending = False
+        self._request_ricepop_inbox()
 
     def _request_ricepop_inbox(self):
         """Render only a verified snapshot for the *current* notification owner.
@@ -680,6 +698,8 @@ class RiceSpiceWindow:
                     done(finished.result())
                 except Exception as exc:
                     self._state(f"Unavailable or denied: {exc}")
+                if self._ricepop_open_pending:
+                    self._open_ricepop_inbox()
                 if self._ricepop_dirty:
                     self._ricepop_try_refresh()
                 return False
@@ -1040,7 +1060,7 @@ class RiceSpiceWindow:
         self._button("Refresh notification state", lambda: self.show_page("notifications"))
         # Notification text is private: load it only after an explicit click,
         # never on opening RiceSpice or while browsing an unrelated XFCE bus.
-        self._button("Show RicePop inbox", lambda: self._request_ricepop_inbox())
+        self._button("Show RicePop inbox", self._open_ricepop_inbox)
 
         def present(status):
             enabled = status["do_not_disturb"]
@@ -1079,7 +1099,7 @@ class RiceSpiceWindow:
         else:
             previous = ()  # Pure widget-mock contract tests.
         self._text("RicePop inbox · current session", css="ricespice-section")
-        refresh_button = self._button("Refresh RicePop inbox", self._request_ricepop_inbox)
+        refresh_button = self._button("Refresh RicePop inbox", self._open_ricepop_inbox)
         if refresh_button is not None:
             self._ricepop_focus_buttons[("refresh",)] = refresh_button
         self._text("Only messages from this verified RiceBowl notification host are "
