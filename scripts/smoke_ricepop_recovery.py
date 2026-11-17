@@ -9,6 +9,7 @@ owner-verified action bridge are exercised end to end.
 
 from __future__ import annotations
 
+import json
 import os
 import signal
 import subprocess
@@ -185,6 +186,27 @@ def main() -> None:
             raise RuntimeError("Old-owner RicePop action mutated new-owner message")
         if read_row(new_pid)["id"] != fresh["id"]:
             raise RuntimeError("Stale action unexpectedly changed current notification")
+
+        # Exercise the native GUI's *CLI transport*, not just the Python
+        # helper: identical summary/body and a reused numeric ID must never
+        # authorize an old GTK/Rust row against a new Mako owner. Private
+        # text travels via stdin rather than process argv or environment.
+        unsafe = subprocess.run(
+            [sys.executable, str(ROOT / "launcher.py"), "de",
+             "notification-dismiss", "--notification-id", str(old["id"]),
+             "--expected-owner-pid", str(old_pid), "--snapshot-stdin", "--json"],
+            input=json.dumps(old), text=True, capture_output=True, timeout=5,
+            check=False)
+        if unsafe.returncode != 2:
+            raise RuntimeError("Private native CLI accepted a recycled Mako owner")
+        try:
+            code = json.loads(unsafe.stdout)["error"]["code"]
+        except (ValueError, TypeError, KeyError) as exc:
+            raise RuntimeError("Private native CLI failed without structured error") from exc
+        if code != "notification_host_changed" or BODY in unsafe.stdout:
+            raise RuntimeError("Native guard rejected incorrectly or exposed private text")
+        if read_row(new_pid)["id"] != fresh["id"]:
+            raise RuntimeError("Native guarded stale mutation affected new-owner notice")
         refresh = view._ricepop_focus_buttons.get(("refresh",))
         if refresh is None or not refresh.is_focus():
             raise RuntimeError("Recovered inbox restored stale action focus")
