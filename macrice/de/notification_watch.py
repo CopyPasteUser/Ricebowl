@@ -23,11 +23,14 @@ def signal_reason(interface: str, member: str, payload: object) -> str | None:
         return None
     if interface == "org.freedesktop.DBus" and member == "NameOwnerChanged":
         if (len(payload) == 3 and payload[0] == _BUS
-                and all(type(value) is str for value in payload)):
+                and all(type(value) is str for value in payload)
+                and payload[1] != payload[2]
+                and all(not value or value.startswith(":") for value in payload[1:])):
             return "owner"
     if interface == "org.freedesktop.Notifications" and member == "NotificationClosed":
-        if len(payload) == 2 and all(
-                type(value) is int and 0 <= value < 2**32 for value in payload):
+        if (len(payload) == 2 and all(
+                type(value) is int for value in payload)
+                and 0 < payload[0] < 2**32 and payload[1] in (1, 2, 3, 4)):
             return "changed"
     if interface == "org.freedesktop.DBus.Properties" and member == "PropertiesChanged":
         if (len(payload) == 3 and payload[0] == "fr.emersion.Mako"

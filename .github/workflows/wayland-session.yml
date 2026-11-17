@@ -12,6 +12,8 @@ on:
       - 'scripts/build_wayland_session_deb.sh'
       - 'scripts/smoke_wayland_session.sh'
       - 'scripts/smoke_wayland_ricepop.py'
+      - 'scripts/smoke_ricepop_atspi_client.py'
+      - 'scripts/smoke_ricepop_modern_bus.py'
       - 'scripts/check_wayland_panel_outputs.py'
       - 'scripts/capture_luna_labwc.py'
       - 'scripts/smoke_luna_settings_labwc.sh'
@@ -28,6 +30,8 @@ on:
       - 'scripts/build_wayland_session_deb.sh'
       - 'scripts/smoke_wayland_session.sh'
       - 'scripts/smoke_wayland_ricepop.py'
+      - 'scripts/smoke_ricepop_atspi_client.py'
+      - 'scripts/smoke_ricepop_modern_bus.py'
       - 'scripts/check_wayland_panel_outputs.py'
       - 'scripts/capture_luna_labwc.py'
       - 'scripts/smoke_luna_settings_labwc.sh'
@@ -52,7 +56,8 @@ jobs:
             xdg-desktop-portal-gtk xdg-desktop-portal-wlr \
             wayland-utils
           sudo apt-get install -y grim wlr-randr python3-pil python3-gi \
-            gir1.2-gtk-3.0 librsvg2-common mako-notifier libnotify-bin
+            gir1.2-gtk-3.0 librsvg2-common mako-notifier libnotify-bin \
+            python3-pyatspi at-spi2-core libatk-adaptor
       - name: Validate and test isolated session runtime
         run: |
           /usr/bin/python3 -m compileall -q macrice/de macrice/cli.py
@@ -63,7 +68,10 @@ jobs:
           sh -n scripts/build_wayland_session_deb.sh
           sh -n scripts/test_wayland_package_reproducibility.sh
           sh -n scripts/smoke_wayland_session.sh
-          /usr/bin/python3 -m py_compile scripts/smoke_wayland_ricepop.py
+          /usr/bin/python3 -m py_compile scripts/smoke_wayland_ricepop.py scripts/smoke_ricepop_atspi_client.py scripts/smoke_ricepop_modern_bus.py
+          # Real private D-Bus wire contract for Mako 1.11+, separately from
+          # the production Mako 1.8 close signal checked by the labwc smoke.
+          timeout -k 2s 15s dbus-run-session -- /usr/bin/python3 scripts/smoke_ricepop_modern_bus.py
       - name: Build non-installed login session package
         run: |
           sh scripts/build_wayland_session_deb.sh

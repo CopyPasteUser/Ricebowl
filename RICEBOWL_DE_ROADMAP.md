@@ -21,6 +21,30 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
+### SG3 RicePop localized inbox, external AT-SPI and modern Mako wire contract (17 November 2026; CI candidate)
+
+- The opt-in RicePop inbox, DND controls, next-login banner preferences,
+  per-notification Dismiss labels, accessible action context and associated
+  status messages now have a reviewed **English/German** catalog selected from
+  the session message locale. Unsupported/malformed locales fall back to
+  English. The underlying application notification text, advertised action
+  labels, Mako host, privacy state and XFCE/X11 workflow are **not** translated
+  or changed. This is intentionally RicePop-specific, not all-RiceSpice i18n.
+- The private real-labwc/Mako CI smoke now maps two GTK notification buttons
+  with distinct German ATK names and requires a **separate pyatspi process**
+  to find both names through the actual AT-SPI accessibility bus. It does
+  **not** claim that physical Orca speech, keyboard navigation or screen
+  reader announcements have been tested.
+- A separate real, disposable Gio/D-Bus integration lane exercises the
+  Mako 1.11+ `Notifications` PropertiesChanged event and invalidation, ignores
+  unrelated mode changes, observes D-Bus owner release and checks that closing
+  the view unsubscribes. The name is owned by a **synthetic protocol peer**
+  rather than a running Mako 1.11 daemon. The existing labwc test continues
+  to verify real Ubuntu/Mako 1.8 close signals. Actual 1.11 host delivery,
+  historical OSD/l10n breadth and physical reader acceptance remain open.
+- All claims require exact-head Python/Wayland CI and post-merge main runs;
+  this is partial SG3 evidence, **not SG3 or 1.0 release closure**.
+
 ### SG3 RicePop explicit inbox click reliability (17 November 2026; CI candidate)
 
 - A deliberate `Show RicePop inbox` / `Refresh RicePop inbox` click now

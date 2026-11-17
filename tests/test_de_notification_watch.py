@@ -72,6 +72,22 @@ class InboxSignalTests(unittest.TestCase):
                                  "NameOwnerChanged", ("org.freedesktop.Notifications",)))
         self.assertIsNone(detect("org.freedesktop.DBus", "NameOwnerChanged",
                                  {"name": "org.freedesktop.Notifications"}))
+        # Modern Mako 1.11+ uses the same D-Bus PropertiesChanged
+        # contract for additions, replacements and invalidations.
+        self.assertEqual(detect("org.freedesktop.DBus.Properties",
+                                "PropertiesChanged",
+                                ("fr.emersion.Mako",
+                                 {"Notifications": "synthetic"}, [])), "changed")
+        self.assertIsNone(detect("org.freedesktop.Notifications",
+                                 "NotificationClosed", (0, 2)))
+        self.assertIsNone(detect("org.freedesktop.Notifications",
+                                 "NotificationClosed", (12, 99)))
+        self.assertIsNone(detect("org.freedesktop.DBus",
+                                 "NameOwnerChanged",
+                                 ("org.freedesktop.Notifications", ":1.2", ":1.2")))
+        self.assertIsNone(detect("org.freedesktop.DBus",
+                                 "NameOwnerChanged",
+                                 ("org.freedesktop.Notifications", "malformed", ":1.4")))
 
     def test_subscriptions_are_view_scoped_and_unsubscribed(self):
         bus = FakeConnection()
@@ -88,6 +104,14 @@ class InboxSignalTests(unittest.TestCase):
         watch.close()  # Clean teardown after page switch and window destroy.
         self.assertEqual(bus.unsubscribed, [1, 2, 3])
         self.assertEqual(bus.handlers, {})
+        # A queued callback from the old GTK view must be harmless after
+        # owner handoff, navigation or explicit window destruction.
+        before = tuple(reasons)
+        watch._received(None, "org.freedesktop.Notifications", "/fr/emersion/Mako",
+                        "org.freedesktop.DBus.Properties", "PropertiesChanged",
+                        SimpleNamespace(unpack=lambda: (
+                            "fr.emersion.Mako", {"Notifications": object()}, [])), None)
+        self.assertEqual(tuple(reasons), before)
 
     def test_partial_subscribe_failure_unwinds_private_bus_watch(self):
         bus = FakeConnection(fail_at=2)
