@@ -1087,7 +1087,7 @@ class RiceSpiceWindow:
                 selected = dict(record)
                 owner_pid = snapshot.get("owner_pid")
                 identity = (owner_pid, identifier, record["app_name"],
-                            record["summary"], record["body"], record["urgency"])
+                            record["summary"], record["body"], record.get("urgency", "unknown"))
                 self._text(f"{app} · {summary}")
                 if record["body"]:
                     preview = record["body"][:360]
