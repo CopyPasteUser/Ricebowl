@@ -237,7 +237,41 @@ reply = json.load(open(sys.argv[1]))
 assert reply["ok"] and reply["active"] == "chrome"
 assert reply["panel"] == "native" and not reply["next_login_persisted"]
 PY
-    grim -o "$output" "$runtime/matrix-restored-$name.png"
+    # The compositor can acknowledge the Creator transaction before the
+    # scaled wl_output's next fully repainted layer frame is captured. Keep
+    # the *same* strict pixel threshold; retry only real grim frames for a
+    # bounded period instead of accepting the previous Luna surface.
+    attempt=0
+    restored_ready=0
+    while [ "$attempt" -lt 24 ]; do
+        grim -o "$output" "$runtime/matrix-restored-$name.png"
+        if /usr/bin/python3 - "$size_artifacts/$name-chrome.png" \
+                "$runtime/matrix-restored-$name.png" "$width" "$height" <<'PY'
+from PIL import Image, ImageChops
+import sys
+try:
+    with Image.open(sys.argv[1]) as chrome, Image.open(sys.argv[2]) as restored:
+        a, c = chrome.convert("RGB"), restored.convert("RGB")
+        assert a.size == c.size == (int(sys.argv[3]), int(sys.argv[4]))
+        width, height = a.size
+        strip = (0, height - 96, width, height)
+        diff = ImageChops.difference(a.crop(strip), c.crop(strip))
+        changed = sum(max(pixel) > 20 for pixel in diff.getdata())
+        assert changed < 6000
+except (OSError, ValueError, AssertionError):
+    sys.exit(1)
+PY
+        then
+            restored_ready=1
+            break
+        fi
+        attempt=$((attempt + 1))
+        sleep 0.25
+    done
+    if [ "$restored_ready" -ne 1 ]; then
+        echo "Creator restore did not converge to previous Chrome pixels at $name" >&2
+        exit 1
+    fi
     /usr/bin/python3 - "$size_artifacts/$name-chrome.png" \
             "$size_artifacts/$name-$luna.png" "$runtime/matrix-restored-$name.png" <<'PY'
 from PIL import Image, ImageChops
