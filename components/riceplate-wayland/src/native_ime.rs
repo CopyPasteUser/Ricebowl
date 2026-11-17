@@ -196,7 +196,7 @@ mod tests {
     use crate::luna_dialog::{Kind, State};
 
     #[test]
-    fn oversized_or_invalid_commits_are_dropped_before_done_and_cannot_be_overwritten() {
+    fn oversized_commit_rejects_done_but_later_valid_commit_can_supersede_it() {
         let max = crate::luna_dialog::MAX_INPUT;
         let mut pending = Pending::default();
         pending.delete(3, 0);
