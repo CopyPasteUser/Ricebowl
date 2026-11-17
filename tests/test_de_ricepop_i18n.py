@@ -99,6 +99,45 @@ class RicePopLocaleTests(unittest.TestCase):
         self.assertNotIn("Vertraulicher Inhalt", " ".join(
             button.accessible_name for button in buttons.values()))
 
+    def test_disconnected_owner_is_not_rendered_as_empty_or_actionable(self):
+        # A lost DBus owner is not a successfully verified empty inbox.
+        for locale, warning in (
+                ("C.UTF-8", "RicePop notification host disconnected."),
+                ("de_DE.UTF-8", "RicePop-Benachrichtigungsdienst getrennt.")):
+            visible, buttons = self._render_disconnected(locale)
+            with self.subTest(locale=locale):
+                self.assertTrue(any(warning in line for line in visible))
+                self.assertFalse(any("No active notifications." in line for line in visible))
+                self.assertFalse(any("No notification history." in line for line in visible))
+                self.assertFalse(any("Keine aktiven Benachrichtigungen." in line
+                                     for line in visible))
+                self.assertFalse(any("Kein Benachrichtigungsverlauf." in line
+                                     for line in visible))
+                self.assertEqual(len(buttons), 1)
+                self.assertNotIn("Dismiss", " ".join(buttons))
+
+    def _render_disconnected(self, locale):
+        visible, buttons = [], {}
+        page = SimpleNamespace(
+            page="notifications", content=None, closed=False, busy=False,
+            _ricepop_focus_buttons={}, _ricepop_inbox_widgets=(),
+            _ricepop_open_pending=False, _request_ricepop_inbox=lambda: None,
+            _show_content=lambda: None,
+            _text=lambda text, **_kw: visible.append(text),
+        )
+        page._open_ricepop_inbox = lambda: settings.RiceSpiceWindow._open_ricepop_inbox(page)
+        def button(label, _callback, **_kwargs):
+            control = FakeButton(label)
+            buttons[label] = control
+            return control
+        page._button = button
+        with mock.patch.dict(os.environ, {"LC_ALL": locale}, clear=True):
+            settings.RiceSpiceWindow._render_notification_inbox(page, {
+                "owner_pid": None, "unavailable": True, "truncated": False,
+                "active": [], "history": [],
+            })
+        return visible, buttons
+
     def test_english_rendering_remains_compatible(self):
         visible, buttons = self._render("C.UTF-8")
         self.assertIn("RicePop inbox · current session", visible)
