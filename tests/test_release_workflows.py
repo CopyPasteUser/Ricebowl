@@ -120,6 +120,8 @@ class ReleaseWorkflowGateTests(unittest.TestCase):
             "macrice/de/pack.py", "macrice/de/style_assets.py",
             "macrice/de/creator_contract.py", "tests/test_de_ricepack.py",
             "tests/test_creator_style_assets.py",
+            "scripts/verify_wayland_payload.py",
+            "tests/test_wayland_payload_safety.py",
         ):
             with self.subTest(source=source):
                 trigger = f"      - '{source}'"
