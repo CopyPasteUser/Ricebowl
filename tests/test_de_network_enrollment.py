@@ -17,6 +17,7 @@ class NetworkEnrollmentTests(unittest.TestCase):
         added = {"uuid": UUID, "kind": "802-11-wireless", "active": False}
         values = {
             "connection.autoconnect": "no",
+            "802-11-wireless.ssid": "Campus", "802-1x.identity": "user@school.edu",
             "802-11-wireless-security.key-mgmt": "wpa-eap",
             "802-1x.eap": "peap", "802-1x.phase2-auth": "mschapv2",
             "802-1x.domain-suffix-match": "radius.school.edu",
@@ -145,6 +146,7 @@ class NetworkEnrollmentTests(unittest.TestCase):
         added = {"uuid": UUID, "kind": "802-11-wireless", "active": False}
         values = {
             "connection.autoconnect": "no",
+            "802-11-wireless.ssid": "Campus", "802-1x.identity": "user@school.edu",
             "802-11-wireless-security.key-mgmt": "wpa-eap",
             "802-1x.eap": "peap", "802-1x.phase2-auth": "mschapv2",
             "802-1x.domain-suffix-match": "radius.school.edu",
@@ -157,6 +159,8 @@ class NetworkEnrollmentTests(unittest.TestCase):
 
         for field, unsafe in (
             ("connection.autoconnect", "yes"),
+            ("802-11-wireless.ssid", "OtherNetwork"),
+            ("802-1x.identity", "other-user@school.edu"),
             ("802-1x.domain-suffix-match", ""),
             ("802-1x.password-flags", "0"),
             ("802-1x.phase2-auth", "pap"),
@@ -179,6 +183,8 @@ class NetworkEnrollmentTests(unittest.TestCase):
                                      for call in run.call_args_list))
                 values[field] = {
                     "connection.autoconnect": "no",
+                    "802-11-wireless.ssid": "Campus",
+                    "802-1x.identity": "user@school.edu",
                     "802-1x.domain-suffix-match": "radius.school.edu",
                     "802-1x.password-flags": "2",
                     "802-1x.phase2-auth": "mschapv2",
