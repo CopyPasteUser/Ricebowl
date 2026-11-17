@@ -21,6 +21,25 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
+### SG3 RicePop owner-generation / late GTK callback isolation (17 November 2026; CI candidate)
+
+- A verified Mako inbox read can complete on a worker before a D-Bus
+  `NameOwnerChanged` event is dispatched on the GTK loop. The previous
+  callback could then repaint a private snapshot from the disconnected owner
+  **after** the event had cleared its rows. RiceSpice now increments a
+  view-local owner generation on every owner-change event. All manual, initial,
+  post-action and event-driven inbox loads capture that generation and discard
+  a response if it is no longer current.
+- The existing bounded worker and request coalescing remain intact: a busy
+  request is **not** cancelled or replaced with overlapping mutations.
+  After it finishes, the queued change triggers a fresh owner-verified
+  `inspect_owned()` read. Private rows are not persisted, logged or
+  transferred to another desktop/session; XFCE/X11 defaults are untouched.
+- Regression tests reproduce late original-owner delivery and verify that only
+  the new verified owner can repopulate the inbox. This closes one concrete
+  SG3 race, **not** the full SG3 software gate, legacy-Mako arrival support,
+  AT-SPI or later physical hardware acceptance.
+
 ### Sprint 2 – SG3 stale RicePop inbox selection guard (17 November 2026; CI candidate)
 
 - A deliberate RiceSpice inbox snapshot now carries the verified Mako owner PID

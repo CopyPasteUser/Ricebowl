@@ -196,6 +196,9 @@ class WaylandRicePopReadTests(unittest.TestCase):
         page.show_page = pages.append
         page._render_notification_inbox = (
             lambda snap: settings.RiceSpiceWindow._render_notification_inbox(page, snap))
+        page._ricepop_owner_epoch = 0
+        page._request_ricepop_inbox = (
+            lambda: settings.RiceSpiceWindow._request_ricepop_inbox(page))
         snapshot = {
             "active": [{"id": 12, "app_name": "Files", "summary": "Upload done",
                         "body": "Uploaded safely", "actions": [
@@ -249,6 +252,9 @@ class WaylandRicePopReadTests(unittest.TestCase):
         page._background = lambda work, done: done(work())
         page._render_notification_inbox = (
             lambda value: settings.RiceSpiceWindow._render_notification_inbox(page, value))
+        page._ricepop_owner_epoch = 0
+        page._request_ricepop_inbox = (
+            lambda: settings.RiceSpiceWindow._request_ricepop_inbox(page))
         first = {"active": [{"id": 12, "app_name": "Mail", "summary": "Before",
                              "body": "Old private text", "urgency": "normal",
                              "actions": []}],
@@ -287,6 +293,9 @@ class WaylandRicePopReadTests(unittest.TestCase):
         page._show_content = lambda: None
         page._notification_appearance = lambda: None
         page._render_notification_inbox = seen.append
+        page._ricepop_owner_epoch = 0
+        page._request_ricepop_inbox = (
+            lambda: settings.RiceSpiceWindow._request_ricepop_inbox(page))
         page._background = lambda work, done: done(work())
         page.show_page = lambda *_args: None
         with mock.patch.object(notifications, "dnd_status",

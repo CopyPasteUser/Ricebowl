@@ -94,6 +94,61 @@ class InboxSignalTests(unittest.TestCase):
         self.assertEqual(bus.unsubscribed, [1])
         self.assertEqual(bus.handlers, {})
 
+    def test_owner_handoff_discards_inflight_verified_private_snapshot(self):
+        """Late worker replies must never resurrect messages after Mako restart."""
+        callbacks, rendered, cleared, statuses = [], [], [], []
+        page = SimpleNamespace(
+            closed=False, page="notifications", busy=False,
+            _ricepop_signals=object(), _ricepop_dirty=False,
+            _ricepop_owner_epoch=0, _ricepop_inbox_widgets=(),
+            _state=statuses.append,
+        )
+        page._render_notification_inbox = lambda value: (
+            rendered.append(value) if value.get("owner_pid") else cleared.append(value))
+        def background(work, done):
+            self.assertIs(work, notifications.inspect_owned)
+            callbacks.append(done)
+            page.busy = True
+        page._background = background
+        page._request_ricepop_inbox = lambda: (
+            settings.RiceSpiceWindow._request_ricepop_inbox(page))
+        page._ricepop_try_refresh = lambda: (
+            settings.RiceSpiceWindow._ricepop_try_refresh(page))
+
+        old = {"owner_pid": 47, "active": [{"summary": "Old private alert"}],
+               "history": [], "truncated": False}
+        new = {"owner_pid": 48, "active": [{"summary": "New alert"}],
+               "history": [], "truncated": False}
+        page._request_ricepop_inbox()
+        self.assertEqual(len(callbacks), 1)
+        settings.RiceSpiceWindow._ricepop_changed(page, "owner")
+        self.assertEqual(page._ricepop_owner_epoch, 1)
+        self.assertEqual(rendered, [])
+        self.assertEqual(len(cleared), 1)
+        self.assertTrue(page._ricepop_dirty)
+        # GTK dispatches the old callback after the owner-changed signal.
+        callbacks[0](old)
+        self.assertEqual(rendered, [], "old owner's private data was repainted")
+        page.busy = False
+        page._ricepop_try_refresh()
+        self.assertEqual(len(callbacks), 2)
+        callbacks[1](new)
+        self.assertEqual(rendered, [new])
+        self.assertFalse(page._ricepop_dirty)
+
+    def test_normal_owner_epoch_allows_explicit_snapshot_and_changes_drop_it(self):
+        callbacks, shown = [], []
+        page = SimpleNamespace(_ricepop_owner_epoch=2)
+        page._background = lambda work, done: callbacks.append(done)
+        page._render_notification_inbox = shown.append
+        settings.RiceSpiceWindow._request_ricepop_inbox(page)
+        callbacks[0]({"owner_pid": 10, "active": []})
+        self.assertEqual(len(shown), 1)
+        settings.RiceSpiceWindow._request_ricepop_inbox(page)
+        page._ricepop_owner_epoch += 1
+        callbacks[1]({"owner_pid": 10, "active": []})
+        self.assertEqual(len(shown), 1)
+
     def test_live_inbox_events_coalesce_while_worker_busy(self):
         launches = []
         states = []
@@ -101,6 +156,7 @@ class InboxSignalTests(unittest.TestCase):
         page = SimpleNamespace(
             closed=False, page="notifications", busy=False,
             _ricepop_signals=object(), _ricepop_dirty=False,
+            _ricepop_owner_epoch=0,
             _ricepop_inbox_widgets=("private-old",),
             _render_notification_inbox=blank.append,
             _state=states.append,
@@ -110,6 +166,8 @@ class InboxSignalTests(unittest.TestCase):
             launches.append((work, done))
             page.busy = True
         page._background = background
+        page._request_ricepop_inbox = lambda: (
+            settings.RiceSpiceWindow._request_ricepop_inbox(page))
         page._ricepop_try_refresh = lambda: (
             settings.RiceSpiceWindow._ricepop_try_refresh(page))
         settings.RiceSpiceWindow._ricepop_changed(page, "changed")
