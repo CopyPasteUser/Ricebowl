@@ -224,7 +224,7 @@ class InboxSignalTests(unittest.TestCase):
         page, futures, submitted, idle, rendered, statuses = self._busy_ricepop_window()
         page._background(lambda: "dnd", lambda result: statuses.append(result))
         self.assertEqual(len(submitted), 1)
-        self.assertIs(submitted[0], submitted[0])  # No private read so far.
+        self.assertIsNot(submitted[0], notifications.inspect_owned)
 
         # Both rapid user clicks coalesce behind the initial DND worker.
         page._open_ricepop_inbox()
