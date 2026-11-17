@@ -26,6 +26,12 @@ class CreatorCompositorMatrixTests(unittest.TestCase):
         self.assertIn('ImageChops.difference', script)
         self.assertIn('assert changed(a, b) > 100', script)
         self.assertIn('assert changed(a, c) < 6000', script)
+        # A compositor repaint at fractional scale may lag behind the
+        # acknowledged transaction. Retry real frames only, never weaken
+        # the restore pixel threshold or hide a persistent mismatch.
+        self.assertIn('while [ "$attempt" -lt 24 ]', script)
+        self.assertIn('assert changed < 6000', script)
+        self.assertIn('Creator restore did not converge', script)
 
     def test_matrix_preserves_next_login_and_rejects_imaginary_visual_proof(self):
         script = SCRIPT.read_text(encoding="utf-8")
