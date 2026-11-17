@@ -42,6 +42,13 @@ for i in "${!files[@]}"; do
     fi
     source_commits+=("$source_commit")
 
+    # Inspect the ORIGINAL TAR metadata before extracting the package. A
+    # dpkg-deb -x inspection alone cannot expose forged numeric ownership,
+    # setuid/setgid flags, special archive entries or hardlink provenance.
+    # stream mode avoids copying payloads and never writes to the host.
+    dpkg-deb --fsys-tarfile "$package" | \
+        /usr/bin/python3 "$(dirname -- "$0")/verify_wayland_payload.py"
+
     # No maintainer script may alter the login manager, XFCE or a home folder.
     dpkg-deb --ctrl-tarfile "$package" | tar -tf - > "$work/control-$i"
     while IFS= read -r control_file; do
