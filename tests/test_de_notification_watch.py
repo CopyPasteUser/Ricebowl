@@ -207,7 +207,8 @@ class InboxSignalTests(unittest.TestCase):
         self.assertFalse(page._ricepop_dirty)
         settings.RiceSpiceWindow._ricepop_changed(page, "owner")
         self.assertEqual(blank, [{"active": [], "history": [],
-                                  "truncated": False, "owner_pid": None}])
+                                  "truncated": False, "owner_pid": None,
+                                   "unavailable": True}])
         self.assertTrue(any("host changed" in text for text in states))
         page.page = "audio"
         settings.RiceSpiceWindow._ricepop_changed(page, "changed")

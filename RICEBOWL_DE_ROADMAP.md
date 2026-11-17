@@ -21,6 +21,25 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
+### SG3 RicePop verified Mako crash/restart and fail-closed GUI recovery (17 November 2026; CI candidate)
+
+- The explicitly opened RiceSpice GTK inbox now treats a lost/replaced
+  notification owner as **disconnected**, not a verified empty inbox. Old
+  private rows/action widgets are destroyed immediately, a localized recovery
+  notice is rendered and focus falls back to the safe Refresh control.
+- A disposable headless labwc/Mako 1.11 integration smoke creates the actual
+  RiceSpice GTK window and verifies a live notification, keyboard focus and
+  active signal subscription. It kills only the PID independently verified as
+  the owner of the **private CI** notification bus, requires owner-loss
+  invalidation, one supervisor restart, new-owner live arrival/GTK rendering,
+  and rejection of an old-owner dismiss even with identical message content
+  or a recycled numeric ID. A second crash must remain fail-closed without
+  an unbounded restart loop. The shipped Mako 1.8 smoke stays independent.
+- This is incremental SG3 process/GUI recovery, **not full SG3 closure**:
+  real Orca speech, notification-action keyboard dispatch on every rice,
+  actual OSD pixel/focus QA, wider i18n, and physical hardware sign-off remain.
+  Evidence is gated by exact PR-head CI and post-merge main workflows.
+
 ### SG3 RicePop real Mako 1.11 daemon delivery under labwc (17 November 2026; CI candidate)
 
 - Adds a second, genuine Mako integration path on the **existing** private

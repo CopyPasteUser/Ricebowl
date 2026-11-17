@@ -569,6 +569,7 @@ class RiceSpiceWindow:
             # explicit manual Refresh button if the new owner fails validation.
             self._render_notification_inbox({
                 "active": [], "history": [], "truncated": False, "owner_pid": None,
+                "unavailable": True,
             })
             self._state(ricepop_i18n.text("owner_changed"))
         self._ricepop_dirty = True
@@ -1103,6 +1104,10 @@ class RiceSpiceWindow:
         self._text(ricepop_i18n.text("verified_info"), css="ricespice-note")
         if snapshot["truncated"]:
             self._text(ricepop_i18n.text("truncated"), css="ricespice-note")
+        if snapshot.get("unavailable") is True:
+            # Owner loss is not an empty inbox. Avoid claiming there are no
+            # notifications while the trusted host is disconnected.
+            self._text(ricepop_i18n.text("host_unavailable"), css="ricespice-note")
         for source, heading, empty in (
             ("active", ricepop_i18n.text("active"), ricepop_i18n.text("empty_active")),
             ("history", ricepop_i18n.text("history"), ricepop_i18n.text("empty_history")),
@@ -1110,7 +1115,8 @@ class RiceSpiceWindow:
             rows = snapshot[source]
             self._text(f"{heading} ({len(rows)})", css="ricespice-section")
             if not rows:
-                self._text(empty, css="ricespice-note")
+                if snapshot.get("unavailable") is not True:
+                    self._text(empty, css="ricespice-note")
                 continue
             for record in rows:
                 app = record["app_name"] or ricepop_i18n.text("unknown_app")
