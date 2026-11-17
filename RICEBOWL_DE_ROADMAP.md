@@ -43,6 +43,26 @@ Optional RiceClip/RiceShot P1 features remain outside the core release block.
   push-based live updates, Orca/AT-SPI or hardware sign-off; never
   expose the private inbox automatically or persist its contents.
 
+### Sprint 2 – SG3 optional event-driven RicePop inbox (17 November 2026; CI candidate)
+
+- After the user explicitly opens an **owner-verified inbox**, RiceSpice may
+  subscribe to Mako's existing session D-Bus signals. Mako 1.11+ emits the
+  `Notifications` property change for additions/replacements; older Mako
+  versions only offer standard closed-notification signals, so manual refresh
+  remains the honest fallback for new arrivals. No polling, daemon or
+  eager notification disclosure is introduced.
+- The signal payload triggers only a fresh `inspect_owned()` read; host PID,
+  config and bus ownership are rechecked by the existing secured bridge.
+  Restart/foreign-owner changes discard stale private rows immediately while
+  retaining the manual refresh button. A busy GTK worker coalesces subsequent
+  change events rather than dropping the last update.
+- Subscriptions are released on page navigation/window close; partial
+  subscription failures unwind cleanly and leave manual refresh available.
+  Deterministic tests cover event classification, teardown, lost owners,
+  coalescing and no events on unrelated pages. This is incremental SG3
+  software progress, **not** full translated/Orca/native notification OSD
+  acceptance or physical Mint sign-off.
+
 ### Sprint 2 – SG2 verified audio stream ownership (17 November 2026; CI candidate)
 
 - RiceSpice's on-demand per-application audio controls now require a genuine
