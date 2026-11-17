@@ -28,7 +28,7 @@ def signal_reason(interface: str, member: str, payload: object) -> str | None:
                 and all(not value or value.startswith(":") for value in payload[1:])):
             return "owner"
     if interface == "org.freedesktop.Notifications" and member == "NotificationClosed":
-        if len(payload) == 2 and all(
+        if (len(payload) == 2 and all(
                 type(value) is int for value in payload)
                 and 0 < payload[0] < 2**32 and payload[1] in (1, 2, 3, 4)):
             return "changed"
