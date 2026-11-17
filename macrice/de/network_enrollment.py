@@ -23,6 +23,8 @@ _DOMAIN_LABEL = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\Z")
 _SAFE_TEXT = re.compile(r"[^\x00-\x1f\x7f]{1,160}\Z")
 _UUID = backend._CONNECTION_UUID
 _IMPORT_TYPES = {".ovpn": "openvpn", ".conf": "wireguard"}
+_SUPPORTED_EAP = frozenset({("peap", "mschapv2"), ("ttls", "pap"),
+                           ("ttls", "mschapv2")})
 
 
 def _text(value: str, title: str, *, limit: int = 128) -> str:
@@ -94,7 +96,7 @@ def create_enterprise_wifi(*, ssid: str, identity: str, domain: str,
     username = _text(identity, "network username")
     host = _domain(domain)
     if type(eap) is not str or type(inner) is not str or (
-        (eap, inner) not in {("peap", "mschapv2"), ("ttls", "pap"), ("ttls", "mschapv2")}
+        (eap, inner) not in _SUPPORTED_EAP
     ):
         raise backend.SettingsError("Unsupported enterprise authentication combination")
     cert = _certificate(ca_certificate)
@@ -118,6 +120,23 @@ def create_enterprise_wifi(*, ssid: str, identity: str, domain: str,
             or new["active"] or identifier in {item["uuid"] for item in before}):
         raise backend.SettingsError("Enterprise profile creation could not be verified; "
                                     "refresh before retrying")
+    # NetworkManager may accept an 'add' request yet ignore a security
+    # property. Check the saved configuration before we advertise this as a
+    # non-autoconnecting, password-not-saved profile; never silently connect.
+    try:
+        if _profile_setting(identifier, "connection.autoconnect").lower() not in (
+                "no", "false", "0"):
+            raise backend.SettingsError("Enterprise Wi-Fi autoconnect is not disabled")
+        enterprise_password_ready(identifier)
+        if _profile_setting(identifier, "802-1x.eap") != eap or (
+                _profile_setting(identifier, "802-1x.phase2-auth") != inner
+                or _profile_setting(identifier, "802-1x.domain-suffix-match") != host):
+            raise backend.SettingsError("Enterprise Wi-Fi security settings changed")
+    except backend.SettingsError as exc:
+        raise backend.SettingsError(
+            "Enterprise profile was added, but its safety settings could not be "
+            "verified; review or delete it in NetworkManager before connecting"
+        ) from exc
     return identifier
 
 
@@ -149,7 +168,8 @@ def enterprise_password_ready(uuid: str) -> bool:
     if method != "wpa-eap":
         raise backend.SettingsError("This is not an enterprise Wi-Fi password profile")
     eap = _profile_setting(uuid, "802-1x.eap")
-    if eap not in ("peap", "ttls"):
+    inner = _profile_setting(uuid, "802-1x.phase2-auth")
+    if (eap, inner) not in _SUPPORTED_EAP:
         raise backend.SettingsError("The selected profile does not use supported password EAP")
     domain = _profile_setting(uuid, "802-1x.domain-suffix-match")
     try:
@@ -164,6 +184,12 @@ def enterprise_password_ready(uuid: str) -> bool:
                 raise backend.SettingsError("Missing CA")
         except backend.SettingsError as exc:
             raise backend.SettingsError("This profile does not verify a CA certificate") from exc
+    # The native dialog promises that credentials are not stored. Do not
+    # solicit a secret for existing agent-owned or saved-secret profiles:
+    # those must be managed through NetworkManager's own credential editor.
+    if _profile_setting(uuid, "802-1x.password-flags") != "2":
+        raise backend.SettingsError(
+            "This profile may save passwords; use NetworkManager to manage its credentials")
     return True
 
 
