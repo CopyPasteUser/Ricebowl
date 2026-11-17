@@ -1695,10 +1695,10 @@ impl RicePlate {
                 }
                 layer.last_typed = Instant::now();
                 layer.expires = Instant::now() + Duration::from_secs(5);
-                let needle = layer.typed.to_lowercase();
+                let needle = layer.typed.clone();
                 if let Some(key) = peers.iter()
                     .map(|&index| &self.file_layers[index].entry)
-                    .find(|item| item.label.to_lowercase().starts_with(&needle))
+                    .find(|item| shortcut_focus::label_has_grapheme_prefix(&needle, &item.label))
                     .map(|item| item.key.clone()) {
                     self.file_selection.select(&key, false);
                     if let Some(layer) = self.desktop_keyboard_focus_layer.as_mut() {
