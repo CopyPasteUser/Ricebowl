@@ -79,6 +79,13 @@ class DebianPayloadGuardTests(unittest.TestCase):
             with self.subTest(length=len(data)), self.assertRaises(UnsafePayload):
                 verify_payload(io.BytesIO(data))
 
+    def test_release_bundle_verifier_checks_raw_metadata_before_extraction(self):
+        verifier = (CHECKER.parent / "verify_wayland_package_set.sh").read_text()
+        self.assertIn('dpkg-deb --fsys-tarfile "$package"', verifier)
+        self.assertIn('verify_wayland_payload.py', verifier)
+        self.assertLess(verifier.index('verify_wayland_payload.py'),
+                        verifier.index('dpkg-deb -x "$package" "$extracted"'))
+
     def test_cli_rejects_forged_archive_without_extracting(self):
         crafted = make_archive(("./usr/bin/riceplate-native", 0o4755, 0, 0,
                                 tarfile.REGTYPE, None))
