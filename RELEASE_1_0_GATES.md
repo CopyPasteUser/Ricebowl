@@ -34,8 +34,12 @@ the sign-off guard and its tests are deliberately unchanged.
   explicitly documented in `.github/release-signoff-1.0.json`.
 - [x] The separate **preview session-entry** Debian package builds
   reproducibly with normalized timestamps and `SOURCE_DATE_EPOCH` support.
-- [ ] All project CI, including real X11 screenshots, Wayland session smoke
-  and native RicePlate Rust/headless labwc tests, is green for the release SHA.
+- [ ] All project CI, including real X11 screenshots, Wayland session smoke,
+  native RicePlate Rust/headless labwc and the **strict PipeWire/portal frame**
+  workflow, is green at the exact release source SHA. The portal workflow
+  currently has no main push event; explicitly dispatch it at that SHA before
+  a release candidate. A successful PR run or generic portal endpoint smoke
+  is not a substitute for the strict software-frame acceptance.
 - [ ] Rust application builds and the complete Wayland desktop package use
   tracked lock/version metadata; final binary/install artifacts reproduce.
 - [x] Native RicePlate CI emits an explicitly experimental, checksummed
