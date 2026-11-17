@@ -24,12 +24,17 @@ def fake_run(path, name, run_id, conclusion="success", **overrides):
 
 class ReleaseWorkflowGateTests(unittest.TestCase):
     def good_runs(self):
-        return [fake_run(path, name, i + 100) for i, (path, name)
-                in enumerate(REQUIRED.items())]
+        # Strict portals is explicitly dispatch-only; do not fabricate a
+        # nonexistent push event as valid release evidence.
+        return [fake_run(path, name, i + 100,
+                         event=("workflow_dispatch"
+                                if path == ".github/workflows/wayland-portal-strict.yml"
+                                else "push"))
+                for i, (path, name) in enumerate(REQUIRED.items())]
 
     def test_exact_main_workflows_are_required_and_proven_by_run_id(self):
         proof = validate_runs({"workflow_runs": self.good_runs()}, SHA)
-        self.assertEqual(len(proof), 3)
+        self.assertEqual(len(proof), 4)
         self.assertEqual(set(proof), set(REQUIRED))
 
     def test_latest_failure_or_pending_run_cannot_hide_behind_old_success(self):
@@ -70,6 +75,37 @@ class ReleaseWorkflowGateTests(unittest.TestCase):
         tests[0]["event"] = "workflow_dispatch"
         with self.assertRaisesRegex(WorkflowGateError, "Missing"):
             validate_runs({"workflow_runs": tests}, SHA)
+
+    def test_strict_portal_gate_requires_exact_main_dispatch_not_pr_or_push(self):
+        portal = ".github/workflows/wayland-portal-strict.yml"
+        baseline = self.good_runs()
+        self.assertIn(portal, validate_runs({"workflow_runs": baseline}, SHA))
+        idx = next(i for i, run in enumerate(baseline) if run["path"] == portal)
+        for overrides in (
+            {"event": "pull_request"}, {"event": "push"},
+            {"head_branch": "integration"}, {"head_sha": OTHER},
+            {"status": "in_progress", "conclusion": None},
+            {"status": "completed", "conclusion": "failure"},
+            {"name": "Fake strict portal"},
+        ):
+            runs = self.good_runs()
+            runs[idx].update(overrides)
+            with self.subTest(overrides=overrides), self.assertRaises(WorkflowGateError):
+                validate_runs({"workflow_runs": runs}, SHA)
+
+    def test_strict_portal_latest_failure_cannot_hide_behind_previous_success(self):
+        path = ".github/workflows/wayland-portal-strict.yml"
+        runs = self.good_runs()
+        runs.append(fake_run(path, REQUIRED[path], 400, "failure",
+                             event="workflow_dispatch"))
+        with self.assertRaisesRegex(WorkflowGateError, "not green"):
+            validate_runs({"workflow_runs": runs}, SHA)
+
+    def test_release_stays_blocked_without_strict_pipewire_evidence(self):
+        runs = [run for run in self.good_runs()
+                if run["path"] != ".github/workflows/wayland-portal-strict.yml"]
+        with self.assertRaisesRegex(WorkflowGateError, "Missing"):
+            validate_runs({"workflow_runs": runs}, SHA)
 
     def test_malformed_or_absent_evidence_fails_closed(self):
         for value in (None, [], {}, {"workflow_runs": "invalid"},
