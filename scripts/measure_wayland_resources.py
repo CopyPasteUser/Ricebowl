@@ -107,6 +107,18 @@ def measure(profile: str, *, seconds: float = 10.0,
         "native-panel" if profile == "waybar" else None)
     expected_before = [p for p in first_seen if p.role == expected_role]
     expected_after = [p for p in last_seen if p.role == expected_role]
+    # A lone riceplate-native process is not a complete desktop. A full
+    # Wayland session must also have one continuous compositor and one
+    # supervised lock watcher. The XFCE baseline needs its window manager
+    # and stock panel; otherwise the compared memory totals are misleading.
+    supporting_roles = ("xfce-wm", "xfce-panel") if profile == "xfce" else (
+        "compositor", "lock-guard")
+
+    def has_stable_single_role(role: str) -> bool:
+        return (sum(p.role == role for p in first_seen) == 1
+                and sum(p.role == role for p in last_seen) == 1
+                and any(first[key].role == role for key in matched))
+
     # An extra same-UID native panel is common while a nested labwc preview
     # coexists with a full login. Counting both as one "verified" profile
     # produces unusable performance acceptance numbers.
@@ -116,7 +128,8 @@ def measure(profile: str, *, seconds: float = 10.0,
         and expected_role in before_roles and expected_role in after_roles
         and (other_role is None or (other_role not in before_roles
                                     and other_role not in after_roles))
-        and any(first[key].role == expected_role for key in matched))
+        and has_stable_single_role(expected_role)
+        and all(has_stable_single_role(role) for role in supporting_roles))
     return {
         "schema_version": 1, "profile_requested": profile, "profile_observed": actual,
         "profile_matches": actual == profile and process_role_verified and valid_window,
@@ -143,7 +156,7 @@ def measure(profile: str, *, seconds: float = 10.0,
         "notes": [
             "Kernel wakeups only when /proc/PID/sched exports nr_wakeups; "
             "context switches are not wakeups",
-            "Requested panel must have exactly one stable PID/start-time across both samples",
+            "Requested panel and its compositor/lock watcher (or XFCE WM/panel) must have one stable PID/start-time",
             "CPU and activity rates are unknown if process identities or kernel counters reset",
             "A per-user process-name sample cannot prove session membership",
             "Cold greeter-to-ready timing and idle status require manual on-device observation",
