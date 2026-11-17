@@ -1112,7 +1112,7 @@ class RiceSpiceWindow:
                                          nid, action_key, expected=row, expected_owner_pid=host),
                                      lambda _result: self._request_ricepop_inbox()))
                     if action_button is not None:
-                        self._ricepop_focus_buttons[("action", *identity, key)] = action_button
+                        self._ricepop_focus_buttons[("action", *identity, key, action["label"])] = action_button
         if container is not None:
             self._ricepop_inbox_widgets = tuple(
                 widget for widget in container.get_children() if widget not in previous)
