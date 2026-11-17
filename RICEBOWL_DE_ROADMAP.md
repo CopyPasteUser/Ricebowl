@@ -21,6 +21,24 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
+### SG3 RicePop AT-SPI action context and real Mako signal smoke (17 November 2026; CI candidate)
+
+- GTK3 RicePop Dismiss/Invoke buttons now expose notification-specific
+  accessible names (action, application, summary) rather than only a numeric
+  Mako ID. Two different messages from one application are distinguishable
+  when navigating controls by screen reader; the underlying visible label
+  and verified owner-/snapshot-bound action stay unchanged. Private message
+  bodies never enter action accessible names and all widgets remain ephemeral.
+- Unicode, same-app ambiguity, read-only history and no-ATK mock fixtures
+  have deterministic regression tests. The existing isolated labwc/Mako
+  smoke additionally subscribes through **real Gio/D-Bus** and requires
+  `NotificationClosed` after an actual CLI dismissal, including cleanup of
+  the view-scoped signal listener. This verifies the legacy-Mako close path,
+  **not** an automatic arrival event in Mako 1.8.
+- Incremental **SG3 accessibility and delivery** only: no physical Orca/
+  AT-SPI navigation observation, no all-locales translation audit, no claim
+  of full OSD/arrival parity or complete software gate acceptance.
+
 ### SG3 RicePop GTK keyboard focus under live updates (17 November 2026; CI candidate)
 
 - On a deliberate inbox refresh, RiceSpice now restores keyboard focus to
