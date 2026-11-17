@@ -42,7 +42,6 @@ class DebianPayloadGuardTests(unittest.TestCase):
         self.assertEqual(verify_payload(io.BytesIO(archive)), 4)
 
     def test_reject_unsafe_owner_permissions_links_and_paths(self):
-        ordinary = ("./usr/bin/riceplate-native", 0o755, 0, 0, tarfile.REGTYPE, None)
         bad_cases = [
             ("user-owned file", ("./usr/bin/riceplate-native", 0o755, 1000, 0,
                                   tarfile.REGTYPE, None), "Non-root"),
