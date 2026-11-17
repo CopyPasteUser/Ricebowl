@@ -21,6 +21,22 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
+### Sprint 2 – SG3 stale RicePop inbox selection guard (17 November 2026; CI candidate)
+
+- A deliberate RiceSpice inbox snapshot now carries the verified Mako owner PID
+  and immutable on-screen notification metadata only in the transient UI.
+  Dismiss/Invoke on that UI checks the same live owner **before re-reading**
+  private messages, then verifies the fresh ID still belongs to the shown
+  summary, body, application and urgency before the fixed Mako action.
+- A restarted notification owner, replaced message with the same numeric ID,
+  malformed expected snapshot or vanished action fails closed with an explicit
+  error. Existing CLI calls still validate live IDs/actions and remain
+  backward compatible without the optional UI-only snapshot constraint.
+- Negative tests exercise owner replacement, ID reuse, safe current actions
+  and missing metadata. This is **partial SG3 software gate progress**, not
+  complete push-based live updates, Orca/AT-SPI or hardware sign-off; never
+  expose the private inbox automatically or persist its contents.
+
 ### Sprint 2 – SG2 verified audio stream ownership (17 November 2026; CI candidate)
 
 - RiceSpice's on-demand per-application audio controls now require a genuine

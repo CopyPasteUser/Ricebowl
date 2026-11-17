@@ -167,6 +167,7 @@ class WaylandRicePopReadTests(unittest.TestCase):
             snapshot = notifications.inspect_owned()
             self.assertEqual(snapshot["active"], active)
             self.assertEqual(snapshot["history"], history)
+            self.assertEqual(snapshot["owner_pid"], 7)
             self.assertEqual(owner.call_count, 2)
             self.assertEqual(read.call_count, 2)
             self.assertTrue(snapshot["read_only"])
@@ -199,6 +200,7 @@ class WaylandRicePopReadTests(unittest.TestCase):
                             {"key": "open", "label": "Open file"}]}],
             "history": [{"id": 9, "app_name": "Mail", "summary": "Old message",
                          "body": "Not actionable"}], "truncated": False,
+            "owner_pid": 7,
         }
         settings.RiceSpiceWindow._render_notification_inbox(page, snapshot)
         self.assertIn("Active notifications (1)", texts)
@@ -213,8 +215,10 @@ class WaylandRicePopReadTests(unittest.TestCase):
              mock.patch.object(notifications, "invoke", return_value={"ok": True}) as invoke:
             buttons["Dismiss · Files · #12"]()
             buttons["Open file · Files · #12"]()
-            dismiss.assert_called_once_with(12)
-            invoke.assert_called_once_with(12, "open")
+            dismiss.assert_called_once_with(12, expected=snapshot["active"][0],
+                                            expected_owner_pid=7)
+            invoke.assert_called_once_with(12, "open", expected=snapshot["active"][0],
+                                           expected_owner_pid=7)
         self.assertEqual(pages.count("notifications"), 2)
 
     def test_ricespice_inbox_is_not_read_until_user_requests_it(self):
@@ -378,6 +382,69 @@ class WaylandRicePopReadTests(unittest.TestCase):
                     operation()
             read.assert_not_called()
             run.assert_not_called()
+
+    def test_inbox_actions_reject_recycled_id_after_notification_replacement(self):
+        # Even when a new notification reuses the same active numeric ID and
+        # advertised action, a stale RiceSpice button must never mutate it.
+        shown = {"id": 12, "summary": "Original", "body": "Private A",
+                 "app_name": "Mail", "urgency": "normal",
+                 "actions": [{"key": "open", "label": "Open"}]}
+        replaced = {**shown, "body": "Private B"}
+        for operation in ("dismiss", "invoke"):
+            with self.subTest(operation=operation), \
+                 mock.patch.object(notifications, "_mutation_host",
+                                   return_value=("makoctl", 22)), \
+                 mock.patch.object(notifications, "_read_mako",
+                                   return_value=([replaced], False)) as read, \
+                 mock.patch.object(notifications.subprocess, "run") as run:
+                with self.assertRaises(notifications.NotificationBridgeError) as error:
+                    if operation == "dismiss":
+                        notifications.dismiss(12, expected=shown, expected_owner_pid=22)
+                    else:
+                        notifications.invoke(12, "open", expected=shown, expected_owner_pid=22)
+                self.assertEqual(error.exception.code, "stale_notification_snapshot")
+                read.assert_called_once()
+                run.assert_not_called()
+
+    def test_inbox_buttons_reject_mako_restart_before_reading_private_messages(self):
+        shown = {"id": 12, "summary": "Original", "body": "",
+                 "app_name": "Files", "urgency": "normal"}
+        for operation in ("dismiss", "invoke"):
+            with self.subTest(operation=operation), \
+                 mock.patch.object(notifications, "_mutation_host",
+                                   return_value=("makoctl", 34)), \
+                 mock.patch.object(notifications, "_read_mako") as read, \
+                 mock.patch.object(notifications.subprocess, "run") as run:
+                with self.assertRaises(notifications.NotificationBridgeError) as error:
+                    if operation == "dismiss":
+                        notifications.dismiss(12, expected=shown, expected_owner_pid=33)
+                    else:
+                        notifications.invoke(12, "open", expected=shown, expected_owner_pid=33)
+                self.assertEqual(error.exception.code, "notification_host_changed")
+                read.assert_not_called()
+                run.assert_not_called()
+
+    def test_current_inbox_action_and_original_cli_contract_remain_functional(self):
+        shown = {"id": 12, "summary": "Original", "body": "",
+                 "app_name": "Files", "urgency": "normal",
+                 "actions": [{"key": "open", "label": "Open"}]}
+        with mock.patch.object(notifications, "_mutation_host",
+                               return_value=("makoctl", 22)), \
+             mock.patch.object(notifications, "_read_mako",
+                               return_value=([shown], False)), \
+             mock.patch.object(notifications.subprocess, "run",
+                               return_value=subprocess.CompletedProcess([], 0, b"", b"")) as run:
+            self.assertTrue(notifications.dismiss(
+                12, expected=shown, expected_owner_pid=22)["dismissed"])
+            self.assertTrue(notifications.invoke(
+                12, "open", expected=shown, expected_owner_pid=22)["invoked"])
+            # The legacy explicit CLI-style action remains independently safe.
+            self.assertTrue(notifications.dismiss(12)["dismissed"])
+            self.assertEqual(run.call_count, 3)
+            with self.assertRaises(notifications.NotificationBridgeError) as error:
+                notifications.dismiss(12, expected={"id": 12}, expected_owner_pid=22)
+            self.assertEqual(error.exception.code, "invalid_notification_snapshot")
+            self.assertEqual(run.call_count, 3)
 
     def test_explicit_dismiss_is_id_scoped_and_never_invokes_actions(self):
         calls = []
