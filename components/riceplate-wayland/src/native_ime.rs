@@ -83,8 +83,8 @@ pub(crate) struct Pending {
     pub(crate) preedit: Option<Result<Preedit, ()>>,
     pub(crate) commit: Option<String>,
     // Never keep a maliciously large or invalid compositor-provided commit
-    // string alive until Done. Remember the failure instead, so the entire
-    // delete+commit+preedit transaction is rejected atomically.
+    // alive until Done. If another commit_string event arrives, its *latest*
+    // value replaces the old one, preserving existing v3 buffering semantics.
     pub(crate) invalid_commit: bool,
     pub(crate) delete: Option<(u32, u32)>,
 }
@@ -109,9 +109,10 @@ impl Pending {
             self.invalid_commit = true;
             return;
         }
-        // Multiple commit_string events in one Done batch are unusual, but
-        // a later valid string must not erase an earlier invalid transaction.
-        if !self.invalid_commit { self.commit = Some(content); }
+        // A later commit_string is permitted to replace a previous invalid
+        // value before Done, just as the existing editor tests require.
+        self.invalid_commit = false;
+        self.commit = Some(content);
     }
     pub(crate) fn delete(&mut self, before: u32, after: u32) {
         self.delete = Some((before, after));
@@ -202,20 +203,23 @@ mod tests {
         pending.commit(Some("あ".repeat(max + 1)));
         assert!(pending.invalid_commit);
         assert!(pending.commit.is_none(), "never retain the attacker-sized string");
-        pending.commit(Some("safe".to_owned()));
-        assert!(pending.invalid_commit, "a late commit must not clear a failed batch");
-        assert!(pending.commit.is_none());
         let mut state = State::new(Kind::Run);
         assert!(state.commit_text("old"));
         assert!(!state.apply_ime(&pending));
         assert_eq!(state.input, "old", "delete must roll back as part of invalid Done");
 
-        pending.reset();
+        // Later valid buffered commit overrides the invalid one, mirroring
+        // text-input-v3 and the pre-existing Luna editor contract.
+        pending.commit(Some("safe".to_owned()));
         assert!(!pending.invalid_commit);
-        pending.commit(Some("new".to_owned()));
-        assert_eq!(pending.commit.as_deref(), Some("new"));
+        assert_eq!(pending.commit.as_deref(), Some("safe"));
         assert!(state.apply_ime(&pending));
-        assert_eq!(state.input, "oldnew");
+        assert_eq!(state.input, "safe");
+
+        pending.reset();
+        pending.commit(Some("new".to_owned()));
+        assert!(state.apply_ime(&pending));
+        assert_eq!(state.input, "safenew");
 
         pending.reset();
         pending.commit(Some("x\n".to_owned()));
