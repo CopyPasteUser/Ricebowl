@@ -40,6 +40,24 @@ Optional RiceClip/RiceShot P1 features remain outside the core release block.
   SG3 race, **not** the full SG3 software gate, legacy-Mako arrival support,
   AT-SPI or later physical hardware acceptance.
 
+### SG2 BlueZ multi-adapter identity and recovery readback (17 November 2026; CI candidate)
+
+- The existing RiceSpice Bluetooth workflow now binds Connect/Disconnect
+  **and power** controls to the adapter shown when the GTK page was rendered,
+  rejecting a replacement between display and click. The shared system D-Bus
+  transport also requires a live adapter path and an unambiguous Device1
+  beneath it; legacy address-only consumers may proceed only if exactly one
+  live device matches across all adapters.
+- On adapter replacement/hot-unplug, neither power nor connection readback
+  may report success solely because a *different* adapter happens to have the
+  requested state. All operations retain BlueZ ownership, bounded D-Bus
+  calls, explicit user action and no automatic pairing/trusting.
+- Negative tests cover duplicate addresses on distinct and same adapters,
+  invalid/missing adapter paths, normal scoped device connect and changed
+  adapter during both verified readbacks. This is incremental **SG2
+  disconnected-provider safety**, not comprehensive Bluetooth pairing/Orca
+  UX, automatic recovery or physical device acceptance.
+
 ### Sprint 2 – SG3 stale RicePop inbox selection guard (17 November 2026; CI candidate)
 
 - A deliberate RiceSpice inbox snapshot now carries the verified Mako owner PID

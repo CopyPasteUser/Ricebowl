@@ -205,6 +205,83 @@ class RiceSpiceSettingsTests(unittest.TestCase):
                 backend.set_bluetooth_power(False, expected=False)
             change.assert_not_called()
 
+    def test_bluetooth_connection_uses_reviewed_adapter_and_verifies_postcondition(self):
+        address = "AA:BB:CC:DD:EE:FF"
+        before = {"powered": True, "adapter": "/org/bluez/hci0", "devices": [
+            {"address": address, "paired": True, "connected": False, "label": "Phone"}]}
+        after = {**before, "devices": [{**before["devices"][0], "connected": True}]}
+        with mock.patch.object(backend, "bluetooth_snapshot", side_effect=[before, after]), \
+             mock.patch("macrice.bluetooth_dbus.set_connection") as connect:
+            self.assertEqual(backend.set_bluetooth_connection(
+                address, True, expected=False,
+                expected_adapter="/org/bluez/hci0"), after)
+            connect.assert_called_once_with(
+                address, True, expected_adapter="/org/bluez/hci0")
+
+        replaced = {**after, "adapter": "/org/bluez/hci1"}
+        with mock.patch.object(backend, "bluetooth_snapshot",
+                               side_effect=[before, replaced]), \
+             mock.patch("macrice.bluetooth_dbus.set_connection") as connect:
+            with self.assertRaisesRegex(backend.SettingsError, "adapter changed"):
+                backend.set_bluetooth_connection(
+                    address, True, expected=False,
+                    expected_adapter="/org/bluez/hci0")
+            connect.assert_called_once_with(
+                address, True, expected_adapter="/org/bluez/hci0")
+
+    def test_stale_bluetooth_adapter_from_ui_never_calls_bluez(self):
+        addr = "AA:BB:CC:DD:EE:FF"
+        current = {"powered": True, "adapter": "/org/bluez/hci1", "devices": [
+            {"address": addr, "paired": True, "connected": False, "label": "Phone"}]}
+        with mock.patch.object(backend, "bluetooth_snapshot", return_value=current), \
+             mock.patch("macrice.bluetooth_dbus.set_connection") as connect, \
+             mock.patch("macrice.bluetooth_dbus.set_power") as power:
+            with self.assertRaisesRegex(backend.SettingsError, "adapter changed"):
+                backend.set_bluetooth_connection(
+                    addr, True, expected=False, expected_adapter="/org/bluez/hci0")
+            with self.assertRaisesRegex(backend.SettingsError, "adapter changed"):
+                backend.set_bluetooth_power(
+                    False, expected=True, expected_adapter="/org/bluez/hci0")
+            connect.assert_not_called()
+            power.assert_not_called()
+
+    def test_bluetooth_ui_buttons_pass_original_adapter_instead_of_current_guess(self):
+        from types import SimpleNamespace
+        operations = {}
+        current = {"powered": True, "adapter": "/org/bluez/hci0", "devices": [
+            {"address": "AA:BB:CC:DD:EE:FF", "paired": True,
+             "connected": False, "label": "Phone"}]}
+        page = SimpleNamespace()
+        page._button = lambda label, callback, **_kw: operations.setdefault(label, callback)
+        page._text = lambda *_args, **_kw: None
+        page._state = lambda _message: None
+        page._show_content = lambda: None
+        page.show_page = lambda _page: None
+        page._background = lambda work, done: done(work())
+        with mock.patch.object(backend, "bluetooth_snapshot", return_value=current), \
+             mock.patch.object(backend, "set_bluetooth_connection",
+                               return_value=current) as connect, \
+             mock.patch.object(backend, "set_bluetooth_power",
+                               return_value=current) as power:
+            settings.RiceSpiceWindow._bluetooth(page)
+            operations["Connect"]()
+            operations["Turn Bluetooth off"]()
+        connect.assert_called_once_with(
+            "AA:BB:CC:DD:EE:FF", True, expected=False,
+            expected_adapter="/org/bluez/hci0")
+        power.assert_called_once_with(
+            False, expected=True, expected_adapter="/org/bluez/hci0")
+
+    def test_bluetooth_power_cannot_report_success_for_replaced_adapter(self):
+        before = {"powered": False, "adapter": "/org/bluez/hci0", "devices": []}
+        replacement = {"powered": True, "adapter": "/org/bluez/hci1", "devices": []}
+        with mock.patch.object(backend, "bluetooth_snapshot",
+                               side_effect=[before, replacement]), \
+             mock.patch("macrice.bluetooth_dbus.set_power") as change:
+            with self.assertRaisesRegex(backend.SettingsError, "adapter changed"):
+                backend.set_bluetooth_power(True, expected=False)
+            change.assert_called_once_with("/org/bluez/hci0", True)
+
     def test_suspend_refused_in_nested_preview_without_command(self):
         with mock.patch.object(backend.subprocess, "run") as run:
             with self.assertRaisesRegex(backend.SettingsError, "nested"):
