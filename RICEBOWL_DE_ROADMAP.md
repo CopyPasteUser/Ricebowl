@@ -21,6 +21,19 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
+### SG7 release evidence now requires strict PipeWire software frames (17 November 2026; CI candidate)
+
+- `check_release_workflows.py` now requires the separate strict software
+  ScreenCast/PipeWire GitHub Actions workflow at the **exact tested main
+  source SHA**, in addition to the Python/X11, native Rust and Wayland
+  session workflows. Strict portals can only satisfy this source gate via
+  explicit `workflow_dispatch`, because its workflow is not triggered by
+  pushes to `main`; PR results and old green runs cannot provide proof.
+- Negative tests reject absent, in-progress, failed, wrong-branch, wrong-SHA
+  and spoofed strict-portal results. This **hardens** the 1.0 source gate;
+  it is not a claim that the strict portal run has already been dispatched or
+  that the entire SG7 software matrix is complete.
+
 ### SG3 RicePop verified Mako crash/restart and fail-closed GUI recovery (17 November 2026; CI candidate)
 
 - The explicitly opened RiceSpice GTK inbox now treats a lost/replaced
