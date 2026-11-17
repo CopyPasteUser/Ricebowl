@@ -1,11 +1,15 @@
 """Fail-closed exact-source CI acceptance for eventual 1.0 artifacts."""
+import io
 import json
 import tempfile
 import unittest
+import urllib.error
+import urllib.parse
 from pathlib import Path
+from unittest.mock import patch
 
 from scripts.check_release_workflows import (
-    REQUIRED, WorkflowGateError, source_for_tag, validate_runs,
+    REQUIRED, WorkflowGateError, fetch_evidence, source_for_tag, validate_runs,
 )
 
 SHA = "a" * 40
@@ -127,6 +131,82 @@ class ReleaseWorkflowGateTests(unittest.TestCase):
                 trigger = f"      - '{source}'"
                 self.assertIn(trigger, push, "native main push must be tested")
                 self.assertIn(trigger, pr, "native PR must be tested")
+
+    def test_fetch_evidence_reads_all_exact_sha_pages(self):
+        # The fourth release gate may be missing from the first hundred
+        # source-matched runs. Never treat GitHub's first page as exhaustive.
+        first = [{"id": i, "path": "unrelated.yml"} for i in range(1, 101)]
+        second = self.good_runs()
+        queried_pages = []
+
+        def respond(request, timeout):
+            query = urllib.parse.parse_qs(urllib.parse.urlsplit(request.full_url).query)
+            self.assertEqual(query["head_sha"], [SHA])
+            self.assertEqual(query["per_page"], ["100"])
+            self.assertEqual(timeout, 15)
+            page = int(query["page"][0])
+            queried_pages.append(page)
+            payload = {"total_count": 104,
+                       "workflow_runs": first if page == 1 else second}
+            return io.BytesIO(json.dumps(payload).encode())
+
+        with patch("scripts.check_release_workflows.urllib.request.urlopen",
+                   side_effect=respond):
+            payload = fetch_evidence("CopyPasteUser/Ricebowl", SHA, "test-token")
+        self.assertEqual(queried_pages, [1, 2])
+        self.assertEqual(len(payload["workflow_runs"]), 104)
+        self.assertEqual(len(validate_runs(payload, SHA)), 4)
+
+    def test_fetch_evidence_rejects_truncated_or_changed_page_count(self):
+        first = {"total_count": 102, "workflow_runs": [{} for _ in range(100)]}
+        for second in (
+            {"total_count": 102, "workflow_runs": [{}]},
+            {"total_count": 101, "workflow_runs": [{}, {}]},
+            {"total_count": 102, "workflow_runs": "not a list"},
+        ):
+            with self.subTest(second=second):
+                pages = iter([first, second])
+                with patch("scripts.check_release_workflows.urllib.request.urlopen",
+                           side_effect=lambda *_args, **_kwargs:
+                           io.BytesIO(json.dumps(next(pages)).encode())):
+                    with self.assertRaises(WorkflowGateError):
+                        fetch_evidence("CopyPasteUser/Ricebowl", SHA, "test-token")
+
+    def test_fetch_evidence_rejects_partial_network_failure(self):
+        calls = 0
+
+        def respond(_request, timeout):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return io.BytesIO(json.dumps({
+                    "total_count": 101,
+                    "workflow_runs": [{} for _ in range(100)],
+                }).encode())
+            raise urllib.error.URLError("second page unavailable")
+
+        with patch("scripts.check_release_workflows.urllib.request.urlopen",
+                   side_effect=respond):
+            with self.assertRaisesRegex(WorkflowGateError, "Cannot obtain"):
+                fetch_evidence("CopyPasteUser/Ricebowl", SHA, "test-token")
+        self.assertEqual(calls, 2)
+
+    def test_fetch_evidence_fails_closed_above_bounded_page_limit(self):
+        calls = 0
+
+        def respond(_request, timeout):
+            nonlocal calls
+            calls += 1
+            return io.BytesIO(json.dumps({
+                "total_count": 1001,
+                "workflow_runs": [{} for _ in range(100)],
+            }).encode())
+
+        with patch("scripts.check_release_workflows.urllib.request.urlopen",
+                   side_effect=respond):
+            with self.assertRaisesRegex(WorkflowGateError, "Too many"):
+                fetch_evidence("CopyPasteUser/Ricebowl", SHA, "test-token")
+        self.assertEqual(calls, 10)
 
     def test_malformed_or_absent_evidence_fails_closed(self):
         for value in (None, [], {}, {"workflow_runs": "invalid"},

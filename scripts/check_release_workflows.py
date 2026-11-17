@@ -90,20 +90,49 @@ def source_for_tag(tag: str, tag_sha: str, root: Path = ROOT) -> str:
 def fetch_evidence(repository: str, sha: str, token: str) -> object:
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository) or not token:
         raise WorkflowGateError("Missing trusted GitHub repository/token context")
-    url = (f"https://api.github.com/repos/{repository}/actions/runs?"
-           + urllib.parse.urlencode({"head_sha": sha, "per_page": 100}))
-    request = urllib.request.Request(url, headers={
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "RiceBowl-Release-CI-Gate",
-    })
-    try:
-        with urllib.request.urlopen(request, timeout=15) as response:
-            return json.load(response)
-    except (OSError, ValueError, urllib.error.HTTPError) as exc:
-        raise WorkflowGateError("Cannot obtain trusted GitHub workflow evidence") from exc
 
+    # Exact-source Actions runs are paginated. A truncated first page can
+    # hide a required workflow (or its latest attempt), so incomplete or
+    # inconsistent API results must block release rather than certify it.
+    runs: list[dict] = []
+    total_count: int | None = None
+    page_size = 100
+    max_pages = 10
+    for page in range(1, max_pages + 1):
+        url = (f"https://api.github.com/repos/{repository}/actions/runs?"
+               + urllib.parse.urlencode({
+                   "head_sha": sha, "per_page": page_size, "page": page,
+               }))
+        request = urllib.request.Request(url, headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "RiceBowl-Release-CI-Gate",
+        })
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                payload = json.load(response)
+        except (OSError, ValueError, urllib.error.HTTPError) as exc:
+            raise WorkflowGateError("Cannot obtain trusted GitHub workflow evidence") from exc
+
+        if not isinstance(payload, dict) or not isinstance(payload.get("workflow_runs"), list):
+            raise WorkflowGateError("Malformed paginated GitHub workflow evidence")
+        batch = payload["workflow_runs"]
+        count = payload.get("total_count")
+        if (not isinstance(count, int) or isinstance(count, bool)
+                or count < 0 or len(batch) > page_size):
+            raise WorkflowGateError("Invalid GitHub workflow evidence count")
+        if total_count is None:
+            total_count = count
+        if count != total_count:
+            raise WorkflowGateError("GitHub workflow evidence changed during pagination")
+        runs.extend(batch)
+        if len(runs) == total_count:
+            return {"workflow_runs": runs}
+        if len(batch) < page_size or len(runs) > total_count:
+            raise WorkflowGateError("Incomplete paginated GitHub workflow evidence")
+
+    raise WorkflowGateError("Too many exact-source workflow runs to verify safely")
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
