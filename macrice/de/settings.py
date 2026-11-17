@@ -351,6 +351,7 @@ class RiceSpiceWindow:
         self.closed = False
         self._ricepop_signals = None
         self._ricepop_dirty = False
+        self._ricepop_owner_epoch = 0
         self.page = "network"
         self._selecting_nav = False
         provider = Gtk.CssProvider()
@@ -537,6 +538,9 @@ class RiceSpiceWindow:
         if self.closed or self.page != "notifications" or self._ricepop_signals is None:
             return
         if reason == "owner":
+            # A completed backend read may already be queued on the GTK loop.
+            # Invalidate its callback before clearing this owner's private rows.
+            self._ricepop_owner_epoch += 1
             # Discard the disconnected owner's private rows while retaining an
             # explicit manual Refresh button if the new owner fails validation.
             self._render_notification_inbox({
@@ -546,12 +550,29 @@ class RiceSpiceWindow:
         self._ricepop_dirty = True
         self._ricepop_try_refresh()
 
+    def _request_ricepop_inbox(self):
+        """Render only a verified snapshot for the *current* notification owner.
+
+        Mako can restart after inspect_owned() returns but before GTK applies
+        that worker's result. The NameOwnerChanged signal invalidates the old
+        epoch, so an outdated response cannot resurrect previously cleared
+        private messages or stale action buttons. Do not cancel/retry a
+        running D-Bus action; coalesced events schedule a fresh guarded read.
+        """
+        owner_epoch = self._ricepop_owner_epoch
+
+        def present(snapshot):
+            if owner_epoch == self._ricepop_owner_epoch:
+                self._render_notification_inbox(snapshot)
+
+        self._background(notifications.inspect_owned, present)
+
     def _ricepop_try_refresh(self):
         if (not self._ricepop_dirty or self.busy or self.closed
                 or self.page != "notifications" or self._ricepop_signals is None):
             return
         self._ricepop_dirty = False
-        self._background(notifications.inspect_owned, self._render_notification_inbox)
+        self._request_ricepop_inbox()
         # No worker slot or a closing executor can reject the attempt. Keep
         # the dirty bit for a later event rather than assuming a fresh view.
         if not self.busy:
@@ -997,8 +1018,7 @@ class RiceSpiceWindow:
         self._button("Refresh notification state", lambda: self.show_page("notifications"))
         # Notification text is private: load it only after an explicit click,
         # never on opening RiceSpice or while browsing an unrelated XFCE bus.
-        self._button("Show RicePop inbox", lambda: self._background(
-            notifications.inspect_owned, self._render_notification_inbox))
+        self._button("Show RicePop inbox", self._request_ricepop_inbox)
 
         def present(status):
             enabled = status["do_not_disturb"]
@@ -1027,8 +1047,7 @@ class RiceSpiceWindow:
         else:
             previous = ()  # Pure widget-mock contract tests.
         self._text("RicePop inbox · current session", css="ricespice-section")
-        self._button("Refresh RicePop inbox", lambda: self._background(
-            notifications.inspect_owned, self._render_notification_inbox))
+        self._button("Refresh RicePop inbox", self._request_ricepop_inbox)
         self._text("Only messages from this verified RiceBowl notification host are "
                    "shown. They are not saved by RiceSpice.", css="ricespice-note")
         if snapshot["truncated"]:
@@ -1063,8 +1082,7 @@ class RiceSpiceWindow:
                              lambda nid=identifier, row=selected, host=owner_pid: self._background(
                                  lambda: notifications.dismiss(
                                      nid, expected=row, expected_owner_pid=host),
-                                 lambda _result: self._background(
-                                     notifications.inspect_owned, self._render_notification_inbox)))
+                                 lambda _result: self._request_ricepop_inbox()))
                 for action in record.get("actions", []):
                     key = action["key"]
                     self._button(f"{action['label']} · {app} · #{identifier}",
@@ -1072,8 +1090,7 @@ class RiceSpiceWindow:
                                         row=selected, host=owner_pid: self._background(
                                      lambda: notifications.invoke(
                                          nid, action_key, expected=row, expected_owner_pid=host),
-                                     lambda _result: self._background(
-                                     notifications.inspect_owned, self._render_notification_inbox)))
+                                     lambda _result: self._request_ricepop_inbox()))
         if container is not None:
             self._ricepop_inbox_widgets = tuple(
                 widget for widget in container.get_children() if widget not in previous)
