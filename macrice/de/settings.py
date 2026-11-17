@@ -1018,7 +1018,7 @@ class RiceSpiceWindow:
         self._button("Refresh notification state", lambda: self.show_page("notifications"))
         # Notification text is private: load it only after an explicit click,
         # never on opening RiceSpice or while browsing an unrelated XFCE bus.
-        self._button("Show RicePop inbox", self._request_ricepop_inbox)
+        self._button("Show RicePop inbox", lambda: self._request_ricepop_inbox())
 
         def present(status):
             enabled = status["do_not_disturb"]
