@@ -383,10 +383,14 @@ def bluetooth_snapshot() -> dict[str, Any]:
                         for address, name, paired, connected in devices]}
 
 
-def set_bluetooth_power(enabled: bool, *, expected: bool) -> dict[str, Any]:
-    if type(enabled) is not bool or type(expected) is not bool:
+def set_bluetooth_power(enabled: bool, *, expected: bool,
+                        expected_adapter: str | None = None) -> dict[str, Any]:
+    if (type(enabled) is not bool or type(expected) is not bool
+            or (expected_adapter is not None and type(expected_adapter) is not str)):
         raise SettingsError("Bluetooth selection must be explicit")
     before = bluetooth_snapshot()
+    if expected_adapter is not None and before["adapter"] != expected_adapter:
+        raise SettingsError("Bluetooth adapter changed; refresh before applying")
     if before["powered"] != expected:
         raise SettingsError("Bluetooth adapter changed; refresh before applying")
     if enabled != expected:
@@ -404,10 +408,14 @@ def set_bluetooth_power(enabled: bool, *, expected: bool) -> dict[str, Any]:
     return after
 
 
-def set_bluetooth_connection(address: str, connected: bool, *, expected: bool) -> dict[str, Any]:
-    if type(connected) is not bool or type(expected) is not bool:
+def set_bluetooth_connection(address: str, connected: bool, *, expected: bool,
+                             expected_adapter: str | None = None) -> dict[str, Any]:
+    if (type(connected) is not bool or type(expected) is not bool
+            or (expected_adapter is not None and type(expected_adapter) is not str)):
         raise SettingsError("Bluetooth connection selection must be explicit")
     before = bluetooth_snapshot()
+    if expected_adapter is not None and before["adapter"] != expected_adapter:
+        raise SettingsError("Bluetooth adapter changed; refresh before applying")
     device = next((device for device in before["devices"] if device["address"] == address), None)
     if device is None or device["connected"] != expected:
         raise SettingsError("Bluetooth device changed; refresh before applying")
