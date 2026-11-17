@@ -397,6 +397,8 @@ def set_bluetooth_power(enabled: bool, *, expected: bool) -> dict[str, Any]:
         except Exception as exc:
             raise SettingsError("BlueZ denied the adapter change") from exc
     after = bluetooth_snapshot()
+    if after["adapter"] != before["adapter"]:
+        raise SettingsError("Bluetooth adapter changed; refresh before applying")
     if after["powered"] != enabled:
         raise SettingsError("Bluetooth power state could not be verified")
     return after
@@ -415,10 +417,13 @@ def set_bluetooth_connection(address: str, connected: bool, *, expected: bool) -
         from macrice import bluetooth_dbus
 
         try:
-            bluetooth_dbus.set_connection(address, connected)
+            bluetooth_dbus.set_connection(
+                address, connected, expected_adapter=before["adapter"])
         except Exception as exc:
             raise SettingsError("BlueZ denied the device operation") from exc
     after = bluetooth_snapshot()
+    if after["adapter"] != before["adapter"]:
+        raise SettingsError("Bluetooth adapter changed; refresh before applying")
     actual = next((item for item in after["devices"] if item["address"] == address), None)
     if actual is None or actual["connected"] != connected:
         raise SettingsError("Bluetooth connection change could not be verified")
