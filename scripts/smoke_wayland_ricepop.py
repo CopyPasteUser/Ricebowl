@@ -56,24 +56,51 @@ def main() -> int:
     if len(matched) != 1 or payload["backend"] != "mako" or not payload["read_only"]:
         raise RuntimeError("Mako inventory returned an ambiguous notification")
     notification_id = matched[0]["id"]
-    dismissed = _command(*LAUNCHER, "notification-dismiss", "--notification-id",
-                         str(notification_id), "--json")
-    if dismissed.returncode:
-        # CLI errors are structured JSON on stdout. Print only the bounded
-        # error *code*, never any live notification text or host paths.
-        try:
-            failure = json.loads(dismissed.stdout)
-            code = failure.get("error", {}).get("code", "unknown")
-            if not isinstance(code, str) or len(code) > 64 or not code.isidentifier():
-                code = "invalid_error"
-        except (ValueError, TypeError, AttributeError):
-            code = "invalid_response"
-        raise RuntimeError(f"RicePop could not dismiss its isolated notification ({code})")
-    if json.loads(dismissed.stdout).get("notification_id") != notification_id:
-        raise RuntimeError("RicePop dismissed an unexpected notification")
+
+    # Verify the *real* RiceSpice GDBus watcher, rather than testing only its
+    # pure signal parser with a fake bus. Mako 1.8 does not announce arrivals,
+    # but must deliver freedesktop NotificationClosed on a dismissal.
+    from gi.repository import Gio, GLib
+    sys.path.insert(0, str(ROOT))
+    from macrice.de.notification_watch import InboxSignals
+
+    reasons: list[str] = []
+    watcher = InboxSignals(Gio, reasons.append)
+    try:
+        # Process the main context so GDBus subscriptions can be installed
+        # before the separate makoctl/CLI client closes this notification.
+        context = GLib.MainContext.default()
+        while context.pending():
+            context.iteration(False)
+        dismissed = _command(*LAUNCHER, "notification-dismiss", "--notification-id",
+                             str(notification_id), "--json")
+        if dismissed.returncode:
+            # CLI errors are structured JSON; never log notification text.
+            try:
+                failure = json.loads(dismissed.stdout)
+                code = failure.get("error", {}).get("code", "unknown")
+                if not isinstance(code, str) or len(code) > 64 or not code.isidentifier():
+                    code = "invalid_error"
+            except (ValueError, TypeError, AttributeError):
+                code = "invalid_response"
+            raise RuntimeError(
+                f"RicePop could not dismiss its isolated notification ({code})")
+        if json.loads(dismissed.stdout).get("notification_id") != notification_id:
+            raise RuntimeError("RicePop dismissed an unexpected notification")
+        deadline = time.monotonic() + 4
+        while "changed" not in reasons and time.monotonic() < deadline:
+            while context.pending():
+                context.iteration(False)
+            if "changed" not in reasons:
+                time.sleep(0.02)
+        if "changed" not in reasons:
+            raise RuntimeError("Mako did not deliver NotificationClosed to RicePop GDBus")
+    finally:
+        watcher.close()
+
     if any(item["id"] == notification_id for item in _inventory()["active"]):
         raise RuntimeError("Dismissed RicePop notification remained active")
-    print("RicePop sent, listed and dismissed a real Mako notification over isolated D-Bus")
+    print("RicePop sent, listed, dismissed and observed real Mako NotificationClosed")
     return 0
 
 
