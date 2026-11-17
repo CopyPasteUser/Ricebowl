@@ -129,6 +129,48 @@ class DisplayRestoreTests(unittest.TestCase):
             self.assertEqual(display_guard.read_status(change)[0], "kept")
             refreshed.assert_called_once_with("refresh-outputs")
 
+    def test_confirmed_layout_survives_missing_or_broken_optional_panel_refresh(self):
+        # The display-confirm action is already committed when refreshing the
+        # owner-local panel starts. An unavailable live service, invalid reply
+        # or import failure must not convert a user-approved layout into an
+        # unhandled exception or make the guard roll it back.
+        scenarios = (
+            ("missing provider", lambda _action: (_ for _ in ()).throw(
+                ImportError("optional live service unavailable"))),
+            ("disconnected provider", lambda _action: (_ for _ in ()).throw(
+                RuntimeError("owner socket disappeared"))),
+            ("invalid reply", lambda _action: None),
+            ("rejected reply", lambda _action: {"ok": False}),
+        )
+        for scenario, refresh in scenarios:
+            with self.subTest(scenario=scenario):
+                state = dict(self.original)
+                operations = []
+                with tempfile.TemporaryDirectory() as runtime:
+                    change = self._change(runtime)
+                    def apply(name, mode, scale, position):
+                        operations.append(name)
+                        state[name] = (mode, scale, position)
+                        if state == self.target:
+                            display_guard._write_new(
+                                display_guard._keep_path(change), {"keep": True})
+                    with mock.patch.object(wayland_displays, "inventory",
+                                           side_effect=lambda: layout(state)), \
+                         mock.patch.object(wayland_displays, "_set",
+                                           side_effect=apply), \
+                         mock.patch.dict("os.environ", {"RICEBOWL_DE_LIVE": "1"}), \
+                         mock.patch("macrice.de.live.request",
+                                    side_effect=refresh) as request:
+                        self.assertEqual(display_restore.run_worker(change), 0)
+                    request.assert_called_once_with("refresh-outputs")
+                    self.assertEqual(operations, ["eDP-1", "HDMI-A-1"])
+                    self.assertEqual(state, self.target)
+                    status, message = display_guard.read_status(change)
+                    self.assertEqual(status, "kept")
+                    self.assertIn("restart RiceBowl", message)
+                    self.assertFalse(display_guard._keep_path(change).exists())
+                    self.assertFalse(display_guard._request_path(change).exists())
+
     def test_worker_rejects_stale_output_before_any_mutation(self):
         state = dict(self.original)
         state["HDMI-A-1"] = (ALT, 1.0, (1920, 0))
