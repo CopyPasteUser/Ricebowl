@@ -1048,8 +1048,8 @@ class RiceSpiceWindow:
         # or its visible label after the notification owner/content changes.
         previous_focus = None
         for key, button in getattr(self, "_ricepop_focus_buttons", {}).items():
-            has_focus = getattr(button, "has_focus", None)
-            if callable(has_focus) and has_focus():
+            is_focus = getattr(button, "is_focus", None)
+            if callable(is_focus) and is_focus():
                 previous_focus = key
                 break
         self._ricepop_focus_buttons = {}
