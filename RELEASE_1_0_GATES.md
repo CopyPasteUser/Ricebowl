@@ -181,15 +181,17 @@ and hardware checklist remains fully enforced.
 ## Exact-source GitHub CI gate for release artifacts
 
 The `v1.0.0-rc.N` / `v1.0.0` source-artifact workflow now requires
-successful, completed exact-SHA **main-branch** runs for all three canonical
+successful, completed exact-SHA **main-branch** runs for all four canonical
 workflows: Tests (`ci.yml`, requires a main `push`), Native RicePlate
-(`riceplate-native.yml`), and Wayland session preview (`wayland-session.yml`).
-The three expensive, path-filtered Native, Wayland session and strict
-PipeWire workflows additionally support **manual GitHub Actions workflow
-dispatch** at the exact main revision. A release engineer must deliberately
-run any of them before tagging when automatic paths did not include that SHA;
-this avoids widening normal CI on every push. Only `push` or
-`workflow_dispatch` on `main` is trusted for these three workflows. The latest matching run for each workflow is checked by ID,
+(`riceplate-native.yml`), Wayland session preview (`wayland-session.yml`) and
+strict Portal/PipeWire frames (`wayland-portal-strict.yml`). The three
+expensive, path-filtered Native, Wayland session and strict PipeWire workflows
+additionally support **manual GitHub Actions workflow dispatch** at the exact
+main revision. A release engineer must deliberately run any of them before
+tagging when automatic paths did not include that SHA; this avoids widening
+normal CI on every push. Only `push` or `workflow_dispatch` on `main` is
+trusted for these three workflows. The latest matching run for each workflow
+is checked by ID,
 so an older success cannot hide a later failure. Missing, pending, cancelled,
 untrusted-branch or unreachable evidence blocks artifact assembly. Workflow
 identity is pinned by both name and file path.
