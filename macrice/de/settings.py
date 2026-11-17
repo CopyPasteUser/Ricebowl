@@ -1014,7 +1014,8 @@ class RiceSpiceWindow:
                              lambda nid=identifier, row=selected, host=owner_pid: self._background(
                                  lambda: notifications.dismiss(
                                      nid, expected=row, expected_owner_pid=host),
-                                 lambda _result: self.show_page("notifications")))
+                                 lambda _result: self._background(
+                                     notifications.inspect_owned, self._render_notification_inbox)))
                 for action in record.get("actions", []):
                     key = action["key"]
                     self._button(f"{action['label']} · {app} · #{identifier}",
@@ -1022,7 +1023,8 @@ class RiceSpiceWindow:
                                         row=selected, host=owner_pid: self._background(
                                      lambda: notifications.invoke(
                                          nid, action_key, expected=row, expected_owner_pid=host),
-                                     lambda _result: self.show_page("notifications")))
+                                     lambda _result: self._background(
+                                     notifications.inspect_owned, self._render_notification_inbox)))
         if container is not None:
             self._ricepop_inbox_widgets = tuple(
                 widget for widget in container.get_children() if widget not in previous)
