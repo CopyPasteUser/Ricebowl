@@ -82,6 +82,10 @@ use unicode_segmentation::UnicodeSegmentation;
 pub(crate) struct Pending {
     pub(crate) preedit: Option<Result<Preedit, ()>>,
     pub(crate) commit: Option<String>,
+    // Never keep a maliciously large or invalid compositor-provided commit
+    // alive until Done. If another commit_string event arrives, its *latest*
+    // value replaces the old one, preserving existing v3 buffering semantics.
+    pub(crate) invalid_commit: bool,
     pub(crate) delete: Option<(u32, u32)>,
 }
 
@@ -92,7 +96,23 @@ impl Pending {
         self.preedit = Some(Preedit::parse(text.as_deref().unwrap_or(""), start, end).ok_or(()));
     }
     pub(crate) fn commit(&mut self, text: Option<String>) {
-        self.commit = Some(text.unwrap_or_default());
+        let content = text.unwrap_or_default();
+        // A valid single-line editor cannot accept more than MAX_INPUT
+        // Unicode scalars (at most 4 UTF-8 bytes each). Check byte size first
+        // to avoid decoding an oversized Wayland payload a second time.
+        let limit = crate::luna_dialog::MAX_INPUT;
+        if content.len() > limit * 4
+            || content.chars().take(limit + 1).count() > limit
+            || content.chars().any(char::is_control)
+        {
+            self.commit = None;
+            self.invalid_commit = true;
+            return;
+        }
+        // A later commit_string is permitted to replace a previous invalid
+        // value before Done, just as the existing editor tests require.
+        self.invalid_commit = false;
+        self.commit = Some(content);
     }
     pub(crate) fn delete(&mut self, before: u32, after: u32) {
         self.delete = Some((before, after));
@@ -174,6 +194,42 @@ mod tests {
     }
 
     use crate::luna_dialog::{Kind, State};
+
+    #[test]
+    fn oversized_commit_rejects_done_but_later_valid_commit_can_supersede_it() {
+        let max = crate::luna_dialog::MAX_INPUT;
+        let mut pending = Pending::default();
+        pending.delete(3, 0);
+        pending.commit(Some("あ".repeat(max + 1)));
+        assert!(pending.invalid_commit);
+        assert!(pending.commit.is_none(), "never retain the attacker-sized string");
+        let mut state = State::new(Kind::Run);
+        assert!(state.commit_text("old"));
+        assert!(!state.apply_ime(&pending));
+        assert_eq!(state.input, "old", "delete must roll back as part of invalid Done");
+
+        // Later valid buffered commit overrides the invalid one, mirroring
+        // text-input-v3 and the pre-existing Luna editor contract.
+        pending.commit(Some("safe".to_owned()));
+        assert!(!pending.invalid_commit);
+        assert_eq!(pending.commit.as_deref(), Some("safe"));
+        assert!(state.apply_ime(&pending));
+        assert_eq!(state.input, "safe");
+
+        pending.reset();
+        pending.commit(Some("new".to_owned()));
+        assert!(state.apply_ime(&pending));
+        assert_eq!(state.input, "safenew");
+
+        pending.reset();
+        pending.commit(Some("x\n".to_owned()));
+        assert!(pending.invalid_commit);
+        assert!(pending.commit.is_none());
+        pending.reset();
+        pending.commit(None);
+        assert_eq!(pending.commit.as_deref(), Some(""));
+        assert!(!pending.invalid_commit);
+    }
 
     #[test]
     fn preedit_requires_valid_utf8_and_grapheme_boundaries() {
