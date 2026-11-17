@@ -25,6 +25,16 @@ def _legacy_busctl(records):
 
 
 class WaylandRicePopReadTests(unittest.TestCase):
+    @staticmethod
+    def _bind_inbox_open(page):
+        """Give widget mocks the real explicit-open callback and view state."""
+        page.page = "notifications"
+        page.closed = False
+        page.busy = False
+        page._ricepop_open_pending = False
+        page._open_ricepop_inbox = lambda: (
+            settings.RiceSpiceWindow._open_ricepop_inbox(page))
+
     def setUp(self):
         # Unit tests inject the verified D-Bus owner rather than contacting
         # the developer's real user session. Negative ownership tests below
@@ -141,6 +151,7 @@ class WaylandRicePopReadTests(unittest.TestCase):
 
         page._button = button
         page._notification_appearance = lambda: None
+        self._bind_inbox_open(page)
 
         def background(work, done):
             done(work())
@@ -199,6 +210,7 @@ class WaylandRicePopReadTests(unittest.TestCase):
         page._ricepop_owner_epoch = 0
         page._request_ricepop_inbox = (
             lambda: settings.RiceSpiceWindow._request_ricepop_inbox(page))
+        self._bind_inbox_open(page)
         snapshot = {
             "active": [{"id": 12, "app_name": "Files", "summary": "Upload done",
                         "body": "Uploaded safely", "actions": [
@@ -255,6 +267,7 @@ class WaylandRicePopReadTests(unittest.TestCase):
         page._ricepop_owner_epoch = 0
         page._request_ricepop_inbox = (
             lambda: settings.RiceSpiceWindow._request_ricepop_inbox(page))
+        self._bind_inbox_open(page)
         first = {"active": [{"id": 12, "app_name": "Mail", "summary": "Before",
                              "body": "Old private text", "urgency": "normal",
                              "actions": []}],
@@ -312,6 +325,7 @@ class WaylandRicePopReadTests(unittest.TestCase):
         page._button = lambda label, _cb, **_kw: Widget(container, label)
         page._show_content = lambda: None
         page._request_ricepop_inbox = lambda: None
+        self._bind_inbox_open(page)
         page._render_notification_inbox = (
             lambda value: settings.RiceSpiceWindow._render_notification_inbox(page, value))
 
@@ -375,6 +389,7 @@ class WaylandRicePopReadTests(unittest.TestCase):
         page._ricepop_owner_epoch = 0
         page._request_ricepop_inbox = (
             lambda: settings.RiceSpiceWindow._request_ricepop_inbox(page))
+        self._bind_inbox_open(page)
         page._background = lambda work, done: done(work())
         page.show_page = lambda *_args: None
         with mock.patch.object(notifications, "dnd_status",
