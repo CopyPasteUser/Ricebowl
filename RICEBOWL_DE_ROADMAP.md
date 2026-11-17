@@ -25,9 +25,11 @@ Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
 - On a deliberate inbox refresh, RiceSpice now restores keyboard focus to
   the same Dismiss/Invoke control **only** when the Mako owner PID, message ID,
-  summary, body, application, urgency and action key still match the previous
-  verified on-screen message. A vanished/replaced message or changed owner
-  falls back to the safe Refresh button, never a recycled action.
+  summary, body, application, urgency, action key **and its advertised label**
+  still match the previous verified on-screen message. A vanished/replaced
+  message or changed owner falls back to safe Refresh, never a recycled action.
+  Invocation also checks the on-screen action list against the freshly
+  advertised Mako actions; legacy callers without a GUI snapshot still work.
 - Focus mappings are view-local and cleared on page navigation/window close;
   no notification text is logged or persisted. Native GTK buttons remain
   accessible and there is no new D-Bus poller.
