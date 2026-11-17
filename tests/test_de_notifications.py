@@ -221,6 +221,57 @@ class WaylandRicePopReadTests(unittest.TestCase):
                                            expected_owner_pid=7)
         self.assertEqual(pages.count("notifications"), 2)
 
+    def test_manual_inbox_refresh_replaces_widgets_not_private_history(self):
+        # This is a mock GTK container, not a second notification service.
+        class Widget:
+            def __init__(self, parent, text):
+                self.parent, self.text, self.destroyed = parent, text, False
+                parent.children.append(self)
+
+            def destroy(self):
+                self.destroyed = True
+                self.parent.children.remove(self)
+
+        container = SimpleNamespace(children=[])
+        container.get_children = lambda: list(container.children)
+        controls = {}
+        page = SimpleNamespace(content=container)
+        page._text = lambda message, **_kw: Widget(container, message)
+        page._button = lambda label, callback, **_kw: (
+            controls.__setitem__(label, callback), Widget(container, label))[1]
+        page._show_content = lambda: None
+        page._background = lambda work, done: done(work())
+        page._render_notification_inbox = (
+            lambda value: settings.RiceSpiceWindow._render_notification_inbox(page, value))
+        first = {"active": [{"id": 12, "app_name": "Mail", "summary": "Before",
+                             "body": "Old private text", "urgency": "normal",
+                             "actions": []}],
+                 "history": [], "owner_pid": 7, "truncated": False}
+        second = {"active": [{"id": 13, "app_name": "Mail", "summary": "After",
+                              "body": "New private text", "urgency": "normal",
+                              "actions": []}],
+                  "history": [], "owner_pid": 7, "truncated": False}
+        with mock.patch.object(notifications, "inspect_owned",
+                               return_value=second) as read:
+            page._render_notification_inbox(first)
+            read.assert_not_called()
+            old = tuple(container.children)
+            self.assertIn("Dismiss · Mail · #12", controls)
+            controls["Refresh RicePop inbox"]()
+            read.assert_called_once_with()
+        self.assertTrue(all(widget.destroyed for widget in old))
+        self.assertFalse(any("Old private text" in widget.text
+                             for widget in container.children))
+        self.assertTrue(any("New private text" in widget.text
+                            for widget in container.children))
+        self.assertEqual(sum(widget.text == "Refresh RicePop inbox"
+                             for widget in container.children), 1)
+        self.assertFalse(any(widget.text == "Dismiss · Mail · #12"
+                             for widget in container.children))
+        self.assertTrue(any(widget.text == "Dismiss · Mail · #13"
+                            for widget in container.children))
+        self.assertEqual(len(page._ricepop_inbox_widgets), len(container.children))
+
     def test_ricespice_inbox_is_not_read_until_user_requests_it(self):
         controls, seen = {}, []
         page = SimpleNamespace()
