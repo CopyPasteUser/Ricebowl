@@ -670,7 +670,15 @@ class RiceSpiceWindow:
         self.window.queue_resize()
 
     def _background(self, work: Callable[[], object], done: Callable[[object], None]):
-        if self.busy or self.closed:
+        if self.closed:
+            return
+        if self.busy:
+            # Never silently drop a deliberate Network/Audio/BlueZ/Power
+            # action while a previous service request is in flight.
+            # Automatically replaying a state-changing click would be unsafe:
+            # the service state may have changed before that worker finishes.
+            # RicePop's dedicated one-shot inbox-open queue is unaffected.
+            self._state("System request in progress; retry this action when it finishes.")
             return
         if not self.worker_slots.acquire(blocking=False):
             self._state("Another system request is still finishing…")
