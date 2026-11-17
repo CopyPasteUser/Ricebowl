@@ -1,6 +1,8 @@
 """Disposable D-Bus and RiceSpice tests for the opt-in RicePop live inbox."""
 
+import threading
 import unittest
+from concurrent.futures import Future
 from types import SimpleNamespace
 
 from macrice.de import notification_watch, notifications, settings
@@ -189,6 +191,95 @@ class InboxSignalTests(unittest.TestCase):
         page.closed = True
         settings.RiceSpiceWindow._ricepop_changed(page, "changed")
         self.assertEqual(len(launches), 2)
+
+
+    def _busy_ricepop_window(self):
+        """Exercise the real GTK worker completion path with controlled futures."""
+        futures, submitted, idle, rendered, statuses = [], [], [], [], []
+
+        def submit(work):
+            submitted.append(work)
+            result = Future()
+            futures.append(result)
+            return result
+
+        page = SimpleNamespace(
+            page="notifications", closed=False, busy=False, generation=0,
+            _ricepop_signals=None, _ricepop_dirty=False,
+            _ricepop_open_pending=False, _ricepop_owner_epoch=0,
+            _ricepop_focus_buttons={}, worker_slots=threading.BoundedSemaphore(2),
+            executor=SimpleNamespace(submit=submit),
+            GLib=SimpleNamespace(idle_add=lambda callback: idle.append(callback)),
+            _state=statuses.append, _render_notification_inbox=rendered.append,
+        )
+        page._background = lambda work, done: settings.RiceSpiceWindow._background(
+            page, work, done)
+        page._request_ricepop_inbox = lambda: (
+            settings.RiceSpiceWindow._request_ricepop_inbox(page))
+        page._open_ricepop_inbox = lambda: (
+            settings.RiceSpiceWindow._open_ricepop_inbox(page))
+        return page, futures, submitted, idle, rendered, statuses
+
+    def test_explicit_inbox_click_while_dnd_read_busy_is_not_lost(self):
+        page, futures, submitted, idle, rendered, statuses = self._busy_ricepop_window()
+        page._background(lambda: "dnd", lambda result: statuses.append(result))
+        self.assertEqual(len(submitted), 1)
+        self.assertIsNot(submitted[0], notifications.inspect_owned)
+
+        # Both rapid user clicks coalesce behind the initial DND worker.
+        page._open_ricepop_inbox()
+        page._open_ricepop_inbox()
+        self.assertTrue(page._ricepop_open_pending)
+        self.assertEqual(len(submitted), 1)
+        self.assertTrue(any("queued" in state for state in statuses))
+
+        futures[0].set_result("dnd")
+        idle.pop(0)()
+        self.assertEqual(len(submitted), 2)
+        self.assertIs(submitted[1], notifications.inspect_owned)
+        self.assertFalse(page._ricepop_open_pending)
+        self.assertTrue(page.busy)
+
+        private = {"owner_pid": 55, "active": [], "history": [], "truncated": False}
+        futures[1].set_result(private)
+        idle.pop(0)()
+        self.assertEqual(rendered, [private])
+        self.assertFalse(page.busy)
+        self.assertFalse(idle)
+
+    def test_pending_inbox_open_survives_failed_dnd_read_but_not_navigation(self):
+        page, futures, submitted, idle, rendered, states = self._busy_ricepop_window()
+        page._background(lambda: "dnd", lambda _value: None)
+        page._open_ricepop_inbox()
+        futures[0].set_exception(RuntimeError("DND unavailable"))
+        idle.pop(0)()
+        self.assertEqual(len(submitted), 2)
+        self.assertIs(submitted[1], notifications.inspect_owned)
+        self.assertTrue(any("DND unavailable" in state for state in states))
+
+        # A page switch cancels the pending work's result via generation.
+        page.page = "network"
+        page.generation += 1
+        settings.RiceSpiceWindow._stop_ricepop_signals(page)
+        futures[1].set_result(
+            {"owner_pid": 55, "active": [], "history": [], "truncated": False})
+        idle.pop(0)()
+        self.assertEqual(rendered, [])
+        self.assertFalse(page._ricepop_open_pending)
+
+    def test_queued_open_is_cleared_before_busy_worker_returns_on_navigation(self):
+        page, futures, submitted, idle, rendered, _states = self._busy_ricepop_window()
+        page._background(lambda: "dnd", lambda _value: None)
+        page._open_ricepop_inbox()
+        page.page = "network"
+        page.generation += 1
+        settings.RiceSpiceWindow._stop_ricepop_signals(page)
+        page._open_ricepop_inbox()  # Unrelated settings never disclose the inbox.
+        futures[0].set_result("dnd")
+        idle.pop(0)()
+        self.assertEqual(len(submitted), 1)
+        self.assertEqual(rendered, [])
+        self.assertFalse(page._ricepop_open_pending)
 
 
 if __name__ == "__main__":

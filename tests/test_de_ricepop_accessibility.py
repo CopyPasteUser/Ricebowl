@@ -41,6 +41,12 @@ class RicePopAccessibilityTests(unittest.TestCase):
             return result
 
         page._button = button
+        # Rendering tests model a real view, but do not trigger a private read.
+        page.closed = False
+        page.busy = False
+        page._ricepop_open_pending = False
+        page._open_ricepop_inbox = lambda: (
+            settings.RiceSpiceWindow._open_ricepop_inbox(page))
         settings.RiceSpiceWindow._render_notification_inbox(page, snapshot)
         return buttons
 

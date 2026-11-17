@@ -21,6 +21,21 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
+### SG3 RicePop explicit inbox click reliability (17 November 2026; CI candidate)
+
+- A deliberate `Show RicePop inbox` / `Refresh RicePop inbox` click now
+  queues one pending request when the shared RiceSpice system-services worker
+  is busy (typically reading initial Do Not Disturb status). Previously the
+  click was silently lost, because live Mako subscriptions do not exist before
+  the first successful, owner-verified inbox read.
+- The pending user intent is serviced after the worker completes even when
+  that previous status request fails. Repeated clicks coalesce; switching
+  pages or closing the window discards the pending intent and suppresses stale
+  responses. There is no automatic private inbox read, polling or new daemon.
+- Controlled-future regression tests exercise the real GTK worker callback
+  and negative page-generation/worker-error paths. This is **partial SG3 UX
+  reliability** only, not arrival detection on Mako 1.8 or full SG3 acceptance.
+
 ### SG3 RicePop AT-SPI action context and real Mako signal smoke (17 November 2026; CI candidate)
 
 - GTK3 RicePop Dismiss/Invoke buttons now expose notification-specific
