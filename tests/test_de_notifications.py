@@ -297,6 +297,8 @@ class WaylandRicePopReadTests(unittest.TestCase):
                 return self.focused
 
             def grab_focus(self):
+                for item in self.parent.children:
+                    item.focused = False
                 self.focused = True
 
             def destroy(self):
@@ -323,7 +325,7 @@ class WaylandRicePopReadTests(unittest.TestCase):
 
         page._render_notification_inbox(original)
         first = button("Open · Mail · #12")
-        first.focused = True
+        first.grab_focus()
         page._render_notification_inbox(original)
         second = button("Open · Mail · #12")
         self.assertTrue(first.destroyed)
@@ -332,7 +334,7 @@ class WaylandRicePopReadTests(unittest.TestCase):
 
         # Even the same ID and action label cannot transfer focus if the
         # notification body changed: it could be a different message.
-        second.focused = True
+        second.grab_focus()
         changed = {**original, "active": [{**original["active"][0], "body": "Private B"}]}
         page._render_notification_inbox(changed)
         self.assertFalse(button("Open · Mail · #12").focused)
@@ -341,7 +343,7 @@ class WaylandRicePopReadTests(unittest.TestCase):
         # A newly verified host must not inherit old action focus even when
         # its notification ID and visible text happen to match.
         current = button("Dismiss · Mail · #12")
-        current.focused = True
+        current.grab_focus()
         different_owner = {**changed, "owner_pid": 19}
         page._render_notification_inbox(different_owner)
         self.assertFalse(button("Dismiss · Mail · #12").focused)
