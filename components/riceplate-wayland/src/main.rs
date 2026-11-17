@@ -45,6 +45,7 @@ mod system_status;
 mod task_groups;
 mod task_navigation;
 mod bidi_layout;
+mod bidi_mirroring;
 mod text_render;
 mod tray;
 use tray::{MenuChoice as TrayMenuChoice, MenuHit as TrayMenuHit, PopupHit as TrayHit};
@@ -764,7 +765,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 urgency: "normal".into(),
                 actions: vec![ricepop::Action { key: "open".into(), label: "Open message".into() }],
             };
-        app.notification_state.show_preview(ricepop::Snapshot {
+        app.notification_state.show_preview(ricepop::Snapshot { owner_pid: None,
             active: if preview_notifications_scroll {
                 // Visually distinct across pages: the framebuffer check must
                 // detect actual changed rows, not just a trailing ID digit.
@@ -4050,11 +4051,27 @@ impl RicePlate {
     }
 
     fn request_notifications(&mut self, intent: NotificationIntent, qh: &QueueHandle<Self>) {
+        // Snapshot the exact reviewed row BEFORE begin() makes the view busy.
+        // A numeric Mako ID alone can refer to an unrelated message after
+        // replacement or a host restart. Even on delayed worker dispatch,
+        // the Python bridge must verify both owner PID and full row fields.
+        let guarded = match &intent {
+            NotificationIntent::Refresh => None,
+            NotificationIntent::Dismiss(id) | NotificationIntent::Invoke(id, _) =>
+                self.notification_state.guarded_notice(*id),
+        };
         let revision = self.notification_state.begin();
-        let request = match intent {
-            NotificationIntent::Refresh => NotificationRequest::Refresh(revision),
-            NotificationIntent::Dismiss(id) => NotificationRequest::Dismiss(revision, id),
-            NotificationIntent::Invoke(id, key) => NotificationRequest::Invoke(revision, id, key),
+        let request = match (intent, guarded) {
+            (NotificationIntent::Refresh, _) => NotificationRequest::Refresh(revision),
+            (NotificationIntent::Dismiss(id), Some((owner, expected))) =>
+                NotificationRequest::Dismiss { revision, id, owner, expected },
+            (NotificationIntent::Invoke(id, key), Some((owner, expected))) =>
+                NotificationRequest::Invoke { revision, id, key, owner, expected },
+            _ => {
+                self.notification_state.update(revision, Err("Stale RicePop action; refresh"));
+                self.redraw_menu(qh);
+                return;
+            }
         };
         if !self.notification_sender.as_ref()
             .is_some_and(|sender| sender.try_send(request).is_ok()) {
@@ -10265,12 +10282,12 @@ mod tests {
         let mut past = loading.clone();
         let revision = state.begin();
         paint_notifications(&mut loading, &style, &state);
-        assert!(state.update(revision, Ok(ricepop::Snapshot {
+        assert!(state.update(revision, Ok(ricepop::Snapshot { owner_pid: None,
             active: vec![], history: vec![],
         })));
         paint_notifications(&mut empty, &style, &state);
         let revision = state.begin();
-        assert!(state.update(revision, Ok(ricepop::Snapshot {
+        assert!(state.update(revision, Ok(ricepop::Snapshot { owner_pid: None,
             active: vec![ricepop::Notice {
                 id: 1, summary: "New message".into(), body: "Private preview".into(),
                 app_name: "Mail".into(), actions: vec![ricepop::Action {
@@ -10302,7 +10319,7 @@ mod tests {
     fn native_ricepop_range_header_tracks_page_in_full_and_compact_painters() {
         let style = recipe::load("classic").unwrap();
         let mut state = NotificationState::default();
-        state.show_preview(ricepop::Snapshot {
+        state.show_preview(ricepop::Snapshot { owner_pid: None,
             active: (1..=7).map(|id| ricepop::Notice {
                 id, summary: format!("Message {id}"), ..ricepop::Notice::default()
             }).collect(), history: vec![],
@@ -10341,7 +10358,7 @@ mod tests {
         let mut list = vec![0_u8; len];
         let mut detail = vec![0_u8; len];
         paint_compact_notifications(&mut loading, &style, &state, size);
-        assert!(state.update(revision, Ok(ricepop::Snapshot {
+        assert!(state.update(revision, Ok(ricepop::Snapshot { owner_pid: None,
             active: vec![ricepop::Notice {
                 id: 31, summary: "Compact message".into(), app_name: "Messages".into(),
                 body: "A longer notification that must remain readable".into(),
@@ -10380,7 +10397,7 @@ mod tests {
             font: Some(face), icons: [None, None, None],
         });
         let mut state = NotificationState::default();
-        state.show_preview(ricepop::Snapshot { active: vec![ricepop::Notice {
+        state.show_preview(ricepop::Snapshot { owner_pid: None, active: vec![ricepop::Notice {
             id: 1, app_name: "Mail".into(), summary: "Font comparison".into(),
             body: "Portable Unicode Γραμματοσειρά with detailed message wrapping".into(),
             ..ricepop::Notice::default()

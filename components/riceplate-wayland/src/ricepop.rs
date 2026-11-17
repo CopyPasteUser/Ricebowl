@@ -1,12 +1,13 @@
 //! On-demand native notification view, backed by RiceBowl's existing Mako bridge.
 //! The bridge remains the sole authority for validating active IDs and actions.
 
-use std::{io::Read, process::{Command, Stdio}, thread, time::{Duration, Instant}};
+use std::{io::{Read, Write}, process::{Command, Stdio}, thread, time::{Duration, Instant}};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use unicode_segmentation::UnicodeSegmentation;
 
 const MAX_RESPONSE: u64 = 512 * 1024;
+const MAX_PRIVATE_MUTATION: usize = 8192;
 pub const VISIBLE_ROWS: usize = 3;
 pub const ROW_TOP: u32 = 90;
 pub const ROW_HEIGHT: u32 = 54;
@@ -89,13 +90,13 @@ pub fn body_lines_with_width(body: &str, width: usize) -> Vec<String> {
     lines
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Action {
     pub key: String,
     pub label: String,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct Notice {
     pub id: u32,
     pub summary: String,
@@ -107,12 +108,16 @@ pub struct Notice {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Snapshot {
+    /// Verified Mako host identity, never trusted merely from notification ID.
+    /// None is supported only for non-actionable screenshots/test fixtures.
+    pub owner_pid: Option<u32>,
     pub active: Vec<Notice>,
     pub history: Vec<Notice>,
 }
 
 #[derive(Debug, Default)]
 pub struct State {
+    pub owner_pid: Option<u32>,
     pub open: bool,
     pub loading: bool,
     pub error: Option<&'static str>,
@@ -179,6 +184,7 @@ impl State {
         self.open = false;
         self.loading = false;
         self.notices.clear(); // Private notification text must not be retained.
+        self.owner_pid = None;
         self.history.clear();
         self.show_history = false;
         self.error = None;
@@ -242,11 +248,13 @@ impl State {
                 // A transient Mako owner loss invalidates authorization of any
                 // previously opened detail. Reopen explicitly after recovery:
                 // a restarted provider may reuse an ID with identical text.
-                let recovering = self.sync_error;
+                let recovering = self.sync_error
+                    || (self.owner_pid.is_some() && self.owner_pid != snapshot.owner_pid);
                 let prior_detail = self.detail_notice().cloned();
                 let prior_action_key = self.selected_action().map(|(_, action)| action.key.clone());
                 let previous_id = self.detail_id.or_else(||
                     self.visible_notices().get(self.selected).map(|notice| notice.id));
+                self.owner_pid = snapshot.owner_pid;
                 self.notices = snapshot.active;
                 self.history = snapshot.history;
                 self.selected = previous_id.and_then(|id| self.visible_notices()
@@ -281,8 +289,20 @@ impl State {
                 self.error = None;
                 self.sync_error = false;
             }
-            Err(_) if background => self.sync_error = true,
-            Err(message) => self.error = Some(message),
+            Err(_) if background => {
+                self.sync_error = true;
+                self.owner_pid = None;
+                self.notices.clear();
+                self.history.clear();
+                self.close_detail();
+            }
+            Err(message) => {
+                self.owner_pid = None;
+                self.notices.clear();
+                self.history.clear();
+                self.close_detail();
+                self.error = Some(message);
+            },
         }
         true
     }
@@ -398,6 +418,19 @@ impl State {
         if total <= rows || self.selected >= total { return None; }
         let first = self.selected / rows * rows;
         Some((first + 1, (first + rows).min(total), total))
+    }
+
+    /// Own each native action to one verified Mako PID and immutable,
+    /// currently rendered row. A historical row or stale refresh is never
+    /// authority to send an unguarded numeric Mako ID.
+    pub fn guarded_notice(&self, id: u32) -> Option<(u32, Notice)> {
+        if !self.open || self.loading || self.silent_loading || self.sync_error
+            || self.error.is_some() || self.show_history {
+            return None;
+        }
+        let owner = self.owner_pid?;
+        let notice = self.notices.iter().find(|notice| notice.id == id)?;
+        Some((owner, notice.clone()))
     }
 
     pub fn selected_id(&self) -> Option<u32> {
@@ -556,8 +589,8 @@ impl State {
 #[derive(Debug)]
 pub enum Request {
     Refresh(u64),
-    Dismiss(u64, u32),
-    Invoke(u64, u32, String),
+    Dismiss { revision: u64, id: u32, owner: u32, expected: Notice },
+    Invoke { revision: u64, id: u32, key: String, owner: u32, expected: Notice },
 }
 
 pub enum Intent {
@@ -569,8 +602,8 @@ pub enum Intent {
 impl Request {
     pub fn revision(&self) -> u64 {
         match self {
-            Self::Refresh(revision) | Self::Dismiss(revision, _)
-            | Self::Invoke(revision, _, _) => *revision,
+            Self::Refresh(revision) | Self::Dismiss { revision, .. }
+            | Self::Invoke { revision, .. } => *revision,
         }
     }
 }
@@ -598,7 +631,18 @@ pub fn parse(raw: &[u8]) -> Result<Snapshot, &'static str> {
         || value.get("truncated") == Some(&serde_json::Value::Bool(true)) {
         return Err("Notification list unavailable");
     }
+    let owner_pid = match value.get("owner_pid") {
+        None => None, // Non-actionable legacy test and preview snapshots.
+        Some(value) => {
+            let pid = value.as_u64().ok_or("Invalid Mako owner identity")?;
+            if !(1..=i32::MAX as u64).contains(&pid) {
+                return Err("Invalid Mako owner identity");
+            }
+            Some(pid as u32)
+        }
+    };
     Ok(Snapshot {
+        owner_pid,
         active: parse_records(&value, "active")?,
         history: parse_records(&value, "history")?,
     })
@@ -636,10 +680,25 @@ fn parse_records(value: &serde_json::Value, field: &str) -> Result<Vec<Notice>, 
     Ok(notices)
 }
 
-fn call_cli(arguments: &[&str]) -> Result<Vec<u8>, &'static str> {
+fn call_cli(arguments: &[&str], private_input: Option<&[u8]>) -> Result<Vec<u8>, &'static str> {
+    if private_input.is_some_and(|bytes| bytes.is_empty() || bytes.len() > MAX_PRIVATE_MUTATION) {
+        return Err("RicePop private action snapshot too large");
+    }
     let mut child = Command::new("ricebowl").args(arguments)
-        .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null())
+        .stdin(if private_input.is_some() { Stdio::piped() } else { Stdio::null() })
+        .stdout(Stdio::piped()).stderr(Stdio::null())
         .spawn().map_err(|_| "RicePop CLI unavailable")?;
+    if let Some(payload) = private_input {
+        // Never put body/summary/action labels in argv, environment, disk or
+        // logs. One bounded pipe write and immediate EOF are sufficient.
+        let written = child.stdin.take()
+            .is_some_and(|mut input| input.write_all(payload).is_ok());
+        if !written {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("RicePop private action transport failed");
+        }
+    }
     let stdout = child.stdout.take().ok_or("RicePop CLI unavailable")?;
     // Drain concurrently: waiting before reading can deadlock on a large pipe.
     let reader = thread::spawn(move || {
@@ -670,38 +729,111 @@ fn call_cli(arguments: &[&str]) -> Result<Vec<u8>, &'static str> {
 
 pub fn run(request: &Request) -> Result<Snapshot, &'static str> {
     match request {
-        Request::Dismiss(_, notification_id) => {
-            let id = notification_id.to_string();
-            let output = call_cli(&["de", "notification-dismiss", "--notification-id", &id, "--json"])?;
+        Request::Dismiss { id, owner, expected, .. } => {
+            if expected.id != *id { return Err("Stale RicePop selection"); }
+            let id = id.to_string();
+            let owner = owner.to_string();
+            let payload = serde_json::to_vec(expected)
+                .map_err(|_| "Invalid native notification snapshot")?;
+            let output = call_cli(&["de", "notification-dismiss",
+                                     "--notification-id", &id,
+                                     "--expected-owner-pid", &owner,
+                                     "--snapshot-stdin", "--json"], Some(&payload))?;
             let reply: serde_json::Value = serde_json::from_slice(&output)
                 .map_err(|_| "Dismissal response invalid")?;
             if reply.get("ok") != Some(&serde_json::Value::Bool(true))
                 || reply.get("dismissed") != Some(&serde_json::Value::Bool(true))
-                || reply.get("notification_id").and_then(|value| value.as_u64()) != Some(u64::from(*notification_id)) {
+                || reply.get("notification_id").and_then(|value| value.as_u64())
+                    != Some(u64::from(expected.id)) {
                 return Err("Notification could not be dismissed");
             }
         }
-        Request::Invoke(_, notification_id, key) => {
-            let id = notification_id.to_string();
-            let output = call_cli(&["de", "notification-invoke", "--notification-id", &id,
-                                     "--action-key", key, "--json"])?;
+        Request::Invoke { id, key, owner, expected, .. } => {
+            if expected.id != *id || !expected.actions.iter().any(|a| &a.key == key) {
+                return Err("Stale RicePop action selection");
+            }
+            let id = id.to_string();
+            let owner = owner.to_string();
+            let payload = serde_json::to_vec(expected)
+                .map_err(|_| "Invalid native notification snapshot")?;
+            let output = call_cli(&["de", "notification-invoke",
+                                     "--notification-id", &id,
+                                     "--action-key", key,
+                                     "--expected-owner-pid", &owner,
+                                     "--snapshot-stdin", "--json"], Some(&payload))?;
             let reply: serde_json::Value = serde_json::from_slice(&output)
                 .map_err(|_| "Action response invalid")?;
             if reply.get("ok") != Some(&serde_json::Value::Bool(true))
                 || reply.get("invoked") != Some(&serde_json::Value::Bool(true))
-                || reply.get("notification_id").and_then(|value| value.as_u64()) != Some(u64::from(*notification_id))
+                || reply.get("notification_id").and_then(|value| value.as_u64())
+                    != Some(u64::from(expected.id))
                 || reply.get("action_key").and_then(|value| value.as_str()) != Some(key.as_str()) {
                 return Err("Notification action unavailable");
             }
         }
         Request::Refresh(_) => {}
     }
-    parse(&call_cli(&["de", "notifications", "--json"])?)
+    // Never display another desktop session's private messages in native UI.
+    // Only the authenticated RiceBowl-owned Mako host is a supported source.
+    let snapshot = parse(&call_cli(&["de", "notifications-owned", "--json"], None)?)?;
+    if snapshot.owner_pid.is_none() {
+        return Err("Unverified RicePop notification host");
+    }
+    Ok(snapshot)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_action_requires_owned_current_row_and_drops_it_on_owner_loss() {
+        let mut view = State::default();
+        let id = view.begin();
+        let first = Notice {
+            id: 17, summary: "Mail".into(), body: "Private".into(),
+            app_name: "Email".into(), urgency: "normal".into(),
+            actions: vec![Action { key: "reply".into(), label: "Reply".into() }],
+        };
+        assert!(view.update(id, Ok(Snapshot {
+            owner_pid: Some(70), active: vec![first.clone()], history: vec![],
+        })));
+        assert_eq!(view.guarded_notice(17), Some((70, first.clone())));
+        assert!(view.guarded_notice(18).is_none());
+        view.show_history = true;
+        assert!(view.guarded_notice(17).is_none());
+        view.show_history = false;
+        let pending = view.begin_background(Instant::now() + Duration::from_secs(5))
+            .expect("scheduled active host refresh");
+        assert!(view.guarded_notice(17).is_none());
+        assert!(view.update(pending, Err("Mako lost")));
+        assert_eq!(view.owner_pid, None);
+        assert!(view.notices.is_empty());
+        assert!(view.guarded_notice(17).is_none());
+        let reopened = view.begin();
+        assert!(view.update(reopened, Ok(Snapshot {
+            owner_pid: Some(71), active: vec![first.clone()], history: vec![],
+        })));
+        assert_eq!(view.guarded_notice(17), Some((71, first)));
+        view.close();
+        assert!(view.guarded_notice(17).is_none());
+        assert_eq!(view.owner_pid, None);
+    }
+
+    #[test]
+    fn native_owned_snapshots_reject_invalid_pid_and_old_unowned_fixtures() {
+        let row = r#"{"ok":true,"owner_pid":42,"active":[],"history":[]}"#;
+        assert_eq!(parse(row.as_bytes()).unwrap().owner_pid, Some(42));
+        for invalid in [
+            r#"{"ok":true,"owner_pid":0,"active":[],"history":[]}"#,
+            r#"{"ok":true,"owner_pid":true,"active":[],"history":[]}"#,
+            r#"{"ok":true,"owner_pid":2147483648,"active":[],"history":[]}"#,
+        ] {
+            assert!(parse(invalid.as_bytes()).is_err());
+        }
+        assert_eq!(parse(br#"{"ok":true,"active":[],"history":[]}"#)
+                   .unwrap().owner_pid, None);
+    }
 
     fn scroll_fixture() -> State {
         let mut state = State::default();
@@ -713,7 +845,7 @@ mod tests {
                 key: format!("action-{index}"), label: format!("Action {index}"),
             }).collect(), ..Notice::default()
         }).collect();
-        state.show_preview(Snapshot { active: notices, history: vec![] });
+        state.show_preview(Snapshot { owner_pid: None, active: notices, history: vec![] });
         state
     }
 
@@ -826,7 +958,7 @@ mod tests {
                 key: index.to_string(), label: format!("Action {index}"),
             }).collect(), urgency: String::new(),
         }).collect();
-        assert!(state.update(current, Ok(Snapshot { active: notices, history: vec![] })));
+        assert!(state.update(current, Ok(Snapshot { owner_pid: None, active: notices, history: vec![] })));
         assert_eq!(compact_rows(size), 1);
         assert_eq!(state.compact_hit(15.0, 80.0, size), Some(Hit::Row(0)));
         state.select(3);
@@ -880,7 +1012,7 @@ mod tests {
     #[test]
     fn active_only_malformed_or_ambiguous_data_fails_closed() {
         let fixture = br#"{"ok":true,"active":[{"id":42,"summary":"Hello","body":"News","app_name":"App"}],"history":[{"id":99,"summary":"","body":""}]}"#;
-        assert_eq!(parse(fixture).unwrap(), Snapshot {
+        assert_eq!(parse(fixture).unwrap(), Snapshot { owner_pid: None,
             active: vec![Notice { id: 42, summary: "Hello".into(), body: "News".into(),
                                   app_name: "App".into(), ..Notice::default() }],
             history: vec![Notice { id: 99, ..Notice::default() }],
@@ -900,10 +1032,10 @@ mod tests {
         let mut state = State::default();
         let old = state.begin();
         let current = state.begin();
-        assert!(!state.update(old, Ok(Snapshot { active: vec![], history: vec![] })));
+        assert!(!state.update(old, Ok(Snapshot { owner_pid: None, active: vec![], history: vec![] })));
         let items = (1..=8).map(|id| Notice { id, summary: "x".into(),
                                                ..Notice::default() }).collect();
-        assert!(state.update(current, Ok(Snapshot { active: items, history: vec![Notice {
+        assert!(state.update(current, Ok(Snapshot { owner_pid: None, active: items, history: vec![Notice {
             id: 77, summary: "Old".into(), body: "Past".into(), ..Notice::default()
         }] })));
         state.select(7);
@@ -916,7 +1048,7 @@ mod tests {
         assert_eq!(state.selected_id(), None);
         assert_eq!(state.hit(250.0, 55.0), Some(Hit::Tab(true)));
         state.open = false;
-        assert!(!state.update(current, Ok(Snapshot { active: vec![], history: vec![] })));
+        assert!(!state.update(current, Ok(Snapshot { owner_pid: None, active: vec![], history: vec![] })));
         state.close();
         assert!(state.notices.is_empty());
         assert!(state.history.is_empty());
@@ -926,7 +1058,7 @@ mod tests {
     fn notification_buttons_are_explicit_and_hit_regions_bounded() {
         let mut state = State::default();
         let revision = state.begin();
-        state.update(revision, Ok(Snapshot { active: vec![Notice {
+        state.update(revision, Ok(Snapshot { owner_pid: None, active: vec![Notice {
             id: 4, summary: "x".into(), ..Notice::default()
         }], history: vec![] }));
         assert_eq!(state.hit(10.0, 91.0), Some(Hit::Row(0)));
@@ -973,7 +1105,7 @@ mod tests {
         assert_eq!(state.refresh_timeout(now), None);
         let initial = state.begin();
         assert_eq!(state.refresh_timeout(now), None);
-        assert!(state.update(initial, Ok(Snapshot { active: vec![Notice {
+        assert!(state.update(initial, Ok(Snapshot { owner_pid: None, active: vec![Notice {
             id: 4, summary: "First".into(), ..Notice::default()
         }, Notice { id: 8, summary: "Second".into(), ..Notice::default() }], history: vec![] })));
         assert!(state.refresh_timeout(now).is_some());
@@ -982,7 +1114,7 @@ mod tests {
         let background = state.begin_background(now + Duration::from_secs(4)).unwrap();
         assert_eq!(state.refresh_timeout(now + Duration::from_secs(4)), None);
         assert_eq!(state.begin_background(now + Duration::from_secs(4)), None);
-        assert!(state.update(background, Ok(Snapshot { active: vec![Notice {
+        assert!(state.update(background, Ok(Snapshot { owner_pid: None, active: vec![Notice {
             id: 8, summary: "Second".into(), ..Notice::default()
         }], history: vec![] })));
         assert_eq!(state.selected, 0);
@@ -990,12 +1122,16 @@ mod tests {
         let retry = state.begin_background(now + Duration::from_secs(8)).unwrap();
         assert!(state.update(retry, Err("Host offline")));
         assert!(state.sync_error);
-        assert!(state.detail_notice().is_some());
+        // Disconnect must revoke action authority and destroy private text,
+        // rather than leaving an old notice accessible until manual refresh.
+        assert!(state.detail_notice().is_none());
+        assert!(state.notices.is_empty());
+        assert_eq!(state.owner_pid, None);
         assert_eq!(state.selected_id(), None);
         assert_eq!(state.selected_action(), None);
         assert_eq!(state.begin_background(now + Duration::from_secs(10)), None);
         let recovered = state.begin_background(now + Duration::from_secs(21)).unwrap();
-        assert!(state.update(recovered, Ok(Snapshot { active: vec![], history: vec![] })));
+        assert!(state.update(recovered, Ok(Snapshot { owner_pid: None, active: vec![], history: vec![] })));
         assert!(!state.sync_error);
         assert_eq!(state.detail_id, None);
         state.close();
@@ -1013,7 +1149,7 @@ mod tests {
         assert!(lines.iter().any(|line| line.contains("café")));
         let mut state = State::default();
         let revision = state.begin();
-        assert!(state.update(revision, Ok(Snapshot { active: vec![Notice {
+        assert!(state.update(revision, Ok(Snapshot { owner_pid: None, active: vec![Notice {
             id: 5, body: message, ..Notice::default()
         }], history: vec![] })));
         assert!(state.open_detail(0));
@@ -1033,7 +1169,7 @@ mod tests {
     fn private_font_reflows_full_and_compact_detail_without_losing_pages() {
         let message = "A long private message with many Unicode Wörter and more lines than fit on a single page. ".repeat(5);
         let mut state = State::default();
-        state.show_preview(Snapshot { active: vec![Notice {
+        state.show_preview(Snapshot { owner_pid: None, active: vec![Notice {
             id: 17, body: message.clone(), summary: "Private".into(),
             ..Notice::default()
         }], history: vec![] });
@@ -1061,7 +1197,7 @@ mod tests {
     #[test]
     fn background_refresh_preserves_compact_page_until_viewport_changes() {
         let message = "Private compact popup with several pages of text and Unicode Wörter. ".repeat(9);
-        let snapshot = Snapshot { active: vec![Notice {
+        let snapshot = Snapshot { owner_pid: None, active: vec![Notice {
             id: 40, app_name: "RicePop".into(), summary: "Long alert".into(),
             body: message, ..Notice::default()
         }], history: vec![] };
@@ -1094,7 +1230,7 @@ mod tests {
     #[test]
     fn changed_notification_action_and_provider_recovery_require_fresh_selection() {
         let now = Instant::now();
-        let make = |label: &str, urgency: &str| Snapshot {
+        let make = |label: &str, urgency: &str| Snapshot { owner_pid: None,
             active: vec![Notice {
                 id: 24, app_name: "Mail".into(), summary: "Unread".into(),
                 body: "One message".into(), urgency: urgency.into(),
@@ -1138,7 +1274,7 @@ mod tests {
     #[test]
     fn live_refresh_cannot_silently_retarget_action_or_reused_id() {
         let now = Instant::now();
-        let make = |summary: &str, actions: Vec<Action>| Snapshot {
+        let make = |summary: &str, actions: Vec<Action>| Snapshot { owner_pid: None,
             active: vec![Notice { id: 12, summary: summary.into(), app_name: "Mail".into(),
                                    actions, ..Notice::default() }], history: vec![],
         };
@@ -1158,7 +1294,7 @@ mod tests {
         assert!(state.update(revision, Ok(make("Different message", vec![action("open")]))));
         assert!(state.detail_notice().is_none()); // Numeric ID reused.
         let revision = state.begin_background(now + Duration::from_secs(16)).unwrap();
-        assert!(state.update(revision, Ok(Snapshot { active: vec![], history: vec![] })));
+        assert!(state.update(revision, Ok(Snapshot { owner_pid: None, active: vec![], history: vec![] })));
         assert_eq!(state.selected_id(), None); // No accidental new selection.
     }
 }

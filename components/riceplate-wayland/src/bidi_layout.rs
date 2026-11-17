@@ -3,8 +3,9 @@
 //! Resolves UAX #9 embedding levels and reorders whole *grapheme clusters*
 //! (UAX #29), never bytes or combining marks. Existing LTR labels remain
 //! borrowed, allocation-free and byte-identical. Common paired punctuation
-//! gets Unicode BiDi L4 mirrored glyph substitution in odd-level runs; full
-//! mirroring coverage, multi-line layout and IME remain separate SG5 work. This module also exposes visual grapheme edges for single-line
+//! gets Unicode 18 UCD character-based L4 mirroring in odd-level runs.
+//! Font-level mirroring when no alternate code point exists, multi-line
+//! layout and IME remain separate SG5 work. This module also exposes visual grapheme edges for single-line
 //! editor caret hit-testing; it does not perform OpenType shaping.
 use std::borrow::Cow;
 use unicode_bidi::{bidi_class, BidiClass, BidiInfo};
@@ -110,18 +111,7 @@ pub(crate) fn visual_arrow_target(
 /// rather than guessing at a visually or semantically incorrect substitute.
 /// U+FD3E/U+FD3F ornate parentheses deliberately are not mirrored.
 fn mirrored_punctuation(ch: char) -> char {
-    match ch {
-        '(' => ')', ')' => '(',
-        '[' => ']', ']' => '[',
-        '{' => '}', '}' => '{',
-        '<' => '>', '>' => '<',
-        '«' => '»', '»' => '«',
-        '‹' => '›', '›' => '‹',
-        '⟨' => '⟩', '⟩' => '⟨',
-        '〈' => '〉', '〉' => '〈',
-        '（' => '）', '）' => '（',
-        _ => ch,
-    }
+    crate::bidi_mirroring::mirrored(ch)
 }
 
 /// Return the visual-order grapheme sequence for a *single-line* label.
@@ -185,6 +175,29 @@ mod tests {
         let after = visual_cluster_map(rtl).unwrap();
         assert_eq!(before.visual_to_logical, after.visual_to_logical);
         assert!(matches!(visual_order("Hello (world)"), Cow::Borrowed(_)));
+        assert_eq!(mirrored_punctuation('﴾'), '﴾');
+        assert_eq!(mirrored_punctuation('﴿'), '﴿');
+    }
+
+    #[test]
+    fn full_unicode18_mapping_is_paint_only_across_non_latin_brackets() {
+        // Previously unsupported Tibetans, bracket families and a
+        // supplementary-plane mathematical symbol must be mirrored in RTL.
+        for (left, right) in [
+            ('⟦', '⟧'), ('⟪', '⟫'), ('\u{0F3A}', '\u{0F3B}'),
+            ('\u{221D}', '\u{1DB10}'),
+        ] {
+            assert_eq!(mirrored_punctuation(left), right);
+            assert_eq!(mirrored_punctuation(right), left);
+        }
+        let logical = "אבג⟦";
+        assert_eq!(visual_order(logical), "⟧גבא");
+        assert_eq!(visual_cluster_map(logical).unwrap().visual_to_logical,
+                   [3, 2, 1, 0]);
+        assert_eq!(visual_order("plain ⟦LTR⟧"), "plain ⟦LTR⟧");
+        assert_eq!(visual_order("שלום 👩‍💻"), "👩‍💻 םולש");
+        // Ornate parentheses have Bidi_Mirrored=Yes but NO alternate
+        // Unicode scalar mapping; do not invent one.
         assert_eq!(mirrored_punctuation('﴾'), '﴾');
         assert_eq!(mirrored_punctuation('﴿'), '﴿');
     }
