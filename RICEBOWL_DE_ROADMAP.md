@@ -21,6 +21,20 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
+### SG3 optional-service initial-start recovery (17 November 2026; CI candidate)
+
+- A Mako or opt-in Orca subprocess that fails its **first exec** with
+  `OSError` is now still registered with the full-session supervisor.
+  The supervisor attempts exactly one bounded start retry; failed retries
+  remain visibly stopped and never create a restart loop. Successfully
+  recovered children participate in normal owned-process shutdown.
+- The existing nonzero-exit retry and exclusive polkit provider selection
+  remain unchanged. Nested previews with an inherited XFCE D-Bus never
+  start Mako/Orca; no additional resident monitor or global login change.
+- Tests cover successful and failed retries and full-session Mako/Orca
+  recovery with cleanup. This is incremental **SG3 service reliability**
+  only, not complete AT-SPI/Orca semantics or physical release acceptance.
+
 ### SG3 RicePop owner-generation / late GTK callback isolation (17 November 2026; CI candidate)
 
 - A verified Mako inbox read can complete on a worker before a D-Bus

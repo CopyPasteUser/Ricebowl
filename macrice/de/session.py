@@ -408,7 +408,19 @@ class _OptionalService:
         self.retried = False
 
     def check(self) -> None:
-        if self.retried or self.process is None:
+        if self.retried:
+            return
+        if self.process is None:
+            # A transient exec failure at startup previously left an optional
+            # Mako/Orca integration absent for the entire login: no child was
+            # registered for supervision. Retry only once, with the same
+            # reviewed command and session environment.
+            self.retried = True
+            print(f"RiceBowl: optional {self.name} failed to start; "
+                  "attempting one recovery", file=sys.stderr)
+            self.process = _spawn_optional_process(
+                self.name, self.command, env=self.env, spawn=self.spawn,
+                background=self.background)
             return
         status = self.process.poll()
         if status is None:
@@ -1116,8 +1128,10 @@ def shell(
                 service = _OptionalService(
                     "RicePop notifications", [mako, "--config", str(mako_config)],
                     env=env, spawn=spawn, background=background)
-                if service.process is not None:
-                    optional_services.append(service)
+                # Track even a failed first spawn: the supervisor owns one
+                # bounded retry while the session is alive. This never
+                # touches an inherited XFCE notification bus.
+                optional_services.append(service)
 
             # Orca is optional, opt-in and only supervised inside a full RiceBowl
             # session. Do not start another reader in a nested XFCE preview.
@@ -1127,8 +1141,9 @@ def shell(
                     service = _OptionalService(
                         "Orca screen reader", [orca], env=env, spawn=spawn,
                         background=background)
-                    if service.process is not None:
-                        optional_services.append(service)
+                    # Requested accessibility is supervised even if the
+                    # initial exec failed; recovery remains strictly opt-in.
+                    optional_services.append(service)
                 else:
                     print("RiceBowl: Orca screen reader requested but not installed",
                           file=sys.stderr)
