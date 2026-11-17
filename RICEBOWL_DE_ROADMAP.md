@@ -21,6 +21,22 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
+### Sprint 2 – SG2 verified audio stream ownership (17 November 2026; CI candidate)
+
+- RiceSpice's on-demand per-application audio controls now require a genuine
+  PulseAudio/PipeWire `client` identity, not just a possibly reused sink-input
+  index, sink, volume or mute value. Streams without a verifiable client remain
+  visible as read-only with an explicit unavailable state.
+- Output/volume/mute mutations compare the displayed client before issuing
+  fixed pactl commands and again after readback. Stale clients fail closed;
+  a client switch after an attempted change reports an uncertain mutation.
+  The existing optional CLI-style calls retain their previous parameter
+  contract and stale state checks.
+- Native Python tests cover replaced clients, invalid IDs, post-write
+  uncertainty, normal verified changes and the read-only GTK presentation.
+  This is **incremental SG2 progress**, not completion of all providers,
+  real PipeWire hardware behavior, recovery or full software signoff.
+
 ### SG1 desktop Unicode prefix selection (17 November 2026; CI candidate)
 
 - Native XP Luna shortcut **and** XDG file type-to-select now use one
