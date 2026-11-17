@@ -188,9 +188,19 @@ class ReadOnlySessionReliabilityTests(unittest.TestCase):
 
 class ResourceMeasurementTests(unittest.TestCase):
     def test_cpu_pss_context_switch_and_kernel_wakeup_accounting(self):
+        # A complete native login includes a compositor and an idle-lock
+        # watcher, not just the panel whose resource use is being sampled.
+        support = (
+            sample(pid=124, role="compositor", cpu=0, rss=0, pss=0,
+                   switches=0, wakeups=0),
+            sample(pid=125, role="lock-guard", cpu=0, rss=0, pss=0,
+                   switches=0, wakeups=0),
+        )
         observed = iter([
-            (sample(role="native-panel", cpu=150, rss=3000, pss=1100, switches=12, wakeups=22),),
-            (sample(role="native-panel", cpu=200, rss=3200, pss=1200, switches=27, wakeups=32),),
+            (sample(role="native-panel", cpu=150, rss=3000, pss=1100,
+                    switches=12, wakeups=22), *support),
+            (sample(role="native-panel", cpu=200, rss=3200, pss=1200,
+                    switches=27, wakeups=32), *support),
         ])
         times = iter([0.0, 2.0])
         results = measure("native", seconds=2, reader=lambda: next(observed),
@@ -209,6 +219,45 @@ class ResourceMeasurementTests(unittest.TestCase):
         self.assertTrue(results["sample_continuity_verified"])
         self.assertFalse(results["hardware_accepted"])
         self.assertIsNone(results["cold_login_to_ready_ms"])
+
+    def test_orphaned_native_panel_never_passes_full_session_comparison(self):
+        env = {"XDG_SESSION_TYPE": "wayland", "RICEBOWL_DE_SHELL_CHILD": "1",
+               "RICEBOWL_DE_PANEL": "native"}
+        panel = sample(pid=41, role="native-panel")
+        compositor = sample(pid=42, role="compositor")
+        idle_lock = sample(pid=43, role="lock-guard")
+        for missing, processes in (
+            ("compositor", (panel, idle_lock)),
+            ("lock guard", (panel, compositor)),
+            ("both", (panel,)),
+        ):
+            with self.subTest(missing=missing):
+                result = measure(
+                    "native", seconds=1, reader=lambda: processes,
+                    sleep=lambda _: None, clock=iter([0., 1.]).__next__,
+                    ticks_per_second=100, environment=env)
+                self.assertEqual(result["profile_observed"], "native")
+                self.assertTrue(result["sample_continuity_verified"])
+                self.assertFalse(result["process_role_verified"])
+                self.assertFalse(result["profile_matches"])
+                self.assertFalse(result["hardware_accepted"])
+
+    def test_xfce_baseline_requires_session_window_manager_and_panel(self):
+        env = {"XDG_SESSION_TYPE": "x11", "XDG_CURRENT_DESKTOP": "XFCE"}
+        session = sample(pid=41, role="xfce-session")
+        panel = sample(pid=42, role="xfce-panel")
+        wm = sample(pid=43, role="xfce-wm")
+        for records, expected in (((session, panel), False),
+                                  ((session, wm), False),
+                                  ((session, wm, panel), True)):
+            with self.subTest(roles=tuple(x.role for x in records)):
+                result = measure(
+                    "xfce", seconds=1, reader=lambda: records,
+                    sleep=lambda _: None, clock=iter([0., 1.]).__next__,
+                    ticks_per_second=100, environment=env)
+                self.assertEqual(result["process_role_verified"], expected)
+                self.assertEqual(result["profile_matches"], expected)
+                self.assertFalse(result["hardware_accepted"])
 
     def test_native_label_does_not_accept_waybar_rescue_or_ambiguous_panels(self):
         env = {"XDG_SESSION_TYPE": "wayland",
@@ -310,11 +359,17 @@ class ResourceMeasurementTests(unittest.TestCase):
     def test_unrelated_session_process_churn_does_not_fake_cpu(self):
         env = {"XDG_SESSION_TYPE": "wayland",
                "RICEBOWL_DE_SHELL_CHILD": "1", "RICEBOWL_DE_PANEL": "native"}
+        support = (
+            sample(pid=51, role="compositor", cpu=0, rss=0, pss=0,
+                   switches=0, wakeups=0),
+            sample(pid=52, role="lock-guard", cpu=0, rss=0, pss=0,
+                   switches=0, wakeups=0),
+        )
         observed = iter([
             (sample(pid=41, role="native-panel", start=3),
-             sample(pid=42, role="notifications", start=8)),
+             sample(pid=42, role="notifications", start=8), *support),
             (sample(pid=41, role="native-panel", start=3, cpu=250),
-             sample(pid=43, role="notifications", start=9)),
+             sample(pid=43, role="notifications", start=9), *support),
         ])
         result = measure(
             "native", seconds=1, reader=lambda: next(observed),
