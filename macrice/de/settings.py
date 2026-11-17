@@ -1414,6 +1414,14 @@ class RiceSpiceWindow:
                     self._text(f"{stream['label']} · {stream['volume']}%"
                                + (" · Muted" if stream["mute"] else ""),
                                css="ricespice-section")
+                    # A stream index alone can be recycled after a client exits.
+                    # Do not present mutable controls without an independently
+                    # verified PulseAudio/PipeWire client from the live inventory.
+                    if type(stream.get("client")) is not int:
+                        self._text("This stream has no verifiable audio client. "
+                                   "Controls are unavailable; refresh after reconnecting.",
+                                   css="ricespice-note")
+                        continue
                     choices = self.Gtk.ComboBoxText()
                     choices.get_accessible().set_name(stream["label"] + " output device")
                     for sink in stream_state["outputs"]:
@@ -1429,7 +1437,8 @@ class RiceSpiceWindow:
                             return
                         self._background(
                             lambda: audio_devices.set_stream_output(
-                                entry["index"], selected, expected_sink=entry["sink"]),
+                                entry["index"], selected, expected_sink=entry["sink"],
+                                expected_client=entry["client"]),
                             lambda _result: self.show_page("audio"))
 
                     self._button("Move " + stream["label"] + " to selected output",
@@ -1448,7 +1457,8 @@ class RiceSpiceWindow:
                             self._state("Choose a volume level (0–150%)")
                             return
                         self._background(lambda: audio_devices.set_stream_volume(
-                            entry["index"], int(value), expected=entry["volume"]),
+                            entry["index"], int(value), expected=entry["volume"],
+                            expected_client=entry["client"]),
                             lambda _result: self.show_page("audio"))
 
                     self._button("Set " + stream["label"] + " volume", apply_volume)
@@ -1456,7 +1466,8 @@ class RiceSpiceWindow:
                                  lambda entry=stream: self._background(
                                      lambda: audio_devices.set_stream_mute(
                                          entry["index"], not entry["mute"],
-                                         expected=entry["mute"]),
+                                         expected=entry["mute"],
+                                         expected_client=entry["client"]),
                                      lambda _result: self.show_page("audio")))
             self._text("Now playing", css="ricespice-section")
             if isinstance(players, Exception):

@@ -169,9 +169,12 @@ def _streams(payload: str) -> list[dict[str, Any]]:
         if type(record) is not dict:
             raise AudioDeviceError("Invalid playback-stream entry")
         index, sink, muted = record.get("index"), record.get("sink"), record.get("mute")
+        client = record.get("client")
         if (type(index) is not int or not 0 <= index < 2**32 or index in found
                 or type(sink) is not int or not 0 <= sink < 2**32
-                or type(muted) is not bool):
+                or type(muted) is not bool
+                or (client is not None and
+                    (type(client) is not int or not 0 <= client < 2**32))):
             raise AudioDeviceError("Invalid playback-stream identity or state")
         found.add(index)
         volume = record.get("volume")
@@ -192,6 +195,7 @@ def _streams(payload: str) -> list[dict[str, Any]]:
             label = f"Stream {index}"
         label = "".join(ch for ch in label[:140] if ch.isprintable())[:100]
         streams.append({"index": index, "sink": sink, "mute": muted,
+                        "client": client,
                         "volume": percent, "label": label or f"Stream {index}"})
     return streams
 
@@ -213,13 +217,31 @@ def _stream(index: int) -> dict[str, Any]:
     return current
 
 
-def set_stream_output(index: int, sink: str, *, expected_sink: int) -> dict[str, Any]:
+def _check_stream_client(current: dict[str, Any], expected_client: int | None) -> None:
+    """Avoid mutating a different application after a sink-input index is reused.
+
+    A PulseAudio/PipeWire client's numeric identity is present in pactl's
+    sink-input snapshot for normal application streams. The GUI only enables
+    mutations when that identity was available at initial inspection.
+    """
+    if expected_client is None:
+        return  # Legacy CLI callers continue to use their existing state guards.
+    if type(expected_client) is not int or not 0 <= expected_client < 2**32:
+        raise AudioDeviceError("Invalid playback client identity")
+    if current["client"] != expected_client:
+        raise AudioDeviceError("Playback client changed; refresh before applying",
+                               "audio_stream_changed")
+
+
+def set_stream_output(index: int, sink: str, *, expected_sink: int,
+                      expected_client: int | None = None) -> dict[str, Any]:
     if type(sink) is not str or not _NAME.fullmatch(sink) or type(expected_sink) is not int:
         raise AudioDeviceError("Choose an available playback output")
     before = playback_streams()
     current = next((item for item in before["streams"] if item["index"] == index), None)
     if (type(index) is not int or current is None or current["sink"] != expected_sink):
         raise AudioDeviceError("Playback stream changed; refresh before applying")
+    _check_stream_client(current, expected_client)
     target = next((item for item in before["outputs"] if item["name"] == sink), None)
     if target is None:
         raise AudioDeviceError("Chosen output is unavailable")
@@ -228,6 +250,7 @@ def set_stream_output(index: int, sink: str, *, expected_sink: int) -> dict[str,
     try:
         _run("move-sink-input", str(index), sink)
         after = _stream(index)
+        _check_stream_client(after, expected_client)
     except AudioDeviceError as exc:
         raise AudioDeviceError("Stream routing may have changed; refresh and inspect",
                                may_have_changed=True) from exc
@@ -236,11 +259,13 @@ def set_stream_output(index: int, sink: str, *, expected_sink: int) -> dict[str,
     return after
 
 
-def set_stream_volume(index: int, percent: int, *, expected: int) -> dict[str, Any]:
+def set_stream_volume(index: int, percent: int, *, expected: int,
+                      expected_client: int | None = None) -> dict[str, Any]:
     if (type(index) is not int or type(percent) is not int or type(expected) is not int
             or not 0 <= percent <= 150 or not 0 <= expected <= 1000):
         raise AudioDeviceError("Invalid playback stream volume")
     current = _stream(index)
+    _check_stream_client(current, expected_client)
     if current["volume"] != expected:
         raise AudioDeviceError("Stream volume changed; refresh before applying")
     if current["volume"] == percent:
@@ -248,6 +273,7 @@ def set_stream_volume(index: int, percent: int, *, expected: int) -> dict[str, A
     try:
         _run("set-sink-input-volume", str(index), f"{percent}%")
         after = _stream(index)
+        _check_stream_client(after, expected_client)
     except AudioDeviceError as exc:
         raise AudioDeviceError("Stream volume may have changed; refresh and inspect",
                                may_have_changed=True) from exc
@@ -256,10 +282,12 @@ def set_stream_volume(index: int, percent: int, *, expected: int) -> dict[str, A
     return after
 
 
-def set_stream_mute(index: int, enabled: bool, *, expected: bool) -> dict[str, Any]:
+def set_stream_mute(index: int, enabled: bool, *, expected: bool,
+                    expected_client: int | None = None) -> dict[str, Any]:
     if type(index) is not int or type(enabled) is not bool or type(expected) is not bool:
         raise AudioDeviceError("Invalid playback mute selection")
     current = _stream(index)
+    _check_stream_client(current, expected_client)
     if current["mute"] != expected:
         raise AudioDeviceError("Stream mute changed; refresh before applying")
     if enabled == expected:
@@ -267,6 +295,7 @@ def set_stream_mute(index: int, enabled: bool, *, expected: bool) -> dict[str, A
     try:
         _run("set-sink-input-mute", str(index), "1" if enabled else "0")
         after = _stream(index)
+        _check_stream_client(after, expected_client)
     except AudioDeviceError as exc:
         raise AudioDeviceError("Stream mute may have changed; refresh and inspect",
                                may_have_changed=True) from exc
