@@ -1581,7 +1581,9 @@ class RiceSpiceWindow:
             self._state("Bluetooth adapter: on" if powered else "Bluetooth adapter: off")
             self._button("Turn Bluetooth off" if powered else "Turn Bluetooth on",
                          lambda: self._background(
-                             lambda: backend.set_bluetooth_power(not powered, expected=powered),
+                             lambda: backend.set_bluetooth_power(
+                                 not powered, expected=powered,
+                                 expected_adapter=inventory["adapter"]),
                              lambda _result: self.show_page("bluetooth")), primary=True)
             self._text("Known devices", css="ricespice-section")
             if not inventory["devices"]:
@@ -1594,7 +1596,9 @@ class RiceSpiceWindow:
                     self._button("Disconnect" if device["connected"] else "Connect",
                                  lambda d=device: self._background(
                                      lambda: backend.set_bluetooth_connection(
-                                         d["address"], not d["connected"], expected=d["connected"]),
+                                         d["address"], not d["connected"],
+                                         expected=d["connected"],
+                                         expected_adapter=inventory["adapter"]),
                                      lambda _result: self.show_page("bluetooth")))
             self._show_content()
 
