@@ -56,6 +56,61 @@ class BluetoothDbusTests(unittest.TestCase):
             bluetooth_dbus.set_connection("AA:BB:CC:DD:EE:FF", True)
 
     @patch("macrice.bluetooth_dbus._connection")
+    @patch("macrice.bluetooth_dbus._objects")
+    def test_same_device_address_on_two_adapters_must_not_cross_bind(self, objects, connection):
+        from gi.repository import Gio
+
+        bus = connection.return_value[1]
+        connection.return_value = (Gio, bus)
+        addr = "AA:BB:CC:DD:EE:FF"
+        objects.return_value = {
+            "/org/bluez/hci0": {"org.bluez.Adapter1": {"Powered": True}},
+            "/org/bluez/hci1": {"org.bluez.Adapter1": {"Powered": True}},
+            "/org/bluez/hci0/dev_AA": {"org.bluez.Device1": {
+                "Address": addr, "Paired": True}},
+            "/org/bluez/hci1/dev_AA": {"org.bluez.Device1": {
+                "Address": addr, "Paired": True}},
+        }
+        with self.assertRaisesRegex(ValueError, "ambiguous"):
+            bluetooth_dbus.set_connection(addr, True)
+        bus.call_sync.assert_not_called()
+
+        bluetooth_dbus.set_connection(addr, True, expected_adapter="/org/bluez/hci1")
+        self.assertEqual(bus.call_sync.call_args.args[1:4],
+                         ("/org/bluez/hci1/dev_AA", "org.bluez.Device1", "Connect"))
+        bus.reset_mock()
+        with self.assertRaisesRegex(ValueError, "adapter changed"):
+            bluetooth_dbus.set_connection(addr, True, expected_adapter="/org/bluez/hci9")
+        bus.call_sync.assert_not_called()
+
+        # A path from a disappeared adapter cannot become a valid target.
+        del objects.return_value["/org/bluez/hci1"]
+        with self.assertRaisesRegex(ValueError, "adapter changed"):
+            bluetooth_dbus.set_connection(addr, True, expected_adapter="/org/bluez/hci1")
+        bus.call_sync.assert_not_called()
+        objects.return_value["/org/bluez/hci1"] = {"org.bluez.Adapter1": {}}
+        objects.return_value["/org/bluez/hci1/dev_BB"] = {"org.bluez.Device1": {
+            "Address": addr, "Paired": True}}
+        with self.assertRaisesRegex(ValueError, "ambiguous"):
+            bluetooth_dbus.set_connection(addr, True, expected_adapter="/org/bluez/hci1")
+        bus.call_sync.assert_not_called()
+
+    @patch("macrice.bluetooth_dbus._connection")
+    @patch("macrice.bluetooth_dbus._objects")
+    def test_connection_rejects_malformed_identity_before_mutation(self, objects, connection):
+        objects.return_value = {"/org/bluez/hci0": {"org.bluez.Adapter1": {}}}
+        for address, connected, adapter in (
+            ("not-a-bluetooth-address", True, None),
+            ("AA:BB:CC:DD:EE:FF", 1, None),
+            ("AA:BB:CC:DD:EE:FF", True, "/invalid/adapter"),
+            ("AA:BB:CC:DD:EE:FF", True, True),
+        ):
+            with self.subTest(address=address, adapter=adapter), \
+                 self.assertRaises(ValueError):
+                bluetooth_dbus.set_connection(address, connected, expected_adapter=adapter)
+        connection.assert_not_called()
+
+    @patch("macrice.bluetooth_dbus._connection")
     @patch("macrice.bluetooth_dbus.snapshot", return_value=(True, "/org/bluez/hci0", ()))
     def test_scan_is_explicit_bounded_and_always_stopped(self, snapshot, connection):
         from gi.repository import Gio
