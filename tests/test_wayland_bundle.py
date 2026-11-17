@@ -207,6 +207,21 @@ class WaylandBundleTests(unittest.TestCase):
                     self.assertIn(diagnostic, rejected.stderr)
             desktop_control.write_text(original_control, encoding="utf-8")
 
+            # The original ELF bytes and digest are unchanged, but a forged
+            # setuid bit in the archive must fail *before* extracting/using
+            # the bundle. File-content SHA-256 alone cannot detect this.
+            privileged_stage = folder / "privileged-native-stage"
+            self.assertEqual(run("dpkg-deb", "-R", str(native), str(privileged_stage)).returncode, 0)
+            privileged_binary = privileged_stage / "usr/bin/riceplate-native"
+            privileged_binary.chmod(0o4755)
+            privileged_native = folder / "privileged-native.deb"
+            self.assertEqual(run("dpkg-deb", "--build", "--root-owner-group",
+                                 str(privileged_stage), str(privileged_native)).returncode, 0)
+            rejected = run("bash", str(VERIFY), str(core), str(session),
+                           str(privileged_native), str(desktop))
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn("Unsafe package payload permissions", rejected.stderr)
+
             mixed_stage = folder / "mixed-native-stage"
             self.assertEqual(run("dpkg-deb", "-R", str(native), str(mixed_stage)).returncode, 0)
             metadata = mixed_stage / "DEBIAN/control"
