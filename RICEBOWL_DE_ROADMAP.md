@@ -30,8 +30,9 @@ Optional RiceClip/RiceShot P1 features remain outside the core release block.
   and verified owner-/snapshot-bound action stay unchanged. Private message
   bodies never enter action accessible names and all widgets remain ephemeral.
 - Unicode, same-app ambiguity, read-only history and no-ATK mock fixtures
-  have deterministic regression tests. The existing isolated labwc/Mako
-  smoke additionally subscribes through **real Gio/D-Bus** and requires
+  have deterministic regression tests. An actual GTK3 Button's ATK accessible
+  name is also checked inside the disposable Wayland compositor. The isolated
+  labwc/Mako smoke subscribes through **real Gio/D-Bus** and requires
   `NotificationClosed` after an actual CLI dismissal, including cleanup of
   the view-scoped signal listener. This verifies the legacy-Mako close path,
   **not** an automatic arrival event in Mako 1.8.
