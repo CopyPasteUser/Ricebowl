@@ -285,7 +285,7 @@ class WaylandRicePopReadTests(unittest.TestCase):
         self.assertEqual(len(page._ricepop_inbox_widgets), len(container.children))
 
     def test_inbox_refresh_preserves_only_verified_keyboard_focus(self):
-        # A real GTK Button exposes has_focus/grab_focus. Model the complete
+        # A real GTK Button exposes is_focus/grab_focus. Model the complete
         # transient container lifecycle without a display server.
         class Widget:
             def __init__(self, parent, text):
