@@ -16,7 +16,7 @@ from typing import Callable
 from macrice import display_guard
 from macrice.riceware import media
 
-from . import audio_devices, display_presets, display_restore, network_enrollment
+from . import audio_devices, display_presets, display_restore, network_enrollment, ricepop_i18n
 from . import notifications, preferences, recipes, luna_panel_settings, luna_taskbar_settings
 from . import settings_backend as backend, wayland_displays
 
@@ -156,7 +156,7 @@ def _ricepop_accessible_action_name(action: str, app: str, summary: str) -> str:
     inbox. Do not include the private body, D-Bus owner or numeric notification
     ID: they do not help a screen reader distinguish actionable messages.
     """
-    return f"{action} notification from {app}: {summary}"
+    return ricepop_i18n.text("accessible_action", action=action, app=app, summary=summary)
 
 
 def _ricepop_set_accessible_name(button, action: str, app: str, summary: str) -> None:
@@ -556,7 +556,7 @@ class RiceSpiceWindow:
         except Exception:
             # The manual refresh button remains functional on older/foreign
             # environments; no hidden notification content enters this error.
-            self._state("Live notification updates unavailable; use Refresh RicePop inbox")
+            self._state(ricepop_i18n.text("live_unavailable"))
 
     def _ricepop_changed(self, reason: str):
         if self.closed or self.page != "notifications" or self._ricepop_signals is None:
@@ -570,7 +570,7 @@ class RiceSpiceWindow:
             self._render_notification_inbox({
                 "active": [], "history": [], "truncated": False, "owner_pid": None,
             })
-            self._state("Notification host changed; verifying RicePop owner")
+            self._state(ricepop_i18n.text("owner_changed"))
         self._ricepop_dirty = True
         self._ricepop_try_refresh()
 
@@ -585,7 +585,7 @@ class RiceSpiceWindow:
             return
         if self.busy:
             self._ricepop_open_pending = True
-            self._state("RicePop inbox queued until the current request completes")
+            self._state(ricepop_i18n.text("queued"))
             return
         self._ricepop_open_pending = False
         self._request_ricepop_inbox()
@@ -1053,19 +1053,17 @@ class RiceSpiceWindow:
         self._show_content()
 
     def _notifications(self):
-        self._text("Do Not Disturb hides incoming notification banners while retaining "
-                   "RicePop's active and past alerts.", css="ricespice-note")
-        self._text("This setting is available only when the full RiceBowl Wayland "
-                   "session owns its Mako notification service.", css="ricespice-note")
-        self._button("Refresh notification state", lambda: self.show_page("notifications"))
+        self._text(ricepop_i18n.text("intro"), css="ricespice-note")
+        self._text(ricepop_i18n.text("owner_info"), css="ricespice-note")
+        self._button(ricepop_i18n.text("refresh_state"), lambda: self.show_page("notifications"))
         # Notification text is private: load it only after an explicit click,
         # never on opening RiceSpice or while browsing an unrelated XFCE bus.
-        self._button("Show RicePop inbox", self._open_ricepop_inbox)
+        self._button(ricepop_i18n.text("show_inbox"), self._open_ricepop_inbox)
 
         def present(status):
             enabled = status["do_not_disturb"]
-            self._state("Do Not Disturb: on" if enabled else "Do Not Disturb: off")
-            self._button("Turn off Do Not Disturb" if enabled else "Turn on Do Not Disturb",
+            self._state(ricepop_i18n.text("dnd_on" if enabled else "dnd_off"))
+            self._button(ricepop_i18n.text("toggle_off" if enabled else "toggle_on"),
                          lambda: self._background(
                              lambda: notifications.set_dnd(not enabled, expected=enabled),
                              lambda _result: self.show_page("notifications")), primary=True)
@@ -1098,18 +1096,16 @@ class RiceSpiceWindow:
             previous = tuple(container.get_children())
         else:
             previous = ()  # Pure widget-mock contract tests.
-        self._text("RicePop inbox · current session", css="ricespice-section")
-        refresh_button = self._button("Refresh RicePop inbox", self._open_ricepop_inbox)
+        self._text(ricepop_i18n.text("inbox_title"), css="ricespice-section")
+        refresh_button = self._button(ricepop_i18n.text("refresh_inbox"), self._open_ricepop_inbox)
         if refresh_button is not None:
             self._ricepop_focus_buttons[("refresh",)] = refresh_button
-        self._text("Only messages from this verified RiceBowl notification host are "
-                   "shown. They are not saved by RiceSpice.", css="ricespice-note")
+        self._text(ricepop_i18n.text("verified_info"), css="ricespice-note")
         if snapshot["truncated"]:
-            self._text("Showing at most 64 entries per section. Refresh to check "
-                       "for changes.", css="ricespice-note")
+            self._text(ricepop_i18n.text("truncated"), css="ricespice-note")
         for source, heading, empty in (
-            ("active", "Active notifications", "No active notifications."),
-            ("history", "Previous notifications", "No notification history."),
+            ("active", ricepop_i18n.text("active"), ricepop_i18n.text("empty_active")),
+            ("history", ricepop_i18n.text("history"), ricepop_i18n.text("empty_history")),
         ):
             rows = snapshot[source]
             self._text(f"{heading} ({len(rows)})", css="ricespice-section")
@@ -1117,8 +1113,8 @@ class RiceSpiceWindow:
                 self._text(empty, css="ricespice-note")
                 continue
             for record in rows:
-                app = record["app_name"] or "Unknown application"
-                summary = record["summary"] or "(untitled)"
+                app = record["app_name"] or ricepop_i18n.text("unknown_app")
+                summary = record["summary"] or ricepop_i18n.text("untitled")
                 identifier = record["id"]
                 # Bind this button to the exact private on-screen snapshot,
                 # not merely an ID which Mako may later reuse.
@@ -1134,13 +1130,14 @@ class RiceSpiceWindow:
                     self._text(preview, css="ricespice-note")
                 if source != "active":
                     continue  # History is strictly read-only.
-                dismiss_button = self._button(f"Dismiss · {app} · #{identifier}",
+                dismiss_label = ricepop_i18n.text("dismiss")
+                dismiss_button = self._button(f"{dismiss_label} · {app} · #{identifier}",
                              lambda nid=identifier, row=selected, host=owner_pid: self._background(
                                  lambda: notifications.dismiss(
                                      nid, expected=row, expected_owner_pid=host),
                                  lambda _result: self._request_ricepop_inbox()))
                 if dismiss_button is not None:
-                    _ricepop_set_accessible_name(dismiss_button, "Dismiss", app, summary)
+                    _ricepop_set_accessible_name(dismiss_button, dismiss_label, app, summary)
                     self._ricepop_focus_buttons[("dismiss", *identity)] = dismiss_button
                 for action in record.get("actions", []):
                     key = action["key"]
@@ -1175,15 +1172,12 @@ class RiceSpiceWindow:
     def _notification_appearance(self):
         """Change only the next full Wayland login's RicePop Mako styling."""
         from . import notification_prefs
-        self._text("RicePop banner appearance · next full Wayland login",
-                   css="ricespice-section")
-        self._text("These choices never modify XFCE notifications or a running Mako "
-                   "instance. Only the RiceBowl-owned host reads them at login.",
-                   css="ricespice-note")
+        self._text(ricepop_i18n.text("appearance_title"), css="ricespice-section")
+        self._text(ricepop_i18n.text("appearance_info"), css="ricespice-note")
         try:
             current = notification_prefs.load()
         except (OSError, ValueError) as exc:
-            self._text("Saved RicePop appearance unavailable: " + str(exc),
+            self._text(ricepop_i18n.text("appearance_unavailable", error=str(exc)),
                        css="ricespice-note")
             return
 
@@ -1197,16 +1191,18 @@ class RiceSpiceWindow:
             self.content.pack_start(combo, False, False, 0)
             return combo
 
-        family = choice("Notification font", [(name, name) for name in
+        family = choice(ricepop_i18n.text("font"), [(name, name) for name in
                         dict.fromkeys(("Sans", "Serif", "Monospace",
                                        current["font_family"]))], current["font_family"])
-        size = choice("Font size", [(n, f"{n} pt") for n in notification_prefs._SIZES],
+        size = choice(ricepop_i18n.text("font_size"), [(n, f"{n} pt") for n in notification_prefs._SIZES],
                       current["font_size"])
-        timeout = choice("Default banner duration", [
-            (0, "Follow application / no default timeout"),
-            (4000, "4 seconds"), (7000, "7 seconds"), (12000, "12 seconds")],
+        timeout = choice(ricepop_i18n.text("duration"), [
+            (0, ricepop_i18n.text("app_timeout")),
+            (4000, ricepop_i18n.text("seconds", count=4)),
+            (7000, ricepop_i18n.text("seconds", count=7)),
+            (12000, ricepop_i18n.text("seconds", count=12))],
             current["default_timeout"])
-        visible = choice("Maximum visible banners", [(n, str(n))
+        visible = choice(ricepop_i18n.text("max_visible"), [(n, str(n))
                           for n in notification_prefs._COUNTS], current["max_visible"])
 
         def installed():
@@ -1221,9 +1217,9 @@ class RiceSpiceWindow:
                 if name:
                     family.append(name, name)
             family.set_active_id(current_name)
-            self._state(f"{len(names)} installed TrueType font families available")
+            self._state(ricepop_i18n.text("found_fonts", count=len(names)))
 
-        self._button("Find installed TrueType fonts", lambda: self._background(
+        self._button(ricepop_i18n.text("find_fonts"), lambda: self._background(
             installed, show_installed))
 
         def apply():
@@ -1234,7 +1230,7 @@ class RiceSpiceWindow:
             self._background(lambda: notification_prefs.save(values, expected=current),
                              lambda _result: self.show_page("notifications"))
 
-        self._button("Save RicePop appearance for next login", apply,
+        self._button(ricepop_i18n.text("save_appearance"), apply,
                      primary=True)
         self._button("Restore RicePop appearance defaults", lambda: self._background(
             lambda: notification_prefs.save(notification_prefs.DEFAULTS,
