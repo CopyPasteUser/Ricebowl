@@ -107,6 +107,25 @@ class ReleaseWorkflowGateTests(unittest.TestCase):
         with self.assertRaisesRegex(WorkflowGateError, "Missing"):
             validate_runs({"workflow_runs": runs}, SHA)
 
+    def test_native_acceptance_triggers_for_creator_pack_and_asset_contracts(self):
+        # Native Composer import/render/restore uses the *Python* RicePack
+        # compiler and asset schema as well as the Rust layer-shell. Missing
+        # path filters silently skip required acceptance on the exact source.
+        workflow = (Path(__file__).resolve().parents[1]
+                    / ".github/workflows/riceplate-native.yml").read_text()
+        push, pr = workflow.split("  pull_request:\n", 1)
+        push = push.split("  push:\n", 1)[1]
+        pr = pr.split("\npermissions:", 1)[0]
+        for source in (
+            "macrice/de/pack.py", "macrice/de/style_assets.py",
+            "macrice/de/creator_contract.py", "tests/test_de_ricepack.py",
+            "tests/test_creator_style_assets.py",
+        ):
+            with self.subTest(source=source):
+                trigger = f"      - '{source}'"
+                self.assertIn(trigger, push, "native main push must be tested")
+                self.assertIn(trigger, pr, "native PR must be tested")
+
     def test_malformed_or_absent_evidence_fails_closed(self):
         for value in (None, [], {}, {"workflow_runs": "invalid"},
                       {"workflow_runs": []}):
