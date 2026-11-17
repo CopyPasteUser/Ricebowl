@@ -21,6 +21,20 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
+### SG3 RicePop GTK keyboard focus under live updates (17 November 2026; CI candidate)
+
+- On a deliberate inbox refresh, RiceSpice now restores keyboard focus to
+  the same Dismiss/Invoke control **only** when the Mako owner PID, message ID,
+  summary, body, application, urgency and action key still match the previous
+  verified on-screen message. A vanished/replaced message or changed owner
+  falls back to the safe Refresh button, never a recycled action.
+- Focus mappings are view-local and cleared on page navigation/window close;
+  no notification text is logged or persisted. Native GTK buttons remain
+  accessible and there is no new D-Bus poller.
+- Deterministic widget-lifecycle tests cover unchanged, replaced and
+  cross-owner notifications. This does not complete Orca/AT-SPI semantics,
+  localization or the wider SG3 acceptance gate.
+
 ### SG3 optional-service initial-start recovery (17 November 2026; CI candidate)
 
 - A Mako or opt-in Orca subprocess that fails its **first exec** with
