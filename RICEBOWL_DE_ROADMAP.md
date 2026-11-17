@@ -21,6 +21,21 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
+### SG2 explicit busy/error feedback for real RiceSpice service actions (17 November 2026; CI candidate)
+
+- RiceSpice's shared asynchronous service worker previously discarded
+  a clicked Wi-Fi/BlueZ/audio/power action **silently** while another request
+  was active. It now reports a visible, actionable retry status. A queued
+  mutation is intentionally **not** replayed after stale state or authorization
+  may have changed; only the previously reviewed one-shot RicePop inbox
+  read has an explicit safe coalescing queue.
+- Controlled-future tests verify the second click never invokes a mutation
+  or creates a second worker, displays retry feedback, and does not replay
+  after the first request completes. A closing window and worker-slot
+  contention retain their existing fail-closed contracts.
+- SG2 still requires complete provider-disconnect/denial/rollback and
+  real-device software acceptance; this is a narrow GUI reliability fix.
+
 ### SG5 Unicode 18 native UAX #9 L4 character-based mirroring (17 November 2026; CI candidate)
 
 - The native RicePlate single-line BiDi renderer previously mirrored only
