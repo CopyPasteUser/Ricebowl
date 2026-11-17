@@ -93,6 +93,51 @@ class PortableRicePackTests(unittest.TestCase):
             with self.assertRaises(pack.PackError):
                 pack.export_pack("classic", root / "invalid.ricepack", metadata=metadata)
 
+    def test_inspection_reports_missing_license_evidence_without_claiming_rights(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            unknown = root / "unknown.ricepack"
+            pack.export_pack("classic", unknown)
+            inspected = pack.inspect_pack(unknown)
+            review = inspected["compatibility"]["attribution_review"]
+            self.assertTrue(inspected["compatibility"]["assets_integrity_verified"])
+            self.assertFalse(review["declarations_complete"])
+            self.assertEqual(review["missing_fields"], [
+                "rice.author", "rice.license", "rice.origin",
+                "wallpaper.author", "wallpaper.license", "wallpaper.origin",
+            ])
+            self.assertFalse(review["rights_independently_verified"])
+            self.assertTrue(review["external_rights_review_required"])
+            self.assertFalse(inspected["applied"])
+
+            meta = root / "license.json"
+            meta.write_text(json.dumps({
+                "author": "Desktop Artist", "license": "CC0-1.0",
+                "origin": "original", "source_reference": "",
+                "wallpaper_provenance": {
+                    "author": "Painter", "license": "CC-BY-4.0",
+                    "origin": "adapted", "source_reference": "source painting",
+                },
+            }))
+            declared = root / "declared.ricepack"
+            pack.export_pack("classic", declared, metadata=meta)
+            review = pack.inspect_pack(declared)["compatibility"]["attribution_review"]
+            self.assertTrue(review["declarations_complete"])
+            self.assertEqual(review["missing_fields"], [])
+            self.assertFalse(review["rights_independently_verified"],
+                             "Self-declared license metadata is not an ownership audit")
+            self.assertTrue(review["external_rights_review_required"])
+
+            # A custom-license label without the actual legal terms must
+            # remain visibly pending human review, not silently approved.
+            custom = root / "custom.ricepack"
+            custom_data = json.loads(meta.read_text())
+            custom_data["wallpaper_provenance"]["license"] = "custom"
+            meta.write_text(json.dumps(custom_data))
+            pack.export_pack("classic", custom, metadata=meta)
+            result = pack.inspect_pack(custom)["compatibility"]["attribution_review"]
+            self.assertEqual(result["missing_fields"], ["wallpaper.license"])
+
     def test_both_builtin_schemas_export_deterministically_with_integrity(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

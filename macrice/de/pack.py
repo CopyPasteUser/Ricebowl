@@ -483,6 +483,52 @@ def _validate_archive(source: Path | bytes) -> tuple[dict[str, Any], bytes, byte
     return metadata, recipe_payload, wallpaper_payload, visual_payloads, payload
 
 
+def _attribution_review(manifest: dict[str, Any]) -> dict[str, Any]:
+    """Describe missing license *declarations*, never certify legal ownership.
+
+    Hashes establish byte identity, not permission to redistribute the bytes.
+    This audit is deliberately advisory for importing older or personal packs:
+    the user may still inspect/import an otherwise valid, non-executable pack.
+    """
+    entries: list[tuple[str, dict[str, str]]] = [
+        ("rice", manifest["provenance"]),
+    ]
+    assets = manifest.get("asset_manifest")
+    if isinstance(assets, dict):
+        entries.append(("wallpaper", assets["wallpaper"]["provenance"]))
+        visual = assets.get("visual")
+        if isinstance(visual, dict):
+            font = visual.get("font")
+            if isinstance(font, dict):
+                entries.append(("font", font["provenance"]))
+            for action, record in sorted(visual.get("icons", {}).items()):
+                entries.append((f"icon:{action}", record["provenance"]))
+    else:
+        # V1 packs have no bound per-wallpaper provenance at all.
+        entries.append(("wallpaper", dict(_DEFAULT_PROVENANCE)))
+
+    missing: list[str] = []
+    for name, declared in entries:
+        if not declared["author"].strip():
+            missing.append(f"{name}.author")
+        if declared["license"] in ("unspecified", "custom"):
+            missing.append(f"{name}.license")
+        if declared["origin"] == "unspecified":
+            missing.append(f"{name}.origin")
+        if (declared["origin"] in ("adapted", "ai-assisted")
+                and not declared["source_reference"].strip()):
+            missing.append(f"{name}.source_reference")
+    return {
+        "declarations_complete": not missing,
+        "missing_fields": missing,
+        # User-supplied SPDX labels and hashes do not prove the author owns
+        # the assets or has distribution rights. A human/source audit is
+        # always required before publishing shared RicePacks.
+        "rights_independently_verified": False,
+        "external_rights_review_required": True,
+    }
+
+
 def inspect_pack(source: Path) -> dict[str, Any]:
     """Verify all archive entries, fingerprints and the real recipe schema."""
     metadata, payload, wallpaper, visual, _ = _validate_archive(source)
@@ -497,6 +543,7 @@ def inspect_pack(source: Path) -> dict[str, Any]:
         "native_required_for_desktop_layers": recipe.schema_version >= 5,
         "embedded_assets": embedded,
         "assets_integrity_verified": True,
+        "attribution_review": _attribution_review(metadata),
         "arbitrary_scripts_allowed": False,
         "activates_on_import": False,
     }
