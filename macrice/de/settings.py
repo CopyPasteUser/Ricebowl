@@ -537,10 +537,11 @@ class RiceSpiceWindow:
         if self.closed or self.page != "notifications" or self._ricepop_signals is None:
             return
         if reason == "owner":
-            # Stop showing private data of a disconnected host immediately.
-            for widget in getattr(self, "_ricepop_inbox_widgets", ()):
-                widget.destroy()
-            self._ricepop_inbox_widgets = ()
+            # Discard the disconnected owner's private rows while retaining an
+            # explicit manual Refresh button if the new owner fails validation.
+            self._render_notification_inbox({
+                "active": [], "history": [], "truncated": False, "owner_pid": None,
+            })
             self._state("Notification host changed; verifying RicePop owner")
         self._ricepop_dirty = True
         self._ricepop_try_refresh()
