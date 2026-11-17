@@ -56,8 +56,60 @@ class OptionalWaylandServiceTests(unittest.TestCase):
         self.assertIn("/usr/bin/mako", attempts)
         self.assertIn("/usr/bin/lxpolkit", attempts)
         self.assertIn("/usr/bin/mate-polkit", attempts)
-        self.assertEqual(attempts[-1], "/usr/bin/riceplate-native")
+        self.assertIn("/usr/bin/riceplate-native", attempts)
+        # The first Mako exec fails, and one bounded supervised retry may
+        # occur after the native panel starts (never on the inherited bus).
+        self.assertEqual(attempts.count("/usr/bin/mako"), 2)
         self.assertNotIn("/usr/bin/waybar", attempts)
+
+    def test_initial_spawn_failure_recovers_once_without_restart_storm(self):
+        for recovery_succeeds in (True, False):
+            with self.subTest(recovery_succeeds=recovery_succeeds):
+                attempts, background = [], []
+                recovered = FakeProcess()
+
+                def spawn(command, **_kwargs):
+                    attempts.append(command)
+                    if len(attempts) == 1 or not recovery_succeeds:
+                        raise OSError("transient exec failure")
+                    return recovered
+
+                with mock.patch("sys.stderr"):
+                    service = session._OptionalService(
+                        "RicePop notifications", ["/usr/bin/mako", "--config", "safe"],
+                        env=self.nested, spawn=spawn, background=background)
+                    self.assertIsNone(service.process)
+                    for _ in range(12):
+                        service.check()
+                self.assertEqual(len(attempts), 2)
+                self.assertTrue(service.retried)
+                self.assertIs(service.process, recovered if recovery_succeeds else None)
+                self.assertEqual(background, [recovered] if recovery_succeeds else [])
+
+    def test_full_login_recovers_initial_mako_and_opt_in_orca_exec_failures(self):
+        attempts, children = [], []
+        optional_names = {"/usr/bin/mako", "/usr/bin/orca"}
+
+        def spawn(command, **_kwargs):
+            binary = command[0]
+            attempts.append(binary)
+            if binary in optional_names and attempts.count(binary) == 1:
+                raise OSError("temporary executable startup failure")
+            process = FakeProcess()
+            children.append(process)
+            return process
+
+        tools = {**self.tools, "orca": "/usr/bin/orca"}
+        env = {**self.nested, "RICEBOWL_DE_NESTED": "0",
+               "RICEBOWL_DE_SCREEN_READER": "1"}
+        with (mock.patch("macrice.de.session.signal.signal"),
+              mock.patch("sys.stderr"),
+              mock.patch("macrice.de.notification_prefs.load_optional", return_value=None)):
+            self.assertEqual(session.shell(environment=env, which=tools.get, spawn=spawn), 0)
+        self.assertEqual(attempts.count("/usr/bin/mako"), 2)
+        self.assertEqual(attempts.count("/usr/bin/orca"), 2)
+        self.assertEqual(attempts.count("/usr/bin/lxpolkit"), 1)
+        self.assertTrue(all(child.terminated for child in children))
 
     def test_one_crash_retry_and_no_restart_storm(self):
         attempts = []
