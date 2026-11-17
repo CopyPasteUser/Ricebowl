@@ -36,9 +36,10 @@ the sign-off guard and its tests are deliberately unchanged.
   reproducibly with normalized timestamps and `SOURCE_DATE_EPOCH` support.
 - [ ] All project CI, including real X11 screenshots, Wayland session smoke,
   native RicePlate Rust/headless labwc and the **strict PipeWire/portal frame**
-  workflow, is green at the exact release source SHA. The portal workflow
-  currently has no main push event; explicitly dispatch it at that SHA before
-  a release candidate. A successful PR run or generic portal endpoint smoke
+  workflow, is green at the exact release source SHA. The strict portal
+  workflow now runs on path-filtered main pushes; when a later source change
+  did not trigger it, explicitly dispatch it at that final SHA before a
+  release candidate. A successful PR run or generic portal endpoint smoke
   is not a substitute for the strict software-frame acceptance.
 - [ ] Rust application builds and the complete Wayland desktop package use
   tracked lock/version metadata; final binary/install artifacts reproduce.
@@ -183,12 +184,12 @@ The `v1.0.0-rc.N` / `v1.0.0` source-artifact workflow now requires
 successful, completed exact-SHA **main-branch** runs for all three canonical
 workflows: Tests (`ci.yml`, requires a main `push`), Native RicePlate
 (`riceplate-native.yml`), and Wayland session preview (`wayland-session.yml`).
-The last two expensive, path-filtered workflows additionally support a
-**manual GitHub Actions workflow dispatch** at the exact main revision.
-A release engineer must deliberately run them before tagging when automatic
-path filters did not include that SHA; this avoids widening normal CI on every
-push. Only `push` or `workflow_dispatch` on `main` is trusted for those
-two workflows. The latest matching run for each workflow is checked by ID,
+The three expensive, path-filtered Native, Wayland session and strict
+PipeWire workflows additionally support **manual GitHub Actions workflow
+dispatch** at the exact main revision. A release engineer must deliberately
+run any of them before tagging when automatic paths did not include that SHA;
+this avoids widening normal CI on every push. Only `push` or
+`workflow_dispatch` on `main` is trusted for these three workflows. The latest matching run for each workflow is checked by ID,
 so an older success cannot hide a later failure. Missing, pending, cancelled,
 untrusted-branch or unreachable evidence blocks artifact assembly. Workflow
 identity is pinned by both name and file path.
