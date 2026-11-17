@@ -33,8 +33,14 @@ Optional RiceClip/RiceShot P1 features remain outside the core release block.
   error. Existing CLI calls still validate live IDs/actions and remain
   backward compatible without the optional UI-only snapshot constraint.
 - Negative tests exercise owner replacement, ID reuse, safe current actions
-  and missing metadata. This is **partial SG3 software gate progress**, not
-  complete push-based live updates, Orca/AT-SPI or hardware sign-off; never
+  and missing metadata. An additional deliberate **Refresh RicePop inbox**
+  button now replaces the old GTK notification widgets rather than appending
+  duplicate stale rows. Successful Dismiss/Invoke actions also refresh the
+  same inbox in place, rather than closing the user's context; page navigation
+  frees the private widget references.
+  No read occurs until requested, no resident timer/poller and no second owner.
+- These are **partial SG3 software gate improvements**, not complete
+  push-based live updates, Orca/AT-SPI or hardware sign-off; never
   expose the private inbox automatically or persist its contents.
 
 ### Sprint 2 – SG2 verified audio stream ownership (17 November 2026; CI candidate)
