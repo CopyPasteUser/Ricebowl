@@ -230,6 +230,56 @@ class AudioDeviceTests(unittest.TestCase):
         self.assertFalse(any("Unknown stream" in label for label in actions))
         self.assertIn("Refresh devices and players", actions)
 
+    def test_ricespice_stream_buttons_pass_displayed_client_identity(self):
+        class Combo:
+            def __init__(self):
+                self.current = None
+
+            def append(self, *_args):
+                pass
+
+            def get_accessible(self):
+                return self
+
+            def set_name(self, _value):
+                pass
+
+            def set_active_id(self, value):
+                self.current = value
+
+            def get_active_id(self):
+                return self.current
+
+        buttons = {}
+        panel = SimpleNamespace()
+        panel._text = lambda *_args, **_kw: None
+        panel._state = lambda _message: None
+        panel._button = lambda label, callback, **_kw: buttons.setdefault(label, callback)
+        panel._show_content = lambda: None
+        panel._background = lambda work, done: done(work())
+        panel.Gtk = SimpleNamespace(ComboBoxText=Combo)
+        panel.content = SimpleNamespace(pack_start=lambda *_args: None)
+        panel.show_page = lambda _page: None
+        stream = {"index": 42, "client": 17, "sink": 1, "mute": False,
+                  "volume": 50, "label": "Browser"}
+        with mock.patch.object(audio_devices, "inspect", return_value={
+                 "outputs": [], "inputs": []}), \
+             mock.patch.object(audio_devices, "playback_streams", return_value={
+                 "outputs": [{"index": 1, "name": SINK,
+                              "description": "Internal Speakers"}],
+                 "streams": [stream]}), \
+             mock.patch("macrice.de.settings.media.read_media_players", return_value=()), \
+             mock.patch.object(audio_devices, "set_stream_output", return_value=stream) as move, \
+             mock.patch.object(audio_devices, "set_stream_volume", return_value=stream) as volume, \
+             mock.patch.object(audio_devices, "set_stream_mute", return_value=stream) as mute:
+            settings.RiceSpiceWindow._audio(panel)
+            buttons["Move Browser to selected output"]()
+            buttons["Set Browser volume"]()
+            buttons["Mute Browser"]()
+        move.assert_called_once_with(42, SINK, expected_sink=1, expected_client=17)
+        volume.assert_called_once_with(42, 50, expected=50, expected_client=17)
+        mute.assert_called_once_with(42, True, expected=False, expected_client=17)
+
     def test_application_streams_reject_malformed_and_unavailable(self):
         valid = {"index": 4, "sink": 1, "mute": False,
                  "volume": {"mono": {"value": 65536}}, "properties": {}}
