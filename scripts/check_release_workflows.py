@@ -21,6 +21,9 @@ REQUIRED = {
     ".github/workflows/ci.yml": "Tests",
     ".github/workflows/riceplate-native.yml": "Native RicePlate prototype",
     ".github/workflows/wayland-session.yml": "Wayland session preview",
+    # Real, strict PipeWire screen frames are separate from generic portal
+    # endpoint smoke. This gate is dispatch-only on the exact release source.
+    ".github/workflows/wayland-portal-strict.yml": "Strict Wayland portals and PipeWire frames",
 }
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -30,7 +33,7 @@ class WorkflowGateError(ValueError):
 
 
 def validate_runs(payload: object, source_sha: str) -> dict[str, int]:
-    """Choose the latest verified main run for each required workflow."""
+    """Require all four exact-source software workflows before any 1.0 tag."""
     if not isinstance(payload, dict) or not isinstance(payload.get("workflow_runs"), list):
         raise WorkflowGateError("Malformed GitHub Actions evidence")
     selected: dict[str, dict] = {}
@@ -43,11 +46,16 @@ def validate_runs(payload: object, source_sha: str) -> dict[str, int]:
                 or run.get("head_sha") != source_sha
                 or run.get("head_branch") != "main"):
             continue
-        # Tests always runs on main pushes; the two path-filtered, costly
-        # Wayland lanes may instead be dispatched explicitly on the exact
-        # main source SHA before cutting a release candidate.
-        allowed_events = (("push",) if path == ".github/workflows/ci.yml"
-                          else ("push", "workflow_dispatch"))
+        # Tests runs on main pushes. Native + session lanes may be dispatched
+        # at the exact main SHA when a path-filtered change does not trigger
+        # them. The strict portal workflow has NO push trigger; require an
+        # explicit exact-source dispatch, never an unrelated PR run.
+        if path == ".github/workflows/ci.yml":
+            allowed_events = ("push",)
+        elif path == ".github/workflows/wayland-portal-strict.yml":
+            allowed_events = ("workflow_dispatch",)
+        else:
+            allowed_events = ("push", "workflow_dispatch")
         if run.get("event") not in allowed_events:
             continue
         run_id = run.get("id")
