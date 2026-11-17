@@ -74,7 +74,7 @@ class DebianPayloadGuardTests(unittest.TestCase):
                     verify_payload(io.BytesIO(make_archive(entry)))
 
     def test_truncated_and_empty_archives_fail_closed(self):
-        for data in (b"", b"not a tar archive", b"\\0" * 1024):
+        for data in (b"", b"not a tar archive", bytes(1024)):
             with self.subTest(length=len(data)), self.assertRaises(UnsafePayload):
                 verify_payload(io.BytesIO(data))
 
