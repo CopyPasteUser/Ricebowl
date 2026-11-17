@@ -149,6 +149,24 @@ def luna_search_matches(query: str) -> tuple[str, ...]:
 
 
 
+def _ricepop_accessible_action_name(action: str, app: str, summary: str) -> str:
+    """Give AT-SPI buttons the notification context hidden by compact GTK labels.
+
+    All values originate from the bounded, owner-verified, explicitly opened
+    inbox. Do not include the private body, D-Bus owner or numeric notification
+    ID: they do not help a screen reader distinguish actionable messages.
+    """
+    return f"{action} notification from {app}: {summary}"
+
+
+def _ricepop_set_accessible_name(button, action: str, app: str, summary: str) -> None:
+    if button is None:
+        return
+    get_accessible = getattr(button, "get_accessible", None)
+    if callable(get_accessible):
+        get_accessible().set_name(_ricepop_accessible_action_name(action, app, summary))
+
+
 def _gtk_modules():
     import gi
 
@@ -1102,6 +1120,7 @@ class RiceSpiceWindow:
                                      nid, expected=row, expected_owner_pid=host),
                                  lambda _result: self._request_ricepop_inbox()))
                 if dismiss_button is not None:
+                    _ricepop_set_accessible_name(dismiss_button, "Dismiss", app, summary)
                     self._ricepop_focus_buttons[("dismiss", *identity)] = dismiss_button
                 for action in record.get("actions", []):
                     key = action["key"]
@@ -1112,6 +1131,8 @@ class RiceSpiceWindow:
                                          nid, action_key, expected=row, expected_owner_pid=host),
                                      lambda _result: self._request_ricepop_inbox()))
                     if action_button is not None:
+                        _ricepop_set_accessible_name(
+                            action_button, action["label"], app, summary)
                         self._ricepop_focus_buttons[("action", *identity, key, action["label"])] = action_button
         if container is not None:
             self._ricepop_inbox_widgets = tuple(
