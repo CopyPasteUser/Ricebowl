@@ -176,6 +176,54 @@ assert_selected xp-luna-columns
 sha256sum "$luna" > /tmp/ricebowl-v12-before.sha256
 check_user_state
 
+echo 'PHASE 3b/5: power-loss simulation during package configuration, then recovery'
+# Disposable-container-only fault injection. The payload is the genuine
+# release core package, except this one throwaway variant has a postinst that
+# deliberately dies after unpacking. Never publish the faulty archive, never
+# run this on the host and never alter user/XFCE canary files.
+interruption=$(mktemp -d -t ricebowl-interrupted-dpkg-XXXXXXXX)
+dpkg-deb --raw-extract "$new_core" "$interruption/unpacked"
+cat > "$interruption/unpacked/DEBIAN/postinst" <<'INTERRUPTED_POSTINST'
+#!/bin/sh
+set -eu
+[ "$1" = configure ] || exit 0
+# Simulate a sudden power/process loss in the post-unpack configuration stage.
+kill -KILL "$"
+INTERRUPTED_POSTINST
+chmod 0755 "$interruption/unpacked/DEBIAN/postinst"
+dpkg-deb --build --root-owner-group \
+    "$interruption/unpacked" "$interruption/interrupted-core.deb" >/dev/null
+if dpkg -i "$interruption/interrupted-core.deb" \
+        > /tmp/ricebowl-interrupted.log 2>&1; then
+    echo 'Interrupted core unexpectedly configured successfully' >&2
+    exit 1
+fi
+# Unlike a corrupt archive rejected before unpack, dpkg must have entered
+# a genuinely nonconfigured state. This proves the failing postinst ran.
+if dpkg-query -W -f='${Status}' ricebowl-wayland-core | \
+        grep -Fxq 'install ok installed'; then
+    echo 'Fault injection did not interrupt package configuration' >&2
+    exit 1
+fi
+# The installer can be broken while the user-selected rice and XFCE config
+# remain intact. Do not execute an unconfigured package in this state.
+sha256sum -c --status /tmp/ricebowl-v12-before.sha256
+check_user_state
+
+# Reinstall the exact source-built, original package; do not repair the test
+# by deleting user config, purging other desktop packages or replacing XFCE.
+dpkg -i "$new_core" >/tmp/ricebowl-interruption-recovery.log 2>&1
+apt-get -f install -y --no-install-recommends >/dev/null
+test -z "$(dpkg --audit)"
+check_version ricebowl-wayland-core '0.1.0~preview2'
+check_version ricebowl-wayland-desktop '0.1.0~preview3'
+assert_review "$legacy" heritage-modern-v10 10
+assert_review "$luna" xp-luna-columns 12
+assert_selected xp-luna-columns
+sha256sum -c --status /tmp/ricebowl-v12-before.sha256
+check_user_state
+echo 'PASS: interrupted postinst recovered from genuine core without user/XFCE mutation'
+
 echo 'PHASE 4/5: explicit rollback to saved previous Core/Meta'
 apt-get install -y --no-install-recommends --allow-downgrades \
     "$old_core" "$old_meta" >/dev/null
