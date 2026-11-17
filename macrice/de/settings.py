@@ -974,9 +974,9 @@ class RiceSpiceWindow:
         if container is not None:
             for widget in getattr(self, "_ricepop_inbox_widgets", ()):
                 widget.destroy()
-            previous = set(container.get_children())
+            previous = tuple(container.get_children())
         else:
-            previous = set()  # Pure widget-mock contract tests.
+            previous = ()  # Pure widget-mock contract tests.
         self._text("RicePop inbox · current session", css="ricespice-section")
         self._button("Refresh RicePop inbox", lambda: self._background(
             notifications.inspect_owned, self._render_notification_inbox))
