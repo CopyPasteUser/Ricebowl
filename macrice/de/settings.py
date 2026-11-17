@@ -601,6 +601,9 @@ class RiceSpiceWindow:
         """Cancel stale results and switch views without changing any system state."""
         self.generation += 1
         self.busy = False
+        # Release references to private inbox widget/text data on navigation.
+        # The content children are destroyed below; do not retain old labels.
+        self._ricepop_inbox_widgets = ()
         self.page = name
         self.luna_flow = None
         self._selecting_nav = True
@@ -961,8 +964,22 @@ class RiceSpiceWindow:
         self._notification_appearance()
 
     def _render_notification_inbox(self, snapshot):
-        """Accessible, ephemeral Mako inbox; buttons revalidate their target."""
+        """Accessible, ephemeral Mako inbox; replace rather than append rows.
+
+        Notifications are private and only loaded on deliberate activation.
+        A manual refresh atomically replaces the on-screen snapshot without a
+        resident poller, duplicated buttons or retained stale GTK labels.
+        """
+        container = getattr(self, "content", None)
+        if container is not None:
+            for widget in getattr(self, "_ricepop_inbox_widgets", ()):
+                widget.destroy()
+            previous = set(container.get_children())
+        else:
+            previous = set()  # Pure widget-mock contract tests.
         self._text("RicePop inbox · current session", css="ricespice-section")
+        self._button("Refresh RicePop inbox", lambda: self._background(
+            notifications.inspect_owned, self._render_notification_inbox))
         self._text("Only messages from this verified RiceBowl notification host are "
                    "shown. They are not saved by RiceSpice.", css="ricespice-note")
         if snapshot["truncated"]:
@@ -1006,6 +1023,9 @@ class RiceSpiceWindow:
                                      lambda: notifications.invoke(
                                          nid, action_key, expected=row, expected_owner_pid=host),
                                      lambda _result: self.show_page("notifications")))
+        if container is not None:
+            self._ricepop_inbox_widgets = tuple(
+                widget for widget in container.get_children() if widget not in previous)
         self._show_content()
 
     def _notification_appearance(self):
