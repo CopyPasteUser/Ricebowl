@@ -194,6 +194,8 @@ class WaylandRicePopReadTests(unittest.TestCase):
         page._show_content = lambda: pages.append("relayout")
         page._background = lambda work, done: done(work())
         page.show_page = pages.append
+        page._render_notification_inbox = (
+            lambda snap: settings.RiceSpiceWindow._render_notification_inbox(page, snap))
         snapshot = {
             "active": [{"id": 12, "app_name": "Files", "summary": "Upload done",
                         "body": "Uploaded safely", "actions": [
@@ -212,14 +214,18 @@ class WaylandRicePopReadTests(unittest.TestCase):
         self.assertNotIn("Open file · Mail · #9", buttons)
         self.assertIn("relayout", pages)
         with mock.patch.object(notifications, "dismiss", return_value={"ok": True}) as dismiss, \
-             mock.patch.object(notifications, "invoke", return_value={"ok": True}) as invoke:
+             mock.patch.object(notifications, "invoke", return_value={"ok": True}) as invoke, \
+             mock.patch.object(notifications, "inspect_owned",
+                               return_value=snapshot) as refresh:
             buttons["Dismiss · Files · #12"]()
             buttons["Open file · Files · #12"]()
             dismiss.assert_called_once_with(12, expected=snapshot["active"][0],
                                             expected_owner_pid=7)
             invoke.assert_called_once_with(12, "open", expected=snapshot["active"][0],
                                            expected_owner_pid=7)
-        self.assertEqual(pages.count("notifications"), 2)
+            self.assertEqual(refresh.call_count, 2)
+        self.assertEqual(pages.count("notifications"), 0)
+        self.assertGreaterEqual(pages.count("relayout"), 3)
 
     def test_manual_inbox_refresh_replaces_widgets_not_private_history(self):
         # This is a mock GTK container, not a second notification service.
