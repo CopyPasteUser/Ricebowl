@@ -78,7 +78,7 @@ class DebianUpgradeContracts(unittest.TestCase):
         self.assertIn("PHASE 3b/5: power-loss simulation", script)
         self.assertIn('dpkg-deb --raw-extract "$new_core"', script)
         self.assertIn('"$interruption/unpacked/DEBIAN/postinst"', script)
-        self.assertIn('kill -KILL "$"', script)
+        self.assertIn('kill -KILL "$$"', script)
         self.assertNotIn('kill -KILL "$"', script)
         self.assertIn("post-installation script.*killed by signal", script)
         self.assertIn("Fault injection did not kill the package postinst", script)
