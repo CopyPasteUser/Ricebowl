@@ -284,6 +284,74 @@ class WaylandRicePopReadTests(unittest.TestCase):
                             for widget in container.children))
         self.assertEqual(len(page._ricepop_inbox_widgets), len(container.children))
 
+    def test_inbox_refresh_preserves_only_verified_keyboard_focus(self):
+        # A real GTK Button exposes has_focus/grab_focus. Model the complete
+        # transient container lifecycle without a display server.
+        class Widget:
+            def __init__(self, parent, text):
+                self.parent, self.text = parent, text
+                self.focused = self.destroyed = False
+                parent.children.append(self)
+
+            def has_focus(self):
+                return self.focused
+
+            def grab_focus(self):
+                self.focused = True
+
+            def destroy(self):
+                self.destroyed = True
+                self.parent.children.remove(self)
+
+        container = SimpleNamespace(children=[])
+        container.get_children = lambda: list(container.children)
+        page = SimpleNamespace(content=container, page="notifications")
+        page._text = lambda message, **_kw: Widget(container, message)
+        page._button = lambda label, _cb, **_kw: Widget(container, label)
+        page._show_content = lambda: None
+        page._request_ricepop_inbox = lambda: None
+        page._render_notification_inbox = (
+            lambda value: settings.RiceSpiceWindow._render_notification_inbox(page, value))
+
+        original = {"owner_pid": 18, "truncated": False, "history": [], "active": [{
+            "id": 12, "summary": "Original", "body": "Private A",
+            "app_name": "Mail", "urgency": "normal",
+            "actions": [{"key": "open", "label": "Open"}],
+        }]}
+        def button(label):
+            return next(item for item in container.children if item.text == label)
+
+        page._render_notification_inbox(original)
+        first = button("Open · Mail · #12")
+        first.focused = True
+        page._render_notification_inbox(original)
+        second = button("Open · Mail · #12")
+        self.assertTrue(first.destroyed)
+        self.assertIsNot(first, second)
+        self.assertTrue(second.focused, "same verified action keeps keyboard focus")
+
+        # Even the same ID and action label cannot transfer focus if the
+        # notification body changed: it could be a different message.
+        second.focused = True
+        changed = {**original, "active": [{**original["active"][0], "body": "Private B"}]}
+        page._render_notification_inbox(changed)
+        self.assertFalse(button("Open · Mail · #12").focused)
+        self.assertTrue(button("Refresh RicePop inbox").focused)
+
+        # A newly verified host must not inherit old action focus even when
+        # its notification ID and visible text happen to match.
+        current = button("Dismiss · Mail · #12")
+        current.focused = True
+        different_owner = {**changed, "owner_pid": 19}
+        page._render_notification_inbox(different_owner)
+        self.assertFalse(button("Dismiss · Mail · #12").focused)
+        self.assertTrue(button("Refresh RicePop inbox").focused)
+
+        page._ricepop_signals = None
+        page._ricepop_dirty = True
+        settings.RiceSpiceWindow._stop_ricepop_signals(page)
+        self.assertEqual(page._ricepop_focus_buttons, {})
+
     def test_ricespice_inbox_is_not_read_until_user_requests_it(self):
         controls, seen = {}, []
         page = SimpleNamespace()
