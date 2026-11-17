@@ -45,6 +45,7 @@ mod system_status;
 mod task_groups;
 mod task_navigation;
 mod bidi_layout;
+mod bidi_mirroring;
 mod text_render;
 mod tray;
 use tray::{MenuChoice as TrayMenuChoice, MenuHit as TrayMenuHit, PopupHit as TrayHit};
