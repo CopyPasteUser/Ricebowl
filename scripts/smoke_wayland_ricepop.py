@@ -8,9 +8,11 @@ Never touches the desktop's persistent notification configuration.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import time
+from unittest import mock
 from pathlib import Path
 
 
@@ -76,6 +78,43 @@ def main() -> int:
             "Dismiss notification from Mail: Calendar invite"):
         raise RuntimeError("RicePop GTK accessible action name was not applied")
     button.destroy()
+
+    # A second process must discover actual mapped Wayland GTK buttons via
+    # the accessibility bus (not just GTK's local ATK object). German action
+    # names must be announced distinctly without notification bodies.
+    first_name = "Schließen – Benachrichtigung von Mail: Neue Nachricht"
+    second_name = "Schließen – Benachrichtigung von Mail: Kalendereinladung"
+    window = Gtk.Window(title="RicePop AT-SPI isolated test")
+    group = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+    window.add(group)
+    with mock.patch.dict(os.environ, {"LC_ALL": "de_DE.UTF-8"}):
+        for summary in ("Neue Nachricht", "Kalendereinladung"):
+            control = Gtk.Button(label="Schließen")
+            _ricepop_set_accessible_name(control, "Schließen", "Mail", summary)
+            group.pack_start(control, True, True, 0)
+    window.show_all()
+    try:
+        candidate = subprocess.Popen(
+            [sys.executable, str(ROOT / "scripts/smoke_ricepop_atspi_client.py"),
+             first_name, second_name],
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        context = GLib.MainContext.default()
+        limit = time.monotonic() + 12
+        while candidate.poll() is None and time.monotonic() < limit:
+            while context.pending():
+                context.iteration(False)
+            time.sleep(0.015)
+        if candidate.poll() is None:
+            candidate.kill()
+            candidate.communicate(timeout=2)
+            raise RuntimeError("External RicePop AT-SPI inspection timed out")
+        out, err = candidate.communicate(timeout=2)
+        if candidate.returncode:
+            raise RuntimeError("External RicePop AT-SPI button inspection failed: "
+                               + err[:300])
+        print(out.strip())
+    finally:
+        window.destroy()
 
     reasons: list[str] = []
     watcher = InboxSignals(Gio, reasons.append)
