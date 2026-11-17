@@ -60,9 +60,22 @@ def main() -> int:
     # Verify the *real* RiceSpice GDBus watcher, rather than testing only its
     # pure signal parser with a fake bus. Mako 1.8 does not announce arrivals,
     # but must deliver freedesktop NotificationClosed on a dismissal.
-    from gi.repository import Gio, GLib
+    import gi
+    gi.require_version("Gtk", "3.0")
+    from gi.repository import Gio, GLib, Gtk
     sys.path.insert(0, str(ROOT))
     from macrice.de.notification_watch import InboxSignals
+    from macrice.de.settings import _ricepop_set_accessible_name
+
+    # Assert the production GTK3->ATK method on a *real* widget attached to
+    # the disposable Wayland display, not only a Python mock.
+    Gtk.init([])
+    button = Gtk.Button(label="Dismiss · Mail · #3")
+    _ricepop_set_accessible_name(button, "Dismiss", "Mail", "Calendar invite")
+    if button.get_accessible().get_name() != (
+            "Dismiss notification from Mail: Calendar invite"):
+        raise RuntimeError("RicePop GTK accessible action name was not applied")
+    button.destroy()
 
     reasons: list[str] = []
     watcher = InboxSignals(Gio, reasons.append)
