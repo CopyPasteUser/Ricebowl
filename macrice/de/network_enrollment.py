@@ -128,10 +128,12 @@ def create_enterprise_wifi(*, ssid: str, identity: str, domain: str,
                 "no", "false", "0"):
             raise backend.SettingsError("Enterprise Wi-Fi autoconnect is not disabled")
         enterprise_password_ready(identifier)
-        if _profile_setting(identifier, "802-1x.eap") != eap or (
-                _profile_setting(identifier, "802-1x.phase2-auth") != inner
+        if (_profile_setting(identifier, "802-11-wireless.ssid") != name
+                or _profile_setting(identifier, "802-1x.identity") != username
+                or _profile_setting(identifier, "802-1x.eap") != eap
+                or _profile_setting(identifier, "802-1x.phase2-auth") != inner
                 or _profile_setting(identifier, "802-1x.domain-suffix-match") != host):
-            raise backend.SettingsError("Enterprise Wi-Fi security settings changed")
+            raise backend.SettingsError("Enterprise Wi-Fi identity or security settings changed")
     except backend.SettingsError as exc:
         raise backend.SettingsError(
             "Enterprise profile was added, but its safety settings could not be "
