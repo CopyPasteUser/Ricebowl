@@ -25,12 +25,18 @@ class CreatorCompositorMatrixTests(unittest.TestCase):
         self.assertIn('capture_matrix "$luna" "$width" "$height" "$name"', script)
         self.assertIn('ImageChops.difference', script)
         self.assertIn('assert changed(a, b) > 100', script)
-        self.assertIn('assert changed(a, c) < 6000', script)
+        self.assertIn('assert changed(a, c) < 2000', script)
+        # Fractional-scale swaybg re-cropping must never be mistaken for
+        # a taskbar restore defect. Keep the verification on actual taskbar
+        # pixels and enforce a *tighter* bound than the old 96-row check.
+        self.assertIn('strip = (0, height - 40, width, height)', script)
+        self.assertIn('x.crop((0, h - 40, w, h))', script)
+        self.assertNotIn('h - 96, w, h', script.split('# SG4:')[1])
         # A compositor repaint at fractional scale may lag behind the
         # acknowledged transaction. Retry real frames only, never weaken
         # the restore pixel threshold or hide a persistent mismatch.
         self.assertIn('while [ "$attempt" -lt 24 ]', script)
-        self.assertIn('assert changed < 6000', script)
+        self.assertIn('assert changed < 2000', script)
         self.assertIn('Creator restore did not converge', script)
         self.assertIn('Creator diagnostic: sizes', script)
         self.assertIn('restore-mismatch.png', script)
