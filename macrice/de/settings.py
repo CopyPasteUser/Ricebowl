@@ -349,6 +349,8 @@ class RiceSpiceWindow:
         self.generation = 0
         self.busy = False
         self.closed = False
+        self._ricepop_signals = None
+        self._ricepop_dirty = False
         self.page = "network"
         self._selecting_nav = False
         provider = Gtk.CssProvider()
@@ -508,8 +510,52 @@ class RiceSpiceWindow:
     def _close(self, _window):
         self.closed = True
         self.generation += 1
+        self._stop_ricepop_signals()
         self.executor.shutdown(wait=False, cancel_futures=True)
         self.Gtk.main_quit()
+
+    def _stop_ricepop_signals(self):
+        signals, self._ricepop_signals = self._ricepop_signals, None
+        self._ricepop_dirty = False
+        if signals is not None:
+            signals.close()
+
+    def _start_ricepop_signals(self):
+        """Subscribe only once after explicit, owner-verified inbox disclosure."""
+        if self._ricepop_signals is not None or self.closed or self.page != "notifications":
+            return
+        try:
+            from gi.repository import Gio
+            from .notification_watch import InboxSignals
+            self._ricepop_signals = InboxSignals(Gio, self._ricepop_changed)
+        except Exception:
+            # The manual refresh button remains functional on older/foreign
+            # environments; no hidden notification content enters this error.
+            self._state("Live notification updates unavailable; use Refresh RicePop inbox")
+
+    def _ricepop_changed(self, reason: str):
+        if self.closed or self.page != "notifications" or self._ricepop_signals is None:
+            return
+        if reason == "owner":
+            # Discard the disconnected owner's private rows while retaining an
+            # explicit manual Refresh button if the new owner fails validation.
+            self._render_notification_inbox({
+                "active": [], "history": [], "truncated": False, "owner_pid": None,
+            })
+            self._state("Notification host changed; verifying RicePop owner")
+        self._ricepop_dirty = True
+        self._ricepop_try_refresh()
+
+    def _ricepop_try_refresh(self):
+        if (not self._ricepop_dirty or self.busy or self.closed
+                or self.page != "notifications" or self._ricepop_signals is None):
+            return
+        self._ricepop_dirty = False
+        self._background(notifications.inspect_owned, self._render_notification_inbox)
+        # No worker slot or a closing executor can reject the attempt. Keep
+        # the dirty bit for a later event rather than assuming a fresh view.
+        if not self.busy:
+            self._ricepop_dirty = True
 
     def _label(self, message: str, *, css: str = ""):
         label = self.Gtk.Label(label=message)
@@ -591,6 +637,8 @@ class RiceSpiceWindow:
                     done(finished.result())
                 except Exception as exc:
                     self._state(f"Unavailable or denied: {exc}")
+                if self._ricepop_dirty:
+                    self._ricepop_try_refresh()
                 return False
 
             self.GLib.idle_add(on_ui)
@@ -601,6 +649,7 @@ class RiceSpiceWindow:
         """Cancel stale results and switch views without changing any system state."""
         self.generation += 1
         self.busy = False
+        self._stop_ricepop_signals()
         # Release references to private inbox widget/text data on navigation.
         # The content children are destroyed below; do not retain old labels.
         self._ricepop_inbox_widgets = ()
@@ -1029,6 +1078,12 @@ class RiceSpiceWindow:
             self._ricepop_inbox_widgets = tuple(
                 widget for widget in container.get_children() if widget not in previous)
         self._show_content()
+        # Older Mako emits standard close events; Mako 1.11+ additionally
+        # emits PropertiesChanged for additions/replacements. Never poll.
+        if (type(snapshot.get("owner_pid")) is int
+                and getattr(self, "page", None) == "notifications"
+                and hasattr(self, "_start_ricepop_signals")):
+            self._start_ricepop_signals()
 
     def _notification_appearance(self):
         """Change only the next full Wayland login's RicePop Mako styling."""
