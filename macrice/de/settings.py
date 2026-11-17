@@ -350,6 +350,7 @@ class RiceSpiceWindow:
         self.busy = False
         self.closed = False
         self._ricepop_signals = None
+        self._ricepop_focus_buttons = {}
         self._ricepop_dirty = False
         self._ricepop_owner_epoch = 0
         self.page = "network"
@@ -517,6 +518,9 @@ class RiceSpiceWindow:
 
     def _stop_ricepop_signals(self):
         signals, self._ricepop_signals = self._ricepop_signals, None
+        # Never retain stale buttons or their private notification metadata
+        # when leaving the inbox/window.
+        self._ricepop_focus_buttons = {}
         self._ricepop_dirty = False
         if signals is not None:
             signals.close()
@@ -1039,6 +1043,16 @@ class RiceSpiceWindow:
         A manual refresh atomically replaces the on-screen snapshot without a
         resident poller, duplicated buttons or retained stale GTK labels.
         """
+        # Live Mako changes replace the whole view. Keep keyboard focus on
+        # the exact still-current action; never restore it using only an ID
+        # or its visible label after the notification owner/content changes.
+        previous_focus = None
+        for key, button in getattr(self, "_ricepop_focus_buttons", {}).items():
+            is_focus = getattr(button, "is_focus", None)
+            if callable(is_focus) and is_focus():
+                previous_focus = key
+                break
+        self._ricepop_focus_buttons = {}
         container = getattr(self, "content", None)
         if container is not None:
             for widget in getattr(self, "_ricepop_inbox_widgets", ()):
@@ -1047,7 +1061,9 @@ class RiceSpiceWindow:
         else:
             previous = ()  # Pure widget-mock contract tests.
         self._text("RicePop inbox · current session", css="ricespice-section")
-        self._button("Refresh RicePop inbox", self._request_ricepop_inbox)
+        refresh_button = self._button("Refresh RicePop inbox", self._request_ricepop_inbox)
+        if refresh_button is not None:
+            self._ricepop_focus_buttons[("refresh",)] = refresh_button
         self._text("Only messages from this verified RiceBowl notification host are "
                    "shown. They are not saved by RiceSpice.", css="ricespice-note")
         if snapshot["truncated"]:
@@ -1070,6 +1086,8 @@ class RiceSpiceWindow:
                 # not merely an ID which Mako may later reuse.
                 selected = dict(record)
                 owner_pid = snapshot.get("owner_pid")
+                identity = (owner_pid, identifier, record["app_name"],
+                            record["summary"], record["body"], record.get("urgency", "unknown"))
                 self._text(f"{app} · {summary}")
                 if record["body"]:
                     preview = record["body"][:360]
@@ -1078,23 +1096,34 @@ class RiceSpiceWindow:
                     self._text(preview, css="ricespice-note")
                 if source != "active":
                     continue  # History is strictly read-only.
-                self._button(f"Dismiss · {app} · #{identifier}",
+                dismiss_button = self._button(f"Dismiss · {app} · #{identifier}",
                              lambda nid=identifier, row=selected, host=owner_pid: self._background(
                                  lambda: notifications.dismiss(
                                      nid, expected=row, expected_owner_pid=host),
                                  lambda _result: self._request_ricepop_inbox()))
+                if dismiss_button is not None:
+                    self._ricepop_focus_buttons[("dismiss", *identity)] = dismiss_button
                 for action in record.get("actions", []):
                     key = action["key"]
-                    self._button(f"{action['label']} · {app} · #{identifier}",
+                    action_button = self._button(f"{action['label']} · {app} · #{identifier}",
                                  lambda nid=identifier, action_key=key,
                                         row=selected, host=owner_pid: self._background(
                                      lambda: notifications.invoke(
                                          nid, action_key, expected=row, expected_owner_pid=host),
                                      lambda _result: self._request_ricepop_inbox()))
+                    if action_button is not None:
+                        self._ricepop_focus_buttons[("action", *identity, key, action["label"])] = action_button
         if container is not None:
             self._ricepop_inbox_widgets = tuple(
                 widget for widget in container.get_children() if widget not in previous)
         self._show_content()
+        if previous_focus is not None:
+            # If the message vanished or the Mako owner changed, focus the
+            # safe refresh control instead of a potentially recycled action.
+            button = (self._ricepop_focus_buttons.get(previous_focus)
+                      or self._ricepop_focus_buttons.get(("refresh",)))
+            if button is not None and callable(getattr(button, "grab_focus", None)):
+                button.grab_focus()
         # Older Mako emits standard close events; Mako 1.11+ additionally
         # emits PropertiesChanged for additions/replacements. Never poll.
         if (type(snapshot.get("owner_pid")) is int

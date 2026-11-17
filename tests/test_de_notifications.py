@@ -284,6 +284,85 @@ class WaylandRicePopReadTests(unittest.TestCase):
                             for widget in container.children))
         self.assertEqual(len(page._ricepop_inbox_widgets), len(container.children))
 
+    def test_inbox_refresh_preserves_only_verified_keyboard_focus(self):
+        # A real GTK Button exposes is_focus/grab_focus. Model the complete
+        # transient container lifecycle without a display server.
+        class Widget:
+            def __init__(self, parent, text):
+                self.parent, self.text = parent, text
+                self.focused = self.destroyed = False
+                parent.children.append(self)
+
+            def is_focus(self):
+                return self.focused
+
+            def grab_focus(self):
+                for item in self.parent.children:
+                    item.focused = False
+                self.focused = True
+
+            def destroy(self):
+                self.destroyed = True
+                self.parent.children.remove(self)
+
+        container = SimpleNamespace(children=[])
+        container.get_children = lambda: list(container.children)
+        page = SimpleNamespace(content=container, page="notifications")
+        page._text = lambda message, **_kw: Widget(container, message)
+        page._button = lambda label, _cb, **_kw: Widget(container, label)
+        page._show_content = lambda: None
+        page._request_ricepop_inbox = lambda: None
+        page._render_notification_inbox = (
+            lambda value: settings.RiceSpiceWindow._render_notification_inbox(page, value))
+
+        original = {"owner_pid": 18, "truncated": False, "history": [], "active": [{
+            "id": 12, "summary": "Original", "body": "Private A",
+            "app_name": "Mail", "urgency": "normal",
+            "actions": [{"key": "open", "label": "Open"}],
+        }]}
+        def button(label):
+            return next(item for item in container.children if item.text == label)
+
+        page._render_notification_inbox(original)
+        first = button("Open · Mail · #12")
+        first.grab_focus()
+        page._render_notification_inbox(original)
+        second = button("Open · Mail · #12")
+        self.assertTrue(first.destroyed)
+        self.assertIsNot(first, second)
+        self.assertTrue(second.focused, "same verified action keeps keyboard focus")
+
+        # The same ID/key/text cannot carry focus onto a newly advertised
+        # action with different user-visible meaning.
+        second.grab_focus()
+        relabeled = {**original, "active": [{**original["active"][0], "actions": [
+            {"key": "open", "label": "Delete"}]}]}
+        page._render_notification_inbox(relabeled)
+        self.assertFalse(button("Delete · Mail · #12").focused)
+        self.assertTrue(button("Refresh RicePop inbox").focused)
+
+        # Even the same ID and action label cannot transfer focus if the
+        # notification body changed: it could be a different message.
+        button("Delete · Mail · #12").grab_focus()
+        changed = {**relabeled, "active": [{**relabeled["active"][0], "body": "Private B"}]}
+        page._render_notification_inbox(changed)
+        self.assertFalse(button("Delete · Mail · #12").focused)
+        self.assertTrue(button("Refresh RicePop inbox").focused)
+
+        # A newly verified host must not inherit old action focus even when
+        # its notification ID and visible text happen to match.
+        current = button("Dismiss · Mail · #12")
+        current.grab_focus()
+        different_owner = {**changed, "owner_pid": 19}
+        page._render_notification_inbox(different_owner)
+        self.assertFalse(button("Dismiss · Mail · #12").focused)
+        self.assertTrue(button("Refresh RicePop inbox").focused)
+
+        page._ricepop_signals = None
+        page._ricepop_dirty = True
+        settings.RiceSpiceWindow._stop_ricepop_signals(page)
+        self.assertEqual(page._ricepop_focus_buttons, {})
+
     def test_ricespice_inbox_is_not_read_until_user_requests_it(self):
         controls, seen = {}, []
         page = SimpleNamespace()
@@ -511,6 +590,34 @@ class WaylandRicePopReadTests(unittest.TestCase):
                 notifications.dismiss(12, expected={"id": 12}, expected_owner_pid=22)
             self.assertEqual(error.exception.code, "invalid_notification_snapshot")
             self.assertEqual(run.call_count, 3)
+
+    def test_invoke_rejects_reused_id_and_key_with_changed_action_meaning(self):
+        shown = {"id": 12, "summary": "Done", "body": "Finished",
+                 "app_name": "Files", "urgency": "normal",
+                 "actions": [{"key": "open", "label": "Open"}]}
+        changed = {**shown, "actions": [{"key": "open", "label": "Delete"}]}
+        with (mock.patch.object(notifications, "_mutation_host",
+                                return_value=("makoctl", 22)),
+              mock.patch.object(notifications, "_read_mako",
+                                return_value=([changed], False)),
+              mock.patch.object(notifications.subprocess, "run") as run):
+            with self.assertRaises(notifications.NotificationBridgeError) as error:
+                notifications.invoke(12, "open", expected=shown, expected_owner_pid=22)
+            self.assertEqual(error.exception.code, "stale_notification_snapshot")
+            run.assert_not_called()
+
+        # Existing explicit callers that do not supply a GUI action snapshot
+        # retain the historical contract: only currently advertised keys work.
+        legacy = {key: value for key, value in shown.items() if key != "actions"}
+        with (mock.patch.object(notifications, "_mutation_host",
+                                return_value=("makoctl", 22)),
+              mock.patch.object(notifications, "_read_mako",
+                                return_value=([changed], False)),
+              mock.patch.object(notifications.subprocess, "run", return_value=
+                                subprocess.CompletedProcess([], 0, b"", b"")) as run):
+            self.assertTrue(notifications.invoke(
+                12, "open", expected=legacy, expected_owner_pid=22)["invoked"])
+            run.assert_called_once()
 
     def test_explicit_dismiss_is_id_scoped_and_never_invokes_actions(self):
         calls = []
