@@ -21,6 +21,24 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
+### SG3 RicePop real Mako 1.11 daemon delivery under labwc (17 November 2026; CI candidate)
+
+- Adds a second, genuine Mako integration path on the **existing** private
+  headless Wayland/labwc session smoke. Ubuntu's packaged Mako 1.8 remains
+  separately tested. The 1.11.0 source is fetched only inside CI and pinned
+  to the upstream signed-tag commit `91c6b799855762ad1eb8b4498967c270a339be0c`.
+  The compiled `mako` and `makoctl` exist only in per-run private temporary
+  directories; no system installation, user bus or XFCE desktop is modified.
+- With the actual 1.11 daemon running, the real Gio subscriber is installed
+  **before** a notification arrives; an observed live `changed` D-Bus event,
+  a real owner-verified RicePop inventory entry and successful guarded
+  dismiss/close are required. This extends the earlier synthetic modern
+  properties contract and the actual legacy Mako 1.8 close path.
+- Actual desktop Orca speech, host restart/handoff under real Mako 1.11,
+  incoming keyboard and multi-monitor OSD behavior, broad UI localization
+  and hardware/device sign-off still require separate acceptance; **SG3 and
+  all shared SG1–SG7 gates remain open**.
+
 ### SG3 RicePop localized inbox, external AT-SPI and modern Mako wire contract (17 November 2026; CI candidate)
 
 - The opt-in RicePop inbox, DND controls, next-login banner preferences,

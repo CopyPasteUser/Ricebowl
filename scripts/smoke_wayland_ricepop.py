@@ -124,6 +124,42 @@ def main() -> int:
         context = GLib.MainContext.default()
         while context.pending():
             context.iteration(False)
+
+        modern_id = None
+        if os.environ.get("RICEBOWL_SMOKE_MAKO_MODERN") == "1":
+            # This query is against the actual Mako v1.11 process launched
+            # by the session supervisor, not a fabricated test-bus peer.
+            prop = _command("busctl", "--user", "get-property",
+                            "org.freedesktop.Notifications",
+                            "/fr/emersion/Mako", "fr.emersion.Mako",
+                            "Notifications")
+            if prop.returncode:
+                raise RuntimeError("Real Mako host does not expose Notifications")
+            # The watcher was subscribed before this *new* notification.
+            # No close/owner-change has happened yet, so a 'changed' result
+            # is proof of the daemon's live arrival PropertiesChanged signal.
+            modern_summary = MARKER + " live arrival"
+            posted = _command("notify-send", "--expire-time=30000",
+                              modern_summary, "Real Mako 1.11 arrival event")
+            if posted.returncode:
+                raise RuntimeError("Real Mako 1.11 notification delivery failed")
+            deadline = time.monotonic() + 4
+            while "changed" not in reasons and time.monotonic() < deadline:
+                while context.pending():
+                    context.iteration(False)
+                if "changed" not in reasons:
+                    time.sleep(0.02)
+            if "changed" not in reasons:
+                raise RuntimeError("Real Mako 1.11 did not announce arrival via GDBus")
+            received = [row for row in _inventory()["active"]
+                        if row["summary"] == modern_summary]
+            if len(received) != 1:
+                raise RuntimeError("Real Mako 1.11 arrival not visible in RicePop")
+            modern_id = received[0]["id"]
+            if modern_id == notification_id:
+                raise RuntimeError("Mako recycled an active notification ID")
+            reasons.clear()
+
         dismissed = _command(*LAUNCHER, "notification-dismiss", "--notification-id",
                              str(notification_id), "--json")
         if dismissed.returncode:
@@ -152,7 +188,18 @@ def main() -> int:
 
     if any(item["id"] == notification_id for item in _inventory()["active"]):
         raise RuntimeError("Dismissed RicePop notification remained active")
-    print("RicePop sent, listed, dismissed and observed real Mako NotificationClosed")
+    if modern_id is not None:
+        # Keep the second source-owned notification scoped to this disposable
+        # bus, and require RicePop's existing guarded mutation to remove it.
+        second = _command(*LAUNCHER, "notification-dismiss", "--notification-id",
+                          str(modern_id), "--json")
+        if second.returncode:
+            raise RuntimeError("Real Mako 1.11 RicePop cleanup failed")
+        if any(item["id"] == modern_id for item in _inventory()["active"]):
+            raise RuntimeError("Real Mako 1.11 retained a dismissed notification")
+        print("RicePop real Mako 1.11 arrival, inbox and close signals: pass")
+    else:
+        print("RicePop real Mako 1.8 close signal: pass")
     return 0
 
 

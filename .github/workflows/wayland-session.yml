@@ -14,6 +14,7 @@ on:
       - 'scripts/smoke_wayland_ricepop.py'
       - 'scripts/smoke_ricepop_atspi_client.py'
       - 'scripts/smoke_ricepop_modern_bus.py'
+      - 'scripts/smoke_real_mako_111.sh'
       - 'scripts/check_wayland_panel_outputs.py'
       - 'scripts/capture_luna_labwc.py'
       - 'scripts/smoke_luna_settings_labwc.sh'
@@ -32,6 +33,7 @@ on:
       - 'scripts/smoke_wayland_ricepop.py'
       - 'scripts/smoke_ricepop_atspi_client.py'
       - 'scripts/smoke_ricepop_modern_bus.py'
+      - 'scripts/smoke_real_mako_111.sh'
       - 'scripts/check_wayland_panel_outputs.py'
       - 'scripts/capture_luna_labwc.py'
       - 'scripts/smoke_luna_settings_labwc.sh'
@@ -57,7 +59,9 @@ jobs:
             wayland-utils
           sudo apt-get install -y grim wlr-randr python3-pil python3-gi \
             gir1.2-gtk-3.0 librsvg2-common mako-notifier libnotify-bin \
-            python3-pyatspi at-spi2-core libatk-adaptor
+            python3-pyatspi at-spi2-core libatk-adaptor \
+            meson ninja-build pkg-config libwayland-dev wayland-protocols \
+            libpango1.0-dev libcairo2-dev libglib2.0-dev libsystemd-dev
       - name: Validate and test isolated session runtime
         run: |
           /usr/bin/python3 -m compileall -q macrice/de macrice/cli.py
@@ -68,6 +72,7 @@ jobs:
           sh -n scripts/build_wayland_session_deb.sh
           sh -n scripts/test_wayland_package_reproducibility.sh
           sh -n scripts/smoke_wayland_session.sh
+          sh -n scripts/smoke_real_mako_111.sh
           /usr/bin/python3 -m py_compile scripts/smoke_wayland_ricepop.py scripts/smoke_ricepop_atspi_client.py scripts/smoke_ricepop_modern_bus.py
           # Real private D-Bus wire contract for Mako 1.11+, separately from
           # the production Mako 1.8 close signal checked by the labwc smoke.
@@ -83,6 +88,11 @@ jobs:
           timeout -k 5s 45s sh scripts/smoke_wayland_session.sh chrome
           timeout -k 5s 45s sh scripts/smoke_wayland_session.sh classic
           RICEBOWL_SMOKE_OUTPUTS=2 timeout -k 5s 60s sh scripts/smoke_wayland_session.sh classic
+      - name: Verify real source-locked Mako 1.11 notification arrivals in labwc
+        run: |
+          # Uses only temporary source/build dirs and a new private Wayland
+          # compositor plus private D-Bus. Never installs or switches Mako.
+          sh scripts/smoke_real_mako_111.sh
       - name: Capture real Luna GTK system UI under native labwc
         run: |
           mkdir -p dist/luna-labwc
