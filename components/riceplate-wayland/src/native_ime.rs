@@ -82,6 +82,10 @@ use unicode_segmentation::UnicodeSegmentation;
 pub(crate) struct Pending {
     pub(crate) preedit: Option<Result<Preedit, ()>>,
     pub(crate) commit: Option<String>,
+    // Never keep a maliciously large or invalid compositor-provided commit
+    // string alive until Done. Remember the failure instead, so the entire
+    // delete+commit+preedit transaction is rejected atomically.
+    pub(crate) invalid_commit: bool,
     pub(crate) delete: Option<(u32, u32)>,
 }
 
@@ -92,7 +96,22 @@ impl Pending {
         self.preedit = Some(Preedit::parse(text.as_deref().unwrap_or(""), start, end).ok_or(()));
     }
     pub(crate) fn commit(&mut self, text: Option<String>) {
-        self.commit = Some(text.unwrap_or_default());
+        let content = text.unwrap_or_default();
+        // A valid single-line editor cannot accept more than MAX_INPUT
+        // Unicode scalars (at most 4 UTF-8 bytes each). Check byte size first
+        // to avoid decoding an oversized Wayland payload a second time.
+        let limit = crate::luna_dialog::MAX_INPUT;
+        if content.len() > limit * 4
+            || content.chars().take(limit + 1).count() > limit
+            || content.chars().any(char::is_control)
+        {
+            self.commit = None;
+            self.invalid_commit = true;
+            return;
+        }
+        // Multiple commit_string events in one Done batch are unusual, but
+        // a later valid string must not erase an earlier invalid transaction.
+        if !self.invalid_commit { self.commit = Some(content); }
     }
     pub(crate) fn delete(&mut self, before: u32, after: u32) {
         self.delete = Some((before, after));
@@ -174,6 +193,39 @@ mod tests {
     }
 
     use crate::luna_dialog::{Kind, State};
+
+    #[test]
+    fn oversized_or_invalid_commits_are_dropped_before_done_and_cannot_be_overwritten() {
+        let max = crate::luna_dialog::MAX_INPUT;
+        let mut pending = Pending::default();
+        pending.delete(3, 0);
+        pending.commit(Some("あ".repeat(max + 1)));
+        assert!(pending.invalid_commit);
+        assert!(pending.commit.is_none(), "never retain the attacker-sized string");
+        pending.commit(Some("safe".to_owned()));
+        assert!(pending.invalid_commit, "a late commit must not clear a failed batch");
+        assert!(pending.commit.is_none());
+        let mut state = State::new(Kind::Run);
+        assert!(state.commit_text("old"));
+        assert!(!state.apply_ime(&pending));
+        assert_eq!(state.input, "old", "delete must roll back as part of invalid Done");
+
+        pending.reset();
+        assert!(!pending.invalid_commit);
+        pending.commit(Some("new".to_owned()));
+        assert_eq!(pending.commit.as_deref(), Some("new"));
+        assert!(state.apply_ime(&pending));
+        assert_eq!(state.input, "oldnew");
+
+        pending.reset();
+        pending.commit(Some("x\n".to_owned()));
+        assert!(pending.invalid_commit);
+        assert!(pending.commit.is_none());
+        pending.reset();
+        pending.commit(None);
+        assert_eq!(pending.commit.as_deref(), Some(""));
+        assert!(!pending.invalid_commit);
+    }
 
     #[test]
     fn preedit_requires_valid_utf8_and_grapheme_boundaries() {
