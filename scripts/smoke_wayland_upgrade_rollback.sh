@@ -187,7 +187,8 @@ cat > "$interruption/unpacked/DEBIAN/postinst" <<'INTERRUPTED_POSTINST'
 #!/bin/sh
 set -eu
 [ "$1" = configure ] || exit 0
-# Simulate a sudden power/process loss in the post-unpack configuration stage.
+# Simulate abrupt termination of the actual postinst process, not just
+# an ordinary nonzero shell exit. This must be observable in dpkg diagnostics.
 kill -KILL "$"
 INTERRUPTED_POSTINST
 chmod 0755 "$interruption/unpacked/DEBIAN/postinst"
@@ -196,6 +197,13 @@ dpkg-deb --build --root-owner-group \
 if dpkg -i "$interruption/interrupted-core.deb" \
         > /tmp/ricebowl-interrupted.log 2>&1; then
     echo 'Interrupted core unexpectedly configured successfully' >&2
+    exit 1
+fi
+# Do not count a syntax error or an ordinary postinst exit(1) as a
+# simulated crash: require dpkg to report a genuine fatal signal.
+if ! grep -Eq 'post-installation script.*killed by signal' /tmp/ricebowl-interrupted.log; then
+    echo 'Fault injection did not kill the package postinst' >&2
+    sed -n '1,35p' /tmp/ricebowl-interrupted.log >&2
     exit 1
 fi
 # Unlike a corrupt archive rejected before unpack, dpkg must have entered
