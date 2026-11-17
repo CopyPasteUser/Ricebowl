@@ -4,9 +4,10 @@ import json
 import subprocess
 import unittest
 from unittest import mock
+from types import SimpleNamespace
 
 from macrice.cli import main
-from macrice.de import audio_devices
+from macrice.de import audio_devices, settings
 from macrice.de.creator_contract import describe_creator_api
 
 
@@ -132,7 +133,7 @@ class AudioDeviceTests(unittest.TestCase):
         self.assertTrue(row["mutates_active_session"])
 
     def test_application_stream_routing_volume_and_mute_are_verified(self):
-        current = {"index": 42, "sink": 1, "mute": False,
+        current = {"index": 42, "sink": 1, "mute": False, "client": 17,
                    "volume": {"front-left": {"value": 32768},
                               "front-right": {"value": 32768}},
                    "properties": {"application.name": "Web browser"}}
@@ -157,12 +158,127 @@ class AudioDeviceTests(unittest.TestCase):
             before = audio_devices.playback_streams()
             self.assertEqual(before["streams"][0]["volume"], 50)
             self.assertEqual(before["streams"][0]["label"], "Web browser")
-            self.assertEqual(audio_devices.set_stream_output(42, USB, expected_sink=1)["sink"], 2)
-            self.assertEqual(audio_devices.set_stream_volume(42, 70, expected=50)["volume"], 70)
-            self.assertTrue(audio_devices.set_stream_mute(42, True, expected=False)["mute"])
+            self.assertEqual(before["streams"][0]["client"], 17)
+            self.assertEqual(audio_devices.set_stream_output(
+                42, USB, expected_sink=1, expected_client=17)["sink"], 2)
+            self.assertEqual(audio_devices.set_stream_volume(
+                42, 70, expected=50, expected_client=17)["volume"], 70)
+            self.assertTrue(audio_devices.set_stream_mute(
+                42, True, expected=False, expected_client=17)["mute"])
             with self.assertRaisesRegex(audio_devices.AudioDeviceError, "changed"):
                 audio_devices.set_stream_output(42, SINK, expected_sink=1)
         self.assertIn(("move-sink-input", "42", USB), commands)
+
+    def test_recycled_stream_index_never_controls_a_different_audio_client(self):
+        current = {"index": 42, "sink": 1, "mute": False, "client": 18,
+                   "volume": {"mono": {"value": 65536}},
+                   "properties": {"application.name": "Another application"}}
+        calls = []
+
+        def simulate(*args):
+            calls.append(args)
+            if args == ("--format=json", "list", "sink-inputs"):
+                return json.dumps([current])
+            if args == ("set-sink-input-mute", "42", "1"):
+                # A replacement can happen even between mutation and readback.
+                current["client"] = 19
+                current["mute"] = True
+                return ""
+            return sample_response(*args)
+
+        with mock.patch.object(audio_devices, "_run", side_effect=simulate):
+            for operation in (
+                lambda: audio_devices.set_stream_output(
+                    42, USB, expected_sink=1, expected_client=17),
+                lambda: audio_devices.set_stream_volume(
+                    42, 50, expected=100, expected_client=17),
+                lambda: audio_devices.set_stream_mute(
+                    42, True, expected=False, expected_client=17),
+            ):
+                with self.assertRaises(audio_devices.AudioDeviceError) as error:
+                    operation()
+                self.assertEqual(error.exception.code, "audio_stream_changed")
+            self.assertFalse(any(call[0].startswith(("move-", "set-sink-input"))
+                                 for call in calls))
+            # After an initially valid write, a client switch is reported as
+            # uncertain rather than falsely claiming control of the new app.
+            with self.assertRaises(audio_devices.AudioDeviceError) as error:
+                audio_devices.set_stream_mute(
+                    42, True, expected=False, expected_client=18)
+            self.assertTrue(error.exception.may_have_changed)
+            self.assertIn(("set-sink-input-mute", "42", "1"), calls)
+
+    def test_ricespice_readonly_stream_has_no_unsafe_audio_controls(self):
+        notes, actions = [], []
+        panel = SimpleNamespace()
+        panel._text = lambda message, **_kw: notes.append(message)
+        panel._state = lambda message: None
+        panel._button = lambda label, callback, **_kw: actions.append(label)
+        panel._show_content = lambda: None
+        panel._background = lambda work, done: done(work())
+        panel.Gtk = SimpleNamespace()
+        panel.show_page = lambda _page: None
+        with mock.patch.object(audio_devices, "inspect", return_value={
+                 "outputs": [], "inputs": []}), \
+             mock.patch.object(audio_devices, "playback_streams", return_value={
+                 "outputs": [], "streams": [{"index": 9, "client": None,
+                     "sink": 1, "mute": False, "volume": 100,
+                     "label": "Unknown stream"}]}), \
+             mock.patch("macrice.de.settings.media.read_media_players", return_value=()):
+            settings.RiceSpiceWindow._audio(panel)
+        self.assertTrue(any("no verifiable audio client" in note for note in notes))
+        self.assertFalse(any("Unknown stream" in label for label in actions))
+        self.assertIn("Refresh devices and players", actions)
+
+    def test_ricespice_stream_buttons_pass_displayed_client_identity(self):
+        class Combo:
+            def __init__(self):
+                self.current = None
+
+            def append(self, *_args):
+                pass
+
+            def get_accessible(self):
+                return self
+
+            def set_name(self, _value):
+                pass
+
+            def set_active_id(self, value):
+                self.current = value
+
+            def get_active_id(self):
+                return self.current
+
+        buttons = {}
+        panel = SimpleNamespace()
+        panel._text = lambda *_args, **_kw: None
+        panel._state = lambda _message: None
+        panel._button = lambda label, callback, **_kw: buttons.setdefault(label, callback)
+        panel._show_content = lambda: None
+        panel._background = lambda work, done: done(work())
+        panel.Gtk = SimpleNamespace(ComboBoxText=Combo)
+        panel.content = SimpleNamespace(pack_start=lambda *_args: None)
+        panel.show_page = lambda _page: None
+        stream = {"index": 42, "client": 17, "sink": 1, "mute": False,
+                  "volume": 50, "label": "Browser"}
+        with mock.patch.object(audio_devices, "inspect", return_value={
+                 "outputs": [], "inputs": []}), \
+             mock.patch.object(audio_devices, "playback_streams", return_value={
+                 "outputs": [{"index": 1, "name": SINK,
+                              "description": "Internal Speakers"}],
+                 "streams": [stream]}), \
+             mock.patch("macrice.de.settings.media.read_media_players", return_value=()), \
+             mock.patch.object(audio_devices, "set_stream_output", return_value=stream) as move, \
+             mock.patch.object(audio_devices, "set_stream_volume", return_value=stream) as volume, \
+             mock.patch.object(audio_devices, "set_stream_mute", return_value=stream) as mute:
+            settings.RiceSpiceWindow._audio(panel)
+            buttons["Move Browser to selected output"]()
+            buttons["Set Browser volume"]()
+            buttons["Mute Browser"]()
+        move.assert_called_once_with(42, SINK, expected_sink=1, expected_client=17)
+        volume.assert_called_once_with(42, 50, expected=50, expected_client=17)
+        mute.assert_called_once_with(42, True, expected=False, expected_client=17)
 
     def test_application_streams_reject_malformed_and_unavailable(self):
         valid = {"index": 4, "sink": 1, "mute": False,
@@ -170,7 +286,9 @@ class AudioDeviceTests(unittest.TestCase):
         for payload in ("{}", "invalid", json.dumps([valid] * 65),
                         json.dumps([{**valid, "index": True}]),
                         json.dumps([valid, valid]),
-                        json.dumps([{**valid, "volume": {"mono": {"value": "100%"}}}])):
+                        json.dumps([{**valid, "volume": {"mono": {"value": "100%"}}}]),
+                        *(json.dumps([{**valid, "client": invalid}])
+                          for invalid in (True, -1, 2**32, "17"))):
             with self.subTest(payload=payload[:30]), \
                     self.assertRaises(audio_devices.AudioDeviceError):
                 audio_devices._streams(payload)
