@@ -293,7 +293,7 @@ class WaylandRicePopReadTests(unittest.TestCase):
                 self.focused = self.destroyed = False
                 parent.children.append(self)
 
-            def has_focus(self):
+            def is_focus(self):
                 return self.focused
 
             def grab_focus(self):
