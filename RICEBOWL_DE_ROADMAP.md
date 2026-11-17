@@ -42,11 +42,12 @@ Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
 ### SG2 BlueZ multi-adapter identity and recovery readback (17 November 2026; CI candidate)
 
-- The existing RiceSpice Bluetooth workflow now binds the requested
-  Connect/Disconnect operation to its **reviewed BlueZ adapter** as well as the
-  device address. The shared system D-Bus transport rejects a missing or
-  changed adapter and ambiguous matches; legacy address-only consumers may
-  proceed only if exactly one live device matches across all adapters.
+- The existing RiceSpice Bluetooth workflow now binds Connect/Disconnect
+  **and power** controls to the adapter shown when the GTK page was rendered,
+  rejecting a replacement between display and click. The shared system D-Bus
+  transport also requires a live adapter path and an unambiguous Device1
+  beneath it; legacy address-only consumers may proceed only if exactly one
+  live device matches across all adapters.
 - On adapter replacement/hot-unplug, neither power nor connection readback
   may report success solely because a *different* adapter happens to have the
   requested state. All operations retain BlueZ ownership, bounded D-Bus
