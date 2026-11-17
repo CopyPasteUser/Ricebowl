@@ -439,6 +439,11 @@ def invoke(notification_id: int, action_key: str, *,
     if matching is None:
         raise NotificationBridgeError("Notification is no longer active", "notification_not_found")
     _verify_snapshot_target(matching, notification_id, expected)
+    # Even when ID/text/key are identical, a replacement can redefine the
+    # action label and meaning. A stale GUI button must not invoke it.
+    if expected is not None and expected.get("actions") != matching["actions"]:
+        raise NotificationBridgeError("RicePop notification actions changed; refresh the inbox",
+                                      "stale_notification_snapshot")
     if action_key not in {action["key"] for action in matching["actions"]}:
         raise NotificationBridgeError("Notification action is no longer available",
                                       "notification_action_not_found")
