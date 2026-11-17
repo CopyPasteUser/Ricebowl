@@ -32,6 +32,8 @@ class CreatorCompositorMatrixTests(unittest.TestCase):
         self.assertIn('while [ "$attempt" -lt 24 ]', script)
         self.assertIn('assert changed < 6000', script)
         self.assertIn('Creator restore did not converge', script)
+        self.assertIn('Creator diagnostic: sizes', script)
+        self.assertIn('restore-mismatch.png', script)
 
     def test_matrix_preserves_next_login_and_rejects_imaginary_visual_proof(self):
         script = SCRIPT.read_text(encoding="utf-8")

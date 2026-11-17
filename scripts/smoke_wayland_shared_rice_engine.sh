@@ -269,6 +269,31 @@ PY
         sleep 0.25
     done
     if [ "$restored_ready" -ne 1 ]; then
+        # Do not hide a persistent compositor mismatch. Preserve the real
+        # frames and log exactly which panel was actually rendered.
+        cp "$runtime/matrix-restored-$name.png" "$size_artifacts/$name-restore-mismatch.png"
+        /usr/bin/python3 - "$size_artifacts/$name-chrome.png" \
+                "$size_artifacts/$name-$luna.png" \
+                "$size_artifacts/$name-restore-mismatch.png" <<'PY'
+from PIL import Image, ImageChops
+import sys
+with Image.open(sys.argv[1]) as a0, Image.open(sys.argv[2]) as b0, \
+     Image.open(sys.argv[3]) as c0:
+    a, b, c = (im.convert("RGB") for im in (a0, b0, c0))
+    def changed(x, y, part):
+        w, h = x.size
+        x0, x1 = (0, w) if part == "full" else (0, w // 2) if part == "left" else (w // 2, w)
+        region = (x0, h - 96, x1, h)
+        diff = ImageChops.difference(x.crop(region), y.crop(region))
+        return sum(max(pixel) > 20 for pixel in diff.getdata())
+    print(f"Creator diagnostic: sizes chrome={a.size} luna={b.size} restored={c.size}", flush=True)
+    if a.size == b.size == c.size:
+        for part in ("full", "left", "right"):
+            print(f"Creator diagnostic: {part} chrome/luna={changed(a,b,part)} "
+                  f"chrome/restored={changed(a,c,part)} "
+                  f"luna/restored={changed(b,c,part)}", flush=True)
+PY
+        wlr-randr >&2
         echo "Creator restore did not converge to previous Chrome pixels at $name" >&2
         exit 1
     fi
