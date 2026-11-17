@@ -332,12 +332,21 @@ class WaylandRicePopReadTests(unittest.TestCase):
         self.assertIsNot(first, second)
         self.assertTrue(second.focused, "same verified action keeps keyboard focus")
 
+        # The same ID/key/text cannot carry focus onto a newly advertised
+        # action with different user-visible meaning.
+        second.grab_focus()
+        relabeled = {**original, "active": [{**original["active"][0], "actions": [
+            {"key": "open", "label": "Delete"}]}]}
+        page._render_notification_inbox(relabeled)
+        self.assertFalse(button("Delete · Mail · #12").focused)
+        self.assertTrue(button("Refresh RicePop inbox").focused)
+
         # Even the same ID and action label cannot transfer focus if the
         # notification body changed: it could be a different message.
-        second.grab_focus()
-        changed = {**original, "active": [{**original["active"][0], "body": "Private B"}]}
+        button("Delete · Mail · #12").grab_focus()
+        changed = {**relabeled, "active": [{**relabeled["active"][0], "body": "Private B"}]}
         page._render_notification_inbox(changed)
-        self.assertFalse(button("Open · Mail · #12").focused)
+        self.assertFalse(button("Delete · Mail · #12").focused)
         self.assertTrue(button("Refresh RicePop inbox").focused)
 
         # A newly verified host must not inherit old action focus even when
@@ -581,6 +590,34 @@ class WaylandRicePopReadTests(unittest.TestCase):
                 notifications.dismiss(12, expected={"id": 12}, expected_owner_pid=22)
             self.assertEqual(error.exception.code, "invalid_notification_snapshot")
             self.assertEqual(run.call_count, 3)
+
+    def test_invoke_rejects_reused_id_and_key_with_changed_action_meaning(self):
+        shown = {"id": 12, "summary": "Done", "body": "Finished",
+                 "app_name": "Files", "urgency": "normal",
+                 "actions": [{"key": "open", "label": "Open"}]}
+        changed = {**shown, "actions": [{"key": "open", "label": "Delete"}]}
+        with (mock.patch.object(notifications, "_mutation_host",
+                                return_value=("makoctl", 22)),
+              mock.patch.object(notifications, "_read_mako",
+                                return_value=([changed], False)),
+              mock.patch.object(notifications.subprocess, "run") as run):
+            with self.assertRaises(notifications.NotificationBridgeError) as error:
+                notifications.invoke(12, "open", expected=shown, expected_owner_pid=22)
+            self.assertEqual(error.exception.code, "stale_notification_snapshot")
+            run.assert_not_called()
+
+        # Existing explicit callers that do not supply a GUI action snapshot
+        # retain the historical contract: only currently advertised keys work.
+        legacy = {key: value for key, value in shown.items() if key != "actions"}
+        with (mock.patch.object(notifications, "_mutation_host",
+                                return_value=("makoctl", 22)),
+              mock.patch.object(notifications, "_read_mako",
+                                return_value=([changed], False)),
+              mock.patch.object(notifications.subprocess, "run", return_value=
+                                subprocess.CompletedProcess([], 0, b"", b"")) as run):
+            self.assertTrue(notifications.invoke(
+                12, "open", expected=legacy, expected_owner_pid=22)["invoked"])
+            run.assert_called_once()
 
     def test_explicit_dismiss_is_id_scoped_and_never_invokes_actions(self):
         calls = []
