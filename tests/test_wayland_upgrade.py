@@ -73,6 +73,30 @@ class DebianUpgradeContracts(unittest.TestCase):
         self.assertIn("sha256sum -c --status /tmp/ricebowl-v12-before.sha256", script)
         self.assertIn("runuser -u owner", script)
 
+    def test_interrupted_postinst_fault_is_repaired_without_user_or_xfce_reset(self):
+        script = (ROOT / "scripts/smoke_wayland_upgrade_rollback.sh").read_text()
+        self.assertIn("PHASE 3b/5: power-loss simulation", script)
+        self.assertIn('dpkg-deb --raw-extract "$new_core"', script)
+        self.assertIn('"$interruption/unpacked/DEBIAN/postinst"', script)
+        self.assertIn('kill -KILL "$"', script)
+        self.assertIn('dpkg -i "$interruption/interrupted-core.deb"', script)
+        self.assertIn("Fault injection did not interrupt package configuration", script)
+        self.assertIn('dpkg -i "$new_core"', script)
+        self.assertIn('test -z "$(dpkg --audit)"', script)
+        # Verify the selected old + new user-authored recipes survive the
+        # mid-configuration failure and subsequent authentic-package repair.
+        before, after = script.split("PHASE 3b/5:", 1)
+        recovered = after.split("PHASE 4/5:", 1)[0]
+        self.assertIn('sha256sum -c --status /tmp/ricebowl-v12-before.sha256',
+                      recovered)
+        self.assertIn('assert_selected xp-luna-columns', recovered)
+        self.assertIn('check_user_state', recovered)
+        self.assertIn('assert_review "$legacy" heritage-modern-v10 10', recovered)
+        self.assertIn('assert_review "$luna" xp-luna-columns 12', recovered)
+        self.assertNotIn("apt-get purge", recovered)
+        self.assertNotIn("rm -rf /home", recovered)
+        self.assertIn("docker run --rm -i", before)
+
     def test_provenance_is_part_of_core_package_not_user_config(self):
         builder = (ROOT / "scripts/build_wayland_core_deb.sh").read_text()
         self.assertIn("git -C \"$project_root\" rev-parse --verify HEAD", builder)
