@@ -21,6 +21,21 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
+### SG4 real Creator native output/scale matrix (17 November 2026; CI candidate)
+
+- Extends the existing isolated real-labwc/native-RicePlate Creator apply/
+  restore test with three **actual wl_output geometries/scales**:
+  compact 1024×768@1.0, laptop 1366×768@1.25, desktop 1600×900@1.0.
+- At every geometry, the same native compositor receives a reviewed
+  source-locked Chrome→XP Luna live application and an explicit restore.
+  Real `grim` screenshots are fully decoded, checked for pixel dimensions/
+  a visible native panel, and compared for structurally different rice
+  layouts and restored pixels. The original login selection and XFCE
+  configuration remain unchanged.
+- This proves native output/layout rendering and actual live transaction
+  continuity in headless CI, **not** physical mixed-DPI/EDID/hotplug input,
+  licensing review, screen-reader/keyboard parity, or completed SG4.
+
 ### SG6 simulated interrupted dpkg configure and exact-package recovery (17 November 2026; CI candidate)
 
 - The native packaging lane already performed source-locked previous/current
