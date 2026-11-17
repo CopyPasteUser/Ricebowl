@@ -189,7 +189,7 @@ set -eu
 [ "$1" = configure ] || exit 0
 # Simulate abrupt termination of the actual postinst process, not just
 # an ordinary nonzero shell exit. This must be observable in dpkg diagnostics.
-kill -KILL "$"
+kill -KILL "$$"
 INTERRUPTED_POSTINST
 chmod 0755 "$interruption/unpacked/DEBIAN/postinst"
 dpkg-deb --build --root-owner-group \
