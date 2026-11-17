@@ -21,6 +21,32 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
+### SG3 native RicePop owner/row-bound mutations (17 November 2026; CI candidate)
+
+- The native Rust notification popup previously requested mutations by Mako's
+  **numeric ID alone**. A restarted host can reuse that ID, so a stale native
+  selection could dismiss/invoke a different message despite the safer GTK
+  RiceSpice path. Native refreshes now require RiceBowl's owner-verified
+  `notifications-owned` CLI; each selected native action holds both the
+  **verified owner PID** and the full immutable on-screen notice/action labels
+  captured before its worker request. Unverified/old/previews stay read-only.
+- Native private summaries/bodies/actions travel to the existing Python
+  mutation verifier through **bounded JSON stdin**, never through process
+  arguments, disk, environment or logs. The Python bridge re-reads the current
+  host PID and active notice, rejects changed text/urgency/actions, and only
+  then executes the fixed Mako command. Legacy explicit CLI actions remain
+  compatible but still check the currently advertised active ID.
+- An in-flight notification refresh failure now scrubs native private rows
+  and clears the former owner; a new owner cannot silently retain the old
+  detail's authority. Python negative tests exercise same-PID content
+  replacement, action relabeling, host handoff, malformed/stdin overflow and
+  missing guard flags; Rust unit tests cover owner-bound state and cleanup.
+  Real source-locked Mako 1.11 crash-recovery CI includes a stale **native
+  guarded CLI** request after the supervisor restart.
+- This is partial SG3 event/action correctness. Physical keyboard/Orca,
+  complete native OSD presentation, locale breadth and SG3 release signoff
+  are still open.
+
 ### SG5 Unicode 18 native UAX #9 L4 character-based mirroring (17 November 2026; CI candidate)
 
 - The native RicePlate single-line BiDi renderer previously mirrored only

@@ -78,7 +78,7 @@ def parser() -> argparse.ArgumentParser:
         "creator-status", "creator-stage", "creator-rollback",
         "creator-live-status", "creator-live-apply", "creator-live-restore", "creator-live-recovery",
         "display-refresh", "display-confirm",
-        "pack-export", "pack-inspect", "pack-import", "pack-recover", "asset-import", "notifications", "notification-dismiss",
+        "pack-export", "pack-inspect", "pack-import", "pack-recover", "asset-import", "notifications", "notifications-owned", "notification-dismiss",
         "notification-invoke", "notification-dnd",
         "settings",
         "audio-devices", "audio-default",
@@ -115,6 +115,10 @@ def parser() -> argparse.ArgumentParser:
     de.add_argument("--asset", type=Path, help="Absolute owner-controlled .png file for de asset-import")
     de.add_argument("--notification-id", type=int,
                     help="One active notification ID for explicit dismissal/invocation")
+    de.add_argument("--expected-owner-pid", type=int,
+                    help="Exact trusted Mako PID from the native private RicePop inbox")
+    de.add_argument("--snapshot-stdin", action="store_true",
+                    help="Read a bounded private native RicePop selection from stdin")
     de.add_argument("--display-token", help="Opaque current-session monitor confirmation token")
     de.add_argument("--action-key", help="Exact current Mako action key for notification-invoke")
     de.add_argument("--dnd", choices=("on", "off"),
@@ -464,30 +468,42 @@ def main(argv: list[str] | None = None) -> int:
                 from .de.settings import launch_display_confirmation
                 launch_display_confirmation(args.display_token)
                 return 0
-            if args.action in ("notifications", "notification-dismiss", "notification-invoke",
-                               "notification-dnd"):
+            if args.action in ("notifications", "notifications-owned", "notification-dismiss",
+                               "notification-invoke", "notification-dnd"):
                 if args.nested or args.recipe or args.panel != "waybar" or not args.json:
                     raise ValueError("RicePop notification commands require --json and no session options")
                 if args.action in ("notification-dismiss", "notification-invoke") and args.notification_id is None:
                     raise ValueError("Notification mutations require --notification-id")
                 if args.action == "notification-invoke" and args.action_key is None:
                     raise ValueError("de notification-invoke requires --action-key")
+                if args.snapshot_stdin != (args.expected_owner_pid is not None):
+                    raise ValueError("Native RicePop snapshot and owner guard must be provided together")
+                if args.snapshot_stdin and args.action not in (
+                        "notification-dismiss", "notification-invoke"):
+                    raise ValueError("Native RicePop snapshot guard applies only to an explicit action")
                 if args.action == "notification-dnd" and args.dnd and not args.expect_dnd:
                     raise ValueError("Changing DND requires --expect-dnd on|off")
                 if args.action == "notification-dnd" and args.expect_dnd and not args.dnd:
                     raise ValueError("--expect-dnd only applies to a DND mutation")
-                from .de.notifications import (NotificationBridgeError, dismiss, dnd_status,
-                                               inspect, invalid, invoke, set_dnd)
+                from .de.notifications import (NotificationBridgeError, decode_gui_snapshot,
+                                               dismiss, dnd_status, inspect, inspect_owned,
+                                               invalid, invoke, set_dnd)
                 try:
+                    expected = (decode_gui_snapshot(sys.stdin.buffer.read(8193))
+                                if args.snapshot_stdin else None)
                     if args.action == "notifications":
                         result = inspect()
+                    elif args.action == "notifications-owned":
+                        result = inspect_owned()
                     elif args.action == "notification-dismiss":
-                        result = dismiss(args.notification_id)
+                        result = dismiss(args.notification_id, expected=expected,
+                                         expected_owner_pid=args.expected_owner_pid)
                     elif args.action == "notification-dnd":
                         result = (set_dnd(args.dnd == "on", expected=args.expect_dnd == "on")
                                   if args.dnd else dnd_status())
                     else:
-                        result = invoke(args.notification_id, args.action_key)
+                        result = invoke(args.notification_id, args.action_key, expected=expected,
+                                        expected_owner_pid=args.expected_owner_pid)
                 except NotificationBridgeError as error:
                     print(json.dumps(invalid(error,
                                              attempted_dismiss=args.action == "notification-dismiss",
