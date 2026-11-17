@@ -388,6 +388,50 @@ def _verify_snapshot_owner(expected_owner_pid: int | None, current_pid: int) -> 
                                       "notification_host_changed")
 
 
+_MAX_GUI_SNAPSHOT = 8192
+
+
+def decode_gui_snapshot(raw: bytes) -> dict[str, Any]:
+    """Decode a private, bounded, one-shot native UI row from standard input.
+
+    Never pass private notification text through process argv, environment,
+    filesystem, log messages or the D-Bus signal payload. The existing
+    mutation bridge rechecks this exact view against freshly owned Mako.
+    """
+    fields = set(_SNAPSHOT_FIELDS) | {"actions"}
+    if type(raw) is not bytes or not 0 < len(raw) <= _MAX_GUI_SNAPSHOT:
+        raise NotificationBridgeError("Invalid private RicePop selection",
+                                      "invalid_notification_snapshot")
+    try:
+        value = json.loads(raw)
+    except (ValueError, UnicodeError, TypeError) as exc:
+        raise NotificationBridgeError("Invalid private RicePop selection",
+                                      "invalid_notification_snapshot") from exc
+    if (type(value) is not dict or set(value) != fields
+            or type(value.get("id")) is not int
+            or not 0 < value["id"] < 2**32):
+        raise NotificationBridgeError("Invalid private RicePop selection",
+                                      "invalid_notification_snapshot")
+    for name, limit in (("summary", 160), ("body", 2048),
+                        ("app_name", 80), ("urgency", 32)):
+        if type(value.get(name)) is not str or len(value[name]) > limit:
+            raise NotificationBridgeError("Invalid private RicePop selection",
+                                          "invalid_notification_snapshot")
+    actions = value.get("actions")
+    if type(actions) is not list or len(actions) > 8:
+        raise NotificationBridgeError("Invalid private RicePop action list",
+                                      "invalid_notification_snapshot")
+    keys = set()
+    for action in actions:
+        if (type(action) is not dict or set(action) != {"key", "label"}
+                or not _action_key(action["key"])
+                or not _action_key(action["label"]) or action["key"] in keys):
+            raise NotificationBridgeError("Invalid private RicePop action list",
+                                          "invalid_notification_snapshot")
+        keys.add(action["key"])
+    return value
+
+
 def dismiss(notification_id: int, *, expected: dict[str, Any] | None = None,
             expected_owner_pid: int | None = None) -> dict[str, Any]:
     """Close one still-active ID; optional GUI snapshot guards ID reuse."""
@@ -396,12 +440,19 @@ def dismiss(notification_id: int, *, expected: dict[str, Any] | None = None,
                                       "invalid_notification_id")
     command, pid = _mutation_host()
     _verify_snapshot_owner(expected_owner_pid, pid)
-    active = _fresh_active()
+    # A native GUI row includes action labels. Even dismiss must not target
+    # a replacement whose identical text/ID masks changed actions. CLI
+    # callers with no GUI snapshot retain the legacy lightweight read.
+    compare_actions = expected is not None and "actions" in expected
+    active = _fresh_active(include_actions=compare_actions)
     matching = next((item for item in active if item["id"] == notification_id), None)
     if matching is None:
         raise NotificationBridgeError("Notification is no longer active",
                                       "notification_not_found")
     _verify_snapshot_target(matching, notification_id, expected)
+    if compare_actions and expected["actions"] != matching["actions"]:
+        raise NotificationBridgeError("RicePop notification actions changed; refresh the inbox",
+                                      "stale_notification_snapshot")
     if _mutation_host() != (command, pid):
         raise NotificationBridgeError("RicePop notification host changed before dismissal",
                                       "notification_host_changed")
