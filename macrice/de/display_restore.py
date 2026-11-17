@@ -154,7 +154,14 @@ def run_worker(change: guard.DisplayChange) -> int:
                             from macrice.de import live
                             if not live.request("refresh-outputs").get("ok"):
                                 raise live.LiveError("Output refresh rejected")
-                        except (OSError, ValueError, live.LiveError):
+                        except (ImportError, OSError, RuntimeError, ValueError,
+                                AttributeError, TypeError):
+                            # An already confirmed layout must stay confirmed
+                            # when the optional owner-local panel refresh is
+                            # missing, disconnected or returns an invalid reply.
+                            # LiveError derives from RuntimeError; referencing
+                            # live.LiveError here would itself raise
+                            # UnboundLocalError when importing live failed.
                             guard._write_state(change, "kept",
                                                "Layout kept; restart RiceBowl to refresh the panel")
                     return 0
