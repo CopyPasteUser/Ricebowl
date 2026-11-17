@@ -28,8 +28,8 @@ def fake_run(path, name, run_id, conclusion="success", **overrides):
 
 class ReleaseWorkflowGateTests(unittest.TestCase):
     def good_runs(self):
-        # Strict portals is explicitly dispatch-only; do not fabricate a
-        # nonexistent push event as valid release evidence.
+        # Exercise the manually dispatched path independently of the
+        # newly supported, path-filtered exact-main push path.
         return [fake_run(path, name, i + 100,
                          event=("workflow_dispatch"
                                 if path == ".github/workflows/wayland-portal-strict.yml"
@@ -80,13 +80,15 @@ class ReleaseWorkflowGateTests(unittest.TestCase):
         with self.assertRaisesRegex(WorkflowGateError, "Missing"):
             validate_runs({"workflow_runs": tests}, SHA)
 
-    def test_strict_portal_gate_requires_exact_main_dispatch_not_pr_or_push(self):
+    def test_strict_portal_gate_accepts_only_exact_main_push_or_dispatch(self):
         portal = ".github/workflows/wayland-portal-strict.yml"
         baseline = self.good_runs()
         self.assertIn(portal, validate_runs({"workflow_runs": baseline}, SHA))
         idx = next(i for i, run in enumerate(baseline) if run["path"] == portal)
+        baseline[idx]["event"] = "push"
+        self.assertIn(portal, validate_runs({"workflow_runs": baseline}, SHA))
         for overrides in (
-            {"event": "pull_request"}, {"event": "push"},
+            {"event": "pull_request"},
             {"head_branch": "integration"}, {"head_sha": OTHER},
             {"status": "in_progress", "conclusion": None},
             {"status": "completed", "conclusion": "failure"},
@@ -96,6 +98,29 @@ class ReleaseWorkflowGateTests(unittest.TestCase):
             runs[idx].update(overrides)
             with self.subTest(overrides=overrides), self.assertRaises(WorkflowGateError):
                 validate_runs({"workflow_runs": runs}, SHA)
+
+    def test_strict_portal_main_push_trigger_matches_pr_security_sources(self):
+        workflow = (Path(__file__).resolve().parents[1]
+                    / ".github/workflows/wayland-portal-strict.yml").read_text()
+        push, pr = workflow.split("  pull_request:\n", 1)
+        self.assertIn("  push:\n", push)
+        push = push.split("  push:\n", 1)[1]
+        self.assertIn("    branches:\n      - main\n", push)
+        pr = pr.split("  workflow_dispatch:\n", 1)[0]
+        paths = lambda text: {
+            line.strip() for line in text.splitlines()
+            if line.startswith("      - '")
+        }
+        self.assertEqual(paths(push), paths(pr))
+        for source in (
+            ".github/workflows/wayland-portal-strict.yml",
+            "scripts/smoke_wayland_portals.sh",
+            "scripts/ci_portal_generic_remote.py",
+            "scripts/ci_portal_pipewire_link.py",
+            "tests/test_wayland_portal_strict.py",
+            "packaging/wayland/ricebowl-portals.conf",
+        ):
+            self.assertIn("      - '" + source + "'", push)
 
     def test_strict_portal_latest_failure_cannot_hide_behind_previous_success(self):
         path = ".github/workflows/wayland-portal-strict.yml"

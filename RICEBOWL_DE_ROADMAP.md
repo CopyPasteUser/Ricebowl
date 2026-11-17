@@ -130,16 +130,17 @@ Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
 ### SG7 release evidence now requires strict PipeWire software frames (17 November 2026; CI candidate)
 
-- `check_release_workflows.py` now requires the separate strict software
+- `check_release_workflows.py` requires the separate strict software
   ScreenCast/PipeWire GitHub Actions workflow at the **exact tested main
   source SHA**, in addition to the Python/X11, native Rust and Wayland
-  session workflows. Strict portals can only satisfy this source gate via
-  explicit `workflow_dispatch`, because its workflow is not triggered by
-  pushes to `main`; PR results and old green runs cannot provide proof.
+  session workflows. Portal-source changes now trigger a path-filtered
+  strict software run on `main`; any other final release source still
+  needs an explicit `workflow_dispatch`. PR runs and old green runs cannot
+  provide release proof.
 - Negative tests reject absent, in-progress, failed, wrong-branch, wrong-SHA
-  and spoofed strict-portal results. This **hardens** the 1.0 source gate;
-  it is not a claim that the strict portal run has already been dispatched or
-  that the entire SG7 software matrix is complete.
+  and spoofed strict-portal results. Path-filter parity tests require the
+  strict portal source set on both push and PR. This **hardens** SG7 without
+  claiming full software matrix, GPU/wlr or physical acceptance.
 
 ### SG3 RicePop verified Mako crash/restart and fail-closed GUI recovery (17 November 2026; CI candidate)
 

@@ -22,7 +22,7 @@ REQUIRED = {
     ".github/workflows/riceplate-native.yml": "Native RicePlate prototype",
     ".github/workflows/wayland-session.yml": "Wayland session preview",
     # Real, strict PipeWire screen frames are separate from generic portal
-    # endpoint smoke. This gate is dispatch-only on the exact release source.
+    # endpoint smoke. Accept only exact-main path-filtered push or dispatch.
     ".github/workflows/wayland-portal-strict.yml": "Strict Wayland portals and PipeWire frames",
 }
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,14 +46,11 @@ def validate_runs(payload: object, source_sha: str) -> dict[str, int]:
                 or run.get("head_sha") != source_sha
                 or run.get("head_branch") != "main"):
             continue
-        # Tests runs on main pushes. Native + session lanes may be dispatched
-        # at the exact main SHA when a path-filtered change does not trigger
-        # them. The strict portal workflow has NO push trigger; require an
-        # explicit exact-source dispatch, never an unrelated PR run.
+        # Tests runs only on main pushes. Path-filtered Native/Wayland/
+        # Strict-Portal workflows can also be explicitly dispatched at the
+        # exact main SHA. PR runs never satisfy release provenance.
         if path == ".github/workflows/ci.yml":
             allowed_events = ("push",)
-        elif path == ".github/workflows/wayland-portal-strict.yml":
-            allowed_events = ("workflow_dispatch",)
         else:
             allowed_events = ("push", "workflow_dispatch")
         if run.get("event") not in allowed_events:
@@ -66,7 +63,7 @@ def validate_runs(payload: object, source_sha: str) -> dict[str, int]:
     for path, name in REQUIRED.items():
         run = selected.get(path)
         if run is None:
-            raise WorkflowGateError(f"Missing exact-source main push CI: {name}")
+            raise WorkflowGateError(f"Missing exact-source trusted-main CI: {name}")
         if run.get("status") != "completed" or run.get("conclusion") != "success":
             raise WorkflowGateError(f"Latest exact-source CI is not green: {name}")
     return {path: selected[path]["id"] for path in REQUIRED}

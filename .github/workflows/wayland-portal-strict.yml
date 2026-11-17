@@ -1,6 +1,25 @@
 name: Strict Wayland portals and PipeWire frames
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/wayland-portal-strict.yml'
+      - 'scripts/smoke_wayland_portals.sh'
+      - 'scripts/wayland_portals_smoke_client.sh'
+      - 'scripts/wayland_portal_capture_smoke.py'
+      - 'scripts/wayland_portal_frame_painter.py'
+      - 'scripts/ci_portal_generic_remote.py'
+      - 'scripts/ci_portal_pipewire_link.py'
+      - 'tests/test_wayland_portal_ci_link.py'
+      - 'tests/test_wayland_portal_ci_patch.py'
+      - 'scripts/check_wayland_portals.py'
+      - 'tests/test_wayland_portal_capture.py'
+      - 'tests/test_wayland_portal_probe.py'
+      - 'tests/test_wayland_portal_strict.py'
+      - 'docs/wayland-portal-strict-acceptance.md'
+      - 'packaging/wayland/ricebowl-portals.conf'
   pull_request:
     paths:
       - '.github/workflows/wayland-portal-strict.yml'
