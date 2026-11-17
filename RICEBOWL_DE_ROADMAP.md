@@ -21,6 +21,19 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
+### SG1 desktop Unicode prefix selection (17 November 2026; CI candidate)
+
+- Native XP Luna shortcut **and** XDG file type-to-select now use one
+  case-insensitive prefix matcher that requires a complete extended grapheme
+  boundary. A single person emoji cannot accidentally select a ZWJ profession
+  emoji, and a plain Latin base cannot prematurely match half of a combining
+  accent. Hidden/other-output peer filtering and focus leases remain unchanged.
+- Deterministic Rust tests cover combining sequences, ZWJ emoji, case folding,
+  candidate order, control input and out-of-bounds prefixes. No new dependency,
+  background work, XFCE/X11 change, or locale-specific search claim.
+- This is incremental **SG1/SG5** correctness evidence only, not completion
+  of the Unicode normalization, external IME, Orca, keyboard or hardware gates.
+
 ### SG1 cross-output context placement integration (16 November 2026; CI candidate)
 
 - The keyboard focus and file/shortcut context paths now share the same output

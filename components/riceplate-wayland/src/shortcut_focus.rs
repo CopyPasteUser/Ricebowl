@@ -40,18 +40,33 @@ pub(crate) fn preserves_focus_on_reflow<O: PartialEq>(
     before.is_some() && before == after
 }
 
-/// Choose the first matching visible peer in recipe order, not a hidden icon
-/// or a different output's mirrored shortcut. Unicode lowercasing is supported
-/// without interpreting the label as a path or executable command.
-pub fn match_visible_prefix<'a>(query: &str, peers: impl IntoIterator<Item = Option<&'a str>>)
-                                -> Option<usize> {
+/// A typed prefix must end on an extended grapheme boundary in the label.
+/// Byte-wise starts_with used to select "e\u{301}..." for plain "e", or
+/// "👩‍💻..." for "👩", although neither is a complete displayed character.
+/// Apply the same rule to XDG files and Luna shortcuts. Lowercasing retains
+/// the established case-insensitive matching without accepting partial glyphs.
+/// This is not Unicode canonical normalization or locale-specific collation.
+pub(crate) fn label_has_grapheme_prefix(query: &str, label: &str) -> bool {
+    use unicode_segmentation::UnicodeSegmentation;
     if query.is_empty() || query.chars().count() > MAX_PREFIX
         || query.chars().any(char::is_control) {
-        return None;
+        return false;
     }
     let needle = query.to_lowercase();
+    let name = label.to_lowercase();
+    if !name.starts_with(&needle) { return false; }
+    name.len() == needle.len()
+        || name.grapheme_indices(true)
+            .take_while(|(offset, _)| *offset <= needle.len())
+            .any(|(offset, _)| offset == needle.len())
+}
+
+/// Choose the first matching visible peer in recipe order, not a hidden icon
+/// or a different output's mirrored shortcut. Never match a partial grapheme.
+pub fn match_visible_prefix<'a>(query: &str, peers: impl IntoIterator<Item = Option<&'a str>>)
+                                -> Option<usize> {
     peers.into_iter().enumerate().find_map(|(index, label)|
-        label.filter(|name| name.to_lowercase().starts_with(&needle)).map(|_| index))
+        label.filter(|name| label_has_grapheme_prefix(query, name)).map(|_| index))
 }
 
 /// Navigate only real placed peers on the active compositor output.
@@ -183,6 +198,30 @@ mod tests {
         assert_eq!(match_visible_prefix("pizza 🍚", peers), Some(5));
         assert_eq!(match_visible_prefix("x", peers), None);
     }
+    #[test]
+    fn typed_desktop_prefix_never_splits_rendered_unicode_graphemes() {
+        // A plain Latin character must not match half an accented grapheme.
+        assert!(!label_has_grapheme_prefix("e", "e\u{301}dit"));
+        assert!(label_has_grapheme_prefix("e\u{301}", "e\u{301}dit"));
+        // Likewise do not mistake the leading person for the full ZWJ emoji.
+        assert!(!label_has_grapheme_prefix("👩", "👩‍💻 Tools"));
+        assert!(label_has_grapheme_prefix("👩‍💻", "👩‍💻 Tools"));
+        assert!(label_has_grapheme_prefix("Ä", "änderungen"));
+        assert!(!label_has_grapheme_prefix("", "anything"));
+        assert!(!label_has_grapheme_prefix("a\n", "abc"));
+        assert!(!label_has_grapheme_prefix(&"x".repeat(MAX_PREFIX + 1), "x"));
+        // Hidden peers remain ineligible; choose the next complete match.
+        assert_eq!(match_visible_prefix("e", [
+            Some("e\u{301}dit"), None, Some("Editor"), Some("extra"),
+        ]), Some(2));
+        assert_eq!(match_visible_prefix("👩", [
+            Some("👩‍💻 Tools"), Some("👩 Photos"),
+        ]), Some(1));
+        assert_eq!(match_visible_prefix("👩‍💻", [
+            Some("👩‍💻 Tools"), Some("👩 Photos"),
+        ]), Some(0));
+    }
+
     #[test]
     fn noop_output_notification_must_not_drop_real_keyboard_focus() {
         assert!(preserves_focus_on_reflow(Some((1_u32, (128, 400))),
