@@ -21,6 +21,23 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
+### SG6 simulated interrupted dpkg configure and exact-package recovery (17 November 2026; CI candidate)
+
+- The native packaging lane already performed source-locked previous/current
+  Ubuntu 24.04 apt upgrade, safe downgrade and purge with private legacy/new
+  rice plus XFCE canaries. It now additionally rebuilds a deliberately faulty
+  **throwaway core .deb only inside the disposable Ubuntu container**, inserts
+  a postinst that is SIGKILLed after the real package has been unpacked, and
+  requires that dpkg enter a nonconfigured state.
+- Reinstalling the genuine, source-locked preview2 core and running the
+  package manager repair must leave a clean `dpkg --audit`, correct Core/Meta
+  versions, the selected v12 rice and v10 legacy rice intact, identical
+  SHA-256 checksums and original XFCE/private files. No host package,
+  installed user desktop or login state is touched.
+- This is a **software power-loss/process-failure simulation**, not a true
+  storage-power-cut or physical Mint distribution acceptance. SG6 remains open
+  until the full supported install/recovery/provenance matrix is evidenced.
+
 ### SG7 release evidence now requires strict PipeWire software frames (17 November 2026; CI candidate)
 
 - `check_release_workflows.py` now requires the separate strict software
