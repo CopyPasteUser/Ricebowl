@@ -981,6 +981,10 @@ class RiceSpiceWindow:
                 app = record["app_name"] or "Unknown application"
                 summary = record["summary"] or "(untitled)"
                 identifier = record["id"]
+                # Bind this button to the exact private on-screen snapshot,
+                # not merely an ID which Mako may later reuse.
+                selected = dict(record)
+                owner_pid = snapshot.get("owner_pid")
                 self._text(f"{app} · {summary}")
                 if record["body"]:
                     preview = record["body"][:360]
@@ -990,14 +994,17 @@ class RiceSpiceWindow:
                 if source != "active":
                     continue  # History is strictly read-only.
                 self._button(f"Dismiss · {app} · #{identifier}",
-                             lambda nid=identifier: self._background(
-                                 lambda: notifications.dismiss(nid),
+                             lambda nid=identifier, row=selected, host=owner_pid: self._background(
+                                 lambda: notifications.dismiss(
+                                     nid, expected=row, expected_owner_pid=host),
                                  lambda _result: self.show_page("notifications")))
                 for action in record.get("actions", []):
                     key = action["key"]
                     self._button(f"{action['label']} · {app} · #{identifier}",
-                                 lambda nid=identifier, action_key=key: self._background(
-                                     lambda: notifications.invoke(nid, action_key),
+                                 lambda nid=identifier, action_key=key,
+                                        row=selected, host=owner_pid: self._background(
+                                     lambda: notifications.invoke(
+                                         nid, action_key, expected=row, expected_owner_pid=host),
                                      lambda _result: self.show_page("notifications")))
         self._show_content()
 
