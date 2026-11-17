@@ -33,5 +33,5 @@ echo "Real Mako 1.11.0 source checked: $actual"
 # labwc and private D-Bus and tears both down; it never accesses the login
 # session, the XFCE notification owner, persistent files or system binaries.
 PATH="$workspace/bin:$PATH" RICEBOWL_SMOKE_RICEPOP=1 \
-    RICEBOWL_SMOKE_MAKO_MODERN=1 \
-    timeout -k 5s 75s sh "$project_root/scripts/smoke_wayland_session.sh"
+    RICEBOWL_SMOKE_MAKO_MODERN=1 RICEBOWL_SMOKE_RECOVERY=1 \
+    timeout -k 5s 90s sh "$project_root/scripts/smoke_wayland_session.sh"
