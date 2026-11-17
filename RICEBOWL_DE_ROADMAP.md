@@ -21,6 +21,23 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
+### SG2 BlueZ multi-adapter identity and recovery readback (17 November 2026; CI candidate)
+
+- The existing RiceSpice Bluetooth workflow now binds the requested
+  Connect/Disconnect operation to its **reviewed BlueZ adapter** as well as the
+  device address. The shared system D-Bus transport rejects a missing or
+  changed adapter and ambiguous matches; legacy address-only consumers may
+  proceed only if exactly one live device matches across all adapters.
+- On adapter replacement/hot-unplug, neither power nor connection readback
+  may report success solely because a *different* adapter happens to have the
+  requested state. All operations retain BlueZ ownership, bounded D-Bus
+  calls, explicit user action and no automatic pairing/trusting.
+- Negative tests cover duplicate addresses on distinct and same adapters,
+  invalid/missing adapter paths, normal scoped device connect and changed
+  adapter during both verified readbacks. This is incremental **SG2
+  disconnected-provider safety**, not comprehensive Bluetooth pairing/Orca
+  UX, automatic recovery or physical device acceptance.
+
 ### Sprint 2 – SG3 stale RicePop inbox selection guard (17 November 2026; CI candidate)
 
 - A deliberate RiceSpice inbox snapshot now carries the verified Mako owner PID
