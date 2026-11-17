@@ -254,10 +254,13 @@ try:
         a, c = chrome.convert("RGB"), restored.convert("RGB")
         assert a.size == c.size == (int(sys.argv[3]), int(sys.argv[4]))
         width, height = a.size
-        strip = (0, height - 96, width, height)
+        # Compare the panel, not the wallpaper behind its upper edge.
+        # The restored compositor may crop the same wallpaper differently
+        # at fractional scales even when every panel pixel is identical.
+        strip = (0, height - 40, width, height)
         diff = ImageChops.difference(a.crop(strip), c.crop(strip))
         changed = sum(max(pixel) > 20 for pixel in diff.getdata())
-        assert changed < 6000
+        assert changed < 2000
 except (OSError, ValueError, AssertionError):
     sys.exit(1)
 PY
@@ -307,11 +310,13 @@ with Image.open(sys.argv[1]) as chrome, Image.open(sys.argv[2]) as luna, \
     assert a.size == b.size == c.size
     w, h = a.size
     def changed(x, y):
-        diff = ImageChops.difference(x.crop((0, h - 96, w, h)),
-                                     y.crop((0, h - 96, w, h)))
+        # Bottom 40 physical rows belong to both native taskbars at all
+        # tested output scales; the older 96-row strip includes wallpaper.
+        diff = ImageChops.difference(x.crop((0, h - 40, w, h)),
+                                     y.crop((0, h - 40, w, h)))
         return sum(max(pixel) > 20 for pixel in diff.getdata())
     assert changed(a, b) > 100, "Chrome and Luna were not distinct at this scale"
-    assert changed(a, c) < 6000, "Creator restore changed the previous rice"
+    assert changed(a, c) < 2000, "Creator restore changed the previous rice"
 PY
     echo "Real Creator output matrix $name: $width x $height scale $scale validated"
 done
