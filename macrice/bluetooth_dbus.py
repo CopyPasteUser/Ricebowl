@@ -79,23 +79,42 @@ def set_power(adapter_path: str, enabled: bool) -> None:
     )
 
 
-def set_connection(address: str, connected: bool) -> None:
-    """Act only on a device path resolved from live BlueZ objects."""
+def set_connection(address: str, connected: bool, *,
+                   expected_adapter: str | None = None) -> None:
+    """Act only on one unambiguous, live BlueZ device under the selected adapter.
+
+    A Bluetooth address alone is not an ObjectManager identity: the same
+    address can be cached on multiple USB adapters. An explicit RiceSpice
+    request is bound to its reviewed adapter; legacy callers without an
+    adapter may continue only when a single matching device is present.
+    """
+    if (type(address) is not str or not _ADDRESS.fullmatch(address)
+            or type(connected) is not bool):
+        raise ValueError("Select a valid Bluetooth device and action")
     objects = _objects()
+    if expected_adapter is not None:
+        if (type(expected_adapter) is not str
+                or "org.bluez.Adapter1" not in objects.get(expected_adapter, {})):
+            raise ValueError("Bluetooth adapter changed; refresh before applying")
+    matches = []
     for path, interfaces in objects.items():
-        props = interfaces.get("org.bluez.Device1", {})
-        if _value(props.get("Address")) != address:
+        props = interfaces.get("org.bluez.Device1")
+        if not props or _value(props.get("Address")) != address:
             continue
-        if connected and not bool(_value(props.get("Paired"))):
-            raise ValueError("Pair the device in Bluetooth settings first")
-        Gio, bus = _connection()
-        bus.call_sync(
-            "org.bluez", path, "org.bluez.Device1",
-            "Connect" if connected else "Disconnect", None, None,
-            Gio.DBusCallFlags.NONE, 8000, None,
-        )
-        return
-    raise ValueError("Bluetooth device is no longer available")
+        if expected_adapter is not None and not path.startswith(expected_adapter + "/"):
+            continue
+        matches.append((path, props))
+    if len(matches) != 1:
+        raise ValueError("Bluetooth device is missing or ambiguous; refresh before applying")
+    path, props = matches[0]
+    if connected and not bool(_value(props.get("Paired"))):
+        raise ValueError("Pair the device in Bluetooth settings first")
+    Gio, bus = _connection()
+    bus.call_sync(
+        "org.bluez", path, "org.bluez.Device1",
+        "Connect" if connected else "Disconnect", None, None,
+        Gio.DBusCallFlags.NONE, 8000, None,
+    )
 
 
 def discover(duration: int = 9, *, cancel: threading.Event | None = None):
