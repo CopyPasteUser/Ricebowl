@@ -62,6 +62,38 @@ Optional RiceClip/RiceShot P1 features remain outside the core release block.
   complete native OSD presentation, locale breadth and SG3 release signoff
   are still open.
 
+### SG4 real Creator native output/scale matrix (17 November 2026; CI candidate)
+
+- Extends the existing isolated real-labwc/native-RicePlate Creator apply/
+  restore test with three **actual wl_output geometries/scales**:
+  compact 1024×768@1.0, laptop 1366×768@1.25, desktop 1600×900@1.0.
+- At every geometry, the same native compositor receives a reviewed
+  source-locked Chrome→XP Luna live application and an explicit restore.
+  Real `grim` screenshots are fully decoded, checked for pixel dimensions/
+  a visible native panel, and compared for structurally different rice
+  layouts and restored pixels. The original login selection and XFCE
+  configuration remain unchanged.
+- This proves native output/layout rendering and actual live transaction
+  continuity in headless CI, **not** physical mixed-DPI/EDID/hotplug input,
+  licensing review, screen-reader/keyboard parity, or completed SG4.
+
+### SG5 Unicode 18 native UAX #9 L4 character-based mirroring (17 November 2026; CI candidate)
+
+- The native RicePlate single-line BiDi renderer previously mirrored only
+  eleven hand-written punctuation pairs. It now uses **all 438 explicit
+  Bidi_Mirroring_Glyph codepoint mappings** from Unicode 18.0.0
+  `BidiMirroring.txt` (upstream source blob
+  `34b4ffa96aae378976da9036e81d3b00c93be927`), compiled as a static
+  Rust match with no runtime I/O, dynamic allocation or new dependency.
+- This affects **painted RTL glyph substitutions only**, preserving all
+  original logical text, UTF-8/grapheme caret boundaries, ordinary LTR
+  screenshots and selection/IME semantics. Negative tests preserve glyphs
+  without alternative scalar mappings rather than inventing equivalents.
+- Character substitutions do **not** replace font-level mirrored glyph
+  variants, full multilingual fallback, multiline paragraph layout or
+  physical IME/accessibility proof. This is partial SG5 evidence, not SG5
+  completion; require exact native Rust/Wayland CI before integration.
+
 ### SG5 Unicode 18 native UAX #9 L4 character-based mirroring (17 November 2026; CI candidate)
 
 - The native RicePlate single-line BiDi renderer previously mirrored only

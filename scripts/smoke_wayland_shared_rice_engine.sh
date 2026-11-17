@@ -169,6 +169,160 @@ PY
 for name in classic chrome "$luna" restored-chrome; do
     cp "$runtime/$name.png" "$source_root/dist/riceplate-native-preview/shared-engine/$name.png"
 done
+# SG4: real compositor-driven compact/laptop/desktop + fractional scale
+# matrix, two structurally different native rices (Chrome and XP Luna).
+# Every capture follows an actual labwc wl_output mode/scale change and
+# native compositor-frame-acknowledged Creator live apply/restore. No mocked
+# image, display-config persistence, XFCE or greeter mutation.
+output=$(wlr-randr | sed -n "1s/[[:space:]].*//p")
+test -n "$output" || { echo "No real labwc output for Creator matrix" >&2; exit 1; }
+size_artifacts="$source_root/dist/riceplate-native-preview/creator-output-matrix"
+mkdir -p "$size_artifacts"
+capture_matrix() {
+    rice=$1
+    target_width=$2
+    target_height=$3
+    name=$4
+    target="$runtime/matrix-$name-$rice.png"
+    attempt=0
+    while [ "$attempt" -lt 16 ]; do
+        grim -o "$output" "$target"
+        if /usr/bin/python3 - "$target" "$target_width" "$target_height" <<'PY'
+from PIL import Image
+from pathlib import Path
+import sys
+path, width, height = Path(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3])
+try:
+    with Image.open(path) as image:
+        assert image.format == "PNG" and image.size == (width, height)
+        image.verify()
+    with Image.open(path) as image:
+        image.load()
+        sample = image.convert("RGB")
+        # A real native panel must cause bottom-area pixels to differ from
+        # background and must remain inside the compositor output geometry.
+        x = width // 2
+        center = sample.getpixel((x, height // 2))
+        bar = sample.getpixel((x, height - 10))
+        assert max(abs(a - b) for a, b in zip(center, bar)) > 8
+except (OSError, AssertionError, ValueError):
+    sys.exit(1)
+PY
+        then
+            cp "$target" "$size_artifacts/$name-$rice.png"
+            return 0
+        fi
+        attempt=$((attempt + 1))
+        sleep 0.25
+    done
+    echo "Native Creator $rice output was not visible at $name" >&2
+    exit 1
+}
+for spec in 'compact 1024 768 1' 'laptop 1366 768 1.25' 'desktop 1600 900 1'; do
+    set -- $spec
+    name=$1
+    width=$2
+    height=$3
+    scale=$4
+    wlr-randr --output "$output" --custom-mode "${width}x${height}@60Hz" --scale "$scale"
+    capture_matrix chrome "$width" "$height" "$name"
+    apply_rice chrome "$luna"
+    capture_matrix "$luna" "$width" "$height" "$name"
+    /usr/bin/python3 "$source_root/launcher.py" de creator-live-restore \
+        --expect-active "$luna" --json >"$runtime/matrix-restore-$name.json"
+    /usr/bin/python3 - "$runtime/matrix-restore-$name.json" <<'PY'
+import json
+import sys
+reply = json.load(open(sys.argv[1]))
+assert reply["ok"] and reply["active"] == "chrome"
+assert reply["panel"] == "native" and not reply["next_login_persisted"]
+PY
+    # The compositor can acknowledge the Creator transaction before the
+    # scaled wl_output's next fully repainted layer frame is captured. Keep
+    # the *same* strict pixel threshold; retry only real grim frames for a
+    # bounded period instead of accepting the previous Luna surface.
+    attempt=0
+    restored_ready=0
+    while [ "$attempt" -lt 24 ]; do
+        grim -o "$output" "$runtime/matrix-restored-$name.png"
+        if /usr/bin/python3 - "$size_artifacts/$name-chrome.png" \
+                "$runtime/matrix-restored-$name.png" "$width" "$height" <<'PY'
+from PIL import Image, ImageChops
+import sys
+try:
+    with Image.open(sys.argv[1]) as chrome, Image.open(sys.argv[2]) as restored:
+        a, c = chrome.convert("RGB"), restored.convert("RGB")
+        assert a.size == c.size == (int(sys.argv[3]), int(sys.argv[4]))
+        width, height = a.size
+        # Compare the panel, not the wallpaper behind its upper edge.
+        # The restored compositor may crop the same wallpaper differently
+        # at fractional scales even when every panel pixel is identical.
+        strip = (0, height - 40, width, height)
+        diff = ImageChops.difference(a.crop(strip), c.crop(strip))
+        changed = sum(max(pixel) > 20 for pixel in diff.getdata())
+        assert changed < 2000
+except (OSError, ValueError, AssertionError):
+    sys.exit(1)
+PY
+        then
+            restored_ready=1
+            break
+        fi
+        attempt=$((attempt + 1))
+        sleep 0.25
+    done
+    if [ "$restored_ready" -ne 1 ]; then
+        # Do not hide a persistent compositor mismatch. Preserve the real
+        # frames and log exactly which panel was actually rendered.
+        cp "$runtime/matrix-restored-$name.png" "$size_artifacts/$name-restore-mismatch.png"
+        /usr/bin/python3 - "$size_artifacts/$name-chrome.png" \
+                "$size_artifacts/$name-$luna.png" \
+                "$size_artifacts/$name-restore-mismatch.png" <<'PY'
+from PIL import Image, ImageChops
+import sys
+with Image.open(sys.argv[1]) as a0, Image.open(sys.argv[2]) as b0, \
+     Image.open(sys.argv[3]) as c0:
+    a, b, c = (im.convert("RGB") for im in (a0, b0, c0))
+    def changed(x, y, part):
+        w, h = x.size
+        x0, x1 = (0, w) if part == "full" else (0, w // 2) if part == "left" else (w // 2, w)
+        region = (x0, h - 96, x1, h)
+        diff = ImageChops.difference(x.crop(region), y.crop(region))
+        return sum(max(pixel) > 20 for pixel in diff.getdata())
+    print(f"Creator diagnostic: sizes chrome={a.size} luna={b.size} restored={c.size}", flush=True)
+    if a.size == b.size == c.size:
+        for part in ("full", "left", "right"):
+            print(f"Creator diagnostic: {part} chrome/luna={changed(a,b,part)} "
+                  f"chrome/restored={changed(a,c,part)} "
+                  f"luna/restored={changed(b,c,part)}", flush=True)
+PY
+        wlr-randr >&2
+        echo "Creator restore did not converge to previous Chrome pixels at $name" >&2
+        exit 1
+    fi
+    /usr/bin/python3 - "$size_artifacts/$name-chrome.png" \
+            "$size_artifacts/$name-$luna.png" "$runtime/matrix-restored-$name.png" <<'PY'
+from PIL import Image, ImageChops
+import sys
+with Image.open(sys.argv[1]) as chrome, Image.open(sys.argv[2]) as luna, \
+     Image.open(sys.argv[3]) as restored:
+    a, b, c = (img.convert("RGB") for img in (chrome, luna, restored))
+    assert a.size == b.size == c.size
+    w, h = a.size
+    def changed(x, y):
+        # Bottom 40 physical rows belong to both native taskbars at all
+        # tested output scales; the older 96-row strip includes wallpaper.
+        diff = ImageChops.difference(x.crop((0, h - 40, w, h)),
+                                     y.crop((0, h - 40, w, h)))
+        return sum(max(pixel) > 20 for pixel in diff.getdata())
+    assert changed(a, b) > 100, "Chrome and Luna were not distinct at this scale"
+    assert changed(a, c) < 2000, "Creator restore changed the previous rice"
+PY
+    echo "Real Creator output matrix $name: $width x $height scale $scale validated"
+done
+# Restore compact output without touching user monitor preferences.
+wlr-randr --output "$output" --custom-mode 1024x768@60Hz --scale 1
+
 # Nested preview must never update a real saved selection.
 PYTHONPATH="$source_root" /usr/bin/python3 - <<'PY'
 from macrice.de import recipes

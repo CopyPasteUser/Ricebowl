@@ -42,6 +42,8 @@ on:
       - 'scripts/compare_wayland_captures.py'
       - 'scripts/verify_wayland_creator_examples.py'
       - 'scripts/verify_wayland_creator_handoff.py'
+      - 'scripts/smoke_wayland_shared_rice_engine.sh'
+      - 'tests/test_de_creator_output_matrix.py'
       - 'tests/test_de_render.py'
       - 'tests/test_de_window_outputs.py'
       - 'tests/test_de_visual_qa.py'
@@ -106,6 +108,8 @@ on:
       - 'scripts/compare_wayland_captures.py'
       - 'scripts/verify_wayland_creator_examples.py'
       - 'scripts/verify_wayland_creator_handoff.py'
+      - 'scripts/smoke_wayland_shared_rice_engine.sh'
+      - 'tests/test_de_creator_output_matrix.py'
       - 'tests/test_de_render.py'
       - 'tests/test_de_window_outputs.py'
       - 'tests/test_de_visual_qa.py'
@@ -346,6 +350,14 @@ jobs:
         run: timeout -k 5s 180s sh scripts/smoke_riceplate_native.sh
       - name: Prove shared Rice engine across three native compositor-confirmed live layouts
         run: timeout -k 5s 95s sh scripts/smoke_wayland_shared_rice_engine.sh
+      - name: Preserve real compositor frames if Creator output matrix fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: creator-output-matrix-debug
+          path: dist/riceplate-native-preview/creator-output-matrix/
+          if-no-files-found: warn
+          retention-days: 2
       - name: Prove live Wayland application taskbar lifecycle
         run: |
           /usr/bin/python3 -m unittest tests.test_de_window_outputs -v
