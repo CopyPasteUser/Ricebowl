@@ -396,7 +396,10 @@ impl State {
     /// validated against a clone first; a malformed byte boundary cannot
     /// mutate the original filename, command or error state.
     pub fn apply_ime(&mut self, pending: &crate::native_ime::Pending) -> bool {
-        if !self.editable() { return false; }
+        // A rejected oversize/control-character commit invalidates the
+        // complete text-input-v3 Done batch, including valid-looking deletes.
+        // Do not treat a dropped commit as "no commit" and delete user text.
+        if !self.editable() || pending.invalid_commit { return false; }
         let mut candidate = self.clone();
         candidate.preedit = None;
         if let Some((before, after)) = pending.delete {
