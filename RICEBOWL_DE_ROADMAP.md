@@ -35,7 +35,9 @@ Optional RiceClip/RiceShot P1 features remain outside the core release block.
 - Negative tests exercise owner replacement, ID reuse, safe current actions
   and missing metadata. An additional deliberate **Refresh RicePop inbox**
   button now replaces the old GTK notification widgets rather than appending
-  duplicate stale rows; changing pages frees the private widget references.
+  duplicate stale rows. Successful Dismiss/Invoke actions also refresh the
+  same inbox in place, rather than closing the user's context; page navigation
+  frees the private widget references.
   No read occurs until requested, no resident timer/poller and no second owner.
 - These are **partial SG3 software gate improvements**, not complete
   push-based live updates, Orca/AT-SPI or hardware sign-off; never
