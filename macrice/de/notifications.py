@@ -337,6 +337,9 @@ def inspect_owned() -> dict[str, Any]:
         raise NotificationBridgeError(
             "RicePop notification host changed while reading the inbox",
             "notification_host_changed")
+    # Ephemeral host identity: a dialog opened before Mako restarted must not
+    # operate on a recycled notification ID from the new service instance.
+    snapshot["owner_pid"] = host[1]
     return snapshot
 
 
@@ -349,16 +352,56 @@ def _fresh_active(*, include_actions: bool = False) -> list[dict[str, Any]]:
     return active
 
 
-def dismiss(notification_id: int) -> dict[str, Any]:
-    """Close one still-active ID. Never dismiss all or invoke its actions."""
+_SNAPSHOT_FIELDS = ("id", "summary", "body", "app_name", "urgency")
+
+
+def _verify_snapshot_target(current: dict[str, Any], notification_id: int,
+                            expected: dict[str, Any] | None) -> None:
+    """Reject a stale GUI row before a fixed, explicitly selected action.
+
+    IDs can be recycled across Mako restarts or notification replacement.
+    Comparing the bounded, normalized on-screen record avoids acting on an
+    unrelated message. CLI actions may omit this optional GUI-only guard.
+    """
+    if expected is None:
+        return
+    if (type(expected) is not dict or
+            any(key not in expected for key in _SNAPSHOT_FIELDS) or
+            type(expected["id"]) is not int or
+            any(type(expected[key]) is not str for key in _SNAPSHOT_FIELDS[1:])):
+        raise NotificationBridgeError("Invalid RicePop inbox selection",
+                                      "invalid_notification_snapshot")
+    if expected["id"] != notification_id or any(
+            expected[key] != current.get(key) for key in _SNAPSHOT_FIELDS):
+        raise NotificationBridgeError("RicePop notification changed; refresh the inbox",
+                                      "stale_notification_snapshot")
+
+
+def _verify_snapshot_owner(expected_owner_pid: int | None, current_pid: int) -> None:
+    if expected_owner_pid is None:
+        return
+    if type(expected_owner_pid) is not int or not 1 <= expected_owner_pid <= 2**31 - 1:
+        raise NotificationBridgeError("Invalid RicePop inbox host identity",
+                                      "invalid_notification_snapshot")
+    if expected_owner_pid != current_pid:
+        raise NotificationBridgeError("RicePop notification host restarted; refresh the inbox",
+                                      "notification_host_changed")
+
+
+def dismiss(notification_id: int, *, expected: dict[str, Any] | None = None,
+            expected_owner_pid: int | None = None) -> dict[str, Any]:
+    """Close one still-active ID; optional GUI snapshot guards ID reuse."""
     if type(notification_id) is not int or not 0 < notification_id <= 2**32 - 1:
         raise NotificationBridgeError("Notification ID must be a nonzero uint32",
                                       "invalid_notification_id")
     command, pid = _mutation_host()
+    _verify_snapshot_owner(expected_owner_pid, pid)
     active = _fresh_active()
-    if notification_id not in {record["id"] for record in active}:
+    matching = next((item for item in active if item["id"] == notification_id), None)
+    if matching is None:
         raise NotificationBridgeError("Notification is no longer active",
                                       "notification_not_found")
+    _verify_snapshot_target(matching, notification_id, expected)
     if _mutation_host() != (command, pid):
         raise NotificationBridgeError("RicePop notification host changed before dismissal",
                                       "notification_host_changed")
@@ -375,7 +418,9 @@ def dismiss(notification_id: int) -> dict[str, Any]:
             "actions_replayed": False, "all_notifications_affected": False}
 
 
-def invoke(notification_id: int, action_key: str) -> dict[str, Any]:
+def invoke(notification_id: int, action_key: str, *,
+           expected: dict[str, Any] | None = None,
+           expected_owner_pid: int | None = None) -> dict[str, Any]:
     """Invoke a chosen, currently advertised Mako action, never history/default by accident.
 
     The action key comes from the current host inventory, not from a recipe or
@@ -388,10 +433,12 @@ def invoke(notification_id: int, action_key: str) -> dict[str, Any]:
     if not _action_key(action_key):
         raise NotificationBridgeError("Action key is invalid", "invalid_action_key")
     command, pid = _mutation_host()
+    _verify_snapshot_owner(expected_owner_pid, pid)
     active = _fresh_active(include_actions=True)
     matching = next((item for item in active if item["id"] == notification_id), None)
     if matching is None:
         raise NotificationBridgeError("Notification is no longer active", "notification_not_found")
+    _verify_snapshot_target(matching, notification_id, expected)
     if action_key not in {action["key"] for action in matching["actions"]}:
         raise NotificationBridgeError("Notification action is no longer available",
                                       "notification_action_not_found")
