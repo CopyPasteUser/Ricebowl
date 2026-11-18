@@ -411,6 +411,29 @@ mod tests {
     }
 
     #[test]
+    fn invalid_text_node_ids_never_overflow_or_leave_orphan_run_children() {
+        let mut model = Model::new();
+        for id in [0, ROOT, u64::MAX] {
+            model.add_text_input(id, ROOT, "Invalid", "private", 1, None);
+            assert!(model.elements.is_empty(), "reserved/overflow ID inserted: {id}");
+        }
+
+        // A child's ID may already belong to another accessible widget.
+        // Reject the pair atomically without overwriting that live widget.
+        model.add(10, ROOT, Role::Button, "Existing", None);
+        model.add_text_input(9, ROOT, "Unsafe", "secret", 1, None);
+        assert_eq!(model.elements.len(), 1);
+        assert_eq!(model.elements[0].label, "Existing");
+
+        model.add_text_input(20, ROOT, "File name", "a\u{301}.txt", 1, Some(0));
+        assert_eq!(model.elements.len(), 3);
+        let tree = model.tree();
+        assert!(tree.nodes.iter().any(|(node, _)| *node == NodeId(20)));
+        assert!(tree.nodes.iter().any(|(node, _)| *node == NodeId(21)));
+        assert!(!format!("{tree:?}").contains("secret"));
+    }
+
+    #[test]
     fn accessibility_editor_handles_long_clusters_and_empty_input() {
         let mut model = Model::new();
         model.add(60_000, ROOT, Role::Dialog, "Run", None);
