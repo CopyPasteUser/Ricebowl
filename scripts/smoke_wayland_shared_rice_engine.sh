@@ -424,6 +424,11 @@ resource_baseline="$runtime/native-resource-baseline.json"
 sleep 0.3
 /usr/bin/python3 "$resource_probe" capture \
     --binary "$native" --runtime "$XDG_RUNTIME_DIR" --baseline "$resource_baseline"
+# apply_rice writes snapshots to the same canonical names used by the
+# downstream visual/geometry matrix. Preserve its original screenshot
+# evidence while stress-testing process replacement.
+cp "$runtime/classic.png" "$runtime/sg7-preserved-classic.png"
+cp "$runtime/chrome.png" "$runtime/sg7-preserved-chrome.png"
 for cycle in 1 2 3; do
     apply_rice chrome classic
     /usr/bin/python3 "$resource_probe" capture \
@@ -439,6 +444,8 @@ sleep 0.3
     --binary "$native" --runtime "$XDG_RUNTIME_DIR" --baseline "$resource_baseline" \
     >"$source_root/dist/riceplate-native-preview/shared-engine/resource-growth.json"
 test -s "$source_root/dist/riceplate-native-preview/shared-engine/resource-growth.json"
+cp "$runtime/sg7-preserved-classic.png" "$runtime/classic.png"
+cp "$runtime/sg7-preserved-chrome.png" "$runtime/chrome.png"
 echo "Verified three real labwc rice-switch cycles, single native process per switch, bounded PSS/RSS, FDs and threads"
 # SG4: real compositor-driven compact/laptop/desktop + fractional scale
 # matrix, two structurally different native rices (Chrome and XP Luna).
