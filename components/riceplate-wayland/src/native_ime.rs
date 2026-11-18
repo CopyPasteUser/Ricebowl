@@ -52,7 +52,12 @@ pub(crate) struct Preedit {
 impl Preedit {
     pub(crate) fn parse(text: &str, begin: i32, end: i32) -> Option<Self> {
         // Protocol indices are byte offsets, not Unicode scalar counts.
-        if text.chars().count() > crate::luna_dialog::MAX_INPUT
+        // A Unicode scalar occupies at most four UTF-8 bytes. Reject an
+        // oversized compositor-provided preedit in O(1) before two full
+        // Unicode scans (as the commit_string path already does).
+        let limit = crate::luna_dialog::MAX_INPUT;
+        if text.len() > limit * 4
+            || text.chars().take(limit + 1).count() > limit
             || text.chars().any(char::is_control) { return None; }
         let (cursor, anchor) = match (begin, end) {
             (-1, -1) => (None, None),
@@ -241,6 +246,21 @@ mod tests {
         assert!(Preedit::parse("a", -1, 0).is_none());
         assert!(Preedit::parse("x\n", 0, 0).is_none());
         assert_eq!(Preedit::parse("é", -1, -1).unwrap().cursor, None);
+    }
+
+    #[test]
+    fn oversized_preedit_is_rejected_before_unicode_scans() {
+        let limit = crate::luna_dialog::MAX_INPUT;
+        let max_cjk = "漢".repeat(limit);
+        assert!(Preedit::parse(&max_cjk, -1, -1).is_some());
+        assert!(Preedit::parse(&"漢".repeat(limit + 1), -1, -1).is_none());
+        assert!(Preedit::parse(&"🦀".repeat(limit + 1), -1, -1).is_none());
+        // Even an ASCII-only hostile preedit above the maximum possible
+        // UTF-8 byte size must fail before an unbounded character traversal.
+        assert!(Preedit::parse(&"x".repeat(limit * 4 + 1), -1, -1).is_none());
+        // The bound must not alter valid byte-offset/grapheme IME caret data.
+        assert_eq!(Preedit::parse("a\u{301}👩‍💻", 3, 14).unwrap().cursor,
+                   Some(3));
     }
 
     #[test]
