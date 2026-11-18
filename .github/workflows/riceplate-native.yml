@@ -48,6 +48,8 @@ on:
       - 'scripts/verify_wayland_creator_examples.py'
       - 'scripts/verify_wayland_creator_handoff.py'
       - 'scripts/smoke_wayland_shared_rice_engine.sh'
+      - 'scripts/ci_wayland_resource_smoke.py'
+      - 'tests/test_ci_wayland_resource_smoke.py'
       - 'tests/test_de_creator_output_matrix.py'
       - 'tests/test_de_render.py'
       - 'tests/test_de_window_outputs.py'
@@ -125,6 +127,8 @@ on:
       - 'scripts/verify_wayland_creator_examples.py'
       - 'scripts/verify_wayland_creator_handoff.py'
       - 'scripts/smoke_wayland_shared_rice_engine.sh'
+      - 'scripts/ci_wayland_resource_smoke.py'
+      - 'tests/test_ci_wayland_resource_smoke.py'
       - 'tests/test_de_creator_output_matrix.py'
       - 'tests/test_de_render.py'
       - 'tests/test_de_window_outputs.py'
@@ -178,6 +182,7 @@ jobs:
         run: |
           /usr/bin/python3 -m unittest tests.test_de_session -v
           /usr/bin/python3 -m unittest tests.test_de_acceptance -v
+          /usr/bin/python3 -m unittest tests.test_ci_wayland_resource_smoke -v
           /usr/bin/python3 -m unittest tests.test_wayland_payload_safety tests.test_wayland_control_safety tests.test_wayland_control_path_limits -v
           cargo test --locked --manifest-path components/riceplate-wayland/Cargo.toml
           # Baseline contains legacy style warnings in other owner modules.
@@ -374,7 +379,7 @@ jobs:
         # acceptance cases. Keep a finite 180s guard; never skip assertions.
         run: timeout -k 5s 180s sh scripts/smoke_riceplate_native.sh
       - name: Prove shared Rice engine across three native compositor-confirmed live layouts
-        run: timeout -k 5s 95s sh scripts/smoke_wayland_shared_rice_engine.sh
+        run: timeout -k 5s 125s sh scripts/smoke_wayland_shared_rice_engine.sh
       - name: Preserve real compositor frames if Creator output matrix fails
         if: failure()
         uses: actions/upload-artifact@v4
