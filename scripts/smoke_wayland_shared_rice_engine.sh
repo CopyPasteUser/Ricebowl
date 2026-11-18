@@ -10,12 +10,21 @@ test -x "$native" || { echo "Native RicePlate build missing" >&2; exit 1; }
 if [ "$#" -eq 0 ]; then
     runtime=$(mktemp -d)
     chmod 0700 "$runtime"
-    mkdir -m 0700 "$runtime/run" "$runtime/config" "$runtime/state"
+    mkdir -m 0700 "$runtime/run" "$runtime/config" "$runtime/state" "$runtime/mock-bin"
+    # CI-only fixed-action witness: the REAL compositor pointer must reach
+    # the Chrome launcher and dispatch its allowlisted fuzzel fallback.
+    # Never launch an external application or modify the host's user config.
+    cat > "$runtime/mock-bin/fuzzel" <<'SH'
+#!/bin/sh
+test -n "${RICEBOWL_ENGINE_CI_RUNTIME:-}" || exit 2
+printf '%s\n' "fuzzel" >> "$RICEBOWL_ENGINE_CI_RUNTIME/launcher-actions.log"
+SH
+    chmod 0700 "$runtime/mock-bin/fuzzel"
     export XDG_RUNTIME_DIR="$runtime/run" XDG_CONFIG_HOME="$runtime/config"
     export XDG_STATE_HOME="$runtime/state" RICEBOWL_ENGINE_CI_RUNTIME="$runtime"
     export WLR_BACKENDS=headless WLR_HEADLESS_OUTPUTS=1 WLR_RENDERER=pixman
     export XDG_SESSION_TYPE=wayland
-    export PATH="$source_root/components/riceplate-wayland/target/release:$PATH"
+    export PATH="$runtime/mock-bin:$source_root/components/riceplate-wayland/target/release:$PATH"
     trap 'rm -r -- "$runtime" 2>/dev/null || :' EXIT
     dbus-run-session -- sh "$0" --child
     exit $?
@@ -110,7 +119,76 @@ PY
     grim "$runtime/$candidate.png"
 }
 apply_rice classic chrome
+# SG1/SG4: exercise actual labwc pointer delivery across structurally
+# different rices, not only Python transaction replies or painted pixels.
+clicker="$source_root/components/riceplate-wayland/target/release/examples/wayland_pointer_click"
+test -x "$clicker" || { echo "Missing real Wayland virtual-pointer helper" >&2; exit 1; }
+geometry=$(/usr/bin/python3 - "$runtime/chrome.png" <<'PY'
+from PIL import Image
+import sys
+with Image.open(sys.argv[1]) as frame:
+    frame.verify()
+with Image.open(sys.argv[1]) as frame:
+    print(*frame.size)
+PY
+)
+set -- $geometry
+width=$1
+height=$2
+test "$width" -ge 800 && test "$height" -ge 600 || exit 1
+# Chrome's v1 bottom shelf uses a real left launcher with the fixed
+# external fuzzel action. The private executable only logs the argv target.
+"$clicker" 35 "$((height - 22))" "$width" "$height"
+attempt=0
+while [ ! -s "$runtime/launcher-actions.log" ] && [ "$attempt" -lt 30 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.1
+done
+test "$(cat "$runtime/launcher-actions.log" 2>/dev/null || :)" = fuzzel || {
+    echo "Chrome launcher pointer did not dispatch the allowlisted action" >&2
+    exit 1
+}
 apply_rice chrome "$luna"
+grim "$runtime/luna-before-real-pointer.png"
+# Luna's separate two-column menu must open as a NATIVE surface, with
+# genuine compositor-delivered events. It must NOT run Chrome's fallback.
+"$clicker" 35 "$((height - 20))" "$width" "$height"
+attempt=0
+changed=0
+while [ "$attempt" -lt 20 ]; do
+    sleep 0.15
+    grim "$runtime/luna-after-real-pointer.png"
+    if /usr/bin/python3 - "$runtime/luna-before-real-pointer.png" \
+          "$runtime/luna-after-real-pointer.png" <<'PY'
+from PIL import Image, ImageChops
+import sys
+with Image.open(sys.argv[1]) as before, Image.open(sys.argv[2]) as after:
+    a, b = before.convert("RGB"), after.convert("RGB")
+    assert a.size == b.size
+    w, h = a.size
+    region = (0, max(0, h - 550), min(w, 640), h)
+    diff = ImageChops.difference(a.crop(region), b.crop(region))
+    changed = sum(max(pixel) > 20 for pixel in diff.getdata())
+    assert changed > 2000, f"Luna menu did not paint: only {changed} pixels"
+PY
+    then
+        changed=1
+        break
+    fi
+    attempt=$((attempt + 1))
+done
+test "$changed" -eq 1 || {
+    echo "Luna native menu did not open from a real Wayland pointer" >&2
+    exit 1
+}
+test "$(cat "$runtime/launcher-actions.log")" = fuzzel || {
+    echo "Luna dispatched Chrome's external launcher instead of native menu" >&2
+    exit 1
+}
+# Close via the real taskbar; explicit restoration must not be blocked by
+# the active menu or let an obsolete rice retain pointer ownership.
+"$clicker" 35 "$((height - 20))" "$width" "$height"
+sleep 0.2
 
 # Malformed/unreviewed changes must never kill or replace the live shell.
 if /usr/bin/python3 "$source_root/launcher.py" de creator-live-apply \
@@ -139,10 +217,28 @@ assert data["active"] == "chrome" and data["previous"] != "chrome", data
 assert data["panel"] == "native" and not data["next_login_persisted"], data
 PY
 grim "$runtime/restored-chrome.png"
+# After frame-acknowledged restore, the SAME launcher location must once
+# again dispatch Chrome's allowlisted action. No stale Luna menu handler.
+"$clicker" 35 "$((height - 22))" "$width" "$height"
+attempt=0
+while [ "$(wc -l < "$runtime/launcher-actions.log")" -lt 2 ] && [ "$attempt" -lt 30 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.1
+done
+test "$(wc -l < "$runtime/launcher-actions.log")" -eq 2 || {
+    echo "Restored Chrome launcher failed or dispatched twice" >&2
+    exit 1
+}
+test "$(sed -n '2p' "$runtime/launcher-actions.log")" = fuzzel
+kill -0 "$compositor"
 
 # Compare actual compositor framebuffers, not standalone mockups. Each rice
 # shares the same runtime services but composes a different native layout.
 mkdir -p "$source_root/dist/riceplate-native-preview/shared-engine"
+cp "$runtime/luna-before-real-pointer.png" \
+   "$source_root/dist/riceplate-native-preview/shared-engine/luna-before-pointer.png"
+cp "$runtime/luna-after-real-pointer.png" \
+   "$source_root/dist/riceplate-native-preview/shared-engine/luna-opened-pointer.png"
 /usr/bin/python3 - "$runtime/classic.png" "$runtime/chrome.png" "$runtime/$luna.png" \
     "$runtime/restored-chrome.png" <<'PY'
 from PIL import Image, ImageChops
