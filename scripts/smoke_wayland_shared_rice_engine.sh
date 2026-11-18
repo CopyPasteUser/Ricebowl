@@ -319,6 +319,42 @@ test "$(wc -l < "$runtime/launcher-actions.log")" -eq 2 || {
     exit 1
 }
 test "$(sed -n '2p' "$runtime/launcher-actions.log")" = fuzzel
+# SG1: after the real compositor restores Chrome from XP Luna, keyboard
+# events must now belong to Chrome's panel, not the destroyed Luna menu.
+# Escape clears any prior keyboard selection, Tab deterministically picks
+# the first (launcher) target even if a window/task was active, and Return
+# dispatches Chrome's *fixed* harmless fuzzel witness. This validates
+# compositor-delivered keyboard routing across a live rice restore.
+wtype -k Escape
+wtype -k Tab
+wtype -k Return
+attempt=0
+while [ "$(wc -l < "$runtime/launcher-actions.log")" -lt 3 ] && [ "$attempt" -lt 30 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.1
+done
+test "$(wc -l < "$runtime/launcher-actions.log")" -eq 3 || {
+    echo "Restored Chrome keyboard launcher failed or dispatched twice" >&2
+    exit 1
+}
+test "$(sed -n '3p' "$runtime/launcher-actions.log")" = fuzzel || {
+    echo "Chrome keyboard activation routed to a stale Luna action" >&2
+    exit 1
+}
+# The keyboard invocation must not leave an input grab or stale popup:
+# immediately prove the restored Chrome pointer still dispatches exactly
+# one more action through the same compositor/seat.
+"$clicker" 35 "$((height - 22))" "$width" "$height"
+attempt=0
+while [ "$(wc -l < "$runtime/launcher-actions.log")" -lt 4 ] && [ "$attempt" -lt 30 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.1
+done
+test "$(wc -l < "$runtime/launcher-actions.log")" -eq 4 || {
+    echo "Restored Chrome pointer lost input after keyboard dispatch" >&2
+    exit 1
+}
+test "$(sed -n '4p' "$runtime/launcher-actions.log")" = fuzzel
 kill -0 "$compositor"
 
 # Compare actual compositor framebuffers, not standalone mockups. Each rice
