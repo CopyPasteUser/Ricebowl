@@ -69,9 +69,10 @@ pub fn back_hit(x: f64, y: f64) -> bool {
 
 pub fn navigate(current: Action, delta: i32, multi_output: bool,
                 can_reset: bool) -> Action {
-    let mut index = current.index() as i32;
+    // Keep wraparound navigation safe for malformed/extreme input.
+    let mut index = current.index() as i64;
     for _ in 0..Action::ALL.len() {
-        index = (index + delta).rem_euclid(Action::ALL.len() as i32);
+        index = (index + i64::from(delta)).rem_euclid(Action::ALL.len() as i64);
         let action = Action::ALL[index as usize];
         if action.enabled(multi_output, can_reset) { return action; }
     }
@@ -136,6 +137,8 @@ mod tests {
         assert_eq!(navigate(Action::AllDisplays, 1, false, false), Action::Properties);
         assert_eq!(navigate(Action::Properties, -1, false, true), Action::ResetPosition);
         assert_eq!(navigate(Action::Open, -1, true, true), Action::Properties);
+        assert!(Action::ALL.contains(&navigate(Action::Open, i32::MAX, true, true)));
+        assert!(Action::ALL.contains(&navigate(Action::Open, i32::MIN, true, true)));
         assert!(back_hit(20.0, f64::from(BACK_ROW + 12)));
         for (x, y) in [(2.0, 163.0), (224.0, 163.0), (20.0, 149.0),
                         (20.0, 178.0), (f64::NAN, 160.0)] {
