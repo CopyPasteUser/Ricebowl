@@ -275,12 +275,12 @@ class ReleaseWorkflowGateTests(unittest.TestCase):
             self.assertEqual(query["per_page"], ["100"])
             run_id = int(url.path.split("/runs/")[1].split("/jobs")[0])
             self.assertIn(run_id, selected.values())
+            path = next(path for path, value in selected.items() if value == run_id)
             seen.append((run_id, int(query["page"][0])))
             return io.BytesIO(json.dumps({
                 "total_count": 1,
                 "jobs": [{"name": REQUIRED_JOBS[path][0], "run_id": run_id,
-                          "status": "completed", "conclusion": "success"}]
-                if any(value == run_id for value in (selected[path],)) else [],
+                          "status": "completed", "conclusion": "success"}],
             }).encode())
 
         # A single required job can be returned for each run; the multi-job
