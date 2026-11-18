@@ -178,12 +178,27 @@ def _action_key(key: object) -> bool:
     return type(key) is str and 0 < len(key) <= 80 and key.isprintable()
 
 
+def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """Fail closed on ambiguous host JSON, including nested action mappings.
+
+    JSON libraries normally keep the *last* duplicate key. Notification IDs,
+    properties and action names must have one unambiguous wire value; choosing
+    an arbitrary duplicate could authorize an action on the wrong row.
+    """
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("Duplicate notification JSON key")
+        result[key] = value
+    return result
+
+
 def _records(raw: bytes, *, include_actions: bool = False) -> tuple[list[dict[str, Any]], bool]:
     if len(raw) > 128 * 1024:
         raise NotificationBridgeError("Notification host response is oversized",
                                       "invalid_notification_response")
     try:
-        records = json.loads(raw)
+        records = json.loads(raw, object_pairs_hook=_unique_json_object)
     except (ValueError, UnicodeError, RecursionError) as exc:
         raise NotificationBridgeError("Notification host returned invalid JSON",
                                       "invalid_notification_response") from exc
@@ -240,7 +255,7 @@ def _busctl_records(raw: bytes, *, include_actions: bool = False
         raise NotificationBridgeError("Notification host response is oversized",
                                       "invalid_notification_response")
     try:
-        reply = json.loads(raw)
+        reply = json.loads(raw, object_pairs_hook=_unique_json_object)
     except (ValueError, UnicodeError, RecursionError) as exc:
         raise NotificationBridgeError("Notification host returned invalid JSON",
                                       "invalid_notification_response") from exc
