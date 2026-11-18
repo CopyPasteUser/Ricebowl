@@ -1100,6 +1100,9 @@ struct FileIconLayer {
 enum DesktopFocusTarget {
     File(desktop_layout::inventory::Key),
     Shortcut(wl_surface::WlSurface),
+    // A panel gesture may acquire a temporary keyboard lease even when
+    // labwc does not focus an OnDemand layer after clicking empty taskbar.
+    Panel(wl_surface::WlSurface),
 }
 
 /// Focus is granted only by a real wl_keyboard.enter after a user click.
@@ -1451,6 +1454,9 @@ impl RicePlate {
                     DesktopFocusTarget::Shortcut(_) =>
                         eprintln!("RicePlate: Luna shortcut keyboard focus released at {}:{}",
                                   caller.file(), caller.line()),
+                    DesktopFocusTarget::Panel(_) =>
+                        eprintln!("RicePlate: panel keyboard focus released at {}:{}",
+                                  caller.file(), caller.line()),
                 }
             }
         }
@@ -1475,9 +1481,16 @@ impl RicePlate {
             }
         };
         let Some((width, height)) = self.logical_output_size(&output) else { return; };
-        let x = position.0.saturating_add(recipe::ICON_WIDTH + 4)
-            .min(width.saturating_sub(8));
-        let y = position.1.min(height.saturating_sub(8));
+        // Place the on-demand panel focus witness away from the taskbar and
+        // away from the pointer gesture. It is always only 8x8 and expires.
+        let (x, y) = if matches!(&target, DesktopFocusTarget::Panel(_)) {
+            (width.saturating_sub(8),
+             if self.recipe.top { height.saturating_sub(8) } else { 0 })
+        } else {
+            (position.0.saturating_add(recipe::ICON_WIDTH + 4)
+                .min(width.saturating_sub(8)),
+             position.1.min(height.saturating_sub(8)))
+        };
         self.close_desktop_keyboard_focus();
         let surface = self.layer_shell.create_layer_surface(
             qh, self.compositor.create_surface(qh), Layer::Overlay,
@@ -1505,6 +1518,7 @@ impl RicePlate {
         let source = match target {
             DesktopFocusTarget::File(_) => "XDG file",
             DesktopFocusTarget::Shortcut(_) => "Luna shortcut",
+            DesktopFocusTarget::Panel(_) => "panel",
         };
         self.desktop_keyboard_focus_layer = Some(DesktopKeyboardFocusLayer {
             surface, pool: None, configured: false, target,
@@ -1627,6 +1641,39 @@ impl RicePlate {
             DesktopFocusTarget::File(key) => key.clone(),
             DesktopFocusTarget::Shortcut(surface) =>
                 return self.dispatch_shortcut_keyboard_focus(surface.clone(), event, qh),
+            DesktopFocusTarget::Panel(panel) => {
+                // Never route an old lease into a freshly switched rice or
+                // another output. The exact keyboard seat and temporary
+                // wl_surface have already been checked above.
+                let panel = panel.clone();
+                let owner = if self.layer.wl_surface() == &panel {
+                    self.primary_output.as_ref()
+                } else {
+                    self.mirrors.iter()
+                        .find(|mirror| mirror.surface.wl_surface() == &panel)
+                        .map(|mirror| &mirror.output)
+                };
+                if self.panel_geometry(&panel).is_none()
+                    || owner != self.desktop_keyboard_focus_lease.active_output() {
+                    self.close_desktop_keyboard_focus();
+                    return true;
+                }
+                // Only the compositor-confirmed temporary layer owns these
+                // keys. A Tab starting from no selection chooses Launcher,
+                // even if a different window was active before the gesture.
+                let previous = self.focused_panel.replace(panel.clone());
+                self.handle_panel_key(event.keysym, qh);
+                if self.focused_panel.as_ref() == Some(&panel) {
+                    self.focused_panel = previous;
+                }
+                // Do not hold keyboard focus while opening a launcher,
+                // application, or another modal surface.
+                if matches!(event.keysym, Keysym::Escape | Keysym::Return |
+                    Keysym::KP_Enter | Keysym::space | Keysym::Menu) {
+                    self.close_desktop_keyboard_focus();
+                }
+                return true;
+            }
         };
         let peers = self.focused_visible_file_indices();
         if !peers.iter().any(|&index| self.file_layers[index].entry.key == selected) {
@@ -7560,6 +7607,8 @@ impl KeyboardHandler for RicePlate {
                             eprintln!("RicePlate: compositor confirmed XDG file keyboard focus"),
                         Some(DesktopFocusTarget::Shortcut(_)) =>
                             eprintln!("RicePlate: compositor confirmed Luna shortcut keyboard focus"),
+                        Some(DesktopFocusTarget::Panel(_)) =>
+                            eprintln!("RicePlate: compositor confirmed panel keyboard focus"),
                         None => {}
                     }
                 }
@@ -9061,6 +9110,12 @@ impl PointerHandler for RicePlate {
                     if button == BTN_LEFT {
                         self.close_desktop_context();
                         self.clear_luna_selection();
+                        // The previous panel focus lease must not keep an
+                        // input grab when a different panel action is clicked.
+                        if self.desktop_keyboard_focus_layer.as_ref().is_some_and(
+                            |focus| matches!(&focus.target, DesktopFocusTarget::Panel(_))) {
+                            self.close_desktop_keyboard_focus();
+                        }
                     }
                     let groups = self.grouped_tasks();
                     match input_core::panel_hit(
@@ -9147,6 +9202,22 @@ impl PointerHandler for RicePlate {
                                     self.mirrors[index].task_offset = next;
                                 } else { self.task_offset = next; }
                                 self.request_redraw(qh);
+                            }
+                        }
+                        None if button == BTN_LEFT => {
+                            // Clicking neutral taskbar space is an explicit
+                            // keyboard-focus gesture, not an application
+                            // launch. OnDemand panels alone are not guaranteed
+                            // keyboard focus by every compositor.
+                            let output = match mirror_index {
+                                Some(index) => self.mirrors.get(index)
+                                    .map(|mirror| mirror.output.clone()),
+                                None => self.primary_output.clone(),
+                            };
+                            if let Some(output) = output {
+                                self.focused_target = None;
+                                self.begin_desktop_keyboard_focus((0, 0), output,
+                                    DesktopFocusTarget::Panel(event.surface.clone()), qh);
                             }
                         }
                         None => {}
