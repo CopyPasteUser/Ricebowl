@@ -245,6 +245,7 @@ def _new_archive(destination: Path, payload: bytes) -> None:
     if len(payload) > MAX_PACK_BYTES:
         raise PackError("RicePack exceeds size limit", code="invalid_output")
     temporary: str | None = None
+    published = False
     try:
         descriptor, temporary = tempfile.mkstemp(prefix=".ricebowl-pack-",
                                                 dir=destination.parent)
@@ -254,7 +255,24 @@ def _new_archive(destination: Path, payload: bytes) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         os.link(temporary, destination)  # Atomic no-overwrite, including symlinks.
+        published = True
+        os.unlink(temporary)
+        temporary = None
+        # Publishing a hard link is a directory mutation: syncing the file
+        # alone does not make the final name durable after a power loss.
+        # Sync after removing the staging name so a successful export leaves
+        # only the final immutable .ricepack entry.
+        parent_fd = os.open(destination.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        try:
+            os.fsync(parent_fd)
+        finally:
+            os.close(parent_fd)
     except OSError as exc:
+        if published:
+            # The archive may already be visible even when the durability
+            # barrier failed. Never claim rollback or silently retry.
+            raise PackError("RicePack may already be published; verify destination before retrying",
+                            code="output_unverified") from exc
         raise PackError("Cannot publish RicePack without overwriting a file",
                         code="output_unavailable") from exc
     finally:

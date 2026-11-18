@@ -70,6 +70,7 @@ on:
       - 'macrice/de/style_assets.py'
       - 'macrice/de/creator_contract.py'
       - 'tests/test_de_ricepack.py'
+      - 'tests/test_de_ricepack_export_durability.py'
       - 'tests/test_creator_style_assets.py'
       - 'macrice/de/recipes.py'
       - 'macrice/de/session.py'
@@ -146,6 +147,7 @@ on:
       - 'macrice/de/style_assets.py'
       - 'macrice/de/creator_contract.py'
       - 'tests/test_de_ricepack.py'
+      - 'tests/test_de_ricepack_export_durability.py'
       - 'tests/test_creator_style_assets.py'
       - 'macrice/de/recipes.py'
       - 'macrice/de/session.py'
@@ -354,7 +356,9 @@ jobs:
           git fetch --no-tags --depth=1 origin b3d615a7cc508049050eb06c7952ef5a8d26e598
           bash scripts/smoke_wayland_upgrade_rollback.sh "$PWD/dist/riceplate-native-preview"
       - name: Validate both declarative Creator examples
-        run: /usr/bin/python3 -m unittest discover -s tests -p test_de_creator_examples.py -v
+        run: |
+          /usr/bin/python3 -m unittest discover -s tests -p test_de_creator_examples.py -v
+          /usr/bin/python3 -m unittest tests.test_de_ricepack_export_durability -v
       - name: Prove Creator install and recovery through the real Wayland supervisor socket
         run: |
           /usr/bin/python3 -m unittest \
