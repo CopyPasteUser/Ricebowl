@@ -132,13 +132,47 @@ class RiceSpiceSettingsTests(unittest.TestCase):
                 {"ssid": "Home", "signal": 90, "security": "WPA2", "connected": True},
                 {"ssid": "Guest", "signal": 62, "security": "", "connected": False},
             ])
-            scan.assert_called_once_with(rescan=True)
+            scan.assert_called_once_with(rescan=True, fail_on_error=True)
         with mock.patch.object(backend, "wifi_state", return_value=False), \
                 mock.patch("macrice.hardware_status.read_wifi_networks") as scan:
             self.assertEqual(backend.wifi_snapshot(), {"enabled": False, "networks": []})
             scan.assert_not_called()
         with self.assertRaises(backend.SettingsError):
             backend.wifi_snapshot(rescan="yes")
+
+    def test_wifi_scan_real_adapter_distinguishes_outage_from_no_access_points(self):
+        """No mock of the adapter: verify the RiceSpice -> shared reader boundary."""
+        from macrice import hardware_status
+
+        with mock.patch.object(backend, "wifi_state", return_value=True):
+            with mock.patch.object(hardware_status.shutil, "which", return_value=None), \
+                 mock.patch.object(hardware_status, "_run") as scan:
+                with self.assertRaisesRegex(backend.SettingsError, "scan unavailable"):
+                    backend.wifi_snapshot()
+                scan.assert_not_called()
+                self.assertEqual(hardware_status.read_wifi_networks(), ())
+
+            with mock.patch.object(hardware_status.shutil, "which", return_value="/usr/bin/nmcli"), \
+                 mock.patch.object(hardware_status, "_run", return_value=None) as scan:
+                with self.assertRaisesRegex(backend.SettingsError, "scan unavailable"):
+                    backend.wifi_snapshot(rescan=True)
+                self.assertEqual(scan.call_count, 1)
+                self.assertEqual(hardware_status.read_wifi_networks(), ())
+
+            # A genuine empty but successful nmcli response is *not* an outage.
+            with mock.patch.object(hardware_status.shutil, "which", return_value="/usr/bin/nmcli"), \
+                 mock.patch.object(hardware_status, "_run", return_value=""):
+                self.assertEqual(backend.wifi_snapshot(), {"enabled": True, "networks": []})
+
+    def test_wifi_scan_options_reject_non_boolean_before_touching_networkmanager(self):
+        from macrice import hardware_status
+
+        with mock.patch.object(hardware_status.shutil, "which") as lookup:
+            with self.assertRaises(ValueError):
+                hardware_status.read_wifi_networks(fail_on_error="yes")
+            with self.assertRaises(ValueError):
+                hardware_status.read_wifi_networks(rescan=1)
+            lookup.assert_not_called()
 
     def test_wifi_scan_provider_loss_is_typed_and_not_a_false_empty_scan(self):
         import subprocess
@@ -153,7 +187,7 @@ class RiceSpiceSettingsTests(unittest.TestCase):
                 with self.assertRaisesRegex(backend.SettingsError, "scan unavailable") as raised:
                     backend.wifi_snapshot(rescan=True)
                 self.assertIs(raised.exception.__cause__, failure)
-                scan.assert_called_once_with(rescan=True)
+                scan.assert_called_once_with(rescan=True, fail_on_error=True)
 
     def test_connect_wifi_requires_fresh_visible_selection_and_readback(self):
         network = {"enabled": True, "networks": [
