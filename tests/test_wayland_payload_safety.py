@@ -136,7 +136,7 @@ class DebianPayloadGuardTests(unittest.TestCase):
     def test_reject_root_file_control_characters_and_oversized_name(self):
         for label, name, diagnostic in (
             ("root regular file", "./", "root"),
-            ("linebreak path", "./usr/bin/evil\\nname", "Unsafe"),
+            ("linebreak path", "./usr/bin/evil\nname", "Unsafe"),
             ("overlong filename component", "./usr/bin/" + "x" * 256, "Oversized"),
         ):
             with self.subTest(label=label), self.assertRaisesRegex(UnsafePayload, diagnostic):
