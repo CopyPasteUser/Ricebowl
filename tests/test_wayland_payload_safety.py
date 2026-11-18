@@ -73,6 +73,46 @@ class DebianPayloadGuardTests(unittest.TestCase):
                 with self.assertRaisesRegex(UnsafePayload, diagnostic):
                     verify_payload(io.BytesIO(make_archive(entry)))
 
+    def test_reject_duplicate_and_aliased_install_destinations(self):
+        # One canonical path must map to exactly one archive entry. Tar
+        # permits duplicate members, but dpkg can overwrite earlier bytes.
+        cases = [
+            ("same file twice", [
+                ("./usr/bin/riceplate-native", 0o755, 0, 0, tarfile.REGTYPE, None),
+                ("./usr/bin/riceplate-native", 0o755, 0, 0, tarfile.REGTYPE, None),
+            ]),
+            ("dot-prefix alias", [
+                ("./usr/bin/riceplate-native", 0o755, 0, 0, tarfile.REGTYPE, None),
+                ("usr/bin/riceplate-native", 0o755, 0, 0, tarfile.REGTYPE, None),
+            ]),
+            ("directory replaced by file", [
+                ("./usr/share", 0o755, 0, 0, tarfile.DIRTYPE, None),
+                ("usr/share", 0o644, 0, 0, tarfile.REGTYPE, None),
+            ]),
+            ("file replaced by directory", [
+                ("./usr/share", 0o644, 0, 0, tarfile.REGTYPE, None),
+                ("usr/share", 0o755, 0, 0, tarfile.DIRTYPE, None),
+            ]),
+            ("root directory duplicated", [
+                ("./", 0o755, 0, 0, tarfile.DIRTYPE, None),
+                (".", 0o755, 0, 0, tarfile.DIRTYPE, None),
+            ]),
+        ]
+        for label, entries in cases:
+            with self.subTest(label=label):
+                with self.assertRaisesRegex(UnsafePayload, "Duplicate package archive path"):
+                    verify_payload(io.BytesIO(make_archive(*entries)))
+
+    def test_cli_rejects_duplicate_destinations(self):
+        crafted = make_archive(
+            ("./usr/bin/riceplate-native", 0o755, 0, 0, tarfile.REGTYPE, None),
+            ("usr/bin/riceplate-native", 0o755, 0, 0, tarfile.REGTYPE, None),
+        )
+        result = subprocess.run([sys.executable, str(CHECKER)], input=crafted,
+                                capture_output=True, timeout=5, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(b"Duplicate package archive path", result.stderr)
+
     def test_truncated_and_empty_archives_fail_closed(self):
         for data in (b"", b"not a tar archive", bytes(1024)):
             with self.subTest(length=len(data)), self.assertRaises(UnsafePayload):
