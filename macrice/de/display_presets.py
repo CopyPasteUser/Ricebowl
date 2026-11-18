@@ -95,6 +95,15 @@ def _write(directory: Path, entries: list[dict], enabled: bool) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, directory / _FILE)
+        # The file contents are synced above, but rename durability also
+        # requires syncing the containing directory. Otherwise an abrupt
+        # power loss can lose the saved preset / explicit auto-trial choice.
+        # Refuse to follow a replaced/symlinked config directory.
+        directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
     finally:
         Path(temporary).unlink(missing_ok=True)
 
