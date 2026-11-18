@@ -104,6 +104,70 @@ class DebianPayloadGuardTests(unittest.TestCase):
                 with self.assertRaisesRegex(UnsafePayload, "Duplicate package archive path"):
                     verify_payload(io.BytesIO(make_archive(*entries)))
 
+
+    def test_reject_file_directory_hierarchy_collisions_in_either_order(self):
+        # Canonical path uniqueness is insufficient: file usr/lib and
+        # usr/lib/data are distinct names but cannot coexist on disk.
+        cases = [
+            ("file before child", [
+                ("./usr/lib", 0o644, 0, 0, tarfile.REGTYPE, None),
+                ("./usr/lib/data", 0o644, 0, 0, tarfile.REGTYPE, None),
+            ], "ancestor"),
+            ("child before file", [
+                ("./usr/lib/data", 0o644, 0, 0, tarfile.REGTYPE, None),
+                ("./usr/lib", 0o644, 0, 0, tarfile.REGTYPE, None),
+            ], "replaces"),
+            ("deep nested child", [
+                ("./usr", 0o644, 0, 0, tarfile.REGTYPE, None),
+                ("./usr/lib/ricebowl/tool", 0o644, 0, 0, tarfile.REGTYPE, None),
+            ], "ancestor"),
+        ]
+        for label, entries, diagnostic in cases:
+            with self.subTest(label=label), self.assertRaisesRegex(UnsafePayload, diagnostic):
+                verify_payload(io.BytesIO(make_archive(*entries)))
+        # An implicit parent may subsequently become an explicit directory.
+        safe = make_archive(
+            ("./usr/lib/ricebowl/tool", 0o644, 0, 0, tarfile.REGTYPE, None),
+            ("./usr/lib/", 0o755, 0, 0, tarfile.DIRTYPE, None),
+            ("./usr/", 0o755, 0, 0, tarfile.DIRTYPE, None),
+        )
+        self.assertEqual(verify_payload(io.BytesIO(safe)), 3)
+
+    def test_reject_root_file_control_characters_and_oversized_name(self):
+        for label, name, diagnostic in (
+            ("root regular file", "./", "root"),
+            ("linebreak path", "./usr/bin/evil\\nname", "Unsafe"),
+            ("overlong filename component", "./usr/bin/" + "x" * 256, "Oversized"),
+        ):
+            with self.subTest(label=label), self.assertRaisesRegex(UnsafePayload, diagnostic):
+                verify_payload(io.BytesIO(make_archive(
+                    (name, 0o644, 0, 0, tarfile.REGTYPE, None))))
+        # Untrusted tar numeric owner 0 must not carry another user/group name.
+        for field in ("uname", "gname"):
+            obj = tarfile.TarInfo("./usr/bin/riceplate-native")
+            obj.mode = 0o755
+            obj.size = 1
+            setattr(obj, field, "unprivileged")
+            sink = io.BytesIO()
+            with tarfile.open(fileobj=sink, mode="w") as archive:
+                archive.addfile(obj, io.BytesIO(b"x"))
+            with self.subTest(field=field), self.assertRaisesRegex(UnsafePayload, "Non-root"):
+                verify_payload(io.BytesIO(sink.getvalue()))
+
+    def test_reject_pax_extended_attributes_in_debian_payload(self):
+        member = tarfile.TarInfo("./usr/bin/riceplate-native")
+        member.mode, member.uid, member.gid = 0o755, 0, 0
+        member.size = 1
+        # No xattrs/capability metadata are part of RiceBowl's immutable
+        # Debian bundle. Reject them before extraction, regardless of whether
+        # a particular dpkg/tar version would later honor those fields.
+        member.pax_headers = {"SCHILY.xattr.security.capability": "unreviewed"}
+        sink = io.BytesIO()
+        with tarfile.open(fileobj=sink, mode="w", format=tarfile.PAX_FORMAT) as archive:
+            archive.addfile(member, io.BytesIO(b"x"))
+        with self.assertRaisesRegex(UnsafePayload, "extended package metadata"):
+            verify_payload(io.BytesIO(sink.getvalue()))
+
     def test_cli_rejects_duplicate_destinations(self):
         crafted = make_archive(
             ("./usr/bin/riceplate-native", 0o755, 0, 0, tarfile.REGTYPE, None),
