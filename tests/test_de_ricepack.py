@@ -31,6 +31,47 @@ def _zip_files(items, *, compressed=False, symlink=False):
 
 
 class PortableRicePackTests(unittest.TestCase):
+    def test_ricepack_attribution_rejects_direction_spoofing_but_allows_rtl_text(self):
+        # Attribution metadata is rendered in Creator. A visual direction
+        # override must not spoof an author/source or adjacent license label.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            metadata = root / "license.json"
+            valid = {
+                "author": "اسم المصمم", "license": "CC-BY-4.0",
+                "origin": "original", "source_reference": "יצירה מקורית",
+            }
+            metadata.write_text(json.dumps(valid), encoding="utf-8")
+            good = root / "valid.ricepack"
+            pack.export_pack("classic", good, metadata=metadata)
+            self.assertEqual(pack.inspect_pack(good)["manifest"]["provenance"]["author"],
+                             valid["author"])
+            for field in ("author", "source_reference"):
+                for control in (0x061C, 0x200F, 0x202D, 0x202E, 0x2066, 0x2069):
+                    with self.subTest(field=field, control=hex(control)):
+                        spoofed = dict(valid)
+                        spoofed[field] += chr(control) + "license:MIT"
+                        metadata.write_text(json.dumps(spoofed), encoding="utf-8")
+                        target = root / "reject.ricepack"
+                        with self.assertRaisesRegex(pack.PackError,
+                                                    "bidirectional formatting controls"):
+                            pack.export_pack("classic", target, metadata=metadata)
+                        self.assertFalse(target.exists(),
+                                         "Rejected attribution must never publish a pack")
+            # A hostile third-party archive must fail on read, not merely on
+            # export. The manifest is otherwise a genuine locally exported one.
+            with zipfile.ZipFile(good) as archive:
+                manifest = json.loads(archive.read("ricepack.json"))
+                recipe = archive.read("recipe.json")
+            manifest["provenance"]["source_reference"] = "safe" + chr(0x202E) + "spoof"
+            tampered = root / "spoofed.ricepack"
+            tampered.write_bytes(_zip_files([
+                ("ricepack.json", json.dumps(manifest)),
+                ("recipe.json", recipe),
+            ]))
+            with self.assertRaises(pack.PackError):
+                pack.inspect_pack(tampered)
+
     def test_v2_asset_receipts_tamper_detection_and_v1_read_compatibility(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
