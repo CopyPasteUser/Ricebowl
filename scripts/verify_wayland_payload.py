@@ -19,6 +19,7 @@ class UnsafePayload(ValueError):
 
 def verify_payload(stream: BinaryIO) -> int:
     count = 0
+    seen_paths: set[PurePosixPath] = set()
     try:
         with tarfile.open(fileobj=stream, mode="r|") as archive:
             for item in archive:
@@ -27,6 +28,12 @@ def verify_payload(stream: BinaryIO) -> int:
                 path = PurePosixPath(name)
                 if not name or path.is_absolute() or ".." in path.parts:
                     raise UnsafePayload(f"Unsafe package archive path: {name!r}")
+                # A tar can spell the same destination with or without "./".
+                # Reject every second entry, including file/directory swaps:
+                # dpkg's last-write-wins behavior must not mask earlier data.
+                if path in seen_paths:
+                    raise UnsafePayload(f"Duplicate package archive path: {name!r}")
+                seen_paths.add(path)
                 # Debian packages are installed by root. A forged archive must
                 # not create files owned by arbitrary numeric users/groups.
                 if item.uid != 0 or item.gid != 0:
