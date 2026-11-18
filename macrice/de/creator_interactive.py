@@ -42,6 +42,7 @@ class InteractivePreview:
         self.draft = draft
         self._on_exit = on_exit
         self._stopping = False
+        self._group_cleanup_started = False
         self._lock = threading.Lock()
         self._finished = threading.Event()
         threading.Thread(target=self._watch, name="ricebowl-creator-interactive-watch",
@@ -73,6 +74,11 @@ class InteractivePreview:
             code = self.process.poll()
             tail.extend(str(exc).encode("utf-8", errors="replace"))
         finally:
+            # The launcher may exit before its nested dbus/labwc children.
+            # Its own exit is not evidence that the private session stopped.
+            # Terminate the *owned process group* even on an unrequested exit;
+            # otherwise a descendant retaining stderr can outlive Creator.
+            self._terminate_group()
             if stream is not None:
                 stream.close()
             self._finished.set()
@@ -82,32 +88,38 @@ class InteractivePreview:
         self._on_exit(self, PreviewResult(code if code is not None else -1,
                                           self._stopping, detail))
 
+    def _terminate_group(self) -> None:
+        """Stop all owned nested-session processes, not just the wrapper PID."""
+        with self._lock:
+            if self._group_cleanup_started:
+                return
+            self._group_cleanup_started = True
+        try:
+            # start_new_session=True makes the launcher the group leader.
+            # The group may still exist after that launcher has exited.
+            os.killpg(self.process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+
+        def enforce() -> None:
+            # A terminated wrapper can be reaped while a child ignores TERM.
+            # Do not use _finished or process.poll() as the kill condition.
+            time.sleep(_STOP_GRACE_SECONDS)
+            try:
+                os.killpg(self.process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+        threading.Thread(target=enforce, name="ricebowl-creator-interactive-stop",
+                         daemon=True).start()
+
     def stop(self) -> None:
-        """Request graceful compositor exit, then enforce bounded teardown."""
+        """Request bounded cleanup for the entire private preview session."""
         with self._lock:
             if self._stopping or self._finished.is_set():
                 return
             self._stopping = True
-        try:
-            # Each preview has its own process group. Include dbus-run-session
-            # and compositor children, so a wrapper's early exit cannot leave
-            # an orphaned test shell. The shell handles TERM for owned cleanup.
-            os.killpg(self.process.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            if self.process.poll() is None:
-                self.process.terminate()
-
-        def enforce():
-            if self._finished.wait(_STOP_GRACE_SECONDS):
-                return
-            if self.process.poll() is None:
-                try:
-                    os.killpg(self.process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-
-        threading.Thread(target=enforce, name="ricebowl-creator-interactive-stop",
-                         daemon=True).start()
+        self._terminate_group()
 
 
 def launch(draft: creator_workspace.DraftInfo,
