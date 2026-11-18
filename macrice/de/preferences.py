@@ -150,6 +150,14 @@ def save(values: Mapping, *, expected: Mapping) -> dict:
                 stream.flush()
                 os.fsync(stream.fileno())
             os.replace(name, directory / "ricespice.json")
+            # The renamed name is not durable merely because its data was
+            # fsynced. Never report a saved next-login setting until the
+            # containing directory entry has also been persisted.
+            directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
         finally:
             Path(name).unlink(missing_ok=True)
     return new
