@@ -312,7 +312,7 @@ def wifi_snapshot(*, rescan: bool = False) -> dict[str, Any]:
     networks = ()
     if enabled:
         try:
-            networks = hardware_status.read_wifi_networks(rescan=rescan)
+            networks = hardware_status.read_wifi_networks(rescan=rescan, fail_on_error=True)
         except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
             # A disconnected/crashed NetworkManager provider is not a user
             # input error or an empty scan result. Do not claim "no networks".

@@ -231,14 +231,26 @@ def read_wifi_radio() -> bool | None:
     return {"enabled": True, "disabled": False}.get((state or "").casefold())
 
 
-def read_wifi_networks(*, rescan: bool = False) -> tuple[WifiNetwork, ...]:
-    """Bounded, read-only Wi-Fi list. Hidden SSIDs are not actionable."""
+def read_wifi_networks(*, rescan: bool = False,
+                       fail_on_error: bool = False) -> tuple[WifiNetwork, ...]:
+    """Read a bounded Wi-Fi list; optionally distinguish outage from no APs.
+
+    The legacy tray uses a best-effort empty tuple when nmcli is unavailable.
+    RiceSpice must use fail_on_error=True: an unavailable provider must not be
+    presented as a successful scan with no nearby networks.
+    """
+    if type(rescan) is not bool or type(fail_on_error) is not bool:
+        raise ValueError("Wi-Fi scan options must be explicit booleans")
     if not shutil.which("nmcli"):
+        if fail_on_error:
+            raise RuntimeError("NetworkManager nmcli is unavailable")
         return ()
     raw = _run(["nmcli", "-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY",
                 "device", "wifi", "list", "--rescan", "yes" if rescan else "no"],
                timeout=7.0 if rescan else 1.8)
     if raw is None:
+        if fail_on_error:
+            raise RuntimeError("NetworkManager Wi-Fi scan failed or timed out")
         return ()
     networks = {}
     for line in raw.splitlines():
