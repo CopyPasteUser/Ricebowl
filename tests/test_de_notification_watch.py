@@ -120,6 +120,48 @@ class InboxSignalTests(unittest.TestCase):
         self.assertEqual(bus.unsubscribed, [1])
         self.assertEqual(bus.handlers, {})
 
+    def test_unsubscribe_failure_revokes_callbacks_and_continues_cleanup(self):
+        bus = FakeConnection()
+        delivered = []
+        watch = notification_watch.InboxSignals(gio(bus), delivered.append)
+        real_unsubscribe = bus.signal_unsubscribe
+        attempts = []
+
+        def flaky_unsubscribe(ident):
+            attempts.append(ident)
+            if ident == 2:
+                raise OSError("D-Bus connection closed during unsubscribe")
+            real_unsubscribe(ident)
+
+        bus.signal_unsubscribe = flaky_unsubscribe
+        watch.close()
+        self.assertEqual(attempts, [1, 2, 3],
+                         "One bad unsubscribe must not skip the remaining leases")
+        self.assertEqual(bus.unsubscribed, [1, 3])
+        self.assertEqual(set(bus.handlers), {2},
+                         "Simulate an old callback still queued on a dead bus")
+        # Even if GDBus delivers the surviving subscribed callback after
+        # view destruction, no private UI state may be updated or retained.
+        bus.emit("org.freedesktop.DBus.Properties", "PropertiesChanged",
+                 ("fr.emersion.Mako", {"Notifications": object()}, []))
+        self.assertEqual(delivered, [])
+        watch.close()
+        self.assertEqual(attempts, [1, 2, 3], "Teardown must be idempotent")
+        self.assertIsNone(watch._connection)
+        self.assertEqual(watch._ids, [])
+
+    def test_partial_subscribe_failure_does_not_mask_original_error_or_leak_ui(self):
+        bus = FakeConnection(fail_at=2)
+        callbacks = []
+        bus.signal_unsubscribe = lambda _ident: (_ for _ in ()).throw(
+            OSError("D-Bus disconnect during cleanup"))
+        with self.assertRaisesRegex(RuntimeError, "unavailable D-Bus subscription"):
+            notification_watch.InboxSignals(gio(bus), callbacks.append)
+        # Subscription 1 remains in the fake bus but the view callback has
+        # already been revoked, even though cleanup itself could not run.
+        bus.emit("org.freedesktop.Notifications", "NotificationClosed", (7, 1))
+        self.assertEqual(callbacks, [])
+
     def test_owner_handoff_discards_inflight_verified_private_snapshot(self):
         """Late worker replies must never resurrect messages after Mako restart."""
         callbacks, rendered, cleared, statuses = [], [], [], []
