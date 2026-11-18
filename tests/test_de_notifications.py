@@ -49,6 +49,43 @@ class WaylandRicePopReadTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
+    def test_mako_json_duplicate_keys_fail_closed_before_action_selection(self):
+        # A last-key-wins JSON parser could silently retarget a displayed
+        # notification ID or replace its action label. Both Mako transports
+        # must reject duplicate keys at every object nesting level.
+        data = [
+            (notifications._records,
+             b'[{"id":12,"id":13,"summary":"hello"}]'),
+            (notifications._records,
+             b'[{"id":12,"actions":{"open":"Open","open":"Other"}}]'),
+            (notifications._busctl_records,
+             b'{"type":"aa{sv}","type":"a{sv}","data":[[]]}'),
+            (notifications._busctl_records,
+             b'{"type":"aa{sv}","data":[[{"id":{"type":"u","data":12},'
+             b'"id":{"type":"u","data":13}}]]}'),
+            (notifications._busctl_records,
+             b'{"type":"aa{sv}","data":[[{"id":{"type":"u","data":12},'
+             b'"actions":{"type":"a{ss}","data":{"open":"Open","open":"Other"}}}]]}'),
+        ]
+        for parser, raw in data:
+            with self.subTest(parser=parser.__name__, raw=raw[:45]):
+                with self.assertRaises(notifications.NotificationBridgeError) as caught:
+                    parser(raw, include_actions=True)
+                self.assertEqual(caught.exception.code, "invalid_notification_response")
+
+        # Normal legacy busctl and modern mako JSON remain accepted.
+        row = {"id": 12, "summary": "Ready", "body": "Completed",
+               "app_name": "Files", "urgency": "normal",
+               "actions": {"open": "Open"}}
+        modern, limited = notifications._records(
+            json.dumps([row]).encode(), include_actions=True)
+        self.assertFalse(limited)
+        self.assertEqual(modern[0]["id"], 12)
+        legacy, limited = notifications._busctl_records(
+            _legacy_busctl([{**row, "urgency": 1}]), include_actions=True)
+        self.assertFalse(limited)
+        self.assertEqual(legacy[0]["actions"], [{"key": "open", "label": "Open"}])
+
     def test_dnd_only_controls_one_mode_with_explicit_previous_state(self):
         calls = []
         modes = ["default"]
