@@ -319,13 +319,29 @@ test "$(wc -l < "$runtime/launcher-actions.log")" -eq 2 || {
     exit 1
 }
 test "$(sed -n '2p' "$runtime/launcher-actions.log")" = fuzzel
-# SG1: after the real compositor restores Chrome from XP Luna, keyboard
-# events must now belong to Chrome's panel, not the destroyed Luna menu.
-# Escape clears any prior keyboard selection, Tab deterministically picks
-# the first (launcher) target even if a window/task was active, and Return
-# dispatches Chrome's *fixed* harmless fuzzel witness. This validates
-# compositor-delivered keyboard routing across a live rice restore.
+# SG1: neutral Chrome shelf space provides an explicit pointer-initiated
+# keyboard-focus gesture. Labwc does NOT guarantee focus merely because a
+# Bottom/OnDemand panel's launcher was clicked; that click also starts an app.
+# Keep the same persistent keyboard seat and require the bounded, fresh
+# overlay's real compositor wl_keyboard.enter before dispatch.
+"$clicker" "$((width / 2))" "$((height - 22))" "$width" "$height"
+sleep 0.3
+test "$(wc -l < "$runtime/launcher-actions.log")" -eq 2 || {
+    echo "Neutral Chrome focus click unexpectedly dispatched an action" >&2
+    exit 1
+}
+# Escape must revoke the first grant, not leave a permanent keyboard grab.
 wtype -k Escape
+wtype -k Tab
+wtype -k Return
+sleep 0.25
+test "$(wc -l < "$runtime/launcher-actions.log")" -eq 2 || {
+    echo "Cancelled Chrome focus lease unexpectedly activated the launcher" >&2
+    exit 1
+}
+# A NEW genuine neutral click is needed before Tab and Return may activate.
+"$clicker" "$((width / 2))" "$((height - 22))" "$width" "$height"
+sleep 0.3
 wtype -k Tab
 wtype -k Return
 attempt=0
