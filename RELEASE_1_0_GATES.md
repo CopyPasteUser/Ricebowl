@@ -64,9 +64,12 @@ the sign-off guard and its tests are deliberately unchanged.
   ancestors of installed paths in either archive order, aliases replacing
   implicit directories, non-root owner-name metadata, extended PAX headers,
   GNU sparse files, control-character paths and oversized path components.
-  The verifier runs on the original filesystem tar stream before extracting
-  any package. These are supply-chain safety checks, not evidence of Mint
-  hardware installation or cross-host reproducibility.
+  It now additionally validates the raw Debian control tar stream: only one
+  owner-root `control`, optional `md5sums` and an optional root directory are
+  accepted. Maintainer scripts, aliases, malformed metadata, PAX extensions,
+  links and oversized control payloads fail closed. Both tar validators run
+  before any `dpkg-deb -x` extraction. These are supply-chain safety checks,
+  not evidence of Mint hardware installation or cross-host reproducibility.
 - [x] The optional standalone Wayland core and dependency-only desktop
   metapackage have reproducible Debian builds. CI checks a disposable
   Ubuntu 24.04 install/reinstall/purge and that package removal leaves
