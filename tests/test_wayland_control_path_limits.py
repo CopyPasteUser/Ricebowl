@@ -18,14 +18,15 @@ ROOT = Path(__file__).resolve().parents[1]
 VERIFIER = ROOT / "scripts" / "verify_wayland_control.py"
 
 
-def control_archive(name: str) -> bytes:
+def control_archive(*names: str) -> bytes:
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w", format=tarfile.GNU_FORMAT) as archive:
-        member = tarfile.TarInfo(name)
-        member.uid = member.gid = 0
-        member.mode = 0o644
-        member.size = 7
-        archive.addfile(member, io.BytesIO(b"control"))
+        for name in names:
+            member = tarfile.TarInfo(name)
+            member.uid = member.gid = 0
+            member.mode = 0o644
+            member.size = 7
+            archive.addfile(member, io.BytesIO(b"control"))
     return buffer.getvalue()
 
 
@@ -46,7 +47,7 @@ class ControlArchivePathBoundsTests(unittest.TestCase):
     def test_oversized_raw_alias_of_md5sums_is_rejected(self):
         name = "./" * 2500 + "md5sums"
         with self.assertRaisesRegex(UnsafeControl, "Oversized control archive path"):
-            verify_control(io.BytesIO(control_archive(name)))
+            verify_control(io.BytesIO(control_archive("control", name)))
 
     def test_cli_rejects_oversized_name_without_extraction(self):
         attack = control_archive("./" * 2500 + "control")
