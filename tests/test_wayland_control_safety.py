@@ -82,6 +82,21 @@ class ControlTarTests(unittest.TestCase):
             with self.subTest(changed=changed), self.assertRaisesRegex(UnsafeControl, diagnostic):
                 verify_control(io.BytesIO(archive(changed)))
 
+    def test_empty_debian_control_is_not_certified_as_a_valid_package(self):
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w", format=tarfile.GNU_FORMAT) as output:
+            member = tarfile.TarInfo("./control")
+            member.type = REG
+            member.mode = 0o644
+            member.uid = member.gid = 0
+            member.size = 0
+            output.addfile(member, io.BytesIO())
+        with self.assertRaisesRegex(UnsafeControl, "Empty Debian control metadata"):
+            verify_control(io.BytesIO(buffer.getvalue()))
+        # Empty optional md5sums is permitted; a nonempty valid-looking
+        # control stream is still checked independently of its payload text.
+        self.assertEqual(verify_control(io.BytesIO(archive(CONTROL))), 1)
+
     def test_pax_extended_metadata_and_bounded_size(self):
         with self.assertRaisesRegex(UnsafeControl, "metadata"):
             verify_control(io.BytesIO(archive(CONTROL, extended=True)))

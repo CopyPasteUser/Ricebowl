@@ -61,6 +61,11 @@ def verify_control(stream: BinaryIO) -> int:
                     continue
                 if not item.isfile() or item.mode not in (0o600, 0o644) or item.size < 0:
                     raise UnsafeControl("Unsafe control archive file")
+                # dpkg requires a real Debian control stanza. A zero-byte
+                # metadata file must not be certified as an installable,
+                # data-only preview package before extraction.
+                if path == PurePosixPath("control") and item.size == 0:
+                    raise UnsafeControl("Empty Debian control metadata")
                 total += item.size
                 if total > MAX_CONTROL_BYTES:
                     raise UnsafeControl("Control archive exceeds uncompressed size cap")
