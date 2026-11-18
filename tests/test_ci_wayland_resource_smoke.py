@@ -77,6 +77,18 @@ class NativeResourceSmokeTests(unittest.TestCase):
         base = probe.Sample(111, 7, 32000, 40000, 11, 2)
         with self.assertRaisesRegex(probe.ResourceSmokeError, 'restarted'):
             probe.compare(base, replace(base, start_ticks=8))
+        with self.assertRaisesRegex(probe.ResourceSmokeError, 'failed to replace'):
+            probe.compare(base, base, expect_replaced=True)
+        replaced = probe.compare(base, replace(base, pid=222, start_ticks=8,
+                                                pss_kib=base.pss_kib + 2000),
+                                 expect_replaced=True)
+        self.assertTrue(replaced['ok'])
+        self.assertFalse(replaced['same_process'])
+        self.assertTrue(replaced['expected_process_replacement'])
+        self.assertEqual(replaced['growth']['pss_kib'], 2000)
+        with self.assertRaisesRegex(probe.ResourceSmokeError, 'growth exceeds'):
+            probe.compare(base, replace(base, pid=222, start_ticks=8,
+                                        fds=base.fds + 25), expect_replaced=True)
         with self.assertRaisesRegex(probe.ResourceSmokeError, 'growth exceeds'):
             probe.compare(base, replace(base, fds=base.fds + 25))
         with self.assertRaisesRegex(probe.ResourceSmokeError, 'growth exceeds'):
