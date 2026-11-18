@@ -72,7 +72,7 @@ class ControlTarTests(unittest.TestCase):
             (("./control", REG, 0o644, 1000, 0), "metadata"),
             (("../control", REG, 0o644, 0, 0), "path"),
             (("/control", REG, 0o644, 0, 0), "path"),
-            (("./control\\nspoof", REG, 0o644, 0, 0), "path"),
+            (("./control\nspoof", REG, 0o644, 0, 0), "path"),
         ):
             with self.subTest(changed=changed), self.assertRaisesRegex(UnsafeControl, diagnostic):
                 verify_control(io.BytesIO(archive(changed)))
