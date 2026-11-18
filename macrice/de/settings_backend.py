@@ -309,7 +309,15 @@ def wifi_snapshot(*, rescan: bool = False) -> dict[str, Any]:
     if type(rescan) is not bool:
         raise SettingsError("Wi-Fi scan selection must be explicit")
     enabled = wifi_state()
-    networks = hardware_status.read_wifi_networks(rescan=rescan) if enabled else ()
+    networks = ()
+    if enabled:
+        try:
+            networks = hardware_status.read_wifi_networks(rescan=rescan)
+        except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
+            # A disconnected/crashed NetworkManager provider is not a user
+            # input error or an empty scan result. Do not claim "no networks".
+            raise SettingsError(
+                "Wi-Fi scan unavailable; reconnect NetworkManager and refresh") from exc
     return {"enabled": enabled, "networks": [
         {"ssid": item.ssid, "signal": item.signal, "security": item.security,
          "connected": item.connected} for item in networks]}
@@ -477,8 +485,14 @@ def power_snapshot() -> dict[str, Any]:
     """Read existing power-profile and battery services without changing state."""
     from macrice import hardware_status
 
-    current, supported = hardware_status.read_power_profiles()
-    battery = hardware_status.read_battery()
+    try:
+        current, supported = hardware_status.read_power_profiles()
+    except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
+        raise SettingsError("Power profile provider unavailable; refresh") from exc
+    try:
+        battery = hardware_status.read_battery()
+    except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
+        raise SettingsError("Battery provider unavailable; refresh") from exc
     return {"current": current, "supported": supported,
             "battery": None if battery is None else {
                 "percent": battery.percent, "charging": battery.charging,
@@ -491,7 +505,12 @@ def set_power_profile(name: str, *, expected: str) -> str:
 
     if type(name) is not str or type(expected) is not str:
         raise SettingsError("Select a supported power profile")
-    current, supported = hardware_status.read_power_profiles()
+    try:
+        current, supported = hardware_status.read_power_profiles()
+    except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
+        # No mutation when the authoritative provider cannot be read.
+        raise SettingsError(
+            "Power profile provider unavailable; refresh before applying") from exc
     if current != expected or current not in supported:
         raise SettingsError("Power profile changed; refresh before applying")
     if name not in supported:
@@ -502,7 +521,13 @@ def set_power_profile(name: str, *, expected: str) -> str:
         hardware_status.set_power_profile(name)
     except (OSError, RuntimeError, ValueError) as exc:
         raise SettingsError("Power profile change was denied or could not be verified") from exc
-    actual, _ = hardware_status.read_power_profiles()
+    try:
+        actual, _ = hardware_status.read_power_profiles()
+    except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
+        # The earlier write may already have taken effect. Never report a
+        # successful profile change or blindly retry after provider loss.
+        raise SettingsError(
+            "Power profile may have changed; verification unavailable; refresh") from exc
     if actual != name:
         raise SettingsError("Power profile change could not be verified")
     return name
