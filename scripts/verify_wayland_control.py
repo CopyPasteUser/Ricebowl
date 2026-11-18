@@ -43,7 +43,7 @@ def verify_control(stream: BinaryIO) -> int:
                         raise UnsafeControl("Unsafe control root directory")
                     continue
                 if path not in (PurePosixPath("control"), PurePosixPath("md5sums")):
-                    raise UnsafeControl("Unexpected control archive entry (maintainer script forbidden)")
+                    raise UnsafeControl("Refusing maintainer scripts or unexpected control archive entries")
                 if not item.isfile() or item.mode not in (0o600, 0o644) or item.size < 0:
                     raise UnsafeControl("Unsafe control archive file")
                 total += item.size
