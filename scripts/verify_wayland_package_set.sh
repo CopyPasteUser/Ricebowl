@@ -49,15 +49,12 @@ for i in "${!files[@]}"; do
     dpkg-deb --fsys-tarfile "$package" | \
         /usr/bin/python3 "$(dirname -- "$0")/verify_wayland_payload.py"
 
-    # No maintainer script may alter the login manager, XFCE or a home folder.
-    dpkg-deb --ctrl-tarfile "$package" | tar -tf - > "$work/control-$i"
-    while IFS= read -r control_file; do
-        case "$control_file" in
-            ./|./control|./md5sums) ;;
-            *) echo "Refusing maintainer scripts or unexpected control data in $package: $control_file" >&2
-               exit 1 ;;
-        esac
-    done < "$work/control-$i"
+    # Inspect raw control.tar metadata as well as names. A file-list-only
+    # check misses duplicate canonical destinations, crafted ownership,
+    # modes, extended attributes, links and oversized control payloads.
+    # The four opt-in packages are data-only: no maintainer scripts.
+    dpkg-deb --ctrl-tarfile "$package" | \
+        /usr/bin/python3 "$(dirname -- "$0")/verify_wayland_control.py"
 
     dpkg-deb --fsys-tarfile "$package" | tar -tf - > "$work/contents-$i"
     if grep -Eq '^/|(^|/)\.\.(/|$)' "$work/contents-$i"; then
