@@ -210,7 +210,9 @@ def _provenance(value: dict[str, Any]) -> dict[str, str]:
         # text without changing the manifest bytes. Keep natural RTL names
         # legal, but never accept caller-controlled direction overrides or
         # isolates in portable attribution receipts.
-        if any(char in "\u061c\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069"
+        if any(ord(char) in {0x061C, 0x200E, 0x200F,
+                             0x202A, 0x202B, 0x202C, 0x202D, 0x202E,
+                             0x2066, 0x2067, 0x2068, 0x2069}
                for char in value[field]):
             raise PackError("RicePack provenance contains bidirectional formatting controls")
     return value
