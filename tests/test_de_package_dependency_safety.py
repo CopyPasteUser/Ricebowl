@@ -68,7 +68,11 @@ class WaylandPackagePolicyTests(unittest.TestCase):
     def test_release_verifier_requires_only_namespaced_payloads_and_no_maintainers(self):
         verifier = (ROOT / "scripts/verify_wayland_package_set.sh").read_text()
         self.assertIn("dpkg-deb --ctrl-tarfile", verifier)
-        self.assertIn("Refusing maintainer scripts", verifier)
+        self.assertIn('verify_wayland_control.py', verifier)
+        self.assertLess(verifier.index('verify_wayland_control.py'),
+                        verifier.index('dpkg-deb -x "$package" "$extracted"'))
+        control_gate = (ROOT / "scripts/verify_wayland_control.py").read_text()
+        self.assertIn("Refusing maintainer scripts", control_gate)
         self.assertIn("Unexpected installed path", verifier)
         self.assertIn("The desktop meta package must not install files", verifier)
         self.assertIn("SOURCE_DATE_EPOCH", (ROOT / "scripts/build_wayland_core_deb.sh").read_text())
