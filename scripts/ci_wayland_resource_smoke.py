@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """CI-only, one-shot native Wayland process growth check (no daemon or host writes).
 
-The caller owns a private headless compositor and records both snapshots while
-its panel is idle in the *same* rice. Counts are process-local, not desktop RAM.
+The caller owns a private headless compositor. Live rice switching intentionally
+replaces RicePlate, so compare the newly started *single* panel's footprint
+against a baseline of the same rice. This is not a cumulative leak test.
 """
 
 from __future__ import annotations
@@ -113,8 +114,12 @@ def sample_native(binary: Path, runtime: Path, *, proc_root: Path = Path("/proc"
 LIMITS = {"pss_kib": 32768, "rss_kib": 32768, "fds": 24, "threads": 4}
 
 
-def compare(before: Sample, after: Sample) -> dict[str, object]:
-    if (before.pid, before.start_ticks) != (after.pid, after.start_ticks):
+def compare(before: Sample, after: Sample, *, expect_replaced: bool = False
+            ) -> dict[str, object]:
+    same_process = (before.pid, before.start_ticks) == (after.pid, after.start_ticks)
+    if expect_replaced and same_process:
+        raise ResourceSmokeError("Rice live-switch failed to replace native panel")
+    if not expect_replaced and not same_process:
         raise ResourceSmokeError("Native panel restarted; cannot compare resource growth")
     growth = {key: getattr(after, key) - getattr(before, key) for key in LIMITS}
     excess = [key for key, value in growth.items() if value > LIMITS[key]]
@@ -122,7 +127,9 @@ def compare(before: Sample, after: Sample) -> dict[str, object]:
         raise ResourceSmokeError("Native process growth exceeds CI smoke limits: "
                                  + ", ".join(excess))
     return {"ok": True, "hardware_accepted": False,
-            "same_process": True, "baseline": asdict(before),
+            "same_process": same_process,
+            "expected_process_replacement": expect_replaced,
+            "baseline": asdict(before),
             "after": asdict(after), "growth": growth, "limits": LIMITS}
 
 
@@ -166,7 +173,7 @@ def _read_baseline(path: Path) -> Sample:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("capture", "compare"))
+    parser.add_argument("mode", choices=("capture", "compare", "compare-replaced"))
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--runtime", type=Path, required=True)
     parser.add_argument("--baseline", type=Path, required=True)
@@ -177,7 +184,8 @@ def main(argv: list[str] | None = None) -> int:
             _write_private(args.baseline, asdict(now))
             print("Private RicePlate resource baseline captured")
         else:
-            result = compare(_read_baseline(args.baseline), now)
+            result = compare(_read_baseline(args.baseline), now,
+                             expect_replaced=args.mode == "compare-replaced")
             print(json.dumps(result, sort_keys=True))
     except (ResourceSmokeError, OSError) as exc:
         print(f"RicePlate resource smoke failed: {exc}", file=__import__("sys").stderr)
