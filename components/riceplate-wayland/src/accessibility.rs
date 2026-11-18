@@ -179,20 +179,27 @@ impl Model {
         &mut self, id: u64, parent: u64, label: &str, value: &str,
         caret: usize, anchor: Option<usize>,
     ) {
-        if self.elements.iter().any(|element| element.id == id || element.id == id + 1) {
+        // One text input owns exactly two sibling IDs (input + text run).
+        // Reject overflow, the reserved root and collisions *before* adding
+        // either node; otherwise debug builds can panic and release builds can
+        // wrap a child ID to 0 or silently create a run without its parent.
+        let Some(run_id) = id.checked_add(1) else { return };
+        if id <= ROOT || run_id == ROOT
+            || self.elements.iter().any(|element|
+                element.id == id || element.id == run_id) {
             return;
         }
         // The native editor already restricts length, but isolate external
         // accessibility consumers from unbounded/invalid snapshot content.
         let (value, safe_caret, safe_anchor) = bounded_editor_text(value, caret, anchor);
         self.add(id, parent, Role::TextInput, label, None);
-        self.add(id + 1, id, Role::TextRun, "", None);
+        self.add(run_id, id, Role::TextRun, "", None);
         if let Some(input) = self.elements.iter_mut().find(|item| item.id == id) {
             input.value = Some(value.clone());
             input.caret = Some(safe_caret);
             input.selection_anchor = safe_anchor;
         }
-        if let Some(run) = self.elements.iter_mut().find(|item| item.id == id + 1) {
+        if let Some(run) = self.elements.iter_mut().find(|item| item.id == run_id) {
             run.value = Some(value);
         }
     }
