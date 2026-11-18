@@ -60,6 +60,13 @@ the sign-off guard and its tests are deliberately unchanged.
   provenance, cross-host bit-reproducibility, or that an externally supplied
   ELF came from the stamped commit. The artifact is opt-in and does not
   replace the XFCE login or full installer.
+  The read-only package payload verifier additionally rejects regular-file
+  ancestors of installed paths in either archive order, aliases replacing
+  implicit directories, non-root owner-name metadata, extended PAX headers,
+  GNU sparse files, control-character paths and oversized path components.
+  The verifier runs on the original filesystem tar stream before extracting
+  any package. These are supply-chain safety checks, not evidence of Mint
+  hardware installation or cross-host reproducibility.
 - [x] The optional standalone Wayland core and dependency-only desktop
   metapackage have reproducible Debian builds. CI checks a disposable
   Ubuntu 24.04 install/reinstall/purge and that package removal leaves
