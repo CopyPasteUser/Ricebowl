@@ -205,6 +205,14 @@ def _provenance(value: dict[str, Any]) -> dict[str, str]:
     for field in ("author", "source_reference"):
         if any(ord(char) < 32 or ord(char) == 127 for char in value[field]):
             raise PackError("RicePack provenance contains control characters")
+        # Author and source attribution is displayed in Creator/RiceHub.
+        # Bidi formatting controls can reverse or conceal adjacent license
+        # text without changing the manifest bytes. Keep natural RTL names
+        # legal, but never accept caller-controlled direction overrides or
+        # isolates in portable attribution receipts.
+        if any(char in "\u061c\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069"
+               for char in value[field]):
+            raise PackError("RicePack provenance contains bidirectional formatting controls")
     return value
 
 
