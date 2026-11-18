@@ -110,6 +110,69 @@ class CreatorInteractiveTests(unittest.TestCase):
         self.assertEqual(outcomes[0].exit_code, -signal.SIGKILL)
         self.assertTrue(outcomes[0].stopped_by_user)
 
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux process groups required")
+    def test_early_wrapper_exit_reaps_orphan_that_ignores_term(self):
+        # An interactive preview can lose its wrapper while labwc/DBus
+        # descendants keep the inherited stderr pipe open. The wrapper's
+        # zero exit code must not leave that private session running.
+        marker = Path(self.environment["XDG_RUNTIME_DIR"]) / "grandchild-pid"
+        completed = threading.Event()
+        outcomes = []
+
+        child = (
+            "import os,pathlib,signal,time;"
+            "signal.signal(signal.SIGTERM,signal.SIG_IGN);"
+            f"pathlib.Path({str(marker)!r}).write_text(str(os.getpid()));"
+            "time.sleep(30)"
+        )
+
+        def spawn(_argv, **kwargs):
+            wrapper = (
+                "import subprocess,sys,time;"
+                f"subprocess.Popen([sys.executable,'-c',{child!r}],"
+                " stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL);"
+                "time.sleep(0.3)"
+            )
+            return subprocess.Popen([sys.executable, "-c", wrapper], **kwargs)
+
+        with mock.patch.object(interactive, "_STOP_GRACE_SECONDS", 0.2):
+            run = interactive.launch(self.draft, lambda _run, result: (
+                outcomes.append(result), completed.set()),
+                environment=self.environment, which=self.all_tools, spawn=spawn)
+            pid = None
+            try:
+                deadline = time.monotonic() + 4
+                while not marker.exists() and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                self.assertTrue(marker.is_file(), "Grandchild did not start")
+                pid = int(marker.read_text())
+                self.assertTrue(completed.wait(8), "Exited wrapper was not observed")
+                self.assertEqual(outcomes[0].exit_code, 0)
+                self.assertFalse(outcomes[0].stopped_by_user)
+
+                # A zombie already terminated by SIGKILL is accepted because
+                # PID 1 in some CI containers may not reap it immediately.
+                def running() -> bool:
+                    try:
+                        status = Path(f"/proc/{pid}/stat").read_text()
+                    except FileNotFoundError:
+                        return False
+                    return status.split(") ", 1)[1].split(" ", 1)[0] != "Z"
+
+                deadline = time.monotonic() + 3
+                while running() and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                self.assertFalse(running(), "Orphaned nested preview child survived")
+                self.assertEqual(recipes.current_selection(), ("classic", None))
+            finally:
+                # Protect CI if the regression returns and leaves a child.
+                run.stop()
+                if pid is not None:
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+
     def test_missing_display_and_dependencies_fail_before_spawn(self):
         with mock.patch.object(interactive.subprocess, "Popen") as spawn:
             with self.assertRaisesRegex(interactive.InteractivePreviewError, "graphical"):
