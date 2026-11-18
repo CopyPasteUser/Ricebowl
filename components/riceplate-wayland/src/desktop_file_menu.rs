@@ -62,9 +62,11 @@ pub fn back_hit(x: f64, y: f64) -> bool {
 }
 
 pub fn navigate(current: Item, delta: i32, kind: Kind) -> Item {
-    let mut index = current.index() as i32;
+    // A malformed or future caller's large navigation delta must not
+    // overflow in debug/release or escape the bounded action list.
+    let mut index = current.index() as i64;
     for _ in 0..Item::ALL.len() {
-        index = (index + delta).rem_euclid(Item::ALL.len() as i32);
+        index = (index + i64::from(delta)).rem_euclid(Item::ALL.len() as i64);
         let item = Item::ALL[index as usize];
         if item.enabled(kind) { return item; }
     }
@@ -80,7 +82,11 @@ pub fn placement(icon: (u32, u32), pointer: (f64, f64), output: (u32, u32),
     }
     let upper = if top { panel } else { 0 };
     let bottom = if top { 0 } else { panel };
-    if output.0 < WIDTH || output.1 < HEIGHT + upper + bottom { return None; }
+    // Use saturating arithmetic for an invalidly large panel height. The
+    // popup is unavailable rather than overflowing before bounds checking.
+    if output.0 < WIDTH || output.1 < HEIGHT.saturating_add(upper).saturating_add(bottom) {
+        return None;
+    }
     Some((icon.0.saturating_add(pointer.0.round() as u32).min(output.0 - WIDTH),
           icon.1.saturating_add(pointer.1.round() as u32)
               .clamp(upper, output.1 - HEIGHT - bottom)))
@@ -97,6 +103,8 @@ mod tests {
                 assert_eq!(hit(20.0, f64::from(row(item) + 13), kind), Some(item));
             }
             assert_eq!(navigate(Item::Properties, 1, kind), Item::Open);
+            assert!(Item::ALL.contains(&navigate(Item::Properties, i32::MAX, kind)));
+            assert!(Item::ALL.contains(&navigate(Item::Properties, i32::MIN, kind)));
         }
         for kind in [Kind::Symlink, Kind::DesktopFile] {
             for item in Item::ALL {
@@ -123,5 +131,9 @@ mod tests {
             (246, 274), 40, true), Some((0, 40)));
         assert_eq!(placement((0, 0), (1.0, 1.0),
             (245, 768), 40, false), None);
+        assert_eq!(placement((0, 0), (1.0, 1.0),
+            (1366, 768), u32::MAX, false), None);
+        assert_eq!(placement((0, 0), (1.0, 1.0),
+            (1366, 768), u32::MAX, true), None);
     }
 }
