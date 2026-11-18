@@ -184,7 +184,7 @@ def _records(raw: bytes, *, include_actions: bool = False) -> tuple[list[dict[st
                                       "invalid_notification_response")
     try:
         records = json.loads(raw)
-    except (ValueError, UnicodeError) as exc:
+    except (ValueError, UnicodeError, RecursionError) as exc:
         raise NotificationBridgeError("Notification host returned invalid JSON",
                                       "invalid_notification_response") from exc
     return _validate_records(records, include_actions=include_actions)
@@ -241,7 +241,7 @@ def _busctl_records(raw: bytes, *, include_actions: bool = False
                                       "invalid_notification_response")
     try:
         reply = json.loads(raw)
-    except (ValueError, UnicodeError) as exc:
+    except (ValueError, UnicodeError, RecursionError) as exc:
         raise NotificationBridgeError("Notification host returned invalid JSON",
                                       "invalid_notification_response") from exc
     if (type(reply) is not dict or reply.get("type") != "aa{sv}"
@@ -404,7 +404,7 @@ def decode_gui_snapshot(raw: bytes) -> dict[str, Any]:
                                       "invalid_notification_snapshot")
     try:
         value = json.loads(raw)
-    except (ValueError, UnicodeError, TypeError) as exc:
+    except (ValueError, UnicodeError, TypeError, RecursionError) as exc:
         raise NotificationBridgeError("Invalid private RicePop selection",
                                       "invalid_notification_snapshot") from exc
     if (type(value) is not dict or set(value) != fields
