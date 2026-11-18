@@ -140,6 +140,21 @@ class RiceSpiceSettingsTests(unittest.TestCase):
         with self.assertRaises(backend.SettingsError):
             backend.wifi_snapshot(rescan="yes")
 
+    def test_wifi_scan_provider_loss_is_typed_and_not_a_false_empty_scan(self):
+        import subprocess
+
+        for failure in (OSError("NetworkManager disconnected"),
+                        RuntimeError("provider stopped"),
+                        subprocess.TimeoutExpired("nmcli", 3)):
+            with self.subTest(failure=type(failure).__name__), \
+                 mock.patch.object(backend, "wifi_state", return_value=True), \
+                 mock.patch("macrice.hardware_status.read_wifi_networks",
+                            side_effect=failure) as scan:
+                with self.assertRaisesRegex(backend.SettingsError, "scan unavailable") as raised:
+                    backend.wifi_snapshot(rescan=True)
+                self.assertIs(raised.exception.__cause__, failure)
+                scan.assert_called_once_with(rescan=True)
+
     def test_connect_wifi_requires_fresh_visible_selection_and_readback(self):
         network = {"enabled": True, "networks": [
             {"ssid": "Guest", "signal": 62, "security": "", "connected": False}]}
@@ -346,6 +361,48 @@ class RiceSpiceSettingsTests(unittest.TestCase):
                         return_value=("balanced", ("balanced",))), \
                 mock.patch("macrice.hardware_status.read_battery", return_value=None):
             self.assertIsNone(backend.power_snapshot()["battery"])
+
+    def test_power_provider_loss_is_typed_and_never_claims_success(self):
+        import subprocess
+
+        with mock.patch("macrice.hardware_status.read_power_profiles",
+                        side_effect=OSError("provider offline")), \
+             mock.patch("macrice.hardware_status.read_battery") as battery:
+            with self.assertRaisesRegex(backend.SettingsError,
+                                        "Power profile provider unavailable"):
+                backend.power_snapshot()
+            battery.assert_not_called()
+
+        with mock.patch("macrice.hardware_status.read_power_profiles",
+                        return_value=("balanced", ("balanced",))), \
+             mock.patch("macrice.hardware_status.read_battery",
+                        side_effect=RuntimeError("battery provider lost")):
+            with self.assertRaisesRegex(backend.SettingsError,
+                                        "Battery provider unavailable"):
+                backend.power_snapshot()
+
+        for failure in (OSError("power daemon gone"), RuntimeError("no bus"),
+                        subprocess.TimeoutExpired("powerprofilesctl", 3)):
+            with self.subTest(failure=type(failure).__name__), \
+                 mock.patch("macrice.hardware_status.read_power_profiles",
+                            side_effect=failure), \
+                 mock.patch("macrice.hardware_status.set_power_profile") as change:
+                with self.assertRaisesRegex(backend.SettingsError,
+                                            "unavailable; refresh before applying") as raised:
+                    backend.set_power_profile("power-saver", expected="balanced")
+                self.assertIs(raised.exception.__cause__, failure)
+                change.assert_not_called()
+
+        with mock.patch("macrice.hardware_status.read_power_profiles",
+                        side_effect=[("balanced", ("balanced", "power-saver")),
+                                     OSError("provider disappeared after mutation")]) as read, \
+             mock.patch("macrice.hardware_status.set_power_profile") as change:
+            with self.assertRaisesRegex(backend.SettingsError,
+                                        "may have changed; verification unavailable") as raised:
+                backend.set_power_profile("power-saver", expected="balanced")
+            self.assertIsInstance(raised.exception.__cause__, OSError)
+            self.assertEqual(read.call_count, 2)
+            change.assert_called_once_with("power-saver")
 
     def test_power_profile_change_requires_fresh_supported_state_and_readback(self):
         with mock.patch("macrice.hardware_status.read_power_profiles",
