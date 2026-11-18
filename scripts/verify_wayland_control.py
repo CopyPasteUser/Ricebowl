@@ -32,6 +32,13 @@ def verify_control(stream: BinaryIO) -> int:
                 if path in seen:
                     raise UnsafeControl("Duplicate control archive destination")
                 seen.add(path)
+                # Detect a forbidden maintainer script before the entry-count
+                # cap: real dpkg control tarballs may contain root, control
+                # and md5sums before an injected postinst. The error must
+                # identify the security violation, never mask it as size.
+                if path not in (PurePosixPath("."), PurePosixPath("control"),
+                                PurePosixPath("md5sums")):
+                    raise UnsafeControl("Refusing maintainer scripts or unexpected control archive entries")
                 if len(seen) > MAX_CONTROL_ENTRIES:
                     raise UnsafeControl("Too many control archive entries")
                 if (item.uid != 0 or item.gid != 0 or item.uname not in ("", "root")
@@ -42,8 +49,6 @@ def verify_control(stream: BinaryIO) -> int:
                     if not item.isdir() or item.size or item.mode not in (0o700, 0o755):
                         raise UnsafeControl("Unsafe control root directory")
                     continue
-                if path not in (PurePosixPath("control"), PurePosixPath("md5sums")):
-                    raise UnsafeControl("Refusing maintainer scripts or unexpected control archive entries")
                 if not item.isfile() or item.mode not in (0o600, 0o644) or item.size < 0:
                     raise UnsafeControl("Unsafe control archive file")
                 total += item.size
