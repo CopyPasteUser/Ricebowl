@@ -53,6 +53,11 @@ class ControlTarTests(unittest.TestCase):
             ((CONTROL, ("./postinst", REG, 0o755, 0, 0)), "maintainer script"),
             ((CONTROL, ("./prerm", REG, 0o755, 0, 0)), "maintainer script"),
             ((CONTROL, ("./conffiles", REG, 0o644, 0, 0)), "maintainer script"),
+            # Postinst is fourth after a legitimate root/control/md5sums trio.
+            # It still needs the specific maintainer-script diagnostic, not
+            # a generic count-limit message.
+            ((ROOT_ENTRY, CONTROL, MD5SUMS,
+              ("./postinst", REG, 0o755, 0, 0)), "maintainer script"),
         ):
             with self.subTest(items=items), self.assertRaisesRegex(UnsafeControl, diagnostic):
                 verify_control(io.BytesIO(archive(*items)))
