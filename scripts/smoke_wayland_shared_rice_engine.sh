@@ -47,7 +47,14 @@ PY
 test -n "$luna"
 
 compositor=
+keyboard_keeper=
 cleanup() {
+    # Keep the disposable virtual keyboard alive throughout the native
+    # pointer/keyboard handoff; always tear it down with this exact session.
+    if [ -n "$keyboard_keeper" ]; then
+        kill "$keyboard_keeper" 2>/dev/null || :
+        wait "$keyboard_keeper" 2>/dev/null || :
+    fi
     if [ -n "$compositor" ]; then
         kill "$compositor" 2>/dev/null || :
         wait "$compositor" 2>/dev/null || :
@@ -79,6 +86,18 @@ test "$ready" -eq 1 || {
     exit 1
 }
 export WAYLAND_DISPLAY=wayland-0
+# A real desktop keeps its keyboard attached. A one-shot wtype invocation
+# otherwise drops wl_seat keyboard capability between events and can hide a
+# real menu focus regression behind a compositor/device reconnect race.
+# F13 has no associated rice action; this keyboard never leaves private labwc.
+wtype -k F13 -s 1800000 -k F13 >"$runtime/keyboard-keeper.log" 2>&1 &
+keyboard_keeper=$!
+sleep 0.3
+kill -0 "$keyboard_keeper" 2>/dev/null || {
+    echo "Private Wayland keyboard failed to attach" >&2
+    cat "$runtime/keyboard-keeper.log" >&2
+    exit 1
+}
 /usr/bin/python3 "$source_root/launcher.py" de creator-live-status --json \
     >"$runtime/initial.json"
 /usr/bin/python3 - "$runtime/initial.json" <<'PY'
@@ -185,8 +204,78 @@ test "$(cat "$runtime/launcher-actions.log")" = fuzzel || {
     echo "Luna dispatched Chrome's external launcher instead of native menu" >&2
     exit 1
 }
-# Close via the real taskbar; explicit restoration must not be blocked by
-# the active menu or let an obsolete rice retain pointer ownership.
+# SG1: move the selected native Luna item using a genuine Wayland keyboard
+# event routed by the SAME compositor that delivered the opening pointer.
+# A synthetic MenuState unit test or a standalone preview cannot prove this.
+wtype -k Down
+sleep 0.2
+grim "$runtime/luna-after-real-keyboard-down.png"
+/usr/bin/python3 - "$runtime/luna-after-real-pointer.png" \
+        "$runtime/luna-after-real-keyboard-down.png" <<'PY'
+from PIL import Image, ImageChops
+import sys
+with Image.open(sys.argv[1]) as opened, Image.open(sys.argv[2]) as navigated:
+    a, b = opened.convert("RGB"), navigated.convert("RGB")
+    assert a.size == b.size
+    w, h = a.size
+    region = (0, max(0, h - 550), min(w, 640), h)
+    changed = sum(max(px) > 20 for px in
+                  ImageChops.difference(a.crop(region), b.crop(region)).getdata())
+    assert changed > 80, f"Wayland Down key did not repaint Luna selection: {changed}"
+PY
+# Escape must dismiss the very same menu through its keyboard lease, and
+# release focus rather than keeping the next rice trapped in Luna.
+wtype -k Escape
+attempt=0
+keyboard_closed=0
+while [ "$attempt" -lt 20 ]; do
+    sleep 0.15
+    grim "$runtime/luna-after-real-keyboard-escape.png"
+    if /usr/bin/python3 - "$runtime/luna-before-real-pointer.png" \
+            "$runtime/luna-after-real-keyboard-escape.png" <<'PY'
+from PIL import Image, ImageChops
+import sys
+with Image.open(sys.argv[1]) as before, Image.open(sys.argv[2]) as after:
+    a, b = before.convert("RGB"), after.convert("RGB")
+    assert a.size == b.size
+    w, h = a.size
+    region = (0, max(0, h - 550), min(w, 640), h)
+    changed = sum(max(px) > 20 for px in
+                  ImageChops.difference(a.crop(region), b.crop(region)).getdata())
+    assert changed < 1200, f"Luna Escape left menu visible: {changed} pixels"
+PY
+    then
+        keyboard_closed=1
+        break
+    fi
+    attempt=$((attempt + 1))
+done
+test "$keyboard_closed" -eq 1 || {
+    echo "Luna did not release its real keyboard/menu focus after Escape" >&2
+    exit 1
+}
+test "$(cat "$runtime/launcher-actions.log")" = fuzzel || {
+    echo "Luna keyboard navigation dispatched the Chrome launcher" >&2
+    exit 1
+}
+# Reopen and close again with real pointer input: keyboard dismissal must
+# not strand the menu's input region or active Wayland surface.
+"$clicker" 35 "$((height - 20))" "$width" "$height"
+sleep 0.25
+grim "$runtime/luna-reopened-after-keyboard.png"
+/usr/bin/python3 - "$runtime/luna-before-real-pointer.png" \
+        "$runtime/luna-reopened-after-keyboard.png" <<'PY'
+from PIL import Image, ImageChops
+import sys
+with Image.open(sys.argv[1]) as before, Image.open(sys.argv[2]) as after:
+    a, b = before.convert("RGB"), after.convert("RGB")
+    assert a.size == b.size
+    w, h = a.size
+    region = (0, max(0, h - 550), min(w, 640), h)
+    changed = sum(max(px) > 20 for px in
+                  ImageChops.difference(a.crop(region), b.crop(region)).getdata())
+    assert changed > 2000, f"Luna did not reopen after keyboard Escape: {changed}"
+PY
 "$clicker" 35 "$((height - 20))" "$width" "$height"
 sleep 0.2
 
@@ -239,6 +328,12 @@ cp "$runtime/luna-before-real-pointer.png" \
    "$source_root/dist/riceplate-native-preview/shared-engine/luna-before-pointer.png"
 cp "$runtime/luna-after-real-pointer.png" \
    "$source_root/dist/riceplate-native-preview/shared-engine/luna-opened-pointer.png"
+cp "$runtime/luna-after-real-keyboard-down.png" \
+   "$source_root/dist/riceplate-native-preview/shared-engine/luna-keyboard-down.png"
+cp "$runtime/luna-after-real-keyboard-escape.png" \
+   "$source_root/dist/riceplate-native-preview/shared-engine/luna-keyboard-escape.png"
+cp "$runtime/luna-reopened-after-keyboard.png" \
+   "$source_root/dist/riceplate-native-preview/shared-engine/luna-reopened.png"
 /usr/bin/python3 - "$runtime/classic.png" "$runtime/chrome.png" "$runtime/$luna.png" \
     "$runtime/restored-chrome.png" <<'PY'
 from PIL import Image, ImageChops
