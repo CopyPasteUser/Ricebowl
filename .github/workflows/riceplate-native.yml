@@ -13,7 +13,9 @@ on:
       - 'scripts/build_riceplate_native_deb.sh'
       - 'scripts/verify_wayland_package_set.sh'
       - 'scripts/verify_wayland_payload.py'
+      - 'scripts/verify_wayland_control.py'
       - 'tests/test_wayland_payload_safety.py'
+      - 'tests/test_wayland_control_safety.py'
       - 'scripts/smoke_wayland_upgrade_rollback.sh'
       - 'scripts/smoke_wayland_packaged_login.sh'
       - 'tests/test_wayland_upgrade.py'
@@ -86,7 +88,9 @@ on:
       - 'scripts/build_riceplate_native_deb.sh'
       - 'scripts/verify_wayland_package_set.sh'
       - 'scripts/verify_wayland_payload.py'
+      - 'scripts/verify_wayland_control.py'
       - 'tests/test_wayland_payload_safety.py'
+      - 'tests/test_wayland_control_safety.py'
       - 'scripts/smoke_wayland_upgrade_rollback.sh'
       - 'scripts/smoke_wayland_packaged_login.sh'
       - 'tests/test_wayland_upgrade.py'
@@ -170,6 +174,7 @@ jobs:
         run: |
           /usr/bin/python3 -m unittest tests.test_de_session -v
           /usr/bin/python3 -m unittest tests.test_de_acceptance -v
+          /usr/bin/python3 -m unittest tests.test_wayland_payload_safety tests.test_wayland_control_safety -v
           cargo test --locked --manifest-path components/riceplate-wayland/Cargo.toml
           # Baseline contains legacy style warnings in other owner modules.
           # Keep full lint output; fail the merge on correctness, suspicious
