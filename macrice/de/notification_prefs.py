@@ -89,6 +89,14 @@ def save(values: Mapping, *, expected: Mapping) -> dict:
                 file.flush()
                 os.fsync(file.fileno())
             os.replace(temporary, directory / _FILE)
+            # The file's fsync covers its bytes, not the newly published name.
+            # Persist the containing directory before confirming a saved
+            # next-login notification choice to the user.
+            directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
         finally:
             Path(temporary).unlink(missing_ok=True)
     return candidate
