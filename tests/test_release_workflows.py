@@ -9,7 +9,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from scripts.check_release_workflows import (
-    REQUIRED, WorkflowGateError, fetch_evidence, source_for_tag, validate_runs,
+    REQUIRED, REQUIRED_JOBS, WorkflowGateError, fetch_evidence,
+    fetch_job_evidence, source_for_tag, validate_jobs, validate_runs,
 )
 
 SHA = "a" * 40
@@ -238,6 +239,68 @@ class ReleaseWorkflowGateTests(unittest.TestCase):
                       {"workflow_runs": []}):
             with self.subTest(value=value), self.assertRaises(WorkflowGateError):
                 validate_runs(value, SHA)
+
+    def test_required_successful_jobs_are_not_skipped_or_borrowed(self):
+        selected = validate_runs({"workflow_runs": self.good_runs()}, SHA)
+        good = {path: [{"name": name, "run_id": selected[path],
+                        "status": "completed", "conclusion": "success"}
+                       for name in names]
+                for path, names in REQUIRED_JOBS.items()}
+        validate_jobs(good, selected)
+        for path, names in REQUIRED_JOBS.items():
+            required = names[0]
+            for change in (
+                lambda rows: rows.clear(),
+                lambda rows: rows[0].update(conclusion="skipped"),
+                lambda rows: rows[0].update(conclusion="failure"),
+                lambda rows: rows[0].update(status="in_progress", conclusion=None),
+                lambda rows: rows[0].update(run_id=selected[path] + 1),
+                lambda rows: rows.append(dict(rows[0])),
+            ):
+                import copy
+                damaged = copy.deepcopy(good)
+                change(damaged[path])
+                with self.subTest(path=path, job=required, change=change), self.assertRaises(
+                        WorkflowGateError):
+                    validate_jobs(damaged, selected)
+
+    def test_fetch_jobs_paginates_and_rejects_inconsistent_truncation(self):
+        selected = validate_runs({"workflow_runs": self.good_runs()}, SHA)
+        seen = []
+
+        def respond(request, timeout):
+            url = urllib.parse.urlsplit(request.full_url)
+            query = urllib.parse.parse_qs(url.query)
+            self.assertEqual(timeout, 15)
+            self.assertEqual(query["per_page"], ["100"])
+            run_id = int(url.path.split("/runs/")[1].split("/jobs")[0])
+            self.assertIn(run_id, selected.values())
+            seen.append((run_id, int(query["page"][0])))
+            return io.BytesIO(json.dumps({
+                "total_count": 1,
+                "jobs": [{"name": REQUIRED_JOBS[path][0], "run_id": run_id,
+                          "status": "completed", "conclusion": "success"}]
+                if any(value == run_id for value in (selected[path],)) else [],
+            }).encode())
+
+        # A single required job can be returned for each run; the multi-job
+        # strict portal lane is separately rejected until every job is present.
+        with patch("scripts.check_release_workflows.urllib.request.urlopen",
+                   side_effect=respond):
+            jobs = fetch_job_evidence("CopyPasteUser/Ricebowl", selected, "test-token")
+        self.assertEqual(len(seen), 4)
+        self.assertEqual(set(jobs), set(REQUIRED_JOBS))
+        with self.assertRaisesRegex(WorkflowGateError, "missing"):
+            validate_jobs(jobs, selected)
+
+        with patch("scripts.check_release_workflows.urllib.request.urlopen",
+                   return_value=io.BytesIO(json.dumps({
+                       "total_count": 2, "jobs": [{"name": "partial"}]
+                   }).encode())):
+            with self.assertRaisesRegex(WorkflowGateError, "Incomplete"):
+                fetch_job_evidence("CopyPasteUser/Ricebowl", selected, "token")
+        with self.assertRaisesRegex(WorkflowGateError, "context"):
+            fetch_job_evidence("bad/repo/extra", selected, "token")
 
     def test_stable_release_uses_hardware_tested_ancestor_not_signoff_commit(self):
         with tempfile.TemporaryDirectory() as directory:
