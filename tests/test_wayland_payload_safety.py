@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tarfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from scripts.verify_wayland_payload import UnsafePayload, verify_payload
@@ -112,6 +113,21 @@ class DebianPayloadGuardTests(unittest.TestCase):
                                 capture_output=True, timeout=5, check=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(b"Duplicate package archive path", result.stderr)
+
+    def test_reject_compressed_archive_bomb_limits(self):
+        entries = [
+            (f"./usr/share/file-{index}", 0o644, 0, 0, tarfile.REGTYPE, None)
+            for index in range(3)
+        ]
+        archive = make_archive(*entries)
+        with patch("scripts.verify_wayland_payload.MAX_PAYLOAD_ENTRIES", 2):
+            with self.assertRaisesRegex(UnsafePayload, "Too many package archive entries"):
+                verify_payload(io.BytesIO(archive))
+        # Two valid 8-byte regular files exceed a small injected byte cap.
+        # The production cap remains 512 MiB; no giant fixture is needed.
+        with patch("scripts.verify_wayland_payload.MAX_PAYLOAD_BYTES", 12):
+            with self.assertRaisesRegex(UnsafePayload, "uncompressed size limit"):
+                verify_payload(io.BytesIO(archive))
 
     def test_truncated_and_empty_archives_fail_closed(self):
         for data in (b"", b"not a tar archive", bytes(1024)):
