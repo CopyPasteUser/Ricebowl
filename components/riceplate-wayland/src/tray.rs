@@ -364,25 +364,35 @@ pub struct State {
 
 impl State {
     pub fn from_items<'a>(items: impl Iterator<Item = (&'a String, &'a Item)>) -> Self {
-        let mut entries: Vec<Entry> = items.filter_map(|(name, item)| {
-            if !matches!(item.status.as_str(), "Active" | "NeedsAttention") ||
-                name.len() > 255 || item.title.len() > 512 {
-                return None;
+        // Select the highest-priority items before applying the memory cap.
+        // Truncating the incoming D-Bus iteration first would silently hide
+        // a NeedsAttention item that arrived after the first 32 entries.
+        // Keep the candidate set bounded even for a hostile item inventory.
+        let mut entries: Vec<Entry> = Vec::with_capacity(MAX_ITEMS);
+        for (name, item) in items {
+            if !matches!(item.status.as_str(), "Active" | "NeedsAttention")
+                || name.len() > 255 || item.title.len() > 512 {
+                continue;
             }
-            let pixmaps = if item.status == "NeedsAttention" && !item.attention_icon_pixmap.is_empty() {
+            let needs_attention = item.status == "NeedsAttention";
+            let position = entries.partition_point(|current| {
+                (current.needs_attention && !needs_attention)
+                    || (current.needs_attention == needs_attention
+                        && current.bus_name.as_str() < name.as_str())
+            });
+            if position >= MAX_ITEMS { continue; }
+            let pixmaps = if needs_attention && !item.attention_icon_pixmap.is_empty() {
                 &item.attention_icon_pixmap
             } else { &item.icon_pixmap };
-            Some(Entry {
+            entries.insert(position, Entry {
                 bus_name: name.clone(),
                 title: item.title.chars().take(48).collect(),
                 icon: choose_pixmap(pixmaps),
                 is_menu: item.item_is_menu,
-                needs_attention: item.status == "NeedsAttention",
-            })
-        }).take(MAX_ITEMS).collect();
-        // A stable order avoids focus jumping when D-Bus sends a property update.
-        entries.sort_by(|a, b| b.needs_attention.cmp(&a.needs_attention)
-            .then_with(|| a.bus_name.cmp(&b.bus_name)));
+                needs_attention,
+            });
+            entries.truncate(MAX_ITEMS);
+        }
         Self { entries }
     }
 
@@ -486,6 +496,28 @@ mod tests {
         assert_eq!(state.overflow_count(), 2);
         assert_eq!(state.item_at(0).unwrap().bus_name, "org.test.Item5");
         assert!(state.item_at(3).is_none());
+    }
+
+    #[test]
+    fn late_attention_item_is_not_dropped_by_bounded_tray_inventory() {
+        let mut items: Vec<(String, Item)> = (0..(MAX_ITEMS + 8))
+            .map(|idx| (format!("org.test.Item{idx:03}"), item("Active", "App")))
+            .collect();
+        // The original take(MAX_ITEMS) discarded this item before sorting.
+        items[MAX_ITEMS + 7].1.status = "NeedsAttention".into();
+        let initial = State::from_items(items.iter().map(|(name, item)| (name, item)));
+        assert_eq!(initial.entries.len(), MAX_ITEMS);
+        assert_eq!(initial.entries[0].bus_name, "org.test.Item039");
+        assert!(initial.entries[0].needs_attention);
+        assert_eq!(initial.visible_count(), VISIBLE_ITEMS - 1);
+        assert_eq!(initial.overflow_count(), MAX_ITEMS - VISIBLE_ITEMS + 1);
+        // D-Bus HashMap enumeration order must not affect which alerts live
+        // inside the cap or the index used for keyboard/pointer focus.
+        items.reverse();
+        let reversed = State::from_items(items.iter().map(|(name, item)| (name, item)));
+        assert_eq!(initial, reversed);
+        assert_eq!(initial.entries.last().unwrap().bus_name, "org.test.Item030");
+        assert!(initial.entries.iter().all(|entry| entry.bus_name != "org.test.Item031"));
     }
 
     #[test]
