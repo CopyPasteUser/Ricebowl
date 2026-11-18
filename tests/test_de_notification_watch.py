@@ -153,8 +153,10 @@ class InboxSignalTests(unittest.TestCase):
     def test_partial_subscribe_failure_does_not_mask_original_error_or_leak_ui(self):
         bus = FakeConnection(fail_at=2)
         callbacks = []
-        bus.signal_unsubscribe = lambda _ident: (_ for _ in ()).throw(
-            OSError("D-Bus disconnect during cleanup"))
+        def failed_unsubscribe(_ident):
+            raise OSError("D-Bus disconnect during cleanup")
+
+        bus.signal_unsubscribe = failed_unsubscribe
         with self.assertRaisesRegex(RuntimeError, "unavailable D-Bus subscription"):
             notification_watch.InboxSignals(gio(bus), callbacks.append)
         # Subscription 1 remains in the fake bus but the view callback has
