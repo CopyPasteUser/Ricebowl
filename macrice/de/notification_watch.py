@@ -76,9 +76,19 @@ class InboxSignals:
             self._on_change(reason)
 
     def close(self) -> None:
-        connection, self._connection = self._connection, None
-        if connection is not None:
-            for ident in self._ids:
-                connection.signal_unsubscribe(ident)
-        self._ids.clear()
+        # Revoke the UI callback FIRST. A disconnected or disposed GDBus
+        # connection may reject individual unsubscribes; even a queued
+        # delivery from a surviving subscription must not outlive the view.
         self._on_change = lambda _reason: None
+        connection, self._connection = self._connection, None
+        subscriptions, self._ids = self._ids, []
+        if connection is None:
+            return
+        for ident in subscriptions:
+            try:
+                connection.signal_unsubscribe(ident)
+            except Exception:
+                # Best-effort transport cleanup: no retry loop, daemon, or
+                # private notification text. The callback lease is already
+                # revoked and all remaining IDs still get an unsubscribe.
+                continue
