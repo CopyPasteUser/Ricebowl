@@ -13,6 +13,8 @@ from typing import BinaryIO
 
 MAX_CONTROL_BYTES = 1024 * 1024
 MAX_CONTROL_ENTRIES = 3  # optional root, required control, optional md5sums
+MAX_CONTROL_PATH_BYTES = 4096
+MAX_CONTROL_COMPONENT_BYTES = 255
 
 
 class UnsafeControl(ValueError):
@@ -25,7 +27,15 @@ def verify_control(stream: BinaryIO) -> int:
     try:
         with tarfile.open(fileobj=stream, mode="r|") as archive:
             for item in archive:
+                # Normalize aliases only after bounding their raw representation.
+                # Repeated './' segments can otherwise produce a multi-megabyte
+                # GNU longname which still resolves to the allowed 'control'.
+                if len(item.name.encode("utf-8", "surrogateescape")) > MAX_CONTROL_PATH_BYTES:
+                    raise UnsafeControl("Oversized control archive path")
                 path = PurePosixPath(item.name)
+                if any(len(part.encode("utf-8", "surrogateescape")) > MAX_CONTROL_COMPONENT_BYTES
+                       for part in path.parts):
+                    raise UnsafeControl("Oversized control archive path component")
                 if (not item.name or path.is_absolute() or ".." in path.parts
                         or any(ord(c) < 32 or ord(c) == 127 for c in item.name)):
                     raise UnsafeControl("Unsafe control archive path")
