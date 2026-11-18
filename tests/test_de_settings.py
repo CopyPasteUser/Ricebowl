@@ -331,6 +331,56 @@ class RiceSpiceSettingsTests(unittest.TestCase):
                 backend.set_bluetooth_power(True, expected=False)
             change.assert_called_once_with("/org/bluez/hci0", True)
 
+    def test_mutated_radio_state_is_indeterminate_when_provider_dies_during_readback(self):
+        with mock.patch.object(backend, "wifi_state",
+                               side_effect=[False, backend.SettingsError("NM gone")]), \
+             mock.patch.object(backend, "_nmcli") as change:
+            with self.assertRaisesRegex(backend.SettingsError,
+                                        "may have changed; verification unavailable"):
+                backend.set_wifi(True, expected=False)
+            change.assert_called_once_with("radio", "wifi", "on")
+        # Failure before a write never attempts to change radio state.
+        with mock.patch.object(backend, "wifi_state",
+                               side_effect=backend.SettingsError("NM gone")), \
+             mock.patch.object(backend, "_nmcli") as change:
+            with self.assertRaises(backend.SettingsError):
+                backend.set_wifi(True, expected=False)
+            change.assert_not_called()
+
+    def test_bluez_postwrite_provider_loss_never_claims_definite_failure(self):
+        before = {"powered": False, "adapter": "/org/bluez/hci0", "devices": []}
+        with mock.patch.object(backend, "bluetooth_snapshot",
+                               side_effect=[before, backend.SettingsError("BlueZ gone")]), \
+             mock.patch("macrice.bluetooth_dbus.set_power") as change:
+            with self.assertRaisesRegex(backend.SettingsError,
+                                        "power may have changed; verification unavailable"):
+                backend.set_bluetooth_power(True, expected=False)
+            change.assert_called_once_with("/org/bluez/hci0", True)
+
+        addr = "AA:BB:CC:DD:EE:FF"
+        connected_before = {"powered": True, "adapter": "/org/bluez/hci0",
+                            "devices": [{"address": addr, "paired": True,
+                                         "connected": False, "label": "Phone"}]}
+        with mock.patch.object(backend, "bluetooth_snapshot",
+                               side_effect=[connected_before,
+                                            backend.SettingsError("BlueZ gone")]), \
+             mock.patch("macrice.bluetooth_dbus.set_connection") as connect:
+            with self.assertRaisesRegex(backend.SettingsError,
+                                        "connection may have changed; verification unavailable"):
+                backend.set_bluetooth_connection(
+                    addr, True, expected=False, expected_adapter="/org/bluez/hci0")
+            connect.assert_called_once_with(
+                addr, True, expected_adapter="/org/bluez/hci0")
+
+    def test_bluez_noop_readback_loss_does_not_claim_an_unverified_mutation(self):
+        before = {"powered": False, "adapter": "/org/bluez/hci0", "devices": []}
+        with mock.patch.object(backend, "bluetooth_snapshot",
+                               side_effect=[before, backend.SettingsError("BlueZ gone")]), \
+             mock.patch("macrice.bluetooth_dbus.set_power") as change:
+            with self.assertRaisesRegex(backend.SettingsError, "BlueZ gone"):
+                backend.set_bluetooth_power(False, expected=False)
+            change.assert_not_called()
+
     def test_suspend_refused_in_nested_preview_without_command(self):
         with mock.patch.object(backend.subprocess, "run") as run:
             with self.assertRaisesRegex(backend.SettingsError, "nested"):

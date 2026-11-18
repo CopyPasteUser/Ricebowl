@@ -297,7 +297,14 @@ def set_wifi(enabled: bool, *, expected: bool) -> bool:
     if enabled == expected:
         return enabled
     _nmcli("radio", "wifi", "on" if enabled else "off")
-    if wifi_state() != enabled:
+    try:
+        actual = wifi_state()
+    except SettingsError as exc:
+        # The first write completed; a provider failure during readback is
+        # indeterminate. Do not present it as a safe-to-retry failed toggle.
+        raise SettingsError(
+            "Wi-Fi may have changed; verification unavailable; refresh before retrying") from exc
+    if actual != enabled:
         raise SettingsError("Wi-Fi may have changed; verification failed")
     return enabled
 
@@ -408,7 +415,13 @@ def set_bluetooth_power(enabled: bool, *, expected: bool,
             bluetooth_dbus.set_power(before["adapter"], enabled)
         except Exception as exc:
             raise SettingsError("BlueZ denied the adapter change") from exc
-    after = bluetooth_snapshot()
+    try:
+        after = bluetooth_snapshot()
+    except SettingsError as exc:
+        if enabled != expected:
+            raise SettingsError(
+                "Bluetooth power may have changed; verification unavailable; refresh") from exc
+        raise
     if after["adapter"] != before["adapter"]:
         raise SettingsError("Bluetooth adapter changed; refresh before applying")
     if after["powered"] != enabled:
@@ -437,7 +450,13 @@ def set_bluetooth_connection(address: str, connected: bool, *, expected: bool,
                 address, connected, expected_adapter=before["adapter"])
         except Exception as exc:
             raise SettingsError("BlueZ denied the device operation") from exc
-    after = bluetooth_snapshot()
+    try:
+        after = bluetooth_snapshot()
+    except SettingsError as exc:
+        if connected != expected:
+            raise SettingsError(
+                "Bluetooth connection may have changed; verification unavailable; refresh") from exc
+        raise
     if after["adapter"] != before["adapter"]:
         raise SettingsError("Bluetooth adapter changed; refresh before applying")
     actual = next((item for item in after["devices"] if item["address"] == address), None)
