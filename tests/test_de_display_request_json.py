@@ -84,5 +84,62 @@ class DisplayTransactionJSONTests(unittest.TestCase):
             setter.assert_not_called()
 
 
+    def test_confirmation_marker_must_be_exact_owner_private_true(self):
+        marker = display_guard._keep_path(self.change)
+        display_guard._write_new(marker, {"keep": True})
+        self.assertTrue(display_guard._keep_requested(self.change))
+        marker.unlink()
+
+        for data in (
+            b"", b"{}", b'{"keep":1}', b'{"keep":false}',
+            b'{"keep":true,"keep":false}', b'{"keep":true,"extra":false}',
+            b'{"keep":null}', b'{"keep":"true"}',
+        ):
+            with self.subTest(data=data):
+                marker.write_bytes(data)
+                marker.chmod(0o600)
+                self.assertFalse(display_guard._keep_requested(self.change))
+                marker.unlink()
+
+        marker.write_text('{"keep":true}', encoding="utf-8")
+        marker.chmod(0o644)
+        self.assertFalse(display_guard._keep_requested(self.change))
+        marker.unlink()
+        outside = self.root / "outside"
+        outside.write_text('{"keep":true}', encoding="utf-8")
+        marker.symlink_to(outside)
+        self.assertFalse(display_guard._keep_requested(self.change))
+        self.assertEqual(outside.read_text(), '{"keep":true}')
+
+    def test_ambiguous_guard_status_cannot_enable_confirmation(self):
+        status = display_guard._state_path(self.change)
+        status.write_text('{"state":"pending","state":"kept","detail":"forged"}')
+        with self.assertRaisesRegex(RuntimeError, "Cannot read display guard status"):
+            display_guard.keep_change(self.change)
+        self.assertFalse(display_guard._keep_path(self.change).exists())
+
+    def test_ignored_invalid_confirmation_rolls_back_to_previous_x11_mode(self):
+        self.request('{"name":"eDP-1","mode":"1600x900","x":10,"y":0,'
+                     '"old_mode":"1920x1080","old_x":0,"old_y":0}')
+        display_guard._keep_path(self.change).write_text('{"keep":false}')
+        from macrice import display_layout
+        output = display_layout.DisplayOutput(
+            "eDP-1", "1920x1080", (0, 0), True,
+            ("1920x1080", "1600x900"))
+        with (
+            mock.patch.object(display_guard.display_layout, "read_monitor_layout",
+                              return_value=(output,)),
+            mock.patch.object(display_guard, "_run_xrandr") as set_mode,
+            mock.patch.object(display_guard, "_check_current", return_value=True),
+            mock.patch.object(display_guard.time, "monotonic", side_effect=(0, 19)),
+        ):
+            self.assertEqual(display_guard.run_worker(self.change), 1)
+        self.assertEqual(set_mode.call_args_list, [
+            mock.call("eDP-1", "1600x900", 10, 0),
+            mock.call("eDP-1", "1920x1080", 0, 0),
+        ])
+        self.assertEqual(display_guard.read_status(self.change)[0], "reverted")
+
+
 if __name__ == "__main__":
     unittest.main()
