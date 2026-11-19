@@ -463,10 +463,19 @@ impl State {
             return (text, caret, None);
         }
         let end = insertion + preedit.text.len();
-        let begin_cursor = preview.input[..insertion].graphemes(true).count();
-        let end_cursor = preview.input[..end].graphemes(true).count();
+        // The preedit may join existing graphemes on either side: adding
+        // a combining mark to "e" or a ZWJ between emoji produces *one*
+        // final grapheme spanning the insertion boundary. Underline every
+        // complete final grapheme touched by the preedit; counting graphemes
+        // in standalone UTF-8 prefixes can yield a zero-width underline.
+        let composed_points = preview.boundaries();
+        let begin_cursor = composed_points.partition_point(|&byte| byte <= insertion)
+            .saturating_sub(1);
+        let end_cursor = composed_points.partition_point(|&byte| byte < end);
         let caret_byte = insertion + preedit.cursor.unwrap_or(preedit.text.len());
-        preview.cursor = preview.input[..caret_byte].graphemes(true).count();
+        // IMEs use scalar-aligned UTF-8 offsets, not necessarily grapheme
+        // boundaries. Never expose a caret inside a visual cluster.
+        preview.cursor = composed_points.partition_point(|&byte| byte < caret_byte);
         let (display, caret) = preview.input_view_bidi(max_width, &measure, &measure_visual);
         let points = preview.boundaries();
         let (first, last) = preview.visible_range(max_width, &measure, &points);
@@ -740,6 +749,53 @@ mod tests {
         assert!(state.preedit.is_none());
         assert_eq!(state.input_view_composing(200, metric, metric),
                    ("foot".into(), 0, None));
+    }
+
+    #[test]
+    fn intra_grapheme_ime_preedit_has_visible_underline_and_safe_caret() {
+        let metric = |text: &str| (text.graphemes(true).count() as u32) * 8;
+        let mut state = State::new(Kind::Run);
+        assert!(state.commit_text("e"));
+        let mut pending = crate::native_ime::Pending::default();
+        // A combining mark becomes part of the *preceding* grapheme,
+        // although it is the only pending IME text.
+        pending.preedit(Some("\u{301}".into()), 0, 0);
+        assert!(state.apply_ime(&pending));
+        assert_eq!(state.input_view_composing(200, metric, metric),
+                   ("e\u{301}".into(), 8, Some((0, 8))));
+        assert_eq!(state.input, "e", "preedit must not mutate Run argv");
+        assert_eq!(state.argv().unwrap(), ["e"]);
+
+        pending.reset();
+        pending.commit(Some("\u{301}".into()));
+        assert!(state.apply_ime(&pending));
+        assert_eq!(state.input, "e\u{301}");
+        assert_eq!(state.cursor, 1);
+        assert!(state.preedit.is_none());
+
+        // A valid text-input-v3 caret between the base and mark gets
+        // projected to the end of the painted grapheme, not rejected.
+        pending.reset();
+        pending.preedit(Some("a\u{301}".into()), 1, 1);
+        assert!(state.apply_ime(&pending));
+        assert_eq!(state.input_view_composing(200, metric, metric),
+                   ("e\u{301}a\u{301}".into(), 16, Some((8, 16))));
+        assert_eq!(state.input, "e\u{301}");
+    }
+
+    #[test]
+    fn zwj_preedit_underlines_the_joined_emoji_not_an_empty_range() {
+        let metric = |text: &str| (text.graphemes(true).count() as u32) * 8;
+        let mut state = State::new(Kind::FileRename);
+        assert!(state.commit_text("👩💻"));
+        assert!(state.move_cursor(CursorMove::Home));
+        assert!(state.move_cursor(CursorMove::Right));
+        let mut pending = crate::native_ime::Pending::default();
+        pending.preedit(Some("\u{200d}".into()), 3, 3);
+        assert!(state.apply_ime(&pending));
+        assert_eq!(state.input_view_composing(200, metric, metric),
+                   ("👩‍💻".into(), 8, Some((0, 8))));
+        assert_eq!(state.input, "👩💻");
     }
 
     #[test]
