@@ -110,5 +110,37 @@ class RunnerArchiveTests(unittest.TestCase):
             self.assertIn(contract, yaml)
 
 
+    def test_gtk_python_ci_uses_same_source_and_exact_package_list(self):
+        yaml = (ROOT / ".github/workflows/ci.yml").read_text()
+        self.assertEqual(yaml.count("Install GTK introspection for Linux tests"), 1)
+        self.assertIn("timeout-minutes: 20", yaml)
+        self.assertIn(
+            "sudo env GITHUB_ACTIONS=true /usr/bin/python3 scripts/ci_ubuntu_archive.py",
+            yaml,
+        )
+        self.assertEqual(yaml.count("Acquire::Retries=2"), 2)
+        self.assertEqual(yaml.count("Acquire::http::Timeout=15"), 2)
+        self.assertEqual(yaml.count("Acquire::https::Timeout=15"), 2)
+        self.assertIn("apt-get -o Acquire::Retries=2", yaml)
+        self.assertIn(
+            "install -y python3-gi python3-cairo python3-gi-cairo python3-pil "
+            "gir1.2-gtk-3.0 xvfb dbus-x11 gir1.2-wnck-3.0 "
+            "librsvg2-common xfwm4 xfconf thunar xdotool", yaml,
+        )
+        # A successful dependency step is never allowed to replace the actual
+        # Python/GTK/Xvfb, RiceSpice or screenshot acceptance suite.
+        for step in (
+            "/usr/bin/python3 -m unittest discover -s tests -v",
+            "tests.test_de_settings_gui -v",
+            "tests.test_wayland_luna_settings -v",
+            "tests.test_luna_system_ux_fidelity -v",
+        ):
+            self.assertIn(step, yaml)
+        self.assertLess(
+            yaml.index("scripts/ci_ubuntu_archive.py"),
+            yaml.index("Install GTK introspection for Linux tests") + 500,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
