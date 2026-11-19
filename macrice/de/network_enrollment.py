@@ -60,6 +60,11 @@ def _certificate(value: str) -> str | None:
     return str(path)
 
 
+def _stored_ca_path(value: str) -> str:
+    """Normalize nmcli's path-scheme CA readback; never accept remote URIs."""
+    return value[7:] if value.startswith("file:///") else value
+
+
 def _run(*args: str, secret: str | None = None, wait: int = 12) -> str:
     """Execute fixed, non-shell nmcli argv; no secrets in argv or stderr."""
     binary = shutil.which("nmcli")
@@ -112,7 +117,9 @@ def create_enterprise_wifi(*, ssid: str, identity: str, domain: str,
     if cert is None:
         args.extend(("802-1x.system-ca-certs", "yes"))
     else:
-        args.extend(("802-1x.ca-cert", cert))
+        # A system CA trust bundle can override a custom CA in NetworkManager.
+        # The selected certificate must be the one used to verify the server.
+        args.extend(("802-1x.system-ca-certs", "no", "802-1x.ca-cert", cert))
     _run(*args)
     after = backend.connection_profiles()
     new = next((item for item in after if item["uuid"] == identifier), None)
@@ -134,6 +141,13 @@ def create_enterprise_wifi(*, ssid: str, identity: str, domain: str,
                 or _profile_setting(identifier, "802-1x.phase2-auth") != inner
                 or _profile_setting(identifier, "802-1x.domain-suffix-match") != host):
             raise backend.SettingsError("Enterprise Wi-Fi identity or security settings changed")
+        if cert is not None:
+            if _profile_setting(identifier, "802-1x.system-ca-certs").lower() not in (
+                    "no", "false", "0"):
+                raise backend.SettingsError("Custom enterprise CA trust was overridden")
+            stored = _stored_ca_path(_profile_setting(identifier, "802-1x.ca-cert"))
+            if stored != cert:
+                raise backend.SettingsError("Custom enterprise CA certificate changed")
     except backend.SettingsError as exc:
         raise backend.SettingsError(
             "Enterprise profile was added, but its safety settings could not be "
@@ -179,7 +193,7 @@ def enterprise_password_ready(uuid: str) -> bool:
     except backend.SettingsError as exc:
         raise backend.SettingsError("This profile has no trusted EAP server domain") from exc
     system_ca = _profile_setting(uuid, "802-1x.system-ca-certs")
-    cert = _profile_setting(uuid, "802-1x.ca-cert")
+    cert = _stored_ca_path(_profile_setting(uuid, "802-1x.ca-cert"))
     if system_ca.lower() not in ("yes", "true", "1"):
         try:
             if _certificate(cert) is None:
