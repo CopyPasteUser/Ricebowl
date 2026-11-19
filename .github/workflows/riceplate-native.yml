@@ -52,6 +52,8 @@ on:
       - 'scripts/smoke_wayland_shared_rice_engine.sh'
       - 'scripts/ci_wayland_resource_smoke.py'
       - 'tests/test_ci_wayland_resource_smoke.py'
+      - 'scripts/verify_sg7_resource_receipts.py'
+      - 'tests/test_sg7_resource_receipts.py'
       - 'tests/test_de_creator_output_matrix.py'
       - 'tests/test_de_render.py'
       - 'tests/test_de_window_outputs.py'
@@ -133,6 +135,8 @@ on:
       - 'scripts/smoke_wayland_shared_rice_engine.sh'
       - 'scripts/ci_wayland_resource_smoke.py'
       - 'tests/test_ci_wayland_resource_smoke.py'
+      - 'scripts/verify_sg7_resource_receipts.py'
+      - 'tests/test_sg7_resource_receipts.py'
       - 'tests/test_de_creator_output_matrix.py'
       - 'tests/test_de_render.py'
       - 'tests/test_de_window_outputs.py'
@@ -396,6 +400,13 @@ jobs:
         run: timeout -k 5s 180s sh scripts/smoke_riceplate_native.sh
       - name: Prove shared Rice engine across three native compositor-confirmed live layouts
         run: timeout -k 5s 125s sh scripts/smoke_wayland_shared_rice_engine.sh
+      - name: Verify SG7 compositor resource growth receipts at exact source SHA
+        run: |
+          set -eu
+          /usr/bin/python3 -m unittest tests.test_sg7_resource_receipts -v
+          /usr/bin/python3 scripts/verify_sg7_resource_receipts.py \
+            --directory "$PWD/dist/riceplate-native-preview/shared-engine" \
+            --source-commit "$GITHUB_SHA"
       - name: Preserve real compositor frames if Creator output matrix fails
         if: failure()
         uses: actions/upload-artifact@v4
