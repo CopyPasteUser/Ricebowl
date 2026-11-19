@@ -341,6 +341,30 @@ class NetworkEnrollmentTests(unittest.TestCase):
                         call.args[:2] in (("con", "down"), ("con", "delete"))
                         for call in run.call_args_list))
 
+    def test_vpn_import_transport_loss_is_never_treated_as_safe_retry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp, "example.ovpn")
+            source.write_text("client\nremote vpn.example.net 1194\n")
+            with (
+                mock.patch.object(backend, "connection_profiles",
+                                  return_value=[]),
+                mock.patch.object(enrollment, "_run",
+                                  side_effect=backend.SettingsError("request timed out")) as run,
+            ):
+                with self.assertRaisesRegex(backend.SettingsError,
+                                            "import outcome is unknown"):
+                    enrollment.import_vpn_profile(str(source))
+                run.assert_called_once()
+            with (
+                mock.patch.object(backend, "connection_profiles",
+                                  side_effect=[[], backend.SettingsError("provider offline")]),
+                mock.patch.object(enrollment, "_run", return_value="") as run,
+            ):
+                with self.assertRaisesRegex(backend.SettingsError,
+                                            "profile inventory is unavailable"):
+                    enrollment.import_vpn_profile(str(source))
+                run.assert_called_once()
+
     def test_vpn_import_reports_indeterminate_post_import_mutations(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp, "example.ovpn")
