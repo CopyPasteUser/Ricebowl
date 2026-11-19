@@ -8545,7 +8545,10 @@ impl PointerHandler for RicePlate {
             if self.active_tray_popup.as_ref() == Some(&event.surface) {
                 if self.tray_menu_state.visible {
                     match event.kind {
-                        PointerEventKind::Press { button: BTN_LEFT | BTN_RIGHT, .. } => {
+                        // Secondary clicks may open a provider's own context
+                        // menu at its tray icon, but NEVER invoke a row here.
+                        PointerEventKind::Press { button, .. }
+                            if tray::menu_activation_button(button) => {
                             match self.tray_menu_state.hit(event.position.0, event.position.1) {
                                 Some(TrayMenuHit::Row(index)) =>
                                     self.choose_tray_menu_row(index, qh),
