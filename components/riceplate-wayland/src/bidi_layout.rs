@@ -31,6 +31,9 @@ pub(crate) fn has_rtl(text: &str) -> bool {
 /// levels may change at a truncation or paragraph boundary.
 pub(crate) struct VisualClusterMap {
     pub(crate) visual_to_logical: Vec<usize>,
+    // Editors measure and visit every caret after one reorder. Store the
+    // inverse once instead of scanning the visual permutation per caret.
+    logical_to_visual: Vec<usize>,
     rtl_by_logical: Vec<bool>,
 }
 
@@ -43,8 +46,7 @@ impl VisualClusterMap {
         if len == 0 { return 0; }
         let at_end = cursor >= len;
         let logical = if at_end { len - 1 } else { cursor };
-        let visual = self.visual_to_logical.iter().position(|&i| i == logical)
-            .expect("reordering is a permutation");
+        let visual = self.logical_to_visual[logical];
         if self.rtl_by_logical[logical] == at_end { visual } else { visual + 1 }
     }
 }
@@ -66,8 +68,17 @@ pub(crate) fn visual_cluster_map(text: &str) -> Option<VisualClusterMap> {
     }
     if offset != per_char.len() { return None; }
     let rtl_by_logical = levels.iter().map(|level| level.is_rtl()).collect();
+    let visual_to_logical = BidiInfo::reorder_visual(&levels);
+    // UAX #9 returns a permutation of grapheme indices. Build its inverse
+    // in O(n): editor visual-arrow selection and painted caret layout then
+    // need only O(1) per edge instead of searching n entries every time.
+    let mut logical_to_visual = vec![0; visual_to_logical.len()];
+    for (visual, &logical) in visual_to_logical.iter().enumerate() {
+        logical_to_visual[logical] = visual;
+    }
     Some(VisualClusterMap {
-        visual_to_logical: BidiInfo::reorder_visual(&levels),
+        visual_to_logical,
+        logical_to_visual,
         rtl_by_logical,
     })
 }
@@ -239,6 +250,38 @@ mod tests {
         assert_eq!(map.visual_to_logical, [2, 1, 0]);
         assert_eq!((0..=3).map(|i| map.caret_edge(i)).collect::<Vec<_>>(),
                    [3, 2, 1, 0]);
+    }
+
+    #[test]
+    fn inverse_caret_map_matches_original_search_for_long_unicode_editor_lines() {
+        // The old map walked visual_to_logical for *each* caret. Keep an
+        // independent oracle for the exact legacy caret semantics, including
+        // run boundaries, combined accents and joined Unicode emoji.
+        let long = "abc אבג مرحبا 👩‍💻 🇩🇪 ".repeat(8);
+        for text in ["אבג", "abc אבג", "مرحبا 👩‍💻 🇩🇪 A\u{301} עברית", &long] {
+            let map = visual_cluster_map(text).expect("contains an RTL run");
+            let len = map.visual_to_logical.len();
+            assert_eq!(map.logical_to_visual.len(), len);
+            for logical in 0..len {
+                let reference = map.visual_to_logical.iter()
+                    .position(|&value| value == logical).unwrap();
+                assert_eq!(map.logical_to_visual[logical], reference);
+            }
+            for cursor in 0..=len {
+                let at_end = cursor == len;
+                let logical = if at_end { len - 1 } else { cursor };
+                let reference = map.visual_to_logical.iter()
+                    .position(|&value| value == logical).unwrap();
+                let expected = if map.rtl_by_logical[logical] == at_end {
+                    reference
+                } else {
+                    reference + 1
+                };
+                assert_eq!(map.caret_edge(cursor), expected, "cursor={cursor} text={text:?}");
+            }
+            // Calling visual-order painting must never rewrite logical input.
+            assert_eq!(text.graphemes(true).count(), len);
+        }
     }
 
     #[test]
