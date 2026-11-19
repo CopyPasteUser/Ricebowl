@@ -19,6 +19,7 @@ on:
       - 'tests/test_wayland_portal_probe.py'
       - 'tests/test_wayland_portal_strict.py'
       - 'docs/wayland-portal-strict-acceptance.md'
+      - 'docs/sg1-sg7-evidence-progress.md'
       - 'scripts/ci_ubuntu_archive.py'
       - 'packaging/wayland/ricebowl-portals.conf'
   pull_request:
@@ -37,6 +38,7 @@ on:
       - 'tests/test_wayland_portal_probe.py'
       - 'tests/test_wayland_portal_strict.py'
       - 'docs/wayland-portal-strict-acceptance.md'
+      - 'docs/sg1-sg7-evidence-progress.md'
       - 'scripts/ci_ubuntu_archive.py'
       - 'packaging/wayland/ricebowl-portals.conf'
   workflow_dispatch:
