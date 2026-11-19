@@ -49,8 +49,8 @@ def load_optional() -> dict | None:
     if len(raw) > 2048:
         raise ValueError("RicePop settings are oversized")
     try:
-        obj = json.loads(raw)
-    except (UnicodeError, ValueError) as exc:
+        obj = json.loads(raw, object_pairs_hook=preferences._unique_json_object)
+    except (UnicodeError, ValueError, RecursionError) as exc:
         raise ValueError("RicePop settings are invalid JSON") from exc
     if (type(obj) is not dict or type(obj.get("version")) is not int
             or obj["version"] != 1):
