@@ -29,6 +29,8 @@ on:
       - 'scripts/smoke_riceplate_native.sh'
       - 'scripts/smoke_luna_window_chrome.sh'
       - 'scripts/smoke_luna_hotkeys.sh'
+      - 'scripts/smoke_luna_atspi.sh'
+      - 'scripts/smoke_riceplate_atspi_client.py'
       - 'scripts/wayland_luna_chrome_client.sh'
       - 'scripts/smoke_riceplate_windows.sh'
       - 'scripts/smoke_riceplate_luna_autohide.sh'
@@ -112,6 +114,8 @@ on:
       - 'scripts/smoke_riceplate_native.sh'
       - 'scripts/smoke_luna_window_chrome.sh'
       - 'scripts/smoke_luna_hotkeys.sh'
+      - 'scripts/smoke_luna_atspi.sh'
+      - 'scripts/smoke_riceplate_atspi_client.py'
       - 'scripts/wayland_luna_chrome_client.sh'
       - 'scripts/smoke_riceplate_windows.sh'
       - 'scripts/smoke_riceplate_luna_autohide.sh'
@@ -185,7 +189,7 @@ jobs:
       - name: Install native Wayland and keyboard build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libxkbcommon-dev libdbus-1-dev pkg-config labwc waybar fuzzel swaylock grim foot xwayland xterm xclip wl-clipboard wlr-randr wtype swaybg fonts-dejavu-core python3-pil python3-gi gir1.2-gtk-3.0 dbus-user-session dbus-x11 dpkg-dev binutils xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-wlr libglib2.0-bin pipewire
+          sudo apt-get install -y libxkbcommon-dev libdbus-1-dev pkg-config labwc waybar fuzzel swaylock grim foot xwayland xterm xclip wl-clipboard wlr-randr wtype swaybg fonts-dejavu-core python3-pil python3-gi python3-pyatspi at-spi2-core gir1.2-gtk-3.0 dbus-user-session dbus-x11 dpkg-dev binutils xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-wlr libglib2.0-bin pipewire
       - name: Build and test native RicePlate
         run: |
           /usr/bin/python3 -m unittest tests.test_de_session -v
@@ -203,6 +207,8 @@ jobs:
           sh -n scripts/smoke_riceplate_native.sh
           sh -n scripts/smoke_luna_window_chrome.sh
           sh -n scripts/smoke_luna_hotkeys.sh
+          sh -n scripts/smoke_luna_atspi.sh
+          /usr/bin/python3 -m py_compile scripts/smoke_riceplate_atspi_client.py
           sh -n scripts/wayland_luna_chrome_client.sh
           sh -n scripts/smoke_riceplate_windows.sh
           sh -n scripts/smoke_riceplate_luna_autohide.sh
@@ -884,6 +890,9 @@ jobs:
           timeout -k 5s 80s sh scripts/smoke_luna_window_chrome.sh
       - name: Verify real XP Super+D/E/R shortcuts and native Run dialog
         run: timeout -k 5s 90s sh scripts/smoke_luna_hotkeys.sh
+      - name: Verify native Run editor focus, selection and teardown over real AT-SPI
+        timeout-minutes: 3
+        run: timeout -k 5s 140s sh scripts/smoke_luna_atspi.sh
       - name: Render both Creator demonstrators at four real output geometries
         run: |
           set -eu
