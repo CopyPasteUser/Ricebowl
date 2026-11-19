@@ -690,7 +690,8 @@ mod tests {
 
     #[test]
     fn menu_bounds_untrusted_depth_and_node_count() {
-        let oversized = root((0..500).map(|n| leaf(n, "abc", true, true)).collect());
+        // DBusMenu child IDs must not reuse the root ID (0).
+        let oversized = root((1..=500).map(|n| leaf(n, "abc", true, true)).collect());
         let mut popup = MenuPopup::default();
         assert!(popup.open("app", "App", &oversized));
         assert_eq!(popup.rows().len(), MAX_MENU_NODES);
@@ -779,6 +780,8 @@ mod tests {
         let mut menu = MenuPopup::default();
         assert!(!menu.open("service", "Invalid",
             &root(vec![leaf(1, "A", true, true), leaf(1, "B", true, true)])));
+        assert!(!menu.open("service", "Invalid root reuse",
+            &root(vec![leaf(0, "Root ID reused", true, true)])));
         assert!(!menu.visible);
         assert!(!menu.open("service", "Invalid", &root(vec![
             MenuNode::Menu { id: 4, label: "Options".into(),
