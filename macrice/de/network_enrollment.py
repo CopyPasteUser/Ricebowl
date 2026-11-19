@@ -224,16 +224,49 @@ def import_vpn_profile(path: str) -> str:
             raise OSError("invalid VPN configuration file")
     except OSError as exc:
         raise backend.SettingsError("VPN configuration file is missing or unreadable") from exc
+    expected_kind = "wireguard" if kind == "wireguard" else "vpn"
     before = {entry["uuid"] for entry in backend.connection_profiles()}
-    _run("con", "import", "type", kind, "file", str(source))
-    additions = [entry for entry in backend.connection_profiles()
-                 if entry["uuid"] not in before and entry["kind"] in ("vpn", "wireguard")]
-    if len(additions) != 1:
-        raise backend.SettingsError("VPN import could not be verified; refresh saved profiles")
+    try:
+        _run("con", "import", "type", kind, "file", str(source))
+    except backend.SettingsError as exc:
+        # Timeout/disconnect is not proof of an aborted import.
+        raise backend.SettingsError(
+            "VPN import outcome is unknown; refresh saved profiles before retrying") from exc
+    # Match the unique NEW profile of the correct provider type. Never
+    # accidentally select a concurrently created, unrelated VPN profile.
+    try:
+        additions = [entry for entry in backend.connection_profiles()
+                     if entry["uuid"] not in before]
+    except backend.SettingsError as exc:
+        raise backend.SettingsError(
+            "VPN may have been imported, but profile inventory is unavailable; "
+            "refresh saved profiles before retrying") from exc
+    if len(additions) != 1 or additions[0]["kind"] != expected_kind:
+        raise backend.SettingsError(
+            "VPN import identity could not be verified; inspect newly saved "
+            "NetworkManager profiles before retrying")
     identifier = additions[0]["uuid"]
-    # Fail closed if NetworkManager did not honor the non-autoconnect request.
-    _run("con", "modify", "uuid", identifier, "connection.autoconnect", "no")
-    if _profile_setting(identifier, "connection.autoconnect").lower() not in ("no", "false", "0"):
+    # Imported profiles may already exist when a later step fails. Never
+    # retry the import or delete a profile after an indeterminate write.
+    try:
+        _run("con", "modify", "uuid", identifier, "connection.autoconnect", "no")
+        autoconnect = _profile_setting(identifier, "connection.autoconnect").lower()
+    except backend.SettingsError as exc:
+        raise backend.SettingsError(
+            "VPN imported, but autoconnect state is unverified; inspect the "
+            "saved profile immediately before retrying") from exc
+    if autoconnect not in ("no", "false", "0"):
         raise backend.SettingsError("VPN imported, but autoconnect could not be disabled; "
                                     "review the saved profile immediately")
+    try:
+        current = next((item for item in backend.connection_profiles()
+                        if item["uuid"] == identifier), None)
+    except backend.SettingsError as exc:
+        raise backend.SettingsError(
+            "VPN imported, but profile readback failed; inspect the saved "
+            "profile before retrying") from exc
+    if (current is None or current["kind"] != expected_kind or current["active"]):
+        raise backend.SettingsError(
+            "VPN imported, but the profile changed or became active; "
+            "review its connection state before using it")
     return identifier
