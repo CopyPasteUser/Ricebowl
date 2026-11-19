@@ -85,7 +85,11 @@ class NativeCreatorHandoffRunnerTests(unittest.TestCase):
         def fake_render(token, output, *, width, height, scale):
             recipe = recipes.load(token)
             requested.append((token, width, height, scale))
-            color = (26, 117, 175) if recipe.name.startswith("Heritage") else (30, 70, 90)
+            color = ((26, 117, 175) if recipe.name.startswith("Heritage")
+                     else (30, 70, 90))
+            # The fake capture intentionally differs at fractional scaling.
+            # This is fixture logic, never used as real compositor evidence.
+            color = (color[0] + int(scale * 10), color[1], color[2])
             Image.new("RGB", (width, height), color).save(output)
             digest = hashlib.sha256(output.read_bytes()).hexdigest()
             return {"recipe": {"id": recipe.recipe_id,
@@ -100,7 +104,7 @@ class NativeCreatorHandoffRunnerTests(unittest.TestCase):
              mock.patch.object(runner.render, "render", side_effect=fake_render):
             manifest = runner.capture_installed(self.output)
 
-        self.assertEqual(len(requested), 4)
+        self.assertEqual(len(requested), 2 * len(runner.GEOMETRIES))
         self.assertEqual(len({item[0] for item in requested}), 2)
         self.assertEqual({(item[1], item[2], item[3]) for item in requested},
                          set(runner.GEOMETRIES))
@@ -114,10 +118,16 @@ class NativeCreatorHandoffRunnerTests(unittest.TestCase):
                          {item["recipe"] for item in manifest["captures"]})
         self.assertTrue(all(len(item["package_sha256"]) == 64
                             for item in manifest["package_imports"]))
-        self.assertEqual(len(manifest["captures"]), 4)
+        self.assertEqual(len(manifest["captures"]), 2 * len(runner.GEOMETRIES))
         self.assertFalse(manifest["capture_is_interactive"])
+        self.assertFalse(manifest["visual_tolerances_approved"])
+        self.assertFalse(manifest["input_and_focus_verified"])
+        self.assertEqual({record["attribution_review"]["rights_independently_verified"]
+                          for record in manifest["package_imports"]}, {False})
+        self.assertTrue(all("assets/font.ttf" in record["embedded_assets"]
+                            for record in manifest["package_imports"]))
         self.assertEqual(json.loads((self.output / "manifest.json").read_text()), manifest)
-        self.assertEqual(len(list(self.output.glob("*.png"))), 4)
+        self.assertEqual(len(list(self.output.glob("*.png"))), 2 * len(runner.GEOMETRIES))
 
 
 if __name__ == "__main__":
