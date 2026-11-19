@@ -147,7 +147,7 @@ def run_worker(change: guard.DisplayChange) -> int:
             guard._write_state(change, "pending", "Confirm the entire layout within 18 seconds")
             deadline = time.monotonic() + guard.TIMEOUT_SECONDS
             while time.monotonic() < deadline and not stopped[0]:
-                if guard._keep_path(change).is_file():
+                if guard._keep_requested(change):
                     guard._write_state(change, "kept", "Full monitor layout confirmed")
                     kept = True
                     if os.environ.get("RICEBOWL_DE_LIVE") == "1":
