@@ -93,9 +93,19 @@ def set_ntp(enabled: bool, *, expected: bool) -> dict[str, bool]:
         raise SettingsError("Automatic time state changed; refresh before applying")
     if enabled == expected:
         return before
-    _timedatectl("set-ntp", "true" if enabled else "false")
-    after = ntp_snapshot()
-    if after["enabled"] != enabled:
+    try:
+        _timedatectl("set-ntp", "true" if enabled else "false")
+    except SettingsError as exc:
+        # A system-bus timeout can occur after timedated applied the write.
+        # Never silently replay a potentially successful global mutation.
+        raise SettingsError(
+            "Automatic time may have changed; outcome unknown; refresh before retrying") from exc
+    try:
+        after = ntp_snapshot()
+    except SettingsError as exc:
+        raise SettingsError(
+            "Automatic time may have changed; verification unavailable; refresh") from exc
+    if not after["available"] or after["enabled"] != enabled:
         raise SettingsError("Automatic time may have changed; verification failed")
     return after
 
@@ -118,7 +128,11 @@ def set_system_clock(value: str, *, expected_ntp: bool = False) -> str:
     current = ntp_snapshot()
     if current["enabled"]:
         raise SettingsError("Automatic time is enabled; disable it and refresh first")
-    _timedatectl("set-time", value)
+    try:
+        _timedatectl("set-time", value)
+    except SettingsError as exc:
+        raise SettingsError(
+            "System time may have changed; outcome unknown; refresh before retrying") from exc
     # Compare within a bounded command/verification interval, not exact seconds.
     if abs(datetime.now() - target) > timedelta(seconds=15):
         raise SettingsError("System time may have changed; verification failed")
@@ -136,8 +150,17 @@ def set_timezone(name: str, *, expected: str) -> str:
         raise SettingsError("Choose a timezone from the current system list")
     if name == expected:
         return name
-    _timedatectl("set-timezone", name)
-    if _timedatectl("show", "-p", "Timezone", "--value") != name:
+    try:
+        _timedatectl("set-timezone", name)
+    except SettingsError as exc:
+        raise SettingsError(
+            "Timezone may have changed; outcome unknown; refresh before retrying") from exc
+    try:
+        actual = _timedatectl("show", "-p", "Timezone", "--value")
+    except SettingsError as exc:
+        raise SettingsError(
+            "Timezone may have changed; verification unavailable; refresh") from exc
+    if actual != name:
         raise SettingsError("Timezone may have changed; verification failed")
     return name
 
