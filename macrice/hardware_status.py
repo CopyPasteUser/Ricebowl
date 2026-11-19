@@ -567,8 +567,14 @@ def set_bluetooth_power(enabled: bool) -> BluetoothState:
             raise RuntimeError(
                 "Bluetooth power may have changed; verification failed; refresh")
         direct = _bluetooth_via_dbus()
-        if direct is not None and direct.powered is enabled:
+        if direct is None or direct.powered is None:
+            raise RuntimeError(
+                "Bluetooth power may have changed; readback unavailable; refresh")
+        if direct.powered is enabled:
             return direct
+        if direct.powered is not initial.powered:
+            raise RuntimeError(
+                "Bluetooth power changed externally; refresh before retrying")
         failures.append("bluetoothctl rejected power change")
     try:
         from . import bluetooth_dbus
@@ -635,8 +641,19 @@ def set_bluetooth_connection(address: str, connected: bool) -> BluetoothState:
             raise RuntimeError(
                 "Bluetooth connection may have changed; verification failed; refresh")
         direct = _bluetooth_via_dbus()
+        if direct is None:
+            raise RuntimeError(
+                "Bluetooth connection may have changed; readback unavailable; refresh")
+        current = [item for item in direct.devices
+                   if item.address.casefold() == address.casefold()]
+        if len(current) != 1:
+            raise RuntimeError(
+                "Bluetooth device identity changed; rescan before retrying")
         if verified(direct):
             return direct
+        if current[0].connected is not device.connected:
+            raise RuntimeError(
+                "Bluetooth connection changed externally; refresh before retrying")
         failures.append("bluetoothctl rejected device action")
     try:
         from . import bluetooth_dbus
