@@ -16,8 +16,9 @@ from unittest import mock
 
 from macrice.cli import main as cli
 from macrice.de import (assets, creator_assets, creator_workspace, pack,
-                        recipes, review)
+                        recipes, review, style_assets)
 from tests.test_de_portable_wallpapers import png
+from tests.test_creator_style_assets import icon_png
 
 
 DECLARATION = {"author": "SG4 test artist", "license": "CC0-1.0",
@@ -26,9 +27,11 @@ DECLARATION = {"author": "SG4 test artist", "license": "CC0-1.0",
 
 def rewritten_zip(path: Path, changes: dict[str, bytes] | None = None,
                   *, extra: tuple[str, bytes] | None = None,
-                  compressed: bool = False) -> bytes:
+                  compressed: bool = False,
+                  omit: frozenset[str] = frozenset()) -> bytes:
     with zipfile.ZipFile(path) as source:
-        entries = [(name, source.read(name)) for name in source.namelist()]
+        entries = [(name, source.read(name)) for name in source.namelist()
+                   if name not in omit]
     replaced = changes or {}
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w") as target:
@@ -169,6 +172,29 @@ class RicePackPreflightTests(unittest.TestCase):
                 self.assertEqual(error["error"]["code"], code)
                 self.assertFalse(error["applied"])
         self.assertFalse((self.root / "config/ricebowl").exists())
+
+    def test_missing_referenced_visual_asset_is_rejected_before_import(self):
+        source = self.root / "custom.png"
+        source.write_bytes(icon_png())
+        icon = style_assets.import_asset(source, kind="icon", label="Original icon",
+                                         provenance=DECLARATION)
+        draft = creator_workspace.create_draft("heritage")
+        revised, _ = creator_workspace.save_revision(
+            draft.path, {"/artwork/icons/applications": icon.identifier},
+            expected_sha256=draft.semantic_sha256)
+        original = self.root / "valid-icon.ricepack"
+        creator_workspace.export_draft(revised, original)
+        self.assertEqual(pack.inspect_pack(original)["pack_version"], 4)
+        damaged = self.root / "missing-icon.ricepack"
+        damaged.write_bytes(rewritten_zip(
+            original, omit=frozenset({"assets/icons/applications.png"})))
+        damaged.chmod(0o600)
+        with self.assertRaises(pack.PackError) as caught:
+            pack.preflight_import(damaged)
+        self.assertEqual(caught.exception.code, "asset_mismatch")
+        self.assertFalse((self.root / "config/ricebowl/recipes" /
+                          (revised.recipe_id + ".json")).exists())
+        self.assertEqual(recipes.current_selection(), ("classic", None))
 
     def test_direction_spoofed_wallpaper_label_rejected_before_asset_install(self):
         source = self.root / "image.png"
