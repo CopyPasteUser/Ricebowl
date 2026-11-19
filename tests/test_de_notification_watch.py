@@ -4,6 +4,7 @@ import threading
 import unittest
 from concurrent.futures import Future
 from types import SimpleNamespace
+from unittest import mock
 
 from macrice.de import notification_watch, notifications, settings
 
@@ -72,8 +73,9 @@ class InboxSignalTests(unittest.TestCase):
                                  "NameOwnerChanged", ("org.freedesktop.Notifications",)))
         self.assertIsNone(detect("org.freedesktop.DBus", "NameOwnerChanged",
                                  {"name": "org.freedesktop.Notifications"}))
-        # Modern Mako 1.11+ uses the same D-Bus PropertiesChanged
-        # contract for additions, replacements and invalidations.
+        # Modern Mako 1.11+ announces additions via PropertiesChanged,
+        # but its same-ID replacement path omits the signal. The separate
+        # view-only readback timer must detect those replacements.
         self.assertEqual(detect("org.freedesktop.DBus.Properties",
                                 "PropertiesChanged",
                                 ("fr.emersion.Mako",
@@ -112,6 +114,31 @@ class InboxSignalTests(unittest.TestCase):
                         SimpleNamespace(unpack=lambda: (
                             "fr.emersion.Mako", {"Notifications": object()}, [])), None)
         self.assertEqual(tuple(reasons), before)
+
+    def test_private_open_inbox_refresh_lease_is_bounded_and_revoked_on_close(self):
+        bus = FakeConnection()
+        installed, removed, observed = [], [], []
+        timer = SimpleNamespace(
+            timeout_add_seconds=lambda seconds, callback: (
+                installed.append((seconds, callback)) or 44),
+            source_remove=removed.append)
+        with mock.patch.object(notification_watch, "_gtk_timeout_api",
+                               return_value=timer):
+            watch = notification_watch.InboxSignals(gio(bus), observed.append)
+        self.assertEqual(len(installed), 1)
+        self.assertEqual(installed[0][0], 3)
+        # There is no service-wide polling; one view-scoped lease requests
+        # a fresh owner-verified backend read through the existing GTK worker.
+        tick = installed[0][1]
+        self.assertTrue(tick())
+        self.assertEqual(observed, ["changed"])
+        watch.close()
+        self.assertEqual(removed, [44])
+        self.assertFalse(tick(), "Old readback callback survived navigation")
+        self.assertEqual(observed, ["changed"])
+        self.assertEqual(bus.unsubscribed, [1, 2, 3])
+        watch.close()
+        self.assertEqual(removed, [44], "Repeated close removed the timer twice")
 
     def test_partial_subscribe_failure_unwinds_private_bus_watch(self):
         bus = FakeConnection(fail_at=2)
