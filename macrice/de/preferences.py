@@ -41,6 +41,16 @@ class PreferenceError(ValueError):
     """RiceSpice input/preferences file is invalid, stale or unsafe."""
 
 
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """Reject duplicate keys throughout nested settings JSON."""
+    found: dict[str, object] = {}
+    for key, value in pairs:
+        if key in found:
+            raise PreferenceError("Duplicate private RiceBowl settings JSON key")
+        found[key] = value
+    return found
+
+
 def _directory() -> Path:
     base = os.environ.get("XDG_CONFIG_HOME")
     if base is None:
@@ -109,8 +119,8 @@ def _decode(raw: bytes | None) -> dict:
     if len(raw) > _MAX_BYTES:
         raise PreferenceError("RiceSpice preferences exceed the size limit")
     try:
-        obj = json.loads(raw)
-    except (ValueError, UnicodeDecodeError) as exc:
+        obj = json.loads(raw, object_pairs_hook=_unique_json_object)
+    except (ValueError, UnicodeDecodeError, RecursionError) as exc:
         raise PreferenceError("Invalid RiceSpice preference JSON") from exc
     if (not isinstance(obj, dict) or type(obj.get("version")) is not int
             or obj["version"] not in (1, 2)):
