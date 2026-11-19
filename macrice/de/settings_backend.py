@@ -332,11 +332,43 @@ def set_wifi(enabled: bool, *, expected: bool) -> bool:
     return enabled
 
 
-def wifi_snapshot(*, rescan: bool = False) -> dict[str, Any]:
-    """Read NetworkManager's bounded visible-SSID inventory on demand."""
+def _verify_visible_wifi_security(ssid: str, security: str) -> None:
+    """Re-read raw BSS security before joining an SSID.
+
+    The shared tray intentionally groups access points by SSID. That is fine
+    for display, but loses an important distinction: an open and a WPA BSS
+    can advertise the same SSID. Never send a passphrase or initiate a join
+    while NetworkManager reports conflicting security for that name.
+    """
+    raw = _nmcli_profile("-t", "-e", "yes", "-f", "SSID,SECURITY",
+                         "device", "wifi", "list", "--rescan", "no")
+    rows = raw.splitlines()
+    if len(rows) > 256:
+        raise SettingsError("Wi-Fi security scan returned too many access points")
+    variants: set[str] = set()
+    for line in rows:
+        fields = _terse_fields(line)
+        if len(fields) != 2:
+            raise SettingsError("Malformed NetworkManager Wi-Fi security scan")
+        name, advertised = fields
+        if name == ssid:
+            variants.add(advertised.strip())
+    # Multiple APs with the SAME security are normal roaming. A changed or
+    # conflicting security mode needs NetworkManager's full BSSID editor.
+    if variants != {security.strip()}:
+        raise SettingsError(
+            "Wi-Fi security changed or conflicting access points share this name; "
+            "refresh or use the NetworkManager connection editor")
+
+
+def wifi_snapshot(*, rescan: bool = False,
+                  verify_security: str | None = None) -> dict[str, Any]:
+    """Read Wi-Fi inventory; optionally verify all BSS security before a join."""
     from macrice import hardware_status
 
-    if type(rescan) is not bool:
+    if (type(rescan) is not bool
+            or (verify_security is not None
+                and (type(verify_security) is not str or not verify_security))):
         raise SettingsError("Wi-Fi scan selection must be explicit")
     enabled = wifi_state()
     networks = ()
@@ -348,9 +380,17 @@ def wifi_snapshot(*, rescan: bool = False) -> dict[str, Any]:
             # input error or an empty scan result. Do not claim "no networks".
             raise SettingsError(
                 "Wi-Fi scan unavailable; reconnect NetworkManager and refresh") from exc
-    return {"enabled": enabled, "networks": [
+    visible = [
         {"ssid": item.ssid, "signal": item.signal, "security": item.security,
-         "connected": item.connected} for item in networks]}
+         "connected": item.connected} for item in networks]
+    if verify_security is not None:
+        # Verify only on explicit connection, not for normal list rendering.
+        selected = [entry for entry in visible
+                    if entry["ssid"] == verify_security and not entry["connected"]]
+        if not enabled or len(selected) != 1:
+            raise SettingsError("Wi-Fi network changed; scan again before connecting")
+        _verify_visible_wifi_security(verify_security, selected[0]["security"])
+    return {"enabled": enabled, "networks": visible}
 
 
 def _visible_wifi(ssid: str) -> dict[str, Any]:
@@ -361,7 +401,7 @@ def _visible_wifi(ssid: str) -> dict[str, Any]:
             raise SettingsError("Wi-Fi network name is invalid")
     except UnicodeEncodeError as exc:
         raise SettingsError("Wi-Fi network name is invalid") from exc
-    snapshot = wifi_snapshot()
+    snapshot = wifi_snapshot(verify_security=ssid)
     selected = next((entry for entry in snapshot["networks"]
                      if entry["ssid"] == ssid and not entry["connected"]), None)
     if not snapshot["enabled"] or selected is None:
