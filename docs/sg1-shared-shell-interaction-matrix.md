@@ -8,8 +8,8 @@ Legend: **existing** = currently exercised in repo smoke/tests; **PR test** = im
 
 | Control / scenario | XP Luna | Chrome | What is actually asserted | Remaining acceptance gap |
 | --- | --- | --- | --- | --- |
-| Panel / launcher pointer | existing | **PR test** | Real labwc virtual-pointer click; menu presentation or menu-state trace | Cross-scale, all controls |
-| Launcher keyboard | existing focus/shortcuts | **PR test** Escape | Compositor `wtype`, menu hide trace; Luna Run editor and desktop shortcuts verified in native smoke | Search results and action activation via keyboard across both |
+| Panel / launcher pointer | existing | **PR test** | Real labwc pointer; native Luna menu state or external Chrome fuzzel process lifecycle | Cross-scale, all controls |
+| Launcher keyboard | existing focus/shortcuts | **PR test** Escape | Compositor `wtype`, Chrome fuzzel exit; Luna native menu and Run editor verified in native smoke | Search results and action activation via keyboard across both |
 | App search / paging | existing pointer transitions | Rust-only for search semantics | Native menu hit/paging tests, Luna pointer state frames | Verify actual Chrome search/app launch and empty/busy/error states under compositor |
 | Taskbar, window actions | existing | existing | Native XWayland/Wayland task focus smoke, shared window lifecycle | Full two-rice minimize/maximize/close, transient loss/restart matrix |
 | Desktop icons / file operations | existing | shared desktop engine | labwc pointer + keyboard, file inventory, rename/Trash/RiceField and multi-output/hotplug smoke | Complete two-rice multi-select/drag/deny/permission and focus-lost matrix |
@@ -24,7 +24,7 @@ Legend: **existing** = currently exercised in repo smoke/tests; **PR test** = im
 
 - `tray.rs::MenuPopup::sync` now preserves a remote submenu path only when each parent retains its **ID, label, enabled state and submenu type**. A renamed parent or revoked subtree closes that path; even a promoted child with the same ID and label cannot inherit its earlier keyboard selection. This is an identity/safety hardening of **live in-process menu snapshots**, not a claim of D-Bus owner generation isolation.
 - New Rust negative tests cover parent relabel + reused child, nested relabel while retaining the outer parent, and a promoted child that must require a new keypress.
-- The existing **disposable** `scripts/smoke_riceplate_native.sh` adds Chrome pointer-open + keyboard-Escape state assertions and Luna clock tray compositor keyboard Enter -> captured exact settings argv. The settings shim is only active inside the test runtime and does not alter the user's timezone or run a real system settings GUI.
+- The existing **disposable** `scripts/smoke_riceplate_native.sh` adds Chrome external fuzzel pointer-open + keyboard-Escape process lifecycle assertions and Luna clock tray compositor keyboard Enter -> captured exact settings argv. The settings shim is only active inside the test runtime and does not alter the user's timezone or run a real system settings GUI.
 
 ## Reproduce and interpretation
 
@@ -36,6 +36,6 @@ sh -n scripts/smoke_riceplate_native.sh
 sh scripts/smoke_riceplate_native.sh
 ```
 
-**Required before merging:** Rust tests + Clippy + Python Tests + Native RicePlate labwc on **exact final PR head**, including the extended smoke, and core/desktop/integration lane approval for the shared smoke-script diff. Verify that the smoke's real input paths complete, not only the rendered screenshots. Confirm XFCE/X11 checks on that same head.
+**Required before merging:** Rust tests + Clippy + Python Tests + Native RicePlate labwc on **exact final PR head**, including the extended smoke, and core/desktop/integration lane approval for the shared smoke-script diff. Verify the real input paths and external fuzzel fallback lifecycle complete, not only rendered screenshots. Confirm XFCE/X11 checks on that same head.
 
 **SG1 decision:** still **OPEN (2/4 engineering checkpoints)** until #417's full two-rice interaction, provider recovery, keyboard/pointer/error and empty/busy-state matrix is accepted. Do not check #417 or change the formal evidence index on the strength of this single hardening PR. Physical Mint/ThinkPad sign-off remains separate.
