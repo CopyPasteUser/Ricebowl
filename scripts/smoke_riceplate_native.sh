@@ -754,10 +754,10 @@ PY
             # output reconfiguration, invalidating a desktop-icon click test.
             WAYLAND_DISPLAY=wayland-0 wtype -k Escape
             sleep 0.9
-            # SG1: the XP clock's genuine compositor-delivered secondary press
+            # SG1: a genuine compositor-delivered secondary press on the XP clock
             # opens the local tray menu. A secondary press on an open menu row
             # must NEVER activate it (the legacy handler accepted both buttons).
-            # Finally, the same pointer's primary press on X must close it.
+            # Finally, a primary pointer press on X must close the menu.
             # Keep all clicks and screenshots in disposable headless labwc.
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-tray-closed-before.png"
             WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click 1320 748 1366 768
@@ -768,7 +768,7 @@ PY
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-tray-after-right.png"
             /usr/bin/python3 - "$runtime/xp-luna-tray-closed-before.png" \
                 "$runtime/xp-luna-tray-open.png" \
-                "$runtime/xp-luna-tray-after-right.png" <<'PY'
+                "$runtime/xp-luna-tray-after-right.png" <<"PY"
 from PIL import Image, ImageChops
 import sys
 
@@ -795,7 +795,7 @@ PY
             sleep 0.3
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-tray-closed-after.png"
             /usr/bin/python3 - "$runtime/xp-luna-tray-open.png" \
-                "$runtime/xp-luna-tray-closed-after.png" <<'PY'
+                "$runtime/xp-luna-tray-closed-after.png" <<"PY"
 from PIL import Image, ImageChops
 import sys
 
