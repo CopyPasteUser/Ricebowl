@@ -3,8 +3,10 @@
 This does not start a daemon or read notification text. RiceSpice subscribes
 only after the user explicitly opens the owner-verified inbox, unsubscribes on
 navigation, and always revalidates host ownership through inspect_owned().
-Older Mako versions lack the Notifications property: manual refresh remains
-available for additions, while the standard NotificationClosed signal works.
+Mako's DBus Notifications property is not emitted for all same-ID
+replacements even in 1.11. One low-frequency read-only lease exists ONLY while
+the user has the private inbox open, in addition to native D-Bus signals.
+Close immediately cancels that lease; no background daemon or action retry.
 """
 
 from __future__ import annotations
@@ -15,6 +17,17 @@ _BUS = "org.freedesktop.Notifications"
 _MAKO_PATH = "/fr/emersion/Mako"
 _FDO_PATH = "/org/freedesktop/Notifications"
 _DBUS_PATH = "/org/freedesktop/DBus"
+# Avoid a persistent poller: only the explicitly revealed GTK inbox creates
+# one timeout, and it is removed before any queued private view callback.
+_PRIVATE_INBOX_REFRESH_SECONDS = 3
+
+
+def _gtk_timeout_api():
+    try:
+        from gi.repository import GLib
+    except ImportError:
+        return None  # Without GTK the existing manual refresh still works.
+    return GLib
 
 
 def signal_reason(interface: str, member: str, payload: object) -> str | None:
@@ -43,7 +56,7 @@ def signal_reason(interface: str, member: str, payload: object) -> str | None:
 
 
 class InboxSignals:
-    """GTK-main-context subscriptions; no threads, timers, polling or storage."""
+    """View-only D-Bus subscriptions and bounded read refresh; no daemon/storage."""
 
     def __init__(self, Gio, on_change: Callable[[str], None]) -> None:
         self._connection = Gio.bus_get_sync(Gio.BusType.SESSION, None)
@@ -51,6 +64,8 @@ class InboxSignals:
             raise RuntimeError("No session bus for RicePop notifications")
         self._ids: list[int] = []
         self._on_change = on_change
+        self._timer_api = None
+        self._timer_id = 0
         subscriptions = (
             (_BUS, "org.freedesktop.Notifications", "NotificationClosed", _FDO_PATH, None),
             (_BUS, "org.freedesktop.DBus.Properties", "PropertiesChanged", _MAKO_PATH, None),
@@ -62,9 +77,24 @@ class InboxSignals:
                     sender, interface, name, path, arg0,
                     Gio.DBusSignalFlags.NONE, self._received, None)
                 self._ids.append(ident)
+            # Signal subscriptions may miss a same-ID replacement: Mako
+            # changes an existing object without inserting/removing it.
+            # Only the user-opened inbox has this refresh lease. Callback
+            # requests an owner-verified read and never performs a write.
+            timer_api = _gtk_timeout_api()
+            if timer_api is not None:
+                self._timer_api = timer_api
+                self._timer_id = timer_api.timeout_add_seconds(
+                    _PRIVATE_INBOX_REFRESH_SECONDS, self._readback_tick)
         except Exception:
             self.close()
             raise
+
+    def _readback_tick(self) -> bool:
+        if self._connection is None:
+            return False
+        self._on_change("changed")
+        return self._connection is not None
 
     def _received(self, _connection, _sender, _path, interface, member,
                   parameters, _user_data) -> None:
@@ -80,6 +110,15 @@ class InboxSignals:
         # connection may reject individual unsubscribes; even a queued
         # delivery from a surviving subscription must not outlive the view.
         self._on_change = lambda _reason: None
+        timer_api, self._timer_api = self._timer_api, None
+        timer_id, self._timer_id = self._timer_id, 0
+        if timer_id and timer_api is not None:
+            try:
+                timer_api.source_remove(timer_id)
+            except Exception:
+                # Callback lease is already revoked, even if a disposed
+                # main context rejects timer removal.
+                pass
         connection, self._connection = self._connection, None
         subscriptions, self._ids = self._ids, []
         if connection is None:

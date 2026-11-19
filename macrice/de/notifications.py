@@ -297,10 +297,14 @@ def _busctl_records(raw: bytes, *, include_actions: bool = False
                                               "invalid_notification_response")
             value = typed["data"]
             if key == "urgency":
-                if type(value) is not int or value not in (0, 1, 2):
+                # Mako 1.11 initializes notification urgency to UNKNOWN=-1
+                # when an app omits the optional freedesktop urgency hint.
+                # The stable D-Bus API exposes it as an unsigned byte (255).
+                # This is not an elevated priority; preserve it as "unknown".
+                if type(value) is not int or value not in (0, 1, 2, 255):
                     raise NotificationBridgeError("Invalid Mako notification urgency",
                                                   "invalid_notification_response")
-                value = ("low", "normal", "critical")[value]
+                value = {0: "low", 1: "normal", 2: "critical", 255: "unknown"}[value]
             elif key == "id":
                 if type(value) is not int:
                     raise NotificationBridgeError("Invalid Mako notification ID",
