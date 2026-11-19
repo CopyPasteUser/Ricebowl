@@ -61,7 +61,7 @@ if [ ! -f "$test_font" ]; then
     echo "Native font smoke requires the DejaVu Sans Mono fixture" >&2
     exit 1
 fi
-mkdir -m 0700 "$runtime/config"
+mkdir -m 0700 "$runtime/config" "$runtime/fuzzel-cache"
 export XDG_CONFIG_HOME="$runtime/config"
 python3 - "$source_root" "$runtime" "$test_font" <<'PY'
 import json
@@ -380,46 +380,56 @@ dbus-run-session -- sh -eu -c '
             echo "Captured real native RicePlate $label framebuffer"
         fi
         if [ "$label" = chrome ]; then
-            # SG1 second structurally different rice: a real virtual pointer
-            # opens the Chrome bottom shelf launcher, and compositor keyboard
-            # keyboard dispatch closes the *same* native surface. Verify the
-            # shell state trace, not only pixels from a screenshot.
+            # Chrome's recipe deliberately has no native menu: its validated
+            # applications action launches the real external fuzzel fallback.
+            # Check the actual compositor-dispatched process and Escape
+            # lifecycle rather than waiting for an unrelated native-menu trace.
             output=$(WAYLAND_DISPLAY=wayland-0 wlr-randr | sed -n "1s/[[:space:]].*//p")
             test -n "$output"
             WAYLAND_DISPLAY=wayland-0 wlr-randr --output "$output" \
                 --custom-mode 1366x768@60Hz --scale 1
             sleep 0.35
-            before=$(grep -Fc "RicePlate: menu trace show" "$runtime/plate-$label.log" || :)
+            test -z "$(pgrep -u "$(id -u)" -x fuzzel || :)" || {
+                echo "Unexpected pre-existing fuzzel process in isolated CI" >&2
+                exit 1
+            }
             WAYLAND_DISPLAY=wayland-0 "$clicker" 28 746 1366 768
             count=0
-            while [ "$count" -lt 25 ]; do
-                after=$(grep -Fc "RicePlate: menu trace show" "$runtime/plate-$label.log" || :)
-                test "$after" -gt "$before" && break
+            launcher_pid=
+            while [ "$count" -lt 30 ]; do
+                launcher_pid=$(pgrep -u "$(id -u)" -x fuzzel | head -n 1 || :)
+                [ -n "$launcher_pid" ] && break
                 count=$((count + 1))
                 sleep 0.1
             done
-            test "$after" -gt "$before" || {
-                echo "Chrome launcher did not open from compositor pointer" >&2
+            [ -n "$launcher_pid" ] || {
+                echo "Chrome pointer did not launch real fuzzel under labwc" >&2
                 tail -n 35 "$runtime/plate-$label.log" >&2
                 exit 1
             }
-            before=$(grep -Fc "RicePlate: menu trace hide" "$runtime/plate-$label.log" || :)
-            sleep 0.35
+            state=$(ps -o stat= -p "$launcher_pid" 2>/dev/null || :)
+            case "$state" in
+                ""|*Z*) echo "Chrome fuzzel did not remain running" >&2; exit 1 ;;
+            esac
+            # The transient keyboard is sent through labwc to the external
+            # launcher. Escape must dismiss the very process just observed.
             WAYLAND_DISPLAY=wayland-0 wtype -k Escape
             count=0
-            while [ "$count" -lt 25 ]; do
-                after=$(grep -Fc "RicePlate: menu trace hide" "$runtime/plate-$label.log" || :)
-                test "$after" -gt "$before" && break
+            while kill -0 "$launcher_pid" 2>/dev/null && [ "$count" -lt 30 ]; do
+                state=$(ps -o stat= -p "$launcher_pid" 2>/dev/null || :)
+                case "$state" in ""|*Z*) break ;; esac
                 count=$((count + 1))
                 sleep 0.1
             done
-            test "$after" -gt "$before" || {
-                echo "Chrome launcher did not close from real Wayland keyboard Escape" >&2
-                tail -n 35 "$runtime/plate-$label.log" >&2
-                exit 1
-            }
+            state=$(ps -o stat= -p "$launcher_pid" 2>/dev/null || :)
+            case "$state" in
+                ""|*Z*) : ;;
+                *) echo "Chrome fuzzel did not close on compositor Escape" >&2
+                   tail -n 35 "$runtime/plate-$label.log" >&2
+                   exit 1 ;;
+            esac
             kill -0 "$plate"
-            echo "Verified Chrome launcher pointer-open/keyboard-Escape on real labwc"
+            echo "Verified Chrome real fuzzel pointer-open/keyboard-Escape on labwc"
         fi
         if [ "$label" = riceclip-actions ]; then
             # A real Wayland virtual-pointer click crosses the native panel,
