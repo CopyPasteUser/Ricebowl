@@ -43,6 +43,12 @@ on:
       - 'tests/test_wayland_creator_e2e.py'
       - 'tests/test_wayland_creator_handoff.py'
 
+# Obsolete branch/PR revisions do not need full GTK/labwc apt installs.
+# Never cancel main push/dispatch evidence or immutable release-tag runs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
 permissions:
   contents: read
 
