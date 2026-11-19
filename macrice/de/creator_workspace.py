@@ -8,6 +8,7 @@ headless labwc backend only when explicitly requested by the GUI.
 from __future__ import annotations
 
 import json
+import heapq
 import os
 import re
 import secrets
@@ -151,15 +152,38 @@ def version_history(info: DraftInfo) -> list[DraftInfo]:
 
 
 def list_drafts() -> list[DraftInfo]:
+    """List newest private drafts with bounded memory under concurrent edits.
+
+    A draft removed between directory enumeration and stat/open must not
+    crash Creator. Collect only the newest candidate names (64 max) instead
+    of materializing and sorting an unbounded glob over the entire workspace.
+    """
     folder = _private_directory()
-    candidates = sorted(folder.glob("draft-*.json"), key=lambda p: p.stat().st_mtime_ns
-                        if not p.is_symlink() else 0, reverse=True)
+    latest: list[tuple[int, str]] = []
+    try:
+        with os.scandir(folder) as entries:
+            for entry in entries:
+                if creator_history._DRAFT_NAME.fullmatch(entry.name) is None:
+                    continue
+                try:
+                    metadata = entry.stat(follow_symlinks=False)
+                except FileNotFoundError:
+                    continue  # Another Creator operation removed this entry.
+                if not stat.S_ISREG(metadata.st_mode):
+                    continue  # Never follow symlinks, sockets or directories.
+                key = (metadata.st_mtime_ns, entry.name)
+                if len(latest) < MAX_LISTED_DRAFTS:
+                    heapq.heappush(latest, key)
+                elif key > latest[0]:
+                    heapq.heapreplace(latest, key)
+    except OSError as exc:
+        raise WorkspaceError("Creator drafts could not be enumerated safely") from exc
     found: list[DraftInfo] = []
-    for path in candidates[:MAX_LISTED_DRAFTS]:
+    for _mtime, name in sorted(latest, reverse=True):
         try:
-            found.append(open_draft(path))
+            found.append(open_draft(folder / name))
         except (recipes.RecipeError, WorkspaceError, OSError):
-            continue  # A damaged/stale draft must not prevent opening the editor.
+            continue  # Damaged, stale, or concurrently removed draft.
     return found
 
 
