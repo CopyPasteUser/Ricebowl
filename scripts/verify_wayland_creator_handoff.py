@@ -133,6 +133,17 @@ def capture_installed(destination: Path) -> dict:
             if recipes.current_selection() != ("classic", None):
                 raise ValueError("Fresh importer unexpectedly inherited author configuration")
             for draft, archive in zip(drafts, archives):
+                # The exact reviewed archive must be importable into a fresh
+                # profile *without* an incidental write by the preflight.
+                inspection = pack.inspect_pack(archive)
+                config_was_absent = not (imported_config / "ricebowl").exists()
+                ready = pack.preflight_import(
+                    archive, expected_manifest=inspection["manifest"])
+                if (not ready["ready"] or not ready["point_in_time_only"]
+                        or ready["imported"] or ready["applied"]
+                        or ready["package_sha256"] != hashlib.sha256(archive.read_bytes()).hexdigest()
+                        or (config_was_absent and (imported_config / "ricebowl").exists())):
+                    raise ValueError("RicePack preflight wrote to the import profile or changed bytes")
                 imported = pack.import_pack(archive)
                 if (not imported["imported"] or imported["applied"]
                         or imported["semantic_sha256"] != draft.semantic_sha256
