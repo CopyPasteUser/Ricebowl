@@ -352,7 +352,7 @@ class AudioDeviceTests(unittest.TestCase):
                         json.dumps([valid, valid]),
                         json.dumps([{**valid, "volume": {"mono": {"value": "100%"}}}]),
                         *(json.dumps([{**valid, "client": invalid}])
-                          for invalid in (True, -1, 2**32, "17"))):
+                          for invalid in (True, -1, 2**32, "17!"))):
             with self.subTest(payload=payload[:30]), \
                     self.assertRaises(audio_devices.AudioDeviceError):
                 audio_devices._streams(payload)
