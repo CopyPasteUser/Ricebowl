@@ -144,7 +144,7 @@ set -eu
 # host timezone, or network provider is modified in CI.
 if [ "$#" -eq 5 ] && [ "$1" = de ] && [ "$2" = settings ] \
     && [ "$3" = --luna ] && [ "$4" = --page ] && [ "$5" = timezone ]; then
-    printf '%s\\n' "$@" >"$RICEBOWL_CI_STATUS_LOG"
+    printf '%s\n' "$@" >"$RICEBOWL_CI_STATUS_LOG"
     exit 0
 fi
 [ "$#" -eq 4 ] && [ "$1" = de ] && [ "$2" = clip ] \
@@ -880,7 +880,7 @@ PY
                 count=$((count + 1))
                 sleep 0.1
             done
-            expected=$(printf "%s\\n" de settings --luna --page timezone)
+            expected=$(printf "%s\n" de settings --luna --page timezone)
             actual=$(cat "$runtime/tray-settings-argv.log" 2>/dev/null || :)
             if [ "$actual" != "$expected" ]; then
                 echo "Luna clock tray keyboard Enter did not dispatch exact settings argv" >&2
