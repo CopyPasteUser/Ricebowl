@@ -467,6 +467,26 @@ class WaylandRicePopReadTests(unittest.TestCase):
         self.assertNotIn("actions", result["history"][0])
         self.assertEqual(result["history"][0]["id"], 13)
 
+    def test_real_mako_unknown_urgency_is_not_falsely_critical_or_unavailable(self):
+        # Mako 1.11 stores a notification without an urgency hint as -1;
+        # its aa{sv} D-Bus wire type is byte, hence value 255. A regular
+        # application can legitimately omit the hint; it must not make the
+        # entire private inbox disappear or be labeled critical.
+        row = {"id": 31, "summary": "Unspecified urgency", "urgency": 255,
+               "actions": {"open": "Open"}}
+        entries, limited = notifications._busctl_records(
+            _legacy_busctl([row]), include_actions=True)
+        self.assertFalse(limited)
+        self.assertEqual(entries[0]["urgency"], "unknown")
+        self.assertEqual(entries[0]["actions"], [{"key": "open", "label": "Open"}])
+        # Never accept arbitrary out-of-contract byte values as normal.
+        for invalid in (3, 9, 254, -1, "255", True):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(notifications.NotificationBridgeError):
+                    notifications._busctl_records(
+                        _legacy_busctl([{**row, "urgency": invalid}]),
+                        include_actions=True)
+
     def test_legacy_busctl_inventory_refuses_typed_schema_confusion(self):
         good = [{"id": 3, "summary": "A", "urgency": 2,
                  "actions": {"reply": "Reply"}}]
