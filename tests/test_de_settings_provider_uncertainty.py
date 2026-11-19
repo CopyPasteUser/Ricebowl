@@ -13,16 +13,17 @@ class DeviceMutationUncertaintyTests(unittest.TestCase):
     def test_wifi_radio_write_timeout_is_indeterminate_and_not_replayed(self):
         for failure in (backend.SettingsError("nmcli transport lost"),
                         backend.SettingsError("policy reply missing")):
-            with self.subTest(failure=str(failure)), (
-                mock.patch.object(backend, "wifi_state", return_value=False) as read,
-                mock.patch.object(backend, "_nmcli", side_effect=failure) as change,
-            ):
-                with self.assertRaisesRegex(
-                        backend.SettingsError, "outcome unknown; refresh") as raised:
-                    backend.set_wifi(True, expected=False)
-                self.assertIs(raised.exception.__cause__, failure)
-                read.assert_called_once()
-                change.assert_called_once_with("radio", "wifi", "on")
+            with self.subTest(failure=str(failure)):
+                with (
+                    mock.patch.object(backend, "wifi_state", return_value=False) as read,
+                    mock.patch.object(backend, "_nmcli", side_effect=failure) as change,
+                ):
+                    with self.assertRaisesRegex(
+                            backend.SettingsError, "outcome unknown; refresh") as raised:
+                        backend.set_wifi(True, expected=False)
+                    self.assertIs(raised.exception.__cause__, failure)
+                    read.assert_called_once()
+                    change.assert_called_once_with("radio", "wifi", "on")
 
     def test_bluetooth_adapter_write_reply_loss_is_indeterminate(self):
         snapshot = {"powered": False, "adapter": "/org/bluez/hci0", "devices": []}
