@@ -61,9 +61,14 @@ def snapshot():
         if not isinstance(address, str) or not address:
             continue
         alias = _value(props.get("Alias")) or _value(props.get("Name"))
-        devices.append((address, str(alias or address),
-                        bool(_value(props.get("Paired"))),
-                        bool(_value(props.get("Connected")))))
+        paired = _value(props.get("Paired"))
+        connected = _value(props.get("Connected"))
+        # BlueZ's Paired/Connected properties are booleans. A malformed
+        # service response must never turn e.g. "false" into True or make
+        # an unverified device appear safely connected in the tray.
+        if type(paired) is not bool or type(connected) is not bool:
+            raise RuntimeError("BlueZ device state is unavailable; refresh")
+        devices.append((address, str(alias or address), paired, connected))
     return powered, path, tuple(sorted(devices, key=lambda item: item[1].casefold()))[:32]
 
 
@@ -99,7 +104,8 @@ def set_connection(address: str, connected: bool, *,
     matches = []
     for path, interfaces in objects.items():
         props = interfaces.get("org.bluez.Device1")
-        if not props or _value(props.get("Address")) != address:
+        value = _value(props.get("Address")) if props else None
+        if type(value) is not str or value.upper() != address.upper():
             continue
         if expected_adapter is not None and not path.startswith(expected_adapter + "/"):
             continue
@@ -107,8 +113,16 @@ def set_connection(address: str, connected: bool, *,
     if len(matches) != 1:
         raise ValueError("Bluetooth device is missing or ambiguous; refresh before applying")
     path, props = matches[0]
-    if connected and not bool(_value(props.get("Paired"))):
+    paired = _value(props.get("Paired"))
+    current = _value(props.get("Connected"))
+    if type(paired) is not bool or type(current) is not bool:
+        raise ValueError("Bluetooth connection state is unavailable; refresh")
+    if connected and not paired:
         raise ValueError("Pair the device in Bluetooth settings first")
+    if current is connected:
+        # Explicit idempotence: a disconnected/connected device must never
+        # receive another possibly disruptive BlueZ action for a no-op.
+        return
     Gio, bus = _connection()
     bus.call_sync(
         "org.bluez", path, "org.bluez.Device1",

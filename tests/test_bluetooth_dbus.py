@@ -46,7 +46,7 @@ class BluetoothDbusTests(unittest.TestCase):
         connection.return_value = (Gio, bus)
         objects.return_value = {
             "/org/bluez/hci0/dev_AA": {"org.bluez.Device1": {
-                "Address": "AA:BB:CC:DD:EE:FF", "Paired": True}},
+                "Address": "AA:BB:CC:DD:EE:FF", "Paired": True, "Connected": False}},
         }
         bluetooth_dbus.set_connection("AA:BB:CC:DD:EE:FF", True)
         self.assertEqual(bus.call_sync.call_args.args[1:4],
@@ -67,9 +67,9 @@ class BluetoothDbusTests(unittest.TestCase):
             "/org/bluez/hci0": {"org.bluez.Adapter1": {"Powered": True}},
             "/org/bluez/hci1": {"org.bluez.Adapter1": {"Powered": True}},
             "/org/bluez/hci0/dev_AA": {"org.bluez.Device1": {
-                "Address": addr, "Paired": True}},
+                "Address": addr, "Paired": True, "Connected": False}},
             "/org/bluez/hci1/dev_AA": {"org.bluez.Device1": {
-                "Address": addr, "Paired": True}},
+                "Address": addr, "Paired": True, "Connected": False}},
         }
         with self.assertRaisesRegex(ValueError, "ambiguous"):
             bluetooth_dbus.set_connection(addr, True)
@@ -90,7 +90,7 @@ class BluetoothDbusTests(unittest.TestCase):
         bus.call_sync.assert_not_called()
         objects.return_value["/org/bluez/hci1"] = {"org.bluez.Adapter1": {}}
         objects.return_value["/org/bluez/hci1/dev_BB"] = {"org.bluez.Device1": {
-            "Address": addr, "Paired": True}}
+            "Address": addr, "Paired": True, "Connected": False}}
         with self.assertRaisesRegex(ValueError, "ambiguous"):
             bluetooth_dbus.set_connection(addr, True, expected_adapter="/org/bluez/hci1")
         bus.call_sync.assert_not_called()
