@@ -47,8 +47,8 @@ class CreatorReleaseTests(unittest.TestCase):
         for index, kind in enumerate(("heritage", "orbit")):
             source = self.root / f"original-{kind}.png"
             source.write_bytes(icon_png(
-                b"\\x4a\\x8a\\xca\\xff" if index == 0 else
-                b"\\x2a\\xc8\\x83\\xff"))
+                bytes.fromhex("4a8acaff") if index == 0 else
+                bytes.fromhex("2ac883ff")))
             icon = style_assets.import_asset(
                 source, kind="icon", label=f"Original {kind}", provenance=CREDIT)
             first = creator_workspace.create_draft(kind)
@@ -150,10 +150,10 @@ class CreatorReleaseTests(unittest.TestCase):
     def test_export_publishes_only_reviewed_bytes_without_reserializing_assets(self):
         review = creator_release.prepare_export(self._visual_drafts()[0][0])
         destination = self.root / "frozen.ricepack"
-        with mock.patch.object(creator_workspace, "export_draft",
-                               side_effect=AssertionError("unexpected re-export")), \\
-             mock.patch.object(pack, "_visual_assets",
-                               side_effect=AssertionError("unexpected asset read")):
+        with (mock.patch.object(creator_workspace, "export_draft",
+                                side_effect=AssertionError("unexpected re-export")),
+              mock.patch.object(pack, "_visual_assets",
+                                side_effect=AssertionError("unexpected asset read"))):
             creator_release.publish_export(review, destination)
         self.assertEqual(destination.read_bytes(), review.payload)
 
