@@ -49,6 +49,7 @@ class PortalRunnerFailClosedTests(unittest.TestCase):
     def test_strict_portal_ci_uses_runner_local_helper_without_gpu_host_mutation(self):
         workflow = (ROOT / ".github/workflows/wayland-portal-strict.yml").read_text()
         self.assertEqual(workflow.count("- 'scripts/ci_ubuntu_archive.py'"), 2)
+        self.assertEqual(workflow.count("- 'docs/sg1-sg7-evidence-progress.md'"), 2)
         # The GPU lane is separately opt-in on self-hosted DRM-capable CI.
         self.assertIn("runs-on: [self-hosted, linux, drm-render]", workflow)
         gpu_lane = workflow.split("  portal-gpu-frame:", 1)[1]
