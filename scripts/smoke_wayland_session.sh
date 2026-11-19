@@ -84,6 +84,12 @@ dbus-run-session -- sh -eu -c '
         RICEBOWL_DE_NESTED=1 XDG_SESSION_DESKTOP=ricebowl \
             /usr/bin/python3 "$project_root/scripts/smoke_wayland_ricepop.py"
     fi
+    if [ "${RICEBOWL_SMOKE_LIVE:-0}" = 1 ]; then
+        # Real Mako 1.11 only: direct Notify/replace-ID via the private bus,
+        # with an actual mapped GTK inbox and external AT-SPI consumer.
+        RICEBOWL_DE_NESTED=1 XDG_SESSION_DESKTOP=ricebowl \
+            /usr/bin/python3 "$project_root/scripts/smoke_ricepop_live_updates.py"
+    fi
     if [ "${RICEBOWL_SMOKE_RECOVERY:-0}" = 1 ]; then
         # Only a source-locked Mako 1.11 CI run may deliberately crash a
         # verified private notification host. This smoke launches its own
