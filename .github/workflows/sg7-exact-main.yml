@@ -1,0 +1,38 @@
+name: SG7 exact-main evidence dossier
+
+# Explicit final integration handoff only. Never certifies a PR head or an
+# obsolete main; deliberately does not change required default CI workflows.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  dossier:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify SG7 exact-main collector unit tests
+        run: |
+          /usr/bin/python3 -m unittest tests.test_release_workflows tests.test_sg7_exact_main_matrix -v
+          /usr/bin/python3 -m py_compile scripts/sg7_exact_main_matrix.py
+      - name: Collect trusted exact-main workflow and job steps
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist/sg7-exact-main
+          /usr/bin/python3 scripts/sg7_exact_main_matrix.py \
+            --output dist/sg7-exact-main/software-matrix.json
+      - name: Archive read-only dossier even on incomplete acceptance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sg7-exact-main-${{ github.sha }}
+          path: dist/sg7-exact-main/software-matrix.json
+          if-no-files-found: warn
+          retention-days: 30
