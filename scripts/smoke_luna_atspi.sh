@@ -40,12 +40,12 @@ dbus-run-session -- sh -eu -c '
     export WAYLAND_DISPLAY=wayland-0
     labwc --config-dir "$(cat "$runtime/config-path")" >"$runtime/labwc.log" 2>&1 &
     compositor=$!
-    plate=; imepid=
+    plate=; imepid=; keyboard_keeper=
     cleanup() {
-        for pid in "$imepid" "$plate" "$compositor"; do
+        for pid in "$imepid" "$keyboard_keeper" "$plate" "$compositor"; do
             if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || :; fi
         done
-        for pid in "$imepid" "$plate" "$compositor"; do
+        for pid in "$imepid" "$keyboard_keeper" "$plate" "$compositor"; do
             if [ -n "$pid" ]; then wait "$pid" 2>/dev/null || :; fi
         done
     }
@@ -59,6 +59,20 @@ dbus-run-session -- sh -eu -c '
         count=$((count + 1)); sleep 0.2
     done
     test -S "$runtime/wayland-0" || { echo "labwc socket missing" >&2; exit 1; }
+
+    # A real desktop has a keyboard continuously attached to the wl_seat.
+    # One-shot wtype hotkey/text probes otherwise remove keyboard capability
+    # between events and can silently revoke the Run layer focus before the
+    # AT-SPI snapshot, creating a false negative (focused=False). Keep an
+    # inert F13 keyboard on the same disposable labwc seat for the full test.
+    wtype -k F13 -s 1800000 -k F13 >"$runtime/keyboard-keeper.log" 2>&1 &
+    keyboard_keeper=$!
+    sleep 0.3
+    kill -0 "$keyboard_keeper" 2>/dev/null || {
+        echo "Disposable keyboard keeper failed before Run focus" >&2
+        cat "$runtime/keyboard-keeper.log" >&2
+        exit 1
+    }
     output=$(wlr-randr | sed -n "1s/[[:space:]].*//p")
     test -n "$output"
     wlr-randr --output "$output" --custom-mode 1366x768@60Hz --scale 1
