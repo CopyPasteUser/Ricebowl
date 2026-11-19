@@ -8,6 +8,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 const MAX_RESPONSE: u64 = 512 * 1024;
 const MAX_PRIVATE_MUTATION: usize = 8192;
+const MUTATION_UNCONFIRMED: &str = "RicePop action unconfirmed; refresh before retry";
 pub const VISIBLE_ROWS: usize = 3;
 pub const ROW_TOP: u32 = 90;
 pub const ROW_HEIGHT: u32 = 54;
@@ -680,6 +681,12 @@ fn parse_records(value: &serde_json::Value, field: &str) -> Result<Vec<Notice>, 
     Ok(notices)
 }
 
+fn cli_failure(mutating: bool) -> &'static str {
+    // A spawned child can deliver a non-idempotent application action before
+    // its stdout/exit status is lost. Never present that as a safe denial.
+    if mutating { MUTATION_UNCONFIRMED } else { "Notification host unavailable" }
+}
+
 fn call_cli(arguments: &[&str], private_input: Option<&[u8]>) -> Result<Vec<u8>, &'static str> {
     if private_input.is_some_and(|bytes| bytes.is_empty() || bytes.len() > MAX_PRIVATE_MUTATION) {
         return Err("RicePop private action snapshot too large");
@@ -696,7 +703,7 @@ fn call_cli(arguments: &[&str], private_input: Option<&[u8]>) -> Result<Vec<u8>,
         if !written {
             let _ = child.kill();
             let _ = child.wait();
-            return Err("RicePop private action transport failed");
+            return Err(MUTATION_UNCONFIRMED);
         }
     }
     let stdout = child.stdout.take().ok_or("RicePop CLI unavailable")?;
@@ -719,10 +726,10 @@ fn call_cli(arguments: &[&str], private_input: Option<&[u8]>) -> Result<Vec<u8>,
             }
         }
     };
-    let output = reader.join().map_err(|_| "RicePop CLI failed")?
-        .map_err(|_| "RicePop CLI failed")?;
+    let output = reader.join().map_err(|_| cli_failure(private_input.is_some()))?
+        .map_err(|_| cli_failure(private_input.is_some()))?;
     if !success || output.len() > MAX_RESPONSE as usize {
-        return Err("Notification host unavailable");
+        return Err(cli_failure(private_input.is_some()));
     }
     Ok(output)
 }
@@ -740,12 +747,12 @@ pub fn run(request: &Request) -> Result<Snapshot, &'static str> {
                                      "--expected-owner-pid", &owner,
                                      "--snapshot-stdin", "--json"], Some(&payload))?;
             let reply: serde_json::Value = serde_json::from_slice(&output)
-                .map_err(|_| "Dismissal response invalid")?;
+                .map_err(|_| MUTATION_UNCONFIRMED)?;
             if reply.get("ok") != Some(&serde_json::Value::Bool(true))
                 || reply.get("dismissed") != Some(&serde_json::Value::Bool(true))
                 || reply.get("notification_id").and_then(|value| value.as_u64())
                     != Some(u64::from(expected.id)) {
-                return Err("Notification could not be dismissed");
+                return Err(MUTATION_UNCONFIRMED);
             }
         }
         Request::Invoke { id, key, owner, expected, .. } => {
@@ -762,13 +769,13 @@ pub fn run(request: &Request) -> Result<Snapshot, &'static str> {
                                      "--expected-owner-pid", &owner,
                                      "--snapshot-stdin", "--json"], Some(&payload))?;
             let reply: serde_json::Value = serde_json::from_slice(&output)
-                .map_err(|_| "Action response invalid")?;
+                .map_err(|_| MUTATION_UNCONFIRMED)?;
             if reply.get("ok") != Some(&serde_json::Value::Bool(true))
                 || reply.get("invoked") != Some(&serde_json::Value::Bool(true))
                 || reply.get("notification_id").and_then(|value| value.as_u64())
                     != Some(u64::from(expected.id))
                 || reply.get("action_key").and_then(|value| value.as_str()) != Some(key.as_str()) {
-                return Err("Notification action unavailable");
+                return Err(MUTATION_UNCONFIRMED);
             }
         }
         Request::Refresh(_) => {}
@@ -785,6 +792,27 @@ pub fn run(request: &Request) -> Result<Snapshot, &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cli_transport_loss_is_indeterminate_only_after_an_action_was_launched() {
+        assert_eq!(cli_failure(true), MUTATION_UNCONFIRMED);
+        assert_eq!(cli_failure(false), "Notification host unavailable");
+        let mut state = State::default();
+        let initial = state.begin();
+        assert!(state.update(initial, Ok(Snapshot {
+            owner_pid: Some(77),
+            active: vec![Notice { id: 12, summary: "Private message".into(),
+                                  ..Notice::default() }],
+            history: vec![],
+        })));
+        assert_eq!(state.notices.len(), 1);
+        let revision = state.begin();
+        assert!(state.update(revision, Err(MUTATION_UNCONFIRMED)));
+        assert!(state.notices.is_empty());
+        assert_eq!(state.owner_pid, None);
+        assert_eq!(state.error, Some(MUTATION_UNCONFIRMED));
+        assert!(!state.loading);
+    }
 
     #[test]
     fn native_action_requires_owned_current_row_and_drops_it_on_owner_loss() {
