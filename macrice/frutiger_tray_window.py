@@ -44,18 +44,28 @@ def create_tray_window(anchor, Gtk, *, title="Aqua World controls"):
                 # Deferring dismissal and checking the presentation generation
                 # prevents that stale signal from closing a newly opened menu.
                 self._presentation = 0
+                # An X11 WM may send a focus-out during initial map before it
+                # ever grants focus to this utility window. Such an event is
+                # not evidence that the user dismissed an open flyout.
+                self._focus_confirmed = False
+                self.connect("focus-in-event", self._focus_in)
                 self.connect("focus-out-event", self._focus_out)
                 self.connect("key-press-event", self._escape)
                 self.connect("size-allocate", self._size_changed)
 
+            def _focus_in(self, _window, _event):
+                self._focus_confirmed = True
+                return False
+
             def _focus_out(self, _window, _event):
-                generation = self._presentation
-                GLib.timeout_add(180, self._dismiss_if_unfocused, generation)
+                if self._focus_confirmed:
+                    generation = self._presentation
+                    GLib.timeout_add(180, self._dismiss_if_unfocused, generation)
                 return False
 
             def _dismiss_if_unfocused(self, generation):
-                if (generation == self._presentation and self.get_visible()
-                        and not self.is_active()):
+                if (generation == self._presentation and self._focus_confirmed
+                        and self.get_visible() and not self.is_active()):
                     self.hide()
                 return False
 
@@ -93,6 +103,10 @@ def create_tray_window(anchor, Gtk, *, title="Aqua World controls"):
 
             def popup(self):
                 self._presentation += 1
+                # Callers may already have mapped this window via show_all().
+                # Preserve actual WM activation in that case; otherwise wait
+                # for a genuine focus-in before allowing focus-out dismissal.
+                self._focus_confirmed = self.is_active()
                 self.show_all()
                 self.present()
                 self._place()
@@ -100,6 +114,7 @@ def create_tray_window(anchor, Gtk, *, title="Aqua World controls"):
 
             def popdown(self):
                 self._presentation += 1
+                self._focus_confirmed = False
                 self.hide()
 
         _TRAY_CLASS = AquaTrayWindow
