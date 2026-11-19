@@ -1,0 +1,113 @@
+name: SG6 independent-runner four-deb reproducibility
+
+# Manual-only; two disposable hosted runners, never a physical sign-off.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    name: Build four debs on ${{ matrix.worker }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        worker: [host-a, host-b]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - name: Install native Debian build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libdbus-1-dev pkg-config dpkg-dev binutils
+      - name: Independently compile, package and verify from exact committed source
+        env:
+          WORKER: ${{ matrix.worker }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain)"
+          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct HEAD)"
+          export LC_ALL=C
+          /usr/bin/python3 -m unittest tests.test_sg6_cross_runner -v
+          cargo build --release --locked --manifest-path components/riceplate-wayland/Cargo.toml
+          target="$PWD/dist/sg6"
+          mkdir -p "$target"
+          bash scripts/build_wayland_core_deb.sh "$target/ricebowl-wayland-core_0.1.0~preview2_all.deb"
+          sh scripts/build_wayland_session_deb.sh "$target/ricebowl-wayland-session_0.1.0~preview3_all.deb"
+          sh scripts/build_riceplate_native_deb.sh \
+            "$PWD/components/riceplate-wayland/target/release/riceplate-native" \
+            "$target/ricebowl-riceplate-native_0.1.0~preview2_amd64.deb"
+          sh scripts/build_wayland_desktop_deb.sh "$target/ricebowl-wayland-desktop_0.1.0~preview3_amd64.deb"
+          bash scripts/verify_wayland_package_set.sh \
+            "$target/ricebowl-wayland-core_0.1.0~preview2_all.deb" \
+            "$target/ricebowl-wayland-session_0.1.0~preview3_all.deb" \
+            "$target/ricebowl-riceplate-native_0.1.0~preview2_amd64.deb" \
+            "$target/ricebowl-wayland-desktop_0.1.0~preview3_amd64.deb"
+          /usr/bin/python3 scripts/verify_sg6_cross_runner.py record \
+            --directory "$target" --source-sha "$GITHUB_SHA" \
+            --worker "$WORKER" --output "$target/receipt.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sg6-${{ matrix.worker }}-${{ github.sha }}
+          path: dist/sg6/
+          if-no-files-found: error
+          retention-days: 14
+
+  compare:
+    name: Compare actual packages and attest audit receipt
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: sg6-*-${{ github.sha }}
+          path: dist/sg6-input
+      - name: Require fresh main and compare four true package bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')" = "$GITHUB_SHA"
+          mkdir -p dist/sg6-comparison
+          for worker in host-a host-b; do
+            source="dist/sg6-input/sg6-${worker}-${GITHUB_SHA}"
+            test -f "$source/receipt.json"
+            mkdir -p "dist/sg6-comparison/$worker"
+            cp -a "$source/." "dist/sg6-comparison/$worker/"
+            bash scripts/verify_wayland_package_set.sh \
+              "$source/ricebowl-wayland-core_0.1.0~preview2_all.deb" \
+              "$source/ricebowl-wayland-session_0.1.0~preview3_all.deb" \
+              "$source/ricebowl-riceplate-native_0.1.0~preview2_amd64.deb" \
+              "$source/ricebowl-wayland-desktop_0.1.0~preview3_amd64.deb"
+          done
+          /usr/bin/python3 scripts/verify_sg6_cross_runner.py compare \
+            --directory dist/sg6-comparison --source-sha "$GITHUB_SHA" \
+            --output dist/sg6-comparison/report.json
+      - name: Attest two-runner comparison report; not 1.0 release sign-off
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/sg6-comparison/report.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sg6-cross-runner-report-${{ github.sha }}
+          path: dist/sg6-comparison/report.json
+          if-no-files-found: error
