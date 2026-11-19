@@ -388,7 +388,7 @@ impl MenuPopup {
         let mut retained = 0;
         for (&id, label) in self.path.iter().zip(&old_path_labels) {
             let Some(row) = parents.iter().find(|row|
-                row.id == id && row.enabled && row.label == *label) else { break };
+                row.id == id && row.enabled && row.label.as_str() == label.as_str()) else { break };
             let MenuKind::Submenu(children) = &row.kind else { break };
             retained += 1;
             parents = children;
@@ -399,11 +399,15 @@ impl MenuPopup {
         if self.path.is_empty() && self.rows.is_empty() {
             return vec![self.root_id];
         }
-        let restored = focused.and_then(|(id, label, kind)| {
-            self.rows().iter().position(|row|
-                row.selectable() && row.id == id && row.label == label
-                    && std::mem::discriminant(&row.kind) == kind)
-        });
+        // Even an identical child ID/label cannot inherit a keyboard
+        // selection if it moved out of a revoked submenu context.
+        let restored = if removed.is_empty() {
+            focused.and_then(|(id, label, kind)| {
+                self.rows().iter().position(|row|
+                    row.selectable() && row.id == id && row.label == label
+                        && std::mem::discriminant(&row.kind) == kind)
+            })
+        } else { None };
         self.first = self.first.min(self.rows().len().saturating_sub(1));
         if let Some(index) = restored {
             self.selected = index;
@@ -892,6 +896,24 @@ mod tests {
         // A new deliberate pointer click may reopen the new menu, not a stale
         // keyboard Enter targeting its previously selected child.
         assert_eq!(menu.choice(0), MenuChoice::Open(4));
+    }
+
+    #[test]
+    fn promoting_identical_child_out_of_revoked_menu_cannot_inherit_enter() {
+        let mut menu = MenuPopup::default();
+        assert!(menu.open("service", "Live", &root(vec![
+            MenuNode::Menu { id: 4, label: "Old parent".into(), enabled: true,
+                visible: true, children: vec![leaf(9, "Action", true, true)] },
+        ])));
+        assert_eq!(menu.choice(0), MenuChoice::Open(4));
+        assert_eq!(menu.choice(0), MenuChoice::Click(9));
+        assert_eq!(menu.sync(&root(vec![
+            leaf(9, "Action", true, true),
+        ])), vec![4]);
+        assert_eq!(menu.selected, usize::MAX);
+        assert_eq!(menu.choice(menu.selected), MenuChoice::None);
+        menu.select(1);
+        assert_eq!(menu.choice(menu.selected), MenuChoice::Click(9));
     }
 
     #[test]
