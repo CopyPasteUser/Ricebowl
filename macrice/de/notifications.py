@@ -559,4 +559,9 @@ def invalid(error: NotificationBridgeError, *, attempted_dismiss: bool = False,
     return {"ok": False, "backend": "mako", "active": [], "history": [],
             "read_only": not (attempted_dismiss or attempted_invoke or attempted_dnd),
             "dismissed": False, "invoked": False, "do_not_disturb": None,
+            # False booleans mean unconfirmed, not definitely unchanged.
+            # Native/UI consumers must distinguish lost reply from a denied
+            # or invalid request before they offer any manual retry.
+            "outcome_unknown": error.code in (
+                "notification_outcome_unknown", "dnd_outcome_unknown"),
             "error": {"code": error.code, "message": str(error)}}
