@@ -412,6 +412,41 @@ PY
 for name in classic chrome "$luna" restored-chrome; do
     cp "$runtime/$name.png" "$source_root/dist/riceplate-native-preview/shared-engine/$name.png"
 done
+# SG7: real, owner-private native memory/FD/thread comparison, not a
+# cold-login or cumulative leak benchmark. The supervisor replaces RicePlate
+# on an applied rice change (the compositor/session stays alive), so same-PID
+# comparison across switches would be an invalid assumption. Require exactly
+# ONE native process in this private runtime after EVERY transition and
+# compare the final Chrome process footprint to the Chrome baseline.
+# Never sample other users' sessions.
+resource_probe="$source_root/scripts/ci_wayland_resource_smoke.py"
+resource_baseline="$runtime/native-resource-baseline.json"
+sleep 0.3
+/usr/bin/python3 "$resource_probe" capture \
+    --binary "$native" --runtime "$XDG_RUNTIME_DIR" --baseline "$resource_baseline"
+# apply_rice writes snapshots to the same canonical names used by the
+# downstream visual/geometry matrix. Preserve its original screenshot
+# evidence while stress-testing process replacement.
+cp "$runtime/classic.png" "$runtime/sg7-preserved-classic.png"
+cp "$runtime/chrome.png" "$runtime/sg7-preserved-chrome.png"
+for cycle in 1 2 3; do
+    apply_rice chrome classic
+    /usr/bin/python3 "$resource_probe" capture \
+        --binary "$native" --runtime "$XDG_RUNTIME_DIR" \
+        --baseline "$runtime/native-resource-intermediate.json" >/dev/null
+    apply_rice classic chrome
+    /usr/bin/python3 "$resource_probe" capture \
+        --binary "$native" --runtime "$XDG_RUNTIME_DIR" \
+        --baseline "$runtime/native-resource-intermediate.json" >/dev/null
+done
+sleep 0.3
+/usr/bin/python3 "$resource_probe" compare-replaced \
+    --binary "$native" --runtime "$XDG_RUNTIME_DIR" --baseline "$resource_baseline" \
+    >"$source_root/dist/riceplate-native-preview/shared-engine/resource-growth.json"
+test -s "$source_root/dist/riceplate-native-preview/shared-engine/resource-growth.json"
+cp "$runtime/sg7-preserved-classic.png" "$runtime/classic.png"
+cp "$runtime/sg7-preserved-chrome.png" "$runtime/chrome.png"
+echo "Verified three real labwc rice-switch cycles, single native process per switch, bounded PSS/RSS, FDs and threads"
 # SG4: real compositor-driven compact/laptop/desktop + fractional scale
 # matrix, two structurally different native rices (Chrome and XP Luna).
 # Every capture follows an actual labwc wl_output mode/scale change and
