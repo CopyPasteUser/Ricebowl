@@ -3652,6 +3652,30 @@ def run() -> int:
                 window._reference_unlink(None)
                 assert not window.compare_btn.get_sensitive()
                 assert window._reference is None
+            # Exercise the actual GTK RicePack release review, including the
+            # default-disabled action and explicit acknowledgement. This is a
+            # GUI interaction test, not a compositor/rights approval claim.
+            reviewed_pack = creator_release.prepare_export(window.info)
+
+            def confirm_release_review():
+                dialogs = [item for item in Gtk.Window.list_toplevels()
+                           if isinstance(item, Gtk.Dialog)
+                           and item.get_title() == "Review portable RicePack"]
+                assert len(dialogs) == 1, "GTK release review was not opened"
+                dialog = dialogs[0]
+                export_action = dialog.get_widget_for_response(Gtk.ResponseType.OK)
+                assert not export_action.get_sensitive(), "Export must require acknowledgement"
+                checks = [item for item in dialog.get_content_area().get_children()
+                          if isinstance(item, Gtk.CheckButton)]
+                assert len(checks) == 1
+                checks[0].set_active(True)
+                assert export_action.get_sensitive()
+                dialog.response(Gtk.ResponseType.OK)
+                return False
+
+            GLib.idle_add(confirm_release_review)
+            assert window._confirm_export_review(reviewed_pack)
+            assert not (Path(os.environ["XDG_STATE_HOME"]) / "unreviewed.ricepack").exists()
             # Handoff is explicitly confirmed, owner-private and offline in
             # this X11 smoke; never create a live compositor as part of CI.
             from unittest.mock import patch
