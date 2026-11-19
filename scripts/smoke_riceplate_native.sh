@@ -380,7 +380,7 @@ dbus-run-session -- sh -eu -c '
             echo "Captured real native RicePlate $label framebuffer"
         fi
         if [ "$label" = chrome ]; then
-            # Chrome's recipe deliberately has no native menu: its validated
+            # The Chrome recipe deliberately has no native menu: its validated
             # applications action launches the real external fuzzel fallback.
             # Check the actual compositor-dispatched process and Escape
             # lifecycle rather than waiting for an unrelated native-menu trace.
