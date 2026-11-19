@@ -381,7 +381,7 @@ dbus-run-session -- sh -eu -c '
         fi
         if [ "$label" = chrome ]; then
             # SG1 second structurally different rice: a real virtual pointer
-            # opens Chrome's bottom shelf launcher, and the compositor's
+            # opens the Chrome bottom shelf launcher, and compositor keyboard
             # keyboard dispatch closes the *same* native surface. Verify the
             # shell state trace, not only pixels from a screenshot.
             output=$(WAYLAND_DISPLAY=wayland-0 wlr-randr | sed -n "1s/[[:space:]].*//p")
@@ -870,7 +870,7 @@ PY
             # A fresh clock context menu is activated using the actual
             # compositor-delivered keyboard Return. The fixed GUI entrypoint
             # is intercepted by a process-private argv witness (never a
-            # test of the host's real settings or timezone).
+            # test of real host settings or timezone).
             test ! -e "$runtime/tray-settings-argv.log"
             WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click 1320 748 1366 768
             sleep 0.55
