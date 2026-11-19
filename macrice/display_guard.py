@@ -32,6 +32,16 @@ _MAX_FILE = 4096
 _STATES = frozenset(("starting", "pending", "kept", "reverted", "failed", "revert-failed"))
 
 
+def _unique_record(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """Reject ambiguous JSON before acting on a monitor transaction."""
+    record: dict[str, object] = {}
+    for key, value in pairs:
+        if key in record:
+            raise ValueError("Duplicate display transaction field")
+        record[key] = value
+    return record
+
+
 @dataclass(frozen=True)
 class DisplayChange:
     token: str
@@ -171,7 +181,8 @@ def run_worker(change: DisplayChange) -> int:
     request = _request_path(change)
     if request.is_symlink() or request.stat().st_size > _MAX_FILE:
         raise ValueError("Unsafe display change request")
-    data = json.loads(request.read_text(encoding="utf-8"))
+    data = json.loads(request.read_text(encoding="utf-8"),
+                      object_pairs_hook=_unique_record)
     if not isinstance(data, dict) or set(data) != {
             "name", "mode", "x", "y", "old_mode", "old_x", "old_y"}:
         raise ValueError("Invalid display change request")
