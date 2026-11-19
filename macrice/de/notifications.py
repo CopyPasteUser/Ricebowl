@@ -432,7 +432,7 @@ def decode_gui_snapshot(raw: bytes) -> dict[str, Any]:
         raise NotificationBridgeError("Invalid private RicePop selection",
                                       "invalid_notification_snapshot")
     try:
-        value = json.loads(raw)
+        value = json.loads(raw, object_pairs_hook=_unique_json_object)
     except (ValueError, UnicodeError, TypeError, RecursionError) as exc:
         raise NotificationBridgeError("Invalid private RicePop selection",
                                       "invalid_notification_snapshot") from exc
@@ -489,10 +489,16 @@ def dismiss(notification_id: int, *, expected: dict[str, Any] | None = None,
         outcome = subprocess.run([command, "dismiss", "-n", str(notification_id)],
                                  capture_output=True, timeout=3, check=False)
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise NotificationBridgeError("Notification dismissal could not be completed") from exc
+        # The command may have reached Mako before its reply was lost. Never
+        # silently replay this operation or claim that the target is unchanged.
+        raise NotificationBridgeError(
+            "Notification dismissal outcome unknown; refresh the inbox before retrying",
+            "notification_outcome_unknown") from exc
     if outcome.returncode:
-        raise NotificationBridgeError("Notification host rejected dismissal",
-                                      "dismiss_failed")
+        # A nonzero client exit does not prove Mako did not already close it.
+        raise NotificationBridgeError(
+            "Notification dismissal was not confirmed; refresh the inbox before retrying",
+            "notification_outcome_unknown")
     return {"ok": True, "backend": "mako", "dismissed": True,
             "notification_id": notification_id, "mutates_active_desktop": True,
             "actions_replayed": False, "all_notifications_affected": False}
@@ -534,9 +540,15 @@ def invoke(notification_id: int, action_key: str, *,
         outcome = subprocess.run([command, "invoke", "-n", str(notification_id), "--", action_key],
                                  capture_output=True, timeout=3, check=False)
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise NotificationBridgeError("Notification action could not be completed") from exc
+        # Invoking a third-party action is not idempotent: even a failed
+        # transport can have delivered it. The GUI must not auto-replay.
+        raise NotificationBridgeError(
+            "Notification action outcome unknown; refresh the inbox before retrying",
+            "notification_outcome_unknown") from exc
     if outcome.returncode:
-        raise NotificationBridgeError("Notification host rejected the action", "invoke_failed")
+        raise NotificationBridgeError(
+            "Notification action was not confirmed; refresh the inbox before retrying",
+            "notification_outcome_unknown")
     return {"ok": True, "backend": "mako", "invoked": True,
             "notification_id": notification_id, "action_key": action_key,
             "mutates_active_desktop": True, "all_notifications_affected": False}
