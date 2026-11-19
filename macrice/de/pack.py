@@ -195,9 +195,10 @@ def _parse_object(payload: bytes) -> dict[str, Any]:
         value = json.loads(payload.decode("utf-8"),
                            object_pairs_hook=recipes._object_without_duplicates)
     except (ValueError, UnicodeError, RecursionError, TypeError) as exc:
-        raise PackError("Malformed or duplicate-key RicePack JSON") from exc
+        raise PackError("Malformed or duplicate-key RicePack JSON",
+                        code="invalid_manifest") from exc
     if type(value) is not dict:
-        raise PackError("RicePack JSON must be an object")
+        raise PackError("RicePack JSON must be an object", code="invalid_manifest")
     return value
 
 
@@ -502,7 +503,8 @@ def _validate_archive(source: Path | bytes) -> tuple[dict[str, Any], bytes, byte
                         if name.startswith("assets/icons/")}
                     or (visual["font"] is None) !=
                        (artwork.font in ("builtin", "builtin-luna-ui"))):
-                raise PackError("Visual asset archive entries do not match the recipe")
+                raise PackError("Visual asset archive entries do not match the recipe",
+                                code="asset_mismatch")
             declared_assets: dict[str, dict[str, Any]] = {}
             for filename, identifier in expected_records.items():
                 record = (visual["font"] if filename == "assets/font.ttf" else
