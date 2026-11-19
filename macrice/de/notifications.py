@@ -148,12 +148,26 @@ def set_dnd(enabled: bool, *, expected: bool | None = None) -> dict[str, Any]:
             result = subprocess.run([command, "mode", "-a" if enabled else "-r", _DND_MODE],
                                     capture_output=True, timeout=3, check=False)
         except (OSError, subprocess.TimeoutExpired) as exc:
-            raise NotificationBridgeError("Do Not Disturb change could not be confirmed") from exc
+            # makoctl might have applied the mode before the bus transport
+            # failed. A retry without a fresh owner/state read is unsafe.
+            raise NotificationBridgeError(
+                "Do Not Disturb may have changed; outcome unknown; refresh before retrying",
+                "dnd_outcome_unknown") from exc
         if result.returncode:
-            raise NotificationBridgeError("Notification host rejected Do Not Disturb")
-    if _owned_mako() != (command, pid):
-        raise NotificationBridgeError("Notification owner changed", "dnd_host_unverified")
-    if (_DND_MODE in _modes(command)) != enabled:
+            raise NotificationBridgeError(
+                "Notification host rejected Do Not Disturb", "dnd_rejected")
+    try:
+        verified_owner = _owned_mako()
+        if verified_owner != (command, pid):
+            raise NotificationBridgeError("Notification owner changed", "dnd_host_unverified")
+        actual = _DND_MODE in _modes(command)
+    except NotificationBridgeError as exc:
+        if previous != enabled:
+            raise NotificationBridgeError(
+                "Do Not Disturb may have changed; verification unavailable; refresh",
+                "dnd_outcome_unknown") from exc
+        raise
+    if actual != enabled:
         raise NotificationBridgeError("Do Not Disturb verification failed", "dnd_verify_failed")
     return {"ok": True, "backend": "mako", "do_not_disturb": enabled,
             "changed": previous != enabled, "read_only": False,
