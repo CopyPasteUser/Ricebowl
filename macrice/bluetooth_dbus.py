@@ -164,22 +164,39 @@ def _discover_owned(duration, cancel):
     return snapshot()
 
 
-def pair_device(address: str) -> None:
-    """Ask BlueZ to pair using its registered default agent, if available.
+def pair_device(address: str, *, expected_adapter: str | None = None) -> None:
+    """Pair exactly one live BlueZ device through the system's existing agent.
 
-    A system agent owns PIN/confirmation dialogs. We deliberately do not
-    register a competing agent, mark devices trusted or connect automatically.
+    A MAC address alone is ambiguous across multiple cached USB adapters.
+    Never pair the first match blindly, even if another match is already
+    paired. Caller-supplied adapter identity remains optional for old UIs.
     """
-    if not isinstance(address, str) or not _ADDRESS.fullmatch(address):
+    if type(address) is not str or not _ADDRESS.fullmatch(address):
         raise ValueError("Select a valid Bluetooth address")
-    for path, interfaces in _objects().items():
-        props = interfaces.get("org.bluez.Device1", {})
-        if str(_value(props.get("Address", ""))).upper() != address.upper():
+    objects = _objects()
+    if expected_adapter is not None:
+        if (type(expected_adapter) is not str
+                or "org.bluez.Adapter1" not in objects.get(expected_adapter, {})):
+            raise ValueError("Bluetooth adapter changed; rescan before pairing")
+    matches = []
+    for path, interfaces in objects.items():
+        props = interfaces.get("org.bluez.Device1")
+        if not props:
             continue
-        if bool(_value(props.get("Paired"))):
-            return
-        Gio, bus = _connection()
-        bus.call_sync("org.bluez", path, "org.bluez.Device1",
-                      "Pair", None, None, Gio.DBusCallFlags.NONE, 25000, None)
+        value = _value(props.get("Address"))
+        if type(value) is not str or value.upper() != address.upper():
+            continue
+        if expected_adapter is not None and not path.startswith(expected_adapter + "/"):
+            continue
+        matches.append((path, props))
+    if len(matches) != 1:
+        raise ValueError("Bluetooth device missing or ambiguous; rescan before pairing")
+    path, props = matches[0]
+    paired = _value(props.get("Paired"))
+    if type(paired) is not bool:
+        raise ValueError("Bluetooth pairing state is unavailable; rescan before pairing")
+    if paired:
         return
-    raise ValueError("Bluetooth device disappeared; scan again")
+    Gio, bus = _connection()
+    bus.call_sync("org.bluez", path, "org.bluez.Device1",
+                  "Pair", None, None, Gio.DBusCallFlags.NONE, 25000, None)
