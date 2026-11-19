@@ -138,10 +138,21 @@ def main() -> None:
     try:
         until(GLib, lambda: not view.busy, "initial GUI status")
         view._open_ricepop_inbox()
-        until(GLib, lambda: button_for(view, pid, FIRST) is not None
-              and button_for(view, pid, SECOND) is not None
-              and view._ricepop_signals is not None,
-              "two real notifications in the mapped GTK inbox")
+        try:
+            until(GLib, lambda: button_for(view, pid, FIRST) is not None
+                  and button_for(view, pid, SECOND) is not None
+                  and view._ricepop_signals is not None,
+                  "two real notifications in the mapped GTK inbox")
+        except RuntimeError as exc:
+            # Counts/IDs only: never print notification text or action bodies.
+            actual = notifications.inspect_owned()
+            keys = [(key[0], key[1], key[2]) for key in
+                    view._ricepop_focus_buttons if len(key) >= 3]
+            raise RuntimeError(
+                f"{exc}; owner={actual.get('owner_pid') == pid}, "
+                f"active_ids={[row['id'] for row in actual['active']]}, "
+                f"gui_keys={keys[:8]}, busy={view.busy}, "
+                f"watching={view._ricepop_signals is not None}") from exc
         old_record = observed_row(pid, FIRST)
         old_button = button_for(view, pid, FIRST)
         old_button.grab_focus()
