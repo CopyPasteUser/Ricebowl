@@ -66,14 +66,12 @@ impl Preedit {
                 let b = usize::try_from(b).ok()?;
                 if !text.is_char_boundary(a) || !text.is_char_boundary(b)
                     || a > text.len() || b > text.len() { return None; }
-                // A caret inside a combining sequence must not be painted
-                // between the base and its diacritic.
-                if !text.grapheme_indices(true).map(|(i, _)| i)
-                    .chain(std::iter::once(text.len())).any(|i| i == a)
-                    || !text.grapheme_indices(true).map(|(i, _)| i)
-                    .chain(std::iter::once(text.len())).any(|i| i == b) {
-                    return None;
-                }
+                // text-input-v3 specifies UTF-8 *byte* offsets, not
+                // extended-grapheme indices. A valid IME may put its cursor
+                // between a base and combining mark (or inside a ZWJ
+                // sequence). Preserve that protocol offset here: the editor
+                // projects it onto a whole-grapheme painted caret. Reject
+                // offsets inside a UTF-8 scalar or outside the preedit.
                 (Some(a), Some(b))
             }
             _ => return None,
@@ -81,8 +79,6 @@ impl Preedit {
         Some(Self { text: text.to_owned(), cursor, anchor })
     }
 }
-use unicode_segmentation::UnicodeSegmentation;
-
 #[derive(Default, Clone, Debug)]
 pub(crate) struct Pending {
     pub(crate) preedit: Option<Result<Preedit, ()>>,
@@ -237,15 +233,43 @@ mod tests {
     }
 
     #[test]
-    fn preedit_requires_valid_utf8_and_grapheme_boundaries() {
+    fn preedit_requires_utf8_scalar_boundaries_but_allows_intra_grapheme_carets() {
         let valid = Preedit::parse("a\u{301}👩‍💻", 3, 14).unwrap();
         assert_eq!(valid.cursor, Some(3));
         assert_eq!(valid.anchor, Some(14));
-        assert!(Preedit::parse("a\u{301}", 1, 3).is_none());
+        // A protocol-valid cursor can be between the base and its accent.
+        // Rejecting this whole batch would lose legitimate IME commits.
+        let inside = Preedit::parse("a\u{301}", 1, 3).unwrap();
+        assert_eq!(inside.cursor, Some(1));
+        assert_eq!(inside.anchor, Some(3));
+        let joined = Preedit::parse("👩‍💻", 4, 7).unwrap();
+        assert_eq!((joined.cursor, joined.anchor), (Some(4), Some(7)));
+        // UTF-8 continuation bytes remain invalid.
+        assert!(Preedit::parse("a\u{301}", 2, 3).is_none());
         assert!(Preedit::parse("é", 1, 2).is_none());
         assert!(Preedit::parse("a", -1, 0).is_none());
         assert!(Preedit::parse("x\n", 0, 0).is_none());
         assert_eq!(Preedit::parse("é", -1, -1).unwrap().cursor, None);
+    }
+
+    #[test]
+    fn intra_cluster_caret_is_accepted_without_changing_committed_text() {
+        let mut state = State::new(Kind::Run);
+        assert!(state.commit_text("e"));
+        let mut batch = Pending::default();
+        batch.preedit(Some("\u{301}".to_owned()), 0, 0);
+        assert!(state.apply_ime(&batch));
+        assert_eq!(state.input, "e");
+        assert_eq!(state.preedit.as_ref().unwrap().cursor, Some(0));
+
+        batch.reset();
+        // Combined commit and preedit with a valid *scalar* boundary inside
+        // a multi-scalar grapheme must not drop the committed Japanese text.
+        batch.commit(Some("日本".to_owned()));
+        batch.preedit(Some("a\u{301}".to_owned()), 1, 1);
+        assert!(state.apply_ime(&batch));
+        assert_eq!(state.input, "e日本");
+        assert_eq!(state.preedit.as_ref().unwrap().cursor, Some(1));
     }
 
     #[test]
@@ -280,7 +304,7 @@ mod tests {
         assert!(!state.apply_ime(&pending));
         assert_eq!((state.input.clone(), state.cursor), before);
         pending.reset();
-        pending.preedit(Some("a\u{301}".into()), 1, 3);
+        pending.preedit(Some("a\u{301}".into()), 2, 3);
         assert!(!state.apply_ime(&pending));
         assert_eq!((state.input.clone(), state.cursor), before);
     }
