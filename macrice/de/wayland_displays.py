@@ -201,7 +201,8 @@ def run_worker(change: guard.DisplayChange) -> int:
     request = guard._request_path(change)
     if request.is_symlink() or request.stat().st_size > 4096:
         raise ValueError("Invalid monitor change request")
-    data = json.loads(request.read_text(encoding="utf-8"))
+    data = json.loads(request.read_text(encoding="utf-8"),
+                      object_pairs_hook=guard._unique_record)
     base = {"name", "mode", "scale", "old_mode", "old_scale"}
     has_position = set(data) == base | {"x", "y", "old_x", "old_y"} if isinstance(data, dict) else False
     if not isinstance(data, dict) or (set(data) != base and not has_position):
@@ -246,7 +247,7 @@ def run_worker(change: guard.DisplayChange) -> int:
             guard._write_state(change, "pending", "Confirm within 18 seconds or rollback")
             deadline = time.monotonic() + guard.TIMEOUT_SECONDS
             while time.monotonic() < deadline and not stopped[0]:
-                if guard._keep_path(change).is_file():
+                if guard._keep_requested(change):
                     guard._write_state(change, "kept", "Monitor settings confirmed for this session")
                     confirmed = True
                     # Explicit, confirmed RiceSpice mode changes need a fresh
