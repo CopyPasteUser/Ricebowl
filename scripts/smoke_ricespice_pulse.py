@@ -7,6 +7,7 @@ production RiceSpice adapter. No system audio state or daemon is modified.
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -38,6 +39,21 @@ def wait_for(predicate, process, message: str, timeout: float = 8) -> object:
         except (audio_devices.AudioDeviceError, OSError) as exc:
             last_error = type(exc).__name__ + ': ' + str(exc)[:120]
         time.sleep(0.08)
+    if message == "client stream discovery":
+        # Diagnose only field type/primitive ID values from CI-owned null sinks,
+        # never application names or a host audio server's stream metadata.
+        try:
+            records = json.loads(audio_devices._run(
+                "--format=json", "list", "sink-inputs"))
+            schema = [{
+                key: (type(row.get(key)).__name__,
+                      row.get(key) if type(row.get(key)) in (int, bool) else None)
+                for key in ("index", "sink", "client", "mute")
+            } for row in records[:3]]
+            print("SG2 private PulseAudio stream schema: " + repr(schema),
+                  file=sys.stderr)
+        except (ValueError, KeyError, audio_devices.AudioDeviceError):
+            pass
     raise RuntimeError("Timeout during real PulseAudio " + message
                        + (f" ({last_error})" if last_error else ""))
 
