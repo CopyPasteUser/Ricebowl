@@ -69,3 +69,37 @@ class SecureDeviceTests(unittest.TestCase):
                 mock.patch.object(hw.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as run:
             self.assertEqual(hw.pair_bluetooth_device(address), after)
         self.assertEqual(run.call_args.args[0], ["bluetoothctl", "pair", address])
+
+    def test_bluetooth_pairing_transport_loss_never_replays_through_cli(self):
+        address = "AA:BB:CC:DD:EE:FF"
+        before = hw.BluetoothState(True, (), (
+            hw.BluetoothDevice(address, "Headset", False, False),))
+        with (
+            mock.patch.object(hw, "read_bluetooth", return_value=before) as state,
+            mock.patch("macrice.bluetooth_dbus.pair_device",
+                       side_effect=OSError("BlueZ timed out")) as dbus,
+            mock.patch.object(hw.shutil, "which") as which,
+            mock.patch.object(hw.subprocess, "run") as cli,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "outcome unknown"):
+                hw.pair_bluetooth_device(address)
+        dbus.assert_called_once_with(address)
+        state.assert_called_once()
+        which.assert_not_called()
+        cli.assert_not_called()
+
+    def test_bluetooth_pairing_caller_rejects_ambiguous_known_addresses(self):
+        address = "AA:BB:CC:DD:EE:FF"
+        before = hw.BluetoothState(True, (), (
+            hw.BluetoothDevice(address, "First USB", False, False),
+            hw.BluetoothDevice(address.lower(), "Second USB", False, False),
+        ))
+        with (
+            mock.patch.object(hw, "read_bluetooth", return_value=before),
+            mock.patch("macrice.bluetooth_dbus.pair_device") as pair,
+            mock.patch.object(hw.subprocess, "run") as cli,
+        ):
+            with self.assertRaisesRegex(ValueError, "identity is ambiguous"):
+                hw.pair_bluetooth_device(address)
+            pair.assert_not_called()
+            cli.assert_not_called()
