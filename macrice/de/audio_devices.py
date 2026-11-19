@@ -189,6 +189,19 @@ def _streams(payload: str) -> list[dict[str, Any]]:
             raise AudioDeviceError("Invalid playback-stream entry")
         index, sink, muted = record.get("index"), record.get("sink"), record.get("mute")
         client = record.get("client")
+        # Real pactl JSON (PulseAudio 16 on Ubuntu 24.04) renders Client
+        # identity as a decimal string, unlike its numeric sink/input IDs.
+        # Normalize only canonical unsigned decimal IDs, never arbitrary
+        # text, boolean, signed, locale-formatted or ownerless clients.
+        if type(client) is str:
+            if client == "n/a":
+                client = None
+            elif (1 <= len(client) <= 10 and client.isascii()
+                  and client.isdecimal()
+                  and (len(client) == 1 or client[0] != "0")):
+                client = int(client)
+            else:
+                raise AudioDeviceError("Invalid playback-stream client identity")
         if (type(index) is not int or not 0 <= index < 2**32 or index in found
                 or type(sink) is not int or not 0 <= sink < 2**32
                 or type(muted) is not bool
