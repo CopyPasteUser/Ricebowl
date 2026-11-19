@@ -341,7 +341,7 @@ jobs:
           isolated=$(mktemp -d -t ricebowl-core-tamper-XXXXXXXX)
           trap 'rm -rf -- "$isolated"' EXIT
           dpkg-deb --raw-extract "$source_core" "$isolated/stage"
-          printf '\\n# isolated CI tampering; never shipped\\n' >> \
+          printf '\n# isolated CI tampering; never shipped\n' >> \
             "$isolated/stage/usr/lib/ricebowl-wayland/launcher.py"
           # Rebuild control checksums rather than fail merely on stale md5sums.
           rm -f -- "$isolated/stage/DEBIAN/md5sums"
