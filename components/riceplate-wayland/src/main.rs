@@ -8572,11 +8572,13 @@ impl PointerHandler for RicePlate {
                                 if self.tray_menu_state.rows().get(index).is_some_and(|r|
                                     r.selectable()) && self.tray_menu_state.selected != index {
                                     self.tray_menu_state.selected = index;
-                                    if let Some(host) = self.tray_host.as_mut() {
-                                        let id = self.tray_menu_state.rows()[index].id;
-                                        if let Err(error) = host.menu_hovered(
-                                            &self.tray_menu_state.bus_name, id) {
-                                            eprintln!("RicePlate: SNI menu hover failed: {error}");
+                                    if let Some(id) =
+                                        self.tray_menu_state.remote_hover_id(index) {
+                                        if let Some(host) = self.tray_host.as_mut() {
+                                            if let Err(error) = host.menu_hovered(
+                                                &self.tray_menu_state.bus_name, id) {
+                                                eprintln!("RicePlate: SNI menu hover failed: {error}");
+                                            }
                                         }
                                     }
                                     self.redraw_tray_popup();
