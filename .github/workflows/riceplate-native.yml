@@ -223,9 +223,41 @@ jobs:
           sh -n scripts/wayland_clipboard_smoke_client.sh
           sh -n scripts/smoke_riceplate_multioutput.sh
           sh -n scripts/smoke_wayland_shared_rice_engine.sh
+      # Ubuntu 24.04 packages labwc 0.7.1, which predates upstream's
+      # input-method-v2/text-input-v3 implementation (introduced in 0.7.2).
+      # Build the exact upstream commit in a disposable runner directory;
+      # do not upgrade or install labwc on the user's system or the runner.
+      - name: Build source-locked IME-capable labwc for SG5 only
+        timeout-minutes: 10
+        run: |
+          set -eu
+          sudo apt-get -o Acquire::Retries=2 install -y --no-install-recommends \
+            meson ninja-build libwlroots-dev libwayland-dev wayland-protocols \
+            libdrm-dev libxml2-dev libglib2.0-dev libcairo2-dev \
+            libpango1.0-dev libinput-dev libpixman-1-dev libpng-dev
+          src="$RUNNER_TEMP/ricebowl-sg5-labwc-src"
+          build="$RUNNER_TEMP/ricebowl-sg5-labwc-build"
+          pinned=b41af54a1bd7d9270d19de4c9a2b77d882cf3ede
+          git init -q "$src"
+          git -C "$src" remote add origin https://github.com/labwc/labwc.git
+          timeout -k 3s 90s git -C "$src" -c protocol.version=2 \
+            fetch --no-tags --depth=1 origin "$pinned"
+          git -C "$src" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$src" rev-parse HEAD)" = "$pinned"
+          grep -Fq "version: '0.7.2'" "$src/meson.build"
+          meson setup "$build" "$src" --wrap-mode=nofallback \
+            -Dxwayland=disabled -Dnls=disabled -Dsvg=disabled -Dman-pages=disabled
+          meson compile -C "$build" -j 2
+          test -x "$build/labwc"
+          "$build/labwc" --version | grep -F 0.7.2
       - name: Verify real input-method-v2 transactions and AT-SPI against native Run
         timeout-minutes: 3
-        run: timeout -k 5s 140s sh scripts/smoke_luna_atspi.sh
+        run: |
+          # Only the SG5 E2E uses the private 0.7.2 compositor; all other
+          # native/XWayland/package tests still exercise Ubuntu's stock labwc.
+          export PATH="$RUNNER_TEMP/ricebowl-sg5-labwc-build:$PATH"
+          test "$(command -v labwc)" = "$RUNNER_TEMP/ricebowl-sg5-labwc-build/labwc"
+          timeout -k 5s 140s sh scripts/smoke_luna_atspi.sh
       - name: Validate portal screenshot and headless ScreenCast negotiation
         run: |
           sh -n scripts/smoke_wayland_portals.sh
