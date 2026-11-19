@@ -173,7 +173,12 @@ fn snapshot_rows(nodes: &[MenuNode], budget: &mut usize, depth: usize) -> Vec<Me
 /// bounds this validation to at most MAX_MENU_NODES entries.
 fn unique_menu_ids(rows: &[MenuRow], seen: &mut HashSet<i32>) -> bool {
     for row in rows {
-        if !seen.insert(row.id) { return false; }
+        // DBusMenu separators have no executable action and some hosts reuse
+        // their sentinel/root ID for them. Never reject an otherwise valid
+        // provider merely because its decorative separators share that ID.
+        if !matches!(&row.kind, MenuKind::Separator) && !seen.insert(row.id) {
+            return false;
+        }
         if let MenuKind::Submenu(children) = &row.kind {
             if !unique_menu_ids(children, seen) { return false; }
         }
@@ -792,6 +797,25 @@ mod tests {
         assert_eq!(menu.sync(&root(vec![
             leaf(1, "A", true, true), leaf(1, "B", true, true),
         ])), vec![0], "consumer closes the stale remote menu immediately");
+    }
+
+    #[test]
+    fn duplicate_separator_ids_are_non_actions_but_duplicate_commands_still_fail() {
+        let mut menu = MenuPopup::default();
+        assert!(menu.open("service", "Normal provider", &root(vec![
+            MenuNode::Separator { id: 0, visible: true },
+            leaf(14, "Open", true, true),
+            MenuNode::Separator { id: 0, visible: true },
+        ])));
+        assert_eq!(menu.selected, 1);
+        assert_eq!(menu.choice(0), MenuChoice::None);
+        assert_eq!(menu.choice(1), MenuChoice::Click(14));
+        assert_eq!(menu.choice(2), MenuChoice::None);
+        menu.close();
+        assert!(!menu.open("service", "Ambiguous commands", &root(vec![
+            leaf(14, "Open", true, true),
+            leaf(14, "Other", true, true),
+        ])));
     }
 
     #[test]
