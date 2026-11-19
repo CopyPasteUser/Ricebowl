@@ -78,7 +78,7 @@ def parser() -> argparse.ArgumentParser:
         "creator-status", "creator-stage", "creator-rollback",
         "creator-live-status", "creator-live-apply", "creator-live-restore", "creator-live-recovery",
         "display-refresh", "display-confirm",
-        "pack-export", "pack-inspect", "pack-import", "pack-recover", "asset-import", "notifications", "notifications-owned", "notification-dismiss",
+        "pack-export", "pack-inspect", "pack-preflight", "pack-import", "pack-recover", "asset-import", "notifications", "notifications-owned", "notification-dismiss",
         "notification-invoke", "notification-dnd",
         "settings",
         "audio-devices", "audio-default",
@@ -223,8 +223,8 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("--edit only applies to de draft-check/edit")
             if args.action != "pack-export" and args.metadata is not None:
                 raise ValueError("--metadata only applies to de pack-export")
-            if args.action not in ("pack-inspect", "pack-import") and args.package is not None:
-                raise ValueError("--package only applies to de pack-inspect/import")
+            if args.action not in ("pack-inspect", "pack-preflight", "pack-import") and args.package is not None:
+                raise ValueError("--package only applies to de pack-inspect/preflight/import")
             if args.action != "asset-import" and args.asset is not None:
                 raise ValueError("--asset only applies to de asset-import")
             if args.action != "render-matrix-inspect" and args.matrix is not None:
@@ -623,7 +623,7 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     print(f"Stored private wallpaper {asset_id}. Add this ID to a schema-v6 recipe.")
                 return 0
-            if args.action in ("pack-export", "pack-inspect", "pack-import", "pack-recover"):
+            if args.action in ("pack-export", "pack-inspect", "pack-preflight", "pack-import", "pack-recover"):
                 if args.nested or args.panel != "waybar":
                     raise ValueError("RicePack tools do not start a desktop session")
                 if args.action == "pack-export":
@@ -633,14 +633,16 @@ def main(argv: list[str] | None = None) -> int:
                     if args.recipe or args.output or args.package or args.metadata:
                         raise ValueError("de pack-recover takes no archive or recipe options")
                 elif not args.package or args.recipe or args.output:
-                    raise ValueError("de pack-inspect/import require --package")
+                    raise ValueError("de pack-inspect/preflight/import require --package")
                 from .de.pack import (PackError, export_pack, import_pack, inspect_pack,
-                                      recover_pack_import, invalid_pack)
+                                      preflight_import, recover_pack_import, invalid_pack)
                 try:
                     if args.action == "pack-export":
                         result = export_pack(args.recipe, args.output, metadata=args.metadata)
                     elif args.action == "pack-inspect":
                         result = inspect_pack(args.package)
+                    elif args.action == "pack-preflight":
+                        result = preflight_import(args.package)
                     elif args.action == "pack-recover":
                         result = recover_pack_import()
                     else:
@@ -656,6 +658,8 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"Exported portable recipe {result['recipe_id']} to {args.output}")
                 elif args.action == "pack-inspect":
                     print(f"Valid RicePack: {result['manifest']['recipe']['id']}")
+                elif args.action == "pack-preflight":
+                    print(f"Import currently possible: {result['recipe_id']} (recheck on import)")
                 elif args.action == "pack-recover":
                     print(f"RicePack recovery: {'completed' if result['recovered'] else 'nothing pending'}")
                 else:
