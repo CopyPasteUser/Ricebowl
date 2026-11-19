@@ -623,9 +623,12 @@ def pair_bluetooth_device(address: str) -> BluetoothState:
             r"[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}", address):
         raise ValueError("Select a valid Bluetooth address")
     state = read_bluetooth()
-    device = next((item for item in state.devices if item.address.lower() == address.lower()), None)
-    if device is None:
+    matches = [item for item in state.devices if item.address.lower() == address.lower()]
+    if not matches:
         raise ValueError("Discover the Bluetooth device in system settings first")
+    if len(matches) != 1:
+        raise ValueError("Bluetooth device identity is ambiguous; rescan before pairing")
+    device = matches[0]
     if state.powered is not True:
         raise RuntimeError("Switch Bluetooth on before pairing")
     if device.paired:
