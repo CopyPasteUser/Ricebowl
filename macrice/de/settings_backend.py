@@ -319,7 +319,13 @@ def set_wifi(enabled: bool, *, expected: bool) -> bool:
         raise SettingsError("Wi-Fi state changed; refresh before applying")
     if enabled == expected:
         return enabled
-    _nmcli("radio", "wifi", "on" if enabled else "off")
+    try:
+        _nmcli("radio", "wifi", "on" if enabled else "off")
+    except SettingsError as exc:
+        # A CLI timeout/error does not prove NetworkManager rejected a write.
+        # Do not report a definitive failure or automatically replay it.
+        raise SettingsError(
+            "Wi-Fi radio may have changed; outcome unknown; refresh before retrying") from exc
     try:
         actual = wifi_state()
     except SettingsError as exc:
@@ -477,7 +483,10 @@ def set_bluetooth_power(enabled: bool, *, expected: bool,
         try:
             bluetooth_dbus.set_power(before["adapter"], enabled)
         except Exception as exc:
-            raise SettingsError("BlueZ denied the adapter change") from exc
+            # D-Bus can lose its reply after BlueZ has applied the new state.
+            # Never present a transport failure as proof of a failed write.
+            raise SettingsError(
+                "Bluetooth power may have changed; outcome unknown; refresh") from exc
     try:
         after = bluetooth_snapshot()
     except SettingsError as exc:
@@ -512,7 +521,10 @@ def set_bluetooth_connection(address: str, connected: bool, *, expected: bool,
             bluetooth_dbus.set_connection(
                 address, connected, expected_adapter=before["adapter"])
         except Exception as exc:
-            raise SettingsError("BlueZ denied the device operation") from exc
+            # A device operation may have succeeded before the bus reply was
+            # lost. Require explicit refresh instead of encouraging a retry.
+            raise SettingsError(
+                "Bluetooth connection may have changed; outcome unknown; refresh") from exc
     try:
         after = bluetooth_snapshot()
     except SettingsError as exc:
@@ -602,7 +614,9 @@ def set_power_profile(name: str, *, expected: str) -> str:
     try:
         hardware_status.set_power_profile(name)
     except (OSError, RuntimeError, ValueError) as exc:
-        raise SettingsError("Power profile change was denied or could not be verified") from exc
+        # A failed service reply is not a transaction rollback guarantee.
+        raise SettingsError(
+            "Power profile may have changed; outcome unknown; refresh") from exc
     try:
         actual, _ = hardware_status.read_power_profiles()
     except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
