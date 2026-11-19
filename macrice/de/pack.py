@@ -41,6 +41,14 @@ _RECEIPT_SUFFIX = ".ricepack-provenance"
 _IMPORT_LOCK = ".ricepack-import.lock"
 _IMPORT_PENDING = ".ricepack-import-pending.ricepack"
 _IMPORT_LOCK_TIMEOUT = 5.0
+_BIDI_CONTROLS = frozenset((0x061C, 0x200E, 0x200F,
+                            0x202A, 0x202B, 0x202C, 0x202D, 0x202E,
+                            0x2066, 0x2067, 0x2068, 0x2069))
+
+
+def _has_bidi_controls(value: str) -> bool:
+    """Keep natural RTL text legal, but reject invisible direction overrides."""
+    return any(ord(char) in _BIDI_CONTROLS for char in value)
 
 
 def _bundled_wallpaper(recipe: recipes.PanelRecipe) -> tuple[str, str]:
@@ -210,10 +218,7 @@ def _provenance(value: dict[str, Any]) -> dict[str, str]:
         # text without changing the manifest bytes. Keep natural RTL names
         # legal, but never accept caller-controlled direction overrides or
         # isolates in portable attribution receipts.
-        if any(ord(char) in {0x061C, 0x200E, 0x200F,
-                             0x202A, 0x202B, 0x202C, 0x202D, 0x202E,
-                             0x2066, 0x2067, 0x2068, 0x2069}
-               for char in value[field]):
+        if _has_bidi_controls(value[field]):
             raise PackError("RicePack provenance contains bidirectional formatting controls")
     return value
 
@@ -293,11 +298,20 @@ def _new_archive(destination: Path, payload: bytes) -> None:
 def export_pack(recipe_token: str, destination: Path,
                 *, metadata: Path | None = None,
                 wallpaper_provenance: dict[str, str] | None = None,
-                declared_provenance: dict[str, str] | None = None) -> dict[str, Any]:
+                declared_provenance: dict[str, str] | None = None,
+                expected_semantic_sha256: str | None = None) -> dict[str, Any]:
     """Build reproducible bytes for a validated recipe; do not select/apply it."""
     if not destination.is_absolute() or destination.suffix != ".ricepack":
         raise PackError("Output must be an absolute .ricepack file", code="invalid_output")
     recipe = _read_recipe(recipe_token)
+    if expected_semantic_sha256 is not None:
+        if (type(expected_semantic_sha256) is not str or
+                re.fullmatch(r"[0-9a-f]{64}", expected_semantic_sha256) is None):
+            raise PackError("Expected recipe fingerprint must be 64 lowercase hex digits",
+                            code="invalid_fingerprint")
+        if review._semantic_hash(review._manifest(recipe)) != expected_semantic_sha256:
+            raise PackError("Source recipe changed since Creator export review",
+                            code="recipe_changed")
     declared_wallpaper = wallpaper_provenance
     provenance = dict(_DEFAULT_PROVENANCE)
     wallpaper_provenance = dict(_DEFAULT_PROVENANCE)
@@ -380,7 +394,8 @@ def _validate_archive(source: Path | bytes) -> tuple[dict[str, Any], bytes, byte
                     or not {"ricepack.json", "recipe.json"} <= names
                     or names - ({"ricepack.json", "recipe.json", "assets/wallpaper.png",
                                  "assets/font.ttf"} | allowed_icons)):
-                raise PackError("RicePack contains unexpected or duplicate data entries")
+                raise PackError("RicePack contains unexpected or duplicate data entries",
+                                code="unsafe_entries")
             for entry in entries:
                 mode = entry.external_attr >> 16
                 if (entry.flag_bits & 1 or entry.compress_type != zipfile.ZIP_STORED
@@ -391,7 +406,8 @@ def _validate_archive(source: Path | bytes) -> tuple[dict[str, Any], bytes, byte
                             style_assets.MAX_FONT_BYTES if entry.filename == "assets/font.ttf" else
                             style_assets.MAX_ICON_BYTES if entry.filename in allowed_icons else
                             assets.MAX_IMAGE_BYTES)):
-                    raise PackError("Unsafe, compressed or oversized RicePack entry")
+                    raise PackError("Unsafe, compressed or oversized RicePack entry",
+                                    code="unsafe_entries")
             metadata = _parse_object(archive.read("ricepack.json"))
             recipe_payload = archive.read("recipe.json")
             wallpaper_payload = (archive.read("assets/wallpaper.png")
@@ -401,7 +417,7 @@ def _validate_archive(source: Path | bytes) -> tuple[dict[str, Any], bytes, byte
     except (zipfile.BadZipFile, OSError, RuntimeError, EOFError, ValueError) as exc:
         if isinstance(exc, PackError):
             raise
-        raise PackError("Corrupt or invalid RicePack archive") from exc
+        raise PackError("Corrupt or invalid RicePack archive", code="invalid_archive") from exc
     version = metadata.get("format_version")
     expected = {"format", "format_version", "recipe", "provenance", "runtime_assets"}
     if version in (2, 3, 4):
@@ -409,15 +425,15 @@ def _validate_archive(source: Path | bytes) -> tuple[dict[str, Any], bytes, byte
     expected_assets = ("visual-assets-v1" if version == 4 else
                        "one-private-content-addressed-png" if version == 3
                        else "bundled-wallpapers-only")
+    if type(version) is not int or version not in (1, 2, 3, PACK_VERSION):
+        raise PackError("Unsupported RicePack format version", code="unsupported_version")
     if (set(metadata) != expected
             or metadata["format"] != PACK_FORMAT
-            or type(version) is not int
-            or version not in (1, 2, 3, PACK_VERSION)
             or metadata["runtime_assets"] != expected_assets
             or (version != 4 and bool(visual_payloads))
             or (version == 3 and wallpaper_payload is None)
             or (version not in (3, 4) and wallpaper_payload is not None)):
-        raise PackError("Unsupported RicePack format or version")
+        raise PackError("Malformed RicePack manifest", code="invalid_manifest")
     info = metadata["recipe"]
     if (type(info) is not dict
             or set(info) != {"path", "id", "schema_version", "sha256", "semantic_sha256"}
@@ -426,16 +442,17 @@ def _validate_archive(source: Path | bytes) -> tuple[dict[str, Any], bytes, byte
             or type(info["schema_version"]) is not int
             or type(info["sha256"]) is not str
             or type(info["semantic_sha256"]) is not str):
-        raise PackError("Invalid RicePack recipe manifest")
+        raise PackError("Invalid RicePack recipe manifest", code="invalid_manifest")
     _provenance(metadata["provenance"] if type(metadata["provenance"]) is dict else {})
     try:
         recipe = recipes.parse(recipe_payload)
     except recipes.RecipeError as exc:
-        raise PackError("RicePack includes an invalid recipe") from exc
+        raise PackError("RicePack includes an invalid recipe", code="invalid_recipe") from exc
     if (recipe.recipe_id != info["id"] or recipe.schema_version != info["schema_version"]
             or _digest(recipe_payload) != info["sha256"]
             or review._semantic_hash(review._manifest(recipe)) != info["semantic_sha256"]):
-        raise PackError("RicePack recipe fingerprint or identity mismatch")
+        raise PackError("RicePack recipe fingerprint or identity mismatch",
+                        code="recipe_mismatch")
     if version in (2, 3, 4):
         asset_manifest = metadata["asset_manifest"]
         required = {"version", "wallpaper", "visual"} if version == 4 else {"version", "wallpaper"}
@@ -634,6 +651,36 @@ def _preflight_import(metadata: dict[str, Any], payload: bytes,
                 raise PackError("Private font/icon asset conflicts with this pack",
                                 code="asset_unavailable") from exc
     return attribution
+
+
+def preflight_import(source: Path, *, expected_manifest: dict[str, Any] | None = None
+                     ) -> dict[str, Any]:
+    """Read-only destination check before an explicit offline import.
+
+    A successful preflight is a point-in-time observation, not a filesystem
+    lease: import_pack still revalidates and serializes every write. Never
+    create config directories, lock files, journals or change the session.
+    """
+    metadata, payload, wallpaper, visual, archive = _validate_archive(source)
+    if expected_manifest is not None and metadata != expected_manifest:
+        raise PackError("RicePack changed since review; inspect it again",
+                        code="pack_changed")
+    try:
+        folder = recipes._private_recipe_dir(create=False)
+        if os.path.lexists(folder / _IMPORT_PENDING):
+            raise PackError("Recover the pending private RicePack import first",
+                            code="recovery_required")
+        _preflight_import(metadata, payload, wallpaper, visual)
+    except (OSError, recipes.RecipeError, assets.AssetError, ValueError) as exc:
+        if isinstance(exc, PackError):
+            raise
+        raise PackError("RicePack import destination could not be checked safely",
+                        code="import_unavailable") from exc
+    return {"pack_version": metadata["format_version"], "ok": True, "valid": True,
+            "ready": True, "point_in_time_only": True,
+            "imported": False, "applied": False,
+            "recipe_id": metadata["recipe"]["id"], "package_sha256": _digest(archive),
+            "attribution_review": _attribution_review(metadata)}
 
 
 def _sync_directory(folder: Path) -> None:
