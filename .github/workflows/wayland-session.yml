@@ -17,6 +17,7 @@ on:
       - 'scripts/smoke_ricepop_modern_bus.py'
       - 'scripts/smoke_real_mako_111.sh'
       - 'scripts/smoke_ricepop_recovery.py'
+      - 'scripts/smoke_ricespice_pulse.py'
       - 'scripts/check_wayland_panel_outputs.py'
       - 'scripts/capture_luna_labwc.py'
       - 'scripts/smoke_luna_settings_labwc.sh'
@@ -38,6 +39,7 @@ on:
       - 'scripts/smoke_ricepop_modern_bus.py'
       - 'scripts/smoke_real_mako_111.sh'
       - 'scripts/smoke_ricepop_recovery.py'
+      - 'scripts/smoke_ricespice_pulse.py'
       - 'scripts/check_wayland_panel_outputs.py'
       - 'scripts/capture_luna_labwc.py'
       - 'scripts/smoke_luna_settings_labwc.sh'
@@ -83,11 +85,15 @@ jobs:
             gir1.2-gtk-3.0 librsvg2-common mako-notifier libnotify-bin \
             python3-pyatspi at-spi2-core libatk-adaptor \
             meson ninja-build pkg-config libwayland-dev wayland-protocols \
-            libpango1.0-dev libcairo2-dev libglib2.0-dev libsystemd-dev
+            libpango1.0-dev libcairo2-dev libglib2.0-dev libsystemd-dev pulseaudio pulseaudio-utils
       - name: Validate and test isolated session runtime
         run: |
           /usr/bin/python3 -m compileall -q macrice/de macrice/cli.py
           /usr/bin/python3 -m unittest discover -s tests -p 'test_de_*.py' -v
+          # Real disposable PulseAudio server, isolated socket and app stream;
+          # no changes to host audio devices or the logged-in user's session.
+          /usr/bin/python3 -m py_compile scripts/smoke_ricespice_pulse.py
+          RICEBOWL_SG2_DISPOSABLE=1 timeout -k 2s 40s dbus-run-session -- /usr/bin/python3 scripts/smoke_ricespice_pulse.py
           /usr/bin/python3 -m unittest tests.test_wayland_creator_e2e tests.test_wayland_creator_handoff -v
           # Session-specific DesktopNames is valid for display managers but
           # desktop-file-validate only knows ordinary application entries.
