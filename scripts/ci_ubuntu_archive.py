@@ -1,10 +1,11 @@
 #!/usr/bin/python3
-"""Use Ubuntu's signed public archive instead of a stuck EC2 regional mirror.
+"""Keep signed Ubuntu Noble package suites active on disposable CI runners.
 
-GitHub's ephemeral Ubuntu 24.04 runner sometimes spends the full 28-minute
-Wayland install budget downloading dozens of packages from its region-local
-EC2 mirror. This edits *only* that runner's archive URI, not apt trust,
-distribution/suites, security.ubuntu.com, packages, or the user's machine.
+Some GitHub-hosted images have missing/disabled Ubuntu archive entries. In
+that case apt-get update can misleadingly succeed against third-party repos
+alone. Restore only official Noble suites, using Ubuntu's existing archive
+signing key, without disabling apt verification or touching a user's system.
+Also replace stalled EC2 regional mirrors with Ubuntu's public archive.
 """
 from __future__ import annotations
 
