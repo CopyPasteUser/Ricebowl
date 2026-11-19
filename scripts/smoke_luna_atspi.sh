@@ -71,14 +71,20 @@ dbus-run-session -- sh -eu -c '
     # disposable headless DBus session defaults to false even with pyatspi
     # installed: explicitly emulate a screen reader enabling accessibility.
     # This setting exists ONLY on the private dbus-run-session bus.
-    dbus-send --session --dest=org.a11y.Bus /org/a11y/bus \
+    # Await the Properties.Set D-Bus reply before querying from a second
+    # connection: fire-and-forget can race the following Get on headless CI.
+    dbus-send --session --print-reply --reply-timeout=5000 \
+        --dest=org.a11y.Bus /org/a11y/bus \
         org.freedesktop.DBus.Properties.Set \
         string:org.a11y.Status string:IsEnabled variant:boolean:true
-    gdbus call --session --dest org.a11y.Bus --object-path /org/a11y/bus \
+    a11y_status=$(gdbus call --session --dest org.a11y.Bus \
+        --object-path /org/a11y/bus \
         --method org.freedesktop.DBus.Properties.Get \
-        org.a11y.Status IsEnabled | grep -q true || {
-        echo "Headless CI accessibility status was not enabled" >&2; exit 1;
-    }
+        org.a11y.Status IsEnabled)
+    case "$a11y_status" in
+        *true*) : ;;
+        *) echo "Headless accessibility status not enabled: $a11y_status" >&2; exit 1 ;;
+    esac
 
     "$native" --recipe "$runtime/luna.json" \
         >"$runtime/native.log" 2>&1 &
