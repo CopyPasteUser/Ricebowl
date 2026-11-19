@@ -18,7 +18,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .de import (creator_activation, creator_interactive, creator_layout as layout_engine,
-                 creator_workspace as workspace)
+                 creator_release, creator_workspace as workspace)
 from .de import (assets, creator_assets, creator_iteration, creator_mapping, creator_reference, creator_regions,
                  creator_structure, drafts,
                  fonts, pack, recipes, render, review, style_assets)
@@ -2285,6 +2285,47 @@ def run() -> int:
             dialog.destroy()
             return response == Gtk.ResponseType.OK
 
+        def _confirm_export_review(self, plan: creator_release.ReleaseReview) -> bool:
+            """Require acknowledgement of byte receipts and rights limitations."""
+            dialog = Gtk.Dialog(title="Review portable RicePack", transient_for=self, modal=True)
+            dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+            export = dialog.add_button("Export reviewed bytes", Gtk.ResponseType.OK)
+            export.set_sensitive(False)
+            dialog.set_default_response(Gtk.ResponseType.CANCEL)
+            body = dialog.get_content_area()
+            body.set_border_width(14)
+            body.set_spacing(9)
+            body.pack_start(self._text(
+                "Review every embedded asset, attribution and checksum. "
+                "This local export does not activate a rice or certify redistribution rights.",
+                wrap=True), False, False, 0)
+            scroll = Gtk.ScrolledWindow()
+            scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+            scroll.set_size_request(670, 350)
+            details = Gtk.TextView()
+            details.set_editable(False)
+            details.set_cursor_visible(False)
+            details.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+            details.set_monospace(True)
+            details.get_buffer().set_text(creator_release.review_text(plan))
+            scroll.add(details)
+            body.pack_start(scroll, True, True, 0)
+            if not plan.attribution_review["declarations_complete"]:
+                body.pack_start(self._text(
+                    "Missing attribution declarations: this pack is for private use "
+                    "until assets and rights are independently cleared.",
+                    "creator-error", wrap=True), False, False, 0)
+            acknowledgement = Gtk.CheckButton(label=(
+                "I reviewed the package contents and understand that distributing "
+                "assets requires separate rights clearance."))
+            acknowledgement.connect(
+                "toggled", lambda widget: export.set_sensitive(widget.get_active()))
+            body.pack_start(acknowledgement, False, False, 0)
+            dialog.show_all()
+            accepted = dialog.run() == Gtk.ResponseType.OK and acknowledgement.get_active()
+            dialog.destroy()
+            return accepted
+
         def _install_draft(self, _button):
             self.wayland_menu.popdown()
             if self._busy or self.pending or self.info is None:
@@ -3328,11 +3369,19 @@ def run() -> int:
             if destination is None:
                 return
             try:
-                workspace.export_draft(self.info, destination)
-                self._status(f"RicePack created: {destination.name}. Not installed or applied.",
-                             success=True)
-            except (workspace.WorkspaceError, recipes.RecipeError, OSError, ValueError) as exc:
-                self._status(f"Export failed: {exc}. Choose a new filename; no overwrite is allowed.",
+                plan = creator_release.prepare_export(self.info)
+                if not self._confirm_export_review(plan):
+                    self._status("RicePack export cancelled; no destination created.")
+                    return
+                receipt = creator_release.publish_export(plan, destination)
+                self._status(
+                    f"Reviewed RicePack created: {destination.name} · "
+                    f"SHA-256 {receipt['package_sha256'][:12]}. "
+                    "Not installed or applied. Redistribution rights require independent review.",
+                    success=True)
+            except (creator_release.ReleaseError, pack.PackError, workspace.WorkspaceError,
+                    recipes.RecipeError, OSError, ValueError) as exc:
+                self._status(f"Export failed: {exc}. No overwrite; inspect the destination.",
                              error=True)
 
         def _close(self, *_args):
