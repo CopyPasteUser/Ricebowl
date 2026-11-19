@@ -36,7 +36,7 @@ def wait_for(predicate, process, message: str, timeout: float = 8) -> object:
             if value:
                 return value
         except (audio_devices.AudioDeviceError, OSError) as exc:
-            last_error = type(exc).__name__
+            last_error = type(exc).__name__ + ': ' + str(exc)[:120]
         time.sleep(0.08)
     raise RuntimeError("Timeout during real PulseAudio " + message
                        + (f" ({last_error})" if last_error else ""))
