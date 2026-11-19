@@ -168,5 +168,36 @@ class BluetoothSingleMutationTests(unittest.TestCase):
             run.assert_not_called()
 
 
+    def test_failed_cli_without_dbus_readback_refuses_fallback_mutation(self):
+        old = bluetooth(connected=False)
+        with (
+            mock.patch.object(hw, "read_bluetooth", return_value=old),
+            mock.patch.object(hw, "_bluetooth_via_dbus", return_value=None),
+            mock.patch.object(hw.shutil, "which", return_value="/usr/bin/bluetoothctl"),
+            mock.patch.object(hw.subprocess, "run",
+                              return_value=subprocess.CompletedProcess([], 1)) as run,
+            mock.patch("macrice.bluetooth_dbus.set_connection") as setter,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "readback unavailable"):
+                hw.set_bluetooth_connection(ADDRESS, True)
+            run.assert_called_once()
+            setter.assert_not_called()
+
+    def test_failed_cli_power_without_dbus_readback_refuses_fallback_mutation(self):
+        old = bluetooth(powered=False)
+        with (
+            mock.patch.object(hw, "read_bluetooth", return_value=old),
+            mock.patch.object(hw, "_bluetooth_via_dbus", return_value=None),
+            mock.patch.object(hw.shutil, "which", return_value="/usr/bin/bluetoothctl"),
+            mock.patch.object(hw.subprocess, "run",
+                              return_value=subprocess.CompletedProcess([], 1)) as run,
+            mock.patch("macrice.bluetooth_dbus.set_power") as setter,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "readback unavailable"):
+                hw.set_bluetooth_power(True)
+            run.assert_called_once()
+            setter.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
