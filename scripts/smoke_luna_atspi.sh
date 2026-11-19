@@ -67,10 +67,10 @@ dbus-run-session -- sh -eu -c '
     # make this disposable session obey the same ordering.
     /usr/bin/python3 -c "import pyatspi; pyatspi.Registry.getDesktop(0).childCount" >/dev/null
 
-    # AccessKit's Unix adapter waits for org.a11y.Status.IsEnabled. A
+    # The AccessKit Unix adapter waits for org.a11y.Status.IsEnabled. A
     # disposable headless DBus session defaults to false even with pyatspi
     # installed: explicitly emulate a screen reader enabling accessibility.
-    # This setting exists ONLY on dbus-run-session's private bus.
+    # This setting exists ONLY on the private dbus-run-session bus.
     dbus-send --session --dest=org.a11y.Bus /org/a11y/bus \
         org.freedesktop.DBus.Properties.Set \
         string:org.a11y.Status string:IsEnabled variant:boolean:true
