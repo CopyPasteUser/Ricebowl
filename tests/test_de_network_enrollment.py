@@ -279,7 +279,7 @@ class NetworkEnrollmentTests(unittest.TestCase):
             source.write_text("client\nremote vpn.example.com 1194\n", encoding="utf-8")
             imported = {"uuid": UUID, "kind": "vpn", "active": False}
             with mock.patch.object(backend, "connection_profiles",
-                                   side_effect=[[], [imported]]), \
+                                   side_effect=[[], [imported], [imported]]), \
                     mock.patch.object(enrollment, "_run", side_effect=["", "", "no"]) as run:
                 self.assertEqual(enrollment.import_vpn_profile(str(source)), UUID)
             self.assertIn("openvpn", run.call_args_list[0].args)
@@ -298,6 +298,84 @@ class NetworkEnrollmentTests(unittest.TestCase):
                     mock.patch.object(enrollment, "_run", side_effect=["", "", "yes"]):
                 with self.assertRaisesRegex(backend.SettingsError, "autoconnect could not"):
                     enrollment.import_vpn_profile(str(source))
+
+    def test_vpn_import_rejects_wrong_type_and_concurrent_addition(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp, "example.conf")
+            source.write_text("[Interface]\nPrivateKey=not-a-real-key\n")
+            wireguard = {"uuid": UUID, "kind": "wireguard", "active": False}
+            vpn = {"uuid": UUID, "kind": "vpn", "active": False}
+            second = {"uuid": "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff",
+                      "kind": "vpn", "active": False}
+            for additions in ([vpn], [wireguard, second]):
+                with self.subTest(additions=additions), (
+                    mock.patch.object(backend, "connection_profiles",
+                                      side_effect=[[], additions]),
+                    mock.patch.object(enrollment, "_run", return_value="") as run,
+                ):
+                    with self.assertRaisesRegex(backend.SettingsError,
+                                                "identity could not be verified"):
+                        enrollment.import_vpn_profile(str(source))
+                    run.assert_called_once()
+                    self.assertEqual(run.call_args.args[:3], ("con", "import", "type"))
+
+    def test_vpn_import_checks_final_profile_not_only_autoconnect(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp, "example.conf")
+            source.write_text("[Interface]\nPrivateKey=not-a-real-key\n")
+            imported = {"uuid": UUID, "kind": "wireguard", "active": False}
+            for change in ({"active": True}, {"kind": "vpn"}):
+                with self.subTest(change=change), (
+                    mock.patch.object(backend, "connection_profiles",
+                        side_effect=[[], [imported], [{**imported, **change}]]),
+                    mock.patch.object(enrollment, "_run",
+                                      side_effect=["", "", "no"]) as run,
+                ):
+                    with self.assertRaisesRegex(backend.SettingsError,
+                                                "changed or became active"):
+                        enrollment.import_vpn_profile(str(source))
+                    self.assertEqual(run.call_count, 3)
+                    self.assertFalse(any(
+                        call.args[:2] in (("con", "down"), ("con", "delete"))
+                        for call in run.call_args_list))
+
+    def test_vpn_import_reports_indeterminate_post_import_mutations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp, "example.ovpn")
+            source.write_text("client\nremote vpn.example.net 1194\n")
+            imported = {"uuid": UUID, "kind": "vpn", "active": False}
+            with (
+                mock.patch.object(backend, "connection_profiles",
+                                  side_effect=[[], [imported]]),
+                mock.patch.object(enrollment, "_run",
+                                  side_effect=["", backend.SettingsError("transport lost")])
+                as run,
+            ):
+                with self.assertRaisesRegex(backend.SettingsError,
+                                            "autoconnect state is unverified"):
+                    enrollment.import_vpn_profile(str(source))
+                self.assertEqual(run.call_count, 2)
+            with (
+                mock.patch.object(backend, "connection_profiles",
+                    side_effect=[[], [imported], backend.SettingsError("readback lost")]),
+                mock.patch.object(enrollment, "_run",
+                                  side_effect=["", "", "no"]) as run,
+            ):
+                with self.assertRaisesRegex(backend.SettingsError, "profile readback failed"):
+                    enrollment.import_vpn_profile(str(source))
+                self.assertEqual(run.call_count, 3)
+
+    def test_wireguard_import_success_requires_verified_inactive_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp, "example.conf")
+            source.write_text("[Interface]\nPrivateKey=not-a-real-key\n")
+            imported = {"uuid": UUID, "kind": "wireguard", "active": False}
+            with (
+                mock.patch.object(backend, "connection_profiles",
+                                  side_effect=[[], [imported], [imported]]),
+                mock.patch.object(enrollment, "_run", side_effect=["", "", "no"]),
+            ):
+                self.assertEqual(enrollment.import_vpn_profile(str(source)), UUID)
 
     def test_vpn_import_rejects_invalid_files_and_ambiguous_additions(self):
         with tempfile.TemporaryDirectory() as tmp:
