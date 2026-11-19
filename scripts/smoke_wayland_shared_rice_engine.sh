@@ -438,12 +438,20 @@ for cycle in 1 2 3; do
     /usr/bin/python3 "$resource_probe" capture \
         --binary "$native" --runtime "$XDG_RUNTIME_DIR" \
         --baseline "$runtime/native-resource-intermediate.json" >/dev/null
+    # A final-only comparison would miss a transient per-process footprint
+    # regression that recovers before cycle three. Check every Chrome return
+    # against the same settled Chrome baseline, after the supervisor's
+    # compositor-acknowledged process replacement.
+    sleep 0.3
+    growth="$source_root/dist/riceplate-native-preview/shared-engine/resource-growth-cycle-$cycle.json"
+    /usr/bin/python3 "$resource_probe" compare-replaced \
+        --binary "$native" --runtime "$XDG_RUNTIME_DIR" --baseline "$resource_baseline" \
+        >"$growth"
+    test -s "$growth"
 done
-sleep 0.3
-/usr/bin/python3 "$resource_probe" compare-replaced \
-    --binary "$native" --runtime "$XDG_RUNTIME_DIR" --baseline "$resource_baseline" \
-    >"$source_root/dist/riceplate-native-preview/shared-engine/resource-growth.json"
-test -s "$source_root/dist/riceplate-native-preview/shared-engine/resource-growth.json"
+# Keep the established artifact path for downstream consumers, and preserve
+# all three cycle-specific comparisons for independent CI review.
+cp "$growth" "$source_root/dist/riceplate-native-preview/shared-engine/resource-growth.json"
 cp "$runtime/sg7-preserved-classic.png" "$runtime/classic.png"
 cp "$runtime/sg7-preserved-chrome.png" "$runtime/chrome.png"
 echo "Verified three real labwc rice-switch cycles, single native process per switch, bounded PSS/RSS, FDs and threads"
