@@ -49,10 +49,14 @@ permissions:
 jobs:
   session-smoke:
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    # The former 12-minute JOB cap canceled a real main push during apt
+    # downloads from the Ubuntu mirror (run 44482960880). Keep the install
+    # independently bounded so a mirror outage cannot hang CI indefinitely.
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - name: Install native Wayland compositor and shell dependencies
+        timeout-minutes: 28
         run: |
           sudo apt-get update
           sudo apt-get install -y labwc waybar foot fuzzel swaylock swaybg \
