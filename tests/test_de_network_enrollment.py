@@ -308,7 +308,8 @@ class NetworkEnrollmentTests(unittest.TestCase):
             second = {"uuid": "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff",
                       "kind": "vpn", "active": False}
             for additions in ([vpn], [wireguard, second]):
-                with self.subTest(additions=additions), (
+                with (
+                    self.subTest(additions=additions),
                     mock.patch.object(backend, "connection_profiles",
                                       side_effect=[[], additions]),
                     mock.patch.object(enrollment, "_run", return_value="") as run,
@@ -325,7 +326,8 @@ class NetworkEnrollmentTests(unittest.TestCase):
             source.write_text("[Interface]\nPrivateKey=not-a-real-key\n")
             imported = {"uuid": UUID, "kind": "wireguard", "active": False}
             for change in ({"active": True}, {"kind": "vpn"}):
-                with self.subTest(change=change), (
+                with (
+                    self.subTest(change=change),
                     mock.patch.object(backend, "connection_profiles",
                         side_effect=[[], [imported], [{**imported, **change}]]),
                     mock.patch.object(enrollment, "_run",
