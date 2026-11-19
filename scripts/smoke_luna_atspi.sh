@@ -17,6 +17,11 @@ export WLR_BACKENDS=headless WLR_HEADLESS_OUTPUTS=1 WLR_RENDERER=pixman
 export RICEBOWL_DE_NESTED=0 RICEBOWL_DE_SCREEN_READER=1
 export PATH="$root/components/riceplate-wayland/target/release:$PATH"
 
+# Native recipe ownership contract: never launch directly from a world-readable
+# checkout. Keep all runtime inputs in a private disposable directory.
+cp "$root/examples/wayland/xp-luna-columns.json" "$runtime/luna.json"
+chmod 0600 "$runtime/luna.json"
+
 python3 - "$root" "$runtime" <<'PY'
 from pathlib import Path
 import sys
@@ -58,7 +63,7 @@ dbus-run-session -- sh -eu -c '
     test -n "$output"
     wlr-randr --output "$output" --custom-mode 1366x768@60Hz --scale 1
 
-    "$native" --recipe "$root/examples/wayland/xp-luna-columns.json" \
+    "$native" --recipe "$runtime/luna.json" \
         >"$runtime/native.log" 2>&1 &
     plate=$!
     count=0
