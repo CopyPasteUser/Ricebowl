@@ -42,6 +42,43 @@ class DebianPayloadGuardTests(unittest.TestCase):
         )
         self.assertEqual(verify_payload(io.BytesIO(archive)), 4)
 
+    def test_deep_path_rejected_before_archive_hierarchy_work(self):
+        # The tar metadata is short enough to pass the existing 4 KiB
+        # per-path bound, yet could generate thousands of ancestors.
+        path = "/".join(["d"] * 65 + ["riceplate-native"])
+        with self.assertRaisesRegex(UnsafePayload, "too deep"):
+            verify_payload(io.BytesIO(make_archive(
+                (path, 0o755, 0, 0, tarfile.REGTYPE, None))))
+
+    def test_cumulative_path_metadata_limit_is_exact_and_safe(self):
+        # Archive path bytes, not file contents, are the bounded resource:
+        # many distinct 4 KiB names could otherwise consume hundreds of MiB.
+        first = "usr/share/" + "a" * 32
+        second = "usr/share/" + "b" * 32
+        archive = make_archive(
+            (first, 0o644, 0, 0, tarfile.REGTYPE, None),
+            (second, 0o644, 0, 0, tarfile.REGTYPE, None))
+        total = len(first.encode()) + len(second.encode())
+        with patch("scripts.verify_wayland_payload.MAX_TOTAL_PATH_METADATA_BYTES",
+                   total):
+            self.assertEqual(verify_payload(io.BytesIO(archive)), 2)
+        with patch("scripts.verify_wayland_payload.MAX_TOTAL_PATH_METADATA_BYTES",
+                   total - 1):
+            with self.assertRaisesRegex(UnsafePayload, "path metadata"):
+                verify_payload(io.BytesIO(archive))
+
+    def test_cumulative_archive_ancestor_work_is_bounded(self):
+        # File sizes and raw names alone cannot bound storage of distinct
+        # implicit parent directories across many nested archive paths.
+        archive = make_archive(
+            ("usr/share/a", 0o644, 0, 0, tarfile.REGTYPE, None),
+            ("usr/share/b", 0o644, 0, 0, tarfile.REGTYPE, None))
+        with patch("scripts.verify_wayland_payload.MAX_TOTAL_PARENT_VISITS", 4):
+            self.assertEqual(verify_payload(io.BytesIO(archive)), 2)
+        with patch("scripts.verify_wayland_payload.MAX_TOTAL_PARENT_VISITS", 3):
+            with self.assertRaisesRegex(UnsafePayload, "hierarchy work"):
+                verify_payload(io.BytesIO(archive))
+
     def test_reject_unsafe_owner_permissions_links_and_paths(self):
         bad_cases = [
             ("user-owned file", ("./usr/bin/riceplate-native", 0o755, 1000, 0,

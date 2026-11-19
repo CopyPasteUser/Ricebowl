@@ -23,6 +23,12 @@ MAX_PAYLOAD_ENTRIES = 100_000
 MAX_PAYLOAD_BYTES = 512 * 1024 * 1024
 MAX_PATH_BYTES = 4096
 MAX_COMPONENT_BYTES = 255
+# Keep header/path processing bounded even for 100k entries with long names.
+# The current four-package native preview uses only short system paths.
+MAX_PATH_COMPONENTS = 64
+MAX_TOTAL_PATH_METADATA_BYTES = 16 * 1024 * 1024
+# Limits cumulative parent lookups and newly retained ancestor metadata.
+MAX_TOTAL_PARENT_VISITS = 250_000
 
 
 def _canonical_path(item: tarfile.TarInfo) -> PurePosixPath:
@@ -37,6 +43,8 @@ def _canonical_path(item: tarfile.TarInfo) -> PurePosixPath:
             or any(len(part.encode("utf-8", "surrogateescape")) > MAX_COMPONENT_BYTES
                    for part in path.parts)):
         raise UnsafePayload(f"Oversized package archive path: {name!r}")
+    if len(path.parts) > MAX_PATH_COMPONENTS:
+        raise UnsafePayload(f"Package archive path is too deep: {name!r}")
     if path == PurePosixPath(".") and not item.isdir():
         raise UnsafePayload("Package root cannot be a regular file")
     return path
@@ -45,6 +53,8 @@ def _canonical_path(item: tarfile.TarInfo) -> PurePosixPath:
 def verify_payload(stream: BinaryIO) -> int:
     count = 0
     total_file_bytes = 0
+    total_path_bytes = 0
+    total_parent_visits = 0
     seen_paths: set[PurePosixPath] = set()
     file_paths: set[PurePosixPath] = set()
     required_directories: set[PurePosixPath] = set()
@@ -56,6 +66,9 @@ def verify_payload(stream: BinaryIO) -> int:
                     raise UnsafePayload("Too many package archive entries")
 
                 path = _canonical_path(item)
+                total_path_bytes += len(item.name.encode("utf-8", "surrogateescape"))
+                if total_path_bytes > MAX_TOTAL_PATH_METADATA_BYTES:
+                    raise UnsafePayload("Package archive path metadata exceeds limit")
                 # Canonical paths collapse ./, repeated separators and
                 # trailing slashes. Reject all duplicate file/dir aliases.
                 if path in seen_paths:
@@ -66,6 +79,9 @@ def verify_payload(stream: BinaryIO) -> int:
                 # earlier entry already needs as a directory.
                 parents = tuple(parent for parent in path.parents
                                 if parent != PurePosixPath("."))
+                total_parent_visits += len(parents)
+                if total_parent_visits > MAX_TOTAL_PARENT_VISITS:
+                    raise UnsafePayload("Package archive hierarchy work exceeds limit")
                 if any(parent in file_paths for parent in parents):
                     raise UnsafePayload(f"File is an archive directory ancestor: {item.name!r}")
                 if item.isfile() and path in required_directories:
