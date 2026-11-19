@@ -530,7 +530,8 @@ def read_bluetooth() -> BluetoothState:
 
 
 def set_bluetooth_power(enabled: bool) -> BluetoothState:
-    if not isinstance(enabled, bool):
+    """Change one radio once, verifying the active backend before any fallback."""
+    if type(enabled) is not bool:
         raise ValueError("Bluetooth power must be boolean")
     initial = read_bluetooth()
     if initial.hard_blocked and enabled:
@@ -539,74 +540,129 @@ def set_bluetooth_power(enabled: bool) -> BluetoothState:
         raise RuntimeError("Bluetooth radio is blocked by rfkill; unblock it in system settings")
     if initial.powered is None:
         raise RuntimeError("No Bluetooth adapter accessible through bluetoothctl or system D-Bus")
-    errors = []
+    if initial.powered is enabled:
+        return initial
+
+    failures = []
     if shutil.which("bluetoothctl"):
         try:
             result = subprocess.run(
                 ["bluetoothctl", "power", "on" if enabled else "off"],
                 capture_output=True, text=True, timeout=5, check=False)
-            if result.returncode == 0:
-                state = read_bluetooth()
-                if state.powered is enabled:
-                    return state
-            errors.append("bluetoothctl command/readback failed")
-        except (OSError, subprocess.TimeoutExpired):
-            errors.append("bluetoothctl timed out or is inaccessible")
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            # A timeout can occur AFTER BlueZ accepted the command.
+            raise RuntimeError(
+                "Bluetooth power may have changed; outcome unknown; refresh before retrying"
+            ) from exc
+        direct = None
+        if result.returncode == 0:
+            state = read_bluetooth()
+            if state.powered is enabled:
+                return state
+            # The CLI readback may lag BlueZ. Trust a fresh D-Bus readback,
+            # but never send a second write after a successful CLI command.
+            direct = _bluetooth_via_dbus()
+            if direct is not None and direct.powered is enabled:
+                return direct
+            raise RuntimeError(
+                "Bluetooth power may have changed; verification failed; refresh")
+        direct = _bluetooth_via_dbus()
+        if direct is None or direct.powered is None:
+            raise RuntimeError(
+                "Bluetooth power may have changed; readback unavailable; refresh")
+        if direct.powered is enabled:
+            return direct
+        if direct.powered is not initial.powered:
+            raise RuntimeError(
+                "Bluetooth power changed externally; refresh before retrying")
+        failures.append("bluetoothctl rejected power change")
     try:
         from . import bluetooth_dbus
 
         _powered, path, _devices = bluetooth_dbus.snapshot()
         bluetooth_dbus.set_power(path, enabled)
-        # Verify through the backend that performed the write. A stalled CLI
-        # must not hide a successful, independently verified system-bus change.
         state = _bluetooth_via_dbus()
         if state is None:
             raise RuntimeError("system D-Bus readback unavailable")
         if state.powered is enabled:
             return state
-        errors.append("system D-Bus readback mismatch")
+        failures.append("system D-Bus readback mismatch")
     except Exception as exc:
-        errors.append("system D-Bus: " + str(exc)[:120])
-    raise RuntimeError("Bluetooth power change could not be verified: " + "; ".join(errors))
+        failures.append("system D-Bus: " + str(exc)[:120])
+    raise RuntimeError("Bluetooth power change could not be verified: " + "; ".join(failures))
 
 
 def set_bluetooth_connection(address: str, connected: bool) -> BluetoothState:
-    """Connect/disconnect a discovered paired device and verify readback."""
-    if not isinstance(connected, bool):
+    """Connect only one reviewed device; never blindly repeat an unknown write."""
+    if type(connected) is not bool:
         raise ValueError("Connection target must be boolean")
+    if type(address) is not str or not re.fullmatch(
+            r"[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}", address):
+        raise ValueError("Select a valid Bluetooth device address")
     state = read_bluetooth()
-    device = next((item for item in state.devices if item.address == address), None)
-    if device is None:
+    matched = [item for item in state.devices
+               if item.address.casefold() == address.casefold()]
+    if not matched:
         raise ValueError("Bluetooth device is not currently known")
+    if len(matched) != 1:
+        raise ValueError("Bluetooth device identity ambiguous; rescan before connecting")
+    device = matched[0]
     if connected and not device.paired:
         raise ValueError("Pair the device in Bluetooth settings first")
     if state.powered is not True:
         raise RuntimeError("Switch Bluetooth on before connecting devices")
-    if device.connected == connected:
+    if device.connected is connected:
         return state
+
+    def verified(current: BluetoothState | None) -> bool:
+        return current is not None and any(
+            item.address.casefold() == address.casefold()
+            and item.connected is connected for item in current.devices)
+
     failures = []
     if shutil.which("bluetoothctl"):
         try:
             result = subprocess.run(
-                ["bluetoothctl", "connect" if connected else "disconnect", address],
+                ["bluetoothctl", "connect" if connected else "disconnect", device.address],
                 capture_output=True, text=True, timeout=10, check=False)
-            if result.returncode == 0:
-                actual = read_bluetooth()
-                if any(item.address == address and item.connected == connected
-                       for item in actual.devices):
-                    return actual
-            failures.append("bluetoothctl failed or did not confirm the new state")
-        except (OSError, subprocess.TimeoutExpired):
-            failures.append("bluetoothctl timed out")
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise RuntimeError(
+                "Bluetooth connection may have changed; outcome unknown; refresh"
+            ) from exc
+        if result.returncode == 0:
+            actual = read_bluetooth()
+            if verified(actual):
+                return actual
+            direct = _bluetooth_via_dbus()
+            if verified(direct):
+                return direct
+            # The CLI may have performed the requested mutation, but its
+            # readback did not verify it. Never replay via D-Bus.
+            raise RuntimeError(
+                "Bluetooth connection may have changed; verification failed; refresh")
+        direct = _bluetooth_via_dbus()
+        if direct is None:
+            raise RuntimeError(
+                "Bluetooth connection may have changed; readback unavailable; refresh")
+        current = [item for item in direct.devices
+                   if item.address.casefold() == address.casefold()]
+        if len(current) != 1:
+            raise RuntimeError(
+                "Bluetooth device identity changed; rescan before retrying")
+        if verified(direct):
+            return direct
+        if current[0].connected is not device.connected:
+            raise RuntimeError(
+                "Bluetooth connection changed externally; refresh before retrying")
+        failures.append("bluetoothctl rejected device action")
     try:
         from . import bluetooth_dbus
 
-        bluetooth_dbus.set_connection(address, connected)
+        bluetooth_dbus.set_connection(device.address, connected)
         actual = _bluetooth_via_dbus()
         if actual is None:
             raise RuntimeError("system D-Bus readback unavailable")
-        if any(item.address == address and item.connected == connected
-               for item in actual.devices):
+        if verified(actual):
             return actual
         failures.append("system D-Bus readback mismatch")
     except Exception as exc:

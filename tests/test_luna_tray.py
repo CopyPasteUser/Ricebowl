@@ -276,7 +276,7 @@ class ExtraDeviceTests(unittest.TestCase):
         process.return_value.returncode = 1
         state = set_bluetooth_power(True)
         self.assertEqual(state.backend, "D-Bus")
-        setter.assert_called_once_with("/org/bluez/hci0", True)
+        setter.assert_not_called()  # BlueZ already reports the target.
 
     @patch("macrice.hardware_status._bluetooth_via_cli")
     @patch("macrice.hardware_status._bluetooth_via_dbus")
@@ -295,7 +295,7 @@ class ExtraDeviceTests(unittest.TestCase):
         process.return_value.returncode = 1
         state = set_bluetooth_connection(address, True)
         self.assertEqual(state.backend, "D-Bus")
-        setter.assert_called_once_with(address, True)
+        setter.assert_not_called()  # Failed CLI exit must not replay completed work.
 
 
 if __name__ == "__main__":
