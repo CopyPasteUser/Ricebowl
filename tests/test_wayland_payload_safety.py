@@ -67,6 +67,18 @@ class DebianPayloadGuardTests(unittest.TestCase):
             with self.assertRaisesRegex(UnsafePayload, "path metadata"):
                 verify_payload(io.BytesIO(archive))
 
+    def test_cumulative_archive_ancestor_work_is_bounded(self):
+        # File sizes and raw names alone cannot bound storage of distinct
+        # implicit parent directories across many nested archive paths.
+        archive = make_archive(
+            ("usr/share/a", 0o644, 0, 0, tarfile.REGTYPE, None),
+            ("usr/share/b", 0o644, 0, 0, tarfile.REGTYPE, None))
+        with patch("scripts.verify_wayland_payload.MAX_TOTAL_PARENT_VISITS", 4):
+            self.assertEqual(verify_payload(io.BytesIO(archive)), 2)
+        with patch("scripts.verify_wayland_payload.MAX_TOTAL_PARENT_VISITS", 3):
+            with self.assertRaisesRegex(UnsafePayload, "hierarchy work"):
+                verify_payload(io.BytesIO(archive))
+
     def test_reject_unsafe_owner_permissions_links_and_paths(self):
         bad_cases = [
             ("user-owned file", ("./usr/bin/riceplate-native", 0o755, 1000, 0,
