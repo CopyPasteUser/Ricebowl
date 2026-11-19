@@ -259,7 +259,9 @@ impl MenuPopup {
     pub fn rows(&self) -> &[MenuRow] {
         let mut rows = self.rows.as_slice();
         for &id in &self.path {
-            let Some(MenuRow { kind: MenuKind::Submenu(children), .. }) =
+            // A provider may disable an already-open parent without removing
+            // its children. Never keep dispatching actions through that parent.
+            let Some(MenuRow { enabled: true, kind: MenuKind::Submenu(children), .. }) =
                 rows.iter().find(|row| row.id == id) else { return &[]; };
             rows = children;
         }
@@ -794,6 +796,30 @@ mod tests {
         assert!(menu_activation_button(0x110)); // BTN_LEFT
         assert!(!menu_activation_button(0x111)); // BTN_RIGHT
         assert!(!menu_activation_button(0x112)); // BTN_MIDDLE
+    }
+
+    #[test]
+    fn disabling_open_parent_closes_submenu_and_blocks_stale_child_dispatch() {
+        let mut menu = MenuPopup::default();
+        assert!(menu.open("service", "Live", &root(vec![
+            MenuNode::Menu { id: 4, label: "Actions".into(),
+                enabled: true, visible: true, children: vec![
+                    leaf(5, "Sensitive action", true, true)] },
+            leaf(7, "Unrelated", true, true),
+        ])));
+        assert_eq!(menu.choice(0), MenuChoice::Open(4));
+        assert_eq!(menu.choice(0), MenuChoice::Click(5));
+        assert_eq!(menu.sync(&root(vec![
+            MenuNode::Menu { id: 4, label: "Actions".into(),
+                enabled: false, visible: true, children: vec![
+                    leaf(5, "Sensitive action", true, true)] },
+            leaf(7, "Unrelated", true, true),
+        ])), vec![4]);
+        assert!(menu.path.is_empty());
+        assert_eq!(menu.choice(menu.selected), MenuChoice::None);
+        assert_eq!(menu.choice(0), MenuChoice::None);
+        menu.select(1);
+        assert_eq!(menu.choice(menu.selected), MenuChoice::Click(7));
     }
 
 }
