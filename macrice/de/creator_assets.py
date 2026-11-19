@@ -40,7 +40,7 @@ def _label(value: str) -> str:
     cleaned = value.strip()
     if (not 1 <= len(cleaned) <= 60 or any(ord(char) < 32 or ord(char) == 127
                                            for char in cleaned)
-            or "/" in cleaned or "\\" in cleaned):
+            or "/" in cleaned or "\\" in cleaned or pack._has_bidi_controls(cleaned)):
         raise assets.AssetError("Choose a 1–60 character image name without paths or controls")
     return cleaned
 
