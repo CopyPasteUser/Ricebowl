@@ -65,6 +65,27 @@ class AudioDeviceTests(unittest.TestCase):
         self.assertEqual(result["current"], USB)
         self.assertIn(("set-default-sink", USB), calls)
 
+    def test_default_readback_rejects_unplugged_output_even_when_server_echoes_name(self):
+        applied = False
+
+        def disappearing(*args):
+            nonlocal applied
+            if args == ("set-default-sink", USB):
+                applied = True
+                return ""
+            if args == ("--format=json", "list", "sinks") and applied:
+                return json.dumps([{"index": 1, "name": SINK}])
+            if args == ("get-default-sink",) and applied:
+                return USB
+            return sample_response(*args)
+
+        with mock.patch.object(audio_devices, "_run", side_effect=disappearing):
+            with self.assertRaises(audio_devices.AudioDeviceError) as caught:
+                audio_devices.set_default("sink", USB, expected_current=SINK)
+        self.assertEqual(caught.exception.code, "audio_verification_failed")
+        self.assertTrue(caught.exception.may_have_changed)
+        self.assertTrue(applied)
+
     def test_noop_does_not_mutate_and_conflict_fails_before_switch(self):
         with mock.patch("macrice.de.audio_devices._run", side_effect=sample_response) as run:
             result = audio_devices.set_default("sink", SINK)
@@ -168,6 +189,32 @@ class AudioDeviceTests(unittest.TestCase):
             with self.assertRaisesRegex(audio_devices.AudioDeviceError, "changed"):
                 audio_devices.set_stream_output(42, SINK, expected_sink=1)
         self.assertIn(("move-sink-input", "42", USB), commands)
+
+    def test_stream_move_rejects_output_removed_before_provider_readback(self):
+        current = {"index": 42, "sink": 1, "mute": False, "client": 17,
+                   "volume": {"mono": {"value": 65536}},
+                   "properties": {"application.name": "Real player"}}
+        mutated = False
+
+        def disappearing(*args):
+            nonlocal mutated
+            if args == ("--format=json", "list", "sink-inputs"):
+                return json.dumps([current])
+            if args == ("move-sink-input", "42", USB):
+                mutated = True
+                current["sink"] = 2
+                return ""
+            if args == ("--format=json", "list", "sinks") and mutated:
+                return json.dumps([{"index": 1, "name": SINK}])
+            return sample_response(*args)
+
+        with mock.patch.object(audio_devices, "_run", side_effect=disappearing):
+            with self.assertRaises(audio_devices.AudioDeviceError) as caught:
+                audio_devices.set_stream_output(42, USB, expected_sink=1,
+                                                expected_client=17)
+        self.assertTrue(mutated)
+        self.assertEqual(caught.exception.code, "audio_verification_failed")
+        self.assertTrue(caught.exception.may_have_changed)
 
     def test_recycled_stream_index_never_controls_a_different_audio_client(self):
         current = {"index": 42, "sink": 1, "mute": False, "client": 18,
