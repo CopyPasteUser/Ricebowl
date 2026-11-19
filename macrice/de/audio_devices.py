@@ -158,7 +158,11 @@ def set_default(kind: str, name: str, *, expected_current: str | None = None) ->
     except AudioDeviceError as exc:
         raise AudioDeviceError(str(exc), exc.code, may_have_changed=True) from exc
     try:
-        after = _current(kind)
+        # The new default must still be a live device, not only a name that
+        # the server reports after an output was unplugged during the write.
+        devices_after, after = _enumerate(kind)
+        if not any(device["name"] == name for device in devices_after):
+            raise AudioDeviceError("Selected audio device disappeared during readback")
     except AudioDeviceError as exc:
         raise AudioDeviceError("Audio default may have changed; verification failed",
                                "audio_verification_failed", may_have_changed=True) from exc
@@ -264,13 +268,24 @@ def set_stream_output(index: int, sink: str, *, expected_sink: int,
         return current
     try:
         _run("move-sink-input", str(index), sink)
-        after = _stream(index)
+        # Verify the same stream client AND the same output identity from one
+        # fresh provider inventory. An unplug/replug can reuse a sink name
+        # with a different numeric index while the move is in flight.
+        confirmed = playback_streams()
+        after = next((entry for entry in confirmed["streams"]
+                      if entry["index"] == index), None)
+        if after is None:
+            raise AudioDeviceError("Playback stream disappeared during readback")
         _check_stream_client(after, expected_client)
+        if not any(device["name"] == sink and device["index"] == target["index"]
+                   for device in confirmed["outputs"]):
+            raise AudioDeviceError("Playback output changed during readback")
     except AudioDeviceError as exc:
         raise AudioDeviceError("Stream routing may have changed; refresh and inspect",
-                               may_have_changed=True) from exc
+                               "audio_verification_failed", may_have_changed=True) from exc
     if after["sink"] != target["index"]:
-        raise AudioDeviceError("Stream routing could not be verified", may_have_changed=True)
+        raise AudioDeviceError("Stream routing could not be verified",
+                               "audio_verification_failed", may_have_changed=True)
     return after
 
 
