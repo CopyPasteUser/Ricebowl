@@ -78,7 +78,8 @@ def _request(change: guard.DisplayChange) -> tuple[list[dict], list[dict]]:
     if path.is_symlink() or path.stat().st_size > 4096:
         raise ValueError("Unsafe monitor restore request")
     try:
-        record = json.loads(path.read_text(encoding="utf-8"))
+        record = json.loads(path.read_text(encoding="utf-8"),
+                            object_pairs_hook=guard._unique_record)
     except (ValueError, UnicodeError) as exc:
         raise ValueError("Invalid monitor restore request") from exc
     if (type(record) is not dict or set(record) != {"version", "baseline", "target"}
