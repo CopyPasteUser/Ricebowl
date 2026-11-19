@@ -139,6 +139,14 @@ chmod 0700 "$runtime/mock-bin/ricefield"
 cat >"$runtime/mock-bin/ricebowl" <<"CLIP_CLI"
 #!/bin/sh
 set -eu
+# This test-only stub records the exact command dispatched by a genuine
+# Wayland keyboard Enter on XP Luna's local clock menu. No settings GUI,
+# host timezone, or network provider is modified in CI.
+if [ "$#" -eq 5 ] && [ "$1" = de ] && [ "$2" = settings ] \
+    && [ "$3" = --luna ] && [ "$4" = --page ] && [ "$5" = timezone ]; then
+    printf '%s\\n' "$@" >"$RICEBOWL_CI_STATUS_LOG"
+    exit 0
+fi
 [ "$#" -eq 4 ] && [ "$1" = de ] && [ "$2" = clip ] \
     && [ "$3" = --clip-op ] && [ "$4" = gui ] || exit 64
 # The wrapper shell becomes this Python process. Record the actual PID
@@ -321,7 +329,8 @@ dbus-run-session -- sh -eu -c '
                 WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" \
                 >"$runtime/plate-$label.log" 2>&1 &
         elif [ "$label" = xp-luna-columns ]; then
-            RICEBOWL_DE_SHELL_CHILD=1 RICEBOWL_DE_READY_FD=3 \
+            RICEBOWL_CI_STATUS_LOG="$runtime/tray-settings-argv.log" \
+                RICEBOWL_DE_SHELL_CHILD=1 RICEBOWL_DE_READY_FD=3 \
                 RICEBOWL_DE_TRACE_FOCUS=1 RICEBOWL_DE_TRACE_MENU=1 PATH="$runtime/mock-bin:$PATH" \
                 RICEBOWL_CI_TRASH_LOG="$runtime/trash-gio.log" \
                 RICEBOWL_CI_RICEFIELD_LOG="$runtime/ricefield-argv.log" \
@@ -332,6 +341,7 @@ dbus-run-session -- sh -eu -c '
             # untrusted path. Verify two structurally distinct recipes each
             # acknowledge a genuine compositor frame (never startup alone).
             RICEBOWL_DE_SHELL_CHILD=1 RICEBOWL_DE_READY_FD=3 \
+                RICEBOWL_DE_TRACE_MENU=1 \
                 WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" \
                 3>"$runtime/frame-$label.ready" >"$runtime/plate-$label.log" 2>&1 &
         else
@@ -368,6 +378,48 @@ dbus-run-session -- sh -eu -c '
             WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/$label.png"
             cp "$runtime/$label.png" "$source_root/dist/riceplate-native-preview/$label.png"
             echo "Captured real native RicePlate $label framebuffer"
+        fi
+        if [ "$label" = chrome ]; then
+            # SG1 second structurally different rice: a real virtual pointer
+            # opens Chrome's bottom shelf launcher, and the compositor's
+            # keyboard dispatch closes the *same* native surface. Verify the
+            # shell state trace, not only pixels from a screenshot.
+            output=$(WAYLAND_DISPLAY=wayland-0 wlr-randr | sed -n "1s/[[:space:]].*//p")
+            test -n "$output"
+            WAYLAND_DISPLAY=wayland-0 wlr-randr --output "$output" \
+                --custom-mode 1366x768@60Hz --scale 1
+            sleep 0.35
+            before=$(grep -Fc "RicePlate: menu trace show" "$runtime/plate-$label.log" || :)
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 28 746 1366 768
+            count=0
+            while [ "$count" -lt 25 ]; do
+                after=$(grep -Fc "RicePlate: menu trace show" "$runtime/plate-$label.log" || :)
+                test "$after" -gt "$before" && break
+                count=$((count + 1))
+                sleep 0.1
+            done
+            test "$after" -gt "$before" || {
+                echo "Chrome launcher did not open from compositor pointer" >&2
+                tail -n 35 "$runtime/plate-$label.log" >&2
+                exit 1
+            }
+            before=$(grep -Fc "RicePlate: menu trace hide" "$runtime/plate-$label.log" || :)
+            sleep 0.35
+            WAYLAND_DISPLAY=wayland-0 wtype -k Escape
+            count=0
+            while [ "$count" -lt 25 ]; do
+                after=$(grep -Fc "RicePlate: menu trace hide" "$runtime/plate-$label.log" || :)
+                test "$after" -gt "$before" && break
+                count=$((count + 1))
+                sleep 0.1
+            done
+            test "$after" -gt "$before" || {
+                echo "Chrome launcher did not close from real Wayland keyboard Escape" >&2
+                tail -n 35 "$runtime/plate-$label.log" >&2
+                exit 1
+            }
+            kill -0 "$plate"
+            echo "Verified Chrome launcher pointer-open/keyboard-Escape on real labwc"
         fi
         if [ "$label" = riceclip-actions ]; then
             # A real Wayland virtual-pointer click crosses the native panel,
@@ -815,6 +867,28 @@ PY
             cp "$runtime/xp-luna-tray-closed-after.png" \
                "$source_root/dist/riceplate-native-preview/xp-luna-tray-real-closed.png"
             echo "Verified native Luna tray secondary-click no-activation and primary close via labwc"
+            # A fresh clock context menu is activated using the actual
+            # compositor-delivered keyboard Return. The fixed GUI entrypoint
+            # is intercepted by a process-private argv witness (never a
+            # test of the host's real settings or timezone).
+            test ! -e "$runtime/tray-settings-argv.log"
+            WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click 1320 748 1366 768
+            sleep 0.55
+            WAYLAND_DISPLAY=wayland-0 wtype -k Return
+            count=0
+            while [ ! -s "$runtime/tray-settings-argv.log" ] && [ "$count" -lt 30 ]; do
+                count=$((count + 1))
+                sleep 0.1
+            done
+            expected=$(printf "%s\\n" de settings --luna --page timezone)
+            actual=$(cat "$runtime/tray-settings-argv.log" 2>/dev/null || :)
+            if [ "$actual" != "$expected" ]; then
+                echo "Luna clock tray keyboard Enter did not dispatch exact settings argv" >&2
+                tail -n 40 "$runtime/plate-$label.log" >&2
+                exit 1
+            fi
+            kill -0 "$plate"
+            echo "Verified Luna clock tray keyboard action through real labwc and exact argv"
             WAYLAND_DISPLAY=wayland-0 wtype -k Escape
             sleep 0.2
             # XP semantics: first compositor-delivered click selects;
