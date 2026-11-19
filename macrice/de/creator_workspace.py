@@ -437,4 +437,5 @@ def export_draft(info: DraftInfo, destination: Path) -> dict[str, Any]:
         wallpaper_credit = (creator_assets.entry(recipe.wallpaper).provenance
                             if assets.ASSET_ID.fullmatch(recipe.wallpaper or "") else None)
     return pack.export_pack(str(info.path), destination, wallpaper_provenance=wallpaper_credit,
-                            declared_provenance=(inherited["rice"] if inherited is not None else None))
+                            declared_provenance=(inherited["rice"] if inherited is not None else None),
+                            expected_semantic_sha256=info.semantic_sha256)
