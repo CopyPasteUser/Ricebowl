@@ -216,6 +216,23 @@ class AudioDeviceTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "audio_verification_failed")
         self.assertTrue(caught.exception.may_have_changed)
 
+    def test_real_pulseaudio_json_decimal_client_normalizes_without_loosening_identity(self):
+        record = {"index": 42, "sink": 1, "mute": False,
+                  "volume": {"mono": {"value": 65536}},
+                  "properties": {"application.name": "Synthetic player"}}
+        for raw in ("17", 17):
+            with self.subTest(raw=raw):
+                entries = audio_devices._streams(json.dumps([{**record, "client": raw}]))
+                self.assertEqual(entries[0]["client"], 17)
+                self.assertEqual(entries[0]["index"], 42)
+        for invalid in ("-1", "+17", "017", "17;rm -rf /", "１7",
+                        "4294967296", "", " 17", True, {}, []):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(audio_devices.AudioDeviceError):
+                    audio_devices._streams(json.dumps([{**record, "client": invalid}]))
+        self.assertIsNone(audio_devices._streams(
+            json.dumps([{**record, "client": "n/a"}]))[0]["client"])
+
     def test_recycled_stream_index_never_controls_a_different_audio_client(self):
         current = {"index": 42, "sink": 1, "mute": False, "client": 18,
                    "volume": {"mono": {"value": 65536}},
