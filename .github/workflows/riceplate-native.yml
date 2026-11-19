@@ -24,6 +24,8 @@ on:
       - 'packaging/wayland/ricebowl-wayland-app'
       - 'packaging/wayland/ricebowl-wayland-command'
       - 'scripts/test_wayland_package_reproducibility.sh'
+      - 'scripts/verify_wayland_clean_rebuild.sh'
+      - 'tests/test_wayland_clean_rebuild.py'
       - 'scripts/smoke_riceplate_native.sh'
       - 'scripts/smoke_luna_window_chrome.sh'
       - 'scripts/smoke_luna_hotkeys.sh'
@@ -103,6 +105,8 @@ on:
       - 'packaging/wayland/ricebowl-wayland-app'
       - 'packaging/wayland/ricebowl-wayland-command'
       - 'scripts/test_wayland_package_reproducibility.sh'
+      - 'scripts/verify_wayland_clean_rebuild.sh'
+      - 'tests/test_wayland_clean_rebuild.py'
       - 'scripts/smoke_riceplate_native.sh'
       - 'scripts/smoke_luna_window_chrome.sh'
       - 'scripts/smoke_luna_hotkeys.sh'
@@ -305,6 +309,18 @@ jobs:
           set -eu
           artifact="$PWD/dist/riceplate-native-preview"
           bash scripts/verify_wayland_package_set.sh \
+            "$artifact/ricebowl-wayland-core_0.1.0~preview2_all.deb" \
+            "$artifact/ricebowl-wayland-session_0.1.0~preview3_all.deb" \
+            "$artifact/ricebowl-riceplate-native_0.1.0~preview2_amd64.deb" \
+            "$artifact/ricebowl-wayland-desktop_0.1.0~preview3_amd64.deb"
+      - name: Rebuild all four packages from clean tracked source
+        timeout-minutes: 7
+        run: |
+          set -eu
+          bash -n scripts/verify_wayland_clean_rebuild.sh
+          /usr/bin/python3 -m unittest tests.test_wayland_clean_rebuild -v
+          artifact="$PWD/dist/riceplate-native-preview"
+          bash scripts/verify_wayland_clean_rebuild.sh \
             "$artifact/ricebowl-wayland-core_0.1.0~preview2_all.deb" \
             "$artifact/ricebowl-wayland-session_0.1.0~preview3_all.deb" \
             "$artifact/ricebowl-riceplate-native_0.1.0~preview2_amd64.deb" \
