@@ -754,6 +754,69 @@ PY
             # output reconfiguration, invalidating a desktop-icon click test.
             WAYLAND_DISPLAY=wayland-0 wtype -k Escape
             sleep 0.9
+            # SG1: a genuine compositor-delivered secondary press on the XP clock
+            # opens the local tray menu. A secondary press on an open menu row
+            # must NEVER activate it (the legacy handler accepted both buttons).
+            # Finally, a primary pointer press on X must close the menu.
+            # Keep all clicks and screenshots in disposable headless labwc.
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-tray-closed-before.png"
+            WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click 1320 748 1366 768
+            sleep 0.35
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-tray-open.png"
+            WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click 1100 540 1366 768
+            sleep 0.35
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-tray-after-right.png"
+            /usr/bin/python3 - "$runtime/xp-luna-tray-closed-before.png" \
+                "$runtime/xp-luna-tray-open.png" \
+                "$runtime/xp-luna-tray-after-right.png" <<"PY"
+from PIL import Image, ImageChops
+import sys
+
+with Image.open(sys.argv[1]) as original, \
+     Image.open(sys.argv[2]) as opened, \
+     Image.open(sys.argv[3]) as secondary:
+    assert original.size == opened.size == secondary.size == (1366, 768)
+    # Output-right/bottom tray popup: 288x240, right 8, bottom panel+8.
+    popup = (1070, 480, 1358, 720)
+    header = (1078, 486, 1312, 514)
+    initial = ImageChops.difference(
+        original.convert("RGB").crop(popup),
+        opened.convert("RGB").crop(popup))
+    changed = sum(max(pixel) > 20 for pixel in initial.getdata())
+    assert changed > 2000, f"Clock context menu did not open: {changed} pixels"
+    stable = ImageChops.difference(
+        opened.convert("RGB").crop(header),
+        secondary.convert("RGB").crop(header))
+    changed = sum(max(pixel) > 20 for pixel in stable.getdata())
+    assert changed < 50, (
+        f"Secondary click dismissed/replaced the live tray menu: {changed} header pixels")
+PY
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 1335 495 1366 768
+            sleep 0.3
+            WAYLAND_DISPLAY=wayland-0 grim - > "$runtime/xp-luna-tray-closed-after.png"
+            /usr/bin/python3 - "$runtime/xp-luna-tray-open.png" \
+                "$runtime/xp-luna-tray-closed-after.png" <<"PY"
+from PIL import Image, ImageChops
+import sys
+
+with Image.open(sys.argv[1]) as opened, Image.open(sys.argv[2]) as closed:
+    assert opened.size == closed.size == (1366, 768)
+    header = (1078, 486, 1312, 514)
+    delta = ImageChops.difference(
+        opened.convert("RGB").crop(header),
+        closed.convert("RGB").crop(header))
+    changed = sum(max(pixel) > 20 for pixel in delta.getdata())
+    assert changed > 500, f"Primary click did not close Luna tray menu: {changed} pixels"
+PY
+            cp "$runtime/xp-luna-tray-open.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-tray-real-open.png"
+            cp "$runtime/xp-luna-tray-after-right.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-tray-real-secondary.png"
+            cp "$runtime/xp-luna-tray-closed-after.png" \
+               "$source_root/dist/riceplate-native-preview/xp-luna-tray-real-closed.png"
+            echo "Verified native Luna tray secondary-click no-activation and primary close via labwc"
+            WAYLAND_DISPLAY=wayland-0 wtype -k Escape
+            sleep 0.2
             # XP semantics: first compositor-delivered click selects;
             # two subsequent clicks within 650 ms activate the safe Gio target.
             # All events run in isolated labwc with a private Gio stand-in.

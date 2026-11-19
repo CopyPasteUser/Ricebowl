@@ -8545,7 +8545,10 @@ impl PointerHandler for RicePlate {
             if self.active_tray_popup.as_ref() == Some(&event.surface) {
                 if self.tray_menu_state.visible {
                     match event.kind {
-                        PointerEventKind::Press { button: BTN_LEFT | BTN_RIGHT, .. } => {
+                        // Secondary clicks may open a provider's own context
+                        // menu at its tray icon, but NEVER invoke a row here.
+                        PointerEventKind::Press { button, .. }
+                            if tray::menu_activation_button(button) => {
                             match self.tray_menu_state.hit(event.position.0, event.position.1) {
                                 Some(TrayMenuHit::Row(index)) =>
                                     self.choose_tray_menu_row(index, qh),
@@ -8569,11 +8572,13 @@ impl PointerHandler for RicePlate {
                                 if self.tray_menu_state.rows().get(index).is_some_and(|r|
                                     r.selectable()) && self.tray_menu_state.selected != index {
                                     self.tray_menu_state.selected = index;
-                                    if let Some(host) = self.tray_host.as_mut() {
-                                        let id = self.tray_menu_state.rows()[index].id;
-                                        if let Err(error) = host.menu_hovered(
-                                            &self.tray_menu_state.bus_name, id) {
-                                            eprintln!("RicePlate: SNI menu hover failed: {error}");
+                                    if let Some(id) =
+                                        self.tray_menu_state.remote_hover_id(index) {
+                                        if let Some(host) = self.tray_host.as_mut() {
+                                            if let Err(error) = host.menu_hovered(
+                                                &self.tray_menu_state.bus_name, id) {
+                                                eprintln!("RicePlate: SNI menu hover failed: {error}");
+                                            }
                                         }
                                     }
                                     self.redraw_tray_popup();

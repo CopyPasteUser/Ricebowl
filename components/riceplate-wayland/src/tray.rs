@@ -2,6 +2,7 @@
 //! The D-Bus host is handled by `status-notifier`; no arbitrary recipe paths
 //! or commands can reach the bus. Pixmaps are untrusted and size checked.
 
+use std::collections::HashSet;
 use status_notifier::{Item, MenuNode, Pixmap, ToggleState, ToggleType};
 
 pub const WIDTH: u32 = 112;
@@ -13,6 +14,12 @@ pub const POPUP_HEIGHT: u32 = 240;
 pub const POPUP_ROWS: usize = 5;
 pub const POPUP_ROW_TOP: u32 = 44;
 pub const POPUP_ROW_HEIGHT: u32 = 30;
+
+/// A secondary click must not dispatch a remote DBusMenu action. This is
+/// checked on the real Wayland pointer path, not only when painting a menu.
+pub fn menu_activation_button(button: u32) -> bool {
+    button == 0x110 // Linux BTN_LEFT; shared protocol value for all rices.
+}
 
 pub fn screen_coords(output_origin: (i32, i32), output_size: (u32, u32),
                      panel_height: u32, top_panel: bool, popup: bool,
@@ -160,6 +167,25 @@ fn snapshot_rows(nodes: &[MenuNode], budget: &mut usize, depth: usize) -> Vec<Me
     result
 }
 
+/// DBusMenu item IDs identify the remote action, including submenu parents.
+/// A malformed peer reusing an ID cannot be allowed to change the meaning of
+/// a focused row or of a later menu_clicked call. The existing snapshot cap
+/// bounds this validation to at most MAX_MENU_NODES entries.
+fn unique_menu_ids(rows: &[MenuRow], seen: &mut HashSet<i32>) -> bool {
+    for row in rows {
+        // DBusMenu separators have no executable action and some hosts reuse
+        // their sentinel/root ID for them. Never reject an otherwise valid
+        // provider merely because its decorative separators share that ID.
+        if !matches!(&row.kind, MenuKind::Separator) && !seen.insert(row.id) {
+            return false;
+        }
+        if let MenuKind::Submenu(children) = &row.kind {
+            if !unique_menu_ids(children, seen) { return false; }
+        }
+    }
+    true
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuHit {
     Row(usize), Back, Close, Previous, Next,
@@ -189,7 +215,9 @@ impl MenuPopup {
         };
         let mut budget = MAX_MENU_NODES;
         let rows = snapshot_rows(children, &mut budget, 0);
-        (!rows.is_empty()).then_some((*id, rows))
+        let mut seen = HashSet::with_capacity(MAX_MENU_NODES + 1);
+        seen.insert(*id);
+        (!rows.is_empty() && unique_menu_ids(&rows, &mut seen)).then_some((*id, rows))
     }
 
     pub fn open(&mut self, bus_name: &str, title: &str, root: &MenuNode) -> bool {
@@ -220,6 +248,14 @@ impl MenuPopup {
         self.visible && self.bus_name.is_empty()
     }
 
+    /// The actual Wayland pointer hover may update either a native Luna
+    /// status menu or a provider-owned DBusMenu. Local rows MUST NOT emit
+    /// SNI D-Bus events to an empty (or stale) bus name.
+    pub fn remote_hover_id(&self, index: usize) -> Option<i32> {
+        if !self.visible || self.is_local() { return None; }
+        self.rows().get(index).filter(|row| row.selectable()).map(|row| row.id)
+    }
+
     pub fn close(&mut self) {
         *self = Self::default();
     }
@@ -236,7 +272,9 @@ impl MenuPopup {
     pub fn rows(&self) -> &[MenuRow] {
         let mut rows = self.rows.as_slice();
         for &id in &self.path {
-            let Some(MenuRow { kind: MenuKind::Submenu(children), .. }) =
+            // A provider may disable an already-open parent without removing
+            // its children. Never keep dispatching actions through that parent.
+            let Some(MenuRow { enabled: true, kind: MenuKind::Submenu(children), .. }) =
                 rows.iter().find(|row| row.id == id) else { return &[]; };
             rows = children;
         }
@@ -262,6 +300,18 @@ impl MenuPopup {
     pub fn select(&mut self, delta: isize) {
         let rows = self.rows();
         if rows.is_empty() { return; }
+        // After an asynchronous provider update removes/renames a focused
+        // action, there is deliberately NO implicit replacement activation.
+        // An actual next/previous key press selects a fresh live identity.
+        if self.selected == usize::MAX {
+            self.selected = if delta < 0 {
+                rows.iter().rposition(MenuRow::selectable)
+            } else {
+                rows.iter().position(MenuRow::selectable)
+            }.unwrap_or(usize::MAX);
+            if self.selected != usize::MAX { self.ensure_selection(delta); }
+            return;
+        }
         let len = rows.len();
         let mut cursor = self.selected.min(len - 1);
         for _ in 0..len {
@@ -310,6 +360,14 @@ impl MenuPopup {
         let Some((id, rows)) = Self::snapshot(root) else { return self.opened_ids(); };
         if id != self.root_id { return self.opened_ids(); }
         if self.rows == rows { return Vec::new(); }
+        // A keyboard highlight is an action *identity*, not a volatile row
+        // index. Labels and menu type participate in that identity: a peer
+        // cannot silently repurpose an ID while the user is about to press Enter.
+        // Changes to a checked/radio state alone may preserve the selection.
+        let focused = self.rows().get(self.selected)
+            .filter(|row| row.selectable())
+            .map(|row| (row.id, row.label.clone(),
+                       std::mem::discriminant(&row.kind)));
         self.rows = rows;
         let mut removed = Vec::new();
         while self.rows().is_empty() && !self.path.is_empty() {
@@ -318,8 +376,23 @@ impl MenuPopup {
         if self.path.is_empty() && self.rows.is_empty() {
             return vec![self.root_id];
         }
+        let restored = focused.and_then(|(id, label, kind)| {
+            self.rows().iter().position(|row|
+                row.selectable() && row.id == id && row.label == label
+                    && std::mem::discriminant(&row.kind) == kind)
+        });
         self.first = self.first.min(self.rows().len().saturating_sub(1));
-        self.ensure_selection(1);
+        if let Some(index) = restored {
+            self.selected = index;
+            if index < self.first { self.first = index; }
+            if index >= self.first + POPUP_ROWS {
+                self.first = index + 1 - POPUP_ROWS;
+            }
+        } else {
+            // None is represented by an out-of-range index so Enter/Space
+            // cannot target the item that happened to replace the old row.
+            self.selected = usize::MAX;
+        }
         removed
     }
 
@@ -630,7 +703,8 @@ mod tests {
 
     #[test]
     fn menu_bounds_untrusted_depth_and_node_count() {
-        let oversized = root((0..500).map(|n| leaf(n, "abc", true, true)).collect());
+        // DBusMenu child IDs must not reuse the root ID (0).
+        let oversized = root((1..=500).map(|n| leaf(n, "abc", true, true)).collect());
         let mut popup = MenuPopup::default();
         assert!(popup.open("app", "App", &oversized));
         assert_eq!(popup.rows().len(), MAX_MENU_NODES);
@@ -640,4 +714,166 @@ mod tests {
         popup.select(1);
         assert_eq!(popup.selected, 6);
     }
+    #[test]
+    fn dbusmenu_live_reorder_preserves_keyboard_target_by_id_not_row_number() {
+        let mut menu = MenuPopup::default();
+        assert!(menu.open("org.test.app", "Live", &root(vec![
+            leaf(1, "First", true, true),
+            leaf(2, "Original target", true, true),
+            leaf(3, "Third", true, true),
+        ])));
+        menu.select(1);
+        assert_eq!(menu.selected, 1);
+        assert!(menu.sync(&root(vec![
+            leaf(9, "New arrival", true, true),
+            leaf(1, "First", true, true),
+            leaf(3, "Third", true, true),
+            leaf(2, "Original target", true, true),
+        ])).is_empty());
+        assert_eq!(menu.selected, 3);
+        assert_eq!(menu.choice(menu.selected), MenuChoice::Click(2));
+    }
+
+    #[test]
+    fn changed_removed_or_disabled_dbusmenu_target_requires_a_fresh_keypress() {
+        let mut menu = MenuPopup::default();
+        assert!(menu.open("org.test.app", "Live", &root(vec![
+            leaf(10, "Before", true, true),
+            leaf(11, "Next", true, true),
+        ])));
+        assert!(menu.sync(&root(vec![
+            leaf(10, "Repurposed", true, true),
+            leaf(11, "Next", true, true),
+        ])).is_empty());
+        assert_eq!(menu.selected, usize::MAX);
+        assert_eq!(menu.choice(menu.selected), MenuChoice::None);
+        menu.select(1);
+        assert_eq!(menu.selected, 0);
+        assert_eq!(menu.choice(menu.selected), MenuChoice::Click(10));
+        assert!(menu.sync(&root(vec![
+            leaf(10, "Repurposed", false, true),
+            leaf(11, "Next", true, true),
+        ])).is_empty());
+        assert_eq!(menu.choice(menu.selected), MenuChoice::None);
+        menu.select(1);
+        assert_eq!(menu.choice(menu.selected), MenuChoice::Click(11));
+        assert!(menu.sync(&root(vec![
+            leaf(12, "Unrelated", true, true),
+        ])).is_empty());
+        assert_eq!(menu.choice(menu.selected), MenuChoice::None);
+        menu.select(-1);
+        assert_eq!(menu.choice(menu.selected), MenuChoice::Click(12));
+    }
+
+    #[test]
+    fn live_submenu_update_preserves_valid_child_and_revokes_removed_child() {
+        let mut menu = MenuPopup::default();
+        assert!(menu.open("service", "Live", &root(vec![
+            MenuNode::Menu { id: 4, label: "Options".into(),
+                enabled: true, visible: true, children: vec![
+                    leaf(5, "A", true, true), leaf(6, "B", true, true)] },
+        ])));
+        assert_eq!(menu.choice(0), MenuChoice::Open(4));
+        menu.select(1);
+        assert_eq!(menu.choice(menu.selected), MenuChoice::Click(6));
+        assert!(menu.sync(&root(vec![
+            MenuNode::Menu { id: 4, label: "Options".into(),
+                enabled: true, visible: true, children: vec![
+                    leaf(7, "C", true, true), leaf(6, "B", true, true),
+                    leaf(5, "A", true, true)] },
+        ])).is_empty());
+        assert_eq!(menu.selected, 1);
+        assert_eq!(menu.choice(menu.selected), MenuChoice::Click(6));
+        assert_eq!(menu.sync(&root(vec![leaf(8, "No submenu", true, true)])), vec![4]);
+        assert_eq!(menu.choice(menu.selected), MenuChoice::None);
+    }
+
+    #[test]
+    fn duplicate_remote_action_ids_are_rejected_on_open_and_live_update() {
+        let mut menu = MenuPopup::default();
+        assert!(!menu.open("service", "Invalid",
+            &root(vec![leaf(1, "A", true, true), leaf(1, "B", true, true)])));
+        assert!(!menu.open("service", "Invalid root reuse",
+            &root(vec![leaf(0, "Root ID reused", true, true)])));
+        assert!(!menu.visible);
+        assert!(!menu.open("service", "Invalid", &root(vec![
+            MenuNode::Menu { id: 4, label: "Options".into(),
+                enabled: true, visible: true, children: vec![leaf(9, "A", true, true)] },
+            leaf(9, "Duplicate nested id", true, true),
+        ])));
+        assert!(menu.open("service", "Valid", &root(vec![leaf(1, "A", true, true)])));
+        assert_eq!(menu.sync(&root(vec![
+            leaf(1, "A", true, true), leaf(1, "B", true, true),
+        ])), vec![0], "consumer closes the stale remote menu immediately");
+    }
+
+    #[test]
+    fn duplicate_separator_ids_are_non_actions_but_duplicate_commands_still_fail() {
+        let mut menu = MenuPopup::default();
+        assert!(menu.open("service", "Normal provider", &root(vec![
+            MenuNode::Separator { id: 0, visible: true },
+            leaf(14, "Open", true, true),
+            MenuNode::Separator { id: 0, visible: true },
+        ])));
+        assert_eq!(menu.selected, 1);
+        assert_eq!(menu.choice(0), MenuChoice::None);
+        assert_eq!(menu.choice(1), MenuChoice::Click(14));
+        assert_eq!(menu.choice(2), MenuChoice::None);
+        menu.close();
+        assert!(!menu.open("service", "Ambiguous commands", &root(vec![
+            leaf(14, "Open", true, true),
+            leaf(14, "Other", true, true),
+        ])));
+    }
+
+    #[test]
+    fn local_luna_pointer_hover_cannot_emit_provider_owned_dbus_events() {
+        let mut menu = MenuPopup::default();
+        assert!(menu.open_local("Date and Time", vec![
+            MenuRow { id: 107, label: "Adjust date".into(), enabled: true,
+                kind: MenuKind::Action { checked: false, radio: false } },
+        ]));
+        assert_eq!(menu.remote_hover_id(0), None);
+        menu.close();
+        assert_eq!(menu.remote_hover_id(0), None);
+        assert!(menu.open("org.test.tray", "Real SNI", &root(vec![
+            leaf(5, "Active", true, true),
+            leaf(6, "Disabled", false, true),
+        ])));
+        assert_eq!(menu.remote_hover_id(0), Some(5));
+        assert_eq!(menu.remote_hover_id(1), None);
+        assert_eq!(menu.remote_hover_id(50), None);
+    }
+
+    #[test]
+    fn only_primary_wayland_button_may_activate_a_remote_menu_row() {
+        assert!(menu_activation_button(0x110)); // BTN_LEFT
+        assert!(!menu_activation_button(0x111)); // BTN_RIGHT
+        assert!(!menu_activation_button(0x112)); // BTN_MIDDLE
+    }
+
+    #[test]
+    fn disabling_open_parent_closes_submenu_and_blocks_stale_child_dispatch() {
+        let mut menu = MenuPopup::default();
+        assert!(menu.open("service", "Live", &root(vec![
+            MenuNode::Menu { id: 4, label: "Actions".into(),
+                enabled: true, visible: true, children: vec![
+                    leaf(5, "Sensitive action", true, true)] },
+            leaf(7, "Unrelated", true, true),
+        ])));
+        assert_eq!(menu.choice(0), MenuChoice::Open(4));
+        assert_eq!(menu.choice(0), MenuChoice::Click(5));
+        assert_eq!(menu.sync(&root(vec![
+            MenuNode::Menu { id: 4, label: "Actions".into(),
+                enabled: false, visible: true, children: vec![
+                    leaf(5, "Sensitive action", true, true)] },
+            leaf(7, "Unrelated", true, true),
+        ])), vec![4]);
+        assert!(menu.path.is_empty());
+        assert_eq!(menu.choice(menu.selected), MenuChoice::None);
+        assert_eq!(menu.choice(0), MenuChoice::None);
+        menu.select(1);
+        assert_eq!(menu.choice(menu.selected), MenuChoice::Click(7));
+    }
+
 }
