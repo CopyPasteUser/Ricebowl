@@ -204,6 +204,8 @@ jobs:
           cargo build --locked --release --manifest-path components/riceplate-wayland/Cargo.toml
           cargo build --locked --release --manifest-path components/riceplate-wayland/Cargo.toml \
             --example wayland_pointer_click
+          cargo build --locked --release --manifest-path components/riceplate-wayland/Cargo.toml \
+            --example wayland_ime_v2_client
           sh -n scripts/smoke_riceplate_native.sh
           sh -n scripts/smoke_luna_window_chrome.sh
           sh -n scripts/smoke_luna_hotkeys.sh
@@ -217,6 +219,9 @@ jobs:
           sh -n scripts/wayland_clipboard_smoke_client.sh
           sh -n scripts/smoke_riceplate_multioutput.sh
           sh -n scripts/smoke_wayland_shared_rice_engine.sh
+      - name: Verify real input-method-v2 transactions and AT-SPI against native Run
+        timeout-minutes: 3
+        run: timeout -k 5s 140s sh scripts/smoke_luna_atspi.sh
       - name: Validate portal screenshot and headless ScreenCast negotiation
         run: |
           sh -n scripts/smoke_wayland_portals.sh
@@ -890,9 +895,6 @@ jobs:
           timeout -k 5s 80s sh scripts/smoke_luna_window_chrome.sh
       - name: Verify real XP Super+D/E/R shortcuts and native Run dialog
         run: timeout -k 5s 90s sh scripts/smoke_luna_hotkeys.sh
-      - name: Verify native Run editor focus, selection and teardown over real AT-SPI
-        timeout-minutes: 3
-        run: timeout -k 5s 140s sh scripts/smoke_luna_atspi.sh
       - name: Render both Creator demonstrators at four real output geometries
         run: |
           set -eu
