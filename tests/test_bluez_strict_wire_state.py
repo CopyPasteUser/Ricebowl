@@ -54,7 +54,7 @@ class BluezStrictStateTests(unittest.TestCase):
                         patch.object(bluez, "_connection") as bus, \
                         self.assertRaisesRegex(ValueError, "state is unavailable"):
                     bluez.set_connection(ADDR, True)
-                    bus.assert_not_called()
+                bus.assert_not_called()
 
     def test_noop_connected_or_disconnected_device_is_never_resent(self):
         for desired in (False, True):
