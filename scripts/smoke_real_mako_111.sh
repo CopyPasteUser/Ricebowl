@@ -34,4 +34,5 @@ echo "Real Mako 1.11.0 source checked: $actual"
 # session, the XFCE notification owner, persistent files or system binaries.
 PATH="$workspace/bin:$PATH" RICEBOWL_SMOKE_RICEPOP=1 \
     RICEBOWL_SMOKE_MAKO_MODERN=1 RICEBOWL_SMOKE_RECOVERY=1 \
-    timeout -k 5s 90s sh "$project_root/scripts/smoke_wayland_session.sh"
+    RICEBOWL_SMOKE_LIVE=1 \
+    timeout -k 5s 115s sh "$project_root/scripts/smoke_wayland_session.sh"
