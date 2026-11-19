@@ -45,7 +45,9 @@ def sample():
     value = text.getText(0, text.characterCount)
     selections = []
     for index in range(min(text.getNSelections(), 4)):
-        selections.append(tuple(text.getSelection(index)))
+        start, end = text.getSelection(index)
+        if start != end:
+            selections.append((start, end))
     return {
         "text": value,
         "caret": text.caretOffset,
