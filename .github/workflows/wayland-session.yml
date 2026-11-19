@@ -10,6 +10,7 @@ on:
       - 'macrice/installer.py'
       - 'packaging/wayland/**'
       - 'scripts/build_wayland_session_deb.sh'
+      - 'scripts/ci_ubuntu_archive.py'
       - 'scripts/smoke_wayland_session.sh'
       - 'scripts/smoke_wayland_ricepop.py'
       - 'scripts/smoke_ricepop_atspi_client.py'
@@ -30,6 +31,7 @@ on:
       - 'macrice/installer.py'
       - 'packaging/wayland/**'
       - 'scripts/build_wayland_session_deb.sh'
+      - 'scripts/ci_ubuntu_archive.py'
       - 'scripts/smoke_wayland_session.sh'
       - 'scripts/smoke_wayland_ricepop.py'
       - 'scripts/smoke_ricepop_atspi_client.py'
@@ -58,12 +60,18 @@ jobs:
       - name: Install native Wayland compositor and shell dependencies
         timeout-minutes: 28
         run: |
-          sudo apt-get update
-          sudo apt-get install -y labwc waybar foot fuzzel swaylock swaybg \
+          # Signed Ubuntu 24.04 metadata stays unchanged; only a repeatedly
+          # stalled EC2 regional download host is replaced inside this runner.
+          sudo env GITHUB_ACTIONS=true /usr/bin/python3 scripts/ci_ubuntu_archive.py
+          sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=15 \
+            -o Acquire::https::Timeout=15 update
+          sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=15 \
+            -o Acquire::https::Timeout=15 install -y labwc waybar foot fuzzel swaylock swaybg \
             xwayland dbus-user-session dbus-x11 xdg-desktop-portal \
             xdg-desktop-portal-gtk xdg-desktop-portal-wlr \
             wayland-utils
-          sudo apt-get install -y grim wlr-randr python3-pil python3-gi \
+          sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=15 \
+            -o Acquire::https::Timeout=15 install -y grim wlr-randr python3-pil python3-gi \
             gir1.2-gtk-3.0 librsvg2-common mako-notifier libnotify-bin \
             python3-pyatspi at-spi2-core libatk-adaptor \
             meson ninja-build pkg-config libwayland-dev wayland-protocols \
