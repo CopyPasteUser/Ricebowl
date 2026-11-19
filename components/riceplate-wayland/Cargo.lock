@@ -1003,6 +1003,7 @@ dependencies = [
  "wayland-client",
  "wayland-protocols",
  "wayland-protocols-wlr",
+ "wayland-protocols-misc",
 ]
 
 [[package]]
