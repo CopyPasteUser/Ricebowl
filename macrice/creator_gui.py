@@ -735,6 +735,9 @@ def run() -> int:
                 return
             try:
                 inspection = pack.inspect_pack(source)
+                # Check destination collisions before asking the user to approve.
+                # The actual import rechecks under the private transaction lock.
+                pack.preflight_import(source, expected_manifest=inspection["manifest"])
                 record = inspection["manifest"]["recipe"]
                 migration_note = (
                     "\nLegacy schema will be migrated into a new v11 draft; "
@@ -757,7 +760,10 @@ def run() -> int:
                 self._status(f"RicePack imported; editing {info.recipe_id} "
                              f"(schema v{recipes.load(str(info.path)).schema_version}). "
                              "Not applied.", success=True)
-            except (pack.PackError, workspace.WorkspaceError, recipes.RecipeError,
+            except pack.PackError as exc:
+                self._status(f"RicePack {exc.code}: {exc}. No session was changed.",
+                             error=True)
+            except (workspace.WorkspaceError, recipes.RecipeError,
                     OSError, ValueError) as exc:
                 self._status(f"Import/edit failed: {exc}. If installed, use Edit installed rice…",
                              error=True)
