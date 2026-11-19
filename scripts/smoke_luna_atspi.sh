@@ -63,6 +63,10 @@ dbus-run-session -- sh -eu -c '
     test -n "$output"
     wlr-randr --output "$output" --custom-mode 1366x768@60Hz --scale 1
 
+    # Real desktops have an AT-SPI registry before applications register;
+    # make this disposable session obey the same ordering.
+    /usr/bin/python3 -c "import pyatspi; pyatspi.Registry.getDesktop(0).childCount" >/dev/null
+
     "$native" --recipe "$runtime/luna.json" \
         >"$runtime/native.log" 2>&1 &
     plate=$!
