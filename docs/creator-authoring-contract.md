@@ -33,6 +33,14 @@ It is not a claim that every GTK, Qt or compositor window can be themed or laid 
   checksum-verified, owner-private and non-activating. `inspect_pack` now
   reports embedded assets and whether native desktop layers are needed.
   It **does not** claim the target host has labwc, RicePlate or providers.
+  `ricebowl de pack-preflight --package /absolute/FILE.ricepack --json` additionally
+  checks the destination for reserved IDs, existing recipes, asset attribution
+  collisions and pending import recovery **without writing config, a journal
+  or changing the desktop**. It is a point-in-time check, not an import lease;
+  `pack-import` repeats validation under the private transaction lock.
+  Creator invokes the same preflight before offering an explicit import.
+  Export from a reviewed Creator version now pins its semantic SHA-256 until
+  package generation; if the source changes, no archive is published.
 
 ## Two runnable recipes
 
