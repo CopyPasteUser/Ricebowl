@@ -20,6 +20,7 @@ Do not count menu-search keyboard navigation as full native IME and AT-SPI parit
 | Test domain | Fixture | Required observable behavior | Evidence |
 | --- | --- | --- | --- |
 | UTF-8 / UAX #29 | e + combining U+0301, German flag, woman-technologist ZWJ, thumbs-up with modifier | no split graphemes under caret, selection, delete, clipping | Rust tests in luna_dialog, native_menu, text_render |
+| Clipboard | selected multi-grapheme Run / Rename text | Ctrl+C/Ctrl+V copy/paste must preserve UTF-8, selection and focus without shell execution | **NOT implemented in the native Luna editor; blocking** |
 | BiDi | abc + Hebrew, mixed Arabic ABC 42 | logical storage; visual caret and arrow movement via same visible substring | Rust bidi_layout/luna_dialog tests; real RTL client review open |
 | Arabic/Indic | Arabic salaam, Hindi हिन्दी | OpenType GSUB/GPOS and nonzero bounded glyph positions only if real font covers glyphs | style_art/native_shaping Rust tests; positive Hindi font fixture acceptance open |
 | CJK | 日本語, 中文, 한국어 | UTF-8 commits and clearly rendered fallback where coverage unavailable; never label '?' as CJK success | existing missing-cmap tests; positive CJK font-specific acceptance open |
@@ -42,6 +43,7 @@ Do not count menu-search keyboard navigation as full native IME and AT-SPI parit
 ## Remaining blockers before issue #417 SG5 can be checked
 
 - Real external IME text-input-v3 composition, cursor and surrounding-text deletion for both Run and Rename, including leave/re-enter and CJK/RTL flows.
+- Native Run/Rename clipboard shortcuts need actual focused Wayland selection transfer and grapheme-safe pasting. Existing cross-application clipboard CI does not exercise the Luna editor.
 - Start Menu Search / All Programs needs a real v3 text-input focus target, composition rendering and AT-SPI TextInput semantics, or explicitly scoped-out product contract approval.
 - Real AT-SPI client test of Rename, bounded ranges, action invocations and transitions across supported native dialog surfaces.
 - Positive Hindi/CJK installed-font coverage plus measured rendered glyph/caret positions; negative missing-font replacement tests do not prove script support.
