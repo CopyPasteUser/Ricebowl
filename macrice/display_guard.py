@@ -12,6 +12,7 @@ import fcntl
 import json
 import os
 import secrets
+import stat
 import signal
 import subprocess
 import sys
@@ -82,6 +83,29 @@ def _keep_path(change: DisplayChange) -> Path:
     return change.root / f"{change.token}.keep"
 
 
+def _keep_requested(change: DisplayChange) -> bool:
+    """Require the exact private confirmation marker, not merely an existing path.
+
+    A malformed, stale or symlinked marker must never approve a display
+    change. The independent timeout worker will instead perform its rollback.
+    """
+    path = _keep_path(change)
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    except OSError:
+        return False
+    with os.fdopen(fd, "rb") as stream:
+        metadata = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+                or metadata.st_mode & 0o077 or not 1 <= metadata.st_size <= 64):
+            return False
+        try:
+            record = json.loads(stream.read(65), object_pairs_hook=_unique_record)
+        except (ValueError, UnicodeError, RecursionError):
+            return False
+    return type(record) is dict and set(record) == {"keep"} and record["keep"] is True
+
+
 def _write_new(path: Path, value: dict) -> None:
     body = json.dumps(value, separators=(",", ":"), sort_keys=True).encode("utf-8")
     if len(body) > _MAX_FILE:
@@ -110,10 +134,11 @@ def read_status(change: DisplayChange) -> tuple[str, str]:
     try:
         if path.is_symlink() or path.stat().st_size > _MAX_FILE:
             raise ValueError("Invalid display change status file")
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"),
+                          object_pairs_hook=_unique_record)
     except FileNotFoundError:
         return "starting", "Waiting for independent display guard"
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeError, ValueError, RecursionError) as exc:
         raise RuntimeError("Cannot read display guard status") from exc
     if (not isinstance(data, dict) or data.get("state") not in _STATES
             or not isinstance(data.get("detail"), str)):
@@ -220,7 +245,7 @@ def run_worker(change: DisplayChange) -> int:
             _write_state(change, "pending", f"Confirm within {TIMEOUT_SECONDS} seconds")
             deadline = time.monotonic() + TIMEOUT_SECONDS
             while time.monotonic() < deadline and not stopped[0]:
-                if _keep_path(change).is_file():
+                if _keep_requested(change):
                     _write_state(change, "kept", "New display settings confirmed")
                     approved = True
                     return 0
