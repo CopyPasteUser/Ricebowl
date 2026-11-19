@@ -248,6 +248,14 @@ impl MenuPopup {
         self.visible && self.bus_name.is_empty()
     }
 
+    /// The actual Wayland pointer hover may update either a native Luna
+    /// status menu or a provider-owned DBusMenu. Local rows MUST NOT emit
+    /// SNI D-Bus events to an empty (or stale) bus name.
+    pub fn remote_hover_id(&self, index: usize) -> Option<i32> {
+        if !self.visible || self.is_local() { return None; }
+        self.rows().get(index).filter(|row| row.selectable()).map(|row| row.id)
+    }
+
     pub fn close(&mut self) {
         *self = Self::default();
     }
@@ -816,6 +824,25 @@ mod tests {
             leaf(14, "Open", true, true),
             leaf(14, "Other", true, true),
         ])));
+    }
+
+    #[test]
+    fn local_luna_pointer_hover_cannot_emit_provider_owned_dbus_events() {
+        let mut menu = MenuPopup::default();
+        assert!(menu.open_local("Date and Time", vec![
+            MenuRow { id: 107, label: "Adjust date".into(), enabled: true,
+                kind: MenuKind::Action { checked: false, radio: false } },
+        ]));
+        assert_eq!(menu.remote_hover_id(0), None);
+        menu.close();
+        assert_eq!(menu.remote_hover_id(0), None);
+        assert!(menu.open("org.test.tray", "Real SNI", &root(vec![
+            leaf(5, "Active", true, true),
+            leaf(6, "Disabled", false, true),
+        ])));
+        assert_eq!(menu.remote_hover_id(0), Some(5));
+        assert_eq!(menu.remote_hover_id(1), None);
+        assert_eq!(menu.remote_hover_id(50), None);
     }
 
     #[test]
