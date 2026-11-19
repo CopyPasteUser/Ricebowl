@@ -27,6 +27,8 @@ MAX_COMPONENT_BYTES = 255
 # The current four-package native preview uses only short system paths.
 MAX_PATH_COMPONENTS = 64
 MAX_TOTAL_PATH_METADATA_BYTES = 16 * 1024 * 1024
+# Limits cumulative parent lookups and newly retained ancestor metadata.
+MAX_TOTAL_PARENT_VISITS = 250_000
 
 
 def _canonical_path(item: tarfile.TarInfo) -> PurePosixPath:
@@ -52,6 +54,7 @@ def verify_payload(stream: BinaryIO) -> int:
     count = 0
     total_file_bytes = 0
     total_path_bytes = 0
+    total_parent_visits = 0
     seen_paths: set[PurePosixPath] = set()
     file_paths: set[PurePosixPath] = set()
     required_directories: set[PurePosixPath] = set()
@@ -76,6 +79,9 @@ def verify_payload(stream: BinaryIO) -> int:
                 # earlier entry already needs as a directory.
                 parents = tuple(parent for parent in path.parents
                                 if parent != PurePosixPath("."))
+                total_parent_visits += len(parents)
+                if total_parent_visits > MAX_TOTAL_PARENT_VISITS:
+                    raise UnsafePayload("Package archive hierarchy work exceeds limit")
                 if any(parent in file_paths for parent in parents):
                     raise UnsafePayload(f"File is an archive directory ancestor: {item.name!r}")
                 if item.isfile() and path in required_directories:
