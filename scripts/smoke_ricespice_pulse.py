@@ -99,7 +99,7 @@ def main() -> None:
 
             # Monitor sources are genuine PulseAudio sources (no microphone
             # capture or user hardware access is necessary for this test).
-            sources = data["inputs"]
+            # PulseAudio may follow a new default sink with a new monitor\n            # source. Review source identity *after* the sink transaction.\n            sources = audio_devices.inspect()["inputs"]
             if len(sources) >= 2:
                 active = next(d["name"] for d in sources if d["default"])
                 alternate = next(d["name"] for d in sources if d["name"] != active)
