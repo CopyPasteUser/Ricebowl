@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+from collections import Counter
 
 import pyatspi
 
@@ -34,6 +35,35 @@ def run_entry():
             # A window may disappear between enumerating its parent and child.
             continue
     return None
+
+
+
+def diagnostic_inventory():
+    """Only roles and whitelisted internal names; never user text/labels."""
+    root = pyatspi.Registry.getDesktop(0)
+    counts = Counter()
+    app_count = root.childCount
+    stack = [(root, 0)]
+    seen = 0
+    while stack and seen < 900:
+        node, depth = stack.pop()
+        seen += 1
+        try:
+            counts[node.getRoleName()] += 1
+            name = node.name if node.name in ("RicePlate", "Run", "Command") else ""
+            if name:
+                print(f"AT-SPI debug depth={depth} role={node.getRoleName()} name={name}",
+                      file=sys.stderr)
+            if depth >= 10:
+                continue
+            for index in range(min(node.childCount, 200) - 1, -1, -1):
+                child = node.getChildAtIndex(index)
+                if child is not None:
+                    stack.append((child, depth + 1))
+        except (LookupError, RuntimeError):
+            continue
+    print(f"AT-SPI diagnostic: desktop_children={app_count} nodes={seen} "
+          f"roles={dict(counts)}", file=sys.stderr)
 
 
 def sample():
@@ -91,6 +121,7 @@ def main() -> int:
             last = "transient AT-SPI provider error: " + type(error).__name__
         time.sleep(0.15)
     print("FAIL: " + last, file=sys.stderr)
+    diagnostic_inventory()
     return 1
 
 
