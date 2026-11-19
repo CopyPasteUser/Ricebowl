@@ -67,6 +67,19 @@ dbus-run-session -- sh -eu -c '
     # make this disposable session obey the same ordering.
     /usr/bin/python3 -c "import pyatspi; pyatspi.Registry.getDesktop(0).childCount" >/dev/null
 
+    # AccessKit's Unix adapter waits for org.a11y.Status.IsEnabled. A
+    # disposable headless DBus session defaults to false even with pyatspi
+    # installed: explicitly emulate a screen reader enabling accessibility.
+    # This setting exists ONLY on dbus-run-session's private bus.
+    dbus-send --session --dest=org.a11y.Bus /org/a11y/bus \
+        org.freedesktop.DBus.Properties.Set \
+        string:org.a11y.Status string:IsEnabled variant:boolean:true
+    gdbus call --session --dest org.a11y.Bus --object-path /org/a11y/bus \
+        --method org.freedesktop.DBus.Properties.Get \
+        org.a11y.Status IsEnabled | grep -q true || {
+        echo "Headless CI accessibility status was not enabled" >&2; exit 1;
+    }
+
     "$native" --recipe "$runtime/luna.json" \
         >"$runtime/native.log" 2>&1 &
     plate=$!
