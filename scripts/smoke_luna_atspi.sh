@@ -74,7 +74,15 @@ dbus-run-session -- sh -eu -c '
         count=$((count + 1)); sleep 0.2
     done
     test -S "$runtime/riceplate-luna-desktop.sock" || exit 1
-    probe() { timeout -k 2s 14s /usr/bin/python3 "$root/scripts/smoke_riceplate_atspi_client.py" "$@"; }
+    probe() {
+        if timeout -k 2s 14s /usr/bin/python3 "$root/scripts/smoke_riceplate_atspi_client.py" "$@"; then
+            return 0
+        fi
+        echo "RicePlate diagnostics after missing AT-SPI text node:" >&2
+        sed -n "1,100p" "$runtime/native.log" >&2
+        sed -n "1,60p" "$runtime/labwc.log" >&2
+        return 1
+    }
 
     wtype -M logo -k r -m logo
     probe --text "" --caret 0
