@@ -63,8 +63,8 @@ class RicePopUncertainWriteTests(unittest.TestCase):
                                               expected_owner_pid=91)
                     self.assertEqual(caught.exception.code, "notification_outcome_unknown")
                     self.assertIn("refresh", str(caught.exception).lower())
-                    self.assertFalse(notifications.invalid(
-                        caught.exception, attempted_dismiss=True)["ok"])
+                    self.assertTrue(notifications.invalid(
+                        caught.exception, attempted_dismiss=True)["outcome_unknown"])
                     self.assertEqual(owner.call_count, 2)
                     read.assert_called_once_with("ListNotifications", include_actions=True)
                     run.assert_called_once_with(
@@ -95,6 +95,8 @@ class RicePopUncertainWriteTests(unittest.TestCase):
                                              expected_owner_pid=91)
                     self.assertEqual(caught.exception.code, "notification_outcome_unknown")
                     self.assertIn("refresh", str(caught.exception).lower())
+                    self.assertTrue(notifications.invalid(
+                        caught.exception, attempted_invoke=True)["outcome_unknown"])
                     self.assertEqual(owner.call_count, 2)
                     read.assert_called_once_with("ListNotifications", include_actions=True)
                     run.assert_called_once_with(
@@ -114,6 +116,8 @@ class RicePopUncertainWriteTests(unittest.TestCase):
                 notifications.invoke(12, "open", expected=old,
                                      expected_owner_pid=91)
             self.assertEqual(caught.exception.code, "stale_notification_snapshot")
+            self.assertFalse(notifications.invalid(
+                caught.exception, attempted_invoke=True)["outcome_unknown"])
             run.assert_not_called()
 
 
