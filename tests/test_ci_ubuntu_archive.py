@@ -86,10 +86,53 @@ class RunnerArchiveTests(unittest.TestCase):
             ):
                 self.assertTrue(archive.update_runner_sources(path))
                 self.assertFalse(archive.update_runner_sources(path))
-            self.assertEqual(path.read_text(),
-                             "URIs: https://archive.ubuntu.com/ubuntu/\n")
+            result = path.read_text()
+            self.assertIn("URIs: https://archive.ubuntu.com/ubuntu/\n", result)
+            self.assertEqual(archive.restore_missing_noble_sources(result), result)
+            self.assertEqual(archive._active_suites(result),
+                             {"noble", "noble-updates", "noble-security"})
             self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o644)
             self.assertEqual(len(list(Path(td).iterdir())), 1)
+
+
+    def test_disabled_ubuntu_source_restores_signed_noble_without_rewriting_other_repos(self):
+        disabled = (
+            "Types: deb\nURIs: https://archive.ubuntu.com/ubuntu\n"
+            "Suites: noble noble-updates\n"
+            "Components: main universe restricted multiverse\n"
+            "Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n"
+            "Enabled: no\n\n"
+            "Types: deb\nURIs: https://packages.microsoft.com/ubuntu/24.04/prod\n"
+            "Suites: noble\nComponents: main\n"
+            "Signed-By: /usr/share/keyrings/microsoft.gpg\n"
+        )
+        restored = archive.restore_missing_noble_sources(disabled)
+        self.assertEqual(archive._active_suites(disabled), set())
+        self.assertEqual(archive._active_suites(restored),
+                         {"noble", "noble-updates", "noble-security"})
+        self.assertIn("Enabled: no", restored)
+        self.assertIn("packages.microsoft.com/ubuntu/24.04/prod", restored)
+        self.assertIn("Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg",
+                      restored)
+        self.assertEqual(archive.restore_missing_noble_sources(restored), restored)
+
+    def test_partially_configured_signed_archive_adds_only_missing_suite(self):
+        current = (
+            "Types: deb\nURIs: https://archive.ubuntu.com/ubuntu\n"
+            "Suites: noble noble-updates\n"
+            "Components: main universe restricted multiverse\n"
+            "Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n\n"
+            "Types: deb\nURIs: http://security.ubuntu.com/ubuntu/\n"
+            "Suites: noble-security\n"
+            "Components: main universe restricted multiverse\n"
+            "Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n"
+        )
+        self.assertEqual(archive.restore_missing_noble_sources(current), current)
+        partial = current.replace("noble noble-updates", "noble")
+        patched = archive.restore_missing_noble_sources(partial)
+        self.assertEqual(patched.count("Suites: noble-updates"), 1)
+        self.assertEqual(archive._active_suites(patched),
+                         {"noble", "noble-updates", "noble-security"})
 
     def test_ci_keeps_all_wayland_gates_and_bounds_apt_network_retries(self):
         yaml = (ROOT / ".github/workflows/wayland-session.yml").read_text()
