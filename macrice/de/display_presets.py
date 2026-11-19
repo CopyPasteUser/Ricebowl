@@ -46,8 +46,8 @@ def _read() -> tuple[list[dict], bool]:
     if raw is None:
         return [], False
     try:
-        data = json.loads(raw)
-    except (ValueError, UnicodeError) as exc:
+        data = json.loads(raw, object_pairs_hook=preferences._unique_json_object)
+    except (ValueError, UnicodeError, RecursionError) as exc:
         raise ValueError("Invalid saved monitor JSON") from exc
     if type(data) is not dict or type(data.get("version")) is not int:
         raise ValueError("Unsupported saved monitor format")
