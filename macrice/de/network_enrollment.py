@@ -226,11 +226,21 @@ def import_vpn_profile(path: str) -> str:
         raise backend.SettingsError("VPN configuration file is missing or unreadable") from exc
     expected_kind = "wireguard" if kind == "wireguard" else "vpn"
     before = {entry["uuid"] for entry in backend.connection_profiles()}
-    _run("con", "import", "type", kind, "file", str(source))
+    try:
+        _run("con", "import", "type", kind, "file", str(source))
+    except backend.SettingsError as exc:
+        # Timeout/disconnect is not proof of an aborted import.
+        raise backend.SettingsError(
+            "VPN import outcome is unknown; refresh saved profiles before retrying") from exc
     # Match the unique NEW profile of the correct provider type. Never
     # accidentally select a concurrently created, unrelated VPN profile.
-    additions = [entry for entry in backend.connection_profiles()
-                 if entry["uuid"] not in before]
+    try:
+        additions = [entry for entry in backend.connection_profiles()
+                     if entry["uuid"] not in before]
+    except backend.SettingsError as exc:
+        raise backend.SettingsError(
+            "VPN may have been imported, but profile inventory is unavailable; "
+            "refresh saved profiles before retrying") from exc
     if len(additions) != 1 or additions[0]["kind"] != expected_kind:
         raise backend.SettingsError(
             "VPN import identity could not be verified; inspect newly saved "
