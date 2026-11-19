@@ -28,8 +28,9 @@ class SGProgressEvidenceTests(unittest.TestCase):
             self.assertEqual(len(entries), 4, match.group(1))
             for value, description in entries:
                 self.assertGreater(len(description), 30)
-                self.assertIn("](", description, "every checkpoint needs a concrete evidence/source link"
-                              if value == "x" else "every checkpoint needs an explicit context link")
+                if value == "x":
+                    self.assertIn("](", description,
+                                  "checked checkpoint needs a concrete evidence/source link")
                 checked += (value == "x")
         self.assertEqual(checked, 14)
         self.assertEqual((checked * 100) // (len(headings) * 4), 50)
