@@ -113,9 +113,14 @@ def main() -> int:
                     # Never print the editor value: it can contain a command.
                     print("PASS: live AT-SPI Run entry role/name/focus/text/caret/selection")
                     return 0
+                # Never log Run command contents. The mismatch dimensions
+                # alone isolate focus, stale text, caret and selection bugs.
                 last = (
-                    "entry present but AT-SPI text, caret, focus or selection "
-                    "does not match the expected fixture"
+                    "Run entry AT-SPI mismatch: "
+                    f"chars={len(state['text'])}/{len(args.text)} "
+                    f"caret={state['caret']}/{args.caret} "
+                    f"focused={state['focused']}/True "
+                    f"selection={state['selections']}/{wanted}"
                 )
         except (LookupError, RuntimeError) as error:
             last = "transient AT-SPI provider error: " + type(error).__name__
