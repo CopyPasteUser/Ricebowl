@@ -24,6 +24,8 @@ on:
       - 'packaging/wayland/ricebowl-wayland-app'
       - 'packaging/wayland/ricebowl-wayland-command'
       - 'scripts/test_wayland_package_reproducibility.sh'
+      - 'scripts/verify_wayland_clean_rebuild.sh'
+      - 'tests/test_wayland_clean_rebuild.py'
       - 'scripts/smoke_riceplate_native.sh'
       - 'scripts/smoke_luna_window_chrome.sh'
       - 'scripts/smoke_luna_hotkeys.sh'
@@ -50,6 +52,8 @@ on:
       - 'scripts/smoke_wayland_shared_rice_engine.sh'
       - 'scripts/ci_wayland_resource_smoke.py'
       - 'tests/test_ci_wayland_resource_smoke.py'
+      - 'scripts/verify_sg7_resource_receipts.py'
+      - 'tests/test_sg7_resource_receipts.py'
       - 'tests/test_de_creator_output_matrix.py'
       - 'tests/test_de_render.py'
       - 'tests/test_de_window_outputs.py'
@@ -103,6 +107,8 @@ on:
       - 'packaging/wayland/ricebowl-wayland-app'
       - 'packaging/wayland/ricebowl-wayland-command'
       - 'scripts/test_wayland_package_reproducibility.sh'
+      - 'scripts/verify_wayland_clean_rebuild.sh'
+      - 'tests/test_wayland_clean_rebuild.py'
       - 'scripts/smoke_riceplate_native.sh'
       - 'scripts/smoke_luna_window_chrome.sh'
       - 'scripts/smoke_luna_hotkeys.sh'
@@ -129,6 +135,8 @@ on:
       - 'scripts/smoke_wayland_shared_rice_engine.sh'
       - 'scripts/ci_wayland_resource_smoke.py'
       - 'tests/test_ci_wayland_resource_smoke.py'
+      - 'scripts/verify_sg7_resource_receipts.py'
+      - 'tests/test_sg7_resource_receipts.py'
       - 'tests/test_de_creator_output_matrix.py'
       - 'tests/test_de_render.py'
       - 'tests/test_de_window_outputs.py'
@@ -309,6 +317,52 @@ jobs:
             "$artifact/ricebowl-wayland-session_0.1.0~preview3_all.deb" \
             "$artifact/ricebowl-riceplate-native_0.1.0~preview2_amd64.deb" \
             "$artifact/ricebowl-wayland-desktop_0.1.0~preview3_amd64.deb"
+      - name: Rebuild all four packages from clean tracked source
+        timeout-minutes: 7
+        run: |
+          set -eu
+          bash -n scripts/verify_wayland_clean_rebuild.sh
+          /usr/bin/python3 -m unittest tests.test_wayland_clean_rebuild -v
+          artifact="$PWD/dist/riceplate-native-preview"
+          bash scripts/verify_wayland_clean_rebuild.sh \
+            "$artifact/ricebowl-wayland-core_0.1.0~preview2_all.deb" \
+            "$artifact/ricebowl-wayland-session_0.1.0~preview3_all.deb" \
+            "$artifact/ricebowl-riceplate-native_0.1.0~preview2_amd64.deb" \
+            "$artifact/ricebowl-wayland-desktop_0.1.0~preview3_amd64.deb"
+      - name: Reject source-stamped but payload-tampered core package
+        timeout-minutes: 7
+        run: |
+          set -eu
+          artifact="$PWD/dist/riceplate-native-preview"
+          source_core="$artifact/ricebowl-wayland-core_0.1.0~preview2_all.deb"
+          session="$artifact/ricebowl-wayland-session_0.1.0~preview3_all.deb"
+          native="$artifact/ricebowl-riceplate-native_0.1.0~preview2_amd64.deb"
+          desktop="$artifact/ricebowl-wayland-desktop_0.1.0~preview3_amd64.deb"
+          isolated=$(mktemp -d -t ricebowl-core-tamper-XXXXXXXX)
+          trap 'rm -rf -- "$isolated"' EXIT
+          dpkg-deb --raw-extract "$source_core" "$isolated/stage"
+          printf '\n# isolated CI tampering; never shipped\n' >> \
+            "$isolated/stage/usr/lib/ricebowl-wayland/launcher.py"
+          # Rebuild control checksums rather than fail merely on stale md5sums.
+          rm -f -- "$isolated/stage/DEBIAN/md5sums"
+          dpkg-deb --build --root-owner-group "$isolated/stage" \
+            "$isolated/tampered-core.deb" >/dev/null
+          # The tamper is *within* the allowed core payload namespace; our
+          # standalone safety gate should accept its metadata/path structure.
+          bash scripts/verify_wayland_package_set.sh \
+            "$isolated/tampered-core.deb" "$session" "$native" "$desktop" >/dev/null
+          if bash scripts/verify_wayland_clean_rebuild.sh \
+              "$isolated/tampered-core.deb" "$session" "$native" "$desktop" \
+              >"$isolated/result.out" 2>"$isolated/result.err"; then
+            echo "Clean-source rebuild accepted a modified core payload" >&2
+            exit 1
+          fi
+          grep -Fq 'Non-reproducible core package' "$isolated/result.err" || {
+            cat "$isolated/result.err" >&2
+            echo "Core tamper was not rejected by the reproducibility comparison" >&2
+            exit 1
+          }
+          echo "PASS: source-stamped but mutated core package fails clean rebuild"
       - name: Install, reinstall and purge complete preview in disposable Ubuntu
         timeout-minutes: 18
         run: |
@@ -380,6 +434,13 @@ jobs:
         run: timeout -k 5s 180s sh scripts/smoke_riceplate_native.sh
       - name: Prove shared Rice engine across three native compositor-confirmed live layouts
         run: timeout -k 5s 125s sh scripts/smoke_wayland_shared_rice_engine.sh
+      - name: Verify SG7 compositor resource growth receipts at exact source SHA
+        run: |
+          set -eu
+          /usr/bin/python3 -m unittest tests.test_sg7_resource_receipts -v
+          /usr/bin/python3 scripts/verify_sg7_resource_receipts.py \
+            --directory "$PWD/dist/riceplate-native-preview/shared-engine" \
+            --source-commit "$GITHUB_SHA"
       - name: Preserve real compositor frames if Creator output matrix fails
         if: failure()
         uses: actions/upload-artifact@v4
