@@ -160,5 +160,89 @@ class BluetoothDbusTests(unittest.TestCase):
             bluetooth_dbus.pair_device("not-a-device")
 
 
+    @patch("macrice.bluetooth_dbus._connection")
+    @patch("macrice.bluetooth_dbus._objects")
+    def test_pair_rejects_same_address_on_multiple_adapters(self, objects, connection):
+        from gi.repository import Gio
+
+        address = "AA:BB:CC:DD:EE:FF"
+        connection.return_value = (Gio, Mock())
+        objects.return_value = {
+            "/org/bluez/hci0": {"org.bluez.Adapter1": {"Powered": True}},
+            "/org/bluez/hci1": {"org.bluez.Adapter1": {"Powered": True}},
+            "/org/bluez/hci0/dev_AA": {"org.bluez.Device1": {
+                "Address": address, "Paired": True}},
+            "/org/bluez/hci1/dev_AA": {"org.bluez.Device1": {
+                "Address": address, "Paired": False}},
+        }
+        # Even a paired first result cannot mask another unpaired device.
+        with self.assertRaisesRegex(ValueError, "ambiguous"):
+            bluetooth_dbus.pair_device(address.lower())
+        connection.assert_not_called()
+        bluetooth_dbus.pair_device(address, expected_adapter="/org/bluez/hci1")
+        self.assertEqual(connection.return_value[1].call_sync.call_args.args[1:4],
+                         ("/org/bluez/hci1/dev_AA", "org.bluez.Device1", "Pair"))
+        connection.reset_mock()
+        bluetooth_dbus.pair_device(address, expected_adapter="/org/bluez/hci0")
+        connection.assert_not_called()  # Only the selected already-paired device.
+
+    @patch("macrice.bluetooth_dbus._connection")
+    @patch("macrice.bluetooth_dbus._objects")
+    def test_pair_rejects_missing_adapter_and_duplicate_same_adapter(self, objects, connection):
+        address = "AA:BB:CC:DD:EE:FF"
+        objects.return_value = {
+            "/org/bluez/hci0": {"org.bluez.Adapter1": {"Powered": True}},
+            "/org/bluez/hci0/dev_AA": {"org.bluez.Device1": {
+                "Address": address, "Paired": False}},
+        }
+        for adapter in ("/org/bluez/hci9", True, "/tmp/arbitrary"):
+            with self.subTest(adapter=adapter), self.assertRaisesRegex(
+                    ValueError, "adapter changed"):
+                bluetooth_dbus.pair_device(address, expected_adapter=adapter)
+        del objects.return_value["/org/bluez/hci0"]
+        with self.assertRaisesRegex(ValueError, "adapter changed"):
+            bluetooth_dbus.pair_device(address, expected_adapter="/org/bluez/hci0")
+        objects.return_value["/org/bluez/hci0"] = {"org.bluez.Adapter1": {}}
+        objects.return_value["/org/bluez/hci0/dev_BB"] = {"org.bluez.Device1": {
+            "Address": address.lower(), "Paired": False}}
+        with self.assertRaisesRegex(ValueError, "ambiguous"):
+            bluetooth_dbus.pair_device(address, expected_adapter="/org/bluez/hci0")
+        connection.assert_not_called()
+
+    @patch("macrice.bluetooth_dbus._connection")
+    @patch("macrice.bluetooth_dbus._objects")
+    def test_pair_rejects_unknown_paired_state_without_dbus_mutation(self, objects, connection):
+        address = "AA:BB:CC:DD:EE:FF"
+        props = {"Address": address, "Paired": None}
+        objects.return_value = {
+            "/org/bluez/hci0/dev_AA": {"org.bluez.Device1": props},
+        }
+        for bad in (None, "false", 0, 1):
+            with self.subTest(bad=bad):
+                props["Paired"] = bad
+                with self.assertRaisesRegex(ValueError, "state is unavailable"):
+                    bluetooth_dbus.pair_device(address)
+        connection.assert_not_called()
+
+    @patch("macrice.bluetooth_dbus._connection")
+    @patch("macrice.bluetooth_dbus._objects")
+    def test_pair_legacy_unique_device_and_idempotent_paired_state(self, objects, connection):
+        from gi.repository import Gio
+
+        address = "AA:BB:CC:DD:EE:FF"
+        connection.return_value = (Gio, Mock())
+        props = {"Address": address, "Paired": False}
+        objects.return_value = {
+            "/org/bluez/hci0/dev_AA": {"org.bluez.Device1": props},
+        }
+        bluetooth_dbus.pair_device(address.lower())
+        connection.return_value[1].call_sync.assert_called_once()
+        props["Paired"] = True
+        connection.reset_mock()
+        bluetooth_dbus.pair_device(address)
+        connection.assert_not_called()
+
+
+
 if __name__ == "__main__":
     unittest.main()
