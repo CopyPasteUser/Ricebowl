@@ -51,11 +51,26 @@ def _run(*args: str) -> str:
                                "audio_response_invalid") from exc
 
 
+def _unique_audio_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """Reject ambiguous pactl JSON keys at every nesting level.
+
+    A duplicate stream client, sink index, channel value or device name can
+    otherwise replace the identity/state that the user actually reviewed.
+    json.loads normally silently accepts the final occurrence.
+    """
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("Duplicate pactl JSON key")
+        result[key] = value
+    return result
+
+
 def _devices(kind: str, payload: str) -> list[dict[str, Any]]:
     if kind not in _KINDS:
         raise AudioDeviceError("Unsupported audio device type", "invalid_audio_kind")
     try:
-        entries = json.loads(payload)
+        entries = json.loads(payload, object_pairs_hook=_unique_audio_object)
     except (ValueError, RecursionError) as exc:
         raise AudioDeviceError("Audio device inventory is malformed",
                                "audio_response_invalid") from exc
@@ -158,7 +173,7 @@ def set_default(kind: str, name: str, *, expected_current: str | None = None) ->
 def _streams(payload: str) -> list[dict[str, Any]]:
     """Parse bounded PulseAudio sink-inputs, preserving actual per-stream state."""
     try:
-        records = json.loads(payload)
+        records = json.loads(payload, object_pairs_hook=_unique_audio_object)
     except (ValueError, RecursionError) as exc:
         raise AudioDeviceError("Invalid playback-stream inventory") from exc
     if type(records) is not list or len(records) > MAX_STREAMS:
