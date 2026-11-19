@@ -201,7 +201,8 @@ def run_worker(change: guard.DisplayChange) -> int:
     request = guard._request_path(change)
     if request.is_symlink() or request.stat().st_size > 4096:
         raise ValueError("Invalid monitor change request")
-    data = json.loads(request.read_text(encoding="utf-8"))
+    data = json.loads(request.read_text(encoding="utf-8"),
+                      object_pairs_hook=guard._unique_record)
     base = {"name", "mode", "scale", "old_mode", "old_scale"}
     has_position = set(data) == base | {"x", "y", "old_x", "old_y"} if isinstance(data, dict) else False
     if not isinstance(data, dict) or (set(data) != base and not has_position):
