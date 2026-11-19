@@ -633,9 +633,15 @@ def pair_bluetooth_device(address: str) -> BluetoothState:
     from . import bluetooth_dbus
     try:
         bluetooth_dbus.pair_device(device.address)
-    except (ImportError, OSError):
-        # Preserve legacy bluetoothctl support when GI is not available. It
-        # cannot replace an interactive BlueZ agent/PIN confirmation flow.
+    except OSError as exc:
+        # A transport error may occur AFTER BlueZ accepted Pair. Retrying the
+        # same mutation through bluetoothctl is not safe; require a refresh
+        # before the user deliberately chooses a new action.
+        raise RuntimeError(
+            "Bluetooth pairing outcome unknown; refresh devices before retrying") from exc
+    except ImportError:
+        # Only a missing GI transport can use the legacy bluetoothctl path;
+        # it cannot replace an interactive BlueZ agent/PIN confirmation flow.
         if not shutil.which("bluetoothctl"):
             raise RuntimeError("BlueZ system D-Bus and bluetoothctl are unavailable") from None
         try:
