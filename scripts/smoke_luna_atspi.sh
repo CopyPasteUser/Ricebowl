@@ -5,6 +5,8 @@
 set -eu
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 native="$root/components/riceplate-wayland/target/release/riceplate-native"
+ime="$root/components/riceplate-wayland/target/release/examples/wayland_ime_v2_client"
+test -x "$ime" || { echo "Build the external v2 IME fixture first" >&2; exit 1; }
 test -x "$native" || { echo 'Build native RicePlate first' >&2; exit 1; }
 runtime=$(mktemp -d -t ricebowl-sg5-atspi-XXXXXXXX)
 chmod 0700 "$runtime"
@@ -29,16 +31,16 @@ assert luna_hotkeys.commands((config / "rc.xml").read_text())["W-r"] == \
 PY
 
 dbus-run-session -- sh -eu -c '
-    root=$1; runtime=$2; native=$3
+    root=$1; runtime=$2; native=$3; ime=$4
     export WAYLAND_DISPLAY=wayland-0
     labwc --config-dir "$(cat "$runtime/config-path")" >"$runtime/labwc.log" 2>&1 &
     compositor=$!
-    plate=
+    plate=; imepid=
     cleanup() {
-        for pid in "$plate" "$compositor"; do
+        for pid in "$imepid" "$plate" "$compositor"; do
             if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || :; fi
         done
-        for pid in "$plate" "$compositor"; do
+        for pid in "$imepid" "$plate" "$compositor"; do
             if [ -n "$pid" ]; then wait "$pid" 2>/dev/null || :; fi
         done
     }
@@ -85,8 +87,23 @@ dbus-run-session -- sh -eu -c '
     probe --text "" --caret 0
     wtype -k Escape
     probe --absent
+    # Register a separate input-method-v2 producer *before* re-focusing Run.
+    # Its preedit, commit and byte deletion must traverse labwc to the
+    # unmodified text-input-v3 application and return as surrounding text.
+    timeout -k 2s 16s "$ime" >"$runtime/ime.log" 2>&1 &
+    imepid=$!
+    sleep 0.3
     wtype -M logo -k r -m logo
-    probe --text "" --caret 0
+    if ! wait "$imepid"; then
+        echo "External IME v2 -> text-input-v3 transaction failed:" >&2
+        sed -n "1,100p" "$runtime/ime.log" >&2
+        sed -n "1,90p" "$runtime/native.log" >&2
+        exit 1
+    fi
+    imepid=
+    probe --text "日本界" --caret 3
+    wtype -k Escape
+    probe --absent
     kill -0 "$plate"
-    echo "SG5: native labwc keyboard -> AccessKit AT-SPI lifecycle PASS"
-' sh "$root" "$runtime" "$native"
+    echo "SG5: real labwc keyboard, external input-method-v2 and AT-SPI lifecycle PASS"
+' sh "$root" "$runtime" "$native" "$ime"
