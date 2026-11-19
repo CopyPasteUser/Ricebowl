@@ -368,11 +368,34 @@ impl MenuPopup {
             .filter(|row| row.selectable())
             .map(|row| (row.id, row.label.clone(),
                        std::mem::discriminant(&row.kind)));
+        // A provider may reuse a submenu ID for a different live menu while
+        // the user has it open. Track the entire parent path's identity, not
+        // merely its IDs: otherwise Enter could dispatch an old child under a
+        // silently repurposed parent after an asynchronous D-Bus update.
+        let old_path_labels = {
+            let mut parents = self.rows.as_slice();
+            let mut labels = Vec::with_capacity(self.path.len());
+            for &id in &self.path {
+                let Some(row) = parents.iter().find(|row| row.id == id) else { break };
+                let MenuKind::Submenu(children) = &row.kind else { break };
+                labels.push(row.label.clone());
+                parents = children;
+            }
+            labels
+        };
         self.rows = rows;
-        let mut removed = Vec::new();
-        while self.rows().is_empty() && !self.path.is_empty() {
-            removed.push(self.path.pop().unwrap());
+        let mut parents = self.rows.as_slice();
+        let mut retained = 0;
+        for (&id, label) in self.path.iter().zip(&old_path_labels) {
+            let Some(row) = parents.iter().find(|row|
+                row.id == id && row.enabled && row.label == *label) else { break };
+            let MenuKind::Submenu(children) = &row.kind else { break };
+            retained += 1;
+            parents = children;
         }
+        // Close descendants before ancestors, matching menu_closed ordering.
+        // Do not silently transfer focus to a replacement row.
+        let removed: Vec<i32> = self.path.drain(retained..).rev().collect();
         if self.path.is_empty() && self.rows.is_empty() {
             return vec![self.root_id];
         }
@@ -850,6 +873,47 @@ mod tests {
         assert!(menu_activation_button(0x110)); // BTN_LEFT
         assert!(!menu_activation_button(0x111)); // BTN_RIGHT
         assert!(!menu_activation_button(0x112)); // BTN_MIDDLE
+    }
+
+    #[test]
+    fn relabelled_live_parent_revokes_open_child_even_with_reused_ids() {
+        let parent = |label: &str| root(vec![MenuNode::Menu {
+            id: 4, label: label.into(), enabled: true, visible: true,
+            children: vec![leaf(5, "Sensitive action", true, true)],
+        }]);
+        let mut menu = MenuPopup::default();
+        assert!(menu.open("service", "Live", &parent("Previous account")));
+        assert_eq!(menu.choice(0), MenuChoice::Open(4));
+        assert_eq!(menu.choice(0), MenuChoice::Click(5));
+        assert_eq!(menu.sync(&parent("Different account")), vec![4]);
+        assert_eq!(menu.parent_id(), 0, "relabelled parent must be closed");
+        assert_eq!(menu.selected, usize::MAX);
+        assert_eq!(menu.choice(menu.selected), MenuChoice::None);
+        // A new deliberate pointer click may reopen the new menu, not a stale
+        // keyboard Enter targeting its previously selected child.
+        assert_eq!(menu.choice(0), MenuChoice::Open(4));
+    }
+
+    #[test]
+    fn nested_live_parent_replacement_revokes_only_affected_subtree() {
+        let nested = |label: &str| root(vec![MenuNode::Menu {
+            id: 4, label: "Stable outer".into(), enabled: true, visible: true,
+            children: vec![MenuNode::Menu {
+                id: 8, label: label.into(), enabled: true, visible: true,
+                children: vec![leaf(9, "Reused child", true, true)],
+            }],
+        }]);
+        let mut menu = MenuPopup::default();
+        assert!(menu.open("service", "Live", &nested("Previous inner")));
+        assert_eq!(menu.choice(0), MenuChoice::Open(4));
+        assert_eq!(menu.choice(0), MenuChoice::Open(8));
+        assert_eq!(menu.choice(0), MenuChoice::Click(9));
+        assert_eq!(menu.sync(&nested("Different inner")), vec![8]);
+        assert_eq!(menu.parent_id(), 4, "stable outer remains open");
+        assert_eq!(menu.selected, usize::MAX);
+        assert_eq!(menu.choice(menu.selected), MenuChoice::None);
+        menu.select(1);
+        assert_eq!(menu.choice(menu.selected), MenuChoice::Open(8));
     }
 
     #[test]
