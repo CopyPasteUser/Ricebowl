@@ -68,10 +68,12 @@ class NetworkEnrollmentTests(unittest.TestCase):
                 return values[args[1]] if args[0] == "-g" else ""
 
             def create():
-                with mock.patch.object(enrollment.uuidlib, "uuid4", return_value=UUID), \\
-                        mock.patch.object(backend, "connection_profiles",
-                                          side_effect=[[], [added]]), \\
-                        mock.patch.object(enrollment, "_run", side_effect=runner) as run:
+                with (
+                    mock.patch.object(enrollment.uuidlib, "uuid4", return_value=UUID),
+                    mock.patch.object(backend, "connection_profiles",
+                                      side_effect=[[], [added]]),
+                    mock.patch.object(enrollment, "_run", side_effect=runner) as run,
+                ):
                     result = enrollment.create_enterprise_wifi(
                         ssid="Campus", identity="student",
                         domain="radius.campus.example", eap="peap",
