@@ -486,18 +486,18 @@ mod tests {
     fn sanitized_editor_resegments_joined_graphemes_before_publishing_caret() {
         // Stripping a control can join a base and combining mark into ONE
         // exposed character. The old projection reported a phantom caret=2.
-        let (text, caret, anchor) = bounded_editor_text("e\n\\u{301}Z", 2, Some(1));
-        assert_eq!(text, "e\\u{301}Z");
+        let (text, caret, anchor) = bounded_editor_text("e\n\u{301}Z", 2, Some(1));
+        assert_eq!(text, "e\u{301}Z");
         assert_eq!(text.graphemes(true).count(), 2);
         assert_eq!((caret, anchor), (1, Some(1)));
         let mut model = Model::new();
-        model.add_text_input(60_100, ROOT, "Command", "e\n\\u{301}Z", 2, Some(1));
+        model.add_text_input(60_100, ROOT, "Command", "e\n\u{301}Z", 2, Some(1));
         let tree = model.tree();
         let editor = &tree.nodes.iter().find(|(id, _)| *id == NodeId(60_100))
             .expect("TextInput node").1;
         let run = &tree.nodes.iter().find(|(id, _)| *id == NodeId(60_101))
             .expect("TextRun node").1;
-        assert_eq!(run.value(), Some("e\\u{301}Z"));
+        assert_eq!(run.value(), Some("e\u{301}Z"));
         assert_eq!(run.character_lengths(), [3, 1]);
         let selection = editor.text_selection().expect("exposed caret");
         assert_eq!(selection.anchor.character_index, 1);
@@ -506,12 +506,12 @@ mod tests {
 
     #[test]
     fn accessibility_projection_clamps_after_truncation_and_control_removal() {
-        let oversize = format!("{}\\u{301}\\n🇩🇪", "x".repeat(crate::luna_dialog::MAX_INPUT));
+        let oversize = format!("{}\n\u{301}🇩🇪", "x".repeat(crate::luna_dialog::MAX_INPUT));
         let (text, caret, anchor) = bounded_editor_text(&oversize, usize::MAX, Some(0));
         assert_eq!(text, "x".repeat(crate::luna_dialog::MAX_INPUT));
         assert_eq!(caret, crate::luna_dialog::MAX_INPUT);
         assert_eq!(anchor, Some(0));
-        let (text, caret, anchor) = bounded_editor_text("\\n", 1, Some(0));
+        let (text, caret, anchor) = bounded_editor_text("\n", 1, Some(0));
         assert!(text.is_empty());
         assert_eq!((caret, anchor), (0, Some(0)));
     }
