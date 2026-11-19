@@ -96,5 +96,49 @@ class AudioJSONIdentityTests(unittest.TestCase):
         ])
 
 
+    def test_default_write_timeout_is_indeterminate_and_never_replayed(self):
+        calls = []
+
+        def fake_run(*args):
+            calls.append(args)
+            if args == ("--format=json", "list", "sinks"):
+                return json.dumps([{"index": 1, "name": SINK},
+                                   {"index": 2, "name": OTHER}])
+            if args == ("get-default-sink",):
+                return SINK
+            if args == ("set-default-sink", OTHER):
+                raise audio_devices.AudioDeviceError("Provider reply lost")
+            raise AssertionError(f"Unexpected pactl invocation: {args!r}")
+
+        with mock.patch.object(audio_devices, "_run", side_effect=fake_run):
+            with self.assertRaises(audio_devices.AudioDeviceError) as caught:
+                audio_devices.set_default("sink", OTHER, expected_current=SINK)
+        self.assertTrue(caught.exception.may_have_changed)
+        self.assertTrue(audio_devices.invalid(caught.exception)["may_have_changed"])
+        self.assertEqual(calls.count(("set-default-sink", OTHER)), 1)
+
+    def test_stream_write_timeout_does_not_repeat_or_claim_unchanged(self):
+        calls = []
+
+        def fake_run(*args):
+            calls.append(args)
+            if args == ("--format=json", "list", "sinks"):
+                return json.dumps([{"index": 1, "name": SINK}])
+            if args == ("get-default-sink",):
+                return SINK
+            if args == ("--format=json", "list", "sink-inputs"):
+                return json.dumps([stream()])
+            if args == ("set-sink-input-mute", "42", "1"):
+                raise audio_devices.AudioDeviceError("Provider disconnected")
+            raise AssertionError(f"Unexpected pactl invocation: {args!r}")
+
+        with mock.patch.object(audio_devices, "_run", side_effect=fake_run):
+            with self.assertRaises(audio_devices.AudioDeviceError) as caught:
+                audio_devices.set_stream_mute(42, True, expected=False,
+                                              expected_client=17)
+        self.assertTrue(caught.exception.may_have_changed)
+        self.assertEqual(calls.count(("set-sink-input-mute", "42", "1")), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
