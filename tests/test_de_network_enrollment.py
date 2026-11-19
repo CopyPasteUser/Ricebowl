@@ -45,6 +45,72 @@ class NetworkEnrollmentTests(unittest.TestCase):
         self.assertIn("connection.autoconnect", arguments)
         self.assertEqual(arguments[arguments.index("connection.autoconnect") + 1], "no")
 
+    def test_custom_enterprise_ca_cannot_be_silently_overridden(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            chosen = Path(tmp, "campus-ca.pem")
+            chosen.write_text("trusted CA", encoding="utf-8")
+            other = Path(tmp, "other-ca.pem")
+            other.write_text("different CA", encoding="utf-8")
+            added = {"uuid": UUID, "kind": "802-11-wireless", "active": False}
+            values = {
+                "connection.autoconnect": "no",
+                "802-11-wireless.ssid": "Campus",
+                "802-1x.identity": "student",
+                "802-11-wireless-security.key-mgmt": "wpa-eap",
+                "802-1x.eap": "peap", "802-1x.phase2-auth": "mschapv2",
+                "802-1x.domain-suffix-match": "radius.campus.example",
+                "802-1x.system-ca-certs": "no",
+                "802-1x.ca-cert": str(chosen),
+                "802-1x.password-flags": "2",
+            }
+
+            def runner(*args, **_kwargs):
+                return values[args[1]] if args[0] == "-g" else ""
+
+            def create():
+                with mock.patch.object(enrollment.uuidlib, "uuid4", return_value=UUID), \\
+                        mock.patch.object(backend, "connection_profiles",
+                                          side_effect=[[], [added]]), \\
+                        mock.patch.object(enrollment, "_run", side_effect=runner) as run:
+                    result = enrollment.create_enterprise_wifi(
+                        ssid="Campus", identity="student",
+                        domain="radius.campus.example", eap="peap",
+                        inner="mschapv2", ca_certificate=str(chosen))
+                    return result, run.call_args_list
+
+            result, calls = create()
+            self.assertEqual(result, UUID)
+            arguments = calls[0].args
+            self.assertEqual(arguments[arguments.index("802-1x.system-ca-certs") + 1], "no")
+            self.assertEqual(arguments[arguments.index("802-1x.ca-cert") + 1], str(chosen))
+
+            # NetworkManager may report certificate paths with a file:// scheme.
+            values["802-1x.ca-cert"] = "file://" + str(chosen)
+            self.assertEqual(create()[0], UUID)
+            values["802-1x.ca-cert"] = str(chosen)
+
+            # Neither a system CA override nor a different, valid CA may pass.
+            for field, changed in (
+                ("802-1x.system-ca-certs", "yes"),
+                ("802-1x.ca-cert", str(other)),
+                ("802-1x.ca-cert", ""),
+            ):
+                with self.subTest(field=field, changed=changed):
+                    original = values[field]
+                    values[field] = changed
+                    try:
+                        with self.assertRaisesRegex(
+                                backend.SettingsError, "profile was added, but its safety"):
+                            create()
+                    finally:
+                        values[field] = original
+
+            # An authority-bearing URI is not an absolute local certificate.
+            values["802-1x.ca-cert"] = "file://remote-host/campus-ca.pem"
+            with self.assertRaisesRegex(
+                    backend.SettingsError, "profile was added, but its safety"):
+                create()
+
     def test_enterprise_eap_fails_closed_on_missing_domain_or_unsafe_mode(self):
         normal = dict(ssid="Campus", identity="someone", domain="radius.school.edu",
                       eap="peap", inner="mschapv2")
