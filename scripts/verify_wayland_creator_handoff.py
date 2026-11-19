@@ -27,7 +27,8 @@ from macrice.de import creator_workspace, pack, recipes, render, staging, style_
 
 
 ROOT = Path(__file__).resolve().parents[1]
-GEOMETRIES = ((1024, 768, 1.0), (1366, 768, 1.25))
+GEOMETRIES = ((640, 480, 1.0), (1366, 768, 1.0),
+              (1920, 1080, 1.0), (1366, 768, 1.25))
 
 
 
@@ -69,6 +70,8 @@ def capture_installed(destination: Path) -> dict:
         ["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True, timeout=5).strip()
     result = {"manifest_version": 1, "source_commit": sha,
               "capture_is_interactive": False,
+              "visual_tolerances_approved": False,
+              "input_and_focus_verified": False,
               "backend": "isolated-headless-labwc-native-riceplate",
               "captures": [], "package_imports": []}
     with tempfile.TemporaryDirectory(prefix="ricebowl-creator-native-qa-") as directory:
@@ -128,6 +131,8 @@ def capture_installed(destination: Path) -> dict:
                 if (inspected["manifest"] != exported["manifest"]
                         or inspected["imported"] or inspected["applied"]):
                     raise ValueError("Offline RicePack inspection changed package semantics")
+                # Retain independent, machine-verifiable release receipts.
+                # Provenance declarations do not establish redistribution rights.
                 archives.append(archive)
             os.environ["XDG_CONFIG_HOME"] = str(imported_config)
             if recipes.current_selection() != ("classic", None):
@@ -156,6 +161,8 @@ def capture_installed(destination: Path) -> dict:
                     "package_sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
                     "portable_font_id": font.identifier,
                     "portable_font_sha256": font_digest,
+                    "embedded_assets": inspection["compatibility"]["embedded_assets"],
+                    "attribution_review": inspection["compatibility"]["attribution_review"],
                 })
                 if recipes.current_selection() != ("classic", None):
                     raise ValueError("Offline RicePack import changed the login selection")
@@ -222,7 +229,7 @@ def capture_installed(destination: Path) -> dict:
             item["semantic_sha256"] for item in result["package_imports"]}) != 2:
         raise ValueError("Expected two distinct verified offline Creator imports")
     if len(result["captures"]) != 2 * len(GEOMETRIES):
-        raise ValueError("Expected four independent native Creator captures")
+        raise ValueError("Expected the full compact/laptop/desktop/fractional Creator matrix")
     if len({item["capture_sha256"] for item in result["captures"]}) != len(result["captures"]):
         raise ValueError("Distinct Creator captures unexpectedly have identical pixels")
     (destination / "manifest.json").write_text(
