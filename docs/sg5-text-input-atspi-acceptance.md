@@ -27,22 +27,22 @@ Do not count menu-search keyboard navigation as full native IME and AT-SPI parit
 | Missing fonts/glyphs | U+10FFFF and missing joined emoji | visible replacement metrics and pixels; no false font-coverage success | existing negative style_art tests |
 | Live compositor editing | empty, AB, Left, Backspace, select-all, replacement, Escape, reopen | external wtype wl_keyboard delivery and public AT-SPI text/focus/selection queries | newly introduced native CI smoke; **pending workflow conclusion** |
 | Sanitized accessibility text | e + newline + combining mark + Z | resegment final exposed text, caret and selection never refer to phantom cluster | added positive and negative AccessKit Rust tests |
-| Full IME transaction | preedit, delete, commit, Done with valid byte offsets | atomic mutation, focus handoff, candidate commits on real compositor | Rust batch tests exist; **external IME producer protocol acceptance open** |
+| Full IME transaction | Japanese preedit and commit, 3-byte CJK delete + replacement | actual input-method-v2 producer must traverse labwc into the native text-input-v3 consumer, then report public surrounding text | new external Rust client fixture and CI smoke; **exact-head result pending** |
 
 ## Reproducible checks
 
 1. Run cargo test --locked --manifest-path components/riceplate-wayland/Cargo.toml.
 2. Run cargo clippy --locked --manifest-path components/riceplate-wayland/Cargo.toml --all-targets -- -D clippy::correctness -D clippy::suspicious -D clippy::perf -D unused_must_use.
-3. Build cargo build --locked --release --manifest-path components/riceplate-wayland/Cargo.toml.
+3. Build cargo build --locked --release --manifest-path components/riceplate-wayland/Cargo.toml and cargo build --locked --release --manifest-path components/riceplate-wayland/Cargo.toml --example wayland_ime_v2_client.
 4. Run sh -n scripts/smoke_luna_atspi.sh and /usr/bin/python3 -m py_compile scripts/smoke_riceplate_atspi_client.py.
 5. With a private DBus/headless labwc environment and Ubuntu packages python3-pyatspi, at-spi2-core, wtype: timeout -k 5s 140s sh scripts/smoke_luna_atspi.sh.
 6. Accept only a green exact-PR-head Native RicePlate workflow. Missing provider, missing glyph, timeout or failed AT-SPI query is FAIL, never SKIP-as-PASS.
 
-**Important limitation:** wtype injects wl_keyboard events, not input-method-v2 preedit/commit. This black-box AT-SPI test does not independently prove the Wayland text-input-v3 external IME path.
+**Protocol separation:** wtype injects ordinary wl_keyboard events. Separately, the CI-only wayland_ime_v2_client uses real input-method-v2 requests and verifies a text-input-v3 Japanese preedit, commit and Unicode byte deletion through the compositor. The fixture validates only the exact checked transaction on Run when CI passes; it is not a production Fcitx/IBus engine or coverage for Rename/menu search.
 
 ## Remaining blockers before issue #417 SG5 can be checked
 
-- Real external IME text-input-v3 composition, cursor and surrounding-text deletion for both Run and Rename, including leave/re-enter and CJK/RTL flows.
+- Confirm the new external IME v2 -> compositor -> v3 **Run** protocol smoke at the exact PR head; separately cover **Rename**, focus leave/re-enter and real candidate selection/RTL flows. Do not treat one scripted Japanese transaction as full IME parity.
 - Native Run/Rename clipboard shortcuts need actual focused Wayland selection transfer and grapheme-safe pasting. Existing cross-application clipboard CI does not exercise the Luna editor.
 - Start Menu Search / All Programs needs a real v3 text-input focus target, composition rendering and AT-SPI TextInput semantics, or explicitly scoped-out product contract approval.
 - Real AT-SPI client test of Rename, bounded ranges, action invocations and transitions across supported native dialog surfaces.
