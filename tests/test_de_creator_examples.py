@@ -147,7 +147,7 @@ class CreatorExamplesTests(unittest.TestCase):
 
     def test_end_to_end_authoring_review_pack_and_private_import(self):
         import tempfile
-        for template in ("heritage", "orbit"):
+        for template in ("heritage", "orbit", "heritage-composer", "orbit-composer"):
             with self.subTest(template=template), tempfile.TemporaryDirectory() as folder:
                 root = Path(folder)
                 state, config = root / "state", root / "config"
