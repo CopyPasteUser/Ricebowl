@@ -323,7 +323,7 @@ for component in native session; do
 #!/bin/sh
 set -eu
 [ "$1" = configure ] || exit 0
-kill -KILL "$"
+kill -KILL "$$"
 SIGNAL_KILL
     chmod 0755 "$injected/unpacked/DEBIAN/postinst"
     dpkg-deb --build --root-owner-group \
