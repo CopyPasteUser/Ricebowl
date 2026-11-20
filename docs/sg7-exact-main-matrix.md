@@ -38,9 +38,14 @@ rebuild/attestation tests remain authoritative for their own scope.
   real, immutable versions and disposable roots.
 - Ubuntu 24.04 CI is not a Mint 22 hardware sign-off; isolate any additional
   Mint-compatible software testing before claiming it.
-- The three native `compare-replaced` receipts record PSS/RSS/threads/FDs;
-  they are not long-run leak or CPU benchmarks. Add repeated start/stop,
-  runtime teardown, and `/proc` CPU accounting with stable test conditions.
+- The three native `compare-replaced` cycles now check the previous
+  RicePlate PID/start-time disappears, and record independent `/proc`
+  utime+stime intervals alongside PSS/RSS/threads/FDs. The source-bound
+  resource verifier validates each same-process CPU sample, its tick-rate
+  arithmetic, absence of recycled PID evidence and all three cycle records.
+  These **short headless CI observations** are not a sustained idle CPU,
+  cold-login latency, long-running leak or real hardware benchmark. Collect
+  longer-run and real-device evidence separately before SG7 acceptance.
 - Strict software PipeWire pixels use a CI-private SHM portal backend. They
   do not certify DRM/GPU, Flatpak consent or the production wlr backend.
 

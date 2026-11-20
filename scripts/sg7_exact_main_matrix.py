@@ -52,7 +52,7 @@ UNCERTIFIED = (
     "SG6: independent cross-host native ELF and four-package byte provenance",
     "SG6: all four components transitioning between two real package versions",
     "SG6: disposable Mint-compatible install/rollback proof",
-    "SG7: measured CPU plus repeated start/stop/cleanup resource receipt",
+    "SG7: sustained CPU/long-running leak evidence beyond three CI process-replacement cycles",
     "SG1-SG5: full final integrated functionality/accessibility parity",
     "Hardware: physical Mint/ThinkPad, GPU/Flatpak, real Orca/IME sign-off",
 )

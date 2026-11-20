@@ -431,10 +431,18 @@ cp "$runtime/classic.png" "$runtime/sg7-preserved-classic.png"
 cp "$runtime/chrome.png" "$runtime/sg7-preserved-chrome.png"
 for cycle in 1 2 3; do
     apply_rice chrome classic
+    # Receipt alone would miss an orphaned former panel. Require its actual
+    # /proc PID+start identity to disappear after compositor-acknowledged apply.
+    /usr/bin/python3 "$resource_probe" assert-gone \
+        --binary "$native" --runtime "$XDG_RUNTIME_DIR" \
+        --baseline "$resource_baseline" >/dev/null
     /usr/bin/python3 "$resource_probe" capture \
         --binary "$native" --runtime "$XDG_RUNTIME_DIR" \
         --baseline "$runtime/native-resource-intermediate.json" >/dev/null
     apply_rice classic chrome
+    /usr/bin/python3 "$resource_probe" assert-gone \
+        --binary "$native" --runtime "$XDG_RUNTIME_DIR" \
+        --baseline "$runtime/native-resource-intermediate.json" >/dev/null
     /usr/bin/python3 "$resource_probe" capture \
         --binary "$native" --runtime "$XDG_RUNTIME_DIR" \
         --baseline "$runtime/native-resource-intermediate.json" >/dev/null
@@ -448,13 +456,20 @@ for cycle in 1 2 3; do
         --binary "$native" --runtime "$XDG_RUNTIME_DIR" --baseline "$resource_baseline" \
         >"$growth"
     test -s "$growth"
+    # Measure /proc utime+stime with the same verified executable/runtime
+    # identity before/after a bounded settled interval. These are observed
+    # CI CPU samples, NOT a physical idle-power or long-duration leak claim.
+    /usr/bin/python3 "$resource_probe" cpu-sample \
+        --binary "$native" --runtime "$XDG_RUNTIME_DIR" \
+        --baseline "$resource_baseline" \
+        >"$source_root/dist/riceplate-native-preview/shared-engine/resource-cpu-cycle-$cycle.json"
 done
 # Keep the established artifact path for downstream consumers, and preserve
 # all three cycle-specific comparisons for independent CI review.
 cp "$growth" "$source_root/dist/riceplate-native-preview/shared-engine/resource-growth.json"
 cp "$runtime/sg7-preserved-classic.png" "$runtime/classic.png"
 cp "$runtime/sg7-preserved-chrome.png" "$runtime/chrome.png"
-echo "Verified three real labwc rice-switch cycles, single native process per switch, bounded PSS/RSS, FDs and threads"
+echo "Verified 3 real labwc cycles: prior-panel teardown, CPU ticks and bounded PSS/RSS, FDs, threads"
 # SG4: real compositor-driven compact/laptop/desktop + fractional scale
 # matrix, two structurally different native rices (Chrome and XP Luna).
 # Every capture follows an actual labwc wl_output mode/scale change and

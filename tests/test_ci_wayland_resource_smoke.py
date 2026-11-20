@@ -7,6 +7,7 @@ import json
 import os
 import tempfile
 import unittest
+from unittest import mock
 from dataclasses import replace
 from pathlib import Path
 
@@ -116,6 +117,70 @@ class NativeResourceSmokeTests(unittest.TestCase):
         self.runtime.chmod(0o777)
         with self.assertRaisesRegex(probe.ResourceSmokeError, 'owner-private'):
             probe._write_private(self.baseline, probe.asdict(data))
+
+
+    def test_prior_process_cleanup_rejects_stale_live_pid_but_allows_reuse(self):
+        process = self.process()
+        previous = self.snapshot()
+        with self.assertRaisesRegex(probe.ResourceSmokeError, 'still exists'):
+            probe.assert_old_process_gone(previous, proc_root=self.proc, timeout=0)
+        raw = (process / 'stat').read_text()
+        self.assertEqual(probe._cpu_and_identity(raw)[1], previous.start_ticks)
+        head, _, suffix = raw.rpartition(') ')
+        fields = suffix.split()
+        fields[19] = '123457'
+        (process / 'stat').write_text(head + ') ' + ' '.join(fields))
+        probe.assert_old_process_gone(previous, proc_root=self.proc, timeout=0)
+        # Unrelated or already reaped process identities are safe.
+        import shutil
+        shutil.rmtree(process)
+        probe.assert_old_process_gone(previous, proc_root=self.proc, timeout=0)
+
+    def test_real_proc_cpu_ticks_are_bounded_to_exact_native_identity(self):
+        process = self.process(name='native ) with tricky comm')
+        initial = self.snapshot()
+        self.assertEqual(probe._cpu_and_identity((process / 'stat').read_text())[1],
+                         initial.start_ticks)
+
+        def advance(_interval):
+            raw = (process / 'stat').read_text()
+            head, _, suffix = raw.rpartition(') ')
+            fields = suffix.split()
+            fields[11], fields[12] = '12', '8'
+            (process / 'stat').write_text(head + ') ' + ' '.join(fields))
+
+        with mock.patch.object(probe.time, 'sleep', side_effect=advance):
+            with mock.patch.object(probe.time, 'monotonic_ns',
+                                   side_effect=[1_000_000_000, 1_500_000_000]):
+                result = probe.sample_cpu(self.binary, self.runtime,
+                                          proc_root=self.proc, uid=os.geteuid())
+        self.assertEqual(result['pid'], 111)
+        self.assertEqual(result['cpu_delta_ticks'], 20)
+        self.assertEqual(result['elapsed_ns'], 500_000_000)
+        self.assertGreater(result['cpu_core_percent'], 0)
+        self.assertIs(result['hardware_accepted'], False)
+        self.assertIs(result['software_ci_only'], True)
+
+    def test_cpu_counter_restarts_or_malformed_proc_cannot_pass(self):
+        process = self.process()
+        for bad in ('bad stat', '111 (native) S ' + ' '.join(['0'] * 19)):
+            with self.subTest(raw=bad):
+                with self.assertRaises(probe.ResourceSmokeError):
+                    probe._cpu_and_identity(bad)
+        with self.assertRaisesRegex(probe.ResourceSmokeError, 'interval'):
+            probe.sample_cpu(self.binary, self.runtime, interval=0.01,
+                             proc_root=self.proc)
+        def change_identity(_interval):
+            raw = (process / 'stat').read_text()
+            head, _, suffix = raw.rpartition(') ')
+            fields = suffix.split()
+            fields[19] = '123458'
+            (process / 'stat').write_text(head + ') ' + ' '.join(fields))
+        with mock.patch.object(probe.time, 'sleep', side_effect=change_identity):
+            with self.assertRaisesRegex(probe.ResourceSmokeError, 'restarted'):
+                probe.sample_cpu(self.binary, self.runtime, proc_root=self.proc,
+                                 uid=os.geteuid())
+
 
 
 if __name__ == '__main__':
