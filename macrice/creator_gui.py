@@ -223,14 +223,15 @@ def run() -> int:
             self.connect("key-press-event", self._template_key_navigation)
 
         def _template_key_navigation(self, _window, event):
-            """Keep every template keyboard-reachable under real GTK3/labwc.
+            """Route genuine compositor keyboard actions to focused templates.
 
-            Some nested GTK3 Paned focus hierarchies consume Tab without
-            advancing the focused template button. Only explicitly focused
-            templates are handled; other widgets and modified shortcuts
-            retain normal GTK key routing.
+            Under some GTK3/Paned layouts, both Tab movement and Return
+            activation are swallowed without reaching the GtkButton action.
+            Handle only these focused template actions; modifier shortcuts,
+            other controls, and pointer input remain owned by GTK.
             """
-            if event.keyval not in (Gdk.KEY_Tab, Gdk.KEY_ISO_Left_Tab):
+            if event.keyval not in (Gdk.KEY_Tab, Gdk.KEY_ISO_Left_Tab,
+                                    Gdk.KEY_Return, Gdk.KEY_KP_Enter):
                 return False
             if event.state & (Gdk.ModifierType.CONTROL_MASK |
                               Gdk.ModifierType.MOD1_MASK |
@@ -240,6 +241,11 @@ def run() -> int:
             focused = self.get_focus()
             if focused not in ordered:
                 return False
+            if event.keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+                # Gtk.Widget.activate emits the real GtkButton action signal,
+                # rather than inserting an artificial test-only click.
+                return bool(focused.get_mapped() and focused.get_sensitive()
+                            and focused.activate())
             backwards = (event.keyval == Gdk.KEY_ISO_Left_Tab or
                          bool(event.state & Gdk.ModifierType.SHIFT_MASK))
             index = ordered.index(focused) + (-1 if backwards else 1)
