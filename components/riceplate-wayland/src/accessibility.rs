@@ -374,7 +374,7 @@ mod tests {
     fn native_menu_search_has_transient_text_run_with_exact_unicode_caret() {
         let mut model = Model::new();
         model.add(20_000, ROOT, Role::Menu, "Start", None);
-        let query = "👩‍💻e\\u{301}/";
+        let query = "👩‍💻e\u{301}/";
         model.add_text_input(20_950, 20_000, "Search applications and actions",
                              query, 3, None);
         model.focus = 20_950;
