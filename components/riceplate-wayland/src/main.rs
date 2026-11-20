@@ -3135,6 +3135,19 @@ impl RicePlate {
                     model.add(20_500 + index as u64, 20_000, AccessibleRole::Button,
                               label, enabled.then(|| Target::MenuAction(action.to_string())));
                 }
+                // Search and All Programs accept compositor-delivered text,
+                // so expose a *real* transient TextInput/TextRun to AT-SPI,
+                // not only a button with a dynamic announcement. Its caret is
+                // at the editor's grapheme boundary; the query disappears
+                // when the menu closes or returns to a nonediting view.
+                if matches!(self.menu_state.view,
+                    native_menu::View::Search | native_menu::View::Programs) {
+                    let label = if self.menu_state.view == native_menu::View::Programs {
+                        "Filter installed apps"
+                    } else { "Search applications and actions" };
+                    model.add_text_input(20_950, 20_000, label,
+                        &self.menu_state.search, self.menu_state.search_caret(), None);
+                }
                 model.add(20_980, 20_000, AccessibleRole::Label,
                           self.menu_state.accessible_summary(menu, rows),
                           None);
@@ -3165,7 +3178,13 @@ impl RicePlate {
                 model.add(20_999, 20_000, AccessibleRole::Button,
                           "Close menu", Some(Target::MenuClose));
                 if self.menu_focused {
-                    model.focus = if selected_action_exists {
+                    // The menu surface has real wl_keyboard focus. While its
+                    // query is editing, the semantic AT focus belongs to the
+                    // live search field, not an unrelated selected result.
+                    model.focus = if matches!(self.menu_state.view,
+                        native_menu::View::Search | native_menu::View::Programs) {
+                        20_950
+                    } else if selected_action_exists {
                         20_500 + self.menu_state.selected as u64
                     } else { 20_999 };
                 }

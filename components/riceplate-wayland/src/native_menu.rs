@@ -791,6 +791,13 @@ impl MenuState {
         self.search_input(text)
     }
 
+    /// The native Search and All Programs editors have an append-only caret.
+    /// Publish the same extended-grapheme index to AT-SPI as the editor uses
+    /// for backspace; Unicode scalars, bytes and ZWJ emoji are not caret steps.
+    pub fn search_caret(&self) -> usize {
+        self.search.graphemes(true).count()
+    }
+
     /// Delete exactly one UAX #29 cluster, never one Unicode scalar. Search
     /// strings can contain accents, emoji ZWJ, regional flags and modifiers.
     pub fn backspace(&mut self) -> bool {
@@ -1758,6 +1765,27 @@ mod tests {
         assert_eq!(state.view, View::Groups);
         state.open();
         assert_eq!(state.view, View::Groups);
+        assert!(state.search.is_empty());
+    }
+
+    #[test]
+    fn accessible_search_caret_is_grapheme_aligned_and_clears_with_view() {
+        let mut state = MenuState::default();
+        state.open();
+        state.start_search();
+        assert_eq!(state.search_caret(), 0);
+        assert!(state.keyboard_text("👩‍💻e\u{301}🇩🇪", false, false));
+        assert_eq!(state.search_caret(), 3,
+                   "AT-SPI caret must count extended graphemes, not scalars");
+        assert!(state.backspace());
+        assert_eq!(state.search_caret(), 2);
+        assert_eq!(state.search, "👩‍💻e\u{301}");
+        state.show_programs();
+        assert_eq!(state.search_caret(), 0);
+        assert!(state.search_input("foo/bar"));
+        assert_eq!(state.search_caret(), 7);
+        state.back();
+        assert_eq!(state.search_caret(), 0);
         assert!(state.search.is_empty());
     }
 
