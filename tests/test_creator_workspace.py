@@ -33,6 +33,26 @@ class CreatorWorkspaceTests(unittest.TestCase):
         self.assertEqual(recipes.load(str(b.path)).menu_presentation, "sidebar")
         self.assertEqual({x.path for x in workspace.list_drafts()}, {a.path, b.path})
 
+    def test_composer_templates_keep_distinct_native_structures_and_private_receipts(self):
+        created = {}
+        for template, position in (("heritage-composer", "bottom"),
+                                   ("orbit-composer", "top")):
+            with self.subTest(template=template):
+                info = workspace.create_draft(template)
+                recipe = recipes.load(str(info.path))
+                self.assertEqual(recipe.schema_version, 11)
+                self.assertEqual(recipe.position, position)
+                self.assertEqual(info.path.stat().st_mode & 0o777, 0o600)
+                self.assertIsNone(workspace.previous_version(info))
+                created[template] = (info, recipe)
+        self.assertNotEqual(created["heritage-composer"][0].recipe_id,
+                            created["orbit-composer"][0].recipe_id)
+        self.assertNotEqual(created["heritage-composer"][1].layout,
+                            created["orbit-composer"][1].layout)
+        self.assertNotEqual(created["heritage-composer"][1].compact,
+                            created["orbit-composer"][1].compact)
+        self.assertEqual(len(workspace.list_drafts()), 2)
+
     def test_classic_and_chrome_templates_use_same_validated_schema(self):
         for template in ("classic", "chrome"):
             with self.subTest(template=template):
