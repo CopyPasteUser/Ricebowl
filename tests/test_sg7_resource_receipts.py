@@ -62,7 +62,7 @@ class SG7ResourceReceiptTests(unittest.TestCase):
             "pss_kib": after["pss_kib"], "rss_kib": after["rss_kib"],
             "fds": after["fds"], "threads": after["threads"],
             "software_ci_only": True, "hardware_accepted": False,
-        }) + "\\n")
+        }) + "\n")
 
     def test_three_real_cycle_receipts_generate_source_bound_manifest(self):
         result = verify(self.folder, SHA)
