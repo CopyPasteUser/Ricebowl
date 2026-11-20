@@ -35,6 +35,53 @@ class CrossRunnerWorkflowPolicyTests(unittest.TestCase):
         self.assertNotIn("artifact-metadata: write", self.build_compare)
         self.assertNotIn("uses: actions/attest@", self.build_compare)
 
+    def test_pr_source_paths_cover_every_four_package_build_input(self):
+        # A green SG6 check is misleading if a Rust, Core, Session or
+        # packaging-source change silently skips the independent builders.
+        # Use representative *actual inputs* from the four build scripts,
+        # not just the workflow/verifier files.
+        from fnmatch import fnmatchcase
+
+        section = self.build_compare.split("  pull_request:\n", 1)[1]
+        section = section.split("  workflow_dispatch:\n", 1)[0]
+        patterns = {
+            line.strip()[3:-1]
+            for line in section.splitlines()
+            if line.startswith("      - '") and line.endswith("'")
+        }
+        self.assertTrue(patterns)
+        self.assertNotIn("**", patterns, "unbounded build trigger is not intentional")
+        changed_files = (
+            "components/riceplate-wayland/Cargo.lock",
+            "components/riceplate-wayland/src/input_core.rs",
+            "packaging/wayland/native-control.in",
+            "packaging/wayland/ricebowl-native.desktop",
+            "packaging/wayland/desktop-control",
+            "launcher.py",
+            "macrice/cli.py",
+            "macrice/creator_gui.py",
+            "macrice/de/session.py",
+            "assets/wallpapers/luna.png",
+            "assets/icons/RiceHub-Luna-Icons/folder.png",
+            "assets/ricebowl-symbolic.svg",
+            "assets/macrice-symbolic.svg",
+            "assets/ricehub-symbolic.svg",
+            "examples/wayland/heritage-modern-v10.json",
+            "scripts/build_wayland_core_deb.sh",
+            "scripts/build_wayland_session_deb.sh",
+            "scripts/build_riceplate_native_deb.sh",
+            "scripts/build_wayland_desktop_deb.sh",
+            "scripts/verify_wayland_payload.py",
+            "scripts/verify_wayland_control.py",
+            "scripts/verify_wayland_package_set.sh",
+        )
+        for changed in changed_files:
+            with self.subTest(changed=changed):
+                self.assertTrue(
+                    any(fnmatchcase(changed, pattern) for pattern in patterns),
+                    f"SG6 PR source change is missing from path filters: {changed}",
+                )
+
     def test_signing_job_only_runs_on_explicit_trusted_main_dispatch(self):
         self.assertIn("if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'",
                       self.attest)

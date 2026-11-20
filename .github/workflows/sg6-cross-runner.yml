@@ -7,6 +7,21 @@ on:
   pull_request:
     paths:
       - '.github/workflows/sg6-cross-runner.yml'
+      # Cross-runner evidence must run when *any actual package input* changes.
+      # Core uses git archive of launcher, macrice, assets and examples;
+      # Native compiles the Rust workspace; Session/Meta use packaging.
+      - 'components/riceplate-wayland/**'
+      - 'packaging/wayland/**'
+      - 'launcher.py'
+      - 'macrice/**'
+      - 'assets/wallpapers/**'
+      - 'assets/icons/RiceHub-Luna-Icons/**'
+      - 'assets/ricebowl-symbolic.svg'
+      - 'assets/macrice-symbolic.svg'
+      - 'assets/ricehub-symbolic.svg'
+      - 'examples/wayland/**'
+      - 'scripts/verify_wayland_payload.py'
+      - 'scripts/verify_wayland_control.py'
       - 'scripts/verify_sg6_cross_runner.py'
       - 'tests/test_sg6_cross_runner.py'
       - 'tests/test_sg6_workflow_policy.py'
