@@ -1797,15 +1797,15 @@ mod tests {
     fn keyboard_query_preserves_unicode_batches_and_atomic_limits() {
         let mut state = MenuState::default();
         state.start_search();
-        assert!(state.keyboard_text("👩‍💻e\\u{301}🇩🇪", false, false));
+        assert!(state.keyboard_text("👩‍💻e\u{301}🇩🇪", false, false));
         let before = state.search.clone();
-        assert!(!state.keyboard_text("\\n", false, false));
-        assert!(!state.keyboard_text("\\u{202e}", false, false));
+        assert!(!state.keyboard_text("\n", false, false));
+        assert!(!state.keyboard_text("\u{202e}", false, false));
         assert!(!state.keyboard_text(&"x".repeat(33), false, false));
         assert_eq!(state.search, before,
                    "invalid Unicode must not mutate a partially entered query");
         assert!(state.backspace());
-        assert_eq!(state.search, "👩‍💻e\\u{301}");
+        assert_eq!(state.search, "👩‍💻e\u{301}");
         assert!(state.backspace());
         assert_eq!(state.search, "👩‍💻");
         assert!(state.backspace());
