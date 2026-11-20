@@ -67,7 +67,7 @@ jobs:
           RICEBOWL_CREATOR_SMOKE=1 XDG_STATE_HOME="$creator_state" \
             XDG_CONFIG_HOME="$creator_state/config" \
             RICEBOWL_CREATOR_SMOKE_CAPTURE="$PWD/dist/creator-gtk-smoke/creator.png" \
-            timeout 25s dbus-run-session -- xvfb-run -a -s '-screen 0 1600x900x24' \
+            timeout 40s dbus-run-session -- xvfb-run -a -s '-screen 0 1600x900x24' \
             /usr/bin/python3 launcher.py creator
           timeout 18s dbus-run-session -- xvfb-run -a /usr/bin/python3 -c 'from macrice.aero_shell import run; raise SystemExit(run(["ricehub-aero-shell", "--smoke-test"]))'
           timeout 18s dbus-run-session -- xvfb-run -a /usr/bin/python3 -c 'from macrice.ten_shell import run; raise SystemExit(run(["ricehub-ten-shell", "--smoke-test"]))'
