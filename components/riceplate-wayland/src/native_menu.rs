@@ -791,6 +791,13 @@ impl MenuState {
         self.search_input(text)
     }
 
+    /// The native Search and All Programs editors have an append-only caret.
+    /// Publish the same extended-grapheme index to AT-SPI as the editor uses
+    /// for backspace; Unicode scalars, bytes and ZWJ emoji are not caret steps.
+    pub fn search_caret(&self) -> usize {
+        self.search.graphemes(true).count()
+    }
+
     /// Delete exactly one UAX #29 cluster, never one Unicode scalar. Search
     /// strings can contain accents, emoji ZWJ, regional flags and modifiers.
     pub fn backspace(&mut self) -> bool {
