@@ -252,8 +252,8 @@ impl MenuPopup {
     /// status menu or a provider-owned DBusMenu. Local rows MUST NOT emit
     /// SNI D-Bus events to an empty (or stale) bus name.
     pub fn remote_hover_id(&self, index: usize) -> Option<i32> {
-        if !self.visible || self.is_local() { return None; }
-        self.rows().get(index).filter(|row| row.selectable()).map(|row| row.id)
+        if self.is_local() { return None; }
+        self.visible_row(index).filter(|row| row.selectable()).map(|row| row.id)
     }
 
     pub fn close(&mut self) {
@@ -279,6 +279,17 @@ impl MenuPopup {
             rows = children;
         }
         rows
+    }
+
+    /// Only an action on the *currently rendered page* is eligible for
+    /// activation. An AT-SPI target or delayed pointer event may refer to a
+    /// row from an earlier page after the user navigates or a provider syncs.
+    fn visible_row(&self, index: usize) -> Option<&MenuRow> {
+        if !self.visible || index < self.first
+            || index >= self.first.saturating_add(POPUP_ROWS) {
+            return None;
+        }
+        self.rows().get(index)
     }
 
     fn ensure_selection(&mut self, delta: isize) {
@@ -333,7 +344,7 @@ impl MenuPopup {
     }
 
     pub fn choice(&mut self, index: usize) -> MenuChoice {
-        let Some(row) = self.rows().get(index) else { return MenuChoice::None; };
+        let Some(row) = self.visible_row(index) else { return MenuChoice::None; };
         if !row.selectable() { return MenuChoice::None; }
         let (id, submenu) = (row.id, matches!(&row.kind, MenuKind::Submenu(_)));
         if submenu {
@@ -870,6 +881,74 @@ mod tests {
         assert_eq!(menu.remote_hover_id(0), Some(5));
         assert_eq!(menu.remote_hover_id(1), None);
         assert_eq!(menu.remote_hover_id(50), None);
+    }
+
+    #[test]
+    fn remote_menu_rejects_stale_off_page_accessibility_and_hover_actions() {
+        let mut popup = MenuPopup::default();
+        assert!(popup.open("org.test.provider", "Paged", &root(
+            (1..=12).map(|id| leaf(id, &format!("Action {id}"), true, true)).collect()
+        )));
+        assert_eq!(popup.first, 0);
+        // This valid ID is not rendered on the current page. A cached AT-SPI
+        // action cannot turn it into an invisible provider click.
+        assert_eq!(popup.choice(6), MenuChoice::None);
+        assert_eq!(popup.remote_hover_id(6), None);
+        assert_eq!(popup.remote_hover_id(0), Some(1));
+
+        popup.page(1);
+        assert_eq!(popup.first, POPUP_ROWS);
+        assert_eq!(popup.choice(0), MenuChoice::None);
+        assert_eq!(popup.remote_hover_id(0), None);
+        assert_eq!(popup.choice(5), MenuChoice::Click(6));
+        assert_eq!(popup.remote_hover_id(5), Some(6));
+        assert_eq!(popup.choice(11), MenuChoice::None);
+
+        popup.page(1);
+        assert_eq!(popup.first, 10);
+        assert_eq!(popup.choice(9), MenuChoice::None);
+        assert_eq!(popup.choice(11), MenuChoice::Click(12));
+        popup.page(-1);
+        popup.page(-1);
+        assert_eq!(popup.choice(0), MenuChoice::Click(1));
+        popup.close();
+        assert_eq!(popup.choice(0), MenuChoice::None);
+        assert_eq!(popup.remote_hover_id(0), None);
+    }
+
+    #[test]
+    fn local_menu_and_remote_submenus_share_visible_page_action_bounds() {
+        let mut popup = MenuPopup::default();
+        let rows = (0..10).map(|id| MenuRow {
+            id, label: format!("Local {id}"), enabled: true,
+            kind: MenuKind::Action { checked: false, radio: false },
+        }).collect();
+        assert!(popup.open_local("Local", rows));
+        assert_eq!(popup.choice(8), MenuChoice::None);
+        popup.page(1);
+        assert_eq!(popup.choice(0), MenuChoice::None);
+        assert_eq!(popup.choice(8), MenuChoice::Click(8));
+        assert_eq!(popup.remote_hover_id(8), None);
+        popup.close();
+
+        let mut source = (1..=6)
+            .map(|id| leaf(id, &format!("Leaf {id}"), true, true))
+            .collect::<Vec<_>>();
+        source.push(MenuNode::Menu {
+            id: 20, label: "More".into(), enabled: true, visible: true,
+            children: (30..=36).map(|id| leaf(id, "Nested", true, true)).collect(),
+        });
+        assert!(popup.open("org.test.provider", "Nested", &root(source)));
+        assert_eq!(popup.choice(6), MenuChoice::None);
+        popup.page(1);
+        assert_eq!(popup.choice(6), MenuChoice::Open(20));
+        assert_eq!(popup.first, 0);
+        assert_eq!(popup.choice(6), MenuChoice::None);
+        popup.page(1);
+        assert_eq!(popup.choice(6), MenuChoice::Click(36));
+        assert_eq!(popup.back(), Some(20));
+        assert_eq!(popup.first, 0);
+        assert_eq!(popup.choice(6), MenuChoice::None);
     }
 
     #[test]

@@ -5101,6 +5101,14 @@ impl RicePlate {
     }
 
     fn choose_tray_menu_row(&mut self, index: usize, qh: &QueueHandle<Self>) {
+        if !self.tray_menu_state.visible { return; }
+        if !self.tray_menu_state.is_local() {
+            // A D-Bus owner may disappear or replace its menu after the last
+            // event-loop tick but before Enter/pointer/AT-SPI activation.
+            // Drain pending provider events and revalidate the live row/path
+            // before sending an action to what might now be another owner.
+            if !self.refresh_tray(qh) || !self.tray_menu_state.visible { return; }
+        }
         let choice = self.tray_menu_state.choice(index);
         if self.tray_menu_state.is_local() {
             if let TrayMenuChoice::Click(id) = choice {
