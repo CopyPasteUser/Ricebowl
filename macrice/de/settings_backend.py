@@ -298,9 +298,24 @@ def set_connection_profile(uuid: str, enabled: bool, *, expected: bool) -> dict[
         _nmcli_profile("con", "up" if enabled else "down", "uuid", uuid, mutate=True)
     except SettingsError as exc:
         raise SettingsError("Network profile may have changed; refresh the current state") from exc
-    after = next((item for item in connection_profiles() if item["uuid"] == uuid), None)
+    try:
+        # A successful nmcli exit is not proof that NetworkManager applied the
+        # request. The provider can disappear after the mutation but before
+        # the independent inventory read. Do not classify that as a safe retry.
+        inventory = connection_profiles()
+    except SettingsError as exc:
+        raise SettingsError(
+            "Network profile may have changed; provider readback unavailable; "
+            "refresh before retrying") from exc
+    after = next((item for item in inventory if item["uuid"] == uuid), None)
     if after is None or after["active"] != enabled:
-        raise SettingsError("Network profile may have changed; verification failed")
+        raise SettingsError(
+            "Network profile may have changed; provider verification failed; refresh")
+    # UUID reuse while a connection is being replaced must never silently
+    # certify a different profile type as the reviewed connection.
+    if after["kind"] != before["kind"]:
+        raise SettingsError(
+            "Network profile identity changed during verification; refresh")
     return after
 
 
