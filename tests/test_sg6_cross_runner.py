@@ -54,6 +54,18 @@ class CrossRunnerTests(unittest.TestCase):
         self.assertEqual(report['byte_identical_package_count'], 4)
         self.assertFalse(report['independent_external_provenance_certified'])
         self.assertFalse(report['hardware_accepted'])
+        self.assertTrue(report['same_runner_os_and_build_tools'])
+        self.assertEqual(set(report['runner_image_versions']), {'host-a', 'host-b'})
+
+    def test_different_hosted_image_patch_versions_are_recorded_not_hidden(self):
+        # Hosted ubuntu-24.04 image patches can roll independently between jobs;
+        # reproducibility is established by independent artifact bytes.
+        self.receipts[1]['runner_image_version'] = '20261120.2'
+        self.save('host-b', self.receipts[1])
+        report = self.compare()
+        self.assertEqual(report['runner_image_versions'], {
+            'host-a': '20261119.1', 'host-b': '20261120.2'})
+        self.assertEqual(report['byte_identical_package_count'], 4)
 
     def test_payload_tampering_and_missing_archive_are_rejected(self):
         file = self.root / 'host-b' / verifier.FILES[2]
@@ -67,7 +79,8 @@ class CrossRunnerTests(unittest.TestCase):
     def test_source_revision_environment_and_host_collisions(self):
         other = self.receipts[1]
         for field, change in (('source_sha', '0'*40),
-                              ('runner_image_version', 'outdated'),
+                              ('runner_image', 'different-distribution'),
+                              ('rustc', 'rustc 0.0.0'),
                               ('hostname_sha256', 'a'*64),
                               ('runner_name', 'host-a')):
             with self.subTest(field=field):
