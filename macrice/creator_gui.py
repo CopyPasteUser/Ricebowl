@@ -2601,6 +2601,13 @@ def run() -> int:
                     error = None
                 except (render.RenderError, render_matrix.MatrixError, OSError, ValueError) as exc:
                     result, error = None, str(exc)
+                except Exception:
+                    # A background exception must never leave the Creator in
+                    # a permanently disabled Busy state. Keep full diagnostic
+                    # detail in the local process log, not in an archive/UI.
+                    import logging
+                    logging.exception("Creator native matrix worker failed")
+                    result, error = None, "unexpected renderer failure (see Creator logs)"
                 GLib.idle_add(self._matrix_complete, generation,
                               info.semantic_sha256, result, error)
 
