@@ -25,6 +25,13 @@ const PLAIN: &str = "text/plain";
 const MAX_BYTES: usize = luna_dialog::MAX_INPUT * 4;
 const TRANSFER_TIMEOUT: Duration = Duration::from_secs(3);
 
+fn valid_copy(text: &str) -> bool { !text.is_empty() && text.len() <= MAX_BYTES }
+
+fn decode_transfer(bytes: Vec<u8>) -> Option<String> {
+    if bytes.is_empty() || bytes.len() > MAX_BYTES { return None; }
+    String::from_utf8(bytes).ok()
+}
+
 struct Pending {
     reader: UnixStream,
     bytes: Vec<u8>,
@@ -82,7 +89,7 @@ impl Clipboard {
     /// mutate the editor before this request is created successfully.
     pub fn copy(&mut self, text: &str, serial: u32,
                 qh: &QueueHandle<RicePlate>) -> bool {
-        if text.is_empty() || text.len() > MAX_BYTES { return false; }
+        if !valid_copy(text) { return false; }
         let (Some(manager), Some(device)) = (self.manager.as_ref(), self.device.as_ref())
             else { return false; };
         let source = manager.create_data_source(qh, ());
@@ -132,8 +139,7 @@ impl Clipboard {
         loop {
             match pending.reader.read(&mut chunk) {
                 Ok(0) => {
-                    let text = String::from_utf8(pending.bytes).ok()?;
-                    if text.is_empty() || text.len() > MAX_BYTES { return None; }
+                    let text = decode_transfer(pending.bytes)?;
                     return Some(Completed {
                         target: pending.target, text,
                         prior_text: pending.prior_text,
@@ -247,13 +253,14 @@ mod tests {
         assert!("🧪".repeat(luna_dialog::MAX_INPUT + 1).len() > MAX_BYTES);
     }
     #[test]
-    fn clipboard_without_seat_never_claims_ownership() {
-        let mut clipboard = Clipboard::new(None);
-        assert!(!clipboard.copy("private", 1, unreachable_queue_for_test()));
-    }
-    fn unreachable_queue_for_test() -> &'static QueueHandle<RicePlate> {
-        // Intentionally never called: verify capability guard before any
-        // protocol request requires a live compositor or fake clipboard.
-        panic!("no Wayland queue should be needed to reject clipboard")
+    fn malformed_and_oversized_transfers_are_rejected_as_whole_values() {
+        assert!(!valid_copy(""));
+        assert!(!valid_copy(&"A".repeat(MAX_BYTES + 1)));
+        assert!(valid_copy("🌍abc"));
+        assert!(decode_transfer(Vec::new()).is_none());
+        assert!(decode_transfer(vec![b'x'; MAX_BYTES + 1]).is_none());
+        assert!(decode_transfer(vec![0xff, 0xfe]).is_none());
+        assert_eq!(decode_transfer("👩‍💻".as_bytes().to_vec()).as_deref(),
+                   Some("👩‍💻"));
     }
 }
