@@ -7881,7 +7881,10 @@ impl KeyboardHandler for RicePlate {
                 Keysym::v | Keysym::V if self.selection_modifiers.ctrl
                     && !self.selection_modifiers.alt => {
                     let accepted = self.luna_dialog.as_ref().is_some_and(|dialog|
-                        self.clipboard.begin_paste(dialog.surface.wl_surface(), &dialog.state));
+                        matches!(dialog.state.kind,
+                            luna_dialog::Kind::Run | luna_dialog::Kind::FileRename)
+                        && dialog.state.preedit.is_none()
+                        && self.clipboard.begin_paste(dialog.surface.wl_surface(), &dialog.state));
                     if !accepted {
                         if let Some(dialog) = self.luna_dialog.as_mut() {
                             dialog.state.notice = Some("Clipboard has no text");
@@ -7926,6 +7929,9 @@ impl KeyboardHandler for RicePlate {
             }
             if execute { self.execute_luna_dialog(qh); }
             else if repaint {
+                // Any intervening local edit, caret move or selection update
+                // invalidates an asynchronous paste that began earlier.
+                self.clipboard.cancel_paste();
                 self.redraw_luna_dialog();
                 self.refresh_ime_state(ChangeCause::Other);
             }
