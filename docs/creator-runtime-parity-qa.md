@@ -85,3 +85,20 @@ integration, login/logout and rollback. Those remain **unverified** by
 contract inspection or headless capture. Vertical/floating panels, arbitrary
 widget script execution and generalized tree/layout composition remain
 unsupported, not hidden in a cosmetic editor.
+
+## SG4 Creator GUI evidence boundary (20 November 2026)
+
+The GTK template chooser now includes both Composer v10 recipe sources (saved
+as v11 private drafts), while retaining the earlier example templates. A
+visible on-demand control delegates four real native output captures to the
+existing `render_matrix` backend; the resulting verified ZIP is a portable
+pixel/geometry receipt, **not** an interactive or approved-fidelity report.
+The native Creator handoff runner additionally exports/imports the two Composer
+sources, verifies portable original-font/icon bytes, captures four geometries
+per imported rice and exercises explicit next-login staging/rollback.
+
+Creator GTK smoke tests exercise its concrete widgets and save/review controls
+under a disposable Xvfb session. The native labwc runner is independent: a
+synthetic GTK `clicked()` or programmatic focus call is not proof of actual
+Wayland input dispatch or AT-SPI behavior. Formal SG4 remains pending real
+input, explicit visual acceptance and Creator-exit restoration evidence.
