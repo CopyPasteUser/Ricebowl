@@ -15,6 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGING = ROOT / "packaging/wayland"
 BASELINE_SHA = "b3d615a7cc508049050eb06c7952ef5a8d26e598"
+SESSION_PREVIEW2_SHA = "c8274dee78386124470cb5ff9a4d2768bb019126"
 
 
 def field(path: str, key: str) -> str:
@@ -58,6 +59,45 @@ class DebianUpgradeContracts(unittest.TestCase):
         self.assertIn("check_user_state", script)
         self.assertIn("apt-get purge", script)
         self.assertIn("docker run --rm -i", script)
+
+    def test_native_and_session_use_real_older_sources_and_verify_installed_bytes(self):
+        smoke = (ROOT / "scripts/smoke_wayland_upgrade_rollback.sh").read_text()
+        self.assertIn(f"session_baseline={SESSION_PREVIEW2_SHA}", smoke)
+        self.assertIn('worktree add --detach "$session_worktree" "$session_baseline"', smoke)
+        self.assertIn('worktree add --detach "$worktree" "$baseline"', smoke)
+        self.assertIn('"$session_worktree/scripts/build_wayland_session_deb.sh"', smoke)
+        self.assertIn('"$worktree/scripts/build_riceplate_native_deb.sh"', smoke)
+        self.assertIn('cargo build --release --locked', smoke)
+        self.assertIn('cargo generate-lockfile', smoke)
+        self.assertIn('old_native="$temp/old-packages/ricebowl-riceplate-native_0.1.0~preview1_amd64.deb"', smoke)
+        self.assertIn('old_session2="$temp/old-packages/ricebowl-wayland-session_0.1.0~preview2_all.deb"', smoke)
+        self.assertIn('check_version "$old_native" ricebowl-riceplate-native', smoke)
+        self.assertIn('check_version "$old_session2" ricebowl-wayland-session', smoke)
+        self.assertIn('PHASE 1b/5: real Session preview2 -> preview3', smoke)
+        self.assertIn('PHASE 4/5: explicit rollback of saved previous Core/Meta/Native', smoke)
+        self.assertIn('PHASE 5/5: re-upgrade every component', smoke)
+        self.assertIn('/tmp/ricebowl-old-native.sha256', smoke)
+        self.assertIn('/tmp/ricebowl-new-native.sha256', smoke)
+        self.assertIn('sha256sum /usr/bin/riceplate-native', smoke)
+        self.assertIn('check_version ricebowl-wayland-session', smoke)
+        self.assertIn('test -z "$(dpkg --audit)"', smoke)
+        # The historical native does not have a tracked Cargo.lock; this
+        # source rebuild must not be presented as the historical binary's
+        # reproducibility or a cryptographically signed release provenance.
+        self.assertIn('NOT a byte-for-byte', smoke)
+
+    def test_fatal_native_and_session_dpkg_configuration_is_recovered(self):
+        script = (ROOT / "scripts/smoke_wayland_upgrade_rollback.sh").read_text()
+        self.assertIn('for component in native session; do', script)
+        self.assertIn("kill -KILL", script)
+        self.assertIn('dpkg -i "$injected/broken.deb"', script)
+        self.assertIn('dpkg -i "$authentic"', script)
+        self.assertIn("post-installation script.*killed by signal", script)
+        self.assertIn('check_user_state', script)
+        self.assertIn('assert_selected xp-luna-columns', script)
+        self.assertIn('sha256sum -c --status /tmp/ricebowl-v12-before.sha256', script)
+        self.assertNotIn("rm -rf /home", script)
+        self.assertNotIn("apt-get purge -y ricebowl-wayland-desktop", script.split('PHASE 3c/5:', 1)[1].split('PHASE 4/5:', 1)[0])
 
     def test_old_selected_rice_and_luna_v12_survive_real_apt_transition(self):
         script = (ROOT / "scripts/smoke_wayland_upgrade_rollback.sh").read_text()
