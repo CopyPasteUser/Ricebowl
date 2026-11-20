@@ -1,7 +1,8 @@
 #!/bin/sh
 # SG4: real Wayland keyboard -> GTK Creator -> private Composer draft.
-# The test hook focuses an accessible button but never clicks it. Only external
-# compositor-delivered Return can create a draft. No live rice is switched.
+# The test hook focuses the preceding button but never clicks anything. Only
+# external compositor-delivered Tab and Return can create the chosen Composer
+# draft. No live rice is switched.
 set -eu
 
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
@@ -60,6 +61,7 @@ dbus-run-session -- sh -eu -c '
 
     for template in heritage-composer orbit-composer; do
         rm -f "$XDG_STATE_HOME/sg4-creator-wayland-ready" \
+              "$XDG_STATE_HOME/sg4-creator-wayland-focused" \
               "$XDG_STATE_HOME/sg4-creator-wayland-done"
         export RICEBOWL_CREATOR_WAYLAND_PROBE="$template"
         /usr/bin/python3 "$root/launcher.py" creator >"$runtime/$template.log" 2>&1 &
@@ -74,10 +76,22 @@ dbus-run-session -- sh -eu -c '
             sed -n "1,100p" "$runtime/$template.log" >&2
             exit 1
         fi
-        # Capture pixels from the *real* compositor, not the schematic canvas.
+        # Start from the preceding GTK button. Tab must arrive through the real
+        # wl_seat and move keyboard focus to the selected Composer template.
+        wtype -k Tab
+        i=0
+        while [ "$i" -lt 65 ] && [ ! -f "$XDG_STATE_HOME/sg4-creator-wayland-focused" ]; do
+            kill -0 "$creator" 2>/dev/null || break
+            i=$((i + 1)); sleep 0.2
+        done
+        if ! grep -Fxq "$template" "$XDG_STATE_HOME/sg4-creator-wayland-focused" 2>/dev/null; then
+            echo "Real Wayland Tab did not focus $template" >&2
+            sed -n "1,100p" "$runtime/$template.log" >&2
+            exit 1
+        fi
+        # Capture real compositor pixels while the target button has focus.
         grim - > "$output/$template-gtk-labwc.png"
-        # The test hook does not synthesize this click/key event. It must
-        # traverse wl_seat via labwc to the focused actual GTK3 button.
+        # Return is also compositor-delivered, never a synthetic Gtk.clicked().
         wtype -k Return
         i=0
         while [ "$i" -lt 65 ] && [ ! -f "$XDG_STATE_HOME/sg4-creator-wayland-done" ]; do
