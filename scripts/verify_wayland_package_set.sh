@@ -199,5 +199,12 @@ if find "$work/package-3" -type f -print -quit | grep -q .; then
     exit 1
 fi
 
+# Reject display-manager command drift even when all package paths, versions,
+# native hashes and self-reported source stamps still agree.
+# No .desktop command is executed during this read-only check.
+/usr/bin/python3 "$(dirname -- "$0")/verify_wayland_session_entries.py" \
+    "$work/package-1/usr/share/wayland-sessions/ricebowl.desktop" \
+    "$work/package-1/usr/share/wayland-sessions/ricebowl-native.desktop"
+
 echo "Verified four opt-in Wayland preview packages (no host installation)."
 sha256sum -- "${files[@]}"
