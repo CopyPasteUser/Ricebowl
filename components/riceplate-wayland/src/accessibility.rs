@@ -371,6 +371,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn native_menu_search_has_transient_text_run_with_exact_unicode_caret() {
+        let mut model = Model::new();
+        model.add(20_000, ROOT, Role::Menu, "Start", None);
+        let query = "👩‍💻e\\u{301}/";
+        model.add_text_input(20_950, 20_000, "Search applications and actions",
+                             query, 3, None);
+        model.focus = 20_950;
+        model.window_focused = true;
+        let tree = model.tree();
+        let input = &tree.nodes.iter().find(|(id, _)| *id == NodeId(20_950))
+            .expect("accessible search input").1;
+        let run = &tree.nodes.iter().find(|(id, _)| *id == NodeId(20_951))
+            .expect("accessible query text run").1;
+        assert_eq!(input.role(), Role::TextInput);
+        assert_eq!(input.label(), Some("Search applications and actions"));
+        assert_eq!(run.value(), Some(query));
+        assert_eq!(run.character_lengths(), [11, 3, 1]);
+        assert_eq!(input.text_selection().unwrap().focus.character_index, 3);
+        assert_eq!(tree.focus, NodeId(20_950));
+        // Hidden Start menus must not retain query data in published AT-SPI.
+        let closed = Model::new().tree();
+        assert!(!format!("{closed:?}").contains(query));
+    }
+
+    #[test]
     fn unicode_editor_exposes_text_run_and_grapheme_caret_only_while_live() {
         let mut model = Model::new();
         model.add(60_000, ROOT, Role::Dialog, "Rename File", None);
