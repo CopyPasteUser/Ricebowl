@@ -5,6 +5,7 @@ import importlib.util
 import json
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 MODULE = Path(__file__).resolve().parents[1] / 'scripts' / 'verify_sg6_cross_runner.py'
@@ -44,8 +45,12 @@ class CrossRunnerTests(unittest.TestCase):
     def save(self, worker, receipt):
         (self.root / worker / 'receipt.json').write_text(json.dumps(receipt))
 
+    def compare(self, *, lock='f' * 64, epoch='1795102175'):
+        return verifier.compare(self.root, SHA, expected_lock_sha=lock,
+                                expected_epoch=epoch)
+
     def test_two_runners_matching_four_real_files(self):
-        report = verifier.compare(self.root, SHA)
+        report = self.compare()
         self.assertEqual(report['byte_identical_package_count'], 4)
         self.assertFalse(report['independent_external_provenance_certified'])
         self.assertFalse(report['hardware_accepted'])
@@ -54,10 +59,10 @@ class CrossRunnerTests(unittest.TestCase):
         file = self.root / 'host-b' / verifier.FILES[2]
         file.write_bytes(b'forged binary')
         with self.assertRaisesRegex(verifier.ProvenanceError, 'Artifact/receipt mismatch'):
-            verifier.compare(self.root, SHA)
+            self.compare()
         file.unlink()
         with self.assertRaises(verifier.ProvenanceError):
-            verifier.compare(self.root, SHA)
+            self.compare()
 
     def test_source_revision_environment_and_host_collisions(self):
         other = self.receipts[1]
@@ -70,15 +75,74 @@ class CrossRunnerTests(unittest.TestCase):
                 other[field] = change
                 self.save('host-b', other)
                 with self.assertRaises(verifier.ProvenanceError):
-                    verifier.compare(self.root, SHA)
+                    self.compare()
                 other[field] = old
                 self.save('host-b', other)
+
+    def test_receipts_are_bound_to_the_checked_out_lockfile_and_epoch(self):
+        for key, value in [('cargo_lock_sha256', 'e' * 64),
+                           ('source_date_epoch', '1795102176')]:
+            with self.subTest(field=key):
+                original = self.receipts[0][key]
+                self.receipts[0][key] = value
+                self.save('host-a', self.receipts[0])
+                with self.assertRaises(verifier.ProvenanceError):
+                    self.compare()
+                self.receipts[0][key] = original
+                self.save('host-a', self.receipts[0])
+        with self.assertRaisesRegex(verifier.ProvenanceError, 'lockfile/epoch'):
+            self.compare(lock='bad')
+        with self.assertRaisesRegex(verifier.ProvenanceError, 'lockfile/epoch'):
+            self.compare(epoch='not-a-timestamp')
+
+    def test_reject_extra_fields_bool_schema_and_unsafe_directories(self):
+        a = self.receipts[0]
+        for field, value in [('unknown', 'spoofed'), ('schema_version', True),
+                             ('source_date_epoch', '١٧٩٥١٠٢١٧٥')]:
+            with self.subTest(field=field, value=value):
+                old = a.get(field)
+                a[field] = value
+                self.save('host-a', a)
+                with self.assertRaises(verifier.ProvenanceError):
+                    self.compare()
+                if old is None:
+                    del a[field]
+                else:
+                    a[field] = old
+                self.save('host-a', a)
+        alias = self.root.parent / 'comparison-symlink'
+        alias.symlink_to(self.root, target_is_directory=True)
+        with self.assertRaisesRegex(verifier.ProvenanceError, 'symlinked'):
+            verifier.compare(alias, SHA, expected_lock_sha='f' * 64,
+                             expected_epoch='1795102175')
+
+    def test_record_rejects_wrong_commit_epoch_or_modified_tracked_source(self):
+        with mock.patch.object(verifier, 'command', side_effect=lambda *args: {
+            ('git', 'rev-parse', 'HEAD'): SHA,
+            ('git', 'log', '-1', '--format=%ct', 'HEAD'): '1795102175',
+            ('git', 'status', '--porcelain', '--untracked-files=no'): '',
+            ('rustc', '--version'): 'rustc 1.88.0',
+            ('cargo', '--version'): 'cargo 1.88.0',
+            ('dpkg-deb', '--version'): 'dpkg 1',
+        }[args]):
+            with mock.patch.dict(verifier.os.environ, {'SOURCE_DATE_EPOCH': '1'}):
+                with self.assertRaisesRegex(verifier.ProvenanceError, 'Source epoch'):
+                    verifier.record(self.root / 'host-a', 'host-a', SHA)
+            with mock.patch.dict(verifier.os.environ, {'SOURCE_DATE_EPOCH': '1795102175'}):
+                with mock.patch.object(verifier, 'command', side_effect=lambda *args: (
+                    ' M components/riceplate-wayland/Cargo.lock'
+                    if args == ('git', 'status', '--porcelain', '--untracked-files=no')
+                    else {('git', 'rev-parse', 'HEAD'): SHA,
+                          ('git', 'log', '-1', '--format=%ct', 'HEAD'): '1795102175'}[args]
+                )):
+                    with self.assertRaisesRegex(verifier.ProvenanceError, 'Tracked source'):
+                        verifier.record(self.root / 'host-a', 'host-a', SHA)
 
     def test_duplicate_receipt_keys_fail_closed(self):
         path = self.root / 'host-a' / 'receipt.json'
         path.write_text('{"worker":"host-a","worker":"host-a"}')
         with self.assertRaises(verifier.ProvenanceError):
-            verifier.compare(self.root, SHA)
+            self.compare()
 
     def test_reject_symlinked_archive(self):
         directory = self.root / 'host-a'
@@ -86,7 +150,7 @@ class CrossRunnerTests(unittest.TestCase):
         file.unlink()
         file.symlink_to(directory / verifier.FILES[1])
         with self.assertRaises(verifier.ProvenanceError):
-            verifier.compare(self.root, SHA)
+            self.compare()
 
 
 if __name__ == '__main__':
