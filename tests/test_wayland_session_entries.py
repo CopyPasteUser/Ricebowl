@@ -29,8 +29,8 @@ class WaylandSessionEntryTests(unittest.TestCase):
         native = (TEMPLATES / "ricebowl-native.desktop").read_text(encoding="utf-8")
         cases = (
             ("shell execution", regular.replace(
-                "Exec=/usr/bin/ricebowl-wayland-session",
-                "Exec=/bin/sh -c arbitrary"), False),
+                "\nExec=/usr/bin/ricebowl-wayland-session",
+                "\nExec=/bin/sh -c arbitrary"), False),
             ("duplicate Exec", regular + "Exec=/bin/true\n", False),
             ("spaced duplicate Exec", regular + " Exec = /bin/true\n", False),
             ("redirect native TryExec", native.replace(
@@ -47,7 +47,7 @@ class WaylandSessionEntryTests(unittest.TestCase):
             ("hidden session", regular + "Hidden=true\n", False),
             ("second section", regular + "[Desktop Action Inject]\nExec=/bin/true\n", False),
             ("missing Exec", regular.replace(
-                "Exec=/usr/bin/ricebowl-wayland-session\n", ""), False),
+                "\nExec=/usr/bin/ricebowl-wayland-session\n", "\n"), False),
         )
         with tempfile.TemporaryDirectory() as tmp:
             entry = Path(tmp) / "session.desktop"
@@ -72,8 +72,8 @@ class WaylandSessionEntryTests(unittest.TestCase):
             self.assertEqual(passed.returncode, 0, passed.stderr)
             regular.write_text(
                 regular.read_text(encoding="utf-8").replace(
-                    "Exec=/usr/bin/ricebowl-wayland-session",
-                    "Exec=/bin/sh -c arbitrary",
+                    "\nExec=/usr/bin/ricebowl-wayland-session",
+                    "\nExec=/bin/sh -c arbitrary",
                 ),
                 encoding="utf-8",
             )
