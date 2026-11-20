@@ -170,6 +170,34 @@ class WaylandBundleTests(unittest.TestCase):
             checked = run(*argv)
             self.assertEqual(checked.returncode, 0, checked.stderr)
             self.assertIn("Verified four opt-in", checked.stdout)
+
+            # Archive safety checks permit 0644 regular files, but a valid
+            # preview install must retain executable launcher entrypoints.
+            # Repacking does not alter content hashes, source commits or
+            # dependency versions, so the bundle verifier must catch mode
+            # regressions explicitly for every installed launch chain.
+            for label, index, relative in (
+                ("core-entry", 0, "usr/bin/ricebowl-wayland-app"),
+                ("core-private-cli", 0, "usr/lib/ricebowl-wayland/bin/ricebowl"),
+                ("session-entry", 1, "usr/bin/ricebowl-wayland-session"),
+                ("native-entry", 2, "usr/bin/riceplate-native"),
+            ):
+                with self.subTest(non_executable=label):
+                    originals = [core, session, native, desktop]
+                    stage = folder / f"nonexec-{label}-stage"
+                    unpacked = run("dpkg-deb", "-R", str(originals[index]), str(stage))
+                    self.assertEqual(unpacked.returncode, 0, unpacked.stderr)
+                    entry = stage / relative
+                    self.assertTrue(entry.is_file(), relative)
+                    entry.chmod(0o644)
+                    altered = folder / f"nonexec-{label}.deb"
+                    built = run("dpkg-deb", "--build", "--root-owner-group",
+                                str(stage), str(altered))
+                    self.assertEqual(built.returncode, 0, built.stderr)
+                    originals[index] = altered
+                    rejected = run("bash", str(VERIFY), *(str(pkg) for pkg in originals))
+                    self.assertNotEqual(rejected.returncode, 0, rejected.stdout)
+                    self.assertIn("non-executable Wayland entrypoint", rejected.stderr)
             # Every package must independently attest the same reviewed
             # source commit, not merely satisfy loose version dependencies.
             for package in (core, session, native, desktop):
