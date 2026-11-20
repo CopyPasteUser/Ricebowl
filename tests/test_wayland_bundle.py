@@ -176,8 +176,8 @@ class WaylandBundleTests(unittest.TestCase):
             # to a different executable. Reject it without installing.
             for label, original, replacement, relative in (
                 ("regular-exec",
-                 "Exec=/usr/bin/ricebowl-wayland-session",
-                 "Exec=/bin/sh -c unauthorized",
+                 "\nExec=/usr/bin/ricebowl-wayland-session",
+                 "\nExec=/bin/sh -c unauthorized",
                  "usr/share/wayland-sessions/ricebowl.desktop"),
                 ("native-exec",
                  "Exec=/usr/bin/ricebowl-wayland-session --native",
