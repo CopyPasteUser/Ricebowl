@@ -73,7 +73,7 @@ dbus-run-session -- sh -eu -c '
         done
         if ! grep -Fxq "$template" "$XDG_STATE_HOME/sg4-creator-wayland-ready" 2>/dev/null; then
             echo "No focused GTK Composer button for $template" >&2
-            sed -n "1,100p" "$runtime/$template.log" >&2
+            tail -n 100 "$runtime/$template.log" >&2
             exit 1
         fi
         # GTK may insert extra focus stops for viewport/paned controls.
@@ -95,7 +95,7 @@ dbus-run-session -- sh -eu -c '
         done
         if ! grep -Fxq "$template" "$XDG_STATE_HOME/sg4-creator-wayland-focused" 2>/dev/null; then
             echo "Real Wayland Tab navigation never reached $template after $tabs events" >&2
-            sed -n "1,100p" "$runtime/$template.log" >&2
+            tail -n 100 "$runtime/$template.log" >&2
             exit 1
         fi
         echo "SG4: $template reached with $tabs external Wayland Tab event(s)"
@@ -110,7 +110,7 @@ dbus-run-session -- sh -eu -c '
         done
         if ! test -f "$XDG_STATE_HOME/sg4-creator-wayland-done"; then
             echo "Wayland Return did not activate $template" >&2
-            sed -n "1,100p" "$runtime/$template.log" >&2
+            tail -n 100 "$runtime/$template.log" >&2
             exit 1
         fi
         cp "$XDG_STATE_HOME/sg4-creator-wayland-done" "$output/$template-keyboard.json"
