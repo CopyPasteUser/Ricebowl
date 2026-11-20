@@ -130,6 +130,24 @@ dbus-run-session -- sh -eu -c '
         return 1
     }
 
+    # SG5: Wayland Start menu text really reaches AccessKit/AT-SPI.
+    # Groups have no editable query; Escape must revoke the transient run.
+    "$clicker" 35 748 1366 768
+    probe --name "Search applications and actions" --absent
+    wtype -k slash
+    probe --name "Search applications and actions" --text "" --caret 0
+    wtype "lib/abc"
+    probe --name "Search applications and actions" --text "lib/abc" --caret 7
+    wtype -M ctrl -k x -m ctrl
+    probe --name "Search applications and actions" --text "lib/abc" --caret 7
+    wtype -k BackSpace
+    probe --name "Search applications and actions" --text "lib/ab" --caret 6
+    wtype -k Escape
+    probe --name "Search applications and actions" --absent
+    wtype -k Escape
+    kill -0 "$plate"
+    echo "SG5: real Start search keyboard/AT-SPI focus/text/teardown PASS"
+
     wtype -M logo -k r -m logo
     probe --text "" --caret 0
     wtype "AB"
