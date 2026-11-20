@@ -98,11 +98,19 @@ dbus-run-session -- sh -eu -c '
 /usr/bin/python3 - "$output" <<'PY'
 from pathlib import Path
 from PIL import Image
+from macrice.de import creator_workspace, recipes
 import hashlib
 import json
+import os
 import sys
 
 root = Path(sys.argv[1])
+assert recipes.current_selection() == ("classic", None), (
+    "Creator keyboard test modified the active or next-login desktop")
+private_drafts = creator_workspace.list_drafts()
+assert len(private_drafts) == 2, "Both Composer keyboard activations must create private drafts"
+assert all(item.path.stat().st_mode & 0o077 == 0 for item in private_drafts), (
+    "Created drafts were not private after Creator exited")
 for template, expected in (("heritage-composer", "bottom"), ("orbit-composer", "top")):
     receipt = json.loads((root / f"{template}-keyboard.json").read_text())
     assert (receipt["template"], receipt["position"], receipt["gtk_focus"],
