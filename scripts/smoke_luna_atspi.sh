@@ -49,12 +49,12 @@ dbus-run-session -- sh -eu -c '
     export WAYLAND_DISPLAY=wayland-0
     labwc --config-dir "$(cat "$runtime/config-path")" >"$runtime/labwc.log" 2>&1 &
     compositor=$!
-    plate=; imepid=; keyboard_keeper=
+    plate=; imepid=; keyboard_keeper=; copy_owner=; invalid_owner=
     cleanup() {
-        for pid in "$imepid" "$keyboard_keeper" "$plate" "$compositor"; do
+        for pid in "$invalid_owner" "$copy_owner" "$imepid" "$keyboard_keeper" "$plate" "$compositor"; do
             if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || :; fi
         done
-        for pid in "$imepid" "$keyboard_keeper" "$plate" "$compositor"; do
+        for pid in "$invalid_owner" "$copy_owner" "$imepid" "$keyboard_keeper" "$plate" "$compositor"; do
             if [ -n "$pid" ]; then wait "$pid" 2>/dev/null || :; fi
         done
     }
@@ -146,6 +146,54 @@ dbus-run-session -- sh -eu -c '
     probe --text "" --caret 0
     wtype -k Escape
     probe --absent
+    # Cross-process clipboard verification, not a fake in-process paste.
+    # The external wl-copy process is an actual Wayland selection owner.
+    command -v wl-copy >/dev/null
+    command -v wl-paste >/dev/null
+    fixture="A👩‍💻é🇩🇪"
+    wl-copy --foreground --type "text/plain;charset=utf-8" "$fixture" \
+        >"$runtime/clipboard-owner.log" 2>&1 &
+    copy_owner=$!
+    sleep 0.3
+    kill -0 "$copy_owner" || { echo "External Wayland clipboard source died" >&2; exit 1; }
+    wtype -M logo -k r -m logo
+    probe --text "" --caret 0
+    wtype -M ctrl -k v -m ctrl
+    # AT-SPI indices are Unicode scalar offsets, while native cursor and
+    # selection remain grapheme-safe across ZWJ, accents and flags.
+    probe --text "$fixture" --caret 8
+    wtype -M ctrl -k a -m ctrl
+    probe --text "$fixture" --caret 8 --selection 0 8
+    wtype -M ctrl -k c -m ctrl
+    received=$(timeout 4s wl-paste --no-newline --type "text/plain;charset=utf-8")
+    test "$received" = "$fixture" || {
+        echo "SG5: native Ctrl+C not served over Wayland selection" >&2; exit 1;
+    }
+    wtype -M ctrl -k x -m ctrl
+    probe --text "" --caret 0
+    received=$(timeout 4s wl-paste --no-newline --type "text/plain;charset=utf-8")
+    test "$received" = "$fixture" || {
+        echo "SG5: native Ctrl+X lost clipboard ownership" >&2; exit 1;
+    }
+    wtype -M ctrl -k v -m ctrl
+    probe --text "$fixture" --caret 8
+
+    # A malformed external selection must not partially overwrite Run.
+    invalid=$(printf "bad\ninput")
+    wl-copy --foreground --type "text/plain;charset=utf-8" "$invalid" \
+        >"$runtime/clipboard-invalid-owner.log" 2>&1 &
+    invalid_owner=$!
+    sleep 0.25
+    wtype -M ctrl -k a -m ctrl
+    probe --text "$fixture" --caret 8 --selection 0 8
+    wtype -M ctrl -k v -m ctrl
+    probe --text "$fixture" --caret 8 --selection 0 8
+    if grep -F "$fixture" "$runtime/native.log" >/dev/null; then
+        echo "SG5: clipboard text was logged" >&2; exit 1;
+    fi
+    wtype -k Escape
+    probe --absent
+    echo "SG5: real wl-copy -> Run paste, Run copy/cut -> wl-paste, Unicode and invalid text PASS"
     # Register a separate input-method-v2 producer *before* re-focusing Run.
     # Its preedit, commit and byte deletion must traverse labwc to the
     # unmodified text-input-v3 application and return as surrounding text.
@@ -202,6 +250,17 @@ dbus-run-session -- sh -eu -c '
     probe --name "File name" --text "00-sg5.txt" --caret 10
     wtype -k Home
     probe --name "File name" --text "00-sg5.txt" --caret 0
+    wtype -M ctrl -k a -m ctrl
+    probe --name "File name" --text "00-sg5.txt" --caret 10 --selection 0 10
+    wtype -M ctrl -k c -m ctrl
+    received=$(timeout 4s wl-paste --no-newline --type "text/plain;charset=utf-8")
+    test "$received" = "00-sg5.txt" || {
+        echo "SG5: Rename selection not published through Wayland" >&2; exit 1;
+    }
+    wtype -M ctrl -k x -m ctrl
+    probe --name "File name" --text "" --caret 0
+    wtype -M ctrl -k v -m ctrl
+    probe --name "File name" --text "00-sg5.txt" --caret 10
     wtype -M ctrl -k a -m ctrl
     probe --name "File name" --text "00-sg5.txt" --caret 10 --selection 0 10
     wtype "Z"
