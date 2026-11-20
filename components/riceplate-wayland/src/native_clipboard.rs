@@ -111,8 +111,10 @@ impl Clipboard {
     /// event dispatch while another application owns the selection.
     pub fn begin_paste(&mut self, target: &wl_surface::WlSurface,
                        state: &luna_dialog::State) -> bool {
-        let Some(offer) = self.selected.as_ref() else { return false; };
-        let Some((_, types)) = self.offers.iter().find(|(proxy, _)| proxy == offer)
+        // Own a proxy handle before clearing the previous pending transfer;
+        // otherwise the immutable borrow of self.selected spans cancel_paste().
+        let Some(offer) = self.selected.clone() else { return false; };
+        let Some((_, types)) = self.offers.iter().find(|(proxy, _)| proxy == &offer)
             else { return false; };
         let mime = if types.iter().any(|m| m == UTF8) { UTF8 }
             else if types.iter().any(|m| m == PLAIN) { PLAIN }
