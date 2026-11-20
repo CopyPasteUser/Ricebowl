@@ -777,6 +777,20 @@ impl MenuState {
         true
     }
 
+    /// Route one compositor keyboard text event into the search field.
+    /// Ctrl/Alt shortcuts are commands, not text input, even when a keyboard
+    /// layout supplies printable UTF-8 alongside the modifier. The unmodified
+    /// slash key opens Search only from a non-editing view; inside Search or
+    /// All Programs it is ordinary query text and must not erase the query.
+    pub fn keyboard_text(&mut self, text: &str, ctrl: bool, alt: bool) -> bool {
+        if ctrl || alt { return false; }
+        if text == "/" && !matches!(self.view, View::Search | View::Programs) {
+            self.start_search();
+            return true;
+        }
+        self.search_input(text)
+    }
+
     /// Delete exactly one UAX #29 cluster, never one Unicode scalar. Search
     /// strings can contain accents, emoji ZWJ, regional flags and modifiers.
     pub fn backspace(&mut self) -> bool {
@@ -1744,6 +1758,57 @@ mod tests {
         assert_eq!(state.view, View::Groups);
         state.open();
         assert_eq!(state.view, View::Groups);
+        assert!(state.search.is_empty());
+    }
+
+    #[test]
+    fn keyboard_query_preserves_slashes_and_rejects_modified_printable_echoes() {
+        let mut state = MenuState::default();
+        state.open();
+        assert!(state.keyboard_text("/", false, false));
+        assert_eq!(state.view, View::Search);
+        assert!(state.search.is_empty(), "slash opens Search from Groups");
+        assert!(state.keyboard_text("lib", false, false));
+        assert!(state.keyboard_text("/", false, false));
+        assert!(state.keyboard_text("café", false, false));
+        assert_eq!(state.search, "lib/café");
+        assert!(!state.keyboard_text("a", true, false));
+        assert!(!state.keyboard_text("x", false, true));
+        assert!(!state.keyboard_text("/", true, true));
+        assert_eq!(state.search, "lib/café",
+                   "Ctrl/Alt keyboard events must not alter the editor");
+
+        state.show_programs();
+        assert!(state.keyboard_text("docs", false, false));
+        assert!(state.keyboard_text("/", false, false));
+        assert_eq!(state.view, View::Programs,
+                   "slash inside All Programs must not switch views");
+        assert_eq!(state.search, "docs/");
+        assert!(state.backspace());
+        assert_eq!(state.search, "docs");
+
+        state.show_saved();
+        assert!(state.keyboard_text("/", false, false));
+        assert_eq!(state.view, View::Search);
+        assert!(state.search.is_empty());
+    }
+
+    #[test]
+    fn keyboard_query_preserves_unicode_batches_and_atomic_limits() {
+        let mut state = MenuState::default();
+        state.start_search();
+        assert!(state.keyboard_text("👩‍💻e\u{301}🇩🇪", false, false));
+        let before = state.search.clone();
+        assert!(!state.keyboard_text("\n", false, false));
+        assert!(!state.keyboard_text("\u{202e}", false, false));
+        assert!(!state.keyboard_text(&"x".repeat(33), false, false));
+        assert_eq!(state.search, before,
+                   "invalid Unicode must not mutate a partially entered query");
+        assert!(state.backspace());
+        assert_eq!(state.search, "👩‍💻e\u{301}");
+        assert!(state.backspace());
+        assert_eq!(state.search, "👩‍💻");
+        assert!(state.backspace());
         assert!(state.search.is_empty());
     }
 
