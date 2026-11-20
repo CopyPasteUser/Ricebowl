@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - '.github/workflows/riceplate-native.yml'
+      - '.github/workflows/sg6-cross-runner.yml'
       - 'components/riceplate-wayland/**'
       - 'packaging/wayland/**'
       - 'scripts/build_wayland_session_deb.sh'
@@ -96,6 +97,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/riceplate-native.yml'
+      - '.github/workflows/sg6-cross-runner.yml'
       - 'components/riceplate-wayland/**'
       - 'packaging/wayland/**'
       - 'scripts/build_wayland_session_deb.sh'

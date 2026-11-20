@@ -84,9 +84,50 @@ class CrossRunnerWorkflowPolicyTests(unittest.TestCase):
                     f"SG6 PR source change is missing from path filters: {changed}",
                 )
 
-    def test_signing_job_only_runs_on_explicit_trusted_main_dispatch(self):
-        self.assertIn("if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'",
+    def test_main_push_and_pull_request_build_all_the_same_inputs(self):
+        # The signed main result must not be skipped for changed sources
+        # which would trigger only the untrusted PR comparison workflow.
+        self.assertIn("  push:\n    branches: [main]\n", self.build_compare)
+        from fnmatch import fnmatchcase
+
+        trigger_block = self.build_compare.split("  pull_request:\n", 1)[1]
+        pr_paths, push_after = trigger_block.split("  push:\n", 1)
+        push_paths = push_after.split("  workflow_dispatch:\n", 1)[0]
+        def extract_paths(block):
+            return {
+                line.strip()[3:-1]
+                for line in block.splitlines()
+                if line.startswith("      - '") and line.endswith("'")
+            }
+        self.assertEqual(extract_paths(pr_paths), extract_paths(push_paths))
+        self.assertTrue(any(
+            fnmatchcase("scripts/verify_wayland_package_set.sh", pattern)
+            for pattern in extract_paths(push_paths)
+        ))
+        self.assertIn('if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] || '
+                      '[ "$GITHUB_EVENT_NAME" = push ]; then', self.build_compare)
+        self.assertIn('test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main"',
+                      self.build_compare)
+
+    def test_attestation_policy_changes_recheck_native_and_mint_recovery(self):
+        # Trusting a package-comparison workflow is a release-safety change:
+        # the PR and resulting main commit must also run installed-session
+        # and disposable Mint recovery rather than reusing earlier evidence.
+        native = (WORKFLOW.parent / "riceplate-native.yml").read_text(encoding="utf-8")
+        self.assertEqual(native.count(
+            "      - '.github/workflows/sg6-cross-runner.yml'"), 2)
+        self.assertIn("sg6-mint221-compat:", native)
+        self.assertIn("smoke_wayland_upgrade_rollback.sh", native)
+
+    def test_signing_job_only_runs_on_trusted_main_push_or_dispatch(self):
+        self.assertIn(
+            "if: (github.event_name == 'workflow_dispatch' || "
+            "github.event_name == 'push') && github.ref == 'refs/heads/main'",
+            self.attest,
+        )
+        self.assertIn('test "$GITHUB_EVENT_NAME" = push || test "$GITHUB_EVENT_NAME" = workflow_dispatch',
                       self.attest)
+        self.assertNotIn("github.event_name == 'pull_request'", self.attest)
         self.assertIn("needs: compare", self.attest)
         self.assertIn("id-token: write", self.attest)
         self.assertIn("attestations: write", self.attest)

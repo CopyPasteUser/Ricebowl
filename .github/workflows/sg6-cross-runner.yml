@@ -1,10 +1,39 @@
 name: SG6 independent-runner four-deb reproducibility
 
-# Real two-runner comparison on SG6 changes in PRs (read-only credentials).
-# Only a deliberate main dispatch may receive OIDC and publish attestation.
-# PR artifacts identify GitHub's tested merge SHA, never a final-main release.
+# Two-runner byte comparison for PRs (read-only credentials) and trusted main.
+# Only exact, unchanged main pushes or deliberate main dispatches can sign.
+# Untrusted PR merge-ref artifacts are never release attestations.
 on:
   pull_request:
+    paths:
+      - '.github/workflows/sg6-cross-runner.yml'
+      # Cross-runner evidence must run when *any actual package input* changes.
+      # Core uses git archive of launcher, macrice, assets and examples;
+      # Native compiles the Rust workspace; Session/Meta use packaging.
+      - 'components/riceplate-wayland/**'
+      - 'packaging/wayland/**'
+      - 'launcher.py'
+      - 'macrice/**'
+      - 'assets/wallpapers/**'
+      - 'assets/icons/RiceHub-Luna-Icons/**'
+      - 'assets/ricebowl-symbolic.svg'
+      - 'assets/macrice-symbolic.svg'
+      - 'assets/ricehub-symbolic.svg'
+      - 'examples/wayland/**'
+      - 'scripts/verify_wayland_payload.py'
+      - 'scripts/verify_wayland_control.py'
+      - 'scripts/verify_wayland_session_entries.py'
+      - 'tests/test_wayland_session_entries.py'
+      - 'scripts/verify_sg6_cross_runner.py'
+      - 'tests/test_sg6_cross_runner.py'
+      - 'tests/test_sg6_workflow_policy.py'
+      - 'scripts/build_wayland_core_deb.sh'
+      - 'scripts/build_wayland_session_deb.sh'
+      - 'scripts/build_riceplate_native_deb.sh'
+      - 'scripts/build_wayland_desktop_deb.sh'
+      - 'scripts/verify_wayland_package_set.sh'
+  push:
+    branches: [main]
     paths:
       - '.github/workflows/sg6-cross-runner.yml'
       # Cross-runner evidence must run when *any actual package input* changes.
@@ -113,7 +142,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] || [ "$GITHUB_EVENT_NAME" = push ]; then
             test "$GITHUB_REF" = refs/heads/main
             test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')" = "$GITHUB_SHA"
           else
@@ -145,8 +174,8 @@ jobs:
 
   attest:
     name: Sign main-only independent runner comparison evidence
-    # Never grant token-attestation permissions to untrusted PR source.
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    # Only protected main events are trusted; PRs never receive token/OIDC signing scope.
+    if: (github.event_name == 'workflow_dispatch' || github.event_name == 'push') && github.ref == 'refs/heads/main'
     needs: compare
     runs-on: ubuntu-24.04
     timeout-minutes: 8
@@ -166,6 +195,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = push || test "$GITHUB_EVENT_NAME" = workflow_dispatch
           test "$GITHUB_REF" = refs/heads/main
           test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')" = "$GITHUB_SHA"
           /usr/bin/python3 - "$GITHUB_SHA" <<'PY'
