@@ -3521,14 +3521,25 @@ def run() -> int:
             from gi.repository import Atk
             window = windows[0]
             button = window.template_buttons[template]
+            previous = window.template_buttons[
+                "orbit" if template == "heritage-composer" else "heritage-composer"]
             if button.get_accessible().get_role() != Atk.Role.PUSH_BUTTON:
                 raise RuntimeError("Composer template lacks accessible button role")
-            button.grab_focus()
-            if not button.has_focus() or window.get_focus() != button:
-                raise RuntimeError("Composer template could not receive GTK keyboard focus")
+            previous.grab_focus()
+            if not previous.has_focus() or window.get_focus() != previous:
+                raise RuntimeError("Preceding template could not receive GTK keyboard focus")
             state = Path(os.environ["XDG_STATE_HOME"])
             (state / "sg4-creator-wayland-ready").write_text(
                 template + "\n", encoding="utf-8")
+
+            def observe_real_tab():
+                if not button.has_focus() or window.get_focus() != button:
+                    return True
+                (state / "sg4-creator-wayland-focused").write_text(
+                    template + "\n", encoding="utf-8")
+                return False
+
+            GLib.timeout_add(60, observe_real_tab)
 
             def observe_real_activation():
                 nonlocal smoke_failed
