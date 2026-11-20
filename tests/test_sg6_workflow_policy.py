@@ -109,6 +109,16 @@ class CrossRunnerWorkflowPolicyTests(unittest.TestCase):
         self.assertIn('test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main"',
                       self.build_compare)
 
+    def test_attestation_policy_changes_recheck_native_and_mint_recovery(self):
+        # Trusting a package-comparison workflow is a release-safety change:
+        # the PR and resulting main commit must also run installed-session
+        # and disposable Mint recovery rather than reusing earlier evidence.
+        native = (WORKFLOW.parent / "riceplate-native.yml").read_text(encoding="utf-8")
+        self.assertEqual(native.count(
+            "      - '.github/workflows/sg6-cross-runner.yml'"), 2)
+        self.assertIn("sg6-mint221-compat:", native)
+        self.assertIn("smoke_wayland_upgrade_rollback.sh", native)
+
     def test_signing_job_only_runs_on_trusted_main_push_or_dispatch(self):
         self.assertIn(
             "if: (github.event_name == 'workflow_dispatch' || "
