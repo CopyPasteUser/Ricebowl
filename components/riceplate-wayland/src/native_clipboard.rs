@@ -98,6 +98,7 @@ impl Clipboard {
         device.set_selection(Some(&source), serial);
         if let Some(old) = self.source.replace(source) { old.destroy(); }
         self.owned_text = Some(text.to_owned());
+        self.cancel_paste();
         true
     }
 
@@ -172,6 +173,9 @@ impl Clipboard {
     }
 
     fn select(&mut self, selected: Option<WlDataOffer>) {
+        // A clipboard ownership change invalidates any incomplete transfer:
+        // never apply bytes initiated against a no-longer-current source.
+        self.cancel_paste();
         self.selected = selected.clone();
         let old = std::mem::take(&mut self.offers);
         for (offer, types) in old {
