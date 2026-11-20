@@ -1,7 +1,20 @@
 name: SG6 independent-runner four-deb reproducibility
 
-# Manual-only; two disposable hosted runners, never a physical sign-off.
+# Real two-runner comparison on SG6 changes in PRs (read-only credentials).
+# Only a deliberate main dispatch may receive OIDC and publish attestation.
+# PR artifacts identify GitHub's tested merge SHA, never a final-main release.
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/sg6-cross-runner.yml'
+      - 'scripts/verify_sg6_cross_runner.py'
+      - 'tests/test_sg6_cross_runner.py'
+      - 'tests/test_sg6_workflow_policy.py'
+      - 'scripts/build_wayland_core_deb.sh'
+      - 'scripts/build_wayland_session_deb.sh'
+      - 'scripts/build_riceplate_native_deb.sh'
+      - 'scripts/build_wayland_desktop_deb.sh'
+      - 'scripts/verify_wayland_package_set.sh'
   workflow_dispatch:
 
 permissions:
@@ -9,7 +22,7 @@ permissions:
 
 jobs:
   build:
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     name: Build four debs on ${{ matrix.worker }}
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -62,16 +75,13 @@ jobs:
 
   compare:
     name: Compare actual packages and attest audit receipt
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     permissions:
       contents: read
       actions: read
-      id-token: write
-      attestations: write
-      artifact-metadata: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -80,13 +90,21 @@ jobs:
         with:
           pattern: sg6-*-${{ github.sha }}
           path: dist/sg6-input
-      - name: Require fresh main and compare four true package bytes
+      - name: Require exact trusted checkout and compare four true package bytes
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')" = "$GITHUB_SHA"
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            test "$GITHUB_REF" = refs/heads/main
+            test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')" = "$GITHUB_SHA"
+          else
+            # Pull-request jobs build the ephemeral merge commit tested by
+            # Actions; it is NOT trusted main and cannot request OIDC.
+            test "$GITHUB_EVENT_NAME" = pull_request
+            case "$GITHUB_REF" in refs/pull/*/merge) : ;; *) exit 1 ;; esac
+          fi
           mkdir -p dist/sg6-comparison
           for worker in host-a host-b; do
             source="dist/sg6-input/sg6-${worker}-${GITHUB_SHA}"
@@ -102,12 +120,47 @@ jobs:
           /usr/bin/python3 scripts/verify_sg6_cross_runner.py compare \
             --directory dist/sg6-comparison --source-sha "$GITHUB_SHA" \
             --output dist/sg6-comparison/report.json
-      - name: Attest two-runner comparison report; not 1.0 release sign-off
-        uses: actions/attest@v4
-        with:
-          subject-path: dist/sg6-comparison/report.json
       - uses: actions/upload-artifact@v4
         with:
           name: sg6-cross-runner-report-${{ github.sha }}
           path: dist/sg6-comparison/report.json
           if-no-files-found: error
+
+  attest:
+    name: Sign main-only independent runner comparison evidence
+    # Never grant token-attestation permissions to untrusted PR source.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    needs: compare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: sg6-cross-runner-report-${{ github.sha }}
+          path: dist/sg6-comparison
+      - name: Require unchanged main before signing comparison
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')" = "$GITHUB_SHA"
+          /usr/bin/python3 - "$GITHUB_SHA" <<'PY'
+          import json
+          import sys
+          with open('dist/sg6-comparison/report.json', encoding='utf-8') as stream:
+              report = json.load(stream)
+          assert report['source_sha'] == sys.argv[1]
+          assert report['byte_identical_package_count'] == 4
+          assert report['hardware_accepted'] is False
+          PY
+      - name: Attest two-runner comparison report; not 1.0 release sign-off
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/sg6-comparison/report.json
