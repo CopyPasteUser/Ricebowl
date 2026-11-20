@@ -1769,6 +1769,27 @@ mod tests {
     }
 
     #[test]
+    fn accessible_search_caret_is_grapheme_aligned_and_clears_with_view() {
+        let mut state = MenuState::default();
+        state.open();
+        state.start_search();
+        assert_eq!(state.search_caret(), 0);
+        assert!(state.keyboard_text("👩‍💻e\\u{301}🇩🇪", false, false));
+        assert_eq!(state.search_caret(), 3,
+                   "AT-SPI caret must count extended graphemes, not scalars");
+        assert!(state.backspace());
+        assert_eq!(state.search_caret(), 2);
+        assert_eq!(state.search, "👩‍💻e\\u{301}");
+        state.show_programs();
+        assert_eq!(state.search_caret(), 0);
+        assert!(state.search_input("foo/bar"));
+        assert_eq!(state.search_caret(), 7);
+        state.back();
+        assert_eq!(state.search_caret(), 0);
+        assert!(state.search.is_empty());
+    }
+
+    #[test]
     fn keyboard_query_preserves_slashes_and_rejects_modified_printable_echoes() {
         let mut state = MenuState::default();
         state.open();
