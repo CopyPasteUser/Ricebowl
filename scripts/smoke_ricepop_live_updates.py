@@ -189,6 +189,19 @@ def main() -> None:
         atspi_buttons(GLib, [one.get_accessible().get_name(),
                              three.get_accessible().get_name()])
 
+        # Use a real GtkButton signal connected by RiceSpice, not the backend
+        # API directly. The live event must invalidate the exact second row.
+        dismiss_second = button_for(view, pid, SECOND)
+        dismiss_second.clicked()
+        until(GLib, lambda: not view.busy
+              and button_for(view, pid, SECOND) is None,
+              "GTK dismiss signal and Mako close/readback")
+        current = notifications.inspect_owned()
+        if any(row["id"] == second_id for row in current["active"]):
+            raise RuntimeError("GUI dismissal did not remove real Mako notification")
+        if not any(row["id"] == third_id for row in current["active"]):
+            raise RuntimeError("GUI dismissal removed an unrelated notification")
+
         # This must be a real Mako freedesktop ActionInvoked signal, not a
         # fabricated GLib event or a change from the three-second readback
         # lease. Observe it through an independent session-bus subscriber.
@@ -214,19 +227,6 @@ def main() -> None:
                   "actual FDO ActionInvoked event from private Mako")
         finally:
             connection.signal_unsubscribe(listener)
-
-        # Use a real GtkButton signal connected by RiceSpice, not the backend
-        # API directly. The live event must invalidate the exact second row.
-        dismiss_second = button_for(view, pid, SECOND)
-        dismiss_second.clicked()
-        until(GLib, lambda: not view.busy
-              and button_for(view, pid, SECOND) is None,
-              "GTK dismiss signal and Mako close/readback")
-        current = notifications.inspect_owned()
-        if any(row["id"] == second_id for row in current["active"]):
-            raise RuntimeError("GUI dismissal did not remove real Mako notification")
-        if not any(row["id"] == third_id for row in current["active"]):
-            raise RuntimeError("GUI dismissal removed an unrelated notification")
 
         # Leaving the inbox revokes private callbacks and renders another page
         # without caching private row widgets or a resident data poller.
