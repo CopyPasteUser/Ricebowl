@@ -87,12 +87,12 @@ class CrossRunnerWorkflowPolicyTests(unittest.TestCase):
     def test_main_push_and_pull_request_build_all_the_same_inputs(self):
         # The signed main result must not be skipped for changed sources
         # which would trigger only the untrusted PR comparison workflow.
-        self.assertIn("  push:\\n    branches: [main]\\n", self.build_compare)
+        self.assertIn("  push:\n    branches: [main]\n", self.build_compare)
         from fnmatch import fnmatchcase
 
-        trigger_block = self.build_compare.split("  pull_request:\\n", 1)[1]
-        pr_paths, push_after = trigger_block.split("  push:\\n", 1)
-        push_paths = push_after.split("  workflow_dispatch:\\n", 1)[0]
+        trigger_block = self.build_compare.split("  pull_request:\n", 1)[1]
+        pr_paths, push_after = trigger_block.split("  push:\n", 1)
+        push_paths = push_after.split("  workflow_dispatch:\n", 1)[0]
         def extract_paths(block):
             return {
                 line.strip()[3:-1]
