@@ -8299,7 +8299,11 @@ impl KeyboardHandler for RicePlate {
                 None
             }
             Keysym::slash => {
-                self.menu_state.start_search();
+                // Slash opens Search from Groups/Saved, but remains literal
+                // query text inside an active Search or All Programs editor.
+                if !self.menu_state.keyboard_text(
+                    "/", self.selection_modifiers.ctrl, self.selection_modifiers.alt,
+                ) { return; }
                 None
             }
             Keysym::Up => {
@@ -8342,14 +8346,19 @@ impl KeyboardHandler for RicePlate {
             }
             Keysym::space if matches!(self.menu_state.view,
                     native_menu::View::Search | native_menu::View::Programs) => {
-                self.menu_state.search_input(" ");
+                if !self.menu_state.keyboard_text(
+                    " ", self.selection_modifiers.ctrl, self.selection_modifiers.alt,
+                ) { return; }
                 None
             }
             Keysym::Return | Keysym::KP_Enter | Keysym::space => {
                 self.menu_state.current_action(menu).map(str::to_owned)
             }
             _ => {
-                if !event.utf8.as_deref().is_some_and(|input| self.menu_state.search_input(input)) {
+                if !event.utf8.as_deref().is_some_and(|input|
+                    self.menu_state.keyboard_text(
+                        input, self.selection_modifiers.ctrl, self.selection_modifiers.alt,
+                    )) {
                     return;
                 }
                 None
