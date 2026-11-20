@@ -25,6 +25,12 @@ FILES = (
 SHA = re.compile(r'[0-9a-f]{40}\Z')
 DIGEST = re.compile(r'[0-9a-f]{64}\Z')
 WORKERS = ('host-a', 'host-b')
+LOCKFILE = Path('components/riceplate-wayland/Cargo.lock')
+RECEIPT_KEYS = frozenset({
+    'schema_version', 'worker', 'source_sha', 'source_date_epoch',
+    'runner_image', 'runner_image_version', 'runner_name', 'hostname_sha256',
+    'rustc', 'cargo', 'dpkg', 'cargo_lock_sha256', 'packages', 'hardware_accepted',
+})
 
 
 class ProvenanceError(ValueError):
@@ -33,7 +39,7 @@ class ProvenanceError(ValueError):
 
 def file_hash(path: Path) -> str:
     if path.is_symlink() or not path.is_file():
-        raise ProvenanceError(f'Package missing or symlinked: {path.name}')
+        raise ProvenanceError(f'File missing or symlinked: {path.name}')
     digest = hashlib.sha256()
     with path.open('rb') as stream:
         while chunk := stream.read(1024 * 1024):
@@ -51,8 +57,12 @@ def record(directory: Path, worker: str, source_sha: str) -> dict:
     if command('git', 'rev-parse', 'HEAD') != source_sha:
         raise ProvenanceError('Build checkout differs from claimed source')
     epoch = os.environ.get('SOURCE_DATE_EPOCH', '')
-    if not epoch.isdecimal() or int(epoch) <= 0:
-        raise ProvenanceError('Missing fixed source epoch')
+    expected_epoch = command('git', 'log', '-1', '--format=%ct', 'HEAD')
+    if (not _valid_epoch(epoch) or not _valid_epoch(expected_epoch)
+            or epoch != expected_epoch):
+        raise ProvenanceError('Source epoch differs from exact checkout commit')
+    if command('git', 'status', '--porcelain', '--untracked-files=no'):
+        raise ProvenanceError('Tracked source changed during the build')
     return {
         'schema_version': 1, 'worker': worker, 'source_sha': source_sha,
         'source_date_epoch': epoch,
@@ -64,22 +74,28 @@ def record(directory: Path, worker: str, source_sha: str) -> dict:
         'rustc': command('rustc', '--version'),
         'cargo': command('cargo', '--version'),
         'dpkg': command('dpkg-deb', '--version').splitlines()[0],
-        'cargo_lock_sha256': file_hash(Path('components/riceplate-wayland/Cargo.lock')),
+        'cargo_lock_sha256': file_hash(LOCKFILE),
         'packages': {name: file_hash(directory / name) for name in FILES},
         'hardware_accepted': False,
     }
 
 
+def _valid_epoch(epoch: object) -> bool:
+    return (type(epoch) is str and epoch.isascii() and epoch.isdecimal()
+            and len(epoch) <= 12 and int(epoch) > 0)
+
+
 def read_receipt(directory: Path, worker: str, source_sha: str) -> dict:
     path = directory / 'receipt.json'
-    if path.is_symlink() or not path.is_file() or path.stat().st_size > 8192:
+    if path.is_symlink() or not path.is_file() or not 0 < path.stat().st_size <= 8192:
         raise ProvenanceError(f'Missing/bad receipt for {worker}')
     try:
         obj = json.loads(path.read_text(encoding='utf-8'),
                          object_pairs_hook=_unique)
     except (UnicodeError, OSError, ValueError) as exc:
         raise ProvenanceError(f'Malformed receipt for {worker}') from exc
-    if (type(obj) is not dict or obj.get('schema_version') != 1
+    if (type(obj) is not dict or set(obj) != RECEIPT_KEYS
+            or type(obj.get('schema_version')) is not int or obj['schema_version'] != 1
             or obj.get('worker') != worker or obj.get('source_sha') != source_sha
             or obj.get('hardware_accepted') is not False
             or type(obj.get('packages')) is not dict
@@ -94,12 +110,12 @@ def read_receipt(directory: Path, worker: str, source_sha: str) -> dict:
     for field in ('runner_image', 'runner_image_version', 'runner_name', 'rustc',
                   'cargo', 'dpkg', 'cargo_lock_sha256', 'hostname_sha256',
                   'source_date_epoch'):
-        if not isinstance(obj.get(field), str) or not obj[field]:
+        if type(obj.get(field)) is not str or not 0 < len(obj[field]) <= 256:
             raise ProvenanceError(f'Missing provenance field: {field}')
     for field in ('cargo_lock_sha256', 'hostname_sha256'):
         if not DIGEST.fullmatch(obj[field]):
             raise ProvenanceError(f'Invalid provenance hash: {field}')
-    if not obj['source_date_epoch'].isdecimal() or int(obj['source_date_epoch']) <= 0:
+    if not _valid_epoch(obj['source_date_epoch']):
         raise ProvenanceError('Invalid source epoch')
     return obj
 
@@ -113,9 +129,13 @@ def _unique(pairs):
     return result
 
 
-def compare(root: Path, source_sha: str) -> dict:
+def compare(root: Path, source_sha: str, *, expected_lock_sha: str, expected_epoch: str) -> dict:
     if not SHA.fullmatch(source_sha):
         raise ProvenanceError('Invalid source commit')
+    if not DIGEST.fullmatch(expected_lock_sha) or not _valid_epoch(expected_epoch):
+        raise ProvenanceError('Missing exact-source lockfile/epoch witness')
+    if root.is_symlink() or not root.is_dir():
+        raise ProvenanceError('Missing or symlinked runner comparison directory')
     a, b = (read_receipt(root / worker, worker, source_sha) for worker in WORKERS)
     if a['runner_name'] == b['runner_name'] or a['hostname_sha256'] == b['hostname_sha256']:
         raise ProvenanceError('Independent runner identities were not observed')
@@ -124,6 +144,10 @@ def compare(root: Path, source_sha: str) -> dict:
     for key in compared:
         if a[key] != b[key]:
             raise ProvenanceError(f'Unpinned or divergent build environment: {key}')
+    for worker, receipt in zip(WORKERS, (a, b)):
+        if (receipt['cargo_lock_sha256'] != expected_lock_sha
+                or receipt['source_date_epoch'] != expected_epoch):
+            raise ProvenanceError(f'{worker} receipt differs from checked-out source inputs')
     for name in FILES:
         if a['packages'][name] != b['packages'][name]:
             raise ProvenanceError(f'Cross-runner package mismatch: {name}')
@@ -160,7 +184,14 @@ def main(argv: list[str] | None = None) -> int:
                 raise ProvenanceError('Recording requires worker identity')
             result = record(args.directory, args.worker, args.source_sha)
         else:
-            result = compare(args.directory, args.source_sha)
+            # The third runner independently verifies the *checkout*, not
+            # merely two mutually consistent (possibly wrong) receipts.
+            if command('git', 'rev-parse', 'HEAD') != args.source_sha:
+                raise ProvenanceError('Comparison checkout differs from claimed source')
+            expected_epoch = command('git', 'log', '-1', '--format=%ct', 'HEAD')
+            result = compare(args.directory, args.source_sha,
+                             expected_lock_sha=file_hash(LOCKFILE),
+                             expected_epoch=expected_epoch)
         if args.output.is_symlink():
             raise ProvenanceError('Refuse symlink evidence output')
         with args.output.open('x', encoding='utf-8') as target:
