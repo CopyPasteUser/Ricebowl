@@ -51,6 +51,11 @@ sh "$worktree/scripts/build_wayland_session_deb.sh" "$old_session3" >/dev/null
 # attestation of the originally distributed preview1 binary.
 old_native_target="$temp/old-native-target"
 cargo generate-lockfile --manifest-path "$worktree/components/riceplate-wayland/Cargo.toml" >/dev/null
+# The original source was published before uuid 1.27 raised its MSRV to
+# rustc 1.89. Pin this transitive dependency for the historical Rust 1.88
+# QA rebuild; do not mutate the current release's committed Cargo.lock.
+cargo update --manifest-path "$worktree/components/riceplate-wayland/Cargo.toml" \
+    --package uuid --precise 1.26.0 >/dev/null
 CARGO_TARGET_DIR="$old_native_target" cargo build --release --locked \
     --manifest-path "$worktree/components/riceplate-wayland/Cargo.toml" >/dev/null
 sh "$worktree/scripts/build_riceplate_native_deb.sh" \
