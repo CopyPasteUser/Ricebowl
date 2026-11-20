@@ -31,8 +31,8 @@ class WaylandSessionEntryTests(unittest.TestCase):
             ("shell execution", regular.replace(
                 "Exec=/usr/bin/ricebowl-wayland-session",
                 "Exec=/bin/sh -c arbitrary"), False),
-            ("duplicate Exec", regular + "Exec=/bin/true\\n", False),
-            ("spaced duplicate Exec", regular + " Exec = /bin/true\\n", False),
+            ("duplicate Exec", regular + "Exec=/bin/true\n", False),
+            ("spaced duplicate Exec", regular + " Exec = /bin/true\n", False),
             ("redirect native TryExec", native.replace(
                 "TryExec=/usr/bin/riceplate-native", "TryExec=/usr/bin/true"), True),
             ("redirect native Exec", native.replace(
@@ -43,11 +43,11 @@ class WaylandSessionEntryTests(unittest.TestCase):
                 "DesktopNames=XFCE;"), False),
             ("non-application type", regular.replace(
                 "Type=Application", "Type=Link"), False),
-            ("unsupported activation", regular + "DBusActivatable=true\\n", False),
-            ("hidden session", regular + "Hidden=true\\n", False),
-            ("second section", regular + "[Desktop Action Inject]\\nExec=/bin/true\\n", False),
+            ("unsupported activation", regular + "DBusActivatable=true\n", False),
+            ("hidden session", regular + "Hidden=true\n", False),
+            ("second section", regular + "[Desktop Action Inject]\nExec=/bin/true\n", False),
             ("missing Exec", regular.replace(
-                "Exec=/usr/bin/ricebowl-wayland-session\\n", ""), False),
+                "Exec=/usr/bin/ricebowl-wayland-session\n", ""), False),
         )
         with tempfile.TemporaryDirectory() as tmp:
             entry = Path(tmp) / "session.desktop"
