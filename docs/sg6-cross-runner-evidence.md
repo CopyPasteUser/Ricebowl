@@ -9,7 +9,8 @@ The `sg6-cross-runner.yml` workflow runs in two distinct trust modes:
 | Trigger | Source | Build+compare | OIDC/attestation | SG6 sign-off |
 | --- | --- | --- | --- | --- |
 | Relevant `pull_request` | GitHub test merge commit (`GITHUB_SHA`) | Yes, two VMs and third comparison job | **Never** | No |
-| Deliberate `workflow_dispatch` on `main` | Exact checked-out main SHA, checked against live ref | Yes | Separate `attest` job after comparison | Requires independent review; not automatic |
+| Relevant `push` on `main` | Exact checked-out main SHA, checked against the live main ref | Yes | Separate `attest` job after comparison | Candidate; still requires review of the *actual run* |
+| Deliberate `workflow_dispatch` on `main` | Exact checked-out main SHA, checked against live ref | Yes | Separate `attest` job after comparison | Candidate; still requires review of the *actual run* |
 
 A passing PR comparison is useful to catch real compilation/packaging and
 cross-runner differences **before** integration. It is not an exact-main
@@ -39,21 +40,45 @@ main Actions run, not the original ELF to an external auditor's toolchain.
 - Run `python3 -m unittest tests.test_sg6_cross_runner tests.test_sg6_workflow_policy -v`.
 - Open a PR touching SG6 verifier or workflow sources; require both
   `Build four debs` jobs and `Compare actual packages` to succeed.
-- After integration, deliberately dispatch `SG6 independent-runner
-  four-deb reproducibility` on the **new** `main`. Verify the `attest`
-  job, downloaded report, run event, source SHA and all four digests.
+- After integration, require the automatically triggered **trusted main push**
+  run when the commit changes any SG6 package input. For a different exact
+  `main` SHA where the workflow path filters did not trigger, deliberately
+  dispatch `SG6 independent-runner four-deb reproducibility` on `main`.
+  Verify the non-skipped `attest` job, downloaded report, event (`push` or
+  `workflow_dispatch`), current main SHA and all four digests. A passing
+  PR run, a queued signing job or an obsolete main receipt is insufficient.
 - After further merges, previous main receipts are historical and do not
   satisfy an exact-final-main release dossier.
 
-## Remaining SG6 blockers
+## SG6 implementation and evidence requirements
 
-- Full Core/Native/Session/Meta multi-version transition and interrupted
-  `dpkg` recovery from actual immutable builds, not stamped relabels.
-- Disposable Mint-compatible install/rollback test environment.
-- Further external, reproducible toolchain provenance and independently
-  reviewed supply-chain claims.
-- Final exact-main CI, XFCE preservation review and physical Mint/ThinkPad
-  sign-off (physical checks remain a separate, later release gate).
+The installed-package regression matrix now includes source-built, versioned
+Native and Session transitions (PRs [#559](https://github.com/CopyPasteUser/Ricebowl/pull/559)
+and [#563](https://github.com/CopyPasteUser/Ricebowl/pull/563)),
+rather than only Core/Meta relabeling. It exercises dependency-safe
+downgrade/upgrade, archive corruption, an actual injected `dpkg`
+configuration `SIGKILL`, recovery, re-login, purge and preservation of
+unmodified owner-private recipes and XFCE settings in disposable Ubuntu.
 
-This preflight does not change a login session or XFCE/X11 state, and must
-never update the formal SG checklist on its own.
+A separate Mint 22.1 Xia package root runs real four-package installation,
+reinstallation, corrupt-archive rejection, interrupted configuration
+recovery and purge against the exact tested source
+([#562](https://github.com/CopyPasteUser/Ricebowl/pull/562)). A green
+Ubuntu job cannot substitute for its separate Mint result.
+
+Before **formally accepting SG6**, record the identical checked-out main SHA
+and successful executed runs for all of: Tests, native install/upgrade/
+rollback + Mint CI, and the two-runner package comparison with its
+**main-only** signed report. Inspect the report's four hashes and independent
+runner receipts. The automatic trusted-main trigger is introduced in
+[#567](https://github.com/CopyPasteUser/Ricebowl/pull/567); until it is
+merged and actually green on a main SHA, this remains a candidate, **not**
+an acceptance claim.
+
+The report continues to say
+`independent_external_provenance_certified=false`: two GitHub-hosted runner
+VMs and a GitHub-signed report are traceable hosted CI evidence, **not**
+independent third-party toolchain auditing or physical-device certification.
+Mint/ThinkPad login, GPU, Flatpak and real-hardware recovery remain separate
+later release gates. Neither this document nor a green PR changes the
+formal checklist in issue #417.
