@@ -489,12 +489,13 @@ jobs:
               test "$(cat /root/.config/ricebowl/upgrade-preservation-marker)" = user-state
               echo "Clean install, reinstall and purge preserved user state"
             '
-      - name: Upgrade real previous Debian previews, reject corruption and roll back
-        timeout-minutes: 15
+      - name: Upgrade all historical Debian components, inject failures and recover
+        timeout-minutes: 22
         run: |
           set -eu
           bash -n scripts/smoke_wayland_upgrade_rollback.sh
           git fetch --no-tags --depth=1 origin b3d615a7cc508049050eb06c7952ef5a8d26e598
+          git fetch --no-tags --depth=1 origin c8274dee78386124470cb5ff9a4d2768bb019126
           bash scripts/smoke_wayland_upgrade_rollback.sh "$PWD/dist/riceplate-native-preview"
       - name: Validate both declarative Creator examples
         run: |
