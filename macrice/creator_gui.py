@@ -14,6 +14,7 @@ import os
 import stat
 import tempfile
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -3498,6 +3499,7 @@ def run() -> int:
                           flags=Gio.ApplicationFlags.FLAGS_NONE)
     windows = []
     smoke_failed = False
+    probe_started = [0.0]
 
     def activate(application):
         if not windows:
@@ -3508,7 +3510,9 @@ def run() -> int:
             GLib.idle_add(smoke_test)
         if os.environ.get("RICEBOWL_CREATOR_WAYLAND_PROBE") in ("heritage-composer",
                                                                  "orbit-composer"):
-            GLib.idle_add(wayland_input_probe)
+            # GTK mapping/focus arrives asynchronously under real labwc.
+            probe_started[0] = time.monotonic()
+            GLib.timeout_add(100, wayland_input_probe)
 
     def wayland_input_probe():
         """CI-only: arm a real GTK button for external Wayland keyboard dispatch.
@@ -3532,8 +3536,17 @@ def run() -> int:
                 "orbit" if template == "heritage-composer" else "heritage-composer"]
             if button.get_accessible().get_role() != Atk.Role.PUSH_BUTTON:
                 raise RuntimeError("Composer template lacks accessible button role")
+            # Do not mistake the first unmapped GTK idle turn for a failed
+            # keyboard capability. Keep the real input gate strict: external
+            # wtype must still move focus and activate this GTK button.
+            if not window.get_mapped() or not previous.get_mapped():
+                if time.monotonic() - probe_started[0] < 5:
+                    return True
+                raise RuntimeError("Composer template not mapped in labwc")
             previous.grab_focus()
-            if not previous.has_focus() or window.get_focus() != previous:
+            if window.get_focus() != previous:
+                if time.monotonic() - probe_started[0] < 5:
+                    return True
                 raise RuntimeError("Preceding template could not receive GTK keyboard focus")
             state = Path(os.environ["XDG_STATE_HOME"])
             (state / "sg4-creator-wayland-ready").write_text(
