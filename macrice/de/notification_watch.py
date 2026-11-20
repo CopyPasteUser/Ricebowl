@@ -45,6 +45,14 @@ def signal_reason(interface: str, member: str, payload: object) -> str | None:
                 type(value) is int for value in payload)
                 and 0 < payload[0] < 2**32 and payload[1] in (1, 2, 3, 4)):
             return "changed"
+    if interface == "org.freedesktop.Notifications" and member == "ActionInvoked":
+        # An action need not close its notification. A distinct standard FDO
+        # signal still invalidates the visible row and its focus/action state.
+        # Never forward the action key or notification text to UI callbacks.
+        if (len(payload) == 2 and type(payload[0]) is int
+                and 0 < payload[0] < 2**32
+                and type(payload[1]) is str and 0 < len(payload[1]) <= 80):
+            return "changed"
     if interface == "org.freedesktop.DBus.Properties" and member == "PropertiesChanged":
         if (len(payload) == 3 and payload[0] == "fr.emersion.Mako"
                 and type(payload[1]) is dict
@@ -68,6 +76,7 @@ class InboxSignals:
         self._timer_id = 0
         subscriptions = (
             (_BUS, "org.freedesktop.Notifications", "NotificationClosed", _FDO_PATH, None),
+            (_BUS, "org.freedesktop.Notifications", "ActionInvoked", _FDO_PATH, None),
             (_BUS, "org.freedesktop.DBus.Properties", "PropertiesChanged", _MAKO_PATH, None),
             ("org.freedesktop.DBus", "org.freedesktop.DBus", "NameOwnerChanged", _DBUS_PATH, _BUS),
         )
