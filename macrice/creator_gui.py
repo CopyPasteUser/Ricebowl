@@ -3560,6 +3560,16 @@ def run() -> int:
             print(f"SG4 keyboard probe armed: active={window.is_active()}, "
                   f"preceding={focus_key(window.get_focus())}",
                   file=__import__("sys").stderr, flush=True)
+            def observe_external_key(_widget, event):
+                name = Gdk.keyval_name(event.keyval)
+                if name in ("Tab", "ISO_Left_Tab", "Return", "KP_Enter"):
+                    print(f"SG4 GTK key delivery: {name}; "
+                          f"focused={focus_key(window.get_focus())}, "
+                          f"active={window.is_active()}",
+                          file=__import__("sys").stderr, flush=True)
+                return False
+
+            window.connect("key-press-event", observe_external_key)
             (state / "sg4-creator-wayland-ready").write_text(
                 template + "\n", encoding="utf-8")
             previous_focus_key = [focus_key(window.get_focus())]
