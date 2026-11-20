@@ -191,7 +191,17 @@ def main() -> None:
 
         # Use a real GtkButton signal connected by RiceSpice, not the backend
         # API directly. The live event must invalidate the exact second row.
+        # Mako replacement/addition signals can still be coalescing a
+        # private, read-only GTK refresh after the separate AT-SPI client
+        # exits. An action fired during that busy interval is correctly
+        # rejected by RiceSpice rather than queued/replayed unsafely. Arm
+        # the *real* button only once the live view is idle and mapped.
+        until(GLib, lambda: not view.busy
+              and button_for(view, pid, SECOND) is not None,
+              "settled GTK dismiss action before click")
         dismiss_second = button_for(view, pid, SECOND)
+        if dismiss_second is None or not dismiss_second.get_mapped():
+            raise RuntimeError("GTK dismiss button missing or unmapped after refresh")
         dismiss_second.clicked()
         until(GLib, lambda: not view.busy
               and button_for(view, pid, SECOND) is None,
