@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import json
 import re
+import math
 import sys
 from pathlib import Path
 
@@ -21,6 +22,11 @@ else:
 CYCLES = 3
 FIELDS = frozenset(Sample.__dataclass_fields__)
 COUNTERS = frozenset(LIMITS)
+CPU_FIELDS = frozenset({
+    'pid', 'start_ticks', 'cpu_delta_ticks', 'clock_ticks_per_second',
+    'elapsed_ns', 'cpu_core_percent', 'pss_kib', 'rss_kib', 'fds', 'threads',
+    'software_ci_only', 'hardware_accepted',
+})
 RECEIPT_FIELDS = frozenset({
     "ok", "hardware_accepted", "same_process",
     "expected_process_replacement", "baseline", "after", "growth", "limits",
@@ -53,6 +59,38 @@ def _read(path: Path) -> tuple[dict, str]:
     if type(obj) is not dict or set(obj) != RECEIPT_FIELDS:
         raise EvidenceError(f"Unexpected resource receipt schema: {path.name}")
     return obj, hashlib.sha256(data).hexdigest()
+
+
+def _cpu_receipt(path: Path, after: dict, cycle: int) -> tuple[float, str]:
+    if path.is_symlink() or not path.is_file():
+        raise EvidenceError(f"Missing or symlinked CPU receipt: cycle {cycle}")
+    try:
+        data = path.read_bytes()
+        if not 0 < len(data) <= 4096:
+            raise EvidenceError(f"Oversized CPU receipt: cycle {cycle}")
+        row = json.loads(data.decode("utf-8"), object_pairs_hook=_unique_pairs)
+    except (OSError, UnicodeError, ValueError, RecursionError) as exc:
+        raise EvidenceError(f"Malformed CPU receipt: cycle {cycle}") from exc
+    if (type(row) is not dict or set(row) != CPU_FIELDS
+            or row['software_ci_only'] is not True
+            or row['hardware_accepted'] is not False):
+        raise EvidenceError(f"Untrusted CPU receipt schema: cycle {cycle}")
+    integer_keys = CPU_FIELDS - frozenset({
+        'cpu_core_percent', 'software_ci_only', 'hardware_accepted'})
+    if any(type(row[k]) is not int or row[k] < 0 for k in integer_keys):
+        raise EvidenceError(f"Invalid CPU counter: cycle {cycle}")
+    if (row['pid'] != after['pid'] or row['start_ticks'] != after['start_ticks']
+            or row['clock_ticks_per_second'] <= 0
+            or not 200_000_000 <= row['elapsed_ns'] <= 10_000_000_000
+            or type(row['cpu_core_percent']) is not float
+            or not math.isfinite(row['cpu_core_percent'])
+            or row['cpu_core_percent'] < 0):
+        raise EvidenceError(f"CPU measurement does not match native cycle {cycle}")
+    expected = round(100.0 * row['cpu_delta_ticks'] * 1_000_000_000 /
+                     (row['clock_ticks_per_second'] * row['elapsed_ns']), 3)
+    if row['cpu_core_percent'] != expected:
+        raise EvidenceError(f"CPU report does not match /proc ticks: cycle {cycle}")
+    return row['cpu_core_percent'], hashlib.sha256(data).hexdigest()
 
 
 def _sample(value: object, label: str) -> dict[str, int]:
@@ -99,6 +137,7 @@ def verify(directory: Path, source_commit: str) -> dict:
     observed = set()
     digests = {}
     maxima = {key: None for key in LIMITS}
+    max_cpu_core_percent = 0.0
     for cycle in range(1, CYCLES + 1):
         label = f"resource-growth-cycle-{cycle}.json"
         row, digest = _read(directory / label)
@@ -112,6 +151,10 @@ def verify(directory: Path, source_commit: str) -> dict:
             raise EvidenceError(f"Repeated native process identity: cycle {cycle}")
         observed.add(identity)
         digests[label] = digest
+        cpu_label = f"resource-cpu-cycle-{cycle}.json"
+        measured_cpu, cpu_digest = _cpu_receipt(directory / cpu_label, after, cycle)
+        digests[cpu_label] = cpu_digest
+        max_cpu_core_percent = max(max_cpu_core_percent, measured_cpu)
         maxima = {key: growth[key] if maxima[key] is None
                   else max(maxima[key], growth[key]) for key in LIMITS}
         last = row
@@ -120,11 +163,14 @@ def verify(directory: Path, source_commit: str) -> dict:
         raise EvidenceError("Final resource receipt differs from cycle three")
     digests["resource-growth.json"] = legacy_digest
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "source_commit": source_commit,
         "software_ci_only": True,
         "hardware_accepted": False,
         "real_labwc_cycles": CYCLES,
+        "cpu_observed_cycles": CYCLES,
+        "max_cpu_core_percent": max_cpu_core_percent,
+        "cpu_is_ci_sample_not_long_run_or_hardware": True,
         "baseline": baseline,
         "max_observed_growth": maxima,
         "limits": dict(LIMITS),
@@ -147,7 +193,7 @@ def main(argv: list[str] | None = None) -> int:
     except (EvidenceError, OSError) as exc:
         print(f"SG7 resource evidence: BLOCKED — {exc}", file=sys.stderr)
         return 1
-    print(f"Verified {CYCLES} real labwc switch receipts for {args.source_commit}")
+    print(f"Verified {CYCLES} real labwc switch, CPU and teardown receipts for {args.source_commit}")
     return 0
 
 
