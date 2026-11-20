@@ -142,6 +142,29 @@ class DebianUpgradeContracts(unittest.TestCase):
         self.assertNotIn("rm -rf /home", recovered)
         self.assertIn("docker run --rm -i", before)
 
+    def test_session_reverse_transition_respects_real_meta_dependency(self):
+        smoke = (ROOT / "scripts/smoke_wayland_upgrade_rollback.sh").read_text()
+        downgrade = smoke.split("PHASE 3d/5:", 1)[1].split("PHASE 4/5:", 1)[0]
+        # Both current and historical Meta require Session >= preview3.
+        # Never force dpkg to downgrade Session under an installed Meta.
+        self.assertLess(downgrade.index("apt-get remove -y ricebowl-wayland-desktop"),
+                        downgrade.index('"$old_session2"'))
+        self.assertLess(downgrade.index('"$old_session2"'),
+                        downgrade.index('"$old_session3"'))
+        self.assertIn("--allow-downgrades", downgrade)
+        self.assertIn("check_version ricebowl-wayland-session '0.1.0~preview2'", downgrade)
+        self.assertIn("check_version ricebowl-wayland-session '0.1.0~preview3'", downgrade)
+        self.assertIn('\"$old_session_payload\"', downgrade)
+        self.assertIn('check_version ricebowl-wayland-core', downgrade)
+        self.assertIn('check_version ricebowl-riceplate-native', downgrade)
+        self.assertIn('test -z "$(dpkg --audit)"', downgrade)
+        self.assertIn("assert_selected xp-luna-columns", downgrade)
+        self.assertIn("check_user_state", downgrade)
+        self.assertIn("sha256sum -c --status /tmp/ricebowl-v12-before.sha256", downgrade)
+        self.assertNotIn("--force-depends", downgrade)
+        self.assertNotIn("apt-get purge", downgrade)
+        self.assertNotIn("rm -rf /home", downgrade)
+
     def test_provenance_is_part_of_core_package_not_user_config(self):
         builder = (ROOT / "scripts/build_wayland_core_deb.sh").read_text()
         self.assertIn("git -C \"$project_root\" rev-parse --verify HEAD", builder)
