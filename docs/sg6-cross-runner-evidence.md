@@ -50,6 +50,28 @@ main Actions run, not the original ELF to an external auditor's toolchain.
 - After further merges, previous main receipts are historical and do not
   satisfy an exact-final-main release dossier.
 
+## Trusted-main signed package receipt (20 November 2026)
+
+On [`main@6df41f60818cb1a41bd80d198932edf0ef266a63`](https://github.com/CopyPasteUser/Ricebowl/commit/6df41f60818cb1a41bd80d198932edf0ef266a63),
+the [SG6 independent-runner run #44779349464](https://github.com/CopyPasteUser/Ricebowl/actions/runs/44779349464)
+completed successfully on a trusted `push`. Both independent builders and
+the third comparison job passed. The **executed** main-only `actions/attest@v4`
+step signed the downloaded report:
+
+- [GitHub Attestation #70241030](https://github.com/CopyPasteUser/Ricebowl/attestations/70241030)
+- Subject: `report.json`, SHA-256 `8a22caa97ed181fb620c9bad1552a7176aa4bca012755228324caf6e16b38473`
+- Public Sigstore Rekor index: `4027375948`
+- Recorded source SHA: `6df41f60818cb1a41bd80d198932edf0ef266a63`
+- Four byte-identical packages from independently identified hosted runners;
+  the comparison report and subject digest were independently rechecked
+  against the downloaded artifact.
+
+This verifies **report identity and digest**, not a cryptographic external
+attestation of the build machines themselves. Final SG6 acceptance also
+requires Tests plus the exact-main installed native/Ubuntu/Mint recovery jobs
+to finish successfully; their outcomes must not be inferred from this
+comparison alone.
+
 ## SG6 implementation and evidence requirements
 
 The installed-package regression matrix now includes source-built, versioned
