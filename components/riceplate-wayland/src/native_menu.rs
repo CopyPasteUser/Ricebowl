@@ -1774,12 +1774,12 @@ mod tests {
         state.open();
         state.start_search();
         assert_eq!(state.search_caret(), 0);
-        assert!(state.keyboard_text("👩‍💻e\\u{301}🇩🇪", false, false));
+        assert!(state.keyboard_text("👩‍💻e\u{301}🇩🇪", false, false));
         assert_eq!(state.search_caret(), 3,
                    "AT-SPI caret must count extended graphemes, not scalars");
         assert!(state.backspace());
         assert_eq!(state.search_caret(), 2);
-        assert_eq!(state.search, "👩‍💻e\\u{301}");
+        assert_eq!(state.search, "👩‍💻e\u{301}");
         state.show_programs();
         assert_eq!(state.search_caret(), 0);
         assert!(state.search_input("foo/bar"));
