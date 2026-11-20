@@ -1,6 +1,6 @@
 # SG1–SG7 — transparent engineering evidence index
 
-Last reviewed: 2026-11-19. Authority for release acceptance: [issue #417](https://github.com/CopyPasteUser/Ricebowl/issues/417) and [RELEASE_1_0_GATES.md](../RELEASE_1_0_GATES.md).
+Last reviewed: 2026-11-20 (SG2/SG3 draft candidates; original checkpoint evidence unchanged). Authority for release acceptance: [issue #417](https://github.com/CopyPasteUser/Ricebowl/issues/417) and [RELEASE_1_0_GATES.md](../RELEASE_1_0_GATES.md).
 
 ## How to read these percentages
 
@@ -29,6 +29,12 @@ Last reviewed: 2026-11-19. Authority for release acceptance: [issue #417](https:
 - [x] Native stale notification ID/action and owner-bound guarded mutation path has regression tests ([roadmap](../RICEBOWL_DE_ROADMAP.md)).
 - [ ] Inbox/OSD, live updates, keyboard and AT-SPI action semantics accepted across structurally distinct rices.
 - [ ] Privacy, restart, persistence, localization and rendered text accepted as a complete real-Mako/labwc matrix.
+
+### SG2/SG3 focused candidates (20 November 2026; **not yet accepted**)
+
+- **SG2 candidate [#552](https://github.com/CopyPasteUser/Ricebowl/pull/552):** NetworkManager saved-profile operations classify post-write inventory loss as an indeterminate outcome and reject type-changed UUID reuse. Unit tests use fake providers; they **do not** establish complete network/display/audio/BlueZ/power/time GUI parity, authorization or real D-Bus/compositor acceptance.
+- **SG3 candidate [#553](https://github.com/CopyPasteUser/Ricebowl/pull/553):** Mako freedesktop `ActionInvoked` is added to the view-scoped live watcher with malformed-signal tests; the existing private Mako 1.11/labwc smoke now requires one **real** `ActionInvoked` bus emission. No second notification owner or durable inbox is introduced.
+- **Evidence policy:** these are review candidates, not checked acceptance items. Require green exact-head jobs, independent real-Mako/labwc/AT-SPI verification and post-integration exact-main provenance before changing any SG2/SG3 checkbox or coverage count. The full #417 gate requirements remain outstanding.
 
 ### SG4 — Creator/RicePack: 2 / 4
 - [x] Versioned v1 panel recipe validation and offline import/export supported ([release gates](../RELEASE_1_0_GATES.md)).

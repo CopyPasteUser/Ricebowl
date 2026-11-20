@@ -202,6 +202,32 @@ def main() -> None:
         if not any(row["id"] == third_id for row in current["active"]):
             raise RuntimeError("GUI dismissal removed an unrelated notification")
 
+        # This must be a real Mako freedesktop ActionInvoked signal, not a
+        # fabricated GLib event or a change from the three-second readback
+        # lease. Observe it through an independent session-bus subscriber.
+        action_events = []
+        listener = connection.signal_subscribe(
+            "org.freedesktop.Notifications",
+            "org.freedesktop.Notifications", "ActionInvoked",
+            "/org/freedesktop/Notifications", None,
+            Gio.DBusSignalFlags.NONE,
+            lambda _bus, _sender, _path, _interface, _member, params, _data:
+                action_events.append(params.unpack()),
+            None)
+        try:
+            # The synthetic message's only action has no real-world side
+            # effect. The fixed request executes exactly once on private Mako.
+            command = subprocess.run(
+                ["makoctl", "invoke", "-n", str(third_id), "--", "open"],
+                stdin=subprocess.DEVNULL, capture_output=True, timeout=4,
+                check=False)
+            if command.returncode:
+                raise RuntimeError("Private Mako rejected synthetic action invocation")
+            until(GLib, lambda: (third_id, "open") in action_events,
+                  "actual FDO ActionInvoked event from private Mako")
+        finally:
+            connection.signal_unsubscribe(listener)
+
         # Leaving the inbox revokes private callbacks and renders another page
         # without caching private row widgets or a resident data poller.
         view.show_page("network")
@@ -209,7 +235,7 @@ def main() -> None:
             raise RuntimeError("RicePop retained private GUI actions after navigation")
         print("SG3 real Mako 1.11/labwc: add -> replace same ID -> GTK focus "
               "revocation -> stale action refusal -> external AT-SPI -> GUI "
-              "dismiss -> live close -> private navigation cleanup: PASS")
+              "dismiss -> live close -> real ActionInvoked -> private navigation cleanup: PASS")
     finally:
         view._stop_ricepop_signals()
         view.executor.shutdown(wait=False, cancel_futures=True)

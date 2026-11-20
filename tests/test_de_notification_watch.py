@@ -61,6 +61,14 @@ class InboxSignalTests(unittest.TestCase):
                                  ("org.other.Host", {"Notifications": object()}, [])))
         self.assertEqual(detect("org.freedesktop.Notifications",
                                 "NotificationClosed", (22, 2)), "changed")
+        self.assertEqual(detect("org.freedesktop.Notifications",
+                                "ActionInvoked", (22, "open")), "changed")
+        # Untrusted payloads cannot cause a UI update or leak an action key.
+        for malformed in ((True, "open"), (0, "open"), (22, ""), (22, 7),
+                          (22, "x" * 81), (22,), {"id": 22}):
+            self.assertIsNone(detect("org.freedesktop.Notifications",
+                                     "ActionInvoked", malformed))
+        self.assertIsNone(detect("org.other", "ActionInvoked", (22, "open")))
         self.assertIsNone(detect("org.freedesktop.Notifications",
                                  "NotificationClosed", (True, 2)))
         self.assertEqual(detect("org.freedesktop.DBus",
@@ -95,16 +103,17 @@ class InboxSignalTests(unittest.TestCase):
         bus = FakeConnection()
         reasons = []
         watch = notification_watch.InboxSignals(gio(bus), reasons.append)
-        self.assertEqual(len(bus.handlers), 3)
+        self.assertEqual(len(bus.handlers), 4)
         bus.emit("org.freedesktop.DBus.Properties", "PropertiesChanged",
                  ("fr.emersion.Mako", {"Notifications": object()}, []))
         bus.emit("org.freedesktop.Notifications", "NotificationClosed", (7, 1))
+        bus.emit("org.freedesktop.Notifications", "ActionInvoked", (7, "open"))
         bus.emit("org.freedesktop.DBus", "NameOwnerChanged",
                  ("org.freedesktop.Notifications", ":1.1", ":1.2"))
-        self.assertEqual(reasons, ["changed", "changed", "owner"])
+        self.assertEqual(reasons, ["changed", "changed", "changed", "owner"])
         watch.close()
         watch.close()  # Clean teardown after page switch and window destroy.
-        self.assertEqual(bus.unsubscribed, [1, 2, 3])
+        self.assertEqual(bus.unsubscribed, [1, 2, 3, 4])
         self.assertEqual(bus.handlers, {})
         # A queued callback from the old GTK view must be harmless after
         # owner handoff, navigation or explicit window destruction.
@@ -136,7 +145,7 @@ class InboxSignalTests(unittest.TestCase):
         self.assertEqual(removed, [44])
         self.assertFalse(tick(), "Old readback callback survived navigation")
         self.assertEqual(observed, ["changed"])
-        self.assertEqual(bus.unsubscribed, [1, 2, 3])
+        self.assertEqual(bus.unsubscribed, [1, 2, 3, 4])
         watch.close()
         self.assertEqual(removed, [44], "Repeated close removed the timer twice")
 
@@ -162,9 +171,9 @@ class InboxSignalTests(unittest.TestCase):
 
         bus.signal_unsubscribe = flaky_unsubscribe
         watch.close()
-        self.assertEqual(attempts, [1, 2, 3],
+        self.assertEqual(attempts, [1, 2, 3, 4],
                          "One bad unsubscribe must not skip the remaining leases")
-        self.assertEqual(bus.unsubscribed, [1, 3])
+        self.assertEqual(bus.unsubscribed, [1, 3, 4])
         self.assertEqual(set(bus.handlers), {2},
                          "Simulate an old callback still queued on a dead bus")
         # Even if GDBus delivers the surviving subscribed callback after
@@ -173,7 +182,7 @@ class InboxSignalTests(unittest.TestCase):
                  ("fr.emersion.Mako", {"Notifications": object()}, []))
         self.assertEqual(delivered, [])
         watch.close()
-        self.assertEqual(attempts, [1, 2, 3], "Teardown must be idempotent")
+        self.assertEqual(attempts, [1, 2, 3, 4], "Teardown must be idempotent")
         self.assertIsNone(watch._connection)
         self.assertEqual(watch._ids, [])
 

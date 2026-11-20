@@ -17,6 +17,7 @@ on:
       - 'scripts/smoke_ricepop_modern_bus.py'
       - 'scripts/smoke_real_mako_111.sh'
       - 'scripts/smoke_ricepop_recovery.py'
+      - 'scripts/smoke_ricepop_live_updates.py'
       - 'scripts/smoke_ricespice_pulse.py'
       - 'scripts/check_wayland_panel_outputs.py'
       - 'scripts/capture_luna_labwc.py'
@@ -39,6 +40,7 @@ on:
       - 'scripts/smoke_ricepop_modern_bus.py'
       - 'scripts/smoke_real_mako_111.sh'
       - 'scripts/smoke_ricepop_recovery.py'
+      - 'scripts/smoke_ricepop_live_updates.py'
       - 'scripts/smoke_ricespice_pulse.py'
       - 'scripts/check_wayland_panel_outputs.py'
       - 'scripts/capture_luna_labwc.py'
@@ -101,7 +103,7 @@ jobs:
           sh -n scripts/test_wayland_package_reproducibility.sh
           sh -n scripts/smoke_wayland_session.sh
           sh -n scripts/smoke_real_mako_111.sh
-          /usr/bin/python3 -m py_compile scripts/smoke_wayland_ricepop.py scripts/smoke_ricepop_atspi_client.py scripts/smoke_ricepop_modern_bus.py scripts/smoke_ricepop_recovery.py
+          /usr/bin/python3 -m py_compile scripts/smoke_wayland_ricepop.py scripts/smoke_ricepop_atspi_client.py scripts/smoke_ricepop_modern_bus.py scripts/smoke_ricepop_recovery.py scripts/smoke_ricepop_live_updates.py
           # Real private D-Bus wire contract for Mako 1.11+, separately from
           # the production Mako 1.8 close signal checked by the labwc smoke.
           timeout -k 2s 15s dbus-run-session -- /usr/bin/python3 scripts/smoke_ricepop_modern_bus.py
