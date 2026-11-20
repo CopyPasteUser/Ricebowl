@@ -166,8 +166,14 @@ impl Clipboard {
     fn offer(&mut self, offer: WlDataOffer) {
         // Drag offers are not clipboard selections; do not accumulate them.
         if self.offers.len() >= 16 {
-            let (old, _) = self.offers.remove(0);
-            if self.selected.as_ref() != Some(&old) { old.destroy(); }
+            // An active selection can never be evicted, otherwise a hostile
+            // burst of unrelated drag offers leaks its proxy and invalidates
+            // the only available paste target.
+            if let Some(index) = self.offers.iter().position(|(proxy, _)|
+                self.selected.as_ref() != Some(proxy)) {
+                let (old, _) = self.offers.remove(index);
+                old.destroy();
+            }
         }
         self.offers.push((offer, Vec::new()));
     }
