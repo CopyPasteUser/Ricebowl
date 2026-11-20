@@ -88,7 +88,9 @@ def sample(name: str):
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--name", choices=("Command", "File name"), default="Command")
+    parser.add_argument("--name", choices=("Command", "File name",
+                                           "Search applications and actions",
+                                           "Filter installed apps"), default="Command")
     parser.add_argument("--text", default="")
     parser.add_argument("--caret", type=int, default=0)
     parser.add_argument("--selection", nargs=2, type=int)
