@@ -14,8 +14,8 @@ from collections import Counter
 import pyatspi
 
 
-def run_entry():
-    """Find the actual transient Run entry, bounded against broken providers."""
+def run_entry(name: str):
+    """Find the actual transient editor, bounded against broken providers."""
     root = pyatspi.Registry.getDesktop(0)
     stack = [(root, 0)]
     visited = 0
@@ -23,7 +23,7 @@ def run_entry():
         node, depth = stack.pop()
         visited += 1
         try:
-            if node.getRole() == pyatspi.ROLE_ENTRY and node.name == "Command":
+            if node.getRole() == pyatspi.ROLE_ENTRY and node.name == name:
                 return node
             if depth >= 10:
                 continue
@@ -50,7 +50,7 @@ def diagnostic_inventory():
         seen += 1
         try:
             counts[node.getRoleName()] += 1
-            name = node.name if node.name in ("RicePlate", "Run", "Command") else ""
+            name = node.name if node.name in ("RicePlate", "Run", "Command", "File name") else ""
             if name:
                 print(f"AT-SPI debug depth={depth} role={node.getRoleName()} name={name}",
                       file=sys.stderr)
@@ -66,8 +66,8 @@ def diagnostic_inventory():
           f"roles={dict(counts)}", file=sys.stderr)
 
 
-def sample():
-    node = run_entry()
+def sample(name: str):
+    node = run_entry(name)
     if node is None:
         return None
     states = node.getState()
@@ -88,19 +88,20 @@ def sample():
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--name", choices=("Command", "File name"), default="Command")
     parser.add_argument("--text", default="")
     parser.add_argument("--caret", type=int, default=0)
     parser.add_argument("--selection", nargs=2, type=int)
     parser.add_argument("--absent", action="store_true")
     args = parser.parse_args()
     deadline = time.monotonic() + 10
-    last = "no accessible Run entry"
+    last = "no accessible native editor entry"
     while time.monotonic() < deadline:
         try:
-            state = sample()
+            state = sample(args.name)
             if args.absent:
                 if state is None:
-                    print("PASS: dismissed Run entry absent from AT-SPI")
+                    print("PASS: dismissed native editor absent from AT-SPI")
                     return 0
             elif state is not None:
                 wanted = [] if args.selection is None else [tuple(args.selection)]
@@ -111,12 +112,12 @@ def main() -> int:
                     and state["selections"] == wanted
                 ):
                     # Never print the editor value: it can contain a command.
-                    print("PASS: live AT-SPI Run entry role/name/focus/text/caret/selection")
+                    print("PASS: live AT-SPI native editor role/name/focus/text/caret/selection")
                     return 0
                 # Never log Run command contents. The mismatch dimensions
                 # alone isolate focus, stale text, caret and selection bugs.
                 last = (
-                    "Run entry AT-SPI mismatch: "
+                    "Native editor AT-SPI mismatch: "
                     f"chars={len(state['text'])}/{len(args.text)} "
                     f"caret={state['caret']}/{args.caret} "
                     f"focused={state['focused']}/True "
