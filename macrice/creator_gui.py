@@ -21,7 +21,7 @@ from .de import (creator_activation, creator_interactive, creator_layout as layo
                  creator_release, creator_workspace as workspace)
 from .de import (assets, creator_assets, creator_iteration, creator_mapping, creator_reference, creator_regions,
                  creator_structure, drafts,
-                 fonts, pack, recipes, render, review, style_assets)
+                 fonts, pack, recipes, render, render_matrix, review, style_assets)
 
 
 # All paths below are existing allowlisted Creator draft-edit fields. Gtk owns
@@ -191,6 +191,7 @@ def run() -> int:
             self._interactive_session: creator_interactive.InteractivePreview | None = None
             self._interactive_closing = False
             self._render_generation = 0
+            self._matrix_generation = 0
             self._pixbuf = None
             self._preview_fit: tuple[int, int] | None = None
             self._capture_bytes: bytes | None = None
@@ -261,14 +262,18 @@ def run() -> int:
             descriptions = {
                 "heritage": "Compact classic · bottom bar",
                 "orbit": "Expressive · top bar + sidebar",
+                "heritage-composer": "Classic Composer · bottom task hierarchy",
+                "orbit-composer": "Orbit Composer · top panel + focus sidebar",
                 "classic": "Original classic base",
                 "chrome": "Original Chrome base",
             }
+            self.template_buttons = {}
             for key, (name, _) in workspace.TEMPLATES.items():
                 button = self._button(name, lambda _b, kind=key: self._create(kind))
                 button.get_style_context().add_class("creator-template")
                 button.set_tooltip_text(descriptions[key])
                 sidebar.pack_start(button, False, False, 0)
+                self.template_buttons[key] = button
             sidebar.pack_start(self._text("CONTINUE AN EXISTING RICE", "creator-rail-label"),
                                False, False, 8)
             self.open_installed_btn = self._button("Edit installed rice…", self._open_installed)
@@ -322,10 +327,12 @@ def run() -> int:
             preview.pack_start(head, False, False, 0)
             head.pack_start(self._text("DESKTOP COMPOSITION", "creator-rail-label"), True, True, 0)
             self.geometry = Gtk.ComboBoxText()
-            for key, label in (("1024,768,1", "1024 × 768"),
+            for key, label in (("640,480,1", "640 × 480 · compact"),
+                               ("1024,768,1", "1024 × 768"),
                                ("1366,768,1", "1366 × 768"),
                                ("1920,1080,1", "1920 × 1080"),
-                               ("1366,768,1.25", "1366 × 768 · 125%")):
+                               ("1366,768,1.25", "1366 × 768 · 125%"),
+                               ("1920,1080,2", "1920 × 1080 · 200%")):
                 self.geometry.append(key, label)
             self.geometry.set_active_id("1366,768,1")
             self.geometry.connect("changed", self._geometry_changed)
@@ -336,6 +343,16 @@ def run() -> int:
                 "The active rice and next login are unchanged; real system controls "
                 "inside the test can still affect devices.")
             preview.pack_start(self.interactive_btn, False, False, 0)
+            self.matrix_btn = self._button("Capture native 4-size QA archive…",
+                                           self._render_matrix)
+            self.matrix_btn.set_tooltip_text(
+                "Capture compact, laptop, desktop and fractional outputs using the existing "
+                "isolated labwc/RicePlate renderer. This checks pixel integrity, not input or focus.")
+            preview.pack_start(self.matrix_btn, False, False, 0)
+            self.matrix_note = self._text(
+                "Four native frames can be captured without changing the running desktop.",
+                "creator-preview-note", wrap=True)
+            preview.pack_start(self.matrix_note, False, False, 0)
             self.visual_stack = Gtk.Stack()
             self.visual_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
             self.visual_switch = Gtk.StackSwitcher()
@@ -580,6 +597,7 @@ def run() -> int:
             self.import_pack_btn.set_sensitive(not self._busy)
             self.save_btn.set_sensitive(selected and bool(self.pending) and not self._busy)
             self.render_btn.set_sensitive(selected and not self._busy)
+            self.matrix_btn.set_sensitive(selected and not self._busy)
             running = self._interactive_session is not None
             self.interactive_btn.set_label(
                 "Close interactive Wayland window" if running else "Try interactive Wayland window")
@@ -2550,6 +2568,74 @@ def run() -> int:
                 self._status("Verified saved version opened. No active rice changed.", success=True)
             except (workspace.WorkspaceError, recipes.RecipeError, OSError) as exc:
                 self._status(f"Could not open saved version: {exc}", error=True)
+
+        def _render_matrix(self, _button):
+            """GUI entry to the existing verified four-output native capture contract."""
+            if self._busy or not self._commit_pending() or self.info is None:
+                return
+            chooser = Gtk.FileChooserDialog(
+                title="Save native four-size QA archive", transient_for=self,
+                action=Gtk.FileChooserAction.SAVE)
+            chooser.add_buttons("Cancel", Gtk.ResponseType.CANCEL,
+                                "Capture four real outputs", Gtk.ResponseType.ACCEPT)
+            chooser.set_do_overwrite_confirmation(False)
+            chooser.set_current_name(f"{self.info.recipe_id}-native-qa.zip")
+            try:
+                accepted = chooser.run() == Gtk.ResponseType.ACCEPT
+                destination = Path(chooser.get_filename()) if accepted else None
+            finally:
+                chooser.destroy()
+            if destination is None:
+                return
+            info = self.info
+            self._busy = True
+            self._matrix_generation += 1
+            generation = self._matrix_generation
+            self._actions()
+            self.matrix_note.set_text("Capturing four real labwc/RicePlate outputs…")
+            self._status("Native output QA started. The active Wayland rice stays unchanged.")
+
+            def work():
+                try:
+                    result = render_matrix.render_matrix(str(info.path), destination)
+                    error = None
+                except (render.RenderError, render_matrix.MatrixError, OSError, ValueError) as exc:
+                    result, error = None, str(exc)
+                GLib.idle_add(self._matrix_complete, generation,
+                              info.semantic_sha256, result, error)
+
+            threading.Thread(target=work, name="ricebowl-creator-native-matrix",
+                             daemon=False).start()
+
+        def _matrix_complete(self, generation, expected_sha, result, error):
+            if generation != self._matrix_generation:
+                return False
+            self._busy = False
+            if not self.get_visible():
+                return False
+            self._actions()
+            if error:
+                self.matrix_note.set_text("Native output QA failed; no complete archive published.")
+                self._status(f"Native output QA failed: {error}", error=True)
+                return False
+            if (not result or result.get("verified") is not True
+                    or result.get("recipe", {}).get("semantic_sha256") != expected_sha
+                    or len(result.get("cases", [])) != 4):
+                self.matrix_note.set_text("Native output receipt does not match the saved draft.")
+                self._status("Native output receipt mismatch; do not use this QA archive.",
+                             error=True)
+                return False
+            sizes = ", ".join(
+                f"{item['id']} {item['geometry']['width']}×{item['geometry']['height']}"
+                f" @{item['geometry']['scale']:g}" for item in result["cases"])
+            self.matrix_note.set_text(
+                f"Verified native captures: {sizes}. Archive SHA-256 "
+                f"{result['archive_sha256'][:16]}. "
+                "Pixel integrity verified; visual fidelity, focus and input remain separate QA.")
+            self._status(
+                f"Four native frames saved to {Path(result['archive']).name}; "
+                "the active desktop was not switched.", success=True)
+            return False
 
         def _render(self, _button):
             if self._busy or not self._commit_pending() or self.info is None:
