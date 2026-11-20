@@ -69,6 +69,8 @@ class DebianUpgradeContracts(unittest.TestCase):
         self.assertIn('"$worktree/scripts/build_riceplate_native_deb.sh"', smoke)
         self.assertIn('cargo build --release --locked', smoke)
         self.assertIn('cargo generate-lockfile', smoke)
+        self.assertIn('cargo update --manifest-path', smoke)
+        self.assertIn('--package uuid --precise 1.26.0', smoke)
         self.assertIn('old_native="$temp/old-packages/ricebowl-riceplate-native_0.1.0~preview1_amd64.deb"', smoke)
         self.assertIn('old_session2="$temp/old-packages/ricebowl-wayland-session_0.1.0~preview2_all.deb"', smoke)
         self.assertIn('check_version "$old_native" ricebowl-riceplate-native', smoke)
