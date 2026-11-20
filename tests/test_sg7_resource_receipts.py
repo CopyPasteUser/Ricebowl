@@ -36,6 +36,7 @@ class SG7ResourceReceiptTests(unittest.TestCase):
                 "limits": LIMITS,
             }
             self.write(cycle, row)
+            self.write_cpu(cycle, after)
         (self.folder / "resource-growth.json").write_bytes(self.path(3).read_bytes())
 
     def path(self, cycle):
@@ -47,6 +48,22 @@ class SG7ResourceReceiptTests(unittest.TestCase):
     def write(self, cycle, row):
         self.path(cycle).write_text(json.dumps(row, sort_keys=True) + "\n")
 
+    def cpu_path(self, cycle):
+        return self.folder / f"resource-cpu-cycle-{cycle}.json"
+
+    def write_cpu(self, cycle, after):
+        # Synthetic unit fixture only; the CI script records real /proc time.
+        tick_delta = cycle * 2
+        self.cpu_path(cycle).write_text(json.dumps({
+            "pid": after["pid"], "start_ticks": after["start_ticks"],
+            "cpu_delta_ticks": tick_delta,
+            "clock_ticks_per_second": 100, "elapsed_ns": 500_000_000,
+            "cpu_core_percent": float(4 * cycle),
+            "pss_kib": after["pss_kib"], "rss_kib": after["rss_kib"],
+            "fds": after["fds"], "threads": after["threads"],
+            "software_ci_only": True, "hardware_accepted": False,
+        }) + "\\n")
+
     def test_three_real_cycle_receipts_generate_source_bound_manifest(self):
         result = verify(self.folder, SHA)
         self.assertEqual(result["source_commit"], SHA)
@@ -55,7 +72,10 @@ class SG7ResourceReceiptTests(unittest.TestCase):
         self.assertEqual(result["max_observed_growth"]["fds"], 3)
         self.assertFalse(result["hardware_accepted"])
         self.assertTrue(result["software_ci_only"])
-        self.assertEqual(len(result["receipt_sha256"]), 4)
+        self.assertEqual(len(result["receipt_sha256"]), 7)
+        self.assertEqual(result["schema_version"], 2)
+        self.assertEqual(result["cpu_observed_cycles"], 3)
+        self.assertEqual(result["max_cpu_core_percent"], 12.0)
         self.assertEqual(main(["--directory", str(self.folder), "--source-commit", SHA]), 0)
         manifest = json.loads((self.folder / "sg7-resource-acceptance.json").read_text())
         self.assertEqual(manifest, result)
@@ -99,6 +119,34 @@ class SG7ResourceReceiptTests(unittest.TestCase):
                 with self.assertRaises(EvidenceError):
                     verify(self.folder, SHA)
         self.write(2, base)
+
+    def test_cpu_receipt_identity_time_and_flag_forgery_fail_closed(self):
+        source = json.loads(self.cpu_path(2).read_text())
+        cases = (
+            ("different process", lambda r: r.update(pid=999)),
+            ("start-time PID reuse", lambda r: r.update(start_ticks=9999)),
+            ("fake CPU", lambda r: r.update(cpu_core_percent=0.0)),
+            ("negative ticks", lambda r: r.update(cpu_delta_ticks=-1)),
+            ("boolean clock", lambda r: r.update(clock_ticks_per_second=True)),
+            ("tiny sampling window", lambda r: r.update(elapsed_ns=1)),
+            ("hardware claim", lambda r: r.update(hardware_accepted=True)),
+            ("nonfinite CPU", lambda r: r.update(cpu_core_percent=float('nan'))),
+            ("extra field", lambda r: r.update(fake='unknown')),
+        )
+        for label, mutate in cases:
+            with self.subTest(label=label):
+                row = json.loads(json.dumps(source))
+                mutate(row)
+                self.cpu_path(2).write_text(json.dumps(row))
+                with self.assertRaises(EvidenceError):
+                    verify(self.folder, SHA)
+        self.cpu_path(2).write_text(json.dumps(source))
+        self.cpu_path(2).unlink()
+        with self.assertRaisesRegex(EvidenceError, "Missing"):
+            verify(self.folder, SHA)
+        self.cpu_path(2).symlink_to(self.cpu_path(3))
+        with self.assertRaisesRegex(EvidenceError, "symlinked"):
+            verify(self.folder, SHA)
 
     def test_reject_duplicate_fields_and_oversized_receipts(self):
         self.path(1).write_text('{"ok": true, "ok": false}')
