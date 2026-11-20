@@ -14,6 +14,7 @@ import os
 import re
 import stat
 import tempfile
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -53,6 +54,85 @@ def _start_ticks(raw: str) -> int:
     if ticks <= 0:
         raise ResourceSmokeError("Invalid native process start time")
     return ticks
+
+
+def _cpu_and_identity(raw: str) -> tuple[int, int, str]:
+    """Parse Linux /proc/<pid>/stat without trusting a ')' inside comm.
+
+    Field indices are relative to the state field (3): utime=14, stime=15,
+    starttime=22. The executable PID/start-time identity prevents PID reuse.
+    """
+    _, marker, suffix = raw.rpartition(") ")
+    fields = suffix.split()
+    if not marker or len(fields) < 20 or fields[0] not in (
+            "R", "S", "D", "T", "Z", "I"):
+        raise ResourceSmokeError("Invalid process CPU/stat counter")
+    try:
+        user, system, start = (int(fields[i]) for i in (11, 12, 19))
+    except ValueError as exc:
+        raise ResourceSmokeError("Malformed process CPU/stat tick") from exc
+    if min(user, system) < 0 or start <= 0:
+        raise ResourceSmokeError("Invalid process CPU/stat tick")
+    return user + system, start, fields[0]
+
+
+def _old_process_alive(previous: Sample, *, proc_root: Path = Path("/proc")) -> bool:
+    """Distinguish a still-running old panel from a re-used numeric PID."""
+    try:
+        raw = (proc_root / str(previous.pid) / "stat").read_text(encoding="ascii")
+    except FileNotFoundError:
+        return False
+    except (OSError, UnicodeError) as exc:
+        raise ResourceSmokeError("Cannot inspect prior native process") from exc
+    _, start, _ = _cpu_and_identity(raw)
+    return start == previous.start_ticks
+
+
+def assert_old_process_gone(previous: Sample, *, proc_root: Path = Path("/proc"),
+                            timeout: float = 2.0) -> None:
+    """The compositor may replace its panel before the supervisor reaps it."""
+    if not 0 <= timeout <= 10:
+        raise ResourceSmokeError("Invalid private process cleanup timeout")
+    deadline = time.monotonic() + timeout
+    while _old_process_alive(previous, proc_root=proc_root):
+        if time.monotonic() >= deadline:
+            raise ResourceSmokeError("Previous native panel still exists after switch")
+        time.sleep(min(0.1, max(0, deadline - time.monotonic())))
+
+
+def sample_cpu(binary: Path, runtime: Path, *, interval: float = 0.5,
+               proc_root: Path = Path("/proc"), uid: int | None = None) -> dict:
+    """Measure actual /proc CPU time for one settled native Wayland process."""
+    if not 0.2 <= interval <= 5.0:
+        raise ResourceSmokeError("Invalid bounded CPU sample interval")
+    before = sample_native(binary, runtime, proc_root=proc_root, uid=uid)
+    cpu_before, start_before, _ = _cpu_and_identity(
+        (proc_root / str(before.pid) / "stat").read_text(encoding="ascii"))
+    if start_before != before.start_ticks:
+        raise ResourceSmokeError("CPU identity changed during initial sample")
+    start_ns = time.monotonic_ns()
+    time.sleep(interval)
+    end_ns = time.monotonic_ns()
+    after = sample_native(binary, runtime, proc_root=proc_root, uid=uid)
+    cpu_after, start_after, _ = _cpu_and_identity(
+        (proc_root / str(after.pid) / "stat").read_text(encoding="ascii"))
+    if (before.pid, before.start_ticks) != (after.pid, after.start_ticks) \
+            or start_after != after.start_ticks or cpu_after < cpu_before \
+            or end_ns <= start_ns:
+        raise ResourceSmokeError("Process restarted or CPU counters regressed during sample")
+    hertz = os.sysconf("SC_CLK_TCK")
+    if type(hertz) is not int or hertz <= 0:
+        raise ResourceSmokeError("Invalid Linux CPU accounting frequency")
+    delta = cpu_after - cpu_before
+    percent = round(100.0 * delta * 1_000_000_000 / (hertz * (end_ns - start_ns)), 3)
+    return {
+        "pid": after.pid, "start_ticks": after.start_ticks,
+        "cpu_delta_ticks": delta, "clock_ticks_per_second": hertz,
+        "elapsed_ns": end_ns - start_ns, "cpu_core_percent": percent,
+        "pss_kib": after.pss_kib, "rss_kib": after.rss_kib,
+        "fds": after.fds, "threads": after.threads,
+        "software_ci_only": True, "hardware_accepted": False,
+    }
 
 
 def _belongs_to_runtime(path: Path, runtime: Path) -> bool:
@@ -173,12 +253,23 @@ def _read_baseline(path: Path) -> Sample:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("capture", "compare", "compare-replaced"))
+    parser.add_argument("mode", choices=("capture", "compare", "compare-replaced", "assert-gone", "cpu-sample"))
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--runtime", type=Path, required=True)
     parser.add_argument("--baseline", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
+        if args.mode == "cpu-sample":
+            print(json.dumps(sample_cpu(args.binary, args.runtime), sort_keys=True))
+            return 0
+        if args.mode == "assert-gone":
+            old = _read_baseline(args.baseline)
+            assert_old_process_gone(old)
+            current = sample_native(args.binary, args.runtime)
+            if (current.pid, current.start_ticks) == (old.pid, old.start_ticks):
+                raise ResourceSmokeError("Native panel was not replaced")
+            print("Prior private RicePlate process reaped before new panel acceptance")
+            return 0
         now = sample_native(args.binary, args.runtime)
         if args.mode == "capture":
             _write_private(args.baseline, asdict(now))
