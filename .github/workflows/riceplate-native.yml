@@ -1005,6 +1005,47 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # This is a Mint software/package-root check, NOT physical Mint login proof.
+  # It reuses the exact package bytes emitted by the tested native job.
+  sg6-mint221-compat:
+    name: SG6 disposable Mint Xia package install and recovery
+    needs: native-layer-shell
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: riceplate-native-preview-${{ github.sha }}
+          path: dist/riceplate-native-preview/
+      - name: Install and recover four exact-source packages in isolated Mint 22.1
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          (cd dist/riceplate-native-preview && sha256sum -c SHA256SUMS)
+          /usr/bin/python3 -m unittest tests.test_sg6_mint_compat -v
+          sh -n scripts/smoke_wayland_mint_compat.sh
+          # Resolve the mutable Docker Hub tag once, record the immutable
+          # digest, then execute ONLY that downloaded digest. Nothing is
+          # installed on the Ubuntu runner or the user's desktop.
+          docker pull linuxmintd/mint22.1-amd64:latest
+          image=$(docker image inspect --format '{{index .RepoDigests 0}}' linuxmintd/mint22.1-amd64:latest)
+          case "$image" in
+            linuxmintd/mint22.1-amd64@sha256:*|docker.io/linuxmintd/mint22.1-amd64@sha256:*) ;;
+            *) echo "Unexpected Mint image identity: $image" >&2; exit 1 ;;
+          esac
+          printf 'Mint build-root digest: %s\n' "$image"
+          docker run --rm --pull=never \
+            --volume "$PWD/dist/riceplate-native-preview:/packages:ro" \
+            --volume "$PWD/scripts/smoke_wayland_mint_compat.sh:/tests/mint-compat.sh:ro" \
+            --env RICEBOWL_SOURCE_SHA="$GITHUB_SHA" \
+            "$image" sh /tests/mint-compat.sh
+
   # A separate least-privilege job signs the *downloaded tested artifact*.
   # PRs, nested previews and forks never receive signing credentials.
   attest-native-preview:
