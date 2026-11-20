@@ -213,6 +213,13 @@ impl Dispatch<WlDataDevice, ()> for RicePlate {
             _ => {} // ignore drag/drop; never interpret dropped data as text
         }
     }
+
+    // wl_data_device.data_offer (opcode 0) creates a new Wayland proxy.
+    // Dispatch must register its child user data before decoding the event;
+    // the default handler panics on the first foreign clipboard owner.
+    wayland_client::event_created_child!(RicePlate, WlDataDevice, [
+        0 => (WlDataOffer, ()),
+    ]);
 }
 
 impl Dispatch<WlDataOffer, ()> for RicePlate {
