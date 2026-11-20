@@ -169,6 +169,21 @@ if [[ "$actual_digest" != "$native_digest" ]]; then
     exit 1
 fi
 
+# The archive metadata gate rejects unsafe mode bits but deliberately allows
+# non-executable regular data files. A separately repacked bundle can therefore
+# keep the same ELF digest/source stamps while making a required launcher 0644.
+# Refuse such bundles before they are presented as installable preview sessions.
+for executable in \
+    "$work/package-0/usr/bin/ricebowl-wayland-app" \
+    "$work/package-0/usr/lib/ricebowl-wayland/bin/ricebowl" \
+    "$work/package-1/usr/bin/ricebowl-wayland-session" \
+    "$work/package-2/usr/bin/riceplate-native"; do
+    if [[ ! -f "$executable" || ! -x "$executable" ]]; then
+        echo "Missing or non-executable Wayland entrypoint: $executable" >&2
+        exit 1
+    fi
+done
+
 for required in \
     "$work/package-0/usr/lib/ricebowl-wayland/launcher.py" \
     "$work/package-0/usr/lib/ricebowl-wayland/macrice/de/session.py" \
