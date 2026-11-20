@@ -5,37 +5,62 @@ set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 packages=${1:-"$root/dist/riceplate-native-preview"}
 baseline=b3d615a7cc508049050eb06c7952ef5a8d26e598
+# Real previous session preview2, before the independently versioned preview3.
+session_baseline=c8274dee78386124470cb5ff9a4d2768bb019126
 if [[ ! "$packages" = /* || ! -d "$packages" ]]; then
     echo "Pass the absolute directory containing built current preview packages" >&2
     exit 2
 fi
-for tool in git docker dpkg-deb; do
+for tool in git docker dpkg-deb cargo rustc; do
     command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 1; }
 done
-if ! git -C "$root" cat-file -e "$baseline^{commit}" 2>/dev/null; then
-    echo "Previous release commit unavailable; fetch the pinned base first: $baseline" >&2
-    exit 1
-fi
+for revision in "$baseline" "$session_baseline"; do
+    if ! git -C "$root" cat-file -e "$revision^{commit}" 2>/dev/null; then
+        echo "Previous release commit unavailable; fetch the pinned base first: $revision" >&2
+        exit 1
+    fi
+done
 temp=$(mktemp -d -t ricebowl-upgrade-XXXXXXXX)
 worktree="$temp/previous"
+session_worktree="$temp/previous-session"
 cleanup() {
-    if [[ -d "$worktree/.git" || -f "$worktree/.git" ]]; then
-        git -C "$root" worktree remove --force "$worktree" >/dev/null 2>&1 || :
-    fi
+    for checkout in "$worktree" "$session_worktree"; do
+        if [[ -d "$checkout/.git" || -f "$checkout/.git" ]]; then
+            git -C "$root" worktree remove --force "$checkout" >/dev/null 2>&1 || :
+        fi
+    done
     rm -rf -- "$temp"
 }
 trap cleanup EXIT
 mkdir -m 0755 "$temp/old-packages"
 git -C "$root" worktree add --detach "$worktree" "$baseline" >/dev/null
+git -C "$root" worktree add --detach "$session_worktree" "$session_baseline" >/dev/null
 old_core="$temp/old-packages/ricebowl-wayland-core_0.1.0~preview1_all.deb"
 old_meta="$temp/old-packages/ricebowl-wayland-desktop_0.1.0~preview1_amd64.deb"
+old_native="$temp/old-packages/ricebowl-riceplate-native_0.1.0~preview1_amd64.deb"
+old_session2="$temp/old-packages/ricebowl-wayland-session_0.1.0~preview2_all.deb"
+old_session3="$temp/old-packages/ricebowl-wayland-session_0.1.0~preview3_all.deb"
 bash "$worktree/scripts/build_wayland_core_deb.sh" "$old_core" >/dev/null
 sh "$worktree/scripts/build_wayland_desktop_deb.sh" "$old_meta" >/dev/null
+sh "$session_worktree/scripts/build_wayland_session_deb.sh" "$old_session2" >/dev/null
+sh "$worktree/scripts/build_wayland_session_deb.sh" "$old_session3" >/dev/null
+# The previous native revision must be compiled from real immutable source;
+# packaging the current ELF with a forged preview1 control is not evidence.
+# Historical preview1 did not commit Cargo.lock: resolve its pinned manifest
+# here and record that this is a historical-source rebuild, NOT a byte-for-byte
+# attestation of the originally distributed preview1 binary.
+old_native_target="$temp/old-native-target"
+cargo generate-lockfile --manifest-path "$worktree/components/riceplate-wayland/Cargo.toml" >/dev/null
+CARGO_TARGET_DIR="$old_native_target" cargo build --release --locked \
+    --manifest-path "$worktree/components/riceplate-wayland/Cargo.toml" >/dev/null
+sh "$worktree/scripts/build_riceplate_native_deb.sh" \
+    "$old_native_target/release/riceplate-native" "$old_native" >/dev/null
 new_core="$packages/ricebowl-wayland-core_0.1.0~preview2_all.deb"
 new_meta="$packages/ricebowl-wayland-desktop_0.1.0~preview3_amd64.deb"
 session="$packages/ricebowl-wayland-session_0.1.0~preview3_all.deb"
 native="$packages/ricebowl-riceplate-native_0.1.0~preview2_amd64.deb"
-for file in "$old_core" "$old_meta" "$new_core" "$new_meta" "$session" "$native"; do
+for file in "$old_core" "$old_meta" "$old_native" "$old_session2" \
+    "$old_session3" "$new_core" "$new_meta" "$session" "$native"; do
     if [[ ! -f "$file" || -L "$file" ]]; then
         echo "Missing or unsafe package: $file" >&2; exit 1
     fi
@@ -51,9 +76,17 @@ check_version() {
 }
 check_version "$old_core" ricebowl-wayland-core '0.1.0~preview1'
 check_version "$old_meta" ricebowl-wayland-desktop '0.1.0~preview1'
+check_version "$old_native" ricebowl-riceplate-native '0.1.0~preview1'
+check_version "$old_session2" ricebowl-wayland-session '0.1.0~preview2'
+check_version "$old_session3" ricebowl-wayland-session '0.1.0~preview3'
 check_version "$new_core" ricebowl-wayland-core '0.1.0~preview2'
 check_version "$new_meta" ricebowl-wayland-desktop '0.1.0~preview3'
 check_version "$native" ricebowl-riceplate-native '0.1.0~preview2'
+check_version "$session" ricebowl-wayland-session '0.1.0~preview3'
+if cmp -s "$old_native" "$native" || cmp -s "$old_session2" "$old_session3"; then
+    echo "Old Native/Session builds unexpectedly identical to newer releases" >&2
+    exit 1
+fi
 if cmp -s "$old_core" "$new_core"; then
     echo "Old and new core packages unexpectedly contain identical bytes" >&2
     exit 1
@@ -69,6 +102,9 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 old_core=/before/ricebowl-wayland-core_0.1.0~preview1_all.deb
 old_meta=/before/ricebowl-wayland-desktop_0.1.0~preview1_amd64.deb
+old_native=/before/ricebowl-riceplate-native_0.1.0~preview1_amd64.deb
+old_session2=/before/ricebowl-wayland-session_0.1.0~preview2_all.deb
+old_session3=/before/ricebowl-wayland-session_0.1.0~preview3_all.deb
 new_core=/after/ricebowl-wayland-core_0.1.0~preview2_all.deb
 new_meta=/after/ricebowl-wayland-desktop_0.1.0~preview3_amd64.deb
 session=/after/ricebowl-wayland-session_0.1.0~preview3_all.deb
