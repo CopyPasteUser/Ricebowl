@@ -3868,6 +3868,59 @@ def run() -> int:
             if not os.environ.get("WAYLAND_DISPLAY"):
                 assert not window.apply_btn.get_sensitive()
                 assert not window.restore_btn.get_sensitive()
+            # SG4: drive both Composer recipes through real GTK template buttons,
+            # editable wide/compact lanes, revision review and safe package export.
+            # These synthetic button activations are NOT compositor-delivered input.
+            for template, position in (("heritage-composer", "bottom"),
+                                       ("orbit-composer", "top")):
+                window.template_buttons[template].clicked()
+                assert window.info is not None
+                assert recipes.load(str(window.info.path)).position == position
+                assert window.working["schema_version"] == 11
+                wide_before = copy.deepcopy(window.working["panel"]["layout"])
+                window.panel_mode.set_active_id("compact")
+                assert window._panel_compact
+                window._add_node("start", "label")
+                assert window.pending["/responsive/compact_layout/start"]
+                window.panel_mode.set_active_id("wide")
+                assert not window._panel_compact
+                assert window.working["panel"]["layout"] == wide_before
+                window._add_node("center", "label")
+                last = len(window.working["panel"]["layout"]["center"]) - 1
+                window._mutate_panel("center", (last,), "replace",
+                                     {"type": "label", "text": "GUI QA"})
+                window._transfer_panel("center", (last,), "end")
+                assert window.working["panel"]["layout"]["end"][-1]["text"] == "GUI QA"
+                assert window.save_btn.get_sensitive()
+                window.save_btn.clicked()
+                assert not window.pending and window._previous is not None
+                saved = window.info
+                assert recipes.load(str(saved.path)).position == position
+                assert window.history_btn.get_sensitive()
+                assert window.matrix_btn.get_sensitive()
+                with tempfile.TemporaryDirectory(prefix="ricebowl-composer-gui-") as folder:
+                    target = Path(folder) / "reviewed.ricepack"
+                    export = creator_release.prepare_export(saved)
+                    receipt = creator_release.publish_export(export, target)
+                    inspected = pack.inspect_pack(target)
+                    assert inspected["valid"] and not receipt["applied"]
+                    assert inspected["manifest"]["recipe"]["semantic_sha256"] == saved.semantic_sha256
+                    assert not inspected["compatibility"]["activates_on_import"]
+                window._load(workspace.open_draft(saved.path), reset_history=True)
+                assert window._previous is not None
+                assert window._previous.semantic_sha256 != saved.semantic_sha256
+                # Render-matrix GUI feedback must distinguish receipt mismatch and
+                # failure from confirmed success; native pixels are tested by the
+                # separate real-labwc CI suite.
+                window._matrix_generation += 1
+                window._busy = True
+                assert window._matrix_complete(window._matrix_generation,
+                                               saved.semantic_sha256, None,
+                                               "deliberate dependency failure") is False
+                assert "failed" in window.matrix_note.get_text().lower()
+                assert not window._busy
+            # The Creator does not claim real keyboard/pointer/AT-SPI coverage
+            # merely because GTK widgets were invoked in a disposable X11 smoke.
             path = os.environ.get("RICEBOWL_CREATOR_SMOKE_CAPTURE")
             if path:
                 window.queue_draw()
