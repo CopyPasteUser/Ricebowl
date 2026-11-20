@@ -2,6 +2,7 @@
 //! Every row maps to a validated recipe action; labels never become commands.
 
 use std::time::{Duration, Instant};
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{installed_apps::{self, App}, recipe::{MenuContentKind, MenuPresentation, NativeMenu}};
 
@@ -756,10 +757,16 @@ impl MenuState {
         if self.view == View::Saved { "Back" } else { "Saved" }
     }
 
+    /// Accept a complete UTF-8 keyboard event atomically, including several
+    /// scalars from a compose key or IME. The query is data only, never an
+    /// executable action; control and BiDi override/isolate controls are
+    /// rejected before rendering. Bounds apply to the final string.
     pub fn search_input(&mut self, text: &str) -> bool {
-        if text.chars().count() != 1 || self.search.chars().count() >= 32
-            || self.search.len() + text.len() > 96
-            || !text.chars().all(|c| c.is_alphanumeric() || c == ' ' || c == '-') {
+        let incoming = text.chars().count();
+        if incoming == 0 || self.search.chars().count().saturating_add(incoming) > 32
+            || self.search.len().saturating_add(text.len()) > 96
+            || text.chars().any(|c| c.is_control()
+                || matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')) {
             return false;
         }
         if !matches!(self.view, View::Search | View::Programs) { self.start_search(); }
@@ -770,9 +777,14 @@ impl MenuState {
         true
     }
 
+    /// Delete exactly one UAX #29 cluster, never one Unicode scalar. Search
+    /// strings can contain accents, emoji ZWJ, regional flags and modifiers.
     pub fn backspace(&mut self) -> bool {
         if !matches!(self.view, View::Search | View::Programs) { return false; }
-        self.search.pop();
+        let Some((start, _)) = self.search.grapheme_indices(true).next_back() else {
+            return false;
+        };
+        self.search.truncate(start);
         self.selected = 0;
         self.notice = None;
         self.wheel_remainder = 0.0;
@@ -1722,8 +1734,9 @@ mod tests {
         assert!(state.search_input("l"));
         assert_eq!(state.actions(&data), vec!["audio-up", "audio-down"]);
         assert_eq!(state.current_action(&data), Some("audio-up"));
-        assert!(!state.search_input("☃"));
-        assert!(!state.search_input("invalid"));
+        assert!(!state.search_input("\n"));
+        assert!(!state.search_input("\u{202e}"));
+        assert!(!state.search_input(&"x".repeat(33)));
         assert_eq!(state.search, "vol");
         assert!(state.backspace());
         assert_eq!(state.search, "vo");
@@ -1805,6 +1818,42 @@ mod tests {
         for _ in 0..31 { assert!(state.search_input("a")); }
         assert!(!state.search_input("a"));
         assert!(state.backspace());
+    }
+
+    #[test]
+    fn search_accepts_unicode_commits_and_deletes_whole_uax29_clusters() {
+        let mut state = MenuState::default();
+        state.open();
+        for cluster in ["e\u{301}", "👩‍💻", "🇩🇪", "👍🏽", "שלום", "سلام", "हिन्दी", "日本語"] {
+            assert!(state.search_input(cluster), "valid Unicode: {cluster:?}");
+            assert_eq!(state.view, View::Search);
+            assert!(state.search.ends_with(cluster));
+        }
+        let original = state.search.clone();
+        let total = original.graphemes(true).count();
+        assert!(total >= 8);
+        for _ in 0..total {
+            let before = state.search.graphemes(true).count();
+            assert!(state.backspace());
+            assert_eq!(state.search.graphemes(true).count(), before - 1);
+        }
+        assert_eq!(state.search, "");
+        assert!(!state.backspace(), "empty search has no text to delete");
+    }
+
+    #[test]
+    fn search_rejects_unsafe_or_oversized_unicode_batch_atomically() {
+        let mut state = MenuState::default();
+        state.open();
+        assert!(state.search_input("音楽"));
+        let previous = state.search.clone();
+        for rejected in ["", "bad\ninput", "\u{202e}fake", "\u{2067}hidden",
+                         &"x".repeat(33), &"🦀".repeat(25)] {
+            assert!(!state.search_input(rejected));
+            assert_eq!(state.search, previous, "rejection mutated the query");
+        }
+        assert!(state.search_input("ø"), "ordinary non-ASCII still works");
+        assert_eq!(state.search, "音楽ø");
     }
 
     #[test]

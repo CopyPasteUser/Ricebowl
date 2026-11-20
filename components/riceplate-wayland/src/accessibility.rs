@@ -59,18 +59,27 @@ fn bounded_editor_text(
 ) -> (String, usize, Option<usize>) {
     let mut cleaned = String::new();
     let mut used = 0_usize;
-    let mut projected_caret = 0_usize;
-    let mut projected_anchor = 0_usize;
+    // Track offsets in the *filtered bytes*, not the original grapheme count:
+    // removing a control can join formerly separate graphemes (e.g. "e\\n◌́").
+    // The old count then placed AT-SPI carets past the last visible character.
+    let mut caret_byte = 0_usize;
+    let mut anchor_byte = 0_usize;
     for (index, grapheme) in text.graphemes(true).enumerate() {
         if grapheme.chars().any(char::is_control) { continue; }
         let scalars = grapheme.chars().count();
         if scalars > crate::luna_dialog::MAX_INPUT.saturating_sub(used) { break; }
         cleaned.push_str(grapheme);
         used += scalars;
-        if index < caret { projected_caret += 1; }
-        if anchor.is_some_and(|a| index < a) { projected_anchor += 1; }
+        if index < caret { caret_byte = cleaned.len(); }
+        if anchor.is_some_and(|a| index < a) { anchor_byte = cleaned.len(); }
     }
-    (cleaned, projected_caret, anchor.map(|_| projected_anchor))
+    // Re-segment the final exposed text; a previously valid boundary may
+    // now lie inside a combined cluster. Round forward to the first complete
+    // visible grapheme so neither caret nor selection splits a Unicode glyph.
+    let boundaries: Vec<usize> = cleaned.grapheme_indices(true)
+        .map(|(offset, _)| offset).chain(std::iter::once(cleaned.len())).collect();
+    let project = |byte: usize| boundaries.partition_point(|&offset| offset < byte);
+    (cleaned, project(caret_byte), anchor.map(|_| project(anchor_byte)))
 }
 
 
@@ -471,6 +480,40 @@ mod tests {
         assert_eq!(selection.anchor.character_index, 1);
         assert_eq!(selection.focus.character_index, 2);
         assert_eq!(selection.focus.node, NodeId(60_101));
+    }
+
+    #[test]
+    fn sanitized_editor_resegments_joined_graphemes_before_publishing_caret() {
+        // Stripping a control can join a base and combining mark into ONE
+        // exposed character. The old projection reported a phantom caret=2.
+        let (text, caret, anchor) = bounded_editor_text("e\n\u{301}Z", 2, Some(1));
+        assert_eq!(text, "e\u{301}Z");
+        assert_eq!(text.graphemes(true).count(), 2);
+        assert_eq!((caret, anchor), (1, Some(1)));
+        let mut model = Model::new();
+        model.add_text_input(60_100, ROOT, "Command", "e\n\u{301}Z", 2, Some(1));
+        let tree = model.tree();
+        let editor = &tree.nodes.iter().find(|(id, _)| *id == NodeId(60_100))
+            .expect("TextInput node").1;
+        let run = &tree.nodes.iter().find(|(id, _)| *id == NodeId(60_101))
+            .expect("TextRun node").1;
+        assert_eq!(run.value(), Some("e\u{301}Z"));
+        assert_eq!(run.character_lengths(), [3, 1]);
+        let selection = editor.text_selection().expect("exposed caret");
+        assert_eq!(selection.anchor.character_index, 1);
+        assert_eq!(selection.focus.character_index, 1);
+    }
+
+    #[test]
+    fn accessibility_projection_clamps_after_truncation_and_control_removal() {
+        let oversize = format!("{}\n\u{301}🇩🇪", "x".repeat(crate::luna_dialog::MAX_INPUT));
+        let (text, caret, anchor) = bounded_editor_text(&oversize, usize::MAX, Some(0));
+        assert_eq!(text, "x".repeat(crate::luna_dialog::MAX_INPUT));
+        assert_eq!(caret, crate::luna_dialog::MAX_INPUT);
+        assert_eq!(anchor, Some(0));
+        let (text, caret, anchor) = bounded_editor_text("\n", 1, Some(0));
+        assert!(text.is_empty());
+        assert_eq!((caret, anchor), (0, Some(0)));
     }
 
     #[test]

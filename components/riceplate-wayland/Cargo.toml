@@ -11,6 +11,8 @@ smithay-client-toolkit = { version = "=0.21.1", default-features = false, featur
 wayland-client = "=0.31.14"
 wayland-protocols = { version = "=0.32.13", features = ["client", "unstable"] }
 wayland-protocols-wlr = { version = "=0.3.12", features = ["client"] }
+# Existing lockfile dependency used only by the external SG5 protocol fixture.
+wayland-protocols-misc = { version = "=0.3.12", features = ["client"] }
 font8x8 = "=0.3.1"
 fontdue = "=0.9.4"
 # Pure-Rust HarfBuzz-compatible OpenType shaping for non-ASCII native fonts.
