@@ -6,6 +6,8 @@ set -eu
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 native="$root/components/riceplate-wayland/target/release/riceplate-native"
 ime="$root/components/riceplate-wayland/target/release/examples/wayland_ime_v2_client"
+clicker="$root/components/riceplate-wayland/target/release/examples/wayland_pointer_click"
+test -x "$clicker" || { echo "Build Wayland pointer fixture first" >&2; exit 1; }
 test -x "$ime" || { echo "Build the external v2 IME fixture first" >&2; exit 1; }
 test -x "$native" || { echo 'Build native RicePlate first' >&2; exit 1; }
 runtime=$(mktemp -d -t ricebowl-sg5-atspi-XXXXXXXX)
@@ -15,7 +17,14 @@ mkdir -m 0700 "$runtime/config"
 export XDG_RUNTIME_DIR="$runtime" XDG_CONFIG_HOME="$runtime/config"
 export WLR_BACKENDS=headless WLR_HEADLESS_OUTPUTS=1 WLR_RENDERER=pixman
 export RICEBOWL_DE_NESTED=0 RICEBOWL_DE_SCREEN_READER=1
+export RICEBOWL_DE_TRACE_FILES=1
 export PATH="$root/components/riceplate-wayland/target/release:$PATH"
+# Own the entire XDG Desktop for the Rename fixture; never inspect the runner
+# or the user's actual home directory.
+mkdir -m 0700 "$runtime/file-home" "$runtime/file-home/Desktop"
+printf '%s\n' 'XDG_DESKTOP_DIR="$HOME/Desktop"' > "$runtime/config/user-dirs.dirs"
+printf '%s\n' 'SG5 isolated fixture' > "$runtime/file-home/Desktop/00-sg5.txt"
+export HOME="$runtime/file-home"
 
 # Native recipe ownership contract: never launch directly from a world-readable
 # checkout. Keep all runtime inputs in a private disposable directory.
@@ -36,7 +45,7 @@ assert luna_hotkeys.commands((config / "rc.xml").read_text())["W-r"] == \
 PY
 
 dbus-run-session -- sh -eu -c '
-    root=$1; runtime=$2; native=$3; ime=$4
+    root=$1; runtime=$2; native=$3; ime=$4; clicker=$5
     export WAYLAND_DISPLAY=wayland-0
     labwc --config-dir "$(cat "$runtime/config-path")" >"$runtime/labwc.log" 2>&1 &
     compositor=$!
@@ -155,5 +164,53 @@ dbus-run-session -- sh -eu -c '
     wtype -k Escape
     probe --absent
     kill -0 "$plate"
+    # Rename must be a real, compositor-opened editable AT-SPI surface,
+    # not a synthetic AccessKit tree node or a Rust-only unit test. The
+    # XDG Desktop file belongs exclusively to the disposable HOME.
+    count=0
+    position=
+    while [ "$count" -lt 40 ]; do
+        position=$(sed -n "s/.*XDG mapped x=\([0-9][0-9]*\) y=\([0-9][0-9]*\) kind=File.*/\1 \2/p" \
+            "$runtime/native.log" | head -n 1)
+        [ -n "$position" ] && break
+        kill -0 "$plate" || exit 1
+        count=$((count + 1)); sleep 0.2
+    done
+    test -n "$position" || {
+        echo "SG5: isolated XDG file surface not mapped" >&2
+        sed -n "1,90p" "$runtime/native.log" >&2
+        exit 1
+    }
+    set -- $position
+    file_x=$(($1 + 52))
+    file_y=$(($2 + 43))
+    "$clicker" --right-click "$file_x" "$file_y" 1366 768
+    count=0
+    origin=
+    while [ "$count" -lt 30 ]; do
+        origin=$(sed -n "s/.*XDG context opened kind=File x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p" \
+            "$runtime/native.log" | tail -n 1)
+        [ -n "$origin" ] && break
+        count=$((count + 1)); sleep 0.2
+    done
+    test -n "$origin" || {
+        echo "SG5: Wayland secondary click did not open XDG file context" >&2
+        exit 1
+    }
+    set -- $origin
+    "$clicker" "$(($1 + 24))" "$(($2 + 111))" 1366 768
+    probe --name "File name" --text "00-sg5.txt" --caret 10
+    wtype -k Home
+    probe --name "File name" --text "00-sg5.txt" --caret 0
+    wtype -M ctrl -k a -m ctrl
+    probe --name "File name" --text "00-sg5.txt" --caret 10 --selection 0 10
+    wtype "Z"
+    probe --name "File name" --text "Z" --caret 1
+    wtype -k Escape
+    probe --name "File name" --absent
+    test -f "$runtime/file-home/Desktop/00-sg5.txt"
+    test ! -e "$runtime/file-home/Desktop/Z"
+    kill -0 "$plate"
+    echo "SG5: real Wayland pointer -> XDG Rename AT-SPI edit/selection/cancel PASS"
     echo "SG5: real labwc keyboard, external input-method-v2 and AT-SPI lifecycle PASS"
-' sh "$root" "$runtime" "$native" "$ime"
+' sh "$root" "$runtime" "$native" "$ime" "$clicker"

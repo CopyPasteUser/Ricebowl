@@ -8,7 +8,7 @@ Baseline: main at 019f255fbc3fc07fddb68283f632e628f5226649 (19 November 2026).
 | Surface | Actual input owner | Editing and rendering | text-input-v3 | AT-SPI |
 | --- | --- | --- | --- | --- |
 | XP Run | luna_dialog::State(Kind::Run); compositor keyboard events through Super+R | complete grapheme carets, text selection, delete, preedit paint | wired via enter/preedit/delete/commit/done | transient TextInput and TextRun named Command; black-box client smoke added |
-| Desktop File Rename | luna_dialog::State(Kind::FileRename) | same editor, rename only after explicit confirmation | shared Luna adapter | transient TextInput and TextRun named File name; external client acceptance pending |
+| Desktop File Rename | luna_dialog::State(Kind::FileRename) | same editor, rename only after explicit confirmation | shared Luna adapter | transient TextInput and TextRun named File name; real Wayland pointer → Rename external AT-SPI client smoke added (exact-head CI pending) |
 | Start Menu Search / All Programs | native_menu::MenuState::search; wl_keyboard | Unicode-batch insertion and UAX #29 backspace; append/delete-at-end, **not a full cursor editor** | **NOT wired** | actionable search button and text summary; **not an editable TextInput** |
 | Context menus, tray, calendar, desktop icons, RicePop | navigation/selection handlers, no text editor | keyboard actions and labels only | n/a without actual editor | supported actions where implemented, not fully client-validated |
 | External search application | fuzzel and other Wayland applications | external application responsibility | external application responsibility | external application responsibility |
@@ -25,7 +25,7 @@ Do not count menu-search keyboard navigation as full native IME and AT-SPI parit
 | Arabic/Indic | Arabic salaam, Hindi हिन्दी | OpenType GSUB/GPOS and nonzero bounded glyph positions only if real font covers glyphs | style_art/native_shaping Rust tests; positive Hindi font fixture acceptance open |
 | CJK | 日本語, 中文, 한국어 | UTF-8 commits and clearly rendered fallback where coverage unavailable; never label '?' as CJK success | existing missing-cmap tests; positive CJK font-specific acceptance open |
 | Missing fonts/glyphs | U+10FFFF and missing joined emoji | visible replacement metrics and pixels; no false font-coverage success | existing negative style_art tests |
-| Live compositor editing | empty, AB, Left, Backspace, select-all, replacement, Escape, reopen | external wtype wl_keyboard delivery and public AT-SPI text/focus/selection queries | newly introduced native CI smoke; **pending workflow conclusion** |
+| Live compositor editing | empty, AB, Left, Backspace, select-all, replacement, Escape, reopen | external wtype wl_keyboard delivery and public AT-SPI text/focus/selection queries | native CI smoke for Run plus a separate XDG Rename pointer/AT-SPI path; **new Rename exact-head workflow pending** |
 | Sanitized accessibility text | e + newline + combining mark + Z | resegment final exposed text, caret and selection never refer to phantom cluster | added positive and negative AccessKit Rust tests |
 | Full IME transaction | Japanese preedit and commit, 3-byte CJK delete + replacement | actual input-method-v2 producer must traverse labwc into the native text-input-v3 consumer, then report public surrounding text | new external Rust client fixture and CI smoke; **exact-head result pending** |
 
@@ -45,7 +45,7 @@ Do not count menu-search keyboard navigation as full native IME and AT-SPI parit
 - Confirm the new external IME v2 -> compositor -> v3 **Run** protocol smoke at the exact PR head; separately cover **Rename**, focus leave/re-enter and real candidate selection/RTL flows. Do not treat one scripted Japanese transaction as full IME parity.
 - Native Run/Rename clipboard shortcuts need actual focused Wayland selection transfer and grapheme-safe pasting. Existing cross-application clipboard CI does not exercise the Luna editor.
 - Start Menu Search / All Programs needs a real v3 text-input focus target, composition rendering and AT-SPI TextInput semantics, or explicitly scoped-out product contract approval.
-- Real AT-SPI client test of Rename, bounded ranges, action invocations and transitions across supported native dialog surfaces.
+- Await exact-head CI for the new real XDG Rename AT-SPI focus/text/caret/selection/cancel client; still missing independent Rename IME protocol, action invocations and wider dialog transition coverage.
 - Positive Hindi/CJK installed-font coverage plus measured rendered glyph/caret positions; negative missing-font replacement tests do not prove script support.
 - After software gates, **physical** Mint/ThinkPad Fcitx/IBus, Orca, mixed-DPI/GPU rendering and keyboard-layout switching. Physical acceptance is not claimed by CI.
 
