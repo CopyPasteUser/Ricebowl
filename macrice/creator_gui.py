@@ -220,6 +220,37 @@ def run() -> int:
             self._build()
             self._refresh_drafts()
             self.connect("delete-event", self._close)
+            self.connect("key-press-event", self._template_key_navigation)
+
+        def _template_key_navigation(self, _window, event):
+            """Keep every template keyboard-reachable under real GTK3/labwc.
+
+            Some nested GTK3 Paned focus hierarchies consume Tab without
+            advancing the focused template button. Only explicitly focused
+            templates are handled; other widgets and modified shortcuts
+            retain normal GTK key routing.
+            """
+            if event.keyval not in (Gdk.KEY_Tab, Gdk.KEY_ISO_Left_Tab):
+                return False
+            if event.state & (Gdk.ModifierType.CONTROL_MASK |
+                              Gdk.ModifierType.MOD1_MASK |
+                              Gdk.ModifierType.SUPER_MASK):
+                return False
+            ordered = tuple(self.template_buttons.values())
+            focused = self.get_focus()
+            if focused not in ordered:
+                return False
+            backwards = (event.keyval == Gdk.KEY_ISO_Left_Tab or
+                         bool(event.state & Gdk.ModifierType.SHIFT_MASK))
+            index = ordered.index(focused) + (-1 if backwards else 1)
+            if index < 0:
+                return False  # GTK owns navigation into the upper toolbar.
+            target = (ordered[index] if index < len(ordered)
+                      else self.open_installed_btn)
+            if not target.get_mapped() or not target.get_sensitive():
+                return False
+            target.grab_focus()
+            return self.get_focus() is target
 
         def _button(self, label, handler, *, primary=False):
             button = Gtk.Button(label=label)
@@ -317,18 +348,10 @@ def run() -> int:
             sidebar.pack_start(self._text(
                 "Live changes require an opt-in RiceBowl Wayland session and explicit confirmation.",
                 "hub-hint", wrap=True), False, False, 4)
-            # GTK3's default traversal across nested Paned/ScrolledWindow
-            # surfaces can leave focus on the same template under Wayland.
-            # Publish the exact real sidebar control order, including the
-            # scrollable draft list and the handoff menu; do not trap Tab in
-            # only the template subset or make controls pointer-only.
+            # Template focus is explicitly routed on real Tab/Shift+Tab;
+            # the rest of the sidebar retains GTK's ordinary traversal.
             for template_button in self.template_buttons.values():
                 template_button.set_can_focus(True)
-            sidebar.set_focus_chain([
-                *self.template_buttons.values(),
-                self.open_installed_btn, self.import_pack_btn,
-                self.history_btn, scroll, self.wayland_btn,
-            ])
 
             content = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
             self.main.pack2(content, resize=True, shrink=False)
