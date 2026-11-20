@@ -73,6 +73,8 @@ class CrossRunnerWorkflowPolicyTests(unittest.TestCase):
             "scripts/build_wayland_desktop_deb.sh",
             "scripts/verify_wayland_payload.py",
             "scripts/verify_wayland_control.py",
+            "scripts/verify_wayland_session_entries.py",
+            "tests/test_wayland_session_entries.py",
             "scripts/verify_wayland_package_set.sh",
         )
         for changed in changed_files:

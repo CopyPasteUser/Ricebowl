@@ -171,6 +171,41 @@ class WaylandBundleTests(unittest.TestCase):
             self.assertEqual(checked.returncode, 0, checked.stderr)
             self.assertIn("Verified four opt-in", checked.stdout)
 
+            # A self-stamped/repacked session package can retain all four
+            # matching source commits while redirecting a display manager
+            # to a different executable. Reject it without installing.
+            for label, original, replacement, relative in (
+                ("regular-exec",
+                 "\nExec=/usr/bin/ricebowl-wayland-session",
+                 "\nExec=/bin/sh -c unauthorized",
+                 "usr/share/wayland-sessions/ricebowl.desktop"),
+                ("native-exec",
+                 "Exec=/usr/bin/ricebowl-wayland-session --native",
+                 "Exec=/bin/true",
+                 "usr/share/wayland-sessions/ricebowl-native.desktop"),
+                ("native-tryexec",
+                 "TryExec=/usr/bin/riceplate-native",
+                 "TryExec=/usr/bin/true",
+                 "usr/share/wayland-sessions/ricebowl-native.desktop"),
+            ):
+                with self.subTest(redirected_login=label):
+                    stage = folder / f"redirected-{label}-stage"
+                    unpacked = run("dpkg-deb", "-R", str(session), str(stage))
+                    self.assertEqual(unpacked.returncode, 0, unpacked.stderr)
+                    entry = stage / relative
+                    original_text = entry.read_text(encoding="utf-8")
+                    self.assertIn(original, original_text)
+                    entry.write_text(original_text.replace(original, replacement),
+                                     encoding="utf-8")
+                    altered = folder / f"redirected-{label}.deb"
+                    packed = run("dpkg-deb", "--build", "--root-owner-group",
+                                 str(stage), str(altered))
+                    self.assertEqual(packed.returncode, 0, packed.stderr)
+                    rejected = run("bash", str(VERIFY), str(core), str(altered),
+                                   str(native), str(desktop))
+                    self.assertNotEqual(rejected.returncode, 0, rejected.stdout)
+                    self.assertIn("Unsafe Wayland session entry", rejected.stderr)
+
             # Archive safety checks permit 0644 regular files, but a valid
             # preview install must retain executable launcher entrypoints.
             # Repacking does not alter content hashes, source commits or
