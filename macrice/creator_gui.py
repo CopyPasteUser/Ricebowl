@@ -3549,10 +3549,28 @@ def run() -> int:
                     return True
                 raise RuntimeError("Preceding template could not receive GTK keyboard focus")
             state = Path(os.environ["XDG_STATE_HOME"])
+            # Diagnostics contain only the static control key and focus state;
+            # never log draft content, filenames or clipboard data.
+            def focus_key(widget):
+                if widget is None:
+                    return "none"
+                return next((key for key, candidate in window.template_buttons.items()
+                             if candidate is widget), type(widget).__name__)
+
+            print(f"SG4 keyboard probe armed: active={window.is_active()}, "
+                  f"preceding={focus_key(window.get_focus())}",
+                  file=__import__("sys").stderr, flush=True)
             (state / "sg4-creator-wayland-ready").write_text(
                 template + "\n", encoding="utf-8")
+            previous_focus_key = [focus_key(window.get_focus())]
 
             def observe_real_tab():
+                current = focus_key(window.get_focus())
+                if current != previous_focus_key[0]:
+                    previous_focus_key[0] = current
+                    print(f"SG4 GTK focus changed: {current}; "
+                          f"window_active={window.is_active()}",
+                          file=__import__("sys").stderr, flush=True)
                 if not button.has_focus() or window.get_focus() != button:
                     return True
                 (state / "sg4-creator-wayland-focused").write_text(
