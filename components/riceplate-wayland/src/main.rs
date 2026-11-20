@@ -23,6 +23,7 @@ mod installed_apps;
 mod luna_places;
 mod luna_dialog;
 mod native_ime;
+mod native_clipboard;
 mod native_shaping;
 mod luna_clock;
 mod luna_taskbar;
@@ -402,6 +403,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let shm = Shm::bind(&globals, &qh)?;
     let toplevel_manager: Option<ZwlrForeignToplevelManagerV1> = globals.bind(&qh, 1..=3, ()).ok();
     let text_input_manager: Option<ZwpTextInputManagerV3> = globals.bind(&qh, 1..=2, ()).ok();
+    // Core wl_data_device protocol: no clipboard helper process or data-control privilege.
+    let clipboard_manager: Option<wayland_client::protocol::wl_data_device_manager::WlDataDeviceManager> =
+        globals.bind(&qh, 3..=3, ()).ok();
     if toplevel_manager.is_none() {
         eprintln!("RicePlate: compositor lacks wlr-foreign-toplevel-management; taskbar disabled");
     }
@@ -611,6 +615,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         seats: SeatState::new(&globals, &qh),
         text_input_manager,
         native_ime: None,
+        clipboard: native_clipboard::Clipboard::new(clipboard_manager),
         shm,
         layer,
         mirrors: Vec::new(),
@@ -963,9 +968,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                            at.saturating_duration_since(Instant::now())),
                        app.file_watcher.as_ref().and_then(|w| w.next_deadline())
                            .map(|at| at.saturating_duration_since(Instant::now())),
-                       app.notification_state.refresh_timeout(Instant::now())]
+                       app.notification_state.refresh_timeout(Instant::now()),
+                       app.clipboard.paste_pending().then_some(Duration::from_millis(16))]
             .into_iter().flatten().min().unwrap_or_else(next_clock_timeout);
         event_loop.dispatch(Some(timeout), &mut app)?;
+        app.process_clipboard_paste(&qh);
         // Only a genuinely unbound primary needs a mirror after the bounded
         // leave/enter handoff. Avoid creating and immediately destroying
         // focusable mirror panels during ordinary compositor reconfiguration.
@@ -1261,6 +1268,7 @@ struct RicePlate {
     // Optional compositor-owned text-input-v3 (one editor on one keyboard seat).
     text_input_manager: Option<ZwpTextInputManagerV3>,
     native_ime: Option<NativeIme>,
+    clipboard: native_clipboard::Clipboard,
     layer: LayerSurface,
     mirrors: Vec<PanelMirror>,
     icon_layers: Vec<IconLayer>,
@@ -2489,8 +2497,30 @@ impl RicePlate {
         ime.committed_serial = ime.committed_serial.wrapping_add(1);
     }
 
+    /// Only a complete, valid real wl_data_offer transfer can reach the
+    /// editor. A focus handoff, new dialog, or intervening local edit drops
+    /// the stale paste without modifying commands or filenames.
+    fn process_clipboard_paste(&mut self, _qh: &QueueHandle<Self>) {
+        let Some(paste) = self.clipboard.poll(Instant::now()) else { return; };
+        if !self.luna_dialog_focused { return; }
+        let Some(dialog) = self.luna_dialog.as_mut() else { return; };
+        if dialog.surface.wl_surface() != &paste.target
+            || dialog.state.input != paste.prior_text
+            || dialog.state.cursor != paste.prior_cursor
+            || dialog.state.selection_anchor != paste.prior_anchor
+            || dialog.state.preedit.is_some() {
+            return;
+        }
+        if !dialog.state.paste_text(&paste.text) {
+            dialog.state.notice = Some("Clipboard text rejected");
+        }
+        self.redraw_luna_dialog();
+        self.refresh_ime_state(ChangeCause::Other);
+    }
+
     fn close_luna_dialog(&mut self) {
         self.deactivate_ime();
+        self.clipboard.cancel_paste();
         // Drop the real overlay surface on dismissal; no transparent
         // fullscreen input grab, background worker or hidden popup survives.
         self.luna_dialog = None;
@@ -7482,6 +7512,7 @@ impl SeatHandler for RicePlate {
             match self.seats.get_keyboard(qh, &seat, None) {
                 Ok(keyboard) => {
                     self.seat_assignments.claim_keyboard(seat.clone());
+                    self.clipboard.attach(&seat, qh);
                     if let Some(manager) = self.text_input_manager.as_ref() {
                         let input = manager.get_text_input(&seat, qh, ());
                         self.native_ime = Some(NativeIme {
@@ -7532,6 +7563,7 @@ impl SeatHandler for RicePlate {
             if let Some(ime) = self.native_ime.take() {
                 ime.input.destroy();
             }
+            self.clipboard.detach();
             if let Some(keyboard) = self.keyboard.take() {
                 keyboard.release();
             }
@@ -7715,6 +7747,7 @@ impl KeyboardHandler for RicePlate {
             // Cancel, successful Run, compositor close and session teardown
             // remain explicit, bounded dismissal paths.
             self.luna_dialog_focused = false;
+            self.clipboard.cancel_paste();
             if std::env::var_os("RICEBOWL_DE_TRACE_MENU").is_some() {
                 eprintln!("RicePlate: Luna Run/Help keyboard leave, dialog retained");
             }
@@ -7761,7 +7794,7 @@ impl KeyboardHandler for RicePlate {
         _: &Connection,
         qh: &QueueHandle<Self>,
         keyboard: &wl_keyboard::WlKeyboard,
-        _: u32,
+        serial: u32,
         event: KeyEvent,
     ) {
         if self.keyboard.as_ref() != Some(keyboard) { return; }
@@ -7778,7 +7811,9 @@ impl KeyboardHandler for RicePlate {
                 Keysym::BackSpace | Keysym::Delete | Keysym::Left |
                 Keysym::Right | Keysym::Home | Keysym::End)
                 || (self.selection_modifiers.ctrl
-                    && matches!(event.keysym, Keysym::a | Keysym::A));
+                    && matches!(event.keysym,
+                        Keysym::a | Keysym::A | Keysym::c | Keysym::C |
+                        Keysym::x | Keysym::X | Keysym::v | Keysym::V));
             let return_key = matches!(event.keysym,
                 Keysym::Return | Keysym::KP_Enter);
             // Compare a possible keyboard echo with the *actual* IME commit.
@@ -7813,6 +7848,45 @@ impl KeyboardHandler for RicePlate {
                 Keysym::a | Keysym::A if self.selection_modifiers.ctrl => {
                     if let Some(dialog) = self.luna_dialog.as_mut() {
                         repaint = dialog.state.select_all();
+                    }
+                }
+                Keysym::c | Keysym::C if self.selection_modifiers.ctrl
+                    && !self.selection_modifiers.alt => {
+                    let selected = self.luna_dialog.as_ref().and_then(|dialog|
+                        dialog.state.selected_text()).map(str::to_owned);
+                    if let Some(text) = selected {
+                        if !self.clipboard.copy(&text, serial, qh) {
+                            if let Some(dialog) = self.luna_dialog.as_mut() {
+                                dialog.state.notice = Some("Clipboard unavailable");
+                                repaint = true;
+                            }
+                        }
+                    }
+                }
+                Keysym::x | Keysym::X if self.selection_modifiers.ctrl
+                    && !self.selection_modifiers.alt => {
+                    let selected = self.luna_dialog.as_ref().and_then(|dialog|
+                        dialog.state.selected_text()).map(str::to_owned);
+                    if let Some(text) = selected {
+                        if self.clipboard.copy(&text, serial, qh) {
+                            if let Some(dialog) = self.luna_dialog.as_mut() {
+                                repaint = dialog.state.cut_selected();
+                            }
+                        } else if let Some(dialog) = self.luna_dialog.as_mut() {
+                            dialog.state.notice = Some("Clipboard unavailable");
+                            repaint = true;
+                        }
+                    }
+                }
+                Keysym::v | Keysym::V if self.selection_modifiers.ctrl
+                    && !self.selection_modifiers.alt => {
+                    let accepted = self.luna_dialog.as_ref().is_some_and(|dialog|
+                        self.clipboard.begin_paste(dialog.surface.wl_surface(), &dialog.state));
+                    if !accepted {
+                        if let Some(dialog) = self.luna_dialog.as_mut() {
+                            dialog.state.notice = Some("Clipboard has no text");
+                            repaint = true;
+                        }
                     }
                 }
                 Keysym::Return | Keysym::KP_Enter => execute = true,
