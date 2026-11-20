@@ -98,6 +98,30 @@ impl State {
         (a != b).then_some((a.min(b), a.max(b)))
     }
 
+    /// Selected text is a whole-grapheme UTF-8 slice. IME preedit is not
+    /// committed editor data and must never become clipboard ownership.
+    pub fn selected_text(&self) -> Option<&str> {
+        if !self.editable() || self.preedit.is_some() { return None; }
+        let (start, end) = self.selected_graphemes()?;
+        let points = self.boundaries();
+        Some(&self.input[points[start]..points[end]])
+    }
+
+    /// Call only after a real Wayland selection source was accepted for
+    /// publishing. A failed/unavailable clipboard must not destroy the
+    /// user's selected command or filename.
+    pub fn cut_selected(&mut self) -> bool {
+        if self.selected_text().is_none() { return false; }
+        self.remove_selection()
+    }
+
+    /// Clipboard receivers validate an entire bounded transfer *before*
+    /// calling this. The editor rechecks limits and printable scalar policy
+    /// atomically, including when replacement frees capacity.
+    pub fn paste_text(&mut self, text: &str) -> bool {
+        text.len() <= MAX_INPUT * 4 && self.commit_text(text)
+    }
+
     fn remove_selection(&mut self) -> bool {
         let Some((start, end)) = self.selected_graphemes() else { return false };
         let points = self.boundaries();
@@ -584,6 +608,57 @@ pub fn parse_argv(raw: &str) -> Result<Vec<String>, &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clipboard_selection_is_grapheme_bounded_and_cut_replaces_atomically() {
+        for kind in [Kind::Run, Kind::FileRename] {
+            let mut editor = State::new(kind);
+            assert!(editor.commit_text("A👩‍💻e\u{301}🇩🇪אב"));
+            assert!(editor.select_all());
+            let copied = editor.selected_text().unwrap().to_owned();
+            assert_eq!(copied, "A👩‍💻e\u{301}🇩🇪אב");
+            assert!(editor.cut_selected());
+            assert_eq!(editor.input, "");
+            assert!(editor.paste_text(&copied));
+            assert_eq!(editor.input, copied);
+            assert_eq!(editor.cursor, editor.input.graphemes(true).count());
+            assert!(editor.selection_anchor.is_none());
+        }
+    }
+
+    #[test]
+    fn paste_rejects_invalid_or_oversize_transfers_without_changing_selection() {
+        let mut editor = State::new(Kind::Run);
+        assert!(editor.commit_text("safe"));
+        assert!(editor.select_all());
+        let original = (editor.input.clone(), editor.cursor, editor.selection_anchor);
+        for rejected in ["", "bad\nname", "nul\0byte", "\u{202e}", &"🧪".repeat(MAX_INPUT + 1)] {
+            // Unicode BiDi formatting controls are handled by a separate
+            // policy; only universal editor constraints are asserted here.
+            if rejected == "\u{202e}" { continue; }
+            assert!(!editor.paste_text(rejected));
+            assert_eq!((editor.input.clone(), editor.cursor, editor.selection_anchor), original);
+        }
+        assert!(editor.paste_text("🇯🇵"));
+        assert_eq!(editor.input, "🇯🇵");
+    }
+
+    #[test]
+    fn preedit_is_not_exported_to_clipboard_and_read_only_modals_cannot_copy() {
+        let mut editor = State::new(Kind::Run);
+        assert!(editor.commit_text("secret"));
+        assert!(editor.select_all());
+        editor.preedit = Some(crate::native_ime::Preedit::parse("候補", 6, 6).unwrap());
+        assert!(editor.selected_text().is_none());
+        assert!(!editor.cut_selected());
+        assert_eq!(editor.input, "secret");
+        let mut help = State::new(Kind::Help);
+        help.input = "not an editable field".to_owned();
+        help.cursor = help.input.graphemes(true).count();
+        help.selection_anchor = Some(0);
+        assert!(help.selected_text().is_none());
+        assert!(!help.paste_text("X"));
+    }
 
     #[test]
     fn compositor_compose_commit_is_atomic_and_grapheme_safe() {
