@@ -364,6 +364,50 @@ SIGNAL_KILL
 done
 echo 'PASS: real native and session postinst interruptions repaired without user/XFCE mutation'
 
+echo 'PHASE 3d/5: dependency-safe real Session preview3 -> preview2 -> preview3'
+# Both historical and current Desktop packages require Session >= preview3.
+# A direct downgrade with Desktop installed would create a broken dependency
+# graph or tempt apt to remove other packages implicitly. Remove ONLY the
+# dependency-only RiceBowl metapackage, then restore the old session revision.
+# Native, Core, user recipes, selected rice and XFCE all remain installed.
+apt-get remove -y ricebowl-wayland-desktop >/dev/null
+if dpkg -s ricebowl-wayland-desktop 2>/dev/null | \
+        grep -Fxq 'Status: install ok installed'; then
+    echo 'Desktop metapackage must be removed before session rollback' >&2
+    exit 1
+fi
+check_version ricebowl-wayland-core '0.1.0~preview2'
+check_version ricebowl-riceplate-native '0.1.0~preview2'
+apt-get install -y --no-install-recommends --allow-downgrades \
+    "$old_session2" >/dev/null
+check_version ricebowl-wayland-session '0.1.0~preview2'
+test "$(sha256sum /usr/bin/ricebowl-wayland-session | cut -d ' ' -f 1)" = \
+     "$old_session_payload" || {
+    echo 'Downgraded Session payload does not match actual previous source' >&2
+    exit 1
+}
+test -z "$(dpkg --audit)"
+assert_review "$legacy" heritage-modern-v10 10
+assert_review "$luna" xp-luna-columns 12
+assert_selected xp-luna-columns
+sha256sum -c --status /tmp/ricebowl-v12-before.sha256
+check_user_state
+
+# Reapply the authentic preview3 source before restoring the historical Meta1.
+# This is a genuine version transition, not a metadata-only re-label.
+apt-get install -y --no-install-recommends "$old_session3" >/dev/null
+check_version ricebowl-wayland-session '0.1.0~preview3'
+test "$(sha256sum /usr/bin/ricebowl-wayland-session | cut -d ' ' -f 1)" != \
+     "$old_session_payload" || {
+    echo 'Session upgrade still contains preview2 bytes' >&2
+    exit 1
+}
+test -z "$(dpkg --audit)"
+assert_selected xp-luna-columns
+sha256sum -c --status /tmp/ricebowl-v12-before.sha256
+check_user_state
+echo 'PASS: exact Session downgrade and re-upgrade preserved dependency and user state'
+
 echo 'PHASE 4/5: explicit rollback of saved previous Core/Meta/Native'
 apt-get install -y --no-install-recommends --allow-downgrades \
     "$old_core" "$old_meta" "$old_native" "$old_session3" >/dev/null
