@@ -99,10 +99,11 @@ per imported rice and exercises explicit next-login staging/rollback.
 
 Creator GTK smoke tests exercise its concrete widgets and save/review controls
 under a disposable Xvfb session. In addition, `scripts/smoke_creator_gui_labwc.sh`
-starts a disposable real labwc compositor, focuses each actual GTK Composer
-button and sends Return from an independent `wtype` client across the Wayland
-seat; the test requires a saved private v11 draft and captures the real GTK
-window via `grim`. The focus setup is programmatic, but activation is **not**
-a synthetic `clicked()` call. This checks one genuine GUI keyboard path,
+starts a disposable real labwc compositor and programmatically focuses the
+**preceding** GTK button. An independent `wtype` client then sends Tab and
+Return through labwc: the first event must move actual GTK keyboard focus to
+the chosen Composer button, the second must create its private v11 draft.
+`grim` captures the actual GTK compositor frame. Neither step uses a synthetic
+`clicked()` call. This checks one genuine GUI keyboard path,
 not general GUI pointer, full edit/review/export/restore keyboard flows,
 external AT-SPI or visual-fidelity approval. Formal SG4 remains open.
