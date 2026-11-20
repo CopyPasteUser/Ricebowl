@@ -14,6 +14,7 @@ import os
 import stat
 import tempfile
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -21,7 +22,7 @@ from .de import (creator_activation, creator_interactive, creator_layout as layo
                  creator_release, creator_workspace as workspace)
 from .de import (assets, creator_assets, creator_iteration, creator_mapping, creator_reference, creator_regions,
                  creator_structure, drafts,
-                 fonts, pack, recipes, render, review, style_assets)
+                 fonts, pack, recipes, render, render_matrix, review, style_assets)
 
 
 # All paths below are existing allowlisted Creator draft-edit fields. Gtk owns
@@ -191,6 +192,7 @@ def run() -> int:
             self._interactive_session: creator_interactive.InteractivePreview | None = None
             self._interactive_closing = False
             self._render_generation = 0
+            self._matrix_generation = 0
             self._pixbuf = None
             self._preview_fit: tuple[int, int] | None = None
             self._capture_bytes: bytes | None = None
@@ -218,6 +220,43 @@ def run() -> int:
             self._build()
             self._refresh_drafts()
             self.connect("delete-event", self._close)
+            self.connect("key-press-event", self._template_key_navigation)
+
+        def _template_key_navigation(self, _window, event):
+            """Route genuine compositor keyboard actions to focused templates.
+
+            Under some GTK3/Paned layouts, both Tab movement and Return
+            activation are swallowed without reaching the GtkButton action.
+            Handle only these focused template actions; modifier shortcuts,
+            other controls, and pointer input remain owned by GTK.
+            """
+            if event.keyval not in (Gdk.KEY_Tab, Gdk.KEY_ISO_Left_Tab,
+                                    Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+                return False
+            if event.state & (Gdk.ModifierType.CONTROL_MASK |
+                              Gdk.ModifierType.MOD1_MASK |
+                              Gdk.ModifierType.SUPER_MASK):
+                return False
+            ordered = tuple(self.template_buttons.values())
+            focused = self.get_focus()
+            if focused not in ordered:
+                return False
+            if event.keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+                # Gtk.Widget.activate emits the real GtkButton action signal,
+                # rather than inserting an artificial test-only click.
+                return bool(focused.get_mapped() and focused.get_sensitive()
+                            and focused.activate())
+            backwards = (event.keyval == Gdk.KEY_ISO_Left_Tab or
+                         bool(event.state & Gdk.ModifierType.SHIFT_MASK))
+            index = ordered.index(focused) + (-1 if backwards else 1)
+            if index < 0:
+                return False  # GTK owns navigation into the upper toolbar.
+            target = (ordered[index] if index < len(ordered)
+                      else self.open_installed_btn)
+            if not target.get_mapped() or not target.get_sensitive():
+                return False
+            target.grab_focus()
+            return self.get_focus() is target
 
         def _button(self, label, handler, *, primary=False):
             button = Gtk.Button(label=label)
@@ -261,14 +300,18 @@ def run() -> int:
             descriptions = {
                 "heritage": "Compact classic · bottom bar",
                 "orbit": "Expressive · top bar + sidebar",
+                "heritage-composer": "Classic Composer · bottom task hierarchy",
+                "orbit-composer": "Orbit Composer · top panel + focus sidebar",
                 "classic": "Original classic base",
                 "chrome": "Original Chrome base",
             }
+            self.template_buttons = {}
             for key, (name, _) in workspace.TEMPLATES.items():
                 button = self._button(name, lambda _b, kind=key: self._create(kind))
                 button.get_style_context().add_class("creator-template")
                 button.set_tooltip_text(descriptions[key])
                 sidebar.pack_start(button, False, False, 0)
+                self.template_buttons[key] = button
             sidebar.pack_start(self._text("CONTINUE AN EXISTING RICE", "creator-rail-label"),
                                False, False, 8)
             self.open_installed_btn = self._button("Edit installed rice…", self._open_installed)
@@ -311,6 +354,10 @@ def run() -> int:
             sidebar.pack_start(self._text(
                 "Live changes require an opt-in RiceBowl Wayland session and explicit confirmation.",
                 "hub-hint", wrap=True), False, False, 4)
+            # Template focus is explicitly routed on real Tab/Shift+Tab;
+            # the rest of the sidebar retains GTK's ordinary traversal.
+            for template_button in self.template_buttons.values():
+                template_button.set_can_focus(True)
 
             content = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
             self.main.pack2(content, resize=True, shrink=False)
@@ -322,10 +369,12 @@ def run() -> int:
             preview.pack_start(head, False, False, 0)
             head.pack_start(self._text("DESKTOP COMPOSITION", "creator-rail-label"), True, True, 0)
             self.geometry = Gtk.ComboBoxText()
-            for key, label in (("1024,768,1", "1024 × 768"),
+            for key, label in (("640,480,1", "640 × 480 · compact"),
+                               ("1024,768,1", "1024 × 768"),
                                ("1366,768,1", "1366 × 768"),
                                ("1920,1080,1", "1920 × 1080"),
-                               ("1366,768,1.25", "1366 × 768 · 125%")):
+                               ("1366,768,1.25", "1366 × 768 · 125%"),
+                               ("1920,1080,2", "1920 × 1080 · 200%")):
                 self.geometry.append(key, label)
             self.geometry.set_active_id("1366,768,1")
             self.geometry.connect("changed", self._geometry_changed)
@@ -336,6 +385,16 @@ def run() -> int:
                 "The active rice and next login are unchanged; real system controls "
                 "inside the test can still affect devices.")
             preview.pack_start(self.interactive_btn, False, False, 0)
+            self.matrix_btn = self._button("Capture native 4-size QA archive…",
+                                           self._render_matrix)
+            self.matrix_btn.set_tooltip_text(
+                "Capture compact, laptop, desktop and fractional outputs using the existing "
+                "isolated labwc/RicePlate renderer. This checks pixel integrity, not input or focus.")
+            preview.pack_start(self.matrix_btn, False, False, 0)
+            self.matrix_note = self._text(
+                "Four native frames can be captured without changing the running desktop.",
+                "creator-preview-note", wrap=True)
+            preview.pack_start(self.matrix_note, False, False, 0)
             self.visual_stack = Gtk.Stack()
             self.visual_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
             self.visual_switch = Gtk.StackSwitcher()
@@ -580,6 +639,7 @@ def run() -> int:
             self.import_pack_btn.set_sensitive(not self._busy)
             self.save_btn.set_sensitive(selected and bool(self.pending) and not self._busy)
             self.render_btn.set_sensitive(selected and not self._busy)
+            self.matrix_btn.set_sensitive(selected and not self._busy)
             running = self._interactive_session is not None
             self.interactive_btn.set_label(
                 "Close interactive Wayland window" if running else "Try interactive Wayland window")
@@ -2551,6 +2611,81 @@ def run() -> int:
             except (workspace.WorkspaceError, recipes.RecipeError, OSError) as exc:
                 self._status(f"Could not open saved version: {exc}", error=True)
 
+        def _render_matrix(self, _button):
+            """GUI entry to the existing verified four-output native capture contract."""
+            if self._busy or not self._commit_pending() or self.info is None:
+                return
+            chooser = Gtk.FileChooserDialog(
+                title="Save native four-size QA archive", transient_for=self,
+                action=Gtk.FileChooserAction.SAVE)
+            chooser.add_buttons("Cancel", Gtk.ResponseType.CANCEL,
+                                "Capture four real outputs", Gtk.ResponseType.ACCEPT)
+            chooser.set_do_overwrite_confirmation(False)
+            chooser.set_current_name(f"{self.info.recipe_id}-native-qa.zip")
+            try:
+                accepted = chooser.run() == Gtk.ResponseType.ACCEPT
+                destination = Path(chooser.get_filename()) if accepted else None
+            finally:
+                chooser.destroy()
+            if destination is None:
+                return
+            info = self.info
+            self._busy = True
+            self._matrix_generation += 1
+            generation = self._matrix_generation
+            self._actions()
+            self.matrix_note.set_text("Capturing four real labwc/RicePlate outputs…")
+            self._status("Native output QA started. The active Wayland rice stays unchanged.")
+
+            def work():
+                try:
+                    result = render_matrix.render_matrix(str(info.path), destination)
+                    error = None
+                except (render.RenderError, render_matrix.MatrixError, OSError, ValueError) as exc:
+                    result, error = None, str(exc)
+                except Exception:
+                    # A background exception must never leave the Creator in
+                    # a permanently disabled Busy state. Keep full diagnostic
+                    # detail in the local process log, not in an archive/UI.
+                    import logging
+                    logging.exception("Creator native matrix worker failed")
+                    result, error = None, "unexpected renderer failure (see Creator logs)"
+                GLib.idle_add(self._matrix_complete, generation,
+                              info.semantic_sha256, result, error)
+
+            threading.Thread(target=work, name="ricebowl-creator-native-matrix",
+                             daemon=False).start()
+
+        def _matrix_complete(self, generation, expected_sha, result, error):
+            if generation != self._matrix_generation:
+                return False
+            self._busy = False
+            if not self.get_visible():
+                return False
+            self._actions()
+            if error:
+                self.matrix_note.set_text("Native output QA failed; no complete archive published.")
+                self._status(f"Native output QA failed: {error}", error=True)
+                return False
+            if (not result or result.get("verified") is not True
+                    or result.get("recipe", {}).get("semantic_sha256") != expected_sha
+                    or len(result.get("cases", [])) != 4):
+                self.matrix_note.set_text("Native output receipt does not match the saved draft.")
+                self._status("Native output receipt mismatch; do not use this QA archive.",
+                             error=True)
+                return False
+            sizes = ", ".join(
+                f"{item['id']} {item['geometry']['width']}×{item['geometry']['height']}"
+                f" @{item['geometry']['scale']:g}" for item in result["cases"])
+            self.matrix_note.set_text(
+                f"Verified native captures: {sizes}. Archive SHA-256 "
+                f"{result['archive_sha256'][:16]}. "
+                "Pixel integrity verified; visual fidelity, focus and input remain separate QA.")
+            self._status(
+                f"Four native frames saved to {Path(result['archive']).name}; "
+                "the active desktop was not switched.", success=True)
+            return False
+
         def _render(self, _button):
             if self._busy or not self._commit_pending() or self.info is None:
                 return
@@ -3405,6 +3540,7 @@ def run() -> int:
                           flags=Gio.ApplicationFlags.FLAGS_NONE)
     windows = []
     smoke_failed = False
+    probe_started = [0.0]
 
     def activate(application):
         if not windows:
@@ -3413,6 +3549,119 @@ def run() -> int:
         windows[0].present()
         if os.environ.get("RICEBOWL_CREATOR_SMOKE") == "1":
             GLib.idle_add(smoke_test)
+        if os.environ.get("RICEBOWL_CREATOR_WAYLAND_PROBE") in ("heritage-composer",
+                                                                 "orbit-composer"):
+            # GTK mapping/focus arrives asynchronously under real labwc.
+            probe_started[0] = time.monotonic()
+            GLib.timeout_add(100, wayland_input_probe)
+
+    def wayland_input_probe():
+        """CI-only: arm a real GTK button for external Wayland keyboard dispatch.
+
+        This hook never clicks a control. An independent wtype client must send
+        Return *through labwc*; otherwise no draft is created and CI fails.
+        Test files are written exclusively to disposable XDG_STATE_HOME.
+        """
+        nonlocal smoke_failed
+        try:
+            template = os.environ["RICEBOWL_CREATOR_WAYLAND_PROBE"]
+            if (os.environ.get("GDK_BACKEND") != "wayland"
+                    or not os.environ.get("WAYLAND_DISPLAY")
+                    or not os.environ.get("XDG_STATE_HOME")
+                    or os.environ.get("RICEBOWL_CREATOR_SMOKE") == "1"):
+                raise RuntimeError("Wayland input probe requires isolated native GTK session")
+            from gi.repository import Atk
+            window = windows[0]
+            button = window.template_buttons[template]
+            previous = window.template_buttons[
+                "orbit" if template == "heritage-composer" else "heritage-composer"]
+            if button.get_accessible().get_role() != Atk.Role.PUSH_BUTTON:
+                raise RuntimeError("Composer template lacks accessible button role")
+            # Do not mistake the first unmapped GTK idle turn for a failed
+            # keyboard capability. Keep the real input gate strict: external
+            # wtype must still move focus and activate this GTK button.
+            if not window.get_mapped() or not previous.get_mapped():
+                if time.monotonic() - probe_started[0] < 5:
+                    return True
+                raise RuntimeError("Composer template not mapped in labwc")
+            previous.grab_focus()
+            if window.get_focus() != previous:
+                if time.monotonic() - probe_started[0] < 5:
+                    return True
+                raise RuntimeError("Preceding template could not receive GTK keyboard focus")
+            state = Path(os.environ["XDG_STATE_HOME"])
+            # Diagnostics contain only the static control key and focus state;
+            # never log draft content, filenames or clipboard data.
+            def focus_key(widget):
+                if widget is None:
+                    return "none"
+                return next((key for key, candidate in window.template_buttons.items()
+                             if candidate is widget), type(widget).__name__)
+
+            print(f"SG4 keyboard probe armed: active={window.is_active()}, "
+                  f"preceding={focus_key(window.get_focus())}",
+                  file=__import__("sys").stderr, flush=True)
+            def observe_external_key(_widget, event):
+                name = Gdk.keyval_name(event.keyval)
+                if name in ("Tab", "ISO_Left_Tab", "Return", "KP_Enter"):
+                    print(f"SG4 GTK key delivery: {name}; "
+                          f"focused={focus_key(window.get_focus())}, "
+                          f"active={window.is_active()}",
+                          file=__import__("sys").stderr, flush=True)
+                return False
+
+            window.connect("key-press-event", observe_external_key)
+            (state / "sg4-creator-wayland-ready").write_text(
+                template + "\n", encoding="utf-8")
+            previous_focus_key = [focus_key(window.get_focus())]
+
+            def observe_real_tab():
+                current = focus_key(window.get_focus())
+                if current != previous_focus_key[0]:
+                    previous_focus_key[0] = current
+                    print(f"SG4 GTK focus changed: {current}; "
+                          f"window_active={window.is_active()}",
+                          file=__import__("sys").stderr, flush=True)
+                if not button.has_focus() or window.get_focus() != button:
+                    return True
+                (state / "sg4-creator-wayland-focused").write_text(
+                    template + "\n", encoding="utf-8")
+                return False
+
+            GLib.timeout_add(60, observe_real_tab)
+
+            def observe_real_activation():
+                nonlocal smoke_failed
+                if window.info is None:
+                    return True
+                try:
+                    recipe = recipes.load(str(window.info.path))
+                    position = "bottom" if template == "heritage-composer" else "top"
+                    if (recipe.position != position or recipe.schema_version != 11
+                            or window.info.path.stat().st_mode & 0o077):
+                        raise RuntimeError("Wayland keyboard activation produced wrong draft")
+                    # Only the external keyboard can cause this to happen. No
+                    # synthetic .clicked(), .activate() or event injection here.
+                    (state / "sg4-creator-wayland-done").write_text(
+                        json.dumps({"template": template, "position": position,
+                                    "sha256": window.info.semantic_sha256,
+                                    "gtk_focus": True, "atk_role": "push button",
+                                    "native_input": "external Wayland keyboard"}) + "\n",
+                        encoding="utf-8")
+                except Exception:
+                    import traceback
+                    traceback.print_exc()
+                    smoke_failed = True
+                app.quit()
+                return False
+
+            GLib.timeout_add(80, observe_real_activation)
+        except Exception:
+            import traceback
+            traceback.print_exc()
+            smoke_failed = True
+            app.quit()
+        return False
 
     def smoke_test():
         nonlocal smoke_failed
@@ -3782,6 +4031,59 @@ def run() -> int:
             if not os.environ.get("WAYLAND_DISPLAY"):
                 assert not window.apply_btn.get_sensitive()
                 assert not window.restore_btn.get_sensitive()
+            # SG4: drive both Composer recipes through real GTK template buttons,
+            # editable wide/compact lanes, revision review and safe package export.
+            # These synthetic button activations are NOT compositor-delivered input.
+            for template, position in (("heritage-composer", "bottom"),
+                                       ("orbit-composer", "top")):
+                window.template_buttons[template].clicked()
+                assert window.info is not None
+                assert recipes.load(str(window.info.path)).position == position
+                assert window.working["schema_version"] == 11
+                wide_before = copy.deepcopy(window.working["panel"]["layout"])
+                window.panel_mode.set_active_id("compact")
+                assert window._panel_compact
+                window._add_node("start", "label")
+                assert window.pending["/responsive/compact_layout/start"]
+                window.panel_mode.set_active_id("wide")
+                assert not window._panel_compact
+                assert window.working["panel"]["layout"] == wide_before
+                window._add_node("center", "label")
+                last = len(window.working["panel"]["layout"]["center"]) - 1
+                window._mutate_panel("center", (last,), "replace",
+                                     {"type": "label", "text": "GUI QA"})
+                window._transfer_panel("center", (last,), "end")
+                assert window.working["panel"]["layout"]["end"][-1]["text"] == "GUI QA"
+                assert window.save_btn.get_sensitive()
+                window.save_btn.clicked()
+                assert not window.pending and window._previous is not None
+                saved = window.info
+                assert recipes.load(str(saved.path)).position == position
+                assert window.history_btn.get_sensitive()
+                assert window.matrix_btn.get_sensitive()
+                with tempfile.TemporaryDirectory(prefix="ricebowl-composer-gui-") as folder:
+                    target = Path(folder) / "reviewed.ricepack"
+                    export = creator_release.prepare_export(saved)
+                    receipt = creator_release.publish_export(export, target)
+                    inspected = pack.inspect_pack(target)
+                    assert inspected["valid"] and not receipt["applied"]
+                    assert inspected["manifest"]["recipe"]["semantic_sha256"] == saved.semantic_sha256
+                    assert not inspected["compatibility"]["activates_on_import"]
+                window._load(workspace.open_draft(saved.path), reset_history=True)
+                assert window._previous is not None
+                assert window._previous.semantic_sha256 != saved.semantic_sha256
+                # Render-matrix GUI feedback must distinguish receipt mismatch and
+                # failure from confirmed success; native pixels are tested by the
+                # separate real-labwc CI suite.
+                window._matrix_generation += 1
+                window._busy = True
+                assert window._matrix_complete(window._matrix_generation,
+                                               saved.semantic_sha256, None,
+                                               "deliberate dependency failure") is False
+                assert "failed" in window.matrix_note.get_text().lower()
+                assert not window._busy
+            # The Creator does not claim real keyboard/pointer/AT-SPI coverage
+            # merely because GTK widgets were invoked in a disposable X11 smoke.
             path = os.environ.get("RICEBOWL_CREATOR_SMOKE_CAPTURE")
             if path:
                 window.queue_draw()

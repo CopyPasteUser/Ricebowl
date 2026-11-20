@@ -26,6 +26,8 @@ EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "wayland"
 TEMPLATES = {
     "heritage": ("Heritage Modern", EXAMPLES / "heritage-modern-v10.json"),
     "orbit": ("Orbit Studio", EXAMPLES / "orbit-studio-v10.json"),
+    "heritage-composer": ("Heritage Composer", EXAMPLES / "heritage-composer-v10.json"),
+    "orbit-composer": ("Orbit Composer", EXAMPLES / "orbit-composer-v10.json"),
     "classic": ("Classic shell", None),
     "chrome": ("Chrome shell", None),
 }

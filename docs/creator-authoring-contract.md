@@ -71,3 +71,26 @@ container alignment/overflow and popup/menu trees. Keep bindings allowlisted,
 focus/AT-SPI semantics explicit and monitor the memory budget before bumping
 the recipe schema. This sprint intentionally did not modify Rust, session
 management, global roadmaps or README files.
+
+## GUI Composer/native QA lane (20 November 2026)
+
+The optional GTK Creator now exposes the existing `heritage-composer-v10.json`
+and `orbit-composer-v10.json` as first-class templates, migrated to a private
+v11 edit draft on creation. Existing Heritage Modern and Orbit Studio templates
+remain available. Creator's wide/compact lane editor, review and immutable
+version saves use the same schema/parser and transaction-safe operations.
+
+The **Capture native 4-size QA archive** action invokes the existing
+`render_matrix.render_matrix` backend on the selected saved version after
+explicit edit review. The selected destination must be a new absolute `.zip`;
+publication is atomic, owner-private, byte-verified and never applies a rice.
+It covers the four defined compact/laptop/desktop/fractional scenarios; the
+single-frame preview also offers 640×480 and a 2× HiDPI selection. Failure or
+recipe-receipt mismatch is surfaced in the GTK Creator rather than being shown
+as successful visual QA.
+
+**Acceptance boundary:** Xvfb GTK button activation and isolated native labwc
+screenshots are separate forms of evidence. Neither proves real compositor-
+delivered Creator GUI keyboard/pointer actions, AT-SPI focus, visual-tolerance
+approval or post-termination live-session restore. These must be tested and
+reviewed before changing the formal SG4 evidence checkpoint.

@@ -51,6 +51,8 @@ on:
       - 'scripts/compare_wayland_captures.py'
       - 'scripts/verify_wayland_creator_examples.py'
       - 'scripts/verify_wayland_creator_handoff.py'
+      - 'scripts/smoke_creator_gui_labwc.sh'
+      - 'macrice/creator_gui.py'
       - 'scripts/smoke_wayland_shared_rice_engine.sh'
       - 'scripts/ci_wayland_resource_smoke.py'
       - 'tests/test_ci_wayland_resource_smoke.py'
@@ -136,6 +138,8 @@ on:
       - 'scripts/compare_wayland_captures.py'
       - 'scripts/verify_wayland_creator_examples.py'
       - 'scripts/verify_wayland_creator_handoff.py'
+      - 'scripts/smoke_creator_gui_labwc.sh'
+      - 'macrice/creator_gui.py'
       - 'scripts/smoke_wayland_shared_rice_engine.sh'
       - 'scripts/ci_wayland_resource_smoke.py'
       - 'tests/test_ci_wayland_resource_smoke.py'
@@ -177,6 +181,37 @@ permissions:
   contents: read
 
 jobs:
+  # Fail fast on Creator GUI regressions without compiling the entire native
+  # shell first. This check supplements, never replaces, native-layer-shell.
+  sg4-creator-gtk-input:
+    name: SG4 GTK compositor keyboard input
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install only the GTK/headless Wayland keyboard dependencies
+        run: |
+          sudo apt-get -o Acquire::Retries=2 update
+          sudo apt-get -o Acquire::Retries=2 install -y --no-install-recommends \
+            labwc wtype wlr-randr grim python3-pil python3-gi \
+            gir1.2-gtk-3.0 python3-cairo dbus-user-session dbus-x11 \
+            fonts-dejavu-core
+      - name: Verify real Wayland Tab/Return reaches both GTK Creator templates
+        run: |
+          set -eu
+          sh -n scripts/smoke_creator_gui_labwc.sh
+          mkdir -p "$RUNNER_TEMP/creator-gtk-keyboard"
+          timeout -k 3s 90s sh scripts/smoke_creator_gui_labwc.sh \
+            "$RUNNER_TEMP/creator-gtk-keyboard"
+      - name: Save private synthetic GUI keyboard evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ricebowl-creator-gtk-keyboard-${{ github.sha }}
+          path: ${{ runner.temp }}/creator-gtk-keyboard/
+          if-no-files-found: ignore
+          retention-days: 7
+
   native-layer-shell:
     runs-on: ubuntu-24.04
     # Containerized apt downloads can be slow even when native checks pass.
@@ -189,7 +224,7 @@ jobs:
       - name: Install native Wayland and keyboard build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libxkbcommon-dev libdbus-1-dev pkg-config labwc waybar fuzzel swaylock grim foot xwayland xterm xclip wl-clipboard wlr-randr wtype swaybg fonts-dejavu-core python3-pil python3-gi python3-pyatspi at-spi2-core gir1.2-gtk-3.0 dbus-user-session dbus-x11 dpkg-dev binutils xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-wlr libglib2.0-bin pipewire
+          sudo apt-get install -y libxkbcommon-dev libdbus-1-dev pkg-config labwc waybar fuzzel swaylock grim foot xwayland xterm xclip wl-clipboard wlr-randr wtype swaybg fonts-dejavu-core python3-pil python3-gi python3-cairo python3-gi-cairo python3-pyatspi at-spi2-core gir1.2-gtk-3.0 dbus-user-session dbus-x11 dpkg-dev binutils xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-wlr libglib2.0-bin pipewire
       - name: Fail fast on SG5 external harness syntax
         run: |
           sh -n scripts/smoke_luna_atspi.sh
@@ -954,6 +989,13 @@ jobs:
           timeout -k 5s 160s dbus-run-session -- /usr/bin/python3 \
             -m scripts.verify_wayland_creator_handoff \
             --output-dir "$PWD/dist/riceplate-native-preview/creator-handoff"
+      - name: Test real Wayland GTK Creator keyboard focus for both Composer rices
+        run: |
+          set -eu
+          sh -n scripts/smoke_creator_gui_labwc.sh
+          mkdir -p dist/riceplate-native-preview/creator-gtk-wayland
+          timeout -k 5s 95s sh scripts/smoke_creator_gui_labwc.sh \
+            "$PWD/dist/riceplate-native-preview/creator-gtk-wayland"
       - name: Archive smoke-tested native RicePlate preview binary
         uses: actions/upload-artifact@v4
         with:

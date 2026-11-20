@@ -107,16 +107,16 @@ def capture_installed(destination: Path) -> dict:
                             "license": "OFL-1.1", "origin": "unspecified",
                             "source_reference": "assets/fonts/LiberationSans-Regular.ttf"})
             font_digest = hashlib.sha256(font_source.read_bytes()).hexdigest()
-            heritage = creator_workspace.create_draft("heritage")
+            heritage = creator_workspace.create_draft("heritage-composer")
             revised, _ = creator_workspace.save_revision(
                 heritage.path, {"/panel/height": 48,
                                 "/artwork/font": font.identifier,
                                 "/artwork/icons/applications": icons[0]},
                 expected_sha256=heritage.semantic_sha256)
             updated_heritage = creator_workspace.fork_version(revised)
-            orbit = creator_workspace.create_draft("orbit")
+            orbit = creator_workspace.create_draft("orbit-composer")
             revised_orbit, _ = creator_workspace.save_revision(
-                orbit.path, {"/name": "Orbit Studio offline QA",
+                orbit.path, {"/name": "Orbit Composer offline QA",
                              "/artwork/font": font.identifier,
                              "/artwork/icons/applications": icons[1]},
                 expected_sha256=orbit.semantic_sha256)
