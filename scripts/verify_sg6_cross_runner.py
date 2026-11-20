@@ -139,7 +139,11 @@ def compare(root: Path, source_sha: str, *, expected_lock_sha: str, expected_epo
     a, b = (read_receipt(root / worker, worker, source_sha) for worker in WORKERS)
     if a['runner_name'] == b['runner_name'] or a['hostname_sha256'] == b['hostname_sha256']:
         raise ProvenanceError('Independent runner identities were not observed')
-    compared = ('source_date_epoch', 'runner_image', 'runner_image_version',
+    # Independent GitHub-hosted runners can legitimately start on different
+    # ImageVersion patch releases. Record both immutable observations, but
+    # bind reproduction to identical *actual* package bytes, checked-out
+    # source inputs, OS family and exact tool versions instead.
+    compared = ('source_date_epoch', 'runner_image',
                 'rustc', 'cargo', 'dpkg', 'cargo_lock_sha256')
     for key in compared:
         if a[key] != b[key]:
@@ -156,10 +160,11 @@ def compare(root: Path, source_sha: str, *, expected_lock_sha: str, expected_epo
         'software_ci_only': True, 'hardware_accepted': False,
         'separate_runner_names_observed': True,
         'byte_identical_package_count': len(FILES),
-        'same_runner_image_and_build_tools': True,
+        'same_runner_os_and_build_tools': True,
+        'runner_image_versions': {worker: receipt['runner_image_version']
+                                  for worker, receipt in zip(WORKERS, (a, b))},
         'independent_external_provenance_certified': False,
         'packages': a['packages'],
-        'runner_image_version': a['runner_image_version'],
         'cargo_lock_sha256': a['cargo_lock_sha256'],
         'limitations': [
             'Two GitHub-hosted runner VMs in one workflow are not independent third-party builders',
