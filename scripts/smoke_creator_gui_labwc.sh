@@ -76,19 +76,29 @@ dbus-run-session -- sh -eu -c '
             sed -n "1,100p" "$runtime/$template.log" >&2
             exit 1
         fi
-        # Start from the preceding GTK button. Tab must arrive through the real
-        # wl_seat and move keyboard focus to the selected Composer template.
-        wtype -k Tab
-        i=0
-        while [ "$i" -lt 65 ] && [ ! -f "$XDG_STATE_HOME/sg4-creator-wayland-focused" ]; do
+        # GTK may insert extra focus stops for viewport/paned controls.
+        # Navigate using *actual* wl_seat Tab events, without programmatic
+        # target focus or synthetic GTK click. Require target focus within a
+        # small bounded keyboard traversal and reject an unreachable button.
+        tabs=0
+        while [ "$tabs" -lt 24 ] && ! grep -Fxq "$template" \
+                "$XDG_STATE_HOME/sg4-creator-wayland-focused" 2>/dev/null; do
             kill -0 "$creator" 2>/dev/null || break
-            i=$((i + 1)); sleep 0.2
+            wtype -k Tab
+            tabs=$((tabs + 1))
+            # Allow GTK event dispatch between real separate key invocations.
+            i=0
+            while [ "$i" -lt 5 ] && [ ! -f "$XDG_STATE_HOME/sg4-creator-wayland-focused" ]; do
+                kill -0 "$creator" 2>/dev/null || break
+                i=$((i + 1)); sleep 0.1
+            done
         done
         if ! grep -Fxq "$template" "$XDG_STATE_HOME/sg4-creator-wayland-focused" 2>/dev/null; then
-            echo "Real Wayland Tab did not focus $template" >&2
+            echo "Real Wayland Tab navigation never reached $template after $tabs events" >&2
             sed -n "1,100p" "$runtime/$template.log" >&2
             exit 1
         fi
+        echo "SG4: $template reached with $tabs external Wayland Tab event(s)"
         # Capture real compositor pixels while the target button has focus.
         grim - > "$output/$template-gtk-labwc.png"
         # Return is also compositor-delivered, never a synthetic Gtk.clicked().
