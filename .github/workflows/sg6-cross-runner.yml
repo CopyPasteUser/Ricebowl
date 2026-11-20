@@ -22,6 +22,8 @@ on:
       - 'examples/wayland/**'
       - 'scripts/verify_wayland_payload.py'
       - 'scripts/verify_wayland_control.py'
+      - 'scripts/verify_wayland_session_entries.py'
+      - 'tests/test_wayland_session_entries.py'
       - 'scripts/verify_sg6_cross_runner.py'
       - 'tests/test_sg6_cross_runner.py'
       - 'tests/test_sg6_workflow_policy.py'
