@@ -317,6 +317,18 @@ def run() -> int:
             sidebar.pack_start(self._text(
                 "Live changes require an opt-in RiceBowl Wayland session and explicit confirmation.",
                 "hub-hint", wrap=True), False, False, 4)
+            # GTK3's default traversal across nested Paned/ScrolledWindow
+            # surfaces can leave focus on the same template under Wayland.
+            # Publish the exact real sidebar control order, including the
+            # scrollable draft list and the handoff menu; do not trap Tab in
+            # only the template subset or make controls pointer-only.
+            for template_button in self.template_buttons.values():
+                template_button.set_can_focus(True)
+            sidebar.set_focus_chain([
+                *self.template_buttons.values(),
+                self.open_installed_btn, self.import_pack_btn,
+                self.history_btn, scroll, self.wayland_btn,
+            ])
 
             content = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
             self.main.pack2(content, resize=True, shrink=False)
