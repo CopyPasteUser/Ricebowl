@@ -44,12 +44,11 @@ class NetworkProfileReadbackTests(unittest.TestCase):
 
     def test_unchanged_or_replaced_profile_cannot_be_reported_applied(self):
         for inventory in ([BEFORE], [], [{**BEFORE, "kind": "wifi", "active": True}]):
-            with self.subTest(inventory=inventory), (
-                mock.patch.object(backend, "connection_profiles",
-                                  side_effect=[[BEFORE], inventory]),
-                mock.patch.object(backend, "_nmcli_profile",
-                                  return_value="") as write,
-            ):
+            with (self.subTest(inventory=inventory),
+                  mock.patch.object(backend, "connection_profiles",
+                                    side_effect=[[BEFORE], inventory]),
+                  mock.patch.object(backend, "_nmcli_profile",
+                                    return_value="") as write):
                 with self.assertRaisesRegex(backend.SettingsError, "refresh"):
                     backend.set_connection_profile(UUID, True, expected=False)
                 write.assert_called_once()
