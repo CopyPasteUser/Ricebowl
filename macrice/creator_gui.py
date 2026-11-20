@@ -3499,6 +3499,69 @@ def run() -> int:
         windows[0].present()
         if os.environ.get("RICEBOWL_CREATOR_SMOKE") == "1":
             GLib.idle_add(smoke_test)
+        if os.environ.get("RICEBOWL_CREATOR_WAYLAND_PROBE") in ("heritage-composer",
+                                                                 "orbit-composer"):
+            GLib.idle_add(wayland_input_probe)
+
+    def wayland_input_probe():
+        """CI-only: arm a real GTK button for external Wayland keyboard dispatch.
+
+        This hook never clicks a control. An independent wtype client must send
+        Return *through labwc*; otherwise no draft is created and CI fails.
+        Test files are written exclusively to disposable XDG_STATE_HOME.
+        """
+        nonlocal smoke_failed
+        try:
+            template = os.environ["RICEBOWL_CREATOR_WAYLAND_PROBE"]
+            if (os.environ.get("GDK_BACKEND") != "wayland"
+                    or not os.environ.get("WAYLAND_DISPLAY")
+                    or not os.environ.get("XDG_STATE_HOME")
+                    or os.environ.get("RICEBOWL_CREATOR_SMOKE") == "1"):
+                raise RuntimeError("Wayland input probe requires isolated native GTK session")
+            from gi.repository import Atk
+            window = windows[0]
+            button = window.template_buttons[template]
+            if button.get_accessible().get_role() != Atk.Role.PUSH_BUTTON:
+                raise RuntimeError("Composer template lacks accessible button role")
+            button.grab_focus()
+            if not button.has_focus() or window.get_focus() != button:
+                raise RuntimeError("Composer template could not receive GTK keyboard focus")
+            state = Path(os.environ["XDG_STATE_HOME"])
+            (state / "sg4-creator-wayland-ready").write_text(
+                template + "\n", encoding="utf-8")
+
+            def observe_real_activation():
+                nonlocal smoke_failed
+                if window.info is None:
+                    return True
+                try:
+                    recipe = recipes.load(str(window.info.path))
+                    position = "bottom" if template == "heritage-composer" else "top"
+                    if (recipe.position != position or recipe.schema_version != 11
+                            or window.info.path.stat().st_mode & 0o077):
+                        raise RuntimeError("Wayland keyboard activation produced wrong draft")
+                    # Only the external keyboard can cause this to happen. No
+                    # synthetic .clicked(), .activate() or event injection here.
+                    (state / "sg4-creator-wayland-done").write_text(
+                        json.dumps({"template": template, "position": position,
+                                    "sha256": window.info.semantic_sha256,
+                                    "gtk_focus": True, "atk_role": "push button",
+                                    "native_input": "external Wayland keyboard"}) + "\n",
+                        encoding="utf-8")
+                except Exception:
+                    import traceback
+                    traceback.print_exc()
+                    smoke_failed = True
+                app.quit()
+                return False
+
+            GLib.timeout_add(80, observe_real_activation)
+        except Exception:
+            import traceback
+            traceback.print_exc()
+            smoke_failed = True
+            app.quit()
+        return False
 
     def smoke_test():
         nonlocal smoke_failed
