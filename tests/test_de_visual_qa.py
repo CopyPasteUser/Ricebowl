@@ -39,14 +39,13 @@ class WaylandVisualQaTests(unittest.TestCase):
         self.assertIn("    trap cleanup EXIT\n", body)
         self.assertIn("    for recipe in classic chrome ", body)
         self.assertIn('    echo "CI labwc did not respond to SIGTERM"', body)
-        # Chrome's second real Fuzzel opening must use one bounded, explicit
-        # compositor input-device teardown, not a timing-only device sleep.
-        self.assertIn("mkfifo -m 0600", body)
-        self.assertIn("chrome-controlled-pointer.log", body)
-        self.assertIn('exec 8>"$runtime/chrome-pointer-control"', body)
-        self.assertIn("prior_fuzzel_enters=", body)
-        self.assertIn("wait \"$focus_clicker\"", body)
-        self.assertIn("--example sg1_chrome_pointer", source)
+        # Prove compositor input -> real first Fuzzel -> keyboard Enter -> Exec.
+        self.assertIn('wtype -d 25 "RiceBowl CI Chrome Witness"', body)
+        self.assertIn("chrome-fuzzel-filtered.png", body)
+        self.assertIn("keyboard-launch-received", body)
+        self.assertIn("RICEBOWL_CI_CHROME_LAUNCH_LOG", body)
+        self.assertNotIn("sg1_chrome_pointer", source)
+
         self.assertFalse(body.startswith("RICEBOWL_CI_LABWC_BODY"))
         # Both the outer harness and the streamed child must parse cleanly.
         # -n prevents running any programs or touching the user's session.
