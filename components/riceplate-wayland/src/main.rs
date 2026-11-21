@@ -5014,6 +5014,11 @@ impl RicePlate {
             self.request_redraw(qh);
         }
         if self.tray_state != updated {
+            if std::env::var("RICEBOWL_DE_TRACE_TRAY").as_deref() == Ok("1") {
+                // CI diagnostics contain counts only, never remote item text.
+                eprintln!("RicePlate: SNI inventory changed items={} visible={}",
+                          updated.entries.len(), updated.visible_count());
+            }
             self.tray_state = updated;
             if self.tray_popup_state.visible {
                 if self.tray_state.overflow_count() == 0 {
@@ -9343,6 +9348,16 @@ impl PointerHandler for RicePlate {
                         }
                     }
                     let groups = self.grouped_tasks();
+                    if self.recipe.id == "xp-luna-columns"
+                        && std::env::var("RICEBOWL_DE_TRACE_TRAY").as_deref() == Ok("1") {
+                        // A real compositor pointer receipt, not an inferred
+                        // pixel/layout position. Only geometry and counts.
+                        eprintln!("RicePlate: Luna pointer button={button} local={:?} panel={}x{} hit={:?} tray_items={}",
+                            event.position, panel_width, panel_height,
+                            input_core::panel_hit(&self.recipe, panel_width,
+                                panel_height, event.position, groups.len(), panel_offset),
+                            self.tray_state.entries.len());
+                    }
                     match input_core::panel_hit(
                         &self.recipe, panel_width, panel_height, event.position,
                         groups.len(), panel_offset,
