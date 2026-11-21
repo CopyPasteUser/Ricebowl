@@ -44,6 +44,7 @@ mod recipe;
 mod style_art;
 mod ricepop;
 mod system_status;
+mod sni_recovery;
 mod task_groups;
 mod task_navigation;
 mod bidi_layout;
@@ -591,22 +592,18 @@ fn main() -> Result<(), Box<dyn Error>> {
         TrayPopupLayer { surface, pool: None, configured: false, output: None }
     });
 
-    // A real StatusNotifier host/watcher is only connected when a native
-    // recipe requests a tray; Waybar continues owning its own fallback tray.
-    let tray_host = if use_tray {
-        match status_notifier::Host::new() {
-            Ok(host) => Some(host),
+    // Initial SNI connection is optional. If the private D-Bus host or its fd
+    // cannot be opened, leave both unset and let the bounded reactor retry.
+    // Waybar retains ownership of its own fallback tray.
+    let (tray_host, tray_fd) = if use_tray {
+        match open_native_sni() {
+            Ok((host, fd)) => (Some(host), Some(fd)),
             Err(error) => {
                 eprintln!("RicePlate: native SNI tray unavailable: {error}");
-                None
+                (None, None)
             }
         }
-    } else { None };
-    let tray_fd = tray_host.as_ref().and_then(|host| {
-        host.as_fd().try_clone_to_owned().map_err(|error| {
-            eprintln!("RicePlate: cannot observe SNI connection: {error}");
-        }).ok()
-    });
+    } else { (None, None) };
 
     let mut app = RicePlate {
         compositor,
@@ -821,17 +818,22 @@ fn main() -> Result<(), Box<dyn Error>> {
         })?;
     }
     if let Some(fd) = tray_fd {
-        let redraw_qh = qh.clone();
-        event_loop.handle().insert_source(
-            Generic::new(fd, Interest::READ, Mode::Level),
-            move |_, _, app: &mut RicePlate| {
-                Ok(if app.refresh_tray(&redraw_qh) {
-                    PostAction::Continue
-                } else { PostAction::Remove })
-            },
-        )?;
-        app.refresh_tray(&qh);
+        // Check the host before registering its duplicated fd. A connection
+        // which already failed its initial read must not strand a Generic
+        // watcher that could outlive the disconnected owner.
+        if app.refresh_tray(&qh) {
+            if let Err(error) = register_native_sni(&event_loop.handle(), fd, &qh) {
+                // Tray loss must never abort the entire native desktop at
+                // startup. Preserve the panel and retry the optional host.
+                eprintln!("RicePlate: native SNI watcher unavailable: {error}");
+                app.tray_host = None;
+                app.tray_state = tray::State::default();
+                app.set_tray_popup_visible(false, &qh);
+                app.request_redraw(&qh);
+            }
+        }
     }
+    let mut sni_retry = sni_recovery::Retry::new(use_tray, Instant::now());
     let mut audio_observer_sender = None;
     let mut audio_reconnect_after = Instant::now() + Duration::from_secs(5);
     let mut backlight = if full_session { brightness::Watcher::detect() } else { None };
@@ -956,9 +958,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         let osd_timeout = app.osd_state.timeout(Instant::now());
         let reconnect_timeout = (poll_audio && full_session).then(||
             audio_reconnect_after.saturating_duration_since(Instant::now()));
+        let sni_timeout = sni_retry.timeout(app.tray_host.is_some(), Instant::now());
         let backlight_timeout = backlight.as_ref().map(|_| next_backlight_check
             .saturating_duration_since(Instant::now()));
-        let timeout = [Some(next_clock_timeout()), osd_timeout, reconnect_timeout, backlight_timeout,
+        let timeout = [Some(next_clock_timeout()), osd_timeout, reconnect_timeout, sni_timeout, backlight_timeout,
                        app.desktop_keyboard_focus_layer.as_ref().map(|focus|
                            focus.expires.saturating_duration_since(Instant::now())),
                        // An unconfirmed 8px Exclusive surface must never outlive
@@ -985,6 +988,36 @@ fn main() -> Result<(), Box<dyn Error>> {
         app.reap_file_launches_if_due();
         if let Err(error) = app.external_launcher.reap() {
             eprintln!("RicePlate: external launcher reap failed: {error}");
+        }
+        // A fatal D-Bus host error removes its Generic fd source. Reattach
+        // both the host and its NEW owned fd only after the previous source
+        // has returned PostAction::Remove; never reuse old menu/action IDs.
+        if sni_retry.due(app.tray_host.is_some(), Instant::now()) {
+            sni_retry.attempted(Instant::now());
+            match open_native_sni() {
+                Ok((host, fd)) => {
+                    app.tray_host = Some(host);
+                    // An immediately disconnected host is discarded before
+                    // any fd source is installed. Never leak an orphan source
+                    // across repeated failed reconnect attempts.
+                    if app.refresh_tray(&qh) {
+                        match register_native_sni(&event_loop.handle(), fd, &qh) {
+                            Ok(()) => {
+                                eprintln!("RicePlate: native SNI tray reconnected");
+                                app.request_redraw(&qh);
+                            }
+                            Err(error) => {
+                                eprintln!("RicePlate: SNI watcher registration unavailable: {error}");
+                                app.tray_host = None;
+                                app.tray_state = tray::State::default();
+                                app.set_tray_popup_visible(false, &qh);
+                                app.request_redraw(&qh);
+                            }
+                        }
+                    }
+                }
+                Err(error) => eprintln!("RicePlate: SNI reconnect deferred: {error}"),
+            }
         }
         // Expire a still-pending keyboard lease independently of the longer
         // focused UI lifetime. Dropping the actual layer is essential: only
@@ -1425,6 +1458,26 @@ mod file_opener_lifecycle_tests {
         }
         panic!("completed child was never reaped");
     }
+}
+
+/// Own the D-Bus connection and a distinct fd registered with calloop. A
+/// reconnect must never inherit the previous (disconnected) watcher source.
+fn open_native_sni() -> Result<(status_notifier::Host, OwnedFd), Box<dyn Error>> {
+    let host = status_notifier::Host::new()?;
+    let fd = host.as_fd().try_clone_to_owned()?;
+    Ok((host, fd))
+}
+
+fn register_native_sni(handle: &LoopHandle<'_, RicePlate>, fd: OwnedFd,
+                       qh: &QueueHandle<RicePlate>) -> Result<(), Box<dyn Error>> {
+    let redraw_qh = qh.clone();
+    handle.insert_source(Generic::new(fd, Interest::READ, Mode::Level),
+        move |_, _, app: &mut RicePlate| {
+            Ok(if app.refresh_tray(&redraw_qh) {
+                PostAction::Continue
+            } else { PostAction::Remove })
+        })?;
+    Ok(())
 }
 
 fn register_file_watch(
