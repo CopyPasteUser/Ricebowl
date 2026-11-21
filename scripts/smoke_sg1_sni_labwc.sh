@@ -105,10 +105,28 @@ PY
     test -n "$output"
     WAYLAND_DISPLAY=wayland-0 wlr-randr --output "$output" \
         --custom-mode 1366x768@60Hz --scale 1
-    WAYLAND_DISPLAY=wayland-0 wtype -k F13 -s 1800000 -k F13 >"$runtime/keyboard.log" 2>&1 &
-    keyboard_keeper=$!
-    sleep .4
-    kill -0 "$keyboard_keeper"
+    # A virtual keyboard in wtype is a seat-bound protocol object, not a
+    # physical keyboard. Reusing it after the previous RicePlate disconnects
+    # can leave the disposable compositor with a stale synthetic seat focus.
+    # Attach a fresh input device for each rice while keeping the SAME labwc,
+    # D-Bus session, and screen. Test each actual compositor input path; do
+    # not count synthetic logs as an action receipt or infer a hot-swap pass.
+    renew_keyboard_seat() {
+        if [ -n "$keyboard_keeper" ]; then
+            kill "$keyboard_keeper" 2>/dev/null || :
+            wait "$keyboard_keeper" 2>/dev/null || :
+            keyboard_keeper=
+        fi
+        WAYLAND_DISPLAY=wayland-0 wtype -k F13 -s 1800000 -k F13 \
+            >"$runtime/keyboard-$rice.log" 2>&1 &
+        keyboard_keeper=$!
+        sleep .4
+        kill -0 "$keyboard_keeper" || {
+            echo "$rice virtual keyboard failed to attach to labwc" >&2
+            cat "$runtime/keyboard-$rice.log" >&2 || :
+            exit 1
+        }
+    }
 
     # Both rices must prove the same real DBusMenu context activation path.
     # The Luna primary-click route also closes desktop focus overlays and can
@@ -123,6 +141,7 @@ PY
         else
             recipe="$runtime/luna.json" tray_x=1185
         fi
+        renew_keyboard_seat
         RICEBOWL_DE_TRACE_TRAY=1 RICEBOWL_DE_TRACE_FOCUS=1 WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" \
             >"$runtime/plate-$rice.log" 2>&1 &
         plate=$!
