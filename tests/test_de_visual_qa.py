@@ -28,7 +28,7 @@ class WaylandVisualQaTests(unittest.TestCase):
                   "scripts/smoke_riceplate_native.sh").read_text(encoding="utf-8")
         header = (
             'dbus-run-session -- sh -eu -s -- "$source_root" "$runtime" '
-            '"$native" "$clicker" "$chrome_clicker" <<\'RICEBOWL_CI_LABWC_BODY\'\n'
+            '"$native" "$clicker" <<\'RICEBOWL_CI_LABWC_BODY\'\n'
         )
         marker = "\nRICEBOWL_CI_LABWC_BODY\n"
         self.assertEqual(source.count(header), 1)
