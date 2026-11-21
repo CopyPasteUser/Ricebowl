@@ -61,8 +61,12 @@ if [ ! -f "$test_font" ]; then
     echo "Native font smoke requires the DejaVu Sans Mono fixture" >&2
     exit 1
 fi
-mkdir -m 0700 "$runtime/config" "$runtime/fuzzel-cache"
+mkdir -m 0700 "$runtime/config" "$runtime/fuzzel-cache" "$runtime/ci-data"
+mkdir -m 0700 "$runtime/ci-data/applications"
 export XDG_CONFIG_HOME="$runtime/config"
+export XDG_DATA_HOME="$runtime/ci-data"
+export XDG_CACHE_HOME="$runtime/fuzzel-cache"
+export RICEBOWL_CI_CHROME_LAUNCH_LOG="$runtime/chrome-launch.log"
 python3 - "$source_root" "$runtime" "$test_font" <<'PY'
 import json
 from pathlib import Path
@@ -125,6 +129,25 @@ set -eu
 printf '%s\n' "$1" "$2" >"$RICEBOWL_CI_TRASH_LOG"
 GIO
 chmod 0700 "$runtime/mock-bin/gio"
+# A private .desktop entry exercises real Chrome -> fuzzel -> keyboard Enter
+# -> process execution. The wrapper writes only into this disposable runtime.
+cat >"$runtime/mock-bin/ci-chrome-launch" <<'CI_CHROME'
+#!/bin/sh
+set -eu
+[ "$#" -eq 0 ] || exit 64
+[ -n "${RICEBOWL_CI_CHROME_LAUNCH_LOG:-}" ] || exit 64
+printf '%s\n' keyboard-launch-received >"$RICEBOWL_CI_CHROME_LAUNCH_LOG"
+CI_CHROME
+chmod 0700 "$runtime/mock-bin/ci-chrome-launch"
+cat >"$XDG_DATA_HOME/applications/ricebowl-ci-chrome.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=RiceBowl CI Chrome Witness
+Exec=$runtime/mock-bin/ci-chrome-launch
+Terminal=false
+Categories=Utility;
+EOF
+chmod 0600 "$XDG_DATA_HOME/applications/ricebowl-ci-chrome.desktop"
 # Real pointer-to-RiceField dispatch is captured as argv, without ever
 # launching a file manager on the CI runner or touching user files.
 cat >"$runtime/mock-bin/ricefield" <<'RICEFIELD'
@@ -430,6 +453,57 @@ dbus-run-session -- sh -eu -c '
             esac
             kill -0 "$plate"
             echo "Verified Chrome real fuzzel pointer-open/keyboard-Escape on labwc"
+            # The first check only proved dismissal. Reopen through a genuine
+            # pointer gesture, type the unique private app with the compositor
+            # keyboard, and require a real Exec receipt (not just a screenshot).
+            test ! -e "$RICEBOWL_CI_CHROME_LAUNCH_LOG"
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 28 746 1366 768
+            count=0
+            launcher_pid=
+            while [ "$count" -lt 30 ]; do
+                for candidate in $(pgrep -u "$(id -u)" -x fuzzel || :); do
+                    state=$(ps -o stat= -p "$candidate" 2>/dev/null || :)
+                    case "$state" in
+                        ""|*Z*) : ;;
+                        *) launcher_pid=$candidate; break ;;
+                    esac
+                done
+                [ -n "$launcher_pid" ] && break
+                count=$((count + 1))
+                sleep 0.1
+            done
+            [ -n "$launcher_pid" ] || {
+                echo "Chrome keyboard-launch test did not reopen live fuzzel" >&2
+                tail -n 35 "$runtime/plate-$label.log" >&2
+                exit 1
+            }
+            sleep 0.3
+            WAYLAND_DISPLAY=wayland-0 wtype -d 25 "RiceBowl CI Chrome Witness" -k Return
+            count=0
+            while [ ! -s "$RICEBOWL_CI_CHROME_LAUNCH_LOG" ] && [ "$count" -lt 40 ]; do
+                count=$((count + 1))
+                sleep 0.1
+            done
+            if [ "$(cat "$RICEBOWL_CI_CHROME_LAUNCH_LOG" 2>/dev/null || :)" != keyboard-launch-received ]; then
+                echo "Chrome real fuzzel keyboard Enter did not execute private app" >&2
+                tail -n 35 "$runtime/plate-$label.log" >&2
+                exit 1
+            fi
+            count=0
+            while kill -0 "$launcher_pid" 2>/dev/null && [ "$count" -lt 30 ]; do
+                state=$(ps -o stat= -p "$launcher_pid" 2>/dev/null || :)
+                case "$state" in ""|*Z*) break ;; esac
+                count=$((count + 1))
+                sleep 0.1
+            done
+            state=$(ps -o stat= -p "$launcher_pid" 2>/dev/null || :)
+            case "$state" in
+                ""|*Z*) : ;;
+                *) echo "Chrome fuzzel remained open after app keyboard launch" >&2
+                   exit 1 ;;
+            esac
+            kill -0 "$plate"
+            echo "Verified Chrome real fuzzel keyboard app launch under labwc"
         fi
         if [ "$label" = riceclip-actions ]; then
             # A real Wayland virtual-pointer click crosses the native panel,
