@@ -54,6 +54,8 @@ def command(*cmd: str) -> str:
 def record(directory: Path, worker: str, source_sha: str) -> dict:
     if worker not in WORKERS or not SHA.fullmatch(source_sha):
         raise ProvenanceError('Invalid worker or exact-source SHA')
+    if directory.is_symlink() or not directory.is_dir():
+        raise ProvenanceError(f'Missing or symlinked runner directory: {worker}')
     if command('git', 'rev-parse', 'HEAD') != source_sha:
         raise ProvenanceError('Build checkout differs from claimed source')
     epoch = os.environ.get('SOURCE_DATE_EPOCH', '')
@@ -86,6 +88,11 @@ def _valid_epoch(epoch: object) -> bool:
 
 
 def read_receipt(directory: Path, worker: str, source_sha: str) -> dict:
+    # Only the two direct, ordinary artifact directories may be trusted.
+    # Checking individual files is insufficient: a symlinked parent could
+    # redirect an entire apparently valid receipt/package set outside root.
+    if directory.is_symlink() or not directory.is_dir():
+        raise ProvenanceError(f'Missing or symlinked runner directory: {worker}')
     path = directory / 'receipt.json'
     if path.is_symlink() or not path.is_file() or not 0 < path.stat().st_size <= 8192:
         raise ProvenanceError(f'Missing/bad receipt for {worker}')
