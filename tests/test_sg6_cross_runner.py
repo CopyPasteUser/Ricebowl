@@ -157,6 +157,26 @@ class CrossRunnerTests(unittest.TestCase):
         with self.assertRaises(verifier.ProvenanceError):
             self.compare()
 
+    def test_reject_symlinked_worker_directory_even_with_valid_receipt(self):
+        # A whole worker directory can be redirected without creating
+        # any symlinked .deb or receipt path itself. Reject this input.
+        directory = self.root / 'host-a'
+        actual = self.root / 'outside-artifact-root'
+        directory.rename(actual)
+        directory.symlink_to(actual, target_is_directory=True)
+        with self.assertRaisesRegex(verifier.ProvenanceError, 'symlinked runner directory'):
+            self.compare()
+        with self.assertRaisesRegex(verifier.ProvenanceError, 'symlinked runner directory'):
+            verifier.record(directory, 'host-a', SHA)
+
+    def test_reject_missing_worker_directory(self):
+        directory = self.root / 'host-a'
+        for entry in directory.iterdir():
+            entry.unlink()
+        directory.rmdir()
+        with self.assertRaisesRegex(verifier.ProvenanceError, 'runner directory'):
+            self.compare()
+
     def test_reject_symlinked_archive(self):
         directory = self.root / 'host-a'
         file = directory / verifier.FILES[0]
