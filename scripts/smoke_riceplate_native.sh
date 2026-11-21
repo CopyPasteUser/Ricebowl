@@ -529,7 +529,7 @@ dbus-run-session -- sh -eu -c '
                 echo "Chrome real fuzzel keyboard Enter did not execute private app" >&2
                 if [ -f "$RICEBOWL_CI_FUZZEL_WL_LOG" ]; then
                     echo "Fuzzel real Wayland enter/leave/close events:" >&2
-                    grep -E 'wl_keyboard@.*\.(enter|leave)|wl_display@.*\.error|zwlr_layer_surface_v1@.*\.(configure|closed)' \
+                    grep -E "wl_keyboard@.*\.(enter|leave)|wl_display@.*\.error|zwlr_layer_surface_v1@.*\.(configure|closed)" \
                         "$RICEBOWL_CI_FUZZEL_WL_LOG" | tail -n 60 >&2 || :
                     cp "$RICEBOWL_CI_FUZZEL_WL_LOG" \
                         "$source_root/dist/riceplate-native-preview/creator-output-matrix/chrome-fuzzel-wayland.log"
