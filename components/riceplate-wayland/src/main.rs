@@ -9007,7 +9007,21 @@ impl PointerHandler for RicePlate {
                             desktop_layout::file_state::ChooseMode::Range
                         } else { desktop_layout::file_state::ChooseMode::Replace };
                         if let Some(snapshot) = self.file_snapshot.as_ref() {
-                            self.file_selection.choose(&key, mode, &snapshot.entries);
+                            // Restrict Shift/Ctrl to icons genuinely placed on
+                            // this wl_output. The inventory contains files
+                            // assigned to *all* outputs and is not a visible
+                            // keyboard/pointer peer list.
+                            let clicked_output = self.file_layers[index].bound_output.as_ref()
+                                .or(self.primary_output.as_ref())
+                                .or(self.file_layers[index].output.as_ref());
+                            let peers: Vec<_> = snapshot.entries.iter().filter(|entry| {
+                                self.file_layers.iter().any(|layer|
+                                    layer.placed.is_some() && layer.entry.key == entry.key
+                                    && layer.bound_output.as_ref()
+                                        .or(self.primary_output.as_ref())
+                                        .or(layer.output.as_ref()) == clicked_output)
+                            }).cloned().collect();
+                            self.file_selection.choose(&key, mode, &peers);
                             for i in 0..self.file_layers.len() { self.redraw_file_icon(i); }
                         }
                         self.file_drag = if mode == desktop_layout::file_state::ChooseMode::Replace {
