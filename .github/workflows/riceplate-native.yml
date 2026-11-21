@@ -37,6 +37,9 @@ on:
       - 'scripts/verify_wayland_clean_rebuild.sh'
       - 'tests/test_wayland_clean_rebuild.py'
       - 'scripts/smoke_riceplate_native.sh'
+      - 'scripts/smoke_sg1_sni_labwc.sh'
+      - 'scripts/fixtures/sg1_sni_provider.py'
+      - 'tests/test_sg1_sni_fixture.py'
       - 'scripts/smoke_luna_window_chrome.sh'
       - 'scripts/smoke_luna_hotkeys.sh'
       - 'scripts/smoke_luna_atspi.sh'
@@ -134,6 +137,9 @@ on:
       - 'scripts/verify_wayland_clean_rebuild.sh'
       - 'tests/test_wayland_clean_rebuild.py'
       - 'scripts/smoke_riceplate_native.sh'
+      - 'scripts/smoke_sg1_sni_labwc.sh'
+      - 'scripts/fixtures/sg1_sni_provider.py'
+      - 'tests/test_sg1_sni_fixture.py'
       - 'scripts/smoke_luna_window_chrome.sh'
       - 'scripts/smoke_luna_hotkeys.sh'
       - 'scripts/smoke_luna_atspi.sh'
@@ -266,6 +272,8 @@ jobs:
           cargo build --locked --release --manifest-path components/riceplate-wayland/Cargo.toml \
             --example wayland_ime_v2_client
           sh -n scripts/smoke_riceplate_native.sh
+          sh -n scripts/smoke_sg1_sni_labwc.sh
+          /usr/bin/python3 -m py_compile scripts/fixtures/sg1_sni_provider.py
           sh -n scripts/smoke_luna_window_chrome.sh
           sh -n scripts/smoke_luna_hotkeys.sh
           sh -n scripts/smoke_luna_atspi.sh
@@ -535,6 +543,8 @@ jobs:
         # dozens of compositor captures. 120s exited 124 before the added
         # acceptance cases. Keep a finite 180s guard; never skip assertions.
         run: timeout -k 5s 180s sh scripts/smoke_riceplate_native.sh
+      - name: Prove real SNI provider owner lifecycle on Chrome and XP Luna under labwc
+        run: timeout -k 5s 105s sh scripts/smoke_sg1_sni_labwc.sh
       - name: Prove shared Rice engine across three native compositor-confirmed live layouts
         run: timeout -k 5s 125s sh scripts/smoke_wayland_shared_rice_engine.sh
       - name: Verify SG7 compositor resource growth receipts at exact source SHA
