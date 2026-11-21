@@ -114,8 +114,16 @@ class CrossRunnerWorkflowPolicyTests(unittest.TestCase):
         # the PR and resulting main commit must also run installed-session
         # and disposable Mint recovery rather than reusing earlier evidence.
         native = (WORKFLOW.parent / "riceplate-native.yml").read_text(encoding="utf-8")
-        self.assertEqual(native.count(
-            "      - '.github/workflows/sg6-cross-runner.yml'"), 2)
+        for watched in (
+            ".github/workflows/sg6-cross-runner.yml",
+            "scripts/verify_sg6_cross_runner.py",
+            "tests/test_sg6_cross_runner.py",
+            "tests/test_sg6_workflow_policy.py",
+        ):
+            # Both PR heads and trusted main pushes must invalidate
+            # stale Native/Ubuntu/Mint evidence after verifier edits.
+            self.assertEqual(native.count(f"      - '{watched}'"), 2,
+                             f"Native/Mint trigger missing or asymmetric: {watched}")
         self.assertIn("sg6-mint221-compat:", native)
         self.assertIn("smoke_wayland_upgrade_rollback.sh", native)
 
