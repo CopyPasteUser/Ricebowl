@@ -822,7 +822,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         // which already failed its initial read must not strand a Generic
         // watcher that could outlive the disconnected owner.
         if app.refresh_tray(&qh) {
-            register_native_sni(&event_loop.handle(), fd, &qh)?;
+            if let Err(error) = register_native_sni(&event_loop.handle(), fd, &qh) {
+                // Tray loss must never abort the entire native desktop at
+                // startup. Preserve the panel and retry the optional host.
+                eprintln!("RicePlate: native SNI watcher unavailable: {error}");
+                app.tray_host = None;
+                app.tray_state = tray::State::default();
+                app.set_tray_popup_visible(false, &qh);
+                app.request_redraw(&qh);
+            }
         }
     }
     let mut sni_retry = sni_recovery::Retry::new(use_tray, Instant::now());
