@@ -232,7 +232,8 @@ class Fixture:
         return GLib.SOURCE_REMOVE
 
     def run(self):
-        GLib.timeout_add(150, self.register)
+        if not self.args.no_register:
+            GLib.timeout_add(150, self.register)
         signal.signal(signal.SIGTERM, lambda *_: self.loop.quit())
         self.loop.run()
         self.receipt("exit")
@@ -244,6 +245,8 @@ def main():
     parser.add_argument("--receipts", required=True)
     parser.add_argument("--generation", required=True)
     parser.add_argument("--mode", choices=sorted(MODES), default="normal")
+    parser.add_argument("--no-register", action="store_true",
+                        help="Only for direct protocol tests without a watcher")
     args = parser.parse_args()
     Fixture(args).run()
 
