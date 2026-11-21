@@ -5,8 +5,8 @@ set -eu
 
 mode=${1:-native}
 case "$mode" in
-    native|--xwayland|--luna) ;;
-    *) echo "Usage: $0 [--xwayland|--luna]" >&2; exit 2 ;;
+    native|--chrome|--xwayland|--luna) ;;
+    *) echo "Usage: $0 [--chrome|--xwayland|--luna]" >&2; exit 2 ;;
 esac
 
 source_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
@@ -55,7 +55,17 @@ dbus-run-session -- sh -eu -c '
     compositor=$!
     plate=
     window=
+    sibling=
+    peer=
     cleanup() {
+        if [ -n "$peer" ]; then
+            kill "$peer" 2>/dev/null || :
+            wait "$peer" 2>/dev/null || :
+        fi
+        if [ -n "$sibling" ]; then
+            kill "$sibling" 2>/dev/null || :
+            wait "$sibling" 2>/dev/null || :
+        fi
         if [ -n "$window" ]; then
             kill "$window" 2>/dev/null || :
             wait "$window" 2>/dev/null || :
@@ -88,6 +98,8 @@ dbus-run-session -- sh -eu -c '
 
     if [ "$mode" = "--luna" ]; then
         recipe="$runtime/luna.json"
+    elif [ "$mode" = "--chrome" ]; then
+        recipe=chrome
     else
         recipe=classic
     fi
@@ -162,6 +174,10 @@ dbus-run-session -- sh -eu -c '
     }
     wait_window_state "active=true minimized=false"
     task_click_x=132
+    if [ "$mode" = "--chrome" ]; then
+        # The Chrome task region is centered, unlike Classic/Luna.
+        task_click_x=512
+    fi
     if [ "$mode" = "--luna" ]; then
         # Real XP Luna recipe geometry at 1024px: Start 0..94;
         # Apps 102..134, Terminal 136..168, Show Desktop 170..202.
@@ -255,6 +271,108 @@ dbus-run-session -- sh -eu -c '
         echo "XWayland xterm consumed real compositor-delivered text after native taskbar restore"
     fi
 
+    if [ "$mode" != "--xwayland" ]; then
+        # Two real clients share one app_id/task group. Compositor focus moves
+        # to the new child; a group click must activate the *other* member,
+        # rather than minimize the active one.
+        WAYLAND_DISPLAY=wayland-0 foot --app-id="$app_id" \
+            --title=RiceBowl-Sibling-Smoke /bin/sh -c "sleep 30" \
+            >"$runtime/sibling.log" 2>&1 &
+        sibling=$!
+        count=0
+        while [ "$count" -lt 40 ]; do
+            if grep -Fq "window group_count=1 visible_windows=2" "$runtime/panel.log"; then
+                break
+            fi
+            kill -0 "$sibling" 2>/dev/null || {
+                cat "$runtime/sibling.log" >&2; exit 1;
+            }
+            sleep 0.25
+            count=$((count + 1))
+        done
+        if [ "$count" -ge 40 ]; then
+            echo "Two compositor windows were not grouped as one task" >&2
+            tail -n 50 "$runtime/panel.log" >&2
+            exit 1
+        fi
+        WAYLAND_DISPLAY=wayland-0 "$clicker" "$task_click_x" 750 1024 768
+        count=0
+        while [ "$count" -lt 40 ] &&
+            ! grep -Fq "taskbar action=activate app_id=\"$app_id\"" "$runtime/panel.log"; do
+            sleep 0.25
+            count=$((count + 1))
+        done
+        if [ "$count" -ge 40 ]; then
+            echo "Grouped task click did not dispatch activation" >&2
+            tail -n 50 "$runtime/panel.log" >&2
+            exit 1
+        fi
+        # Simulate a child crash, not a graceful close.
+        kill -KILL "$sibling"
+        wait "$sibling" 2>/dev/null || :
+        sibling=
+        count=0
+        while [ "$count" -lt 40 ]; do
+            if grep -Fq "window group_count=1 visible_windows=1" "$runtime/panel.log" &&
+               grep -Fq "event=closed app_id=\"$app_id\"" "$runtime/panel.log"; then
+                break
+            fi
+            sleep 0.25
+            count=$((count + 1))
+        done
+        if [ "$count" -ge 40 ]; then
+            echo "Crashed sibling remained in native task registry" >&2
+            tail -n 50 "$runtime/panel.log" >&2
+            exit 1
+        fi
+        kill -0 "$window"
+        kill -0 "$plate"
+        echo "Real grouped Wayland window activation and child-crash recovery confirmed"
+    fi
+
+    # Distinct app_id: a second real application must never be folded into
+    # the original group. In --xwayland this is a simultaneous X11 + Wayland
+    # client on the same compositor; the other modes exercise two Wayland apps.
+    peer_id=ricebowl-wayland-peer-smoke
+    WAYLAND_DISPLAY=wayland-0 foot --app-id="$peer_id" \
+        --title=RiceBowl-Independent-App /bin/sh -c "sleep 30" \
+        >"$runtime/peer.log" 2>&1 &
+    peer=$!
+    count=0
+    while [ "$count" -lt 40 ]; do
+        if grep -Fq "event=ready app_id=\"$peer_id\"" "$runtime/panel.log" &&
+           grep -Fq "window group_count=2 visible_windows=2" "$runtime/panel.log"; then
+            break
+        fi
+        kill -0 "$peer" 2>/dev/null || {
+            cat "$runtime/peer.log" >&2; exit 1;
+        }
+        sleep 0.25
+        count=$((count + 1))
+    done
+    if [ "$count" -ge 40 ]; then
+        echo "Two distinct native taskbar app identities not observed" >&2
+        tail -n 50 "$runtime/panel.log" >&2
+        exit 1
+    fi
+    kill "$peer"
+    wait "$peer" 2>/dev/null || :
+    peer=
+    count=0
+    while [ "$count" -lt 40 ] &&
+        ! grep -Fq "event=closed app_id=\"$peer_id\"" "$runtime/panel.log"; do
+        sleep 0.25
+        count=$((count + 1))
+    done
+    if [ "$count" -ge 40 ]; then
+        echo "Closed independent application remained in task registry" >&2
+        tail -n 50 "$runtime/panel.log" >&2
+        exit 1
+    fi
+    kill -0 "$window"
+    kill -0 "$plate"
+    echo "Concurrent distinct application lifecycle: compositor receipts confirmed"
+
     kill "$window"
     wait "$window" 2>/dev/null || :
     window=
@@ -277,3 +395,10 @@ dbus-run-session -- sh -eu -c '
     kill -0 "$plate"
     echo "Native RicePlate observed and painted a real $mode window lifecycle"
 ' sh "$source_root" "$runtime" "$native" "$clicker" "$mode"
+
+# CI's default window lane must exercise both structurally different taskbar
+# recipes against real labwc input/state. Keep each run in a fresh compositor
+# with its own temporary runtime directory (also supports --chrome directly).
+if [ "$mode" = native ]; then
+    sh "$0" --chrome
+fi
