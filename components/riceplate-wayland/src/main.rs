@@ -575,8 +575,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         && std::env::var("RICEBOWL_DE_CALENDAR_OUTPUT").as_deref() == Ok("secondary");
 
     let tray_popup_layer = use_tray.then(|| {
+        // XP Luna's native menu must be above the independent Top-layer
+        // taskbar and desktop widgets to obtain labwc keyboard focus. Other
+        // rices retain their existing Top-layer behavior. The popup remains
+        // parked and keyboard-inert until an explicit tray gesture.
+        let layer = if recipe.id == "xp-luna-columns" {
+            Layer::Overlay
+        } else {
+            Layer::Top
+        };
         let surface = layer_shell.create_layer_surface(
-            &qh, compositor.create_surface(&qh), Layer::Top,
+            &qh, compositor.create_surface(&qh), layer,
             Some("riceplate-native-tray-overflow"), None,
         );
         surface.set_anchor((if recipe.top { Anchor::TOP } else { Anchor::BOTTOM }) | Anchor::RIGHT);
