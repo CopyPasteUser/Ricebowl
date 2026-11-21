@@ -95,13 +95,25 @@ PY
     sleep .4
     kill -0 "$keyboard_keeper"
 
+    # The fixture advertises ItemIsMenu=true. A held left click exercises
+    # the real menu activation contract on Luna without withdrawing the
+    # compositor pointer/seat before its popup can acquire keyboard focus.
+    # Chrome additionally proves the secondary-click menu path.
+    open_fixture_menu() {
+        if [ "$rice" = luna ]; then
+            WAYLAND_DISPLAY=wayland-0 "$clicker" --hold-ms 1100 "$tray_x" 746 1366 768
+        else
+            WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click "$tray_x" 746 1366 768
+        fi
+    }
+
     for rice in chrome luna; do
         if [ "$rice" = chrome ]; then
             recipe=chrome tray_x=1270
         else
             recipe="$runtime/luna.json" tray_x=1185
         fi
-        RICEBOWL_DE_TRACE_TRAY=1 WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" \
+        RICEBOWL_DE_TRACE_TRAY=1 RICEBOWL_DE_TRACE_FOCUS=1 WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" \
             >"$runtime/plate-$rice.log" 2>&1 &
         plate=$!
         sleep 1
@@ -119,7 +131,7 @@ PY
 
         # Real compositor pointer -> native menu, real keyboard into submenu,
         # real D-Bus method Event(clicked) receipt from independently owned app.
-        WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click "$tray_x" 746 1366 768
+        open_fixture_menu
         # Prove that the explicit pointer menu request actually acquired
         # compositor-confirmed wl_keyboard focus, not just a D-Bus root menu.
         count=0
@@ -145,7 +157,7 @@ PY
         fi
 
         # Open a fresh menu and leave it pending while the item owner dies.
-        WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click "$tray_x" 746 1366 768
+        open_fixture_menu
         sleep .3
         kill "$provider_pid"
         wait "$provider_pid" 2>/dev/null || :
@@ -163,7 +175,7 @@ PY
         assert_no_click "$rice-new"
 
         # A deliberate fresh pointer reopen restores working actions.
-        WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click "$tray_x" 746 1366 768
+        open_fixture_menu
         sleep .4
         # The fresh owner requires a new pointer open; keep the subsequent
         # nested keyboard navigation within a single virtual keyboard client.
