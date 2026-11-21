@@ -1,14 +1,14 @@
 # SG1–SG7 — transparent engineering evidence index
 
-Last reviewed: 2026-11-20 (SG2/SG3 draft candidates; original checkpoint evidence unchanged). Authority for release acceptance: [issue #417](https://github.com/CopyPasteUser/Ricebowl/issues/417) and [RELEASE_1_0_GATES.md](../RELEASE_1_0_GATES.md).
+Last reviewed: 2026-11-21 (SG6 exact-main acceptance reconciled with issue #417; other checkpoints unchanged). Authority for release acceptance: [issue #417](https://github.com/CopyPasteUser/Ricebowl/issues/417) and [RELEASE_1_0_GATES.md](../RELEASE_1_0_GATES.md).
 
 ## How to read these percentages
 
-**Formal SG acceptance: 0 / 7 = 0%.** None of the seven blocking SG checkboxes in #417 has been closed with the required **full** software-only evidence.
+**Formal SG acceptance: 1 / 7 ≈ 14.3%.** [Issue #417](https://github.com/CopyPasteUser/Ricebowl/issues/417) formally closes SG6 on pinned exact-main software-only evidence. SG1–SG5 and SG7 remain open; hardware sign-off remains separate.
 
-**Engineering evidence coverage: 14 / 28 = 50%.** This is a deliberately separate, *author-defined and equally weighted* set of 28 inspectable checkpoints (four for each SG), not an official SG completion percentage or a timeline prediction. A checked checkpoint means some specific code **and test evidence** exist; it does not mean a gate is complete. The 28 checkpoint denominator is an engineering tracking convenience, not an authoritative weighting of remaining work. A checkbox must be reversed if its linked evidence regresses.
+**Engineering evidence coverage: 15 / 28 ≈ 53.6%.** This is a deliberately separate, *author-defined and equally weighted* set of 28 inspectable checkpoints (four for each SG), not an official SG completion percentage or a timeline prediction. A checked checkpoint means some specific code **and test evidence** exist; it does not mean a gate is complete. The 28 checkpoint denominator is an engineering tracking convenience, not an authoritative weighting of remaining work. A checkbox must be reversed if its linked evidence regresses.
 
-**Never interpret 50% as half the remaining effort.** The outstanding real compositor, accessibility, multi-output, provenance and performance acceptance may be harder than the items already checked. A future change may alter this index, and **0% formal** remains until a complete individual gate is closed.
+**Never interpret 53.6% as the fraction of engineering effort completed.** Outstanding real compositor, accessibility, multi-output and performance acceptance may be harder than checked items. A future change may alter this index; **only SG6 (1/7 gates) has formal software-only acceptance**.
 
 ## Evidence checkpoints
 
@@ -48,11 +48,11 @@ Last reviewed: 2026-11-20 (SG2/SG3 draft candidates; original checkpoint evidenc
 - [ ] Real Wayland IME composition, deletion and keyboard focus handoff fully accepted across all dialog surfaces and CJK/RTL flows.
 - [ ] Full fallback script/font/render/AT-SPI metadata matrix verified with accessible clients and missing-font conditions.
 
-### SG6 — Installer, packages and recovery: 3 / 4
+### SG6 — Installer, packages and recovery: 4 / 4 (software gate closed)
 - [x] Source-locked Core/Meta/native/session package install, upgrade, downgrade and purge tested in disposable Ubuntu ([release gates](../RELEASE_1_0_GATES.md)).
 - [x] Corrupt Debian package rejection and simulated interrupted dpkg recovery tested ([roadmap](../RICEBOWL_DE_ROADMAP.md)).
 - [x] XFCE and synthetic user state preserved across install/recovery/uninstall tests ([Native #43678051154](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43678051154)).
-- [ ] Complete source provenance, stable reproducibility, Mint-compatible software install and final recovery matrix accepted.
+- [x] Exact-main source provenance and reproducible four-package archives from separate hosted build jobs, signed comparison report and four package subjects, and successful installed Ubuntu/Mint recovery at [main@344d5557](https://github.com/CopyPasteUser/Ricebowl/commit/344d5557a749213dfdd83be2db4a5ba21e8b2624) ([Tests #44881618535](https://github.com/CopyPasteUser/Ricebowl/actions/runs/44881618535), [Native/Mint #44881618473](https://github.com/CopyPasteUser/Ricebowl/actions/runs/44881618473), [SG6 cross-runner #44881618480](https://github.com/CopyPasteUser/Ricebowl/actions/runs/44881618480), [report attestation #70471969](https://github.com/CopyPasteUser/Ricebowl/attestations/70471969), [four-deb attestation #70471973](https://github.com/CopyPasteUser/Ricebowl/attestations/70471973), [#417](https://github.com/CopyPasteUser/Ricebowl/issues/417)). Hosted-runner repeatability is **not** third-party machine/toolchain or physical Mint/ThinkPad certification.
 
 ### SG7 — Exact-main final software acceptance: 1 / 4
 - [x] A prior exact-main native labwc test includes real task focus, two-rice switching and XWayland ([Native #43678051154](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43678051154)); **this is historical evidence, not final-source approval**.
@@ -69,10 +69,10 @@ Last reviewed: 2026-11-20 (SG2/SG3 draft candidates; original checkpoint evidenc
 | SG3 | 2 | 4 | 50% |
 | SG4 | 2 | 4 | 50% |
 | SG5 | 2 | 4 | 50% |
-| SG6 | 3 | 4 | 75% |
+| SG6 | 4 | 4 | 100% |
 | SG7 | 1 | 4 | 25% |
-| **Total** | **14** | **28** | **50%** |
+| **Total** | **15** | **28** | **53.6%** |
 
-Do not check formal #417 SG items from this table alone. Physical Mint/ThinkPad GPU, login, Flatpak permissions, screen reader and mixed-DPI signoff is **later**; the stable 1.0 signoff JSON is untouched. Screenshots or command-line mocks alone do not satisfy any missing real-input criterion.
+Only SG6 is formally closed in #417 on separately inspected exact-main evidence; do not infer other SG acceptance from this table. Physical Mint/ThinkPad GPU, login, Flatpak permissions, screen reader and mixed-DPI signoff is **later**; the stable 1.0 signoff JSON is untouched. Screenshots or command-line mocks alone do not satisfy any missing real-input criterion.
 
 When updating, preserve the explicit evidence links, review current `main` and check run conclusions, update the table arithmetic, and keep formal SG acceptance distinct from this review index.
