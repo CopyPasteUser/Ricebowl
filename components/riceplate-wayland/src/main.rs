@@ -700,6 +700,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         ready_fd,
         tasks: Vec::new(),
         show_desktop: window_lifecycle::ShowDesktop::default(),
+        taskbar_actions: window_lifecycle::TaskbarWindowActions::default(),
         luna_options,
         panel_collapsed: initial_panel_collapsed,
         panel_pointer_inside: false,
@@ -1397,6 +1398,7 @@ struct RicePlate {
     tasks: Vec<Task>,
     // Only windows actually minimized by Show Desktop are restored.
     show_desktop: window_lifecycle::ShowDesktop<ZwlrForeignToplevelHandleV1>,
+    taskbar_actions: window_lifecycle::TaskbarWindowActions<ZwlrForeignToplevelHandleV1>,
     luna_options: luna_taskbar::Options,
     panel_collapsed: bool,
     // Actual compositor pointer focus, not a timer or guessed screen coordinates.
@@ -3538,11 +3540,13 @@ impl RicePlate {
         for action in actions {
             match action {
                 window_lifecycle::ShowDesktopAction::Minimize(handle) => {
+                    self.taskbar_actions.closed(&handle);
                     if self.tasks.iter().any(|task| task.handle == handle && task.ready) {
                         handle.set_minimized();
                     }
                 }
                 window_lifecycle::ShowDesktopAction::Restore(handle) => {
+                    self.taskbar_actions.closed(&handle);
                     // Closed handles and newly opened windows are never restored.
                     if self.tasks.iter().any(|task| task.handle == handle && task.ready) {
                         handle.unset_minimized();
@@ -3558,23 +3562,35 @@ impl RicePlate {
         if let Some(group) = groups.get(index) {
             let active_index = group.members.iter().copied()
                 .find(|&member| self.tasks[member].active);
-            let (target, minimize) = task_groups::click_target(group, active_index);
+            let (target, active_singleton) =
+                task_groups::click_target(group, active_index);
+            let task = &self.tasks[target];
+            let action = self.taskbar_actions.click(
+                &task.handle, active_singleton, task.minimized, Instant::now());
             if self.trace_window_events {
                 eprintln!("RicePlate taskbar action={} app_id={:?} seat={} minimized={}",
-                    if minimize { "minimize" } else { "restore" },
-                    self.tasks[target].app_id,
-                    self.seat_assignments.activation_seat_for(source).is_some(), self.tasks[target].minimized);
+                    match action {
+                        window_lifecycle::TaskbarAction::Minimize => "minimize",
+                        window_lifecycle::TaskbarAction::Restore => "restore",
+                        window_lifecycle::TaskbarAction::Activate => "activate",
+                    },
+                    task.app_id,
+                    self.seat_assignments.activation_seat_for(source).is_some(),
+                    task.minimized);
             }
-            if minimize {
-                self.tasks[target].handle.set_minimized();
-            } else {
-                // Restoring a hidden task must not depend on an activation seat:
-                // some nested or remote compositor sessions do not advertise one.
-                if self.tasks[target].minimized {
-                    self.tasks[target].handle.unset_minimized();
+            match action {
+                window_lifecycle::TaskbarAction::Minimize => task.handle.set_minimized(),
+                window_lifecycle::TaskbarAction::Restore => {
+                    // Unminimize does not require an activation seat.
+                    task.handle.unset_minimized();
+                    if let Some(seat) = self.seat_assignments.activation_seat_for(source) {
+                        task.handle.activate(seat);
+                    }
                 }
-                if let Some(seat) = self.seat_assignments.activation_seat_for(source) {
-                    self.tasks[target].handle.activate(seat);
+                window_lifecycle::TaskbarAction::Activate => {
+                    if let Some(seat) = self.seat_assignments.activation_seat_for(source) {
+                        task.handle.activate(seat);
+                    }
                 }
             }
         }
@@ -9579,6 +9595,7 @@ impl Dispatch<ZwlrForeignToplevelManagerV1, ()> for RicePlate {
                 state.toplevel_manager = None;
                 state.tasks.clear();
                 state.show_desktop.reset();
+                state.taskbar_actions.reset();
                 state.task_offset = 0;
                 state.request_redraw(qh);
             }
@@ -9612,9 +9629,14 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for RicePlate {
                 // The restore transaction must never retain a destroyed
                 // compositor proxy after a client exits.
                 state.show_desktop.closed(proxy);
-                state.task_offset = state
-                    .task_offset
-                    .min(state.grouped_tasks().len().saturating_sub(1));
+                state.taskbar_actions.closed(proxy);
+                let remaining = state.grouped_tasks().len();
+                state.task_offset = state.task_offset.min(remaining.saturating_sub(1));
+                if matches!(state.focused_target,
+                    Some(KeyboardTarget::Task(selected)) if selected >= remaining)
+                {
+                    state.focused_target = None;
+                }
                 if let Some(active) = state
                     .tasks
                     .iter()
@@ -9645,6 +9667,7 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for RicePlate {
                 }
                 zwlr_foreign_toplevel_handle_v1::Event::Done => {
                     task.ready = true;
+                    state.taskbar_actions.confirmed(proxy, task.minimized);
                     refresh = true;
                 }
                 _ => {}
@@ -9662,6 +9685,9 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for RicePlate {
                     // App IDs are escaped; titles and user content are never traced.
                     eprintln!("RicePlate window event=ready app_id={:?} active={} minimized={}",
                         task.app_id, task.active, task.minimized);
+                    eprintln!("RicePlate window group_count={} visible_windows={}",
+                        state.grouped_tasks().len(),
+                        state.tasks.iter().filter(|task| task.ready).count());
                 }
                 if state.tasks[index].active {
                     state.reveal_task(index);

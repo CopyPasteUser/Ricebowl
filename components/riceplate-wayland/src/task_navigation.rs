@@ -144,6 +144,20 @@ mod tests {
     }
 
     #[test]
+    fn chrome_and_xp_luna_both_expose_shared_tasks_via_keyboard() {
+        let chrome = crate::recipe::load("chrome").unwrap();
+        let luna = crate::recipe::load("xp-luna-columns").unwrap();
+        for style in [&chrome, &luna] {
+            let width = 1024;
+            assert_eq!(initial(style, width, 2, Some(1), 0),
+                       Some(Target::Task(1)));
+            assert_eq!(advance(style, width, 2, Some(Target::Task(0)), 1, 0),
+                       Some(Target::Task(1)));
+            assert!(recipe::task_view(style, width, 2, 0).is_some());
+        }
+    }
+
+    #[test]
     fn keyboard_wraps_over_launcher_and_grouped_windows() {
         let style = crate::recipe::load("classic").unwrap();
         assert_eq!(initial(&style, 1200, 3, None, 0), Some(Target::Launcher));

@@ -55,7 +55,12 @@ dbus-run-session -- sh -eu -c '
     compositor=$!
     plate=
     window=
+    sibling=
     cleanup() {
+        if [ -n "$sibling" ]; then
+            kill "$sibling" 2>/dev/null || :
+            wait "$sibling" 2>/dev/null || :
+        fi
         if [ -n "$window" ]; then
             kill "$window" 2>/dev/null || :
             wait "$window" 2>/dev/null || :
@@ -253,6 +258,65 @@ dbus-run-session -- sh -eu -c '
         kill -TERM "$xwayland_clicker" 2>/dev/null || :
         wait "$xwayland_clicker" 2>/dev/null || :
         echo "XWayland xterm consumed real compositor-delivered text after native taskbar restore"
+    fi
+
+    if [ "$mode" != "--xwayland" ]; then
+        # Two real clients share one app_id/task group. Compositor focus moves
+        # to the new child; a group click must activate the *other* member,
+        # rather than minimize the active one.
+        WAYLAND_DISPLAY=wayland-0 foot --app-id="$app_id" \
+            --title=RiceBowl-Sibling-Smoke /bin/sh -c "sleep 30" \
+            >"$runtime/sibling.log" 2>&1 &
+        sibling=$!
+        count=0
+        while [ "$count" -lt 40 ]; do
+            if grep -Fq "window group_count=1 visible_windows=2" "$runtime/panel.log"; then
+                break
+            fi
+            kill -0 "$sibling" 2>/dev/null || {
+                cat "$runtime/sibling.log" >&2; exit 1;
+            }
+            sleep 0.25
+            count=$((count + 1))
+        done
+        if [ "$count" -ge 40 ]; then
+            echo "Two compositor windows were not grouped as one task" >&2
+            tail -n 50 "$runtime/panel.log" >&2
+            exit 1
+        fi
+        WAYLAND_DISPLAY=wayland-0 "$clicker" "$task_click_x" 750 1024 768
+        count=0
+        while [ "$count" -lt 40 ] &&
+            ! grep -Fq "taskbar action=activate app_id=\"$app_id\"" "$runtime/panel.log"; do
+            sleep 0.25
+            count=$((count + 1))
+        done
+        if [ "$count" -ge 40 ]; then
+            echo "Grouped task click did not dispatch activation" >&2
+            tail -n 50 "$runtime/panel.log" >&2
+            exit 1
+        fi
+        # Simulate a child crash, not a graceful close.
+        kill -KILL "$sibling"
+        wait "$sibling" 2>/dev/null || :
+        sibling=
+        count=0
+        while [ "$count" -lt 40 ]; do
+            if grep -Fq "window group_count=1 visible_windows=1" "$runtime/panel.log" &&
+               grep -Fq "event=closed app_id=\"$app_id\"" "$runtime/panel.log"; then
+                break
+            fi
+            sleep 0.25
+            count=$((count + 1))
+        done
+        if [ "$count" -ge 40 ]; then
+            echo "Crashed sibling remained in native task registry" >&2
+            tail -n 50 "$runtime/panel.log" >&2
+            exit 1
+        fi
+        kill -0 "$window"
+        kill -0 "$plate"
+        echo "Real grouped Wayland window activation and child-crash recovery confirmed"
     fi
 
     kill "$window"
