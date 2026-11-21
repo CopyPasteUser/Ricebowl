@@ -457,9 +457,17 @@ dbus-run-session -- sh -eu -s -- "$source_root" "$runtime" "$native" "$clicker" 
             esac
             mkdir -p "$source_root/dist/riceplate-native-preview/creator-output-matrix"
             WAYLAND_DISPLAY=wayland-0 grim - >"$source_root/dist/riceplate-native-preview/creator-output-matrix/chrome-first-open.png"
-            # The transient keyboard is sent through labwc to the external
-            # launcher. Escape must dismiss the very process just observed.
-            WAYLAND_DISPLAY=wayland-0 wtype -k Escape
+            # Exercise a genuinely absent desktop entry before dismissal.
+            # No recipe-supplied command is executed; Fuzzel must not launch
+            # the private witness when the compositor receives an unmatched
+            # application query followed by Return, then Escape.
+            WAYLAND_DISPLAY=wayland-0 wtype -d 25 \
+                "RiceBowl CI MissingApplication 13871" -s 400 -k Return \
+                -s 200 -k Escape
+            test ! -e "$RICEBOWL_CI_CHROME_LAUNCH_LOG" || {
+                echo "Chrome missing app search executed the private witness" >&2
+                exit 1
+            }
             count=0
             while kill -0 "$launcher_pid" 2>/dev/null && [ "$count" -lt 30 ]; do
                 state=$(ps -o stat= -p "$launcher_pid" 2>/dev/null || :)
