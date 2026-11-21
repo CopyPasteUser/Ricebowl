@@ -201,7 +201,11 @@ export WLR_HEADLESS_OUTPUTS=1
 export WLR_RENDERER=pixman
 export RICEBOWL_DE_NESTED=1
 
-dbus-run-session -- sh -eu -c '
+# Stream the literal CI compositor script on stdin, not in one sh -c argv.
+# Linux MAX_ARG_STRLEN caps each execve argument at ~128 KiB; the full native
+# E2E acceptance suite is already larger. The quoted delimiter keeps all
+# $HOME, $runtime and nested shell expressions private to the child shell.
+dbus-run-session -- sh -eu -s -- "$source_root" "$runtime" "$native" "$clicker" <<'RICEBOWL_CI_LABWC_BODY'
     source_root=$1
     runtime=$2
     native=$3
@@ -2556,4 +2560,4 @@ PY
     echo "CI labwc did not respond to SIGTERM" >&2
     sed -n "1,70p" "$runtime/labwc.log" >&2
     exit 1
-' sh "$source_root" "$runtime" "$native" "$clicker"
+RICEBOWL_CI_LABWC_BODY
