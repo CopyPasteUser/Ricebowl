@@ -170,7 +170,8 @@ class SniIntegrationFixtureTests(unittest.TestCase):
         # The two rices share one compositor and private D-Bus session but
         # never inherit a synthetic wtype keyboard seat from the prior app.
         self.assertEqual(embedded.count("renew_keyboard_seat() {"), 1)
-        self.assertIn("        renew_keyboard_seat\\n        RICEBOWL_DE_TRACE_TRAY", embedded)
+        self.assertIn("""        renew_keyboard_seat
+        RICEBOWL_DE_TRACE_TRAY""", embedded)
         self.assertIn('wait "$keyboard_keeper" 2>/dev/null || :', embedded)
         self.assertIn('kill -0 "$keyboard_keeper"', embedded)
         syntax = subprocess.run(["sh", "-n", str(SMOKE)],
