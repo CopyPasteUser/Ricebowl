@@ -9622,6 +9622,16 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for RicePlate {
     ) {
         if let zwlr_foreign_toplevel_handle_v1::Event::Closed = event {
             if let Some(index) = state.tasks.iter().position(|task| task.handle == *proxy) {
+                // Preserve the selected group by real handle identity before
+                // deleting an index: every following group can move left.
+                let selected_handles = match state.focused_target {
+                    Some(KeyboardTarget::Task(selected)) => state.grouped_tasks()
+                        .get(selected)
+                        .map(|group| group.members.iter()
+                            .map(|&member| state.tasks[member].handle.clone())
+                            .collect::<Vec<_>>()),
+                    _ => None,
+                };
                 if state.trace_window_events {
                     eprintln!("RicePlate window event=closed app_id={:?}", state.tasks[index].app_id);
                 }
@@ -9630,12 +9640,15 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for RicePlate {
                 // compositor proxy after a client exits.
                 state.show_desktop.closed(proxy);
                 state.taskbar_actions.closed(proxy);
-                let remaining = state.grouped_tasks().len();
-                state.task_offset = state.task_offset.min(remaining.saturating_sub(1));
-                if matches!(state.focused_target,
-                    Some(KeyboardTarget::Task(selected)) if selected >= remaining)
-                {
-                    state.focused_target = None;
+                let groups = state.grouped_tasks();
+                state.task_offset = state.task_offset.min(groups.len().saturating_sub(1));
+                if let Some(handles) = selected_handles {
+                    let members: Vec<Vec<_>> = groups.iter()
+                        .map(|group| group.members.iter()
+                            .map(|&member| state.tasks[member].handle.clone()).collect())
+                        .collect();
+                    state.focused_target = task_navigation::remap_after_close(
+                        state.focused_target, &handles, &members);
                 }
                 if let Some(active) = state
                     .tasks

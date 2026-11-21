@@ -71,6 +71,23 @@ pub fn advance(
     Some(targets[index])
 }
 
+/// Keep keyboard selection bound to surviving compositor handles, not to a
+/// shifting task-group index. Never invoke another app after its predecessor
+/// closes; a vanished group has no valid target until the user navigates.
+pub(crate) fn remap_after_close<H: PartialEq>(
+    current: Option<Target>,
+    old_members: &[H],
+    remaining: &[Vec<H>],
+) -> Option<Target> {
+    match current {
+        Some(Target::Task(_)) => remaining.iter()
+            .position(|members| members.iter()
+                .any(|handle| old_members.contains(handle)))
+            .map(Target::Task),
+        other => other,
+    }
+}
+
 pub fn reveal(
     style: &PanelStyle,
     width: u32,
@@ -141,6 +158,20 @@ mod tests {
                    Some(Target::Action(0)));
         assert_eq!(advance(&style, 600, 2, Some(Target::Task(1)), 1, 0),
                    Some(Target::Action(1)));
+    }
+
+    #[test]
+    fn closed_window_remaps_task_focus_by_handle_not_old_index() {
+        let old = [30_u32];
+        let remaining = [vec![10], vec![30], vec![40]];
+        assert_eq!(remap_after_close(Some(Target::Task(2)), &old, &remaining),
+                   Some(Target::Task(1)));
+        assert_eq!(remap_after_close(Some(Target::Task(2)), &old, &[vec![10], vec![40]]),
+                   None);
+        assert_eq!(remap_after_close(Some(Target::Launcher), &old, &remaining),
+                   Some(Target::Launcher));
+        assert_eq!(remap_after_close(Some(Target::Task(0)), &[20, 21],
+                   &[vec![10], vec![21], vec![40]]), Some(Target::Task(1)));
     }
 
     #[test]
