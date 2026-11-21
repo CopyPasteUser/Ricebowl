@@ -121,11 +121,16 @@ PY
         # real D-Bus method Event(clicked) receipt from independently owned app.
         WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click "$tray_x" 746 1366 768
         sleep .45
-        WAYLAND_DISPLAY=wayland-0 wtype -k Return
-        sleep .3
-        WAYLAND_DISPLAY=wayland-0 wtype -k Return
+        # Keep one compositor virtual-keyboard object alive through submenu
+        # transition. Separate wtype clients can briefly drop keyboard focus
+        # between their wl_keyboard.leave/enter events (XP Luna on labwc).
+        WAYLAND_DISPLAY=wayland-0 wtype -k Return -s 350 -k Return
         sleep .5
-        assert_receipt "$rice-old" clicked 21
+        if ! assert_receipt "$rice-old" clicked 21; then
+            tail -n 60 "$runtime/plate-$rice.log" >&2 || :
+            tail -n 40 "$runtime/provider-$rice-old.log" >&2 || :
+            exit 1
+        fi
 
         # Open a fresh menu and leave it pending while the item owner dies.
         WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click "$tray_x" 746 1366 768
@@ -148,11 +153,15 @@ PY
         # A deliberate fresh pointer reopen restores working actions.
         WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click "$tray_x" 746 1366 768
         sleep .4
-        WAYLAND_DISPLAY=wayland-0 wtype -k Return
-        sleep .2
-        WAYLAND_DISPLAY=wayland-0 wtype -k Return
+        # The fresh owner requires a new pointer open; keep the subsequent
+        # nested keyboard navigation within a single virtual keyboard client.
+        WAYLAND_DISPLAY=wayland-0 wtype -k Return -s 350 -k Return
         sleep .4
-        assert_receipt "$rice-new" clicked 21
+        if ! assert_receipt "$rice-new" clicked 21; then
+            tail -n 60 "$runtime/plate-$rice.log" >&2 || :
+            tail -n 40 "$runtime/provider-$rice-new.log" >&2 || :
+            exit 1
+        fi
 
         # Removing a live remote node must revoke the old keyboard selection.
         gdbus call --session --dest org.ricebowl.SNIFixture \
