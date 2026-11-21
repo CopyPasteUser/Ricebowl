@@ -474,12 +474,12 @@ dbus-run-session -- sh -eu -s -- "$source_root" "$runtime" "$native" "$clicker" 
             # pointer gesture, type the unique private app with the compositor
             # keyboard, and require a real Exec receipt (not just a screenshot).
             test ! -e "$RICEBOWL_CI_CHROME_LAUNCH_LOG"
-            # Keep the virtual pointer attached while the transient external
-            # launcher acquires and returns seat focus. A one-shot pointer
-            # disconnect can race the compositor focus handoff after Escape.
-            WAYLAND_DISPLAY=wayland-0 "$clicker" --hold-ms 3000 28 746 1366 768 \
-                >"$runtime/chrome-held-pointer.log" 2>&1 &
-            focus_clicker=$!
+            # Reopen using exactly the one-shot pointer event that worked
+            # on first launch. A 3s held pointer is a different virtual seat
+            # lifetime, and the previous failure happened before any frame.
+            prior_fuzzel_frames=$(grep -c " -> wl_surface@3.attach(" \
+                "$RICEBOWL_CI_FUZZEL_WL_LOG" 2>/dev/null || :)
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 28 746 1366 768
             count=0
             launcher_pid=
             while [ "$count" -lt 30 ]; do
@@ -497,10 +497,31 @@ dbus-run-session -- sh -eu -s -- "$source_root" "$runtime" "$native" "$clicker" 
             [ -n "$launcher_pid" ] || {
                 echo "Chrome keyboard-launch test did not reopen live fuzzel" >&2
                 ps -o pid,ppid,stat,cmd -p "$previous_launcher_pid" >&2 || :
-                cat "$runtime/chrome-held-pointer.log" >&2 || :
                 tail -n 35 "$runtime/plate-$label.log" >&2
                 exit 1
             }
+            # A live PID alone does not prove a usable external launcher.
+            # Gate keyboard input on the real Fuzzel client having attached
+            # its first buffer to the compositor after this second opening.
+            count=0
+            new_fuzzel_frames=$prior_fuzzel_frames
+            while [ "$count" -lt 30 ]; do
+                new_fuzzel_frames=$(grep -c " -> wl_surface@3.attach(" \
+                    "$RICEBOWL_CI_FUZZEL_WL_LOG" 2>/dev/null || :)
+                [ "$new_fuzzel_frames" -gt "$prior_fuzzel_frames" ] && break
+                state=$(ps -o stat= -p "$launcher_pid" 2>/dev/null || :)
+                case "$state" in ""|*Z*) break ;; esac
+                count=$((count + 1))
+                sleep 0.1
+            done
+            if [ "$new_fuzzel_frames" -le "$prior_fuzzel_frames" ]; then
+                echo "Chrome reopened Fuzzel without a first compositor buffer" >&2
+                ps -o pid,ppid,stat,cmd -p "$launcher_pid" >&2 || :
+                tail -n 55 "$RICEBOWL_CI_FUZZEL_WL_LOG" >&2 || :
+                cp "$RICEBOWL_CI_FUZZEL_WL_LOG" \
+                    "$source_root/dist/riceplate-native-preview/creator-output-matrix/chrome-fuzzel-wayland.log"
+                exit 1
+            fi
             WAYLAND_DISPLAY=wayland-0 grim - >"$source_root/dist/riceplate-native-preview/creator-output-matrix/chrome-second-open.png"
             # Preserve ONE compositor virtual-keyboard instance throughout
             # filtering and Enter. A separate wtype invocation drops its
@@ -561,12 +582,6 @@ dbus-run-session -- sh -eu -s -- "$source_root" "$runtime" "$native" "$clicker" 
                 *) echo "Chrome fuzzel remained open after app keyboard launch" >&2
                    exit 1 ;;
             esac
-            if ! wait "$focus_clicker"; then
-                echo "Chrome held pointer did not complete after app launch" >&2
-                cat "$runtime/chrome-held-pointer.log" >&2 || :
-                exit 1
-            fi
-            focus_clicker=
             kill -0 "$plate"
             echo "Verified Chrome real fuzzel keyboard app launch under labwc"
         fi
