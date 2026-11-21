@@ -167,6 +167,12 @@ class SniIntegrationFixtureTests(unittest.TestCase):
         self.assertEqual(smoke_source.count(tail.rstrip()), 1)
         embedded = smoke_source.split(header, 1)[1].split(tail.rstrip(), 1)[0]
         self.assertNotIn("'", embedded)
+        # The two rices share one compositor and private D-Bus session but
+        # never inherit a synthetic wtype keyboard seat from the prior app.
+        self.assertEqual(embedded.count("renew_keyboard_seat() {"), 1)
+        self.assertIn("        renew_keyboard_seat\\n        RICEBOWL_DE_TRACE_TRAY", embedded)
+        self.assertIn('wait "$keyboard_keeper" 2>/dev/null || :', embedded)
+        self.assertIn('kill -0 "$keyboard_keeper"', embedded)
         syntax = subprocess.run(["sh", "-n", str(SMOKE)],
                                 capture_output=True, text=True, check=False)
         self.assertEqual(syntax.returncode, 0, syntax.stderr)
