@@ -485,23 +485,14 @@ dbus-run-session -- sh -eu -c '
                 tail -n 35 "$runtime/plate-$label.log" >&2
                 exit 1
             }
-            # Fuzzel updates its filtered desktop-entry selection after
-            # keystroke dispatch. A same-process text+Return burst can submit
-            # before the asynchronous filtered list has committed the result.
-            # Keep both operations on the real labwc virtual keyboard seat,
-            # but give the launcher time to render the matched candidate.
+            # Preserve ONE compositor virtual-keyboard instance throughout
+            # filtering and Enter. A separate wtype invocation drops its
+            # zwp_virtual_keyboard object on exit and can make fuzzel close
+            # due to keyboard-focus loss before the selection is committed.
+            # -s waits *inside* that same client, not after it disconnects.
             sleep 0.3
-            WAYLAND_DISPLAY=wayland-0 wtype -d 25 "RiceBowl CI Chrome Witness"
-            sleep 0.4
-            state=$(ps -o stat= -p "$launcher_pid" 2>/dev/null || :)
-            case "$state" in
-                ""|*Z*)
-                    echo "Chrome real fuzzel lost compositor focus while filtering" >&2
-                    tail -n 45 "$runtime/plate-$label.log" >&2
-                    exit 1 ;;
-            esac
-            WAYLAND_DISPLAY=wayland-0 grim - >"$runtime/chrome-filtered-application.png"
-            WAYLAND_DISPLAY=wayland-0 wtype -k Return
+            WAYLAND_DISPLAY=wayland-0 wtype -d 25 "RiceBowl CI Chrome Witness" \
+                -s 400 -k Return
             count=0
             while [ ! -s "$RICEBOWL_CI_CHROME_LAUNCH_LOG" ] && [ "$count" -lt 40 ]; do
                 count=$((count + 1))
