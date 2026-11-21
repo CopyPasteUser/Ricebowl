@@ -101,7 +101,7 @@ PY
         else
             recipe="$runtime/luna.json" tray_x=1185
         fi
-        WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" \
+        RICEBOWL_DE_TRACE_TRAY=1 WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" \
             >"$runtime/plate-$rice.log" 2>&1 &
         plate=$!
         sleep 1
@@ -120,7 +120,19 @@ PY
         # Real compositor pointer -> native menu, real keyboard into submenu,
         # real D-Bus method Event(clicked) receipt from independently owned app.
         WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click "$tray_x" 746 1366 768
-        sleep .45
+        # Prove that the explicit pointer menu request actually acquired
+        # compositor-confirmed wl_keyboard focus, not just a D-Bus root menu.
+        count=0
+        while [ "$count" -lt 30 ] &&
+            ! grep -Fq "compositor confirmed tray popup keyboard focus" "$runtime/plate-$rice.log"; do
+            count=$((count + 1))
+            sleep .1
+        done
+        if [ "$count" -ge 30 ]; then
+            echo "$rice SNI menu opened without compositor keyboard focus" >&2
+            tail -n 65 "$runtime/plate-$rice.log" >&2 || :
+            exit 1
+        fi
         # Keep one compositor virtual-keyboard object alive through submenu
         # transition. Separate wtype clients can briefly drop keyboard focus
         # between their wl_keyboard.leave/enter events (XP Luna on labwc).
