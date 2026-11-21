@@ -364,7 +364,7 @@ dbus-run-session -- sh -eu -c '
             # untrusted path. Verify two structurally distinct recipes each
             # acknowledge a genuine compositor frame (never startup alone).
             RICEBOWL_DE_SHELL_CHILD=1 RICEBOWL_DE_READY_FD=3 \
-                RICEBOWL_DE_TRACE_MENU=1 \
+                RICEBOWL_DE_TRACE_MENU=1 RICEBOWL_DE_TRACE_FOCUS=1 \
                 WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" \
                 3>"$runtime/frame-$label.ready" >"$runtime/plate-$label.log" 2>&1 &
         else
@@ -452,6 +452,7 @@ dbus-run-session -- sh -eu -c '
                    exit 1 ;;
             esac
             kill -0 "$plate"
+            previous_launcher_pid=$launcher_pid
             echo "Verified Chrome real fuzzel pointer-open/keyboard-Escape on labwc"
             # The first check only proved dismissal. Reopen through a genuine
             # pointer gesture, type the unique private app with the compositor
@@ -479,6 +480,7 @@ dbus-run-session -- sh -eu -c '
             done
             [ -n "$launcher_pid" ] || {
                 echo "Chrome keyboard-launch test did not reopen live fuzzel" >&2
+                ps -o pid,ppid,stat,cmd -p "$previous_launcher_pid" >&2 || :
                 cat "$runtime/chrome-held-pointer.log" >&2 || :
                 tail -n 35 "$runtime/plate-$label.log" >&2
                 exit 1
