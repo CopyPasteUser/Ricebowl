@@ -111,7 +111,7 @@ PY
     kill -0 "$keyboard_keeper"
 
     # Both rices must prove the same real DBusMenu context activation path.
-    # Luna's primary-click route also closes desktop focus overlays and can
+    # The Luna primary-click route also closes desktop focus overlays and can
     # produce a distinct seat lifetime; do not equate the two paths.
     open_fixture_menu() {
         WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click "$tray_x" 746 1366 768
