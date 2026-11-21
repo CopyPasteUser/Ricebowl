@@ -221,14 +221,19 @@ jobs:
           directory = Path('dist/sg6-comparison')
           report = json.loads((directory / 'report.json').read_text(encoding='utf-8'),
                               object_pairs_hook=unique_keys)
-          assert report['source_sha'] == sys.argv[1]
-          assert report['byte_identical_package_count'] == len(expected)
-          assert report['hardware_accepted'] is False
-          assert report['independent_external_provenance_certified'] is False
-          packages = report['packages']
-          assert type(packages) is dict and set(packages) == set(expected)
+          if (report.get('source_sha') != sys.argv[1]
+                  or type(report.get('byte_identical_package_count')) is not int
+                  or report['byte_identical_package_count'] != len(expected)
+                  or report.get('hardware_accepted') is not False
+                  or report.get('independent_external_provenance_certified') is not False):
+              raise ValueError('Report is not trusted exact-main SG6 comparison evidence')
+          packages = report.get('packages')
+          if type(packages) is not dict or set(packages) != set(expected):
+              raise ValueError('Unexpected Debian package subjects')
           for name in expected:
-              assert type(packages[name]) is str and re.fullmatch(r'[0-9a-f]{64}', packages[name])
+              if (type(packages[name]) is not str
+                      or re.fullmatch(r'[0-9a-f]{64}', packages[name]) is None):
+                  raise ValueError('Invalid compared Debian package digest')
           # Directly attest the four real package *digests*, not just the
           # transitively linked report. No untrusted PR receives signing scope.
           (directory / 'packages.sha256').write_text(
