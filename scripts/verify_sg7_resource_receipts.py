@@ -61,7 +61,7 @@ def _read(path: Path) -> tuple[dict, str]:
     return obj, hashlib.sha256(data).hexdigest()
 
 
-def _cpu_receipt(path: Path, after: dict, cycle: int) -> tuple[float, str]:
+def _cpu_receipt(path: Path, baseline: dict, after: dict, cycle: int) -> tuple[float, str, dict[str, int]]:
     if path.is_symlink() or not path.is_file():
         raise EvidenceError(f"Missing or symlinked CPU receipt: cycle {cycle}")
     try:
@@ -90,7 +90,13 @@ def _cpu_receipt(path: Path, after: dict, cycle: int) -> tuple[float, str]:
                      (row['clock_ticks_per_second'] * row['elapsed_ns']), 3)
     if row['cpu_core_percent'] != expected:
         raise EvidenceError(f"CPU report does not match /proc ticks: cycle {cycle}")
-    return row['cpu_core_percent'], hashlib.sha256(data).hexdigest()
+    # The settled CPU sample is taken after the immediate switch snapshot.
+    # Treat its memory/FD/thread counters as independent growth evidence,
+    # not merely decorative metadata that could conceal later regressions.
+    cpu_growth = {key: row[key] - baseline[key] for key in LIMITS}
+    if any(cpu_growth[key] > LIMITS[key] for key in LIMITS):
+        raise EvidenceError(f"CPU sample resource growth exceeds CI limits: cycle {cycle}")
+    return row['cpu_core_percent'], hashlib.sha256(data).hexdigest(), cpu_growth
 
 
 def _sample(value: object, label: str) -> dict[str, int]:
@@ -152,11 +158,14 @@ def verify(directory: Path, source_commit: str) -> dict:
         observed.add(identity)
         digests[label] = digest
         cpu_label = f"resource-cpu-cycle-{cycle}.json"
-        measured_cpu, cpu_digest = _cpu_receipt(directory / cpu_label, after, cycle)
+        measured_cpu, cpu_digest, cpu_growth = _cpu_receipt(directory / cpu_label, before, after, cycle)
         digests[cpu_label] = cpu_digest
         max_cpu_core_percent = max(max_cpu_core_percent, measured_cpu)
-        maxima = {key: growth[key] if maxima[key] is None
-                  else max(maxima[key], growth[key]) for key in LIMITS}
+        maxima = {
+            key: max(growth[key], cpu_growth[key]) if maxima[key] is None
+            else max(maxima[key], growth[key], cpu_growth[key])
+            for key in LIMITS
+        }
         last = row
     legacy, legacy_digest = _read(directory / "resource-growth.json")
     if legacy != last:
