@@ -676,8 +676,13 @@ impl MenuState {
     pub fn first_action_row_for(&self, rows: usize) -> usize {
         let rows = rows.clamp(1, VISIBLE_ACTIONS);
         // Keep the last real page visible even when refresh invalidates Enter.
+        // Count matches without re-sorting the entire app catalog per repaint.
         let selected = if self.view == View::Programs {
-            self.selected.min(self.program_actions().len().saturating_sub(1))
+            let query = self.search.trim();
+            let count = if query.is_empty() { self.apps.len() } else {
+                self.apps.iter().filter(|app| app.match_score(query).is_some()).count()
+            };
+            self.selected.min(count.saturating_sub(1))
         } else { self.selected };
         (selected / rows) * rows
     }
