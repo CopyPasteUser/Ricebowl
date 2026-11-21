@@ -61,8 +61,15 @@ if [ ! -f "$test_font" ]; then
     echo "Native font smoke requires the DejaVu Sans Mono fixture" >&2
     exit 1
 fi
-mkdir -m 0700 "$runtime/config" "$runtime/fuzzel-cache"
+mkdir -m 0700 "$runtime/config" "$runtime/fuzzel-cache" "$runtime/ci-data"
+mkdir -m 0700 "$runtime/ci-data/applications"
 export XDG_CONFIG_HOME="$runtime/config"
+export XDG_DATA_HOME="$runtime/ci-data"
+export XDG_CACHE_HOME="$runtime/fuzzel-cache"
+export RICEBOWL_CI_CHROME_LAUNCH_LOG="$runtime/chrome-launch.log"
+export RICEBOWL_CI_FUZZEL_BIN=$(command -v fuzzel)
+export RICEBOWL_CI_FUZZEL_WL_LOG="$runtime/chrome-fuzzel-wayland.log"
+test -x "$RICEBOWL_CI_FUZZEL_BIN"
 python3 - "$source_root" "$runtime" "$test_font" <<'PY'
 import json
 from pathlib import Path
@@ -125,6 +132,32 @@ set -eu
 printf '%s\n' "$1" "$2" >"$RICEBOWL_CI_TRASH_LOG"
 GIO
 chmod 0700 "$runtime/mock-bin/gio"
+# A private .desktop entry exercises real Chrome -> fuzzel -> keyboard Enter
+# -> process execution. The wrapper writes only into this disposable runtime.
+cat >"$runtime/mock-bin/ci-chrome-launch" <<'CI_CHROME'
+#!/bin/sh
+set -eu
+[ "$#" -eq 0 ] || exit 64
+[ -n "${RICEBOWL_CI_CHROME_LAUNCH_LOG:-}" ] || exit 64
+printf '%s\n' keyboard-launch-received >"$RICEBOWL_CI_CHROME_LAUNCH_LOG"
+CI_CHROME
+chmod 0700 "$runtime/mock-bin/ci-chrome-launch"
+cat >"$runtime/mock-bin/fuzzel" <<'REAL_FUZZEL'
+#!/bin/sh
+set -eu
+exec env WAYLAND_DEBUG=1 "$RICEBOWL_CI_FUZZEL_BIN" "$@" \
+    2>>"$RICEBOWL_CI_FUZZEL_WL_LOG"
+REAL_FUZZEL
+chmod 0700 "$runtime/mock-bin/fuzzel"
+cat >"$XDG_DATA_HOME/applications/ricebowl-ci-chrome.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=RiceBowl CI Chrome Witness
+Exec=$runtime/mock-bin/ci-chrome-launch
+Terminal=false
+Categories=Utility;
+EOF
+chmod 0600 "$XDG_DATA_HOME/applications/ricebowl-ci-chrome.desktop"
 # Real pointer-to-RiceField dispatch is captured as argv, without ever
 # launching a file manager on the CI runner or touching user files.
 cat >"$runtime/mock-bin/ricefield" <<'RICEFIELD'
@@ -168,7 +201,11 @@ export WLR_HEADLESS_OUTPUTS=1
 export WLR_RENDERER=pixman
 export RICEBOWL_DE_NESTED=1
 
-dbus-run-session -- sh -eu -c '
+# Stream the literal CI compositor script on stdin, not in one sh -c argv.
+# Linux MAX_ARG_STRLEN caps each execve argument at ~128 KiB; the full native
+# E2E acceptance suite is already larger. The quoted delimiter keeps all
+# $HOME, $runtime and nested shell expressions private to the child shell.
+dbus-run-session -- sh -eu -s -- "$source_root" "$runtime" "$native" "$clicker" <<'RICEBOWL_CI_LABWC_BODY'
     source_root=$1
     runtime=$2
     native=$3
@@ -179,7 +216,6 @@ dbus-run-session -- sh -eu -c '
     plate=
     wallpaper=
     keyboard_keeper=
-    focus_clicker=
     focus_typer=
     cleanup() {
         if [ -s "$runtime/clip-action-gui.pid" ]; then
@@ -192,10 +228,6 @@ dbus-run-session -- sh -eu -c '
         if [ -n "$wallpaper" ]; then
             kill "$wallpaper" 2>/dev/null || :
             wait "$wallpaper" 2>/dev/null || :
-        fi
-        if [ -n "$focus_clicker" ]; then
-            kill -TERM "$focus_clicker" 2>/dev/null || :
-            wait "$focus_clicker" 2>/dev/null || :
         fi
         if [ -n "$focus_typer" ]; then
             kill -TERM "$focus_typer" 2>/dev/null || :
@@ -341,8 +373,8 @@ dbus-run-session -- sh -eu -c '
             # untrusted path. Verify two structurally distinct recipes each
             # acknowledge a genuine compositor frame (never startup alone).
             RICEBOWL_DE_SHELL_CHILD=1 RICEBOWL_DE_READY_FD=3 \
-                RICEBOWL_DE_TRACE_MENU=1 \
-                WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" \
+                RICEBOWL_DE_TRACE_MENU=1 RICEBOWL_DE_TRACE_FOCUS=1 \
+                PATH="$runtime/mock-bin:$PATH" WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" \
                 3>"$runtime/frame-$label.ready" >"$runtime/plate-$label.log" 2>&1 &
         else
             WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" >"$runtime/plate-$label.log" 2>&1 &
@@ -411,9 +443,39 @@ dbus-run-session -- sh -eu -c '
             case "$state" in
                 ""|*Z*) echo "Chrome fuzzel did not remain running" >&2; exit 1 ;;
             esac
-            # The transient keyboard is sent through labwc to the external
-            # launcher. Escape must dismiss the very process just observed.
-            WAYLAND_DISPLAY=wayland-0 wtype -k Escape
+            mkdir -p "$source_root/dist/riceplate-native-preview/creator-output-matrix"
+            WAYLAND_DISPLAY=wayland-0 grim - >"$source_root/dist/riceplate-native-preview/creator-output-matrix/chrome-first-open.png"
+            # Exercise the FIRST real, compositor-painted Fuzzel instance.
+            # The former second opening could exit before its initial frame;
+            # only the real keyboard-selection-to-Exec flow is the SG1 gate.
+            test ! -e "$RICEBOWL_CI_CHROME_LAUNCH_LOG"
+            WAYLAND_DISPLAY=wayland-0 wtype -d 25 "RiceBowl CI Chrome Witness" \
+                -s 1500 -k Return >"$runtime/chrome-wtype.log" 2>&1 &
+            focus_typer=$!
+            sleep 1
+            WAYLAND_DISPLAY=wayland-0 grim - \
+                >"$source_root/dist/riceplate-native-preview/creator-output-matrix/chrome-fuzzel-filtered.png"
+            if ! wait "$focus_typer"; then
+                echo "Chrome compositor virtual keyboard failed" >&2
+                cat "$runtime/chrome-wtype.log" >&2 || :
+                exit 1
+            fi
+            focus_typer=
+            count=0
+            while [ ! -s "$RICEBOWL_CI_CHROME_LAUNCH_LOG" ] && [ "$count" -lt 40 ]; do
+                count=$((count + 1))
+                sleep 0.1
+            done
+            if [ "$(cat "$RICEBOWL_CI_CHROME_LAUNCH_LOG" 2>/dev/null || :)" != keyboard-launch-received ]; then
+                echo "Chrome real Fuzzel keyboard Enter did not execute private app" >&2
+                ps -o pid,ppid,stat,cmd -p "$launcher_pid" >&2 || :
+                cat "$runtime/chrome-wtype.log" >&2 || :
+                tail -n 60 "$RICEBOWL_CI_FUZZEL_WL_LOG" >&2 || :
+                tail -n 50 "$runtime/plate-$label.log" >&2 || :
+                WAYLAND_DISPLAY=wayland-0 grim - \
+                    >"$source_root/dist/riceplate-native-preview/creator-output-matrix/chrome-after-enter.png" || :
+                exit 1
+            fi
             count=0
             while kill -0 "$launcher_pid" 2>/dev/null && [ "$count" -lt 30 ]; do
                 state=$(ps -o stat= -p "$launcher_pid" 2>/dev/null || :)
@@ -424,12 +486,10 @@ dbus-run-session -- sh -eu -c '
             state=$(ps -o stat= -p "$launcher_pid" 2>/dev/null || :)
             case "$state" in
                 ""|*Z*) : ;;
-                *) echo "Chrome fuzzel did not close on compositor Escape" >&2
-                   tail -n 35 "$runtime/plate-$label.log" >&2
-                   exit 1 ;;
+                *) echo "Chrome Fuzzel remained open after app keyboard launch" >&2; exit 1 ;;
             esac
             kill -0 "$plate"
-            echo "Verified Chrome real fuzzel pointer-open/keyboard-Escape on labwc"
+            echo "Verified Chrome Fuzzel pointer, real keyboard search, Enter, and private Exec under labwc"
         fi
         if [ "$label" = riceclip-actions ]; then
             # A real Wayland virtual-pointer click crosses the native panel,
@@ -2421,4 +2481,4 @@ PY
     echo "CI labwc did not respond to SIGTERM" >&2
     sed -n "1,70p" "$runtime/labwc.log" >&2
     exit 1
-' sh "$source_root" "$runtime" "$native" "$clicker"
+RICEBOWL_CI_LABWC_BODY
