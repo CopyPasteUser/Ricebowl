@@ -13,6 +13,7 @@ mod desktop_context;
 mod desktop_file_menu;
 mod desktop_layout;
 mod desktop_selection;
+mod external_launcher;
 mod shortcut_focus;
 mod frame_scheduler;
 mod input_core;
@@ -631,6 +632,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         file_last_click: None,
         file_launches: Vec::new(),
         file_last_reap: Instant::now(),
+        external_launcher: external_launcher::ExternalLauncher::default(),
         desktop_keyboard_focus_layer: None,
         file_context: None,
         file_context_focused: false,
@@ -981,6 +983,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             app.sync_mirrors(&qh);
         }
         app.reap_file_launches_if_due();
+        if let Err(error) = app.external_launcher.reap() {
+            eprintln!("RicePlate: external launcher reap failed: {error}");
+        }
         // Expire a still-pending keyboard lease independently of the longer
         // focused UI lifetime. Dropping the actual layer is essential: only
         // cancelling the lease could leave an unowned Exclusive input grab.
@@ -1283,6 +1288,7 @@ struct RicePlate {
     file_last_click: Option<(desktop_layout::inventory::Key, Instant, (f64, f64))>,
     file_launches: Vec<std::process::Child>,
     file_last_reap: Instant,
+    external_launcher: external_launcher::ExternalLauncher,
     desktop_keyboard_focus_layer: Option<DesktopKeyboardFocusLayer>,
     file_context: Option<FileContextLayer>,
     file_context_focused: bool,
@@ -4118,8 +4124,17 @@ impl RicePlate {
             }
             return;
         }
+        // The external applications popup is a single session-owned child:
+        // fast pointer/keyboard repeats must not create competing focus grabs.
+        if action == "applications" {
+            match self.external_launcher.activate() {
+                Ok(true) => {}
+                Ok(false) => eprintln!("RicePlate: external launcher already active"),
+                Err(error) => eprintln!("RicePlate: cannot open application launcher: {error}"),
+            }
+            return;
+        }
         let (program, args): (&str, &[&str]) = match action {
-            "applications" => ("fuzzel", &[]),
             "terminal" => ("foot", &[]),
             "settings" => ("ricebowl", &["de", "settings"]),
             // Strict, fixed argv: opens only the GTK browser, no watcher.
