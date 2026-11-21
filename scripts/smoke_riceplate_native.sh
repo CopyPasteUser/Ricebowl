@@ -5,6 +5,7 @@ set -eu
 source_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 native="$source_root/components/riceplate-wayland/target/release/riceplate-native"
 clicker="$source_root/components/riceplate-wayland/target/release/examples/wayland_pointer_click"
+chrome_clicker="$source_root/components/riceplate-wayland/target/release/examples/sg1_chrome_pointer"
 if [ ! -x "$native" ]; then
     echo "Native RicePlate binary is not built" >&2
     exit 1
@@ -13,6 +14,11 @@ if [ ! -x "$clicker" ]; then
     echo "CI native virtual-pointer example is not built" >&2
     exit 1
 fi
+# CI-only example: built in the disposable runner, never installed into a DE.
+cargo build --locked --release --manifest-path \
+    "$source_root/components/riceplate-wayland/Cargo.toml" \
+    --example sg1_chrome_pointer
+test -x "$chrome_clicker" || { echo "Chrome pointer helper missing" >&2; exit 1; }
 "$native" --version
 if "$native" --recipe ../classic >/dev/null 2>&1; then
     echo "Native RicePlate accepted an unsupported external recipe" >&2
@@ -205,11 +211,12 @@ export RICEBOWL_DE_NESTED=1
 # Linux MAX_ARG_STRLEN caps each execve argument at ~128 KiB; the full native
 # E2E acceptance suite is already larger. The quoted delimiter keeps all
 # $HOME, $runtime and nested shell expressions private to the child shell.
-dbus-run-session -- sh -eu -s -- "$source_root" "$runtime" "$native" "$clicker" <<'RICEBOWL_CI_LABWC_BODY'
+dbus-run-session -- sh -eu -s -- "$source_root" "$runtime" "$native" "$clicker" "$chrome_clicker" <<'RICEBOWL_CI_LABWC_BODY'
     source_root=$1
     runtime=$2
     native=$3
     clicker=$4
+    chrome_clicker=$5
     labwc --config-dir "$source_root/macrice/de/resources/labwc" \
         --startup true >"$runtime/labwc.log" 2>&1 &
     compositor=$!
@@ -479,7 +486,17 @@ dbus-run-session -- sh -eu -s -- "$source_root" "$runtime" "$native" "$clicker" 
             # lifetime, and the previous failure happened before any frame.
             prior_fuzzel_frames=$(grep -c " -> wl_surface@3.attach(" \
                 "$RICEBOWL_CI_FUZZEL_WL_LOG" 2>/dev/null || :)
-            WAYLAND_DISPLAY=wayland-0 "$clicker" 28 746 1366 768
+            prior_fuzzel_enters=$(grep -c "wl_keyboard@.*\.enter(" \
+                "$RICEBOWL_CI_FUZZEL_WL_LOG" 2>/dev/null || :)
+            mkfifo -m 0600 "$runtime/chrome-pointer-control"
+            # Control the exact CI pointer lifetime through a private FIFO.
+            # The helper remains connected until the real Fuzzel surface
+            # receives wl_keyboard.enter, then gracefully destroys its pointer.
+            WAYLAND_DISPLAY=wayland-0 "$chrome_clicker" 28 746 1366 768 \
+                <"$runtime/chrome-pointer-control" \
+                >"$runtime/chrome-controlled-pointer.log" 2>&1 &
+            focus_clicker=$!
+            exec 8>"$runtime/chrome-pointer-control"
             count=0
             launcher_pid=
             while [ "$count" -lt 30 ]; do
@@ -496,10 +513,41 @@ dbus-run-session -- sh -eu -s -- "$source_root" "$runtime" "$native" "$clicker" 
             done
             [ -n "$launcher_pid" ] || {
                 echo "Chrome keyboard-launch test did not reopen live fuzzel" >&2
+                printf "release\n" >&8 || :
+                exec 8>&-
+                wait "$focus_clicker" || :
+                focus_clicker=
                 ps -o pid,ppid,stat,cmd -p "$previous_launcher_pid" >&2 || :
+                cat "$runtime/chrome-controlled-pointer.log" >&2 || :
                 tail -n 35 "$runtime/plate-$label.log" >&2
                 exit 1
             }
+            count=0
+            new_fuzzel_enters=$prior_fuzzel_enters
+            while [ "$count" -lt 30 ]; do
+                new_fuzzel_enters=$(grep -c "wl_keyboard@.*\.enter(" \
+                    "$RICEBOWL_CI_FUZZEL_WL_LOG" 2>/dev/null || :)
+                [ "$new_fuzzel_enters" -gt "$prior_fuzzel_enters" ] && break
+                state=$(ps -o stat= -p "$launcher_pid" 2>/dev/null || :)
+                case "$state" in ""|*Z*) break ;; esac
+                count=$((count + 1))
+                sleep 0.1
+            done
+            # Exactly one release signal. The test waits for the real helper's
+            # clean exit before asserting that Fuzzel submitted a first frame.
+            printf "release\n" >&8
+            exec 8>&-
+            if ! wait "$focus_clicker"; then
+                echo "Chrome virtual-pointer release handshake failed" >&2
+                cat "$runtime/chrome-controlled-pointer.log" >&2 || :
+                exit 1
+            fi
+            focus_clicker=
+            if [ "$new_fuzzel_enters" -le "$prior_fuzzel_enters" ]; then
+                echo "Chrome Fuzzel never received new compositor keyboard focus" >&2
+                tail -n 55 "$RICEBOWL_CI_FUZZEL_WL_LOG" >&2 || :
+                exit 1
+            fi
             # A live PID alone does not prove a usable external launcher.
             # Gate keyboard input on the real Fuzzel client having attached
             # its first buffer to the compositor after this second opening.
