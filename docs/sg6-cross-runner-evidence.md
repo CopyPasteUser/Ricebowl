@@ -88,14 +88,26 @@ recovery and purge against the exact tested source
 ([#562](https://github.com/CopyPasteUser/Ricebowl/pull/562)). A green
 Ubuntu job cannot substitute for its separate Mint result.
 
-Before **formally accepting SG6**, record the identical checked-out main SHA
-and successful executed runs for all of: Tests, native install/upgrade/
-rollback + Mint CI, and the two-runner package comparison with its
-**main-only** signed report. Inspect the report's four hashes and independent
-runner receipts. The automatic trusted-main trigger is introduced in
-[#567](https://github.com/CopyPasteUser/Ricebowl/pull/567); until it is
-merged and actually green on a main SHA, this remains a candidate, **not**
-an acceptance claim.
+The following successful **trusted `main` push** runs share exactly
+`6df41f60818cb1a41bd80d198932edf0ef266a63`:
+
+- [Tests #44779349293](https://github.com/CopyPasteUser/Ricebowl/actions/runs/44779349293):
+  completed successfully (unfiltered Python/X11/contract workflow).
+- [Native #44779349236](https://github.com/CopyPasteUser/Ricebowl/actions/runs/44779349236):
+  completed successfully, including the executed native-layer-shell,
+  installed Ubuntu upgrade/downgrade and repair checks, the independent
+  **SG6 disposable Mint Xia package install and recovery** job, and the
+  trusted-main native-preview attestation.
+- [Cross-runner #44779349464](https://github.com/CopyPasteUser/Ricebowl/actions/runs/44779349464):
+  two distinct builder jobs, separate byte comparison and main-only
+  signing all completed successfully.
+
+[#567](https://github.com/CopyPasteUser/Ricebowl/pull/567) is already integrated
+at that exact SHA. These are **historical pinned evidence**, not proof
+that a later `main` SHA passed. A separate review of the downloaded receipt,
+package digests and attestation subject remains required before asserting
+full SG6 gate acceptance. The exact final SG7 matrix has other workflows and
+requirements which these SG6 runs do not establish.
 
 The report continues to say
 `independent_external_provenance_certified=false`: two GitHub-hosted runner
