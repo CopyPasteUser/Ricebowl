@@ -76,12 +76,26 @@ class CrossRunnerTests(unittest.TestCase):
         with self.assertRaises(verifier.ProvenanceError):
             self.compare()
 
-    def test_source_revision_environment_and_host_collisions(self):
+    def test_matching_hostname_templates_are_diagnostic_not_identity(self):
+        # Two independently named hosted jobs may boot with the same VM
+        # hostname; this does not invalidate byte-for-byte reproducibility.
+        self.receipts[1]['hostname_sha256'] = self.receipts[0]['hostname_sha256']
+        self.save('host-b', self.receipts[1])
+        report = self.compare()
+        self.assertEqual(report['byte_identical_package_count'], 4)
+        self.assertTrue(report['separate_runner_names_observed'])
+        self.assertFalse(report['distinct_hostname_hashes_observed'])
+        self.assertFalse(report['independent_external_provenance_certified'])
+
+    def test_distinct_guest_hostname_hashes_are_reported(self):
+        report = self.compare()
+        self.assertTrue(report['distinct_hostname_hashes_observed'])
+
+    def test_source_revision_environment_and_runner_name_collisions(self):
         other = self.receipts[1]
         for field, change in (('source_sha', '0'*40),
                               ('runner_image', 'different-distribution'),
                               ('rustc', 'rustc 0.0.0'),
-                              ('hostname_sha256', 'a'*64),
                               ('runner_name', 'host-a')):
             with self.subTest(field=field):
                 old = other[field]

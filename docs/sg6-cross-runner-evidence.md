@@ -19,8 +19,10 @@ provenance receipt, physical Mint acceptance or authorization for release.
 ## What the verifier actually checks
 
 - Receipts from each hosted runner contain matching exact source SHA,
-  non-colliding runner identities, matching build-tool versions, timestamp
-  and lockfile SHA-256.
+  **distinct hosted-runner job names**, matching build-tool versions, timestamp
+  and lockfile SHA-256. Hostname hashes are recorded as diagnostic metadata
+  only: GitHub's guest hostname template can match across distinct runners,
+  and neither name nor hostname is a cryptographic VM identity proof.
 - The third runner independently computes the lockfile digest and source
   commit timestamp *from its checkout*, rejecting two mutually consistent
   receipts that disagree with the actual committed inputs.
@@ -71,6 +73,25 @@ attestation of the build machines themselves. Final SG6 acceptance also
 requires Tests plus the exact-main installed native/Ubuntu/Mint recovery jobs
 to finish successfully; their outcomes must not be inferred from this
 comparison alone.
+
+## Hostname template collision observed on main (21 November 2026)
+
+The trusted main [run #44879890124](https://github.com/CopyPasteUser/Ricebowl/actions/runs/44879890124)
+on `e81e092eb6fc366b14ed977863455cf4611b622e`
+successfully built four identical packages on each of two hosted runner jobs,
+but the separate comparison job **correctly reported failure under the then
+current verification policy**. Analysis of both downloaded build receipts
+found distinct GitHub job runner names (`GitHub Actions 1000013479` and
+`GitHub Actions 1000013478`) with the *same* guest hostname hash. The
+independent four-file SHA-256 comparisons succeeded. A hostname is not a
+documented unique GitHub-hosted VM identifier, and requiring its hash to
+differ falsely rejected the independent job comparison.
+
+The follow-up verifier fix keeps the distinct runner-name requirement,
+records `distinct_hostname_hashes_observed` transparently, and retains the
+explicit no-external-machine-attestation limitation. This **does not** mean
+the failed run is an SG6 acceptance receipt: only a new successful trusted
+main comparison **and executed signing jobs** can satisfy that requirement.
 
 ## SG6 implementation and evidence requirements
 
