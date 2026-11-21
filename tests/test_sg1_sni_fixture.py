@@ -73,8 +73,10 @@ with tempfile.TemporaryDirectory(prefix="sg1-sni-bus-") as dirname:
                           GLib.Variant("(s)", ("org.kde.StatusNotifierItem",)),
                           "(a{sv})")
         values = properties.unpack()[0]
-        assert values["Title"] == "SNI fixture first", values
-        assert values["Menu"] == "/Menu", values
+        def unpack(value):
+            return value.unpack() if isinstance(value, GLib.Variant) else value
+        assert unpack(values["Title"]) == "SNI fixture first", values
+        assert unpack(values["Menu"]) == "/Menu", values
 
         layout = call(service, "/Menu", menu, "GetLayout",
                       GLib.Variant("(iias)", (0, -1, [])), "(u(ia{sv}av))")
@@ -83,18 +85,32 @@ with tempfile.TemporaryDirectory(prefix="sg1-sni-bus-") as dirname:
         assert "Nested action" in layout.print_(True), layout.print_(True)
         call(service, "/Menu", menu, "Event",
              GLib.Variant("(isvu)", (21, "clicked", GLib.Variant("s", ""), 0)), "()")
+        def assert_dbus_rejected(item_id, expected):
+            try:
+                call(service, "/Menu", menu, "Event",
+                     GLib.Variant("(isvu)", (item_id, "clicked",
+                                            GLib.Variant("s", ""), 0)), "()")
+            except GLib.Error as error:
+                assert expected in str(error), (expected, error)
+            else:
+                raise AssertionError(f"Invalid action {item_id} accepted: {expected}")
+
+        assert_dbus_rejected(999, "UnknownMenuId")
+        call(service, "/Control", control, "SetMode",
+             GLib.Variant("(s)", ("disabled",)), "()")
+        layout = call(service, "/Menu", menu, "GetLayout",
+                      GLib.Variant("(iias)", (0, -1, [])), "(u(ia{sv}av))")
+        assert "Disabled action" in layout.print_(True)
+        assert_dbus_rejected(11, "DisabledMenuId")
+        call(service, "/Control", control, "SetMode",
+             GLib.Variant("(s)", ("denied",)), "()")
+        assert_dbus_rejected(10, "AccessDenied")
         call(service, "/Control", control, "SetMode",
              GLib.Variant("(s)", ("removed",)), "()")
         layout = call(service, "/Menu", menu, "GetLayout",
                       GLib.Variant("(iias)", (0, -1, [])), "(u(ia{sv}av))")
         assert "Provider action" not in layout.print_(True)
-        try:
-            call(service, "/Menu", menu, "Event",
-                 GLib.Variant("(isvu)", (10, "clicked", GLib.Variant("s", ""), 0)), "()")
-        except GLib.Error as error:
-            assert "RevokedMenuId" in str(error), error
-        else:
-            raise AssertionError("Removed menu action unexpectedly accepted")
+        assert_dbus_rejected(10, "RevokedMenuId")
         call(service, "/Control", control, "SetMode",
              GLib.Variant("(s)", ("slow",)), "()")
         began = time.monotonic()
@@ -141,6 +157,9 @@ class SniIntegrationFixtureTests(unittest.TestCase):
             for method in interfaces["com.canonical.dbusmenu"].findall("method")}))
         self.assertIn("dbus-run-session", SMOKE.read_text())
         self.assertNotIn("sudo ", SMOKE.read_text())
+        syntax = subprocess.run(["sh", "-n", str(SMOKE)],
+                                capture_output=True, text=True, check=False)
+        self.assertEqual(syntax.returncode, 0, syntax.stderr)
 
     @unittest.skipUnless(shutil.which("dbus-run-session") and
                          Path("/usr/bin/python3").exists(), "D-Bus runtime unavailable")
