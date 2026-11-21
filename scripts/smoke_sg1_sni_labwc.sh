@@ -85,6 +85,21 @@ hits = [e for e in entries if e["generation"] == sys.argv[2]
 assert not hits, f"New SNI owner inherited stale input: {hits}"
 PY
     }
+    ready_menu_snapshot() {
+        previous=$1
+        attempt=0
+        while [ "$attempt" -lt 80 ]; do
+            count=$(grep -c 'RicePlate: SNI DBusMenu snapshot ready' \
+                "$runtime/plate-$rice.log" 2>/dev/null || :)
+            [ "$count" -gt "$previous" ] && return 0
+            kill -0 "$plate" 2>/dev/null || break
+            attempt=$((attempt + 1))
+            sleep .1
+        done
+        echo "$rice SNI provider registered but no validated DBusMenu snapshot arrived" >&2
+        tail -n 75 "$runtime/plate-$rice.log" >&2 || :
+        return 1
+    }
     ready_socket
     output=$(WAYLAND_DISPLAY=wayland-0 wlr-randr | sed -n "1s/[[:space:]].*//p")
     test -n "$output"
@@ -121,13 +136,15 @@ PY
 
         # The real SNI host exports the Watcher; provider retries registration
         # until it exists, then records exact unique owner and menu events.
+        prior_menus=$(grep -c 'RicePlate: SNI DBusMenu snapshot ready' \
+            "$runtime/plate-$rice.log" 2>/dev/null || :)
         /usr/bin/python3 "$provider" \
             --generation "$rice-old" \
             --receipts "$runtime/receipts.jsonl" --ready "$runtime/ready-old" \
             >"$runtime/provider-$rice-old.log" 2>&1 &
         provider_pid=$!
         ready "$runtime/ready-old"
-        sleep .8
+        ready_menu_snapshot "$prior_menus"
 
         # Real compositor pointer -> native menu, real keyboard into submenu,
         # real D-Bus method Event(clicked) receipt from independently owned app.
@@ -163,13 +180,15 @@ PY
         wait "$provider_pid" 2>/dev/null || :
         provider_pid=
         sleep .45
+        prior_menus=$(grep -c 'RicePlate: SNI DBusMenu snapshot ready' \
+            "$runtime/plate-$rice.log" 2>/dev/null || :)
         /usr/bin/python3 "$provider" \
             --generation "$rice-new" \
             --receipts "$runtime/receipts.jsonl" --ready "$runtime/ready-new" \
             >"$runtime/provider-$rice-new.log" 2>&1 &
         provider_pid=$!
         ready "$runtime/ready-new"
-        sleep .6
+        ready_menu_snapshot "$prior_menus"
         WAYLAND_DISPLAY=wayland-0 wtype -k Return
         sleep .4
         assert_no_click "$rice-new"
