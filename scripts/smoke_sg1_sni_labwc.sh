@@ -89,7 +89,7 @@ PY
         previous=$1
         attempt=0
         while [ "$attempt" -lt 80 ]; do
-            count=$(grep -c 'RicePlate: SNI DBusMenu snapshot ready' \
+            count=$(grep -c "RicePlate: SNI DBusMenu snapshot ready" \
                 "$runtime/plate-$rice.log" 2>/dev/null || :)
             [ "$count" -gt "$previous" ] && return 0
             kill -0 "$plate" 2>/dev/null || break
@@ -136,7 +136,7 @@ PY
 
         # The real SNI host exports the Watcher; provider retries registration
         # until it exists, then records exact unique owner and menu events.
-        prior_menus=$(grep -c 'RicePlate: SNI DBusMenu snapshot ready' \
+        prior_menus=$(grep -c "RicePlate: SNI DBusMenu snapshot ready" \
             "$runtime/plate-$rice.log" 2>/dev/null || :)
         /usr/bin/python3 "$provider" \
             --generation "$rice-old" \
@@ -180,7 +180,7 @@ PY
         wait "$provider_pid" 2>/dev/null || :
         provider_pid=
         sleep .45
-        prior_menus=$(grep -c 'RicePlate: SNI DBusMenu snapshot ready' \
+        prior_menus=$(grep -c "RicePlate: SNI DBusMenu snapshot ready" \
             "$runtime/plate-$rice.log" 2>/dev/null || :)
         /usr/bin/python3 "$provider" \
             --generation "$rice-new" \
