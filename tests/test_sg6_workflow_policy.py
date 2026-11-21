@@ -147,8 +147,9 @@ class CrossRunnerWorkflowPolicyTests(unittest.TestCase):
         self.assertIn("re.fullmatch(r'[0-9a-f]{64}', packages[name])", self.attest)
         self.assertIn("raise ValueError('Report is not trusted exact-main", self.attest)
         self.assertIn("git/ref/heads/main", self.attest)
-        self.assertIn("report['source_sha'] == sys.argv[1]", self.attest)
-        self.assertIn("report['hardware_accepted'] is False", self.attest)
+        self.assertIn("report.get('source_sha') != sys.argv[1]", self.attest)
+        self.assertIn("report.get('hardware_accepted') is not False", self.attest)
+        self.assertIn("report.get('independent_external_provenance_certified') is not False", self.attest)
 
 
 if __name__ == "__main__":
