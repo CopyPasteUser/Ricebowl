@@ -75,6 +75,15 @@ impl FileSelection {
         let Some(index) = visible.iter().position(|entry| &entry.key == key) else {
             return false;
         };
+        // The event dispatcher supplies *only placed icons on the clicked
+        // output*. A hotplug or a click on another output must never retain
+        // invisible selections or reuse an off-output Shift range anchor.
+        self.selected.retain(|selected|
+            visible.iter().any(|entry| &entry.key == selected));
+        if self.anchor.as_ref().is_some_and(|anchor|
+            !visible.iter().any(|entry| &entry.key == anchor)) {
+            self.anchor = None;
+        }
         match mode {
             ChooseMode::Replace => self.select(key, false),
             ChooseMode::Toggle => self.select(key, true),
@@ -435,6 +444,45 @@ mod tests {
         assert_eq!(fs::read(&alias).unwrap(), b"private hardlinked data");
     }
  
+    #[test]
+    fn pointer_selection_is_scoped_to_visible_output_after_hotplug() {
+        let f = Fixture::new();
+        for name in ["a", "b", "c", "d"] {
+            fs::write(f.0.join(name), b"x").unwrap();
+        }
+        let snap = scan(&f.0).unwrap();
+        let first_output = &snap.entries[..2];
+        let second_output = &snap.entries[2..];
+        let keys: Vec<_> = snap.entries.iter().map(|entry| entry.key.clone()).collect();
+        let mut state = FileSelection::default();
+
+        assert!(state.choose(&keys[0], ChooseMode::Replace, first_output));
+        assert!(state.choose(&keys[1], ChooseMode::Toggle, first_output));
+        assert_eq!(state.count(), 2);
+        // Switching to another wl_output invalidates the old range anchor;
+        // Shift may only select icons currently placed on that output.
+        assert!(state.choose(&keys[3], ChooseMode::Range, second_output));
+        assert_eq!(state.count(), 1);
+        assert!(state.contains(&keys[3]));
+        assert!(!state.contains(&keys[0]));
+        assert!(!state.contains(&keys[1]));
+        assert!(state.choose(&keys[2], ChooseMode::Range, second_output));
+        assert_eq!(state.count(), 2);
+        assert!(state.contains(&keys[2]));
+        // A stale/hidden target cannot clear a valid selection.
+        assert!(!state.choose(&keys[0], ChooseMode::Replace, second_output));
+        assert_eq!(state.count(), 2);
+
+        // If a file moves off the display while still selected, the next
+        // valid Ctrl gesture drops that stale icon before toggling.
+        assert!(state.choose(&keys[2], ChooseMode::Toggle, first_output) == false);
+        assert_eq!(state.count(), 2);
+        assert!(state.choose(&keys[1], ChooseMode::Toggle, first_output));
+        assert_eq!(state.count(), 1);
+        assert!(state.contains(&keys[1]));
+        assert!(!state.contains(&keys[2]));
+    }
+
     #[test]
     fn bounded_range_selection_rejects_stale_entries_and_does_not_cross_visible_set() {
         let f = Fixture::new();
