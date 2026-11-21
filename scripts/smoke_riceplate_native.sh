@@ -67,6 +67,9 @@ export XDG_CONFIG_HOME="$runtime/config"
 export XDG_DATA_HOME="$runtime/ci-data"
 export XDG_CACHE_HOME="$runtime/fuzzel-cache"
 export RICEBOWL_CI_CHROME_LAUNCH_LOG="$runtime/chrome-launch.log"
+export RICEBOWL_CI_FUZZEL_BIN=$(command -v fuzzel)
+export RICEBOWL_CI_FUZZEL_WL_LOG="$runtime/chrome-fuzzel-wayland.log"
+test -x "$RICEBOWL_CI_FUZZEL_BIN"
 python3 - "$source_root" "$runtime" "$test_font" <<'PY'
 import json
 from pathlib import Path
@@ -139,6 +142,13 @@ set -eu
 printf '%s\n' keyboard-launch-received >"$RICEBOWL_CI_CHROME_LAUNCH_LOG"
 CI_CHROME
 chmod 0700 "$runtime/mock-bin/ci-chrome-launch"
+cat >"$runtime/mock-bin/fuzzel" <<'REAL_FUZZEL'
+#!/bin/sh
+set -eu
+exec env WAYLAND_DEBUG=1 "$RICEBOWL_CI_FUZZEL_BIN" "$@" \
+    2>>"$RICEBOWL_CI_FUZZEL_WL_LOG"
+REAL_FUZZEL
+chmod 0700 "$runtime/mock-bin/fuzzel"
 cat >"$XDG_DATA_HOME/applications/ricebowl-ci-chrome.desktop" <<EOF
 [Desktop Entry]
 Type=Application
@@ -365,7 +375,7 @@ dbus-run-session -- sh -eu -c '
             # acknowledge a genuine compositor frame (never startup alone).
             RICEBOWL_DE_SHELL_CHILD=1 RICEBOWL_DE_READY_FD=3 \
                 RICEBOWL_DE_TRACE_MENU=1 RICEBOWL_DE_TRACE_FOCUS=1 \
-                WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" \
+                PATH="$runtime/mock-bin:$PATH" WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" \
                 3>"$runtime/frame-$label.ready" >"$runtime/plate-$label.log" 2>&1 &
         else
             WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" >"$runtime/plate-$label.log" 2>&1 &
@@ -434,6 +444,8 @@ dbus-run-session -- sh -eu -c '
             case "$state" in
                 ""|*Z*) echo "Chrome fuzzel did not remain running" >&2; exit 1 ;;
             esac
+            mkdir -p "$source_root/dist/riceplate-native-preview/creator-output-matrix"
+            WAYLAND_DISPLAY=wayland-0 grim - >"$source_root/dist/riceplate-native-preview/creator-output-matrix/chrome-first-open.png"
             # The transient keyboard is sent through labwc to the external
             # launcher. Escape must dismiss the very process just observed.
             WAYLAND_DISPLAY=wayland-0 wtype -k Escape
@@ -485,6 +497,7 @@ dbus-run-session -- sh -eu -c '
                 tail -n 35 "$runtime/plate-$label.log" >&2
                 exit 1
             }
+            WAYLAND_DISPLAY=wayland-0 grim - >"$source_root/dist/riceplate-native-preview/creator-output-matrix/chrome-second-open.png"
             # Preserve ONE compositor virtual-keyboard instance throughout
             # filtering and Enter. A separate wtype invocation drops its
             # zwp_virtual_keyboard object on exit and can make fuzzel close
@@ -514,6 +527,13 @@ dbus-run-session -- sh -eu -c '
             done
             if [ "$(cat "$RICEBOWL_CI_CHROME_LAUNCH_LOG" 2>/dev/null || :)" != keyboard-launch-received ]; then
                 echo "Chrome real fuzzel keyboard Enter did not execute private app" >&2
+                if [ -f "$RICEBOWL_CI_FUZZEL_WL_LOG" ]; then
+                    echo "Fuzzel real Wayland enter/leave/close events:" >&2
+                    grep -E 'wl_keyboard@.*\.(enter|leave)|wl_display@.*\.error|zwlr_layer_surface_v1@.*\.(configure|closed)' \
+                        "$RICEBOWL_CI_FUZZEL_WL_LOG" | tail -n 60 >&2 || :
+                    cp "$RICEBOWL_CI_FUZZEL_WL_LOG" \
+                        "$source_root/dist/riceplate-native-preview/creator-output-matrix/chrome-fuzzel-wayland.log"
+                fi
                 WAYLAND_DISPLAY=wayland-0 grim - \
                     >"$source_root/dist/riceplate-native-preview/creator-output-matrix/chrome-after-enter.png" || :
                 ps -o pid,ppid,stat,cmd -p "$launcher_pid" >&2 || :
