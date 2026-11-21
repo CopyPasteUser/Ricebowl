@@ -114,8 +114,16 @@ class CrossRunnerWorkflowPolicyTests(unittest.TestCase):
         # the PR and resulting main commit must also run installed-session
         # and disposable Mint recovery rather than reusing earlier evidence.
         native = (WORKFLOW.parent / "riceplate-native.yml").read_text(encoding="utf-8")
-        self.assertEqual(native.count(
-            "      - '.github/workflows/sg6-cross-runner.yml'"), 2)
+        for watched in (
+            ".github/workflows/sg6-cross-runner.yml",
+            "scripts/verify_sg6_cross_runner.py",
+            "tests/test_sg6_cross_runner.py",
+            "tests/test_sg6_workflow_policy.py",
+        ):
+            # Both PR heads and trusted main pushes must invalidate
+            # stale Native/Ubuntu/Mint evidence after verifier edits.
+            self.assertEqual(native.count(f"      - '{watched}'"), 2,
+                             f"Native/Mint trigger missing or asymmetric: {watched}")
         self.assertIn("sg6-mint221-compat:", native)
         self.assertIn("smoke_wayland_upgrade_rollback.sh", native)
 
@@ -131,10 +139,17 @@ class CrossRunnerWorkflowPolicyTests(unittest.TestCase):
         self.assertIn("needs: compare", self.attest)
         self.assertIn("id-token: write", self.attest)
         self.assertIn("attestations: write", self.attest)
-        self.assertIn("actions/attest@v4", self.attest)
+        self.assertEqual(self.attest.count("uses: actions/attest@v4"), 2,
+                         "Report and four direct package subjects both require signing")
+        self.assertIn("subject-path: dist/sg6-comparison/report.json", self.attest)
+        self.assertIn("subject-checksums: dist/sg6-comparison/packages.sha256", self.attest)
+        self.assertIn("set(packages) != set(expected)", self.attest)
+        self.assertIn("re.fullmatch(r'[0-9a-f]{64}', packages[name])", self.attest)
+        self.assertIn("raise ValueError('Report is not trusted exact-main", self.attest)
         self.assertIn("git/ref/heads/main", self.attest)
-        self.assertIn("report['source_sha'] == sys.argv[1]", self.attest)
-        self.assertIn("report['hardware_accepted'] is False", self.attest)
+        self.assertIn("report.get('source_sha') != sys.argv[1]", self.attest)
+        self.assertIn("report.get('hardware_accepted') is not False", self.attest)
+        self.assertIn("report.get('independent_external_provenance_certified') is not False", self.attest)
 
 
 if __name__ == "__main__":

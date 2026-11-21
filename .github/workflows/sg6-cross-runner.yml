@@ -200,14 +200,51 @@ jobs:
           test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')" = "$GITHUB_SHA"
           /usr/bin/python3 - "$GITHUB_SHA" <<'PY'
           import json
+          import re
           import sys
-          with open('dist/sg6-comparison/report.json', encoding='utf-8') as stream:
-              report = json.load(stream)
-          assert report['source_sha'] == sys.argv[1]
-          assert report['byte_identical_package_count'] == 4
-          assert report['hardware_accepted'] is False
+          from pathlib import Path
+
+          expected = (
+              'ricebowl-wayland-core_0.1.0~preview2_all.deb',
+              'ricebowl-wayland-session_0.1.0~preview3_all.deb',
+              'ricebowl-riceplate-native_0.1.0~preview2_amd64.deb',
+              'ricebowl-wayland-desktop_0.1.0~preview3_amd64.deb',
+          )
+          def unique_keys(pairs):
+              obj = {}
+              for key, value in pairs:
+                  if key in obj:
+                      raise ValueError('Duplicate comparison report key')
+                  obj[key] = value
+              return obj
+
+          directory = Path('dist/sg6-comparison')
+          report = json.loads((directory / 'report.json').read_text(encoding='utf-8'),
+                              object_pairs_hook=unique_keys)
+          if (report.get('source_sha') != sys.argv[1]
+                  or type(report.get('byte_identical_package_count')) is not int
+                  or report['byte_identical_package_count'] != len(expected)
+                  or report.get('hardware_accepted') is not False
+                  or report.get('independent_external_provenance_certified') is not False):
+              raise ValueError('Report is not trusted exact-main SG6 comparison evidence')
+          packages = report.get('packages')
+          if type(packages) is not dict or set(packages) != set(expected):
+              raise ValueError('Unexpected Debian package subjects')
+          for name in expected:
+              if (type(packages[name]) is not str
+                      or re.fullmatch(r'[0-9a-f]{64}', packages[name]) is None):
+                  raise ValueError('Invalid compared Debian package digest')
+          # Directly attest the four real package *digests*, not just the
+          # transitively linked report. No untrusted PR receives signing scope.
+          (directory / 'packages.sha256').write_text(
+              ''.join(f'{packages[name]}  {name}\n' for name in expected),
+              encoding='ascii')
           PY
       - name: Attest two-runner comparison report; not 1.0 release sign-off
         uses: actions/attest@v4
         with:
           subject-path: dist/sg6-comparison/report.json
+      - name: Attest four verified Debian archive subjects on trusted main
+        uses: actions/attest@v4
+        with:
+          subject-checksums: dist/sg6-comparison/packages.sha256

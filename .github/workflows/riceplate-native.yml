@@ -6,6 +6,11 @@ on:
     paths:
       - '.github/workflows/riceplate-native.yml'
       - '.github/workflows/sg6-cross-runner.yml'
+      # SG6 provenance verifier/policy changes must re-exercise installed
+      # Ubuntu and Mint recovery, not only the independent package comparator.
+      - 'scripts/verify_sg6_cross_runner.py'
+      - 'tests/test_sg6_cross_runner.py'
+      - 'tests/test_sg6_workflow_policy.py'
       - 'components/riceplate-wayland/**'
       - 'packaging/wayland/**'
       - 'scripts/build_wayland_session_deb.sh'
@@ -98,6 +103,11 @@ on:
     paths:
       - '.github/workflows/riceplate-native.yml'
       - '.github/workflows/sg6-cross-runner.yml'
+      # SG6 provenance verifier/policy changes must re-exercise installed
+      # Ubuntu and Mint recovery, not only the independent package comparator.
+      - 'scripts/verify_sg6_cross_runner.py'
+      - 'tests/test_sg6_cross_runner.py'
+      - 'tests/test_sg6_workflow_policy.py'
       - 'components/riceplate-wayland/**'
       - 'packaging/wayland/**'
       - 'scripts/build_wayland_session_deb.sh'
