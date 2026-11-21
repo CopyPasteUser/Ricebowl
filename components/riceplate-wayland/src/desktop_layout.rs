@@ -30,20 +30,16 @@ pub fn navigate(visible: &[bool], current: usize, delta: isize) -> Option<usize>
 /// Wayland pointer coordinates are surface-relative, including during a grab.
 /// Use the current surface placement to prevent jumps as its margin moves.
 pub fn dragged_to(current: (u32, u32), anchor: (f64, f64), pointer: (f64, f64)) -> (u32, u32) {
-    let moved = |origin: u32, start: f64, end: f64| {
-        let delta = end - start;
-        let next = f64::from(origin) + delta;
-        // Never turn malformed compositor motion into a jump to (0, 0)
-        // or the far edge of the output. A cancelled/invalid gesture keeps
-        // the previous position until the event loop restores its snapshot.
-        if !start.is_finite() || !end.is_finite() || !next.is_finite() {
-            origin
-        } else {
-            next.round().clamp(0.0, f64::from(MAX_SAVED_POSITION)) as u32
-        }
-    };
-    (moved(current.0, anchor.0, pointer.0),
-     moved(current.1, anchor.1, pointer.1))
+    let delta = (pointer.0 - anchor.0, pointer.1 - anchor.1);
+    let next = (f64::from(current.0) + delta.0, f64::from(current.1) + delta.1);
+    // Treat the whole pointer motion atomically: one malformed axis must
+    // not partially move an icon or turn a cancelled gesture into a jump.
+    if ![anchor.0, anchor.1, pointer.0, pointer.1,
+          delta.0, delta.1, next.0, next.1].iter().all(|v| v.is_finite()) {
+        return current;
+    }
+    (next.0.round().clamp(0.0, f64::from(MAX_SAVED_POSITION)) as u32,
+     next.1.round().clamp(0.0, f64::from(MAX_SAVED_POSITION)) as u32)
 }
 
 /// Resolve a drop on a different logical output from the grabbed icon surface.
@@ -442,6 +438,8 @@ mod tests {
             assert_eq!(dragged_to(current, (10.0, value), (10.0, 20.0)), current);
         }
         assert_eq!(dragged_to(current, (-f64::MAX, 0.0), (f64::MAX, 0.0)), current);
+        assert_eq!(dragged_to(current, (0.0, 0.0), (f64::NAN, 50.0)), current,
+                   "one invalid axis cannot partly commit the other");
         // Normal movement still respects the bounded saved-coordinate range.
         assert_eq!(dragged_to(current, (10.0, 20.0), (20.0, 50.0)), (260, 430));
     }
