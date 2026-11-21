@@ -5209,9 +5209,18 @@ impl RicePlate {
         self.active_tray_popup = Some(surface.clone());
         for layer in self.tray_popup_layer.iter().chain(self.tray_popup_mirrors.iter()) {
             let active = layer.surface.wl_surface() == &surface;
-            layer.surface.set_keyboard_interactivity(if active {
+            layer.surface.set_keyboard_interactivity(if !active {
+                KeyboardInteractivity::None
+            } else if self.tray_menu_state.visible {
+                // An explicit tray-menu gesture must acquire keyboard focus
+                // immediately, including after another rice released its
+                // layer. OnDemand alone can leave nested menu actions inert.
+                // The grab is released by set_tray_popup_visible(false) and
+                // on wl_keyboard.leave; inactive outputs never grab keys.
+                KeyboardInteractivity::Exclusive
+            } else {
                 KeyboardInteractivity::OnDemand
-            } else { KeyboardInteractivity::None });
+            });
             layer.surface.set_margin(
                 if self.recipe.top { self.recipe.height as i32 + 8 } else { 0 },
                 if active { 8 } else { MAX_WIDTH as i32 },
@@ -7782,6 +7791,10 @@ impl KeyboardHandler for RicePlate {
             && self.active_calendar.as_ref() == Some(surface);
         self.tray_popup_focused = self.tray_popup_open()
             && self.active_tray_popup.as_ref() == Some(surface);
+        if self.tray_popup_focused
+            && std::env::var("RICEBOWL_DE_TRACE_TRAY").as_deref() == Ok("1") {
+            eprintln!("RicePlate: compositor confirmed tray popup keyboard focus");
+        }
         if let Some((mirror, width, offset)) = self.panel_geometry(surface) {
             let groups = self.grouped_tasks();
             let active = groups.iter().position(|group| group.active);
