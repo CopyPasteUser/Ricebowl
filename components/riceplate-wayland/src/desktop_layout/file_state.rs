@@ -475,12 +475,40 @@ mod tests {
 
         // If a file moves off the display while still selected, the next
         // valid Ctrl gesture drops that stale icon before toggling.
-        assert!(state.choose(&keys[2], ChooseMode::Toggle, first_output) == false);
+        assert!(!state.choose(&keys[2], ChooseMode::Toggle, first_output));
         assert_eq!(state.count(), 2);
         assert!(state.choose(&keys[1], ChooseMode::Toggle, first_output));
         assert_eq!(state.count(), 1);
         assert!(state.contains(&keys[1]));
         assert!(!state.contains(&keys[2]));
+    }
+
+    #[test]
+    fn keyboard_range_navigation_grows_and_shrinks_within_one_output() {
+        let f = Fixture::new();
+        for name in ["a", "b", "c", "d"] {
+            fs::write(f.0.join(name), b"x").unwrap();
+        }
+        let snap = scan(&f.0).unwrap();
+        let output = &snap.entries[..3];
+        let mut selection = FileSelection::default();
+
+        // The wl_keyboard handler delegates Shift+Arrow and ordinary Arrow
+        // through the same mode/peer contract as compositor pointer clicks.
+        assert!(selection.choose(&output[1].key, ChooseMode::Replace, output));
+        assert!(selection.choose(&output[2].key, ChooseMode::Range, output));
+        assert_eq!(selection.count(), 2);
+        assert!(selection.contains(&output[1].key));
+        assert!(selection.contains(&output[2].key));
+        assert!(selection.choose(&output[0].key, ChooseMode::Range, output));
+        assert_eq!(selection.count(), 2);
+        assert!(selection.contains(&output[0].key));
+        assert!(!selection.contains(&output[2].key));
+        assert!(selection.choose(&output[2].key, ChooseMode::Replace, output));
+        assert_eq!(selection.count(), 1);
+        assert!(selection.contains(&output[2].key));
+        assert!(!selection.choose(&snap.entries[3].key, ChooseMode::Range, output));
+        assert_eq!(selection.count(), 1);
     }
 
     #[test]
