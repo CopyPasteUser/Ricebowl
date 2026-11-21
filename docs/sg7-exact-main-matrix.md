@@ -28,16 +28,25 @@ rebuild/attestation tests remain authoritative for their own scope.
 
 ## Current gaps requiring separate engineering work
 
-- Same-run clean-worktree reproducibility is **not** cross-host binary
-  provenance. The four package control fields and staging digests cannot
-  authenticate an externally supplied ELF. Independent build environments,
-  locked inputs and binary comparison/attestation remain necessary.
-- Current upgrade/downgrade coverage changes Core/Meta preview versions, not
-  independent Native and Session binary revisions. Full four-component
-  version transitions and `dpkg` interruption/repair should be audited with
-  real, immutable versions and disposable roots.
-- Ubuntu 24.04 CI is not a Mint 22 hardware sign-off; isolate any additional
-  Mint-compatible software testing before claiming it.
+- **SG6 evidence progressed after this dossier was initially written:**
+  two GitHub-hosted runners now independently build and compare all four
+  source-locked Debian packages ([#554](https://github.com/CopyPasteUser/Ricebowl/pull/554)).
+  The trusted main comparison job signed its report for
+  [`6df41f6`](https://github.com/CopyPasteUser/Ricebowl/commit/6df41f60818cb1a41bd80d198932edf0ef266a63)
+  ([main run #44779349464](https://github.com/CopyPasteUser/Ricebowl/actions/runs/44779349464)).
+  This is hosted-runner repeatability and CI identity, **not** independent
+  external toolchain certification.
+- Real Native and Session **historical package versions** now participate
+  in reversible, dependency-safe installed upgrades and downgrades with
+  interrupted `dpkg` repair; see [#559](https://github.com/CopyPasteUser/Ricebowl/pull/559)
+  and [#563](https://github.com/CopyPasteUser/Ricebowl/pull/563).
+  The SG7 dossier does not automatically import this separate acceptance.
+- The independent disposable Linux Mint **22.1 Xia** four-package
+  installation/reinstallation/corrupt-archive/recovery/purge matrix exists
+  ([#562](https://github.com/CopyPasteUser/Ricebowl/pull/562)).
+  This is software compatibility, **not** Mint/ThinkPad GPU or physical
+  login/hardware sign-off. Verify its result on the *final main SHA*
+  before closing SG6.
 - The three native `compare-replaced` cycles now check the previous
   RicePlate PID/start-time disappears, and record independent `/proc`
   utime+stime intervals alongside PSS/RSS/threads/FDs. The source-bound
