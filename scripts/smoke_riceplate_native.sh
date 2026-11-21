@@ -491,8 +491,22 @@ dbus-run-session -- sh -eu -c '
             # due to keyboard-focus loss before the selection is committed.
             # -s waits *inside* that same client, not after it disconnects.
             sleep 0.3
+            # Keep the same virtual keyboard alive while capturing its genuine
+            # search result before Enter, so a failure distinguishes a missing
+            # desktop entry from compositor focus loss or failed execution.
+            mkdir -p "$source_root/dist/riceplate-native-preview/creator-output-matrix"
             WAYLAND_DISPLAY=wayland-0 wtype -d 25 "RiceBowl CI Chrome Witness" \
-                -s 400 -k Return
+                -s 1800 -k Return >"$runtime/chrome-wtype.log" 2>&1 &
+            focus_typer=$!
+            sleep 1.1
+            WAYLAND_DISPLAY=wayland-0 grim - \
+                >"$source_root/dist/riceplate-native-preview/creator-output-matrix/chrome-fuzzel-filtered.png"
+            if ! wait "$focus_typer"; then
+                echo "Chrome compositor virtual keyboard failed" >&2
+                cat "$runtime/chrome-wtype.log" >&2
+                exit 1
+            fi
+            focus_typer=
             count=0
             while [ ! -s "$RICEBOWL_CI_CHROME_LAUNCH_LOG" ] && [ "$count" -lt 40 ]; do
                 count=$((count + 1))
@@ -500,7 +514,14 @@ dbus-run-session -- sh -eu -c '
             done
             if [ "$(cat "$RICEBOWL_CI_CHROME_LAUNCH_LOG" 2>/dev/null || :)" != keyboard-launch-received ]; then
                 echo "Chrome real fuzzel keyboard Enter did not execute private app" >&2
-                tail -n 35 "$runtime/plate-$label.log" >&2
+                WAYLAND_DISPLAY=wayland-0 grim - \
+                    >"$source_root/dist/riceplate-native-preview/creator-output-matrix/chrome-after-enter.png" || :
+                ps -o pid,ppid,stat,cmd -p "$launcher_pid" >&2 || :
+                echo "CI desktop entry and executable:" >&2
+                ls -l "$XDG_DATA_HOME/applications/ricebowl-ci-chrome.desktop" \
+                    "$runtime/mock-bin/ci-chrome-launch" >&2
+                echo "CI XDG data location: $XDG_DATA_HOME" >&2
+                tail -n 80 "$runtime/plate-$label.log" >&2
                 exit 1
             fi
             count=0
