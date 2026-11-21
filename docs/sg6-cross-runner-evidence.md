@@ -79,7 +79,7 @@ comparison alone.
 The trusted main [run #44879890124](https://github.com/CopyPasteUser/Ricebowl/actions/runs/44879890124)
 on `e81e092eb6fc366b14ed977863455cf4611b622e`
 successfully built four identical packages on each of two hosted runner jobs,
-but the third-party compare step **correctly reported failure under the then
+but the separate comparison job **correctly reported failure under the then
 current verification policy**. Analysis of both downloaded build receipts
 found distinct GitHub job runner names (`GitHub Actions 1000013479` and
 `GitHub Actions 1000013478`) with the *same* guest hostname hash. The
