@@ -5,8 +5,8 @@ set -eu
 
 mode=${1:-native}
 case "$mode" in
-    native|--xwayland|--luna) ;;
-    *) echo "Usage: $0 [--xwayland|--luna]" >&2; exit 2 ;;
+    native|--chrome|--xwayland|--luna) ;;
+    *) echo "Usage: $0 [--chrome|--xwayland|--luna]" >&2; exit 2 ;;
 esac
 
 source_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
@@ -93,6 +93,8 @@ dbus-run-session -- sh -eu -c '
 
     if [ "$mode" = "--luna" ]; then
         recipe="$runtime/luna.json"
+    elif [ "$mode" = "--chrome" ]; then
+        recipe=chrome
     else
         recipe=classic
     fi
@@ -167,6 +169,10 @@ dbus-run-session -- sh -eu -c '
     }
     wait_window_state "active=true minimized=false"
     task_click_x=132
+    if [ "$mode" = "--chrome" ]; then
+        # The Chrome task region is centered, unlike Classic/Luna.
+        task_click_x=512
+    fi
     if [ "$mode" = "--luna" ]; then
         # Real XP Luna recipe geometry at 1024px: Start 0..94;
         # Apps 102..134, Terminal 136..168, Show Desktop 170..202.
@@ -341,3 +347,10 @@ dbus-run-session -- sh -eu -c '
     kill -0 "$plate"
     echo "Native RicePlate observed and painted a real $mode window lifecycle"
 ' sh "$source_root" "$runtime" "$native" "$clicker" "$mode"
+
+# CI's default window lane must exercise both structurally different taskbar
+# recipes against real labwc input/state. Keep each run in a fresh compositor
+# with its own temporary runtime directory (also supports --chrome directly).
+if [ "$mode" = native ]; then
+    sh "$0" --chrome
+fi
