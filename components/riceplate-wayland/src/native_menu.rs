@@ -1,7 +1,7 @@
 //! Bounded, input-independent navigation for a real native RicePlate menu.
 //! Every row maps to a validated recipe action; labels never become commands.
 
-use std::time::{Duration, Instant};
+use std::{collections::HashSet, time::{Duration, Instant}};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{installed_apps::{self, App}, recipe::{MenuContentKind, MenuPresentation, NativeMenu}};
@@ -106,6 +106,7 @@ pub fn compact_visible_actions(size: (u32, u32)) -> usize {
         / COMPACT_ACTION_HEIGHT) as usize).clamp(1, VISIBLE_ACTIONS)
 }
 const APP_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
+const APP_REMOVED_NOTICE: &str = "Selected application is no longer available";
 const CONTENT_HEADER_HEIGHT: u32 = 14;
 const CONTENT_LIST_HEIGHT: u32 = 30;
 const CONTENT_GRID_HEIGHT: u32 = 46;
@@ -254,12 +255,47 @@ impl MenuState {
         if self.last_app_refresh.is_some_and(|last| last.elapsed() < APP_REFRESH_INTERVAL) {
             return;
         }
-        self.apps = installed_apps::discover();
-        // Prune removed/hidden entries on discovery. No unknown desktop ID
-        // from private history becomes a launchable action.
+        self.replace_apps(installed_apps::discover());
+        self.last_app_refresh = Some(Instant::now());
+    }
+
+    /// Reconcile by desktop ID, not numeric row: a removed app must not
+    /// silently turn Enter into activation of its successor.
+    fn replace_apps(&mut self, apps: Vec<App>) {
+        let selected_action = if self.view == View::Programs {
+            self.program_actions().get(self.selected).map(|action| (*action).to_owned())
+        } else { None };
+        self.apps = apps;
+        if let Some(action) = selected_action {
+            if let Some(index) = self.program_actions().iter()
+                .position(|candidate| *candidate == action) {
+                self.selected = index;
+            } else {
+                // Out of bounds until a fresh pointer or keyboard gesture.
+                // Unlike usize::MAX, len() remains safe for the AT-SPI focus ID.
+                self.selected = self.program_actions().len();
+                self.notice = Some(APP_REMOVED_NOTICE);
+            }
+        } else if self.view == View::Programs {
+            self.selected = self.selected.min(self.program_actions().len());
+        }
         self.recent_apps.retain(|id|
             self.apps.iter().any(|app| app.action == *id));
-        self.last_app_refresh = Some(Instant::now());
+    }
+
+    /// A single catalog ordering contract for painting, keyboard selection
+    /// and index reconciliation across fast filtering and XDG refreshes.
+    fn program_actions(&self) -> Vec<&str> {
+        let query = self.search.trim();
+        if query.is_empty() {
+            return self.apps.iter().map(|app| app.action.as_str()).collect();
+        }
+        let mut matches: Vec<_> = self.apps.iter().enumerate()
+            .filter_map(|(index, app)| app.match_score(query)
+                .map(|score| (score, index, app.action.as_str())))
+            .collect();
+        matches.sort_by_key(|(score, index, _)| (*score, *index));
+        matches.into_iter().map(|(_, _, action)| action).collect()
     }
 
     pub fn label<'a>(&'a self, action: &'a str) -> &'a str {
@@ -369,10 +405,9 @@ impl MenuState {
 
     pub fn group_by(&mut self, menu: &NativeMenu, delta: isize) {
         let count = menu.groups.len();
-        if count == 0 {
-            return;
-        }
-        let target = (self.group as isize + delta).rem_euclid(count as isize) as usize;
+        if count == 0 { return; }
+        let step = delta.rem_euclid(count as isize) as usize;
+        let target = (self.group + step) % count;
         self.select_group(menu, target);
     }
 
@@ -428,6 +463,7 @@ impl MenuState {
         self.selected = 0;
         self.view = View::Groups;
         self.search.clear();
+        self.notice = None;
         self.wheel_remainder = 0.0;
     }
 
@@ -444,26 +480,12 @@ impl MenuState {
                         .flat_map(|group| group.actions.iter().map(String::as_str)).collect()
                 }
             }
-            View::Programs => {
-                let query = self.search.trim();
-                if query.is_empty() {
-                    self.apps.iter().map(|app| app.action.as_str()).collect()
-                } else {
-                    // Keep the initial catalogue alphabetic. With a filter,
-                    // prefer exact/prefix app names over generic keywords;
-                    // the original app order breaks equal-score ties.
-                    let mut matches: Vec<_> = self.apps.iter().enumerate()
-                        .filter_map(|(index, app)| app.match_score(query)
-                            .map(|score| (score, index, app.action.as_str())))
-                        .collect();
-                    matches.sort_by_key(|(score, index, _)| (*score, *index));
-                    matches.into_iter().map(|(_, _, action)| action).collect()
-                }
-            }
+            View::Programs => self.program_actions(),
             View::Search => {
                 let query = self.search.trim().to_lowercase();
+                let mut seen = HashSet::new();
                 let mut result: Vec<_> = all().filter(|action| action_label(action)
-                    .to_lowercase().contains(&query)).collect();
+                    .to_lowercase().contains(&query) && seen.insert(*action)).collect();
                 // Empty search retains the old action list and does not dump
                 // every installed application into the four-row menu.
                 if !query.is_empty() {
@@ -475,12 +497,16 @@ impl MenuState {
                             .map(|score| (score, index, app.action.as_str())))
                         .collect();
                     apps.sort_by_key(|(score, index, _)| (*score, *index));
-                    result.extend(apps.into_iter().map(|(_, _, action)| action));
+                    result.extend(apps.into_iter().map(|(_, _, action)| action)
+                        .filter(|action| seen.insert(*action)));
                 }
                 result
             }
-            View::Saved => all().filter(|action|
-                self.pins.iter().any(|pin| pin.as_str() == *action)).collect(),
+            View::Saved => {
+                let mut seen = HashSet::new();
+                all().filter(|action| self.pins.iter().any(|pin| pin.as_str() == *action)
+                    && seen.insert(*action)).collect()
+            },
         }
     }
 
@@ -649,7 +675,16 @@ impl MenuState {
 
     pub fn first_action_row_for(&self, rows: usize) -> usize {
         let rows = rows.clamp(1, VISIBLE_ACTIONS);
-        (self.selected / rows) * rows
+        // Keep the last real page visible even when refresh invalidates Enter.
+        // Count matches without re-sorting the entire app catalog per repaint.
+        let selected = if self.view == View::Programs {
+            let query = self.search.trim();
+            let count = if query.is_empty() { self.apps.len() } else {
+                self.apps.iter().filter(|app| app.match_score(query).is_some()).count()
+            };
+            self.selected.min(count.saturating_sub(1))
+        } else { self.selected };
+        (selected / rows) * rows
     }
 
     /// A non-interactive counter for scrollable action lists. Fully composed
@@ -702,12 +737,15 @@ impl MenuState {
             View::Groups => "Type to search; F2 or right click pins actions; F3 opens Saved",
             View::Saved => "F2 or right click removes saved actions; F3 returns to menu",
         };
-        format!("{intro}. {detail}. {help}")
+        let status = self.notice.map_or_else(String::new,
+            |notice| format!(" Status: {notice}."));
+        format!("{intro}. {detail}. {help}{status}")
     }
 
     pub fn start_search(&mut self) {
         self.view = View::Search;
         self.search.clear();
+        self.notice = None;
         self.selected = 0;
         self.wheel_remainder = 0.0;
     }
@@ -815,6 +853,7 @@ impl MenuState {
     pub fn show_saved(&mut self) {
         self.view = if self.view == View::Saved { View::Groups } else { View::Saved };
         self.search.clear();
+        self.notice = None;
         self.selected = 0;
         self.wheel_remainder = 0.0;
     }
@@ -823,6 +862,7 @@ impl MenuState {
         if self.view == View::Groups { return false; }
         self.view = View::Groups;
         self.search.clear();
+        self.notice = None;
         self.selected = 0;
         self.wheel_remainder = 0.0;
         true
@@ -845,11 +885,19 @@ impl MenuState {
     }
 
     pub fn select_by(&mut self, menu: &NativeMenu, delta: isize) {
+        if delta == 0 { return; }
         let count = self.actions(menu).len();
-        if count == 0 {
-            return;
-        }
-        self.selected = (self.selected as isize + delta).rem_euclid(count as isize) as usize;
+        if count == 0 { self.selected = 0; return; }
+        let start = if self.selected < count { self.selected }
+            else if delta < 0 { 0 } else { count - 1 };
+        // Modular arithmetic avoids signed overflow even for extreme deltas.
+        let step = delta.rem_euclid(count as isize) as usize;
+        self.selected = (start + step) % count;
+        self.clear_removed_app_notice();
+    }
+
+    fn clear_removed_app_notice(&mut self) {
+        if self.notice == Some(APP_REMOVED_NOTICE) { self.notice = None; }
     }
 
     /// Home/End jump to the real first/last action in the current group,
@@ -857,6 +905,7 @@ impl MenuState {
     pub fn select_edge(&mut self, menu: &NativeMenu, last: bool) {
         let count = self.actions(menu).len();
         self.selected = if last { count.saturating_sub(1) } else { 0 };
+        if count > 0 { self.clear_removed_app_notice(); }
     }
 
     /// PageUp/PageDown advance the visible viewport without wrapping around
@@ -864,8 +913,10 @@ impl MenuState {
     pub fn page_by(&mut self, menu: &NativeMenu, delta: isize) {
         let count = self.actions(menu).len();
         if count == 0 { self.selected = 0; return; }
+        if delta == 0 { return; }
         self.selected = self.selected.saturating_add_signed(delta)
             .min(count - 1);
+        self.clear_removed_app_notice();
     }
 
     /// A wheel notch advances one *visible page*. Continuous touchpad deltas
@@ -2089,6 +2140,107 @@ mod tests {
         assert_eq!(state.selected, 0);
         assert_eq!(state.current_action(&data), None);
     }
+    #[test]
+    fn refreshed_program_catalog_never_dispatches_another_app_by_stale_index() {
+        let data = menu();
+        let mut state = MenuState::with_pins_and_recents(Vec::new(),
+            vec!["desktop:demo-2.desktop".into(), "desktop:removed.desktop".into()]);
+        state.open();
+        state.replace_apps(demo_apps(6));
+        state.show_programs();
+        assert!(state.search_input("demo"));
+        state.selected = 2;
+        let action = state.current_action(&data).unwrap().to_owned();
+
+        let mut reordered = demo_apps(6);
+        reordered.reverse();
+        state.replace_apps(reordered);
+        assert_eq!(state.current_action(&data), Some(action.as_str()),
+            "reordering catalog must not retarget Enter");
+        assert_eq!(state.selected, 3);
+
+        let mut removed = demo_apps(6);
+        removed.retain(|app| app.action != action);
+        state.replace_apps(removed);
+        assert_eq!(state.current_action(&data), None,
+            "removed selection must not launch a different app");
+        assert_eq!(state.selected, 5);
+        assert_eq!(state.first_action_row(), 4,
+            "an invalid selection must not hide remaining apps");
+        assert!(state.accessible_summary(&data, VISIBLE_ACTIONS)
+            .contains("Status: Selected application is no longer available."));
+        assert!(state.recent_apps().is_empty(),
+            "removed and unknown recent IDs are pruned");
+
+        state.select_by(&data, 1);
+        assert_eq!(state.current_action(&data), Some("desktop:demo-0.desktop"),
+            "explicit keyboard navigation establishes a fresh selection");
+        assert_eq!(state.notice, None, "fresh focus clears the removed-app error");
+        state.select_by(&data, isize::MIN);
+        assert!(state.selected < state.actions(&data).len());
+    }
+
+    #[test]
+    fn search_and_saved_views_show_each_recipe_action_once() {
+        let mut data = menu();
+        data.groups[1].actions.insert(0, "terminal".to_owned());
+        let mut state = MenuState::default();
+        state.open();
+        state.start_search();
+        assert!(state.search_input("terminal"));
+        assert_eq!(state.actions(&data), vec!["terminal"]);
+        assert_eq!(state.current_action(&data), Some("terminal"));
+
+        state.pins.push("terminal".to_owned());
+        state.show_saved();
+        assert_eq!(state.actions(&data), vec!["terminal"]);
+        assert_eq!(state.current_action(&data), Some("terminal"));
+    }
+
+    #[test]
+    fn status_is_announced_and_cleared_on_view_transitions_and_close() {
+        let data = menu();
+        let mut state = MenuState::default();
+        state.open();
+        state.notice = Some("Unavailable or denied");
+        assert!(state.accessible_summary(&data, VISIBLE_ACTIONS)
+            .contains("Status: Unavailable or denied."));
+
+        state.start_search();
+        assert_eq!(state.notice, None);
+        state.notice = Some("Control busy");
+        state.show_saved();
+        assert_eq!(state.notice, None);
+        state.notice = Some("Hardware unavailable");
+        state.open_group(0);
+        assert_eq!(state.notice, None);
+        state.notice = Some("Cannot save pins");
+        state.show_programs();
+        assert_eq!(state.notice, None);
+        state.notice = Some("Hardware backend disconnected");
+        assert!(state.back());
+        assert_eq!(state.notice, None);
+        state.close();
+        assert_eq!(state.hit(&data, 10.0, 120.0), None);
+        state.open();
+        assert_eq!(state.notice, None);
+    }
+
+    #[test]
+    fn keyboard_navigation_extreme_steps_cannot_overflow_or_select_unknown() {
+        let data = menu();
+        let mut state = MenuState::default();
+        state.open();
+        state.select_by(&data, isize::MIN);
+        assert!(state.selected < state.actions(&data).len());
+        state.select_by(&data, isize::MAX);
+        assert!(state.selected < state.actions(&data).len());
+        state.group_by(&data, isize::MIN);
+        assert!(state.group < data.groups.len());
+        state.group_by(&data, isize::MAX);
+        assert!(state.group < data.groups.len());
+    }
+
     #[test]
     fn restored_recents_only_surface_installed_apps_and_remain_bounded() {
         let mut state = MenuState::with_pins_and_recents(
