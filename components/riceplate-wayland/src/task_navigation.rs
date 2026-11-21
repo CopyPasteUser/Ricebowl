@@ -168,6 +168,8 @@ mod tests {
                    Some(Target::Task(1)));
         assert_eq!(remap_after_close(Some(Target::Task(2)), &old, &[vec![10], vec![40]]),
                    None);
+        assert_eq!(remap_after_close(Some(Target::Task(99)), &[], &remaining),
+                   None);
         assert_eq!(remap_after_close(Some(Target::Launcher), &old, &remaining),
                    Some(Target::Launcher));
         assert_eq!(remap_after_close(Some(Target::Task(0)), &[20, 21],

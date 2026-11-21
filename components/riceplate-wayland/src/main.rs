@@ -9645,7 +9645,9 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for RicePlate {
                 state.taskbar_actions.closed(proxy);
                 let groups = state.grouped_tasks();
                 state.task_offset = state.task_offset.min(groups.len().saturating_sub(1));
-                if let Some(handles) = selected_handles {
+                if matches!(state.focused_target, Some(KeyboardTarget::Task(_))) {
+                    // A selection that was stale before Closed also fails closed.
+                    let handles = selected_handles.unwrap_or_default();
                     let members: Vec<Vec<_>> = groups.iter()
                         .map(|group| group.members.iter()
                             .map(|&member| state.tasks[member].handle.clone()).collect())
