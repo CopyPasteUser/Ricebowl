@@ -818,8 +818,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         })?;
     }
     if let Some(fd) = tray_fd {
-        register_native_sni(&event_loop.handle(), fd, &qh)?;
-        app.refresh_tray(&qh);
+        // Check the host before registering its duplicated fd. A connection
+        // which already failed its initial read must not strand a Generic
+        // watcher that could outlive the disconnected owner.
+        if app.refresh_tray(&qh) {
+            register_native_sni(&event_loop.handle(), fd, &qh)?;
+        }
     }
     let mut sni_retry = sni_recovery::Retry::new(use_tray, Instant::now());
     let mut audio_observer_sender = None;
@@ -983,18 +987,27 @@ fn main() -> Result<(), Box<dyn Error>> {
         if sni_retry.due(app.tray_host.is_some(), Instant::now()) {
             sni_retry.attempted(Instant::now());
             match open_native_sni() {
-                Ok((host, fd)) => match register_native_sni(&event_loop.handle(), fd, &qh) {
-                    Ok(()) => {
-                        app.tray_host = Some(host);
-                        if app.refresh_tray(&qh) {
-                            eprintln!("RicePlate: native SNI tray reconnected");
-                            app.request_redraw(&qh);
+                Ok((host, fd)) => {
+                    app.tray_host = Some(host);
+                    // An immediately disconnected host is discarded before
+                    // any fd source is installed. Never leak an orphan source
+                    // across repeated failed reconnect attempts.
+                    if app.refresh_tray(&qh) {
+                        match register_native_sni(&event_loop.handle(), fd, &qh) {
+                            Ok(()) => {
+                                eprintln!("RicePlate: native SNI tray reconnected");
+                                app.request_redraw(&qh);
+                            }
+                            Err(error) => {
+                                eprintln!("RicePlate: SNI watcher registration unavailable: {error}");
+                                app.tray_host = None;
+                                app.tray_state = tray::State::default();
+                                app.set_tray_popup_visible(false, &qh);
+                                app.request_redraw(&qh);
+                            }
                         }
                     }
-                    Err(error) => {
-                        eprintln!("RicePlate: SNI watcher registration unavailable: {error}");
-                    }
-                },
+                }
                 Err(error) => eprintln!("RicePlate: SNI reconnect deferred: {error}"),
             }
         }
