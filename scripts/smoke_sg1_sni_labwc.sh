@@ -117,7 +117,7 @@ PY
         WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click "$tray_x" 746 1366 768
     }
 
-    for rice in chrome luna; do
+    for rice in luna chrome; do
         if [ "$rice" = chrome ]; then
             recipe=chrome tray_x=1270
         else
