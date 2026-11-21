@@ -137,3 +137,27 @@ independent third-party toolchain auditing or physical-device certification.
 Mint/ThinkPad login, GPU, Flatpak and real-hardware recovery remain separate
 later release gates. Neither this document nor a green PR changes the
 formal checklist in issue #417.
+
+## SG6 software-only acceptance — 21 November 2026
+
+The [SG6 item in issue #417](https://github.com/CopyPasteUser/Ricebowl/issues/417)
+was checked after trusted exact-main evidence for
+[`344d5557a749213dfdd83be2db4a5ba21e8b2624`](https://github.com/CopyPasteUser/Ricebowl/commit/344d5557a749213dfdd83be2db4a5ba21e8b2624):
+
+- [Tests #44881618535](https://github.com/CopyPasteUser/Ricebowl/actions/runs/44881618535):
+  test job completed successfully, including the executed suite step.
+- [Native #44881618473](https://github.com/CopyPasteUser/Ricebowl/actions/runs/44881618473):
+  native build, clean four-package rebuild, historical upgrades/downgrades,
+  corrupted archive rejection and interrupted dpkg recovery passed.
+  The separate disposable Mint 22.1 Xia install/recovery job also succeeded.
+- [Cross-runner #44881618480](https://github.com/CopyPasteUser/Ricebowl/actions/runs/44881618480):
+  two hosted builders, the third independent byte comparison and the trusted
+  signing job all completed successfully. The signer attested both the
+  [comparison report (#70471969)](https://github.com/CopyPasteUser/Ricebowl/attestations/70471969)
+  and [all four package subjects (#70471973)](https://github.com/CopyPasteUser/Ricebowl/attestations/70471973).
+
+This closes SG6 **for the software-only gate**. These receipts do not
+certify third-party toolchains, physical power-loss behavior, Mint/ThinkPad
+login, GPU/DRM, Flatpak consent or stable 1.0 readiness. SG1–SG5 and SG7
+remain open. A future exact-final-main review must use current-source CI
+rather than reusing these historical receipts.
