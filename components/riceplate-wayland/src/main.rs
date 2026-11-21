@@ -5239,6 +5239,14 @@ impl RicePlate {
         if self.calendar_state.visible { self.set_calendar_visible(false, qh); }
         self.tray_popup_focused = false;
         self.active_tray_popup = Some(surface.clone());
+        if std::env::var("RICEBOWL_DE_TRACE_TRAY").as_deref() == Ok("1") {
+            let ready = self.tray_popup_layer.iter()
+                .chain(self.tray_popup_mirrors.iter())
+                .find(|layer| layer.surface.wl_surface() == &surface)
+                .map(|layer| layer.configured);
+            eprintln!("RicePlate: SNI popup show target configured={ready:?} menu_visible={}",
+                self.tray_menu_state.visible);
+        }
         for layer in self.tray_popup_layer.iter().chain(self.tray_popup_mirrors.iter()) {
             let active = layer.surface.wl_surface() == &surface;
             layer.surface.set_keyboard_interactivity(if !active {
@@ -5342,7 +5350,12 @@ impl RicePlate {
             .or_else(|| self.tray_popup_mirrors.iter_mut().find(|layer|
                 layer.surface.wl_surface() == active));
         let Some(layer) = layer else { return; };
-        if !layer.configured { return; }
+        if !layer.configured {
+            if std::env::var("RICEBOWL_DE_TRACE_TRAY").as_deref() == Ok("1") {
+                eprintln!("RicePlate: SNI popup awaiting compositor configure before first buffer");
+            }
+            return;
+        }
         if layer.pool.is_none() {
             let bytes = (tray::POPUP_WIDTH * tray::POPUP_HEIGHT * 4 * 3) as usize;
             match SlotPool::new(bytes, &self.shm) {
@@ -5376,6 +5389,9 @@ impl RicePlate {
             return;
         }
         layer.surface.commit();
+        if std::env::var("RICEBOWL_DE_TRACE_TRAY").as_deref() == Ok("1") {
+            eprintln!("RicePlate: SNI popup buffer committed to compositor");
+        }
     }
 
     fn request_redraw(&mut self, qh: &QueueHandle<Self>) {
