@@ -221,8 +221,12 @@ impl MenuPopup {
     }
 
     pub fn open(&mut self, bus_name: &str, title: &str, root: &MenuNode) -> bool {
-        let Some((root_id, rows)) = Self::snapshot(root) else { return false; };
+        // A failed switch must revoke the previous provider's executable
+        // rows. Otherwise an empty/malformed replacement leaves a stale
+        // menu visible with actions from the former D-Bus owner.
+        let snapshot = Self::snapshot(root);
         self.close();
+        let Some((root_id, rows)) = snapshot else { return false; };
         self.visible = true;
         self.bus_name = bus_name.to_owned();
         self.title = title.chars().take(42).collect();
@@ -235,8 +239,10 @@ impl MenuPopup {
     /// A local panel menu shares the SNI input/paging surface without sending
     /// synthetic D-Bus events to application-owned StatusNotifier items.
     pub fn open_local(&mut self, title: &str, rows: Vec<MenuRow>) -> bool {
-        if rows.is_empty() { return false; }
+        // Empty local status menus must not preserve a previously visible
+        // provider-owned menu or its stale keyboard selection.
         self.close();
+        if rows.is_empty() { return false; }
         self.visible = true;
         self.title = title.chars().filter(|c| !c.is_control()).take(42).collect();
         self.rows = rows.into_iter().take(MAX_MENU_NODES).collect();
@@ -862,6 +868,53 @@ mod tests {
             leaf(14, "Open", true, true),
             leaf(14, "Other", true, true),
         ])));
+    }
+
+
+    #[test]
+    fn refused_remote_reopen_revokes_previous_provider_actions() {
+        let mut menu = MenuPopup::default();
+        assert!(menu.open("org.test.old", "Old owner", &root(vec![
+            leaf(2, "Previous action", true, true),
+        ])));
+        assert_eq!(menu.choice(0), MenuChoice::Click(2));
+        // A malformed replacement could be a just-restarted provider.
+        // Its failure must not expose the old owner's actionable snapshot.
+        assert!(!menu.open("org.test.new", "New owner", &root(vec![
+            leaf(3, "One", true, true), leaf(3, "Duplicate", true, true),
+        ])));
+        assert!(!menu.visible);
+        assert!(menu.opened_ids().is_empty());
+        assert!(menu.bus_name.is_empty());
+        assert_eq!(menu.choice(0), MenuChoice::None);
+        assert_eq!(menu.remote_hover_id(0), None);
+
+        assert!(menu.open("org.test.recovered", "Recovered", &root(vec![
+            leaf(4, "Current action", true, true),
+        ])));
+        assert_eq!(menu.choice(0), MenuChoice::Click(4));
+        assert!(!menu.open("org.test.failed", "Empty", &MenuNode::Empty));
+        assert_eq!(menu.choice(0), MenuChoice::None);
+        assert!(!menu.visible);
+    }
+
+    #[test]
+    fn empty_local_reopen_drops_old_keyboard_and_remote_identity() {
+        let mut menu = MenuPopup::default();
+        assert!(menu.open("org.test.old", "Provider", &root(vec![
+            leaf(5, "Old", true, true),
+        ])));
+        assert!(!menu.open_local("Date and Time", Vec::new()));
+        assert_eq!(menu.choice(0), MenuChoice::None);
+        assert_eq!(menu.remote_hover_id(0), None);
+        assert!(!menu.visible);
+        assert!(menu.bus_name.is_empty());
+        assert!(menu.open_local("Recovered local status", vec![MenuRow {
+            id: 8, label: "Settings".into(), enabled: true,
+            kind: MenuKind::Action { checked: false, radio: false },
+        }]));
+        assert!(menu.is_local());
+        assert_eq!(menu.choice(0), MenuChoice::Click(8));
     }
 
     #[test]
