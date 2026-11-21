@@ -141,7 +141,7 @@ class Fixture:
 
     def layout(self, parent_id):
         action = node(10, props("Provider action"))
-        denied = node(11, props("Denied action", enabled=self.mode != "disabled"))
+        denied = node(11, props("Disabled action", enabled=self.mode != "disabled"))
         child = node(21, props("Nested action"))
         submenu = node(20, props("Submenu", submenu=True), [child])
         children = [submenu, action, denied]
