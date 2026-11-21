@@ -4962,9 +4962,17 @@ impl RicePlate {
     /// polling timer. Fatal bus errors remove the source and leave the shell
     /// usable with a visually empty tray.
     fn refresh_tray(&mut self, qh: &QueueHandle<Self>) -> bool {
+        let remote_bus_name = (self.tray_menu_state.visible
+            && !self.tray_menu_state.bus_name.is_empty())
+            .then(|| self.tray_menu_state.bus_name.clone());
+        let mut provider_replaced = false;
         let Some(host) = self.tray_host.as_mut() else { return false };
         if let Err(error) = host.process_events(
-            |_, _, _| {},
+            |name, _, event| {
+                if tray::revokes_remote_menu(remote_bus_name.as_deref(), &name, event) {
+                    provider_replaced = true;
+                }
+            },
             |error| eprintln!("RicePlate: SNI item error: {error}"),
             Some(Duration::ZERO),
         ) {
@@ -4976,6 +4984,12 @@ impl RicePlate {
             return false;
         }
         let updated = tray::State::from_items(host.get_all_items());
+        if provider_replaced {
+            // Never send close/hover/click to the new owner of the same bus
+            // name. The replacement must be opened through new user input.
+            // Invalidate before any remaining provider replies are inspected.
+            self.tray_menu_state.close();
+        }
         if self.tray_menu_state.visible && !self.tray_menu_state.is_local() {
             let bus_name = self.tray_menu_state.bus_name.clone();
             let stale = if let Some(item) = host.get_item(&bus_name) {
@@ -4994,6 +5008,10 @@ impl RicePlate {
             } else {
                 self.redraw_tray_popup();
             }
+        }
+        if provider_replaced {
+            self.set_tray_popup_visible(false, qh);
+            self.request_redraw(qh);
         }
         if self.tray_state != updated {
             self.tray_state = updated;

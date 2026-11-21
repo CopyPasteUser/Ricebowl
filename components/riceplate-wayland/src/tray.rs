@@ -21,6 +21,22 @@ pub fn menu_activation_button(button: u32) -> bool {
     button == 0x110 // Linux BTN_LEFT; shared protocol value for all rices.
 }
 
+/** A registered item may disappear and another process may register using
+ * the same *well-known* D-Bus name. A previously opened menu belongs to the
+ * former connection, even when its replacement publishes identical node IDs.
+ *
+ * The StatusNotifier host reports Added/Removed for lifecycle transitions.
+ * A change to labels, icons or checkmarks is not a lifecycle transition and
+ * continues to use MenuPopup::sync to preserve valid keyboard selection.
+ */
+pub fn revokes_remote_menu(open_bus_name: Option<&str>, event_bus_name: &str,
+                           event: status_notifier::Event) -> bool {
+    open_bus_name.is_some_and(|bus_name| !bus_name.is_empty()
+        && bus_name == event_bus_name)
+        && matches!(event, status_notifier::Event::Added
+            | status_notifier::Event::Removed)
+}
+
 pub fn screen_coords(output_origin: (i32, i32), output_size: (u32, u32),
                      panel_height: u32, top_panel: bool, popup: bool,
                      local: (f64, f64)) -> (i32, i32) {
@@ -570,6 +586,48 @@ mod tests {
 
     fn item(status: &str, title: &str) -> Item {
         Item { status: status.into(), title: title.into(), ..Item::default() }
+    }
+
+    #[test]
+    fn owner_lifecycle_revokes_remote_actions_but_not_live_property_updates() {
+        use status_notifier::Event;
+        let owner = Some("org.test.SNIFixture");
+        for event in [Event::Removed, Event::Added] {
+            assert!(revokes_remote_menu(owner, "org.test.SNIFixture", event));
+            assert!(!revokes_remote_menu(owner, "org.test.Unrelated", event));
+            assert!(!revokes_remote_menu(None, "org.test.SNIFixture", event));
+            assert!(!revokes_remote_menu(Some(""), "org.test.SNIFixture", event));
+        }
+        assert!(!revokes_remote_menu(owner, "org.test.SNIFixture", Event::UpdatedMenu));
+        assert!(!revokes_remote_menu(owner, "org.test.SNIFixture", Event::UpdatedStatus));
+        assert!(!revokes_remote_menu(owner, "org.test.SNIFixture", Event::UpdatedTitle));
+    }
+
+    #[test]
+    fn reused_menu_ids_after_owner_replacement_require_new_open_and_focus() {
+        use status_notifier::Event;
+        let old = MenuNode::Menu {
+            id: 0, label: "root".into(), enabled: true, visible: true,
+            children: vec![MenuNode::Item {
+                id: 42, label: "Old provider action".into(),
+                enabled: true, visible: true, icon_name: String::new(),
+                icon_data: status_notifier::IconData(Vec::new()),
+                toggle_type: ToggleType::None, toggle_state: ToggleState::Off,
+            }],
+        };
+        let mut popup = MenuPopup::default();
+        assert!(popup.open("org.test.SNIFixture", "Old", &old));
+        assert_eq!(popup.choice(0), MenuChoice::Click(42));
+        assert!(revokes_remote_menu(Some(&popup.bus_name),
+                                    "org.test.SNIFixture", Event::Removed));
+        // The production bus-event consumer revokes state BEFORE hiding the
+        // surface. Closing must not send menu_closed to a new service owner.
+        popup.close();
+        assert!(!popup.visible);
+        assert_eq!(popup.choice(0), MenuChoice::None);
+        assert_eq!(popup.remote_hover_id(0), None);
+        assert!(popup.open("org.test.SNIFixture", "New", &old));
+        assert_eq!(popup.choice(0), MenuChoice::Click(42));
     }
 
     #[test]
