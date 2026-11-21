@@ -497,9 +497,9 @@ dbus-run-session -- sh -eu -s -- "$source_root" "$runtime" "$native" "$clicker" 
             prior_fuzzel_enters=$(grep -c "wl_keyboard@.*\.enter(" \
                 "$RICEBOWL_CI_FUZZEL_WL_LOG" 2>/dev/null || :)
             mkfifo -m 0600 "$runtime/chrome-pointer-control"
-            # Control the exact CI pointer lifetime through a private FIFO.
-            # The helper remains connected until the real Fuzzel surface
-            # receives wl_keyboard.enter, then gracefully destroys its pointer.
+            # Keep the compositor pointer connected while Fuzzel focuses,
+            # submits its first buffer and executes the selected application.
+            # Early teardown can withdraw focus before the frame is submitted.
             WAYLAND_DISPLAY=wayland-0 "$chrome_clicker" 28 746 1366 768 \
                 <"$runtime/chrome-pointer-control" \
                 >"$runtime/chrome-controlled-pointer.log" 2>&1 &
@@ -541,17 +541,11 @@ dbus-run-session -- sh -eu -s -- "$source_root" "$runtime" "$native" "$clicker" 
                 count=$((count + 1))
                 sleep 0.1
             done
-            # Exactly one release signal. The test waits for the real helper's
-            # clean exit before asserting that Fuzzel submitted a first frame.
-            printf "release\n" >&8
-            exec 8>&-
-            if ! wait "$focus_clicker"; then
-                echo "Chrome virtual-pointer release handshake failed" >&2
-                cat "$runtime/chrome-controlled-pointer.log" >&2 || :
-                exit 1
-            fi
-            focus_clicker=
             if [ "$new_fuzzel_enters" -le "$prior_fuzzel_enters" ]; then
+                printf "release\n" >&8 || :
+                exec 8>&-
+                wait "$focus_clicker" || :
+                focus_clicker=
                 echo "Chrome Fuzzel never received new compositor keyboard focus" >&2
                 tail -n 55 "$RICEBOWL_CI_FUZZEL_WL_LOG" >&2 || :
                 exit 1
@@ -571,6 +565,10 @@ dbus-run-session -- sh -eu -s -- "$source_root" "$runtime" "$native" "$clicker" 
                 sleep 0.1
             done
             if [ "$new_fuzzel_frames" -le "$prior_fuzzel_frames" ]; then
+                printf "release\n" >&8 || :
+                exec 8>&-
+                wait "$focus_clicker" || :
+                focus_clicker=
                 echo "Chrome reopened Fuzzel without a first compositor buffer" >&2
                 ps -o pid,ppid,stat,cmd -p "$launcher_pid" >&2 || :
                 tail -n 55 "$RICEBOWL_CI_FUZZEL_WL_LOG" >&2 || :
@@ -638,6 +636,16 @@ dbus-run-session -- sh -eu -s -- "$source_root" "$runtime" "$native" "$clicker" 
                 *) echo "Chrome fuzzel remained open after app keyboard launch" >&2
                    exit 1 ;;
             esac
+            # Release after the real process has launched and Fuzzel exited;
+            # no heuristic pointer hold interval or premature seat teardown.
+            printf "release\n" >&8
+            exec 8>&-
+            if ! wait "$focus_clicker"; then
+                echo "Chrome virtual-pointer release handshake failed" >&2
+                cat "$runtime/chrome-controlled-pointer.log" >&2 || :
+                exit 1
+            fi
+            focus_clicker=
             kill -0 "$plate"
             echo "Verified Chrome real fuzzel keyboard app launch under labwc"
         fi
