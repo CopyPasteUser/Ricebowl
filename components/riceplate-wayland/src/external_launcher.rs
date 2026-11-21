@@ -43,7 +43,9 @@ impl Drop for ExternalLauncher {
         if let Some(mut child) = self.child.take() {
             // A rice switch tears down the old native panel. It must not
             // strand an active external keyboard-grabbing launcher.
-            if matches!(child.try_wait(), Ok(None)) {
+            if !matches!(child.try_wait(), Ok(Some(_))) {
+                // An indeterminate try_wait error must not block shutdown
+                // forever waiting for a still-running launcher.
                 let _ = child.kill();
             }
             let _ = child.wait();
