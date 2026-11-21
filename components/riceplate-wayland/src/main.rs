@@ -1782,8 +1782,10 @@ impl RicePlate {
                 self.activate_file_icon(&selected);
             }
             Keysym::Up | Keysym::Down | Keysym::Left | Keysym::Right => {
-                let visible: Vec<_> = peers.iter().map(|&index|
-                    self.file_layers[index].entry.key.clone()).collect();
+                let visible_entries: Vec<_> = peers.iter().map(|&index|
+                    self.file_layers[index].entry.clone()).collect();
+                let visible: Vec<_> = visible_entries.iter()
+                    .map(|entry| entry.key.clone()).collect();
                 let backwards = matches!(event.keysym, Keysym::Up | Keysym::Left);
                 let Some(key) = shortcut_focus::next_visible_file(
                     &visible, &selected, backwards) else {
@@ -1794,7 +1796,13 @@ impl RicePlate {
                     layer.target = DesktopFocusTarget::File(key.clone());
                     layer.expires = Instant::now() + Duration::from_secs(5);
                 }
-                self.file_selection.select(&key, false);
+                // This key arrived through the same-seat wl_keyboard lease.
+                // Shift extends the output-local selection; plain arrows
+                // replace it. The file engine owns both pointer and keyboard.
+                let mode = if self.selection_modifiers.shift {
+                    desktop_layout::file_state::ChooseMode::Range
+                } else { desktop_layout::file_state::ChooseMode::Replace };
+                self.file_selection.choose(&key, mode, &visible_entries);
                 for index in 0..self.file_layers.len() { self.redraw_file_icon(index); }
             }
             _ => {
@@ -9007,7 +9015,21 @@ impl PointerHandler for RicePlate {
                             desktop_layout::file_state::ChooseMode::Range
                         } else { desktop_layout::file_state::ChooseMode::Replace };
                         if let Some(snapshot) = self.file_snapshot.as_ref() {
-                            self.file_selection.choose(&key, mode, &snapshot.entries);
+                            // Restrict Shift/Ctrl to icons genuinely placed on
+                            // this wl_output. The inventory contains files
+                            // assigned to *all* outputs and is not a visible
+                            // keyboard/pointer peer list.
+                            let clicked_output = self.file_layers[index].bound_output.as_ref()
+                                .or(self.primary_output.as_ref())
+                                .or(self.file_layers[index].output.as_ref());
+                            let peers: Vec<_> = snapshot.entries.iter().filter(|entry| {
+                                self.file_layers.iter().any(|layer|
+                                    layer.placed.is_some() && layer.entry.key == entry.key
+                                    && layer.bound_output.as_ref()
+                                        .or(self.primary_output.as_ref())
+                                        .or(layer.output.as_ref()) == clicked_output)
+                            }).cloned().collect();
+                            self.file_selection.choose(&key, mode, &peers);
                             for i in 0..self.file_layers.len() { self.redraw_file_icon(i); }
                         }
                         self.file_drag = if mode == desktop_layout::file_state::ChooseMode::Replace {
