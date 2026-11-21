@@ -139,7 +139,12 @@ class CrossRunnerWorkflowPolicyTests(unittest.TestCase):
         self.assertIn("needs: compare", self.attest)
         self.assertIn("id-token: write", self.attest)
         self.assertIn("attestations: write", self.attest)
-        self.assertIn("actions/attest@v4", self.attest)
+        self.assertEqual(self.attest.count("uses: actions/attest@v4"), 2,
+                         "Report and four direct package subjects both require signing")
+        self.assertIn("subject-path: dist/sg6-comparison/report.json", self.attest)
+        self.assertIn("subject-checksums: dist/sg6-comparison/packages.sha256", self.attest)
+        self.assertIn("set(packages) == set(expected)", self.attest)
+        self.assertIn("re.fullmatch(r'[0-9a-f]{64}', packages[name])", self.attest)
         self.assertIn("git/ref/heads/main", self.attest)
         self.assertIn("report['source_sha'] == sys.argv[1]", self.attest)
         self.assertIn("report['hardware_accepted'] is False", self.attest)
