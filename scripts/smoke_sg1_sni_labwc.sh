@@ -110,16 +110,11 @@ PY
     sleep .4
     kill -0 "$keyboard_keeper"
 
-    # The fixture advertises ItemIsMenu=true. A held left click exercises
-    # the real menu activation contract on Luna without withdrawing the
-    # compositor pointer/seat before its popup can acquire keyboard focus.
-    # Chrome additionally proves the secondary-click menu path.
+    # Both rices must prove the same real DBusMenu context activation path.
+    # Luna's primary-click route also closes desktop focus overlays and can
+    # produce a distinct seat lifetime; do not equate the two paths.
     open_fixture_menu() {
-        if [ "$rice" = luna ]; then
-            WAYLAND_DISPLAY=wayland-0 "$clicker" --hold-ms 1100 "$tray_x" 746 1366 768
-        else
-            WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click "$tray_x" 746 1366 768
-        fi
+        WAYLAND_DISPLAY=wayland-0 "$clicker" --right-click "$tray_x" 746 1366 768
     }
 
     for rice in chrome luna; do
