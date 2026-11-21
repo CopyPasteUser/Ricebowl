@@ -1,7 +1,7 @@
 //! Bounded, input-independent navigation for a real native RicePlate menu.
 //! Every row maps to a validated recipe action; labels never become commands.
 
-use std::time::{Duration, Instant};
+use std::{collections::HashSet, time::{Duration, Instant}};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{installed_apps::{self, App}, recipe::{MenuContentKind, MenuPresentation, NativeMenu}};
@@ -106,6 +106,7 @@ pub fn compact_visible_actions(size: (u32, u32)) -> usize {
         / COMPACT_ACTION_HEIGHT) as usize).clamp(1, VISIBLE_ACTIONS)
 }
 const APP_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
+const APP_REMOVED_NOTICE: &str = "Selected application is no longer available";
 const CONTENT_HEADER_HEIGHT: u32 = 14;
 const CONTENT_LIST_HEIGHT: u32 = 30;
 const CONTENT_GRID_HEIGHT: u32 = 46;
@@ -273,7 +274,7 @@ impl MenuState {
                 // Out of bounds until a fresh pointer or keyboard gesture.
                 // Unlike usize::MAX, len() remains safe for the AT-SPI focus ID.
                 self.selected = self.program_actions().len();
-                self.notice = Some("Selected application is no longer available");
+                self.notice = Some(APP_REMOVED_NOTICE);
             }
         } else if self.view == View::Programs {
             self.selected = self.selected.min(self.program_actions().len());
@@ -482,8 +483,9 @@ impl MenuState {
             View::Programs => self.program_actions(),
             View::Search => {
                 let query = self.search.trim().to_lowercase();
+                let mut seen = HashSet::new();
                 let mut result: Vec<_> = all().filter(|action| action_label(action)
-                    .to_lowercase().contains(&query)).collect();
+                    .to_lowercase().contains(&query) && seen.insert(*action)).collect();
                 // Empty search retains the old action list and does not dump
                 // every installed application into the four-row menu.
                 if !query.is_empty() {
@@ -495,12 +497,16 @@ impl MenuState {
                             .map(|score| (score, index, app.action.as_str())))
                         .collect();
                     apps.sort_by_key(|(score, index, _)| (*score, *index));
-                    result.extend(apps.into_iter().map(|(_, _, action)| action));
+                    result.extend(apps.into_iter().map(|(_, _, action)| action)
+                        .filter(|action| seen.insert(*action)));
                 }
                 result
             }
-            View::Saved => all().filter(|action|
-                self.pins.iter().any(|pin| pin.as_str() == *action)).collect(),
+            View::Saved => {
+                let mut seen = HashSet::new();
+                all().filter(|action| self.pins.iter().any(|pin| pin.as_str() == *action)
+                    && seen.insert(*action)).collect()
+            },
         }
     }
 
@@ -874,6 +880,7 @@ impl MenuState {
     }
 
     pub fn select_by(&mut self, menu: &NativeMenu, delta: isize) {
+        if delta == 0 { return; }
         let count = self.actions(menu).len();
         if count == 0 { self.selected = 0; return; }
         let start = if self.selected < count { self.selected }
@@ -881,6 +888,11 @@ impl MenuState {
         // Modular arithmetic avoids signed overflow even for extreme deltas.
         let step = delta.rem_euclid(count as isize) as usize;
         self.selected = (start + step) % count;
+        self.clear_removed_app_notice();
+    }
+
+    fn clear_removed_app_notice(&mut self) {
+        if self.notice == Some(APP_REMOVED_NOTICE) { self.notice = None; }
     }
 
     /// Home/End jump to the real first/last action in the current group,
@@ -888,6 +900,7 @@ impl MenuState {
     pub fn select_edge(&mut self, menu: &NativeMenu, last: bool) {
         let count = self.actions(menu).len();
         self.selected = if last { count.saturating_sub(1) } else { 0 };
+        if count > 0 { self.clear_removed_app_notice(); }
     }
 
     /// PageUp/PageDown advance the visible viewport without wrapping around
@@ -895,8 +908,10 @@ impl MenuState {
     pub fn page_by(&mut self, menu: &NativeMenu, delta: isize) {
         let count = self.actions(menu).len();
         if count == 0 { self.selected = 0; return; }
+        if delta == 0 { return; }
         self.selected = self.selected.saturating_add_signed(delta)
             .min(count - 1);
+        self.clear_removed_app_notice();
     }
 
     /// A wheel notch advances one *visible page*. Continuous touchpad deltas
@@ -2155,8 +2170,26 @@ mod tests {
         state.select_by(&data, 1);
         assert_eq!(state.current_action(&data), Some("desktop:demo-0.desktop"),
             "explicit keyboard navigation establishes a fresh selection");
+        assert_eq!(state.notice, None, "fresh focus clears the removed-app error");
         state.select_by(&data, isize::MIN);
         assert!(state.selected < state.actions(&data).len());
+    }
+
+    #[test]
+    fn search_and_saved_views_show_each_recipe_action_once() {
+        let mut data = menu();
+        data.groups[1].actions.insert(0, "terminal".to_owned());
+        let mut state = MenuState::default();
+        state.open();
+        state.start_search();
+        assert!(state.search_input("terminal"));
+        assert_eq!(state.actions(&data), vec!["terminal"]);
+        assert_eq!(state.current_action(&data), Some("terminal"));
+
+        state.pins.push("terminal".to_owned());
+        state.show_saved();
+        assert_eq!(state.actions(&data), vec!["terminal"]);
+        assert_eq!(state.current_action(&data), Some("terminal"));
     }
 
     #[test]
