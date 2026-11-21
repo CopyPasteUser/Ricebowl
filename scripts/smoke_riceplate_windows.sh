@@ -56,7 +56,12 @@ dbus-run-session -- sh -eu -c '
     plate=
     window=
     sibling=
+    peer=
     cleanup() {
+        if [ -n "$peer" ]; then
+            kill "$peer" 2>/dev/null || :
+            wait "$peer" 2>/dev/null || :
+        fi
         if [ -n "$sibling" ]; then
             kill "$sibling" 2>/dev/null || :
             wait "$sibling" 2>/dev/null || :
@@ -324,6 +329,49 @@ dbus-run-session -- sh -eu -c '
         kill -0 "$plate"
         echo "Real grouped Wayland window activation and child-crash recovery confirmed"
     fi
+
+    # Distinct app_id: a second real application must never be folded into
+    # the original group. In --xwayland this is a simultaneous X11 + Wayland
+    # client on the same compositor; the other modes exercise two Wayland apps.
+    peer_id=ricebowl-wayland-peer-smoke
+    WAYLAND_DISPLAY=wayland-0 foot --app-id="$peer_id" \
+        --title=RiceBowl-Independent-App /bin/sh -c "sleep 30" \
+        >"$runtime/peer.log" 2>&1 &
+    peer=$!
+    count=0
+    while [ "$count" -lt 40 ]; do
+        if grep -Fq "event=ready app_id=\"$peer_id\"" "$runtime/panel.log" &&
+           grep -Fq "window group_count=2 visible_windows=2" "$runtime/panel.log"; then
+            break
+        fi
+        kill -0 "$peer" 2>/dev/null || {
+            cat "$runtime/peer.log" >&2; exit 1;
+        }
+        sleep 0.25
+        count=$((count + 1))
+    done
+    if [ "$count" -ge 40 ]; then
+        echo "Two distinct native taskbar app identities not observed" >&2
+        tail -n 50 "$runtime/panel.log" >&2
+        exit 1
+    fi
+    kill "$peer"
+    wait "$peer" 2>/dev/null || :
+    peer=
+    count=0
+    while [ "$count" -lt 40 ] &&
+        ! grep -Fq "event=closed app_id=\"$peer_id\"" "$runtime/panel.log"; do
+        sleep 0.25
+        count=$((count + 1))
+    done
+    if [ "$count" -ge 40 ]; then
+        echo "Closed independent application remained in task registry" >&2
+        tail -n 50 "$runtime/panel.log" >&2
+        exit 1
+    fi
+    kill -0 "$window"
+    kill -0 "$plate"
+    echo "Concurrent distinct application lifecycle: compositor receipts confirmed"
 
     kill "$window"
     wait "$window" 2>/dev/null || :
