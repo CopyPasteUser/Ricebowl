@@ -4107,7 +4107,12 @@ impl RicePlate {
             // and desktop-file quoting. Never interpret Exec as a shell command.
             if let Some(path) = self.menu_state.app_path(action).map(std::path::Path::to_path_buf) {
                 match Command::new("gio").arg("launch").arg(&path).spawn() {
-                    Ok(_) => {
+                    Ok(child) => {
+                        // Gio may exit immediately after activating its target.
+                        // Dropping Child without wait would leak a zombie until
+                        // RicePlate itself exits. Reuse the existing bounded
+                        // desktop opener reaper instead of adding a new thread.
+                        self.file_launches.push(child);
                         if self.menu_state.record_app_launch(action)
                             && self.recipe.id == "xp-luna-columns"
                         {
