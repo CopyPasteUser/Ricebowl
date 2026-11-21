@@ -5137,6 +5137,16 @@ impl RicePlate {
             let has_menu = self.tray_host.as_ref().and_then(|host|
                 host.get_item(&entry.bus_name)).is_some_and(|item|
                 popup.open(&entry.bus_name, &entry.title, &item.menu));
+            if std::env::var("RICEBOWL_DE_TRACE_TRAY").as_deref() == Ok("1") {
+                let remote_rows = self.tray_host.as_ref()
+                    .and_then(|host| host.get_item(&entry.bus_name))
+                    .map(|item| match &item.menu {
+                        status_notifier::MenuNode::Menu { children, .. } => children.len(),
+                        _ => 0,
+                    });
+                eprintln!("RicePlate: SNI menu lookup slot={index} is_menu={} rows={remote_rows:?} snapshot={} target={}",
+                    entry.is_menu, has_menu, self.tray_popup_target(source).is_some());
+            }
             if has_menu {
                 if let Some(target) = self.tray_popup_target(source) {
                     self.set_tray_popup_visible(false, qh);
