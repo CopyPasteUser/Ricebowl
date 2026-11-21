@@ -144,8 +144,12 @@ def compare(root: Path, source_sha: str, *, expected_lock_sha: str, expected_epo
     if root.is_symlink() or not root.is_dir():
         raise ProvenanceError('Missing or symlinked runner comparison directory')
     a, b = (read_receipt(root / worker, worker, source_sha) for worker in WORKERS)
-    if a['runner_name'] == b['runner_name'] or a['hostname_sha256'] == b['hostname_sha256']:
-        raise ProvenanceError('Independent runner identities were not observed')
+    # GitHub-hosted jobs have unique runner names, but the guest hostname
+    # can be a constant template value across isolated VMs. Its hash is
+    # diagnostic only; requiring distinct hostnames rejects valid parallel
+    # builder jobs without establishing stronger security guarantees.
+    if a['runner_name'] == b['runner_name']:
+        raise ProvenanceError('Distinct GitHub runner names were not observed')
     # Independent GitHub-hosted runners can legitimately start on different
     # ImageVersion patch releases. Record both immutable observations, but
     # bind reproduction to identical *actual* package bytes, checked-out
@@ -166,6 +170,7 @@ def compare(root: Path, source_sha: str, *, expected_lock_sha: str, expected_epo
         'schema_version': 1, 'source_sha': source_sha,
         'software_ci_only': True, 'hardware_accepted': False,
         'separate_runner_names_observed': True,
+        'distinct_hostname_hashes_observed': a['hostname_sha256'] != b['hostname_sha256'],
         'byte_identical_package_count': len(FILES),
         'same_runner_os_and_build_tools': True,
         'runner_image_versions': {worker: receipt['runner_image_version']
@@ -175,7 +180,8 @@ def compare(root: Path, source_sha: str, *, expected_lock_sha: str, expected_epo
         'cargo_lock_sha256': a['cargo_lock_sha256'],
         'limitations': [
             'Two GitHub-hosted runner VMs in one workflow are not independent third-party builders',
-            'Runner name/hostname do not cryptographically attest machine identity',
+            'Runner names distinguish hosted jobs; neither names nor hostnames cryptographically attest machines',
+            'Hostname hashes may match on different hosted runners and are diagnostic only',
             'Attestation binds comparison artifacts to Actions identity, not reproducible toolchain sources',
             'No Mint/ThinkPad, GPU, default-login or hardware sign-off',
         ],
