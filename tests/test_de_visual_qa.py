@@ -1,6 +1,8 @@
 """Deterministic screenshot comparisons, never invented preview screenshots."""
 
 import json
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -20,13 +22,33 @@ class WaylandVisualQaTests(unittest.TestCase):
     def test_script_and_installed_cli_share_exact_same_engine(self):
         self.assertIs(compare, installed_compare)
 
-    def test_native_smoke_embedded_shell_remains_literal(self):
-        """Prevent quotes from prematurely closing the `sh -c` payload."""
+    def test_native_smoke_literal_stdin_avoids_execve_arg_limit(self):
+        """Keep the full compositor body literal without a 128-KiB sh -c argv."""
         source = (Path(__file__).parent.parent /
                   "scripts/smoke_riceplate_native.sh").read_text(encoding="utf-8")
-        embedded = source.split("dbus-run-session -- sh -eu -c '", 1)[1].split(
-            "' sh \"$source_root\"", 1)[0]
-        self.assertNotIn("'", embedded)
+        header = (
+            'dbus-run-session -- sh -eu -s -- "$source_root" "$runtime" '
+            '"$native" "$clicker" <<\'RICEBOWL_CI_LABWC_BODY\'\n'
+        )
+        marker = "\nRICEBOWL_CI_LABWC_BODY\n"
+        self.assertEqual(source.count(header), 1)
+        self.assertEqual(source.count(marker), 1)
+        self.assertNotIn("dbus-run-session -- sh -eu -c", source)
+        body = source.split(header, 1)[1].split(marker, 1)[0]
+        self.assertTrue(body.startswith("    source_root=$1\n"))
+        self.assertIn("    trap cleanup EXIT\n", body)
+        self.assertIn("    for recipe in classic chrome ", body)
+        self.assertIn('    echo "CI labwc did not respond to SIGTERM"', body)
+        self.assertFalse(body.startswith("RICEBOWL_CI_LABWC_BODY"))
+        # Both the outer harness and the streamed child must parse cleanly.
+        # -n prevents running any programs or touching the user's session.
+        if shutil.which("sh"):
+            for label, payload in (("outer", source), ("inner", body)):
+                with self.subTest(shell=label):
+                    parsed = subprocess.run(
+                        ["sh", "-n"], input=payload, text=True,
+                        capture_output=True, timeout=10, check=False)
+                    self.assertEqual(parsed.returncode, 0, parsed.stderr)
 
     def _private_recipe(self, directory: Path, *, bottom: bool = False) -> Path:
         source = Path(__file__).parent / "fixtures/riceplate-desktop-v5.json"
