@@ -1,7 +1,7 @@
 //! CI-only compositor-backed Chrome launcher pointer with explicit release.
 //!
 //! The parent smoke owns a private FIFO and sends "release" only after the
-//! *actual* Fuzzel layer has received compositor keyboard focus. This makes
+//! *actual* Fuzzel layer has executed the selected application and exited. This makes
 //! device teardown event-driven rather than a guessed number of milliseconds.
 //! Never installed as a production RicePlate executable.
 
@@ -71,7 +71,7 @@ fn release_command() -> Result<(), Box<dyn Error>> {
         events: libc::POLLIN,
         revents: 0,
     };
-    let polled = unsafe { libc::poll(&mut input, 1, 15_000) };
+    let polled = unsafe { libc::poll(&mut input, 1, 30_000) };
     if polled != 1 || (input.revents & libc::POLLIN) == 0 {
         return Err("Chrome pointer release handshake timed out or disconnected".into());
     }
