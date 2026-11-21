@@ -155,8 +155,18 @@ class SniIntegrationFixtureTests(unittest.TestCase):
         self.assertTrue({"GetLayout", "Event", "AboutToShow"}.issubset({
             method.attrib["name"]
             for method in interfaces["com.canonical.dbusmenu"].findall("method")}))
-        self.assertIn("dbus-run-session", SMOKE.read_text())
-        self.assertNotIn("sudo ", SMOKE.read_text())
+        smoke_source = SMOKE.read_text(encoding="utf-8")
+        self.assertIn("dbus-run-session", smoke_source)
+        self.assertNotIn("sudo ", smoke_source)
+        # The CI fixture runs as an embedded single-quoted shell program.
+        # Nested apostrophes silently truncate the child script even when
+        # the outer shell happens to parse after further tokens.
+        header = "dbus-run-session -- sh -eu -c '"
+        tail = """' sh "$root" "$runtime" "$native" "$clicker" "$provider" """
+        self.assertEqual(smoke_source.count(header), 1)
+        self.assertEqual(smoke_source.count(tail.rstrip()), 1)
+        embedded = smoke_source.split(header, 1)[1].split(tail.rstrip(), 1)[0]
+        self.assertNotIn("'", embedded)
         syntax = subprocess.run(["sh", "-n", str(SMOKE)],
                                 capture_output=True, text=True, check=False)
         self.assertEqual(syntax.returncode, 0, syntax.stderr)
