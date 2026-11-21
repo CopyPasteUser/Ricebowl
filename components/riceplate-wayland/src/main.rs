@@ -4966,11 +4966,15 @@ impl RicePlate {
             && !self.tray_menu_state.bus_name.is_empty())
             .then(|| self.tray_menu_state.bus_name.clone());
         let mut provider_replaced = false;
+        let mut menu_refreshed = false;
         let Some(host) = self.tray_host.as_mut() else { return false };
         if let Err(error) = host.process_events(
             |name, _, event| {
                 if tray::revokes_remote_menu(remote_bus_name.as_deref(), &name, event) {
                     provider_replaced = true;
+                }
+                if matches!(event, status_notifier::Event::UpdatedMenu) {
+                    menu_refreshed = true;
                 }
             },
             |error| eprintln!("RicePlate: SNI item error: {error}"),
@@ -4984,6 +4988,19 @@ impl RicePlate {
             return false;
         }
         let updated = tray::State::from_items(host.get_all_items());
+        if menu_refreshed
+            && std::env::var("RICEBOWL_DE_TRACE_TRAY").as_deref() == Ok("1")
+            && updated.entries.iter().any(|entry| {
+                host.get_item(&entry.bus_name).is_some_and(|item| {
+                    let mut check = tray::MenuPopup::default();
+                    check.open(&entry.bus_name, &entry.title, &item.menu)
+                })
+            }) {
+            // A registered item is not necessarily menu-ready: the SNI
+            // library first emits Added, then fetches DBusMenu separately.
+            // Test-only readiness marks actual validated menu hydration.
+            eprintln!("RicePlate: SNI DBusMenu snapshot ready");
+        }
         if provider_replaced {
             // Never send close/hover/click to the new owner of the same bus
             // name. The replacement must be opened through new user input.
