@@ -16,7 +16,7 @@ login, XFCE state, package installation or release sign-off JSON.
 4. Require `exact_main_execution=passed`, `ready_for_formal_review=true`, no
    blocked checks, same SHA throughout and reviewed supporting full workflow
    logs and native resource receipts. All listed `unverified_requirements`
-   remain open until separately evidenced. Do **not** close #417 or tag 1.0
+   remain open until separately evidenced. Do **not** close the remaining SG1–SG5/SG7 items in #417 or tag 1.0
    because this dossier is green.
 
 The dossier binds each accepted claim to the **latest trusted main run** of
@@ -26,27 +26,31 @@ are explicitly job/step-derived, not independently verified per-feature
 binary proofs. The existing release-source gate and CI's source-locked
 rebuild/attestation tests remain authoritative for their own scope.
 
-## Current gaps requiring separate engineering work
+## Scope boundaries and remaining SG7 work
 
-- **SG6 evidence progressed after this dossier was initially written:**
-  two GitHub-hosted runners now independently build and compare all four
-  source-locked Debian packages ([#554](https://github.com/CopyPasteUser/Ricebowl/pull/554)).
-  The trusted main comparison job signed its report for
-  [`6df41f6`](https://github.com/CopyPasteUser/Ricebowl/commit/6df41f60818cb1a41bd80d198932edf0ef266a63)
-  ([main run #44779349464](https://github.com/CopyPasteUser/Ricebowl/actions/runs/44779349464)).
-  This is hosted-runner repeatability and CI identity, **not** independent
-  external toolchain certification.
+- **SG6 software-only gate is closed** in [issue #417](https://github.com/CopyPasteUser/Ricebowl/issues/417)
+  at [`main@344d5557`](https://github.com/CopyPasteUser/Ricebowl/commit/344d5557a749213dfdd83be2db4a5ba21e8b2624).
+  [Tests #44881618535](https://github.com/CopyPasteUser/Ricebowl/actions/runs/44881618535),
+  [Native/Ubuntu/Mint #44881618473](https://github.com/CopyPasteUser/Ricebowl/actions/runs/44881618473)
+  and [cross-runner #44881618480](https://github.com/CopyPasteUser/Ricebowl/actions/runs/44881618480)
+  succeeded on that source, with signed [comparison report](https://github.com/CopyPasteUser/Ricebowl/attestations/70471969)
+  and [four package subjects](https://github.com/CopyPasteUser/Ricebowl/attestations/70471973).
+  This SG7 dossier does **not** re-evaluate SG6's separately reviewed receipts.
+  Hosted-runner repeatability is not external machine/toolchain certification.
+  After further merges, the pinned SG6 receipts are historical, not proof
+  that all release workflows passed a new exact-final-main SHA.
 - Real Native and Session **historical package versions** now participate
   in reversible, dependency-safe installed upgrades and downgrades with
   interrupted `dpkg` repair; see [#559](https://github.com/CopyPasteUser/Ricebowl/pull/559)
   and [#563](https://github.com/CopyPasteUser/Ricebowl/pull/563).
-  The SG7 dossier does not automatically import this separate acceptance.
+  This separately accepted SG6 result is not imported into SG7 execution checks.
 - The independent disposable Linux Mint **22.1 Xia** four-package
   installation/reinstallation/corrupt-archive/recovery/purge matrix exists
   ([#562](https://github.com/CopyPasteUser/Ricebowl/pull/562)).
   This is software compatibility, **not** Mint/ThinkPad GPU or physical
   login/hardware sign-off. Verify its result on the *final main SHA*
-  before closing SG6.
+  for later exact-final-main release review; SG6's software acceptance is
+  already documented at the pinned SHA.
 - The three native `compare-replaced` cycles now check the previous
   RicePlate PID/start-time disappears, and record independent `/proc`
   utime+stime intervals alongside PSS/RSS/threads/FDs. The source-bound
