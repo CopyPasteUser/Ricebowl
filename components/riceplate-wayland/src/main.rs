@@ -1117,6 +1117,8 @@ struct Task {
     active: bool,
     minimized: bool,
     ready: bool,
+    /// Set by State, consumed by Done; metadata-only Done is not an ACK.
+    state_seen: bool,
 }
 
 struct IconLayer {
@@ -9585,6 +9587,7 @@ impl Dispatch<ZwlrForeignToplevelManagerV1, ()> for RicePlate {
                         active: false,
                         minimized: false,
                         ready: false,
+                        state_seen: false,
                     });
                 }
             }
@@ -9676,11 +9679,15 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for RicePlate {
                     let window_state = task_groups::decode_window_state(&states);
                     task.active = window_state.active;
                     task.minimized = window_state.minimized;
+                    task.state_seen = true;
                     application_activated = window_state.active;
                 }
                 zwlr_foreign_toplevel_handle_v1::Event::Done => {
                     task.ready = true;
-                    state.taskbar_actions.confirmed(proxy, task.minimized);
+                    if task.state_seen {
+                        state.taskbar_actions.confirmed(proxy, task.minimized);
+                        task.state_seen = false;
+                    }
                     refresh = true;
                 }
                 _ => {}
