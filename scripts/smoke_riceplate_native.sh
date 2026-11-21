@@ -457,7 +457,12 @@ dbus-run-session -- sh -eu -c '
             # pointer gesture, type the unique private app with the compositor
             # keyboard, and require a real Exec receipt (not just a screenshot).
             test ! -e "$RICEBOWL_CI_CHROME_LAUNCH_LOG"
-            WAYLAND_DISPLAY=wayland-0 "$clicker" 28 746 1366 768
+            # Keep the virtual pointer attached while the transient external
+            # launcher acquires and returns seat focus. A one-shot pointer
+            # disconnect can race the compositor focus handoff after Escape.
+            WAYLAND_DISPLAY=wayland-0 "$clicker" --hold-ms 3000 28 746 1366 768 \
+                >"$runtime/chrome-held-pointer.log" 2>&1 &
+            focus_clicker=$!
             count=0
             launcher_pid=
             while [ "$count" -lt 30 ]; do
@@ -474,6 +479,7 @@ dbus-run-session -- sh -eu -c '
             done
             [ -n "$launcher_pid" ] || {
                 echo "Chrome keyboard-launch test did not reopen live fuzzel" >&2
+                cat "$runtime/chrome-held-pointer.log" >&2 || :
                 tail -n 35 "$runtime/plate-$label.log" >&2
                 exit 1
             }
@@ -502,6 +508,12 @@ dbus-run-session -- sh -eu -c '
                 *) echo "Chrome fuzzel remained open after app keyboard launch" >&2
                    exit 1 ;;
             esac
+            if ! wait "$focus_clicker"; then
+                echo "Chrome held pointer did not complete after app launch" >&2
+                cat "$runtime/chrome-held-pointer.log" >&2 || :
+                exit 1
+            fi
+            focus_clicker=
             kill -0 "$plate"
             echo "Verified Chrome real fuzzel keyboard app launch under labwc"
         fi
