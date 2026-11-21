@@ -7785,6 +7785,21 @@ impl KeyboardHandler for RicePlate {
         _: &[Keysym],
     ) {
         if self.keyboard.as_ref() != Some(keyboard) { return; }
+        if self.active_tray_popup.is_some()
+            && std::env::var("RICEBOWL_DE_TRACE_TRAY").as_deref() == Ok("1") {
+            // Only surface categories; no user input or remote D-Bus strings.
+            let owner = if self.active_tray_popup.as_ref() == Some(surface) {
+                "tray-popup"
+            } else if self.layer.wl_surface() == surface {
+                "primary-panel"
+            } else if self.menu_layer.as_ref().is_some_and(|layer|
+                layer.surface.wl_surface() == surface) {
+                "native-menu"
+            } else {
+                "other"
+            };
+            eprintln!("RicePlate: SNI keyboard entered {owner}");
+        }
         if let Some(seat) = self.seat_assignments.keyboard_owner().cloned() {
             if self.desktop_keyboard_focus_layer.is_some()
                 && self.desktop_keyboard_focus_layer.as_ref().is_some_and(|layer|
