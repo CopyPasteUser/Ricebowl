@@ -154,8 +154,12 @@ def set_dnd(enabled: bool, *, expected: bool | None = None) -> dict[str, Any]:
                 "Do Not Disturb may have changed; outcome unknown; refresh before retrying",
                 "dnd_outcome_unknown") from exc
         if result.returncode:
+            # A negative process exit does not prove that the mode write was
+            # not applied before the reply or client-side verification failed.
+            # Re-read current owner/state explicitly; never auto-replay.
             raise NotificationBridgeError(
-                "Notification host rejected Do Not Disturb", "dnd_rejected")
+                "Do Not Disturb may have changed; outcome unknown; refresh before retrying",
+                "dnd_outcome_unknown")
     try:
         verified_owner = _owned_mako()
         if verified_owner != (command, pid):
