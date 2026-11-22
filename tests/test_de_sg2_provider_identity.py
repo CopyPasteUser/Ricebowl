@@ -202,6 +202,26 @@ class EnterpriseEnrollmentIdentityTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertIn("changed", str(error))
 
+    def test_missing_profile_label_fails_before_secret_dispatch(self):
+        malformed = {"uuid": UUID, "kind": "wifi", "active": False}
+        with (
+            mock.patch.object(backend, "connection_profiles", return_value=[malformed]),
+            mock.patch.object(enrollment, "_run") as write,
+        ):
+            with self.assertRaisesRegex(backend.SettingsError, "profile changed"):
+                enrollment.connect_enterprise_wifi(UUID, "private-secret")
+            write.assert_not_called()
+
+    def test_invalid_nmcli_utf8_is_bounded_and_not_exposed(self):
+        error = UnicodeDecodeError("utf-8", b"\\xff", 0, 1, "invalid")
+        with (
+            mock.patch.object(enrollment.shutil, "which", return_value="/usr/bin/nmcli"),
+            mock.patch.object(enrollment.subprocess, "run", side_effect=error) as run,
+        ):
+            with self.assertRaisesRegex(backend.SettingsError, "invalid text"):
+                enrollment._run("con", "show", UUID)
+            run.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()
