@@ -443,6 +443,15 @@ dbus-run-session -- sh -eu -s -- "$source_root" "$runtime" "$native" "$clicker" 
             case "$state" in
                 ""|*Z*) echo "Chrome fuzzel did not remain running" >&2; exit 1 ;;
             esac
+            # Busy: a second real compositor pointer must not create a
+            # competing Fuzzel keyboard grab while the first is alive.
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 28 746 1366 768
+            sleep .2
+            launcher_pids=$(pgrep -u "$(id -u)" -x fuzzel || :)
+            [ "$launcher_pids" = "$launcher_pid" ] || {
+                echo "Chrome duplicate pointer opened multiple/stale launchers: $launcher_pids" >&2
+                exit 1
+            }
             mkdir -p "$source_root/dist/riceplate-native-preview/creator-output-matrix"
             WAYLAND_DISPLAY=wayland-0 grim - >"$source_root/dist/riceplate-native-preview/creator-output-matrix/chrome-first-open.png"
             # Exercise the FIRST real, compositor-painted Fuzzel instance.
@@ -488,7 +497,55 @@ dbus-run-session -- sh -eu -s -- "$source_root" "$runtime" "$native" "$clicker" 
                 ""|*Z*) : ;;
                 *) echo "Chrome Fuzzel remained open after app keyboard launch" >&2; exit 1 ;;
             esac
+            # Empty search cannot execute the prior selected desktop entry.
+            # Escape must discard the transient focus/child; a fresh actual
+            # compositor pointer+keyboard gesture must execute again.
+            rm -f "$RICEBOWL_CI_CHROME_LAUNCH_LOG"
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 28 746 1366 768
+            count=0
+            empty_launcher=
+            while [ "$count" -lt 30 ]; do
+                empty_launcher=$(pgrep -u "$(id -u)" -x fuzzel | head -n 1 || :)
+                [ -n "$empty_launcher" ] && break
+                count=$((count + 1))
+                sleep .1
+            done
+            [ -n "$empty_launcher" ] || {
+                echo "Chrome Fuzzel failed to reopen for empty-result test" >&2; exit 1;
+            }
+            WAYLAND_DISPLAY=wayland-0 wtype -d 25 "ricebowl-sg1-missing-xyz987" -s 350 -k Return
+            sleep .3
+            test ! -e "$RICEBOWL_CI_CHROME_LAUNCH_LOG" || {
+                echo "Chrome empty result executed stale app" >&2; exit 1;
+            }
+            WAYLAND_DISPLAY=wayland-0 wtype -k Escape
+            sleep .3
+            state=$(ps -o stat= -p "$empty_launcher" 2>/dev/null || :)
+            case "$state" in
+                ""|*Z*) : ;;
+                *) echo "Chrome empty-result Escape left launcher active" >&2; exit 1 ;;
+            esac
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 28 746 1366 768
+            count=0
+            while [ "$count" -lt 30 ]; do
+                [ -n "$(pgrep -u "$(id -u)" -x fuzzel || :)" ] && break
+                count=$((count + 1))
+                sleep .1
+            done
+            [ "$count" -lt 30 ] || {
+                echo "Chrome launcher did not recover after empty/escape" >&2; exit 1;
+            }
+            WAYLAND_DISPLAY=wayland-0 wtype -d 25 "RiceBowl CI Chrome Witness" -s 500 -k Return
+            count=0
+            while [ ! -s "$RICEBOWL_CI_CHROME_LAUNCH_LOG" ] && [ "$count" -lt 40 ]; do
+                count=$((count + 1))
+                sleep .1
+            done
+            [ "$(cat "$RICEBOWL_CI_CHROME_LAUNCH_LOG" 2>/dev/null || :)" = keyboard-launch-received ] || {
+                echo "Chrome normal app action not restored after empty/error" >&2; exit 1;
+            }
             kill -0 "$plate"
+            echo "SG1 Chrome real busy/empty/Escape/recovery launcher receipts PASS"
             echo "Verified Chrome Fuzzel pointer, real keyboard search, Enter, and private Exec under labwc"
         fi
         if [ "$label" = riceclip-actions ]; then
