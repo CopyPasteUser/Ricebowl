@@ -123,11 +123,49 @@ assert not calls, f"ItemIsMenu fell back to SNI item method: {calls}"
 PY
     }
     set_fixture_mode() {
-        # All state changes are performed on our private session bus only.
+        # The D-Bus SetMode reply only confirms the provider, not the shell
+        # cache. Wait for a *new* GetLayout receipt for this mode, or a
+        # keyboard press could target an obsolete enabled menu snapshot.
+        mode=$1
+        /usr/bin/python3 - "$runtime/receipts.jsonl" "$rice-new" "$mode" <<PY >"$runtime/layout-before"
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    rows = [json.loads(line) for line in source]
+print(sum(r["generation"] == sys.argv[2] and r["event"] == "layout"
+          and r.get("mode") == sys.argv[3] for r in rows))
+PY
+        before=$(cat "$runtime/layout-before")
         gdbus call --session --dest org.ricebowl.SNIFixture \
             --object-path /Control \
-            --method org.ricebowl.SNIFixtureControl.SetMode "$1" >/dev/null
-        sleep .65
+            --method org.ricebowl.SNIFixtureControl.SetMode "$mode" >/dev/null
+        count=0
+        while [ "$count" -lt 40 ]; do
+            current=$(/usr/bin/python3 - "$runtime/receipts.jsonl" "$rice-new" "$mode" <<PY
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    rows = [json.loads(line) for line in source]
+print(sum(r["generation"] == sys.argv[2] and r["event"] == "layout"
+          and r.get("mode") == sys.argv[3] for r in rows))
+PY
+)
+            if [ "$current" -gt "$before" ]; then
+                # Give the reactor one compositor event-loop tick to install
+                # the fetched snapshot before input can be dispatched.
+                sleep .2
+                return 0
+            fi
+            count=$((count + 1))
+            sleep .1
+        done
+        echo "$rice did not refetch SNI layout after SetMode $mode" >&2
+        tail -n 70 "$runtime/plate-$rice.log" >&2 || :
+        /usr/bin/python3 - "$runtime/receipts.jsonl" "$rice-new" <<PY >&2
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as stream:
+    rows=[json.loads(line) for line in stream]
+print("Private fixture last events:", rows[-14:])
+PY
+        return 1
     }
     assert_action_mode_once() {
         /usr/bin/python3 - "$runtime/receipts.jsonl" "$1" "$2" "$3" "$4" <<PY
@@ -357,7 +395,16 @@ PY
         disabled_after=$(count_receipt "$rice-new" clicked 11)
         enabled_after=$(count_receipt "$rice-new" clicked 10)
         [ "$disabled_after" -eq "$disabled_before" ] || {
-            echo "$rice disabled SNI item was invoked" >&2; exit 1;
+            echo "$rice disabled SNI item was invoked" >&2
+            tail -n 80 "$runtime/plate-$rice.log" >&2 || :
+            /usr/bin/python3 - "$runtime/receipts.jsonl" "$rice-new" <<PY >&2
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as stream:
+    rows=[json.loads(line) for line in stream]
+print("Private fixture disabled receipts:", [r for r in rows
+      if r["generation"] == sys.argv[2] and r["event"] in ("layout", "mode", "menu-event")][-14:])
+PY
+            exit 1;
         }
         [ "$enabled_after" -eq "$((enabled_before + 1))" ] || {
             echo "$rice disabled SNI navigation did not dispatch enabled action" >&2; exit 1;
