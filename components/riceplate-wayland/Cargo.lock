@@ -1185,8 +1185,6 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 [[package]]
 name = "status-notifier"
 version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2183c26f5601e2fc31d43186b8166418c28b9dc12f1c2d3e64548bf4d17c96a"
 dependencies = [
  "dbus",
 ]
