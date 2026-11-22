@@ -169,6 +169,24 @@ class CreatorWorkspaceTests(unittest.TestCase):
                                         "history exceeds the safe"):
                 workspace.version_history(versions[0])
 
+    def test_history_cycle_at_depth_limit_is_not_a_verified_root(self):
+        limit = workspace.creator_history.MAX_HISTORY_DEPTH
+        versions = [
+            workspace.DraftInfo(Path(f"/unmounted/draft-cycle-{i:03d}.json"),
+                                "Cycle", "creator-test", "a" * 64, i)
+            for i in range(limit)
+        ]
+        by_path = {entry.path: entry for entry in versions}
+
+        def parent(entry):
+            return versions[(entry.modified_ns + 1) % limit]
+
+        with patch.object(workspace, "open_draft",
+                          side_effect=lambda path: by_path[path]), \
+                patch.object(workspace, "previous_version", side_effect=parent):
+            with self.assertRaisesRegex(workspace.WorkspaceError, "history exceeds"):
+                workspace.version_history(versions[0])
+
     def test_fork_saved_version_preserves_layout_but_uses_new_rice_id(self):
         original = workspace.create_draft("orbit")
         revised, _ = workspace.save_revision(original.path, {"/panel/height": 49},
