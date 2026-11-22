@@ -77,8 +77,10 @@ def _run(*args: str, secret: str | None = None, wait: int = 12) -> str:
             input=secret, text=True, capture_output=True, check=False,
             timeout=wait + 5, env={**os.environ, "LC_ALL": "C"}, **stdin,
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise backend.SettingsError("NetworkManager request timed out; refresh saved profiles") from exc
+    except (OSError, subprocess.TimeoutExpired, UnicodeError) as exc:
+        raise backend.SettingsError(
+            "NetworkManager request unavailable or returned invalid text; refresh saved profiles"
+        ) from exc
     if result.returncode or len(result.stdout) > 32 * 1024:
         raise backend.SettingsError("NetworkManager rejected the profile operation; "
                                     "check permissions, credentials or server settings")
@@ -165,7 +167,8 @@ def connect_enterprise_wifi(uuid: str, password: str, *, expected_active: bool =
         raise backend.SettingsError("Enter a network password without line breaks")
     current = next((item for item in backend.connection_profiles() if item["uuid"] == uuid), None)
     if (current is None or current["kind"] not in ("802-11-wireless", "wifi")
-            or current["active"] != expected_active or expected_active):
+            or current["active"] != expected_active or expected_active
+            or type(current.get("name")) is not str or not current["name"]):
         raise backend.SettingsError("Enterprise Wi-Fi profile changed; refresh first")
     # Keep the reviewed SSID, account and EAP server trust bound to this
     # exact profile. A reused UUID alone must not authorize a new provider
@@ -196,7 +199,7 @@ def connect_enterprise_wifi(uuid: str, password: str, *, expected_active: bool =
             "Wi-Fi activation may have changed; identity readback unavailable; "
             "refresh before retrying") from exc
     if (not after["active"] or after["kind"] != current["kind"]
-            or after.get("name") != current.get("name")
+            or after.get("name") != current["name"]
             or confirmed_policy != reviewed_policy
             or confirmed_identity != reviewed_identity):
         raise backend.SettingsError(
