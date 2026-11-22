@@ -437,7 +437,7 @@ impl Host {
     /// never dispatch a change to a different item from the same process.
     fn signal_item_name(&self, sender: &str, menu_path: Option<&str>) -> Option<String> {
         let mut matches = self.items.iter().filter(|(name, item)| {
-            (name.as_str() == sender || item.unique_owner.as_deref() == Some(sender))
+            (String::as_str(name) == sender || item.unique_owner.as_deref() == Some(sender))
                 && menu_path.is_none_or(|path| item.menu_path == path)
         });
         let (name, _) = matches.next()?;
