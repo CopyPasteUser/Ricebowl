@@ -133,6 +133,17 @@ def set_system_clock(value: str, *, expected_ntp: bool = False) -> str:
     except SettingsError as exc:
         raise SettingsError(
             "System time may have changed; outcome unknown; refresh before retrying") from exc
+    # Verify that manual time remains under manual control after the write.
+    # Another service can re-enable NTP during the timedated round trip;
+    # wall-clock agreement alone must not certify an unstable manual setting.
+    try:
+        after_ntp = ntp_snapshot()
+    except SettingsError as exc:
+        raise SettingsError(
+            "System time may have changed; NTP verification unavailable; refresh") from exc
+    if after_ntp["enabled"]:
+        raise SettingsError(
+            "System time may have changed; automatic time was re-enabled; refresh")
     # Compare within a bounded command/verification interval, not exact seconds.
     if abs(datetime.now() - target) > timedelta(seconds=15):
         raise SettingsError("System time may have changed; verification failed")
