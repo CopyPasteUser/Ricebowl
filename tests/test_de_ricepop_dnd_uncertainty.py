@@ -55,7 +55,7 @@ class RicePopDndUnknownOutcomeTests(unittest.TestCase):
                     run.assert_called_once()
                     self.assertEqual(owner.call_count, 3)
 
-    def test_rejected_write_keeps_distinct_error_code_and_never_retries(self):
+    def test_negative_acknowledgement_cannot_prove_no_mode_change(self):
         with (
             mock.patch.object(notifications, "_owned_mako", return_value=("makoctl", 991)),
             mock.patch.object(notifications, "_modes", return_value=[]),
@@ -64,7 +64,10 @@ class RicePopDndUnknownOutcomeTests(unittest.TestCase):
         ):
             with self.assertRaises(notifications.NotificationBridgeError) as captured:
                 notifications.set_dnd(True, expected=False)
-            self.assertEqual(captured.exception.code, "dnd_rejected")
+            self.assertEqual(captured.exception.code, "dnd_outcome_unknown")
+            self.assertTrue(notifications.invalid(
+                captured.exception, attempted_dnd=True)["outcome_unknown"])
+            self.assertIn("refresh", str(captured.exception).lower())
             run.assert_called_once()
 
     def test_noop_and_stale_review_do_not_mutate_notifications(self):
