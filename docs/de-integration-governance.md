@@ -19,6 +19,49 @@
   Their existing schedules are not controlled by this document. Operators must
   coordinate those automations before enabling concurrent write access.
 
+## Temporary offline lane-owned integration (owner decision, 22 November 2026)
+
+The repository owner explicitly authorized **each scoped development lane to review
+and merge its own pull request** in the current November 2026 offline-development
+period. This replaces the earlier *integration-only merge authority* for
+owner-approved, isolated SG1–SG5 work **only**. All other architecture, safety
+and release requirements in this document remain in effect. The integration
+lane remains responsible for shared hotpots, cross-lane interfaces and final
+release acceptance, but is not a mandatory hand-off for independent lane PRs.
+
+- **No GitHub Actions until December 2026.** Do not dispatch, rerun or use
+  hosted Actions as a substitute for local testing. Every new branch commit
+  and every merge commit must contain `[skip ci]` in its commit message.
+- Self-merge is permitted only for **the lane's own strictly owned files**,
+  after a real full-checkout local test run appropriate to the change. Tests
+  must be executed on the exact PR head; source excerpts, mocked snippets and
+  `sh -n` alone do not certify a runtime change. Where genuine labwc/Rust/
+  Mako integration is required, it must run in an isolated development
+  environment. If tools or a full checkout are missing, the PR **cannot**
+  be declared ready or merged just to remove a draft from the queue.
+- Before editing, inspect the current main and all open PRs. No other lane may
+  modify an assigned file or a shared hotspot. A shared dependency requires
+  an explicit integration handoff; do not widen scope silently.
+- Merges are **serialized**. Just before each merge, reread main and the PR's
+  exact head SHA and all changed paths. Verify mergeability, unresolved
+  reviews, branch-protection requirements and that all relevant tests were
+  performed against the up-to-date integrated tree. If main advanced since
+  local validation, update the local checkout and rerun the affected tests.
+  Merge with an expected-head-SHA guard and `[skip ci]`. Never force push or
+  bypass branch protection.
+- Immediately after merging, retrieve the new main SHA and rerun the relevant
+  local regression tests against that exact integrated tree. Repair or revert
+  any regression rather than calling the lane complete.
+- A lane can report **DONE** only after implementation, its exact-head tests,
+  its own guarded merge, and post-merge validation, with commit IDs and actual
+  test outputs. If any prerequisite remains unavailable, report
+  **BLOCKED / NOT MERGED**. Avoid speculative "five-minute fixes" passed off
+  as closure of an entire shared software gate.
+- This temporary integration exception does **not** replace exact-main
+  hosted-CI evidence required for formal SG acceptance or 1.0 release
+  certification. Those signoffs remain open until their own contractual
+  requirements can actually be met after December.
+
 ## Four development lanes and integration lane
 
 | Lane | Owns | Boundary |
