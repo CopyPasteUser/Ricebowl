@@ -1673,7 +1673,11 @@ impl Host {
                                 (
                                     Instant::now(),
                                     ReplyTo::MenuGetLayout {
-                                        item_name: sender.to_string(),
+                                        // Store the registered public key for
+                                        // response correlation. The request
+                                        // target remains the immutable unique
+                                        // sender, preventing owner-swap retarget.
+                                        item_name: item_name.clone(),
                                         parent_id,
                                     },
                                 ),
