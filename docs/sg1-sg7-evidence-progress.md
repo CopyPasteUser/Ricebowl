@@ -1,21 +1,21 @@
 # SG1–SG7 — transparent engineering evidence index
 
-Last reviewed: 2026-11-21 (SG6 exact-main acceptance reconciled with issue #417; other checkpoints unchanged). Authority for release acceptance: [issue #417](https://github.com/CopyPasteUser/Ricebowl/issues/417) and [RELEASE_1_0_GATES.md](../RELEASE_1_0_GATES.md).
+Last reviewed: 2026-11-22 (SG6 preserved; SG1 third checkpoint reconciled against exact-main two-rice compositor and app-launch evidence). Authority for release acceptance: [issue #417](https://github.com/CopyPasteUser/Ricebowl/issues/417) and [RELEASE_1_0_GATES.md](../RELEASE_1_0_GATES.md).
 
 ## How to read these percentages
 
 **Formal SG acceptance: 1 / 7 ≈ 14.3%.** [Issue #417](https://github.com/CopyPasteUser/Ricebowl/issues/417) formally closes SG6 on pinned exact-main software-only evidence. SG1–SG5 and SG7 remain open; hardware sign-off remains separate.
 
-**Engineering evidence coverage: 15 / 28 ≈ 53.6%.** This is a deliberately separate, *author-defined and equally weighted* set of 28 inspectable checkpoints (four for each SG), not an official SG completion percentage or a timeline prediction. A checked checkpoint means some specific code **and test evidence** exist; it does not mean a gate is complete. The 28 checkpoint denominator is an engineering tracking convenience, not an authoritative weighting of remaining work. A checkbox must be reversed if its linked evidence regresses.
+**Engineering evidence coverage: 16 / 28 ≈ 57.1%.** This is a deliberately separate, *author-defined and equally weighted* set of 28 inspectable checkpoints (four for each SG), not an official SG completion percentage or a timeline prediction. A checked checkpoint means some specific code **and test evidence** exist; it does not mean a gate is complete. The 28 checkpoint denominator is an engineering tracking convenience, not an authoritative weighting of remaining work. A checkbox must be reversed if its linked evidence regresses.
 
-**Never interpret 53.6% as the fraction of engineering effort completed.** Outstanding real compositor, accessibility, multi-output and performance acceptance may be harder than checked items. A future change may alter this index; **only SG6 (1/7 gates) has formal software-only acceptance**.
+**Never interpret 57.1% as the fraction of engineering effort completed.** Outstanding real compositor, accessibility, multi-output and performance acceptance may be harder than checked items. A future change may alter this index; **only SG6 (1/7 gates) has formal software-only acceptance**.
 
 ## Evidence checkpoints
 
-### SG1 — Native shared shell: 2 / 4
+### SG1 — Native shared shell: 3 / 4
 - [x] Native taskbar/window lifecycle and XWayland integration exercised by installed real-labwc smoke ([Native post-merge #43678051154](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43678051154)).
 - [x] Desktop icon/multioutput positions and file actions exercised by native compositor smoke ([Native post-merge #43678051154](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43678051154)).
-- [ ] Actual pointer **and** keyboard dispatch, app/search/SNI/DBusMenu on two structurally distinct rices accepted as a complete matrix.
+- [x] Actual pointer **and** keyboard dispatch, app/search/SNI/DBusMenu on two structurally distinct rices accepted as a complete matrix. Chrome real Fuzzel search/keyboard→private Exec is exercised by [#573](https://github.com/CopyPasteUser/Ricebowl/pull/573); XP Luna native Start→app search→keyboard Return→Gio process receipt and both-rice primary/secondary SNI DBusMenu + owner turnover are exercised by [#583](https://github.com/CopyPasteUser/Ricebowl/pull/583) building on [#581](https://github.com/CopyPasteUser/Ricebowl/pull/581). [Exact PR-head Tests #44994830678](https://github.com/CopyPasteUser/Ricebowl/actions/runs/44994830678) and [Native/Mint #44994830698](https://github.com/CopyPasteUser/Ricebowl/actions/runs/44994830698), followed by [exact merged-main Tests #44995952470](https://github.com/CopyPasteUser/Ricebowl/actions/runs/44995952470) and [Native #44995952471](https://github.com/CopyPasteUser/Ricebowl/actions/runs/44995952471) at `main@48d7ba73144c515cf76d225f86ec81a4aeefe6f5`. Each witness uses real labwc input and external provider/process receipts, not screenshot-only evidence.
 - [ ] Loading, empty, busy, error, focus and recovery states for every advertised shared control accepted in compositor tests.
 
 ### SG2 — RiceSpice Linux integrations: 2 / 4
@@ -64,14 +64,14 @@ Last reviewed: 2026-11-21 (SG6 exact-main acceptance reconciled with issue #417;
 
 | SG | Checked | Checkpoints | Evidence coverage |
 | --- | ---: | ---: | ---: |
-| SG1 | 2 | 4 | 50% |
+| SG1 | 3 | 4 | 75% |
 | SG2 | 2 | 4 | 50% |
 | SG3 | 2 | 4 | 50% |
 | SG4 | 2 | 4 | 50% |
 | SG5 | 2 | 4 | 50% |
 | SG6 | 4 | 4 | 100% |
 | SG7 | 1 | 4 | 25% |
-| **Total** | **15** | **28** | **53.6%** |
+| **Total** | **16** | **28** | **57.1%** |
 
 Only SG6 is formally closed in #417 on separately inspected exact-main evidence; do not infer other SG acceptance from this table. Physical Mint/ThinkPad GPU, login, Flatpak permissions, screen reader and mixed-DPI signoff is **later**; the stable 1.0 signoff JSON is untouched. Screenshots or command-line mocks alone do not satisfy any missing real-input criterion.
 
