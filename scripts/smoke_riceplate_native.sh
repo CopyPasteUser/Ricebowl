@@ -512,12 +512,22 @@ dbus-run-session -- sh -eu -s -- "$source_root" "$runtime" "$native" "$clicker" 
             count=0
             empty_launcher=
             while [ "$count" -lt 30 ]; do
-                empty_launcher=$(pgrep -u "$(id -u)" -x fuzzel | head -n 1 || :)
+                # pgrep may still report an unreaped zombie from the first
+                # launch. It is not the newly mapped Fuzzel instance.
+                for candidate in $(pgrep -u "$(id -u)" -x fuzzel || :); do
+                    [ "$candidate" != "$launcher_pid" ] || continue
+                    state=$(ps -o stat= -p "$candidate" 2>/dev/null || :)
+                    case "$state" in
+                        ""|*Z*) continue ;;
+                    esac
+                    empty_launcher=$candidate
+                    break
+                done
                 [ -n "$empty_launcher" ] && break
                 count=$((count + 1))
                 sleep .1
             done
-            [ -n "$empty_launcher" ] && [ "$empty_launcher" != "$launcher_pid" ] || {
+            [ -n "$empty_launcher" ] || {
                 echo "Chrome Fuzzel failed to open a fresh process for empty-result test" >&2
                 tail -n 65 "$runtime/plate-$label.log" >&2 || :
                 tail -n 35 "$RICEBOWL_CI_FUZZEL_WL_LOG" >&2 || :
@@ -542,15 +552,17 @@ dbus-run-session -- sh -eu -s -- "$source_root" "$runtime" "$native" "$clicker" 
             count=0
             recovery_launcher=
             while [ "$count" -lt 30 ]; do
-                candidate=$(pgrep -u "$(id -u)" -x fuzzel | head -n 1 || :)
-                state=$(ps -o stat= -p "$candidate" 2>/dev/null || :)
-                case "$state" in
-                    ""|*Z*) : ;;
-                    *) if [ "$candidate" != "$empty_launcher" ]; then
-                           recovery_launcher=$candidate
-                           break
-                       fi ;;
-                esac
+                for candidate in $(pgrep -u "$(id -u)" -x fuzzel || :); do
+                    [ "$candidate" != "$launcher_pid" ] || continue
+                    [ "$candidate" != "$empty_launcher" ] || continue
+                    state=$(ps -o stat= -p "$candidate" 2>/dev/null || :)
+                    case "$state" in
+                        ""|*Z*) continue ;;
+                    esac
+                    recovery_launcher=$candidate
+                    break
+                done
+                [ -n "$recovery_launcher" ] && break
                 count=$((count + 1))
                 sleep .1
             done
