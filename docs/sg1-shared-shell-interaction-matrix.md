@@ -17,7 +17,7 @@ Legend: **existing** = currently exercised in repo smoke/tests; **PR test** = im
 | Luna local clock tray action | **PR test** | n/a (Chrome uses common status/tray) | Real labwc right-click + keyboard Return; exact `ricebowl de settings --luna --page timezone` argv in private shim, no host mutation | Denied/unavailable provider and focus-loss handling end-to-end |
 | Tray invalid secondary click | existing | shared handler | Real Luna pointer secondary no-activation, primary close; Rust validates button IDs | Remote SNI on Chrome end-to-end |
 | Notifications / system controls | existing partial | shared engine partial | Native OSD/RicePop preview and system-status tests | Real provider unavailable/denied/restart, locale/AT-SPI and both-rice focus |
-| Empty / disabled / stale actions | new and existing Rust menu tests | shared menu state | `MenuChoice::None`, stale-selection sentinel, disabled rows, bounded menu snapshot | Every visible control under real labwc, including concurrent events |
+| Empty / disabled / stale actions | **PR candidate**: real labwc SNI disabled/empty/denied/slow and Escape cancellation | **PR candidate**: same real provider states under Chrome labwc | Actual D-Bus ID/mode receipts, no stale clicks after empty/focus exit, denial and delayed layout with explicit recovery | Other shared controls, external focus theft, real simultaneous input+provider update and complete AT-SPI parity still need evidence |
 | Focus / hotplug / parallel input | existing selective | existing selective | Native focus handoff to GTK, multi-output, resize, real virtual pointer/keyboard | Explicit mixed DPI and hotplug *during* open menus; simultaneous provider update and input |
 
 ## Accepted baseline and focused test candidate (22 November 2026)
@@ -27,6 +27,12 @@ Legend: **existing** = currently exercised in repo smoke/tests; **PR test** = im
 - A separate SG1 acceptance gap is the installed-app search-to-execution path in **XP Luna**. A private `XDG_DATA_HOME` fixture provides a real `.desktop` entry and a no-argument executable that records a private receipt. A real labwc pointer opens native Start; compositor keyboard `/sg1witness` selects the application; Enter must dispatch through the production Gio desktop-entry launcher to that executable. Chrome already has the structurally different Fuzzel equivalent in merged #573. Neither path claims physical keyboard acceptance.
 - This focused follow-up tests the **separate primary SNI `ItemIsMenu=true` path** on both rices, using a second genuine compositor pointer/keyboard action and an incremental `Event(clicked, 21)` receipt. It rejects false positives from earlier secondary-click receipts and disallows `Activate/ContextMenu` fallback when a valid native menu was available. It does not alter production bindings, provider privileges or XFCE.
 - **Acceptance (engineering checkpoint 3 only):** [#583](https://github.com/CopyPasteUser/Ricebowl/pull/583) passed exact-head Python and full Native/Mint CI, then [merged main@48d7ba73](https://github.com/CopyPasteUser/Ricebowl/commit/48d7ba73144c515cf76d225f86ec81a4aeefe6f5) passed exact-main Tests/Native at [#44995952470](https://github.com/CopyPasteUser/Ricebowl/actions/runs/44995952470) and [#44995952471](https://github.com/CopyPasteUser/Ricebowl/actions/runs/44995952471). Remaining state, error, focus, and recovery coverage keep SG1 formally open.
+
+## Fourth-checkpoint negative-state candidate (22 November 2026)
+
+- Both rices now exercise the real disposable D-Bus provider in **disabled, denied, empty, slow and normal** mode through live labwc pointer and keyboard input. Exact private receipts identify real action IDs, provider modes and D-Bus errors, while absent receipts prove revoked actions cannot execute.
+- A compositor Escape cancels the menu selection, and deliberate reopen after all negative modes restores a working action. The delayed layout request proves a real pending provider transaction, **not** that the UI visually communicates loading.
+- **Checkpoint four remains OPEN** until busy, unavailable/permission-denied, error, focus-loss and recovery states are accepted for *every advertised shared control*, including window/taskbar, desktop/file permissions, launcher empty/error, system controls and notifications.
 
 ## Reproduce and interpretation
 
