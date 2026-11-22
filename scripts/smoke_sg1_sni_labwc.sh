@@ -76,6 +76,31 @@ match = [entry for entry in items
 assert match, f"Missing actual D-Bus action {generation}/{action}/{node}: {items[-12:]}"
 PY
     }
+    count_receipt() {
+        /usr/bin/python3 - "$runtime/receipts.jsonl" "$1" "$2" "$3" <<PY
+import json, sys
+path, generation, action, node = sys.argv[1:]
+with open(path, encoding="utf-8") as stream:
+    entries = [json.loads(line) for line in stream]
+print(sum(1 for entry in entries
+          if entry["generation"] == generation
+          and entry["event"] == "menu-event"
+          and entry.get("action") == action and entry.get("id") == int(node)))
+PY
+    }
+    assert_no_item_method() {
+        # ItemIsMenu=true must route left-click to a native DBusMenu, not
+        # silently fall back to a provider Activate/ContextMenu method.
+        /usr/bin/python3 - "$runtime/receipts.jsonl" "$1" <<PY
+import json, sys
+path, generation = sys.argv[1:]
+with open(path, encoding="utf-8") as stream:
+    items = [json.loads(line) for line in stream]
+calls = [row for row in items if row["generation"] == generation
+         and row["event"] == "item"]
+assert not calls, f"ItemIsMenu fell back to SNI item method: {calls}"
+PY
+    }
     assert_no_click() {
         /usr/bin/python3 - "$runtime/receipts.jsonl" "$1" <<PY
 import json, sys
@@ -186,6 +211,26 @@ PY
             tail -n 40 "$runtime/provider-$rice-old.log" >&2 || :
             exit 1
         fi
+
+        # The real fixture advertises ItemIsMenu=true. Its PRIMARY click must
+        # open the same native menu as the secondary-click path, and a fresh
+        # compositor keyboard action must dispatch exactly one additional
+        # clicked/21 event to the original D-Bus owner on BOTH rices.
+        # Checking a delta prevents the earlier right-click receipt from
+        # falsely satisfying this new acceptance path.
+        primary_before=$(count_receipt "$rice-old" clicked 21)
+        WAYLAND_DISPLAY=wayland-0 "$clicker" "$tray_x" 746 1366 768
+        sleep .3
+        WAYLAND_DISPLAY=wayland-0 wtype -k Return -s 350 -k Return
+        sleep .4
+        primary_after=$(count_receipt "$rice-old" clicked 21)
+        if [ "$primary_after" -ne "$((primary_before + 1))" ]; then
+            echo "$rice ItemIsMenu primary click did not dispatch exactly one nested action" >&2
+            tail -n 65 "$runtime/plate-$rice.log" >&2 || :
+            tail -n 40 "$runtime/provider-$rice-old.log" >&2 || :
+            exit 1
+        fi
+        assert_no_item_method "$rice-old"
 
         # Open a fresh menu and leave it pending while the item owner dies.
         open_fixture_menu
