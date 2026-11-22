@@ -217,7 +217,7 @@ class SniIntegrationFixtureTests(unittest.TestCase):
         begin = native.index("    fn activate_tray_entry(")
         end = native.index("    fn set_tray_popup_visible(", begin)
         body = native[begin:end]
-        self.assertIn("if entry.is_menu {\\n", body)
+        self.assertIn("if entry.is_menu {\n", body)
         self.assertIn(
             "self.set_tray_popup_visible(false, qh);\n            return;",
             body)
