@@ -144,16 +144,21 @@ class NetworkEnrollmentTests(unittest.TestCase):
                     "802-1x.domain-suffix-match": "radius.school.edu",
                     "802-1x.system-ca-certs": "yes",
                     "802-1x.ca-cert": "",
+                    "802-11-wireless.ssid": "Campus",
+                    "802-1x.identity": "student",
                 }[args[1]]
             return ""
 
         with mock.patch.object(backend, "connection_profiles", side_effect=[[before], [after]]), \
                 mock.patch.object(enrollment, "_run", side_effect=runner) as run:
             self.assertTrue(enrollment.connect_enterprise_wifi(UUID, "private-password"))
-        self.assertEqual(run.call_args.kwargs["secret"],
+        activations = [call for call in run.call_args_list
+                       if call.args[:2] == ("con", "up")]
+        self.assertEqual(len(activations), 1)
+        self.assertEqual(activations[0].kwargs["secret"],
                          "802-1x.password:private-password\n")
-        self.assertIn("/dev/stdin", run.call_args.args)
-        self.assertNotIn("private-password", str(run.call_args.args))
+        self.assertIn("/dev/stdin", activations[0].args)
+        self.assertNotIn("private-password", str(activations[0].args))
 
     def test_enterprise_connection_refuses_non_eap_and_untrusted_profiles(self):
         existing = {"uuid": UUID, "kind": "802-11-wireless", "active": False}
