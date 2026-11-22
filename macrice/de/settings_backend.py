@@ -322,9 +322,11 @@ def set_connection_profile(uuid: str, enabled: bool, *, expected: bool) -> dict[
     if after is None or after["active"] != enabled:
         raise SettingsError(
             "Network profile may have changed; provider verification failed; refresh")
-    # UUID reuse while a connection is being replaced must never silently
-    # certify a different profile type as the reviewed connection.
-    if after["kind"] != before["kind"]:
+    # UUID reuse or a replaced profile must not certify a different saved
+    # connection even when the replacement has the same NetworkManager type.
+    # The activation device can legitimately change; the saved profile label
+    # must not change during the reviewed operation.
+    if after["kind"] != before["kind"] or after["name"] != before["name"]:
         raise SettingsError(
             "Network profile identity changed during verification; refresh")
     return after
