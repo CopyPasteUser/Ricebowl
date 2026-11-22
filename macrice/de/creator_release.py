@@ -6,6 +6,7 @@ It never confers redistribution rights or changes the active desktop.
 from __future__ import annotations
 
 import hashlib
+import json
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,9 +24,31 @@ class ReleaseReview:
     draft: workspace.DraftInfo
     payload: bytes
     package_sha256: str
+    lineage_sha256: str
     manifest: dict[str, Any]
     attribution_review: dict[str, Any]
     entries: tuple[tuple[str, str, str, dict[str, str]], ...]
+
+
+def _lineage_sha256(draft: workspace.DraftInfo) -> str:
+    """Pin the verified Creator ancestry and attribution used in export review.
+
+    Recipe fingerprints alone do not authenticate the separate .history
+    receipts. A valid-looking receipt can change while its recipe stays intact.
+    """
+    entries = [
+        {
+            "draft": version.path.name,
+            "recipe_id": version.recipe_id,
+            "semantic_sha256": version.semantic_sha256,
+            "receipt": workspace.creator_history.read(
+                version.path, version.semantic_sha256),
+        }
+        for version in workspace.version_history(draft)
+    ]
+    payload = json.dumps(entries, sort_keys=True, ensure_ascii=False,
+                         separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
 
 
 def _entries(manifest: dict[str, Any]) -> tuple[tuple[str, str, str, dict[str, str]], ...]:
@@ -57,6 +80,7 @@ def prepare_export(draft: workspace.DraftInfo) -> ReleaseReview:
     if (checked.semantic_sha256 != draft.semantic_sha256
             or checked.recipe_id != draft.recipe_id):
         raise ReleaseError("Saved Creator version changed; reopen and review it")
+    lineage_sha256 = _lineage_sha256(checked)
     with tempfile.TemporaryDirectory(prefix="ricebowl-export-review-") as folder:
         archive = Path(folder) / "review.ricepack"
         result = workspace.export_draft(checked, archive)
@@ -68,7 +92,9 @@ def prepare_export(draft: workspace.DraftInfo) -> ReleaseReview:
             or digest != result["package_sha256"]
             or inspected["manifest"]["recipe"]["semantic_sha256"] != draft.semantic_sha256):
         raise ReleaseError("Reviewed package or manifest does not match the saved version")
-    return ReleaseReview(checked, payload, digest, inspected["manifest"],
+    if _lineage_sha256(checked) != lineage_sha256:
+        raise ReleaseError("Creator history changed during export review; reopen the draft")
+    return ReleaseReview(checked, payload, digest, lineage_sha256, inspected["manifest"],
                          inspected["compatibility"]["attribution_review"],
                          _entries(inspected["manifest"]))
 
@@ -110,6 +136,8 @@ def publish_export(plan: ReleaseReview, destination: Path) -> dict[str, Any]:
     if (checked.semantic_sha256 != plan.draft.semantic_sha256
             or checked.recipe_id != plan.draft.recipe_id):
         raise ReleaseError("Saved Creator version changed since export review")
+    if _lineage_sha256(checked) != plan.lineage_sha256:
+        raise ReleaseError("Creator history or attribution changed since export review")
     if hashlib.sha256(plan.payload).hexdigest() != plan.package_sha256:
         raise ReleaseError("Reviewed RicePack bytes changed")
     manifest, _, _, _, _ = pack._validate_archive(plan.payload)

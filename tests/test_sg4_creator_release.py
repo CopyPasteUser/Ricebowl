@@ -5,6 +5,7 @@ All fixtures use disposable XDG homes; no live session or host configuration.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import tempfile
 import unittest
@@ -145,6 +146,42 @@ class CreatorReleaseTests(unittest.TestCase):
             expected_sha256=draft.semantic_sha256)
         with self.assertRaises(creator_release.ReleaseError):
             creator_release.publish_export(replace(review, draft=revised), destination)
+        self.assertFalse(destination.exists())
+
+    def test_changed_attribution_receipt_invalidates_review_without_recipe_change(self):
+        draft = creator_workspace.create_draft("heritage")
+        plan = creator_release.prepare_export(draft)
+        receipt_path = draft.path.with_suffix(".history")
+        receipt = json.loads(receipt_path.read_text())
+        receipt["kind"] = "import"
+        receipt["attribution"] = {
+            "wallpaper_id": "review-artwork", "rice": CREDIT, "wallpaper": CREDIT,
+        }
+        receipt_path.write_text(json.dumps(receipt) + "\n")
+        # This remains a structurally valid receipt and an unchanged recipe.
+        self.assertEqual(creator_workspace.open_draft(draft.path).semantic_sha256,
+                         draft.semantic_sha256)
+        self.assertEqual(len(creator_workspace.version_history(draft)), 1)
+        destination = self.root / "changed-attribution.ricepack"
+        with self.assertRaisesRegex(creator_release.ReleaseError,
+                                    "attribution changed"):
+            creator_release.publish_export(plan, destination)
+        self.assertFalse(destination.exists())
+
+    def test_disappeared_ancestor_receipt_invalidates_review(self):
+        ancestor = creator_workspace.create_draft("orbit")
+        revised, _ = creator_workspace.save_revision(
+            ancestor.path, {"/panel/height": 48},
+            expected_sha256=ancestor.semantic_sha256)
+        plan = creator_release.prepare_export(revised)
+        ancestor.path.with_suffix(".history").unlink()
+        # Receiptless legacy drafts remain readable, but cannot silently
+        # replace a reviewed and verified lineage.
+        self.assertEqual(creator_workspace.open_draft(revised.path).path, revised.path)
+        destination = self.root / "missing-ancestor.ricepack"
+        with self.assertRaisesRegex(creator_release.ReleaseError,
+                                    "attribution changed"):
+            creator_release.publish_export(plan, destination)
         self.assertFalse(destination.exists())
 
     def test_export_publishes_only_reviewed_bytes_without_reserializing_assets(self):
