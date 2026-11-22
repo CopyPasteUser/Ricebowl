@@ -160,6 +160,8 @@ def create_enterprise_wifi(*, ssid: str, identity: str, domain: str,
 
 def connect_enterprise_wifi(uuid: str, password: str, *, expected_active: bool = False) -> bool:
     """Activate an EAP profile with an ephemeral stdin password, no secret persistence."""
+    if type(expected_active) is not bool:
+        raise backend.SettingsError("Expected enterprise Wi-Fi state must be explicit")
     if type(uuid) is not str or not _UUID.fullmatch(uuid):
         raise backend.SettingsError("Choose a saved enterprise Wi-Fi profile")
     if (type(password) is not str or not 1 <= len(password) <= 512
