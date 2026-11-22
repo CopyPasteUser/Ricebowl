@@ -81,7 +81,14 @@ pub fn visible_label(group: &TaskGroup, cell_width: u32) -> String {
         format!(" ({})", group.members.len())
     } else { String::new() };
     if capacity < suffix.len() {
-        return suffix.chars().take(capacity).collect();
+        // A clipped "(12)" prefix such as "(" or "(1" is not a count.
+        // Keep the exact count when it fits; otherwise signal multiplicity
+        // without displaying a misleading partial number.
+        if capacity == 0 {
+            return String::new();
+        }
+        let count = group.members.len().to_string();
+        return if count.len() <= capacity { count } else { "+".to_owned() };
     }
     let mut label: String = group.label.chars().take(capacity - suffix.len()).collect();
     label.push_str(&suffix);
@@ -154,6 +161,28 @@ mod tests {
         assert_eq!(visible_label(&group, 164), "Second documen (2)");
         assert_eq!(visible_label(&group, 64), "Se (2)");
         assert_eq!(visible_label(&group, 8), "");
+    }
+
+    #[test]
+    fn narrow_task_buttons_never_show_a_partial_window_count() {
+        let groups = group_windows([
+            window(0, "editor", "One", false),
+            window(1, "editor", "Two", true),
+        ]);
+        let group = &groups[0];
+        assert_eq!(visible_label(group, 8), "");
+        assert_eq!(visible_label(group, 24), "2");
+        assert_eq!(visible_label(group, 32), "2");
+        assert_eq!(visible_label(group, 48), "(2)");
+
+        let many = TaskGroup {
+            members: (0..12).collect(),
+            representative: 0,
+            label: "Documents".to_owned(),
+            active: false,
+        };
+        assert_eq!(visible_label(&many, 24), "+");
+        assert_eq!(visible_label(&many, 32), "12");
     }
 
     #[test]
