@@ -136,7 +136,7 @@ def set_default(kind: str, name: str, *, expected_current: str | None = None) ->
     streams may stay routed to their previous devices, depending on the audio
     server's stream-restore policy.
     """
-    if kind not in _KINDS:
+    if type(kind) is not str or kind not in _KINDS:
         raise AudioDeviceError("Choose sink or source", "invalid_audio_kind")
     if type(name) is not str or not _NAME.fullmatch(name):
         raise AudioDeviceError("Invalid audio device name", "invalid_audio_device")
