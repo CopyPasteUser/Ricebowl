@@ -129,6 +129,12 @@ class CreatorHistoryTests(unittest.TestCase):
         with self.assertRaisesRegex(workspace.WorkspaceError,
                                     "history exceeds the safe"):
             workspace.version_history(reopened)
+        destination = workspace._private_directory() / "over-depth.ricepack"
+        with self.assertRaisesRegex(workspace.WorkspaceError,
+                                    "history exceeds the safe"):
+            workspace.export_draft(reopened, destination)
+        self.assertFalse(destination.exists(),
+                         "An incomplete Creator lineage must not be exported")
 
     def test_receipt_parent_hash_cannot_be_forged_without_detection(self):
         original = workspace.create_draft("orbit")
