@@ -443,6 +443,15 @@ dbus-run-session -- sh -eu -s -- "$source_root" "$runtime" "$native" "$clicker" 
             case "$state" in
                 ""|*Z*) echo "Chrome fuzzel did not remain running" >&2; exit 1 ;;
             esac
+            # Busy: a second real compositor pointer must not create a
+            # competing Fuzzel keyboard grab while the first is alive.
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 28 746 1366 768
+            sleep .2
+            launcher_pids=$(pgrep -u "$(id -u)" -x fuzzel || :)
+            [ "$launcher_pids" = "$launcher_pid" ] || {
+                echo "Chrome duplicate pointer opened multiple/stale launchers: $launcher_pids" >&2
+                exit 1
+            }
             mkdir -p "$source_root/dist/riceplate-native-preview/creator-output-matrix"
             WAYLAND_DISPLAY=wayland-0 grim - >"$source_root/dist/riceplate-native-preview/creator-output-matrix/chrome-first-open.png"
             # Exercise the FIRST real, compositor-painted Fuzzel instance.
@@ -488,7 +497,104 @@ dbus-run-session -- sh -eu -s -- "$source_root" "$runtime" "$native" "$clicker" 
                 ""|*Z*) : ;;
                 *) echo "Chrome Fuzzel remained open after app keyboard launch" >&2; exit 1 ;;
             esac
+            # Empty search cannot execute the prior selected desktop entry.
+            # Escape must discard the transient focus/child; a fresh actual
+            # compositor pointer+keyboard gesture must execute again.
+            rm -f "$RICEBOWL_CI_CHROME_LAUNCH_LOG"
+            # Each CI virtual pointer is a short-lived client. After
+            # Fuzzel destroys its layer surface, a stationary pointer at
+            # its former position does not necessarily receive a fresh
+            # compositor enter. Model a real user returning the pointer
+            # to the shelf, NOT a blind second activation click.
+            WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 500 500 1366 768
+            sleep .12
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 28 746 1366 768
+            count=0
+            empty_launcher=
+            while [ "$count" -lt 30 ]; do
+                # pgrep may still report an unreaped zombie from the first
+                # launch. It is not the newly mapped Fuzzel instance.
+                for candidate in $(pgrep -u "$(id -u)" -x fuzzel || :); do
+                    [ "$candidate" != "$launcher_pid" ] || continue
+                    state=$(ps -o stat= -p "$candidate" 2>/dev/null || :)
+                    case "$state" in
+                        ""|*Z*) continue ;;
+                    esac
+                    empty_launcher=$candidate
+                    break
+                done
+                [ -n "$empty_launcher" ] && break
+                count=$((count + 1))
+                sleep .1
+            done
+            [ -n "$empty_launcher" ] || {
+                echo "Chrome Fuzzel failed to open a fresh process for empty-result test" >&2
+                tail -n 65 "$runtime/plate-$label.log" >&2 || :
+                tail -n 35 "$RICEBOWL_CI_FUZZEL_WL_LOG" >&2 || :
+                ps -o pid,ppid,stat,comm -p "$launcher_pid" >&2 || :
+                exit 1;
+            }
+            WAYLAND_DISPLAY=wayland-0 wtype -d 25 "ricebowl-sg1-missing-xyz987" -s 350 -k Return
+            sleep .3
+            test ! -e "$RICEBOWL_CI_CHROME_LAUNCH_LOG" || {
+                echo "Chrome empty result executed stale app" >&2; exit 1;
+            }
+            WAYLAND_DISPLAY=wayland-0 wtype -k Escape
+            sleep .3
+            state=$(ps -o stat= -p "$empty_launcher" 2>/dev/null || :)
+            case "$state" in
+                ""|*Z*) : ;;
+                *) echo "Chrome empty-result Escape left launcher active" >&2; exit 1 ;;
+            esac
+            WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 500 500 1366 768
+            sleep .12
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 28 746 1366 768
+            count=0
+            recovery_launcher=
+            while [ "$count" -lt 30 ]; do
+                for candidate in $(pgrep -u "$(id -u)" -x fuzzel || :); do
+                    [ "$candidate" != "$launcher_pid" ] || continue
+                    [ "$candidate" != "$empty_launcher" ] || continue
+                    state=$(ps -o stat= -p "$candidate" 2>/dev/null || :)
+                    case "$state" in
+                        ""|*Z*) continue ;;
+                    esac
+                    recovery_launcher=$candidate
+                    break
+                done
+                [ -n "$recovery_launcher" ] && break
+                count=$((count + 1))
+                sleep .1
+            done
+            [ -n "$recovery_launcher" ] || {
+                echo "Chrome launcher did not create a fresh live process after empty/escape" >&2
+                ps -o pid,ppid,stat,cmd -p "$empty_launcher" >&2 || :
+                tail -n 55 "$runtime/plate-$label.log" >&2 || :
+                exit 1
+            }
+            # Process existence precedes the Wayland layer's keyboard-enter.
+            # The first launch already uses this compositor focus-settle budget;
+            # require the same real mapped-seat path on the recovery launch.
+            sleep .65
+            WAYLAND_DISPLAY=wayland-0 wtype -d 25 "RiceBowl CI Chrome Witness" -s 1500 -k Return \
+                >"$runtime/chrome-recovery-wtype.log" 2>&1
+            count=0
+            while [ ! -s "$RICEBOWL_CI_CHROME_LAUNCH_LOG" ] && [ "$count" -lt 40 ]; do
+                count=$((count + 1))
+                sleep .1
+            done
+            [ "$(cat "$RICEBOWL_CI_CHROME_LAUNCH_LOG" 2>/dev/null || :)" = keyboard-launch-received ] || {
+                echo "Chrome normal app action not restored after empty/error" >&2
+                ps -o pid,ppid,stat,cmd -p "$recovery_launcher" >&2 || :
+                cat "$runtime/chrome-recovery-wtype.log" >&2 || :
+                tail -n 65 "$RICEBOWL_CI_FUZZEL_WL_LOG" >&2 || :
+                tail -n 50 "$runtime/plate-$label.log" >&2 || :
+                WAYLAND_DISPLAY=wayland-0 grim - \
+                    >"$source_root/dist/riceplate-native-preview/creator-output-matrix/chrome-recovery-failed.png" || :
+                exit 1;
+            }
             kill -0 "$plate"
+            echo "SG1 Chrome real busy/empty/Escape/recovery launcher receipts PASS"
             echo "Verified Chrome Fuzzel pointer, real keyboard search, Enter, and private Exec under labwc"
         fi
         if [ "$label" = riceclip-actions ]; then
