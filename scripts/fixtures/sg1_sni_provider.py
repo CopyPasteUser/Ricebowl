@@ -181,7 +181,11 @@ class Fixture:
             layout = self.layout(parent_id)
             result = GLib.Variant("(u(ia{sv}av))", (self.revision, layout))
             if self.mode == "slow":
-                GLib.timeout_add(500, self.reply_once, invocation, result)
+                # Keep this a genuinely pending asynchronous reply, but
+                # below the host's 500 ms request deadline. Testing a
+                # 500-on-500 race confuses a healthy delayed provider with
+                # an intentionally timed-out owner and creates false negatives.
+                GLib.timeout_add(390, self.reply_once, invocation, result)
             else:
                 invocation.return_value(result)
             return
