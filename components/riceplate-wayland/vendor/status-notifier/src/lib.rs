@@ -1334,7 +1334,9 @@ impl Host {
                     };
 
                     for property in get_properties {
-                        match self.channel.send(msg_item_get_prop(&item_name, property)) {
+                        // Address the verified unique sender for this request, never
+                        // a reassignable well-known name during owner rollover.
+                        match self.channel.send(msg_item_get_prop(sender, property)) {
                             Ok(serial) => {
                                 self.pending_replies.insert(
                                     serial,
