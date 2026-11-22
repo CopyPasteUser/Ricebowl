@@ -179,7 +179,7 @@ class SniIntegrationFixtureTests(unittest.TestCase):
         # StatusNotifierItem.Activate or ContextMenu.
         self.assertIn('primary_before=$(count_receipt "$rice-old" clicked 21)', embedded)
         self.assertIn('WAYLAND_DISPLAY=wayland-0 "$clicker" "$tray_x" 746 1366 768', embedded)
-        self.assertIn('"primary_after" -ne "$((primary_before + 1))"', embedded)
+        self.assertIn('"$primary_after" -ne "$((primary_before + 1))"', embedded)
         self.assertIn('assert_no_item_method "$rice-old"', embedded)
         syntax = subprocess.run(["sh", "-n", str(SMOKE)],
                                 capture_output=True, text=True, check=False)
