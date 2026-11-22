@@ -501,6 +501,13 @@ dbus-run-session -- sh -eu -s -- "$source_root" "$runtime" "$native" "$clicker" 
             # Escape must discard the transient focus/child; a fresh actual
             # compositor pointer+keyboard gesture must execute again.
             rm -f "$RICEBOWL_CI_CHROME_LAUNCH_LOG"
+            # Each CI virtual pointer is a short-lived client. After
+            # Fuzzel destroys its layer surface, a stationary pointer at
+            # its former position does not necessarily receive a fresh
+            # compositor enter. Model a real user returning the pointer
+            # to the shelf, NOT a blind second activation click.
+            WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 500 500 1366 768
+            sleep .12
             WAYLAND_DISPLAY=wayland-0 "$clicker" 28 746 1366 768
             count=0
             empty_launcher=
@@ -529,6 +536,8 @@ dbus-run-session -- sh -eu -s -- "$source_root" "$runtime" "$native" "$clicker" 
                 ""|*Z*) : ;;
                 *) echo "Chrome empty-result Escape left launcher active" >&2; exit 1 ;;
             esac
+            WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 500 500 1366 768
+            sleep .12
             WAYLAND_DISPLAY=wayland-0 "$clicker" 28 746 1366 768
             count=0
             while [ "$count" -lt 30 ]; do
