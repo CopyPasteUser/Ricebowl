@@ -131,7 +131,7 @@ class NetworkEnrollmentTests(unittest.TestCase):
         run.assert_not_called()
 
     def test_enterprise_connection_passes_password_only_by_stdin(self):
-        before = {"uuid": UUID, "kind": "wifi", "active": False}
+        before = {"uuid": UUID, "kind": "wifi", "name": "Campus profile", "active": False}
         after = {**before, "active": True}
 
         def runner(*args, **kwargs):
