@@ -190,6 +190,21 @@ class SniIntegrationFixtureTests(unittest.TestCase):
         self.assertIn('wtype -k slash -d 50 "sg1witness" -s 350 -k Return', embedded)
         self.assertIn('luna-keyboard-launch-received', smoke_source)
         self.assertIn('test ! -e "$RICEBOWL_CI_SG1_LAUNCH_RECEIPT"', embedded)
+        # Real compositor negative-state cases for both rices; require
+        # actual provider receipts, not only source snapshots.
+        for state in ("disabled", "denied", "empty", "normal", "slow"):
+            self.assertIn(f"set_fixture_mode {state}", embedded)
+        self.assertIn('assert_action_mode_once "$rice-new" clicked 10 denied', embedded)
+        self.assertIn('assert_action_mode_once "$rice-new" clicked 21 slow', embedded)
+        self.assertIn('assert_no_action_for_mode "$rice-new" empty', embedded)
+        self.assertIn('assert_no_item_method "$rice-new"', embedded)
+        self.assertIn('"$after_escape" -eq "$before_escape"', embedded)
+        self.assertIn('"$recovery_after" -eq "$((recovery_before + 1))"', embedded)
+        # A successful SetMode reply alone is not a valid menu-readback
+        # barrier; require a new GetLayout from the same provider generation.
+        self.assertIn("did not refetch SNI layout after SetMode", embedded)
+        self.assertIn("GLib.timeout_add(390,", PROVIDER.read_text(encoding="utf-8"))
+        self.assertIn("Private fixture last events:", embedded)
         syntax = subprocess.run(["sh", "-n", str(SMOKE)],
                                 capture_output=True, text=True, check=False)
         self.assertEqual(syntax.returncode, 0, syntax.stderr)

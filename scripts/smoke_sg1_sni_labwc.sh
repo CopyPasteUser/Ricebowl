@@ -122,6 +122,75 @@ calls = [row for row in items if row["generation"] == generation
 assert not calls, f"ItemIsMenu fell back to SNI item method: {calls}"
 PY
     }
+    set_fixture_mode() {
+        # The D-Bus SetMode reply only confirms the provider, not the shell
+        # cache. Wait for a *new* GetLayout receipt for this mode, or a
+        # keyboard press could target an obsolete enabled menu snapshot.
+        mode=$1
+        /usr/bin/python3 - "$runtime/receipts.jsonl" "$rice-new" "$mode" <<PY >"$runtime/layout-before"
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    rows = [json.loads(line) for line in source]
+print(sum(r["generation"] == sys.argv[2] and r["event"] == "layout"
+          and r.get("mode") == sys.argv[3] for r in rows))
+PY
+        before=$(cat "$runtime/layout-before")
+        gdbus call --session --dest org.ricebowl.SNIFixture \
+            --object-path /Control \
+            --method org.ricebowl.SNIFixtureControl.SetMode "$mode" >/dev/null
+        count=0
+        while [ "$count" -lt 40 ]; do
+            current=$(/usr/bin/python3 - "$runtime/receipts.jsonl" "$rice-new" "$mode" <<PY
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    rows = [json.loads(line) for line in source]
+print(sum(r["generation"] == sys.argv[2] and r["event"] == "layout"
+          and r.get("mode") == sys.argv[3] for r in rows))
+PY
+)
+            if [ "$current" -gt "$before" ]; then
+                # Give the reactor one compositor event-loop tick to install
+                # the fetched snapshot before input can be dispatched.
+                sleep .2
+                return 0
+            fi
+            count=$((count + 1))
+            sleep .1
+        done
+        echo "$rice did not refetch SNI layout after SetMode $mode" >&2
+        tail -n 70 "$runtime/plate-$rice.log" >&2 || :
+        /usr/bin/python3 - "$runtime/receipts.jsonl" "$rice-new" <<PY >&2
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as stream:
+    rows=[json.loads(line) for line in stream]
+print("Private fixture last events:", rows[-14:])
+PY
+        return 1
+    }
+    assert_action_mode_once() {
+        /usr/bin/python3 - "$runtime/receipts.jsonl" "$1" "$2" "$3" "$4" <<PY
+import json, sys
+path, generation, action, node, mode = sys.argv[1:]
+with open(path, encoding="utf-8") as stream:
+    events = [json.loads(line) for line in stream]
+matches = [r for r in events
+           if r["generation"] == generation and r["event"] == "menu-event"
+           and r.get("action") == action and r.get("id") == int(node)
+           and r.get("mode") == mode]
+assert len(matches) == 1, f"Expected one {mode} receipt {generation}/{node}, got {len(matches)}"
+PY
+    }
+    assert_no_action_for_mode() {
+        /usr/bin/python3 - "$runtime/receipts.jsonl" "$1" "$2" <<PY
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as stream:
+    events = [json.loads(line) for line in stream]
+bad = [r for r in events
+       if r["generation"] == sys.argv[2] and r["event"] == "menu-event"
+       and r.get("mode") == sys.argv[3] and r.get("action") == "clicked"]
+assert not bad, f"Unsafe action in {sys.argv[3]}: {bad}"
+PY
+    }
     assert_no_click() {
         /usr/bin/python3 - "$runtime/receipts.jsonl" "$1" <<PY
 import json, sys
@@ -313,6 +382,93 @@ PY
             tail -n 40 "$runtime/provider-$rice-new.log" >&2 || :
             exit 1
         fi
+
+        # Real provider state matrix: both rices share one compositor and
+        # each has a freshly owned D-Bus generation with isolated receipts.
+        set_fixture_mode disabled
+        enabled_before=$(count_receipt "$rice-new" clicked 10)
+        disabled_before=$(count_receipt "$rice-new" clicked 11)
+        open_fixture_menu
+        sleep .2
+        WAYLAND_DISPLAY=wayland-0 wtype -k Down -s 120 -k Down -s 120 -k Return
+        sleep .3
+        disabled_after=$(count_receipt "$rice-new" clicked 11)
+        enabled_after=$(count_receipt "$rice-new" clicked 10)
+        [ "$disabled_after" -eq "$disabled_before" ] || {
+            echo "$rice disabled SNI item was invoked" >&2
+            tail -n 80 "$runtime/plate-$rice.log" >&2 || :
+            /usr/bin/python3 - "$runtime/receipts.jsonl" "$rice-new" <<PY >&2
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as stream:
+    rows=[json.loads(line) for line in stream]
+print("Private fixture disabled receipts:", [r for r in rows
+      if r["generation"] == sys.argv[2] and r["event"] in ("layout", "mode", "menu-event")][-14:])
+PY
+            exit 1;
+        }
+        [ "$enabled_after" -eq "$((enabled_before + 1))" ] || {
+            echo "$rice disabled SNI navigation did not dispatch enabled action" >&2; exit 1;
+        }
+        assert_action_mode_once "$rice-new" clicked 10 disabled
+
+        # A valid row may be denied by its owner. Prove the actual failed
+        # provider operation and require the shell to remain responsive.
+        set_fixture_mode denied
+        open_fixture_menu
+        sleep .2
+        WAYLAND_DISPLAY=wayland-0 wtype -k Down -s 120 -k Return
+        sleep .3
+        assert_action_mode_once "$rice-new" clicked 10 denied
+        kill -0 "$plate"
+
+        # Empty provider snapshots must revoke all previously reachable
+        # menu IDs, including stale keyboard activation across the transition.
+        set_fixture_mode empty
+        before_empty=$(count_receipt "$rice-new" clicked 21)
+        open_fixture_menu
+        sleep .2
+        WAYLAND_DISPLAY=wayland-0 wtype -k Return -s 120 -k Return
+        sleep .2
+        after_empty=$(count_receipt "$rice-new" clicked 21)
+        [ "$after_empty" -eq "$before_empty" ] || {
+            echo "$rice empty menu retained stale submenu action" >&2; exit 1;
+        }
+        assert_no_action_for_mode "$rice-new" empty
+        assert_no_item_method "$rice-new"
+
+        # Compositor-delivered Escape cancels menu focus. Subsequent Return
+        # cannot reuse a previous remote selection without a new user open.
+        set_fixture_mode normal
+        open_fixture_menu
+        sleep .2
+        before_escape=$(count_receipt "$rice-new" clicked 21)
+        WAYLAND_DISPLAY=wayland-0 wtype -k Escape -s 150 -k Return -k Return
+        sleep .2
+        after_escape=$(count_receipt "$rice-new" clicked 21)
+        [ "$after_escape" -eq "$before_escape" ] || {
+            echo "$rice dismissed menu retained keyboard activation" >&2; exit 1;
+        }
+
+        # The 390ms GetLayout is an actual asynchronous loading delay.
+        # Once it resolves, a fresh pointer/keyboard gesture must work again.
+        set_fixture_mode slow
+        open_fixture_menu
+        sleep .7
+        WAYLAND_DISPLAY=wayland-0 wtype -k Return -s 300 -k Return
+        sleep .3
+        assert_action_mode_once "$rice-new" clicked 21 slow
+        set_fixture_mode normal
+        recovery_before=$(count_receipt "$rice-new" clicked 21)
+        open_fixture_menu
+        sleep .25
+        WAYLAND_DISPLAY=wayland-0 wtype -k Return -s 300 -k Return
+        sleep .3
+        recovery_after=$(count_receipt "$rice-new" clicked 21)
+        [ "$recovery_after" -eq "$((recovery_before + 1))" ] || {
+            echo "$rice menu did not recover after negative states" >&2; exit 1;
+        }
+        kill -0 "$plate"
+        echo "SG1 real disabled/denied/empty/Escape/slow/recovery receipts PASS: $rice"
 
         # Removing a live remote node must revoke the old keyboard selection.
         gdbus call --session --dest org.ricebowl.SNIFixture \
