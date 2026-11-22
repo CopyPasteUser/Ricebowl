@@ -30,3 +30,8 @@ accesskit_unix = "=0.24.1"
 # SNI host/watcher, item property changes and DBusMenu actions. This is used
 # only when a native recipe actually requests a tray.
 status-notifier = "=0.1.1"
+
+# Local MIT-licensed upstream patch: match well-known registered items
+# with their correlated unique D-Bus signal senders, fail closed on ambiguity.
+[patch.crates-io]
+status-notifier = { path = "vendor/status-notifier" }
