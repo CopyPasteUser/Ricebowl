@@ -143,6 +143,32 @@ class CreatorWorkspaceTests(unittest.TestCase):
                                     expected_sha256=original.semantic_sha256)
         self.assertEqual(len(workspace.list_drafts()), 2)
 
+    def test_version_history_rejects_truncated_lineage_at_depth_boundary(self):
+        # A verified history contains at most 64 entries. A 65th parent must
+        # not be silently omitted: consumers may treat the last entry as the
+        # attribution root when exporting a portable RicePack.
+        limit = workspace.creator_history.MAX_HISTORY_DEPTH
+        versions = [
+            workspace.DraftInfo(Path(f"/unmounted/draft-{i:03d}.json"),
+                                "Bounded", "creator-test", "a" * 64, i)
+            for i in range(limit + 1)
+        ]
+        by_path = {entry.path: entry for entry in versions}
+
+        def parent(entry):
+            index = versions.index(entry)
+            return versions[index + 1] if index + 1 < len(versions) else None
+
+        with patch.object(workspace, "open_draft",
+                          side_effect=lambda path: by_path[path]), \
+                patch.object(workspace, "previous_version", side_effect=parent):
+            # Exactly 64 verified versions ending at a root are allowed.
+            self.assertEqual(workspace.version_history(versions[1]), versions[1:])
+            # The same 64-link prefix with a still-present parent is unsafe.
+            with self.assertRaisesRegex(workspace.WorkspaceError,
+                                        "history exceeds the safe"):
+                workspace.version_history(versions[0])
+
     def test_fork_saved_version_preserves_layout_but_uses_new_rice_id(self):
         original = workspace.create_draft("orbit")
         revised, _ = workspace.save_revision(original.path, {"/panel/height": 49},
