@@ -511,7 +511,11 @@ dbus-run-session -- sh -eu -s -- "$source_root" "$runtime" "$native" "$clicker" 
                 sleep .1
             done
             [ -n "$empty_launcher" ] || {
-                echo "Chrome Fuzzel failed to reopen for empty-result test" >&2; exit 1;
+                echo "Chrome Fuzzel failed to reopen for empty-result test" >&2
+                tail -n 65 "$runtime/plate-$label.log" >&2 || :
+                tail -n 35 "$RICEBOWL_CI_FUZZEL_WL_LOG" >&2 || :
+                ps -o pid,ppid,stat,comm -p "$launcher_pid" >&2 || :
+                exit 1;
             }
             WAYLAND_DISPLAY=wayland-0 wtype -d 25 "ricebowl-sg1-missing-xyz987" -s 350 -k Return
             sleep .3
