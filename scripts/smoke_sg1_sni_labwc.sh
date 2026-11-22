@@ -449,7 +449,7 @@ PY
             echo "$rice dismissed menu retained keyboard activation" >&2; exit 1;
         }
 
-        # The 500ms GetLayout is an actual asynchronous loading delay.
+        # The 390ms GetLayout is an actual asynchronous loading delay.
         # Once it resolves, a fresh pointer/keyboard gesture must work again.
         set_fixture_mode slow
         open_fixture_menu
