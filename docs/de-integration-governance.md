@@ -26,7 +26,7 @@ and merge its own pull request** in the current November 2026 offline-developmen
 period. This replaces the earlier *integration-only merge authority* for
 owner-approved, isolated SG1–SG5 work **only**. All other architecture, safety
 and release requirements in this document remain in effect. The integration
-lane remains responsible for shared hotpots, cross-lane interfaces and final
+lane remains responsible for shared hotspots, cross-lane interfaces and final
 release acceptance, but is not a mandatory hand-off for independent lane PRs.
 
 - **No GitHub Actions until December 2026.** Do not dispatch, rerun or use
