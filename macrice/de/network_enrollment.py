@@ -167,17 +167,46 @@ def connect_enterprise_wifi(uuid: str, password: str, *, expected_active: bool =
     if (current is None or current["kind"] not in ("802-11-wireless", "wifi")
             or current["active"] != expected_active or expected_active):
         raise backend.SettingsError("Enterprise Wi-Fi profile changed; refresh first")
-    enterprise_password_ready(uuid)
-    _run("con", "up", "uuid", uuid, "passwd-file", "/dev/stdin",
-         secret="802-1x.password:" + password + "\n", wait=45)
-    after = next((item for item in backend.connection_profiles() if item["uuid"] == uuid), None)
-    if after is None or not after["active"]:
-        raise backend.SettingsError("Wi-Fi activation may have changed; refresh to verify")
+    # Keep the reviewed SSID, account and EAP server trust bound to this
+    # exact profile. A reused UUID alone must not authorize a new provider
+    # object to receive the password during a disconnect/reconnect.
+    reviewed_policy = _enterprise_password_policy(uuid)
+    reviewed_identity = (_profile_setting(uuid, "802-11-wireless.ssid"),
+                         _profile_setting(uuid, "802-1x.identity"))
+    if not all(reviewed_identity):
+        raise backend.SettingsError("Enterprise Wi-Fi identity is unavailable; refresh first")
+    try:
+        _run("con", "up", "uuid", uuid, "passwd-file", "/dev/stdin",
+             secret="802-1x.password:" + password + "\n", wait=45)
+    except backend.SettingsError as exc:
+        # NetworkManager can apply the join before dropping its reply.
+        # Never retry a potentially completed secret-bearing operation.
+        raise backend.SettingsError(
+            "Wi-Fi activation outcome unknown; refresh before retrying") from exc
+    try:
+        after = next((item for item in backend.connection_profiles()
+                      if item["uuid"] == uuid), None)
+        if after is None:
+            raise backend.SettingsError("Enterprise Wi-Fi profile disappeared")
+        confirmed_policy = _enterprise_password_policy(uuid)
+        confirmed_identity = (_profile_setting(uuid, "802-11-wireless.ssid"),
+                              _profile_setting(uuid, "802-1x.identity"))
+    except backend.SettingsError as exc:
+        raise backend.SettingsError(
+            "Wi-Fi activation may have changed; identity readback unavailable; "
+            "refresh before retrying") from exc
+    if (not after["active"] or after["kind"] != current["kind"]
+            or after.get("name") != current.get("name")
+            or confirmed_policy != reviewed_policy
+            or confirmed_identity != reviewed_identity):
+        raise backend.SettingsError(
+            "Wi-Fi activation identity or security changed; inspect NetworkManager "
+            "before retrying")
     return True
 
 
-def enterprise_password_ready(uuid: str) -> bool:
-    """Only accept trusted PEAP/TTLS profiles before requesting a secret."""
+def _enterprise_password_policy(uuid: str) -> tuple[str, ...]:
+    """Read the credential and CA policy for a specific NM profile identity."""
     if type(uuid) is not str or not _UUID.fullmatch(uuid):
         raise backend.SettingsError("Choose a saved enterprise Wi-Fi profile")
     method = _profile_setting(uuid, "802-11-wireless-security.key-mgmt")
@@ -203,9 +232,16 @@ def enterprise_password_ready(uuid: str) -> bool:
     # The native dialog promises that credentials are not stored. Do not
     # solicit a secret for existing agent-owned or saved-secret profiles:
     # those must be managed through NetworkManager's own credential editor.
-    if _profile_setting(uuid, "802-1x.password-flags") != "2":
+    flags = _profile_setting(uuid, "802-1x.password-flags")
+    if flags != "2":
         raise backend.SettingsError(
             "This profile may save passwords; use NetworkManager to manage its credentials")
+    return (method, eap, inner, domain, system_ca.lower(), cert, flags)
+
+
+def enterprise_password_ready(uuid: str) -> bool:
+    """Only accept trusted PEAP/TTLS profiles before requesting a secret."""
+    _enterprise_password_policy(uuid)
     return True
 
 
