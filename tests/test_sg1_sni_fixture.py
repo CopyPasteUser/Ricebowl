@@ -203,6 +203,7 @@ class SniIntegrationFixtureTests(unittest.TestCase):
         # A successful SetMode reply alone is not a valid menu-readback
         # barrier; require a new GetLayout from the same provider generation.
         self.assertIn("did not refetch SNI layout after SetMode", embedded)
+        self.assertIn("GLib.timeout_add(390,", PROVIDER.read_text(encoding="utf-8"))
         self.assertIn("Private fixture last events:", embedded)
         syntax = subprocess.run(["sh", "-n", str(SMOKE)],
                                 capture_output=True, text=True, check=False)
