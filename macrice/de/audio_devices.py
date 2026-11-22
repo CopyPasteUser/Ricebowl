@@ -144,7 +144,8 @@ def set_default(kind: str, name: str, *, expected_current: str | None = None) ->
                                          or not _NAME.fullmatch(expected_current)):
         raise AudioDeviceError("Invalid expected default device", "invalid_audio_device")
     devices, before = _enumerate(kind)
-    if name not in {device["name"] for device in devices}:
+    target = next((device for device in devices if device["name"] == name), None)
+    if target is None:
         raise AudioDeviceError("Selected audio device is not available", "audio_device_missing")
     if expected_current is not None and before != expected_current:
         raise AudioDeviceError("Default audio device changed since review",
@@ -161,8 +162,11 @@ def set_default(kind: str, name: str, *, expected_current: str | None = None) ->
         # The new default must still be a live device, not only a name that
         # the server reports after an output was unplugged during the write.
         devices_after, after = _enumerate(kind)
-        if not any(device["name"] == name for device in devices_after):
-            raise AudioDeviceError("Selected audio device disappeared during readback")
+        # A reconnect can reuse a device name for a different sink/source.
+        # Verify the same advertised provider object, not just its label.
+        if not any(device["name"] == name and device["index"] == target["index"]
+                   for device in devices_after):
+            raise AudioDeviceError("Selected audio device identity changed during readback")
     except AudioDeviceError as exc:
         raise AudioDeviceError("Audio default may have changed; verification failed",
                                "audio_verification_failed", may_have_changed=True) from exc
