@@ -5209,7 +5209,14 @@ impl RicePlate {
         // An empty/revoked/invalid menu must not silently become a different
         // provider ContextMenu method or dispatch a stale action. Keep the
         // legacy secondary-click fallback only for ordinary tray items.
-        if entry.is_menu { return; }
+        if entry.is_menu {
+            // A menu-only item's provider may return an empty or malformed
+            // snapshot while its old native popup is still visible. Drop the
+            // old keyboard selection and surface rather than leaving stale
+            // action IDs accessible or falling back to ContextMenu.
+            self.set_tray_popup_visible(false, qh);
+            return;
+        }
         let Some(host) = self.tray_host.as_mut() else { return };
         let result = if button == BTN_RIGHT {
             host.item_context_menu(&entry.bus_name, position.0, position.1)

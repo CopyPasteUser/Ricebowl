@@ -209,6 +209,22 @@ class SniIntegrationFixtureTests(unittest.TestCase):
                                 capture_output=True, text=True, check=False)
         self.assertEqual(syntax.returncode, 0, syntax.stderr)
 
+    def test_menu_only_invalid_snapshot_closes_stale_popup_without_fallback(self):
+        # Guard the native user-facing fail-closed path even when CI cannot
+        # launch a real provider. This is structural, not compositor evidence.
+        native = (ROOT / "components/riceplate-wayland/src/main.rs").read_text(
+            encoding="utf-8")
+        begin = native.index("    fn activate_tray_entry(")
+        end = native.index("    fn set_tray_popup_visible(", begin)
+        body = native[begin:end]
+        self.assertIn("if entry.is_menu {\n", body)
+        self.assertIn(
+            "self.set_tray_popup_visible(false, qh);\n            return;",
+            body)
+        self.assertIn("let result = if button == BTN_RIGHT {", body)
+        self.assertNotIn(
+            "let result = if button == BTN_RIGHT || entry.is_menu", body)
+
     @unittest.skipUnless(shutil.which("dbus-run-session") and
                          Path("/usr/bin/python3").exists(), "D-Bus runtime unavailable")
     def test_real_provider_owner_switch_methods_and_receipts(self):
