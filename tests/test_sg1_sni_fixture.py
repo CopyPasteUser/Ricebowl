@@ -174,6 +174,22 @@ class SniIntegrationFixtureTests(unittest.TestCase):
         RICEBOWL_DE_TRACE_TRAY""", embedded)
         self.assertIn('wait "$keyboard_keeper" 2>/dev/null || :', embedded)
         self.assertIn('kill -0 "$keyboard_keeper"', embedded)
+        # The primary path must be a fresh action, not reusing the earlier
+        # secondary-click receipt, and must not silently fall back to
+        # StatusNotifierItem.Activate or ContextMenu.
+        self.assertIn('primary_before=$(count_receipt "$rice-old" clicked 21)', embedded)
+        self.assertIn('WAYLAND_DISPLAY=wayland-0 "$clicker" "$tray_x" 746 1366 768', embedded)
+        self.assertIn('"$primary_after" -ne "$((primary_before + 1))"', embedded)
+        self.assertIn('assert_no_item_method "$rice-old"', embedded)
+        # Luna must execute a PRIVATE installed desktop entry through real
+        # compositor pointer/search/Return, not merely paint a search result.
+        self.assertIn('export XDG_DATA_HOME="$runtime/data"', smoke_source)
+        self.assertIn('Keywords=sg1witness;', smoke_source)
+        self.assertIn('Exec=$runtime/luna-app-witness', smoke_source)
+        self.assertIn('WAYLAND_DISPLAY=wayland-0 "$clicker" 35 748 1366 768', embedded)
+        self.assertIn('wtype -k slash -d 50 "sg1witness" -s 350 -k Return', embedded)
+        self.assertIn('luna-keyboard-launch-received', smoke_source)
+        self.assertIn('test ! -e "$RICEBOWL_CI_SG1_LAUNCH_RECEIPT"', embedded)
         syntax = subprocess.run(["sh", "-n", str(SMOKE)],
                                 capture_output=True, text=True, check=False)
         self.assertEqual(syntax.returncode, 0, syntax.stderr)
