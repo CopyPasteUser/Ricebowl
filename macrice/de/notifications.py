@@ -349,6 +349,12 @@ def inspect() -> dict[str, Any]:
     truncated = False
     for source, action in (("active", "ListNotifications"), ("history", "ListHistory")):
         snapshots[source], limited = _read_mako(action, include_actions=source == "active")
+        if source == "active" and len({record["id"] for record in snapshots[source]}) != len(snapshots[source]):
+            # Two current rows with the same numeric ID cannot have distinct
+            # safe dismiss/action targets. Never render ambiguous private
+            # actions even when the host's JSON is otherwise well-formed.
+            raise NotificationBridgeError("Active notification inventory is ambiguous",
+                                          "ambiguous_notification_id")
         truncated |= limited
     return {"ok": True, "backend": "mako", "active": snapshots["active"],
             "history": snapshots["history"], "truncated": truncated,
