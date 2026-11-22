@@ -78,6 +78,100 @@ class AudioDefaultIdentityTests(unittest.TestCase):
             provider.assert_not_called()
 
 
+    def test_pipewire_object_serial_prevents_same_name_and_index_reuse(self):
+        for kind in ("sink", "source"):
+            with self.subTest(kind=kind):
+                state = {"changed": False, "writes": 0}
+                collection = "sinks" if kind == "sink" else "sources"
+
+                def provider(*args):
+                    if args == ("--format=json", "list", collection):
+                        serial = 91 if state["changed"] else "90"
+                        return json.dumps([
+                            {"index": 1, "name": OLD},
+                            {"index": 2, "name": NEW,
+                             "properties": {"object.serial": serial}},
+                        ])
+                    if args == ("get-default-" + kind,):
+                        return NEW if state["changed"] else OLD
+                    if args == ("set-default-" + kind, NEW):
+                        state["changed"] = True
+                        state["writes"] += 1
+                        return ""
+                    raise AssertionError(f"Unexpected pactl call: {args!r}")
+
+                with mock.patch.object(audio, "_run", side_effect=provider):
+                    with self.assertRaises(audio.AudioDeviceError) as caught:
+                        audio.set_default(kind, NEW, expected_current=OLD)
+                self.assertEqual(state["writes"], 1)
+                self.assertEqual(caught.exception.code, "audio_verification_failed")
+                self.assertTrue(caught.exception.may_have_changed)
+                self.assertIn("identity changed", str(caught.exception.__cause__))
+
+    def test_equal_pipewire_serial_accepts_successful_default_readback(self):
+        state = {"changed": False}
+
+        def provider(*args):
+            if args == ("--format=json", "list", "sinks"):
+                return json.dumps([
+                    {"index": 1, "name": OLD},
+                    {"index": 2, "name": NEW,
+                     "properties": {"object.serial": "42"}},
+                ])
+            if args == ("get-default-sink",):
+                return NEW if state["changed"] else OLD
+            if args == ("set-default-sink", NEW):
+                state["changed"] = True
+                return ""
+            raise AssertionError(f"Unexpected pactl call: {args!r}")
+
+        with mock.patch.object(audio, "_run", side_effect=provider):
+            result = audio.set_default("sink", NEW, expected_current=OLD)
+        self.assertTrue(result["changed"])
+        self.assertEqual(result["current"], NEW)
+
+    def test_audio_serial_parser_rejects_ambiguous_provider_metadata(self):
+        for serial in (-1, True, "1.0", "nan", [], "18446744073709551616"):
+            with self.subTest(serial=serial):
+                with self.assertRaises(audio.AudioDeviceError) as caught:
+                    audio._devices("sink", json.dumps([
+                        {"index": 1, "name": OLD,
+                         "properties": {"object.serial": serial}},
+                    ]))
+                self.assertEqual(caught.exception.code, "audio_response_invalid")
+
+    def test_stream_move_rejects_replaced_output_with_recycled_index(self):
+        state = {"moved": False, "writes": 0}
+
+        def provider(*args):
+            if args == ("--format=json", "list", "sinks"):
+                return json.dumps([
+                    {"index": 1, "name": OLD},
+                    {"index": 2, "name": NEW,
+                     "properties": {"object.serial": "200" if state["moved"] else "100"}},
+                ])
+            if args == ("get-default-sink",):
+                return OLD
+            if args == ("--format=json", "list", "sink-inputs"):
+                return json.dumps([{
+                    "index": 42, "sink": 2 if state["moved"] else 1,
+                    "client": 17, "mute": False,
+                    "volume": {"mono": {"value": 65536}},
+                }])
+            if args == ("move-sink-input", "42", NEW):
+                state["moved"] = True
+                state["writes"] += 1
+                return ""
+            raise AssertionError(f"Unexpected pactl call: {args!r}")
+
+        with mock.patch.object(audio, "_run", side_effect=provider):
+            with self.assertRaises(audio.AudioDeviceError) as caught:
+                audio.set_stream_output(42, NEW, expected_sink=1, expected_client=17)
+        self.assertEqual(state["writes"], 1)
+        self.assertEqual(caught.exception.code, "audio_verification_failed")
+        self.assertTrue(caught.exception.may_have_changed)
+
+
 class NetworkProfileIdentityTests(unittest.TestCase):
     def test_same_uuid_same_type_but_new_label_never_certifies_activation(self):
         first = {"uuid": UUID, "kind": "wifi", "name": "Campus",
@@ -232,6 +326,36 @@ class EnterpriseEnrollmentIdentityTests(unittest.TestCase):
             with self.assertRaisesRegex(backend.SettingsError, "profile changed"):
                 enrollment.connect_enterprise_wifi(UUID, "private-secret")
             write.assert_not_called()
+
+    def test_enterprise_create_lost_reply_never_suggests_safe_retry(self):
+        with (
+            mock.patch.object(enrollment.uuidlib, "uuid4", return_value=UUID),
+            mock.patch.object(backend, "connection_profiles", return_value=[]),
+            mock.patch.object(enrollment, "_run",
+                              side_effect=backend.SettingsError("reply lost")) as write,
+        ):
+            with self.assertRaisesRegex(
+                    backend.SettingsError, "creation outcome unknown") as caught:
+                enrollment.create_enterprise_wifi(
+                    ssid="Campus", identity="student", domain="radius.school.example",
+                    eap="peap", inner="mschapv2")
+            write.assert_called_once()
+            self.assertIsInstance(caught.exception.__cause__, backend.SettingsError)
+
+    def test_enterprise_create_inventory_disappears_after_single_write(self):
+        with (
+            mock.patch.object(enrollment.uuidlib, "uuid4", return_value=UUID),
+            mock.patch.object(backend, "connection_profiles", side_effect=[
+                [], backend.SettingsError("DBus disconnected")]),
+            mock.patch.object(enrollment, "_run", return_value="") as write,
+        ):
+            with self.assertRaisesRegex(
+                    backend.SettingsError, "readback unavailable") as caught:
+                enrollment.create_enterprise_wifi(
+                    ssid="Campus", identity="student", domain="radius.school.example",
+                    eap="peap", inner="mschapv2")
+            write.assert_called_once()
+            self.assertIsInstance(caught.exception.__cause__, backend.SettingsError)
 
     def test_invalid_nmcli_utf8_is_bounded_and_not_exposed(self):
         error = UnicodeDecodeError("utf-8", bytes((0xff,)), 0, 1, "invalid")
