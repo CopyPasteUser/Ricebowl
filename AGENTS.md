@@ -80,7 +80,7 @@ claimed as such.
 
 ## Parallel Wayland DE integration
 
-For concurrent work on the native DE, follow the [DE 1.0 integration contract](docs/de-integration-governance.md): owner lanes, shared-file handoffs, stacked PR dependencies, exact-head CI and guarded merges. Only the integration lane merges reviewed DE work into `main`; retain all existing XFCE/X11 and release-safety rules below.
+For concurrent work on the native DE, follow the [DE 1.0 integration contract](docs/de-integration-governance.md): owner lanes, shared-file handoffs, stacked PR dependencies, exact-head CI and guarded merges. Until December 2026 the repository owner additionally authorizes **lane-owned guarded self-merges** for isolated SG1–SG5 PRs, but **only** after full-checkout local tests, exact-head review, serialized merge and local post-merge checks. No GitHub Actions may be used; all commits, including merge commits, must contain `[skip ci]`. Missing Rust/labwc/Mako tooling is a test blocker, not a reason to substitute partial-function mocks or claim DONE. The integration lane still owns shared hotspots and cross-lane changes. This temporary exception does not waive any formal hosted-CI or hardware release requirement; see the dated offline exception in `docs/de-integration-governance.md`. Retain all existing XFCE/X11 and release-safety rules below.
 
 ## Delivery and verification
 
