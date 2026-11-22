@@ -148,6 +148,31 @@ class SG7ResourceReceiptTests(unittest.TestCase):
         with self.assertRaisesRegex(EvidenceError, "symlinked"):
             verify(self.folder, SHA)
 
+
+    def test_settled_cpu_snapshot_contributes_to_reported_resource_maxima(self):
+        # Later settled /proc readings can grow after the immediate switch
+        # snapshot; report the true peak rather than just the first sample.
+        row = json.loads(self.cpu_path(2).read_text())
+        row["pss_kib"] = BASELINE["pss_kib"] + 5000
+        row["fds"] = BASELINE["fds"] + 4
+        self.cpu_path(2).write_text(json.dumps(row))
+        report = verify(self.folder, SHA)
+        self.assertEqual(report["max_observed_growth"]["pss_kib"], 5000)
+        self.assertEqual(report["max_observed_growth"]["fds"], 4)
+
+    def test_settled_cpu_snapshot_cannot_hide_resource_limit_regressions(self):
+        original = json.loads(self.cpu_path(2).read_text())
+        try:
+            for key, limit in LIMITS.items():
+                with self.subTest(counter=key):
+                    row = dict(original)
+                    row[key] = BASELINE[key] + limit + 1
+                    self.cpu_path(2).write_text(json.dumps(row))
+                    with self.assertRaisesRegex(EvidenceError, "CPU sample resource growth"):
+                        verify(self.folder, SHA)
+        finally:
+            self.cpu_path(2).write_text(json.dumps(original))
+
     def test_reject_duplicate_fields_and_oversized_receipts(self):
         self.path(1).write_text('{"ok": true, "ok": false}')
         with self.assertRaisesRegex(EvidenceError, "Malformed resource receipt"):
