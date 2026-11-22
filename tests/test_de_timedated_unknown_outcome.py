@@ -70,6 +70,31 @@ class TimedatedUnknownOutcomeTests(unittest.TestCase):
                 backend.set_system_clock("2026-11-19 10:00:00")
             timedated.assert_called_once_with("set-time", "2026-11-19 10:00:00")
 
+    def test_manual_clock_rejects_ntp_reenabled_after_write_without_retry(self):
+        with (
+            mock.patch.object(backend, "ntp_snapshot", side_effect=[
+                self.NTP_OFF, self.NTP_ON]) as read,
+            mock.patch.object(backend, "_timedatectl", return_value="") as timedated,
+        ):
+            with self.assertRaisesRegex(backend.SettingsError, "re-enabled; refresh"):
+                backend.set_system_clock("2026-11-19 10:00:00")
+            self.assertEqual(read.call_count, 2)
+            timedated.assert_called_once_with("set-time", "2026-11-19 10:00:00")
+
+    def test_manual_clock_post_write_ntp_provider_loss_is_indeterminate(self):
+        offline = backend.SettingsError("timedated disconnected")
+        with (
+            mock.patch.object(backend, "ntp_snapshot", side_effect=[
+                self.NTP_OFF, offline]) as read,
+            mock.patch.object(backend, "_timedatectl", return_value="") as timedated,
+        ):
+            with self.assertRaisesRegex(backend.SettingsError,
+                                        "NTP verification unavailable; refresh") as caught:
+                backend.set_system_clock("2026-11-19 10:00:00")
+            self.assertIs(caught.exception.__cause__, offline)
+            self.assertEqual(read.call_count, 2)
+            timedated.assert_called_once_with("set-time", "2026-11-19 10:00:00")
+
     def test_ntp_noop_and_stale_state_remain_write_free(self):
         with (
             mock.patch.object(backend, "ntp_snapshot", return_value=self.NTP_ON),
