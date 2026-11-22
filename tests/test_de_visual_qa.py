@@ -45,6 +45,12 @@ class WaylandVisualQaTests(unittest.TestCase):
         self.assertIn("keyboard-launch-received", body)
         self.assertIn("RICEBOWL_CI_CHROME_LAUNCH_LOG", body)
         self.assertNotIn("sg1_chrome_pointer", source)
+        self.assertIn('launcher_pids=$(pgrep -u', body)
+        self.assertIn('Chrome duplicate pointer opened multiple/stale launchers', body)
+        self.assertIn('wtype -d 25 "ricebowl-sg1-missing-xyz987"', body)
+        self.assertIn('Chrome empty result executed stale app', body)
+        self.assertIn('Chrome empty-result Escape left launcher active', body)
+        self.assertIn('Chrome normal app action not restored after empty/error', body)
 
         self.assertFalse(body.startswith("RICEBOWL_CI_LABWC_BODY"))
         # Both the outer harness and the streamed child must parse cleanly.
