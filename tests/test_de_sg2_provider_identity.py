@@ -213,7 +213,7 @@ class EnterpriseEnrollmentIdentityTests(unittest.TestCase):
             write.assert_not_called()
 
     def test_invalid_nmcli_utf8_is_bounded_and_not_exposed(self):
-        error = UnicodeDecodeError("utf-8", b"\\xff", 0, 1, "invalid")
+        error = UnicodeDecodeError("utf-8", bytes((0xff,)), 0, 1, "invalid")
         with (
             mock.patch.object(enrollment.shutil, "which", return_value="/usr/bin/nmcli"),
             mock.patch.object(enrollment.subprocess, "run", side_effect=error) as run,
