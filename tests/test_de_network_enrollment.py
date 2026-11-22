@@ -161,7 +161,8 @@ class NetworkEnrollmentTests(unittest.TestCase):
         self.assertNotIn("private-password", str(activations[0].args))
 
     def test_enterprise_connection_refuses_non_eap_and_untrusted_profiles(self):
-        existing = {"uuid": UUID, "kind": "802-11-wireless", "active": False}
+        existing = {"uuid": UUID, "kind": "802-11-wireless", "name": "Campus profile",
+                    "active": False}
         with mock.patch.object(backend, "connection_profiles", return_value=[existing]), \
                 mock.patch.object(enrollment, "_run", return_value="wpa-psk") as run:
             with self.assertRaisesRegex(backend.SettingsError, "not an enterprise"):
