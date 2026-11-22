@@ -5205,8 +5205,13 @@ impl RicePlate {
                 }
             }
         }
+        // ItemIsMenu declares the DBusMenu as this item's primary action.
+        // An empty/revoked/invalid menu must not silently become a different
+        // provider ContextMenu method or dispatch a stale action. Keep the
+        // legacy secondary-click fallback only for ordinary tray items.
+        if entry.is_menu { return; }
         let Some(host) = self.tray_host.as_mut() else { return };
-        let result = if button == BTN_RIGHT || entry.is_menu {
+        let result = if button == BTN_RIGHT {
             host.item_context_menu(&entry.bus_name, position.0, position.1)
         } else {
             host.item_activate(&entry.bus_name, position.0, position.1)
