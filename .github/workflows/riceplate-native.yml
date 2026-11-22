@@ -37,6 +37,9 @@ on:
       - 'scripts/verify_wayland_clean_rebuild.sh'
       - 'tests/test_wayland_clean_rebuild.py'
       - 'scripts/smoke_riceplate_native.sh'
+      - 'scripts/smoke_sg1_sni_labwc.sh'
+      - 'scripts/fixtures/sg1_sni_provider.py'
+      - 'tests/test_sg1_sni_fixture.py'
       - 'scripts/smoke_luna_window_chrome.sh'
       - 'scripts/smoke_luna_hotkeys.sh'
       - 'scripts/smoke_luna_atspi.sh'
@@ -134,6 +137,9 @@ on:
       - 'scripts/verify_wayland_clean_rebuild.sh'
       - 'tests/test_wayland_clean_rebuild.py'
       - 'scripts/smoke_riceplate_native.sh'
+      - 'scripts/smoke_sg1_sni_labwc.sh'
+      - 'scripts/fixtures/sg1_sni_provider.py'
+      - 'tests/test_sg1_sni_fixture.py'
       - 'scripts/smoke_luna_window_chrome.sh'
       - 'scripts/smoke_luna_hotkeys.sh'
       - 'scripts/smoke_luna_atspi.sh'
@@ -266,6 +272,8 @@ jobs:
           cargo build --locked --release --manifest-path components/riceplate-wayland/Cargo.toml \
             --example wayland_ime_v2_client
           sh -n scripts/smoke_riceplate_native.sh
+          sh -n scripts/smoke_sg1_sni_labwc.sh
+          /usr/bin/python3 -m py_compile scripts/fixtures/sg1_sni_provider.py
           sh -n scripts/smoke_luna_window_chrome.sh
           sh -n scripts/smoke_luna_hotkeys.sh
           sh -n scripts/smoke_luna_atspi.sh
@@ -278,6 +286,10 @@ jobs:
           sh -n scripts/wayland_clipboard_smoke_client.sh
           sh -n scripts/smoke_riceplate_multioutput.sh
           sh -n scripts/smoke_wayland_shared_rice_engine.sh
+      # SG1 fails fast immediately after the stock labwc + release binaries
+      # are ready; later SG5/SG6/SG7 gates remain unchanged and mandatory.
+      - name: Prove real SNI provider owner lifecycle on Chrome and XP Luna under labwc
+        run: timeout -k 5s 105s sh scripts/smoke_sg1_sni_labwc.sh
       # Ubuntu 24.04 packages labwc 0.7.1, which predates upstream's
       # input-method-v2/text-input-v3 implementation (introduced in 0.7.2).
       # Build the exact upstream commit in a disposable runner directory;

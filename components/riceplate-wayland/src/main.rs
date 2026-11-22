@@ -4988,9 +4988,21 @@ impl RicePlate {
     /// polling timer. Fatal bus errors remove the source and leave the shell
     /// usable with a visually empty tray.
     fn refresh_tray(&mut self, qh: &QueueHandle<Self>) -> bool {
+        let remote_bus_name = (self.tray_menu_state.visible
+            && !self.tray_menu_state.bus_name.is_empty())
+            .then(|| self.tray_menu_state.bus_name.clone());
+        let mut provider_replaced = false;
+        let mut menu_refreshed = false;
         let Some(host) = self.tray_host.as_mut() else { return false };
         if let Err(error) = host.process_events(
-            |_, _, _| {},
+            |name, _, event| {
+                if tray::revokes_remote_menu(remote_bus_name.as_deref(), &name, event) {
+                    provider_replaced = true;
+                }
+                if matches!(event, status_notifier::Event::UpdatedMenu) {
+                    menu_refreshed = true;
+                }
+            },
             |error| eprintln!("RicePlate: SNI item error: {error}"),
             Some(Duration::ZERO),
         ) {
@@ -5002,6 +5014,25 @@ impl RicePlate {
             return false;
         }
         let updated = tray::State::from_items(host.get_all_items());
+        if menu_refreshed
+            && std::env::var("RICEBOWL_DE_TRACE_TRAY").as_deref() == Ok("1")
+            && updated.entries.iter().any(|entry| {
+                host.get_item(&entry.bus_name).is_some_and(|item| {
+                    let mut check = tray::MenuPopup::default();
+                    check.open(&entry.bus_name, &entry.title, &item.menu)
+                })
+            }) {
+            // A registered item is not necessarily menu-ready: the SNI
+            // library first emits Added, then fetches DBusMenu separately.
+            // Test-only readiness marks actual validated menu hydration.
+            eprintln!("RicePlate: SNI DBusMenu snapshot ready");
+        }
+        if provider_replaced {
+            // Never send close/hover/click to the new owner of the same bus
+            // name. The replacement must be opened through new user input.
+            // Invalidate before any remaining provider replies are inspected.
+            self.tray_menu_state.close();
+        }
         if self.tray_menu_state.visible && !self.tray_menu_state.is_local() {
             let bus_name = self.tray_menu_state.bus_name.clone();
             let stale = if let Some(item) = host.get_item(&bus_name) {
@@ -5021,7 +5052,16 @@ impl RicePlate {
                 self.redraw_tray_popup();
             }
         }
+        if provider_replaced {
+            self.set_tray_popup_visible(false, qh);
+            self.request_redraw(qh);
+        }
         if self.tray_state != updated {
+            if std::env::var("RICEBOWL_DE_TRACE_TRAY").as_deref() == Ok("1") {
+                // CI diagnostics contain counts only, never remote item text.
+                eprintln!("RicePlate: SNI inventory changed items={} visible={}",
+                          updated.entries.len(), updated.visible_count());
+            }
             self.tray_state = updated;
             if self.tray_popup_state.visible {
                 if self.tray_state.overflow_count() == 0 {
@@ -5140,6 +5180,16 @@ impl RicePlate {
             let has_menu = self.tray_host.as_ref().and_then(|host|
                 host.get_item(&entry.bus_name)).is_some_and(|item|
                 popup.open(&entry.bus_name, &entry.title, &item.menu));
+            if std::env::var("RICEBOWL_DE_TRACE_TRAY").as_deref() == Ok("1") {
+                let remote_rows = self.tray_host.as_ref()
+                    .and_then(|host| host.get_item(&entry.bus_name))
+                    .map(|item| match &item.menu {
+                        status_notifier::MenuNode::Menu { children, .. } => children.len(),
+                        _ => 0,
+                    });
+                eprintln!("RicePlate: SNI menu lookup slot={index} is_menu={} rows={remote_rows:?} snapshot={} target={}",
+                    entry.is_menu, has_menu, self.tray_popup_target(source).is_some());
+            }
             if has_menu {
                 if let Some(target) = self.tray_popup_target(source) {
                     self.set_tray_popup_visible(false, qh);
@@ -5215,11 +5265,28 @@ impl RicePlate {
         if self.calendar_state.visible { self.set_calendar_visible(false, qh); }
         self.tray_popup_focused = false;
         self.active_tray_popup = Some(surface.clone());
+        if std::env::var("RICEBOWL_DE_TRACE_TRAY").as_deref() == Ok("1") {
+            let ready = self.tray_popup_layer.iter()
+                .chain(self.tray_popup_mirrors.iter())
+                .find(|layer| layer.surface.wl_surface() == &surface)
+                .map(|layer| layer.configured);
+            eprintln!("RicePlate: SNI popup show target configured={ready:?} menu_visible={}",
+                self.tray_menu_state.visible);
+        }
         for layer in self.tray_popup_layer.iter().chain(self.tray_popup_mirrors.iter()) {
             let active = layer.surface.wl_surface() == &surface;
-            layer.surface.set_keyboard_interactivity(if active {
+            layer.surface.set_keyboard_interactivity(if !active {
+                KeyboardInteractivity::None
+            } else if self.tray_menu_state.visible {
+                // An explicit tray-menu gesture must acquire keyboard focus
+                // immediately, including after another rice released its
+                // layer. OnDemand alone can leave nested menu actions inert.
+                // The grab is released by set_tray_popup_visible(false) and
+                // on wl_keyboard.leave; inactive outputs never grab keys.
+                KeyboardInteractivity::Exclusive
+            } else {
                 KeyboardInteractivity::OnDemand
-            } else { KeyboardInteractivity::None });
+            });
             layer.surface.set_margin(
                 if self.recipe.top { self.recipe.height as i32 + 8 } else { 0 },
                 if active { 8 } else { MAX_WIDTH as i32 },
@@ -5309,7 +5376,12 @@ impl RicePlate {
             .or_else(|| self.tray_popup_mirrors.iter_mut().find(|layer|
                 layer.surface.wl_surface() == active));
         let Some(layer) = layer else { return; };
-        if !layer.configured { return; }
+        if !layer.configured {
+            if std::env::var("RICEBOWL_DE_TRACE_TRAY").as_deref() == Ok("1") {
+                eprintln!("RicePlate: SNI popup awaiting compositor configure before first buffer");
+            }
+            return;
+        }
         if layer.pool.is_none() {
             let bytes = (tray::POPUP_WIDTH * tray::POPUP_HEIGHT * 4 * 3) as usize;
             match SlotPool::new(bytes, &self.shm) {
@@ -5343,6 +5415,9 @@ impl RicePlate {
             return;
         }
         layer.surface.commit();
+        if std::env::var("RICEBOWL_DE_TRACE_TRAY").as_deref() == Ok("1") {
+            eprintln!("RicePlate: SNI popup buffer committed to compositor");
+        }
     }
 
     fn request_redraw(&mut self, qh: &QueueHandle<Self>) {
@@ -7736,6 +7811,21 @@ impl KeyboardHandler for RicePlate {
         _: &[Keysym],
     ) {
         if self.keyboard.as_ref() != Some(keyboard) { return; }
+        if self.active_tray_popup.is_some()
+            && std::env::var("RICEBOWL_DE_TRACE_TRAY").as_deref() == Ok("1") {
+            // Only surface categories; no user input or remote D-Bus strings.
+            let owner = if self.active_tray_popup.as_ref() == Some(surface) {
+                "tray-popup"
+            } else if self.layer.wl_surface() == surface {
+                "primary-panel"
+            } else if self.menu_layer.as_ref().is_some_and(|layer|
+                layer.surface.wl_surface() == surface) {
+                "native-menu"
+            } else {
+                "other"
+            };
+            eprintln!("RicePlate: SNI keyboard entered {owner}");
+        }
         if let Some(seat) = self.seat_assignments.keyboard_owner().cloned() {
             if self.desktop_keyboard_focus_layer.is_some()
                 && self.desktop_keyboard_focus_layer.as_ref().is_some_and(|layer|
@@ -7790,6 +7880,10 @@ impl KeyboardHandler for RicePlate {
             && self.active_calendar.as_ref() == Some(surface);
         self.tray_popup_focused = self.tray_popup_open()
             && self.active_tray_popup.as_ref() == Some(surface);
+        if self.tray_popup_focused
+            && std::env::var("RICEBOWL_DE_TRACE_TRAY").as_deref() == Ok("1") {
+            eprintln!("RicePlate: compositor confirmed tray popup keyboard focus");
+        }
         if let Some((mirror, width, offset)) = self.panel_geometry(surface) {
             let groups = self.grouped_tasks();
             let active = groups.iter().position(|group| group.active);
@@ -9352,6 +9446,16 @@ impl PointerHandler for RicePlate {
                         }
                     }
                     let groups = self.grouped_tasks();
+                    if self.recipe.id == "xp-luna-columns"
+                        && std::env::var("RICEBOWL_DE_TRACE_TRAY").as_deref() == Ok("1") {
+                        // A real compositor pointer receipt, not an inferred
+                        // pixel/layout position. Only geometry and counts.
+                        eprintln!("RicePlate: Luna pointer button={button} local={:?} panel={}x{} hit={:?} tray_items={}",
+                            event.position, panel_width, panel_height,
+                            input_core::panel_hit(&self.recipe, panel_width,
+                                panel_height, event.position, groups.len(), panel_offset),
+                            self.tray_state.entries.len());
+                    }
                     match input_core::panel_hit(
                         &self.recipe, panel_width, panel_height, event.position,
                         groups.len(), panel_offset,
