@@ -122,8 +122,20 @@ def create_enterprise_wifi(*, ssid: str, identity: str, domain: str,
         # A system CA trust bundle can override a custom CA in NetworkManager.
         # The selected certificate must be the one used to verify the server.
         args.extend(("802-1x.system-ca-certs", "no", "802-1x.ca-cert", cert))
-    _run(*args)
-    after = backend.connection_profiles()
+    try:
+        _run(*args)
+    except backend.SettingsError as exc:
+        # NetworkManager may commit the profile before its CLI reply is lost.
+        # Reissuing "con add" could create a second credential-bearing profile.
+        raise backend.SettingsError(
+            "Enterprise profile creation outcome unknown; refresh saved profiles "
+            "before retrying") from exc
+    try:
+        after = backend.connection_profiles()
+    except backend.SettingsError as exc:
+        raise backend.SettingsError(
+            "Enterprise profile may have been created; provider readback unavailable; "
+            "refresh saved profiles before retrying") from exc
     new = next((item for item in after if item["uuid"] == identifier), None)
     if (new is None or new["kind"] not in ("802-11-wireless", "wifi")
             or new["active"] or identifier in {item["uuid"] for item in before}):
