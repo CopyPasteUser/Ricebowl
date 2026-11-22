@@ -90,11 +90,34 @@ def _devices(kind: str, payload: str) -> list[dict[str, Any]]:
                 or not 0 <= index < 2**32 or type(desc) is not str):
             raise AudioDeviceError("Invalid or ambiguous audio device identity",
                                    "audio_response_invalid")
+        properties = entry.get("properties", {})
+        if type(properties) is not dict:
+            raise AudioDeviceError("Malformed audio device metadata",
+                                   "audio_response_invalid")
+        # PipeWire exposes a per-object serial in pactl's device properties.
+        # Indexes can be reused after reconnect, so retain this independent
+        # identity when advertised. Older PulseAudio inventories lack it.
+        serial = properties.get("object.serial")
+        if serial is not None:
+            if type(serial) is int:
+                if not 0 <= serial < 2**64:
+                    raise AudioDeviceError("Invalid audio object serial",
+                                           "audio_response_invalid")
+            elif (type(serial) is str and 1 <= len(serial) <= 20
+                  and serial.isascii() and serial.isdecimal()
+                  and int(serial) < 2**64):
+                serial = int(serial)
+            else:
+                raise AudioDeviceError("Invalid audio object serial",
+                                       "audio_response_invalid")
         names.add(name)
         indices.add(index)
-        result.append({"name": name, "index": index,
-                       "description": "".join(ch for ch in desc[:160]
-                                              if ch.isprintable())[:120]})
+        device = {"name": name, "index": index,
+                  "description": "".join(ch for ch in desc[:160]
+                                         if ch.isprintable())[:120]}
+        if serial is not None:
+            device["object_serial"] = serial
+        result.append(device)
     return result
 
 
@@ -165,6 +188,7 @@ def set_default(kind: str, name: str, *, expected_current: str | None = None) ->
         # A reconnect can reuse a device name for a different sink/source.
         # Verify the same advertised provider object, not just its label.
         if not any(device["name"] == name and device["index"] == target["index"]
+                   and device.get("object_serial") == target.get("object_serial")
                    for device in devices_after):
             raise AudioDeviceError("Selected audio device identity changed during readback")
     except AudioDeviceError as exc:
@@ -295,6 +319,7 @@ def set_stream_output(index: int, sink: str, *, expected_sink: int,
             raise AudioDeviceError("Playback stream disappeared during readback")
         _check_stream_client(after, expected_client)
         if not any(device["name"] == sink and device["index"] == target["index"]
+                   and device.get("object_serial") == target.get("object_serial")
                    for device in confirmed["outputs"]):
             raise AudioDeviceError("Playback output changed during readback")
     except AudioDeviceError as exc:
