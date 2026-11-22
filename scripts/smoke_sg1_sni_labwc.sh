@@ -22,6 +22,27 @@ cp "$root/examples/wayland/xp-luna-columns.json" "$runtime/luna.json"
 chmod 0600 "$runtime/luna.json"
 export XDG_RUNTIME_DIR="$runtime"
 export XDG_CONFIG_HOME="$runtime"
+# The native Luna installed-app index and its Gio-launch target are
+# deliberately private to this disposable compositor session.
+mkdir -m 0700 "$runtime/data" "$runtime/data/applications"
+export XDG_DATA_HOME="$runtime/data"
+export RICEBOWL_CI_SG1_LAUNCH_RECEIPT="$runtime/luna-launch-receipt"
+cat >"$runtime/luna-app-witness" <<'SG1_LUNA_WITNESS'
+#!/bin/sh
+[ "$#" -eq 0 ] || exit 64
+[ -n "${RICEBOWL_CI_SG1_LAUNCH_RECEIPT:-}" ] || exit 64
+printf '%s\n' 'luna-keyboard-launch-received' >"$RICEBOWL_CI_SG1_LAUNCH_RECEIPT"
+SG1_LUNA_WITNESS
+chmod 0700 "$runtime/luna-app-witness"
+cat >"$XDG_DATA_HOME/applications/ricebowl-sg1-witness.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=RiceBowl SG1 Witness
+Keywords=sg1witness;
+Exec=$runtime/luna-app-witness
+Terminal=false
+EOF
+chmod 0600 "$XDG_DATA_HOME/applications/ricebowl-sg1-witness.desktop"
 export WLR_BACKENDS=headless
 export WLR_HEADLESS_OUTPUTS=1
 export WLR_RENDERER=pixman
@@ -172,6 +193,34 @@ PY
         plate=$!
         sleep 1
         kill -0 "$plate" || { tail -n 40 "$runtime/plate-$rice.log" >&2; exit 1; }
+
+        if [ "$rice" = luna ]; then
+            # Complete the XP Luna half of SG1 app/search acceptance. Chrome
+            # already proves pointer -> Fuzzel keyboard search -> real Exec
+            # in smoke_riceplate_native.sh (#573). Here a real compositor
+            # pointer opens Start; keyboard slash filters the actual native
+            # installed-app index; Return must traverse Gio launch and execute
+            # an XDG desktop entry visible ONLY in this private XDG_DATA_HOME.
+            # A painted search result alone is not a successful app launch.
+            test ! -e "$RICEBOWL_CI_SG1_LAUNCH_RECEIPT"
+            WAYLAND_DISPLAY=wayland-0 "$clicker" 35 748 1366 768
+            sleep .3
+            WAYLAND_DISPLAY=wayland-0 wtype -k slash -d 50 "sg1witness" -s 350 -k Return
+            count=0
+            while [ ! -s "$RICEBOWL_CI_SG1_LAUNCH_RECEIPT" ] && [ "$count" -lt 40 ]; do
+                count=$((count + 1))
+                sleep .1
+            done
+            if [ "$(cat "$RICEBOWL_CI_SG1_LAUNCH_RECEIPT" 2>/dev/null || :)" != "luna-keyboard-launch-received" ]; then
+                echo "XP Luna pointer/Search/Return did not execute private installed application" >&2
+                tail -n 75 "$runtime/plate-$rice.log" >&2 || :
+                exit 1
+            fi
+            WAYLAND_DISPLAY=wayland-0 wtype -k Escape -k Escape
+            sleep .2
+            kill -0 "$plate"
+            echo "SG1 XP Luna pointer -> installed-app search -> compositor keyboard Return -> Gio Exec PASS"
+        fi
 
         # The real SNI host exports the Watcher; provider retries registration
         # until it exists, then records exact unique owner and menu events.
