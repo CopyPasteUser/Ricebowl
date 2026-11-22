@@ -169,6 +169,31 @@ mod taskbar_window_tests {
     }
 
     #[test]
+    fn interleaved_done_events_are_scoped_to_their_own_handles() {
+        let now = Instant::now();
+        let mut actions = TaskbarWindowActions::<u64>::default();
+        assert_eq!(actions.click(&10, true, false, now), Minimize);
+        assert_eq!(actions.click(&20, true, false, now), Minimize);
+        assert_eq!(actions.click(&10, true, false, now), Restore);
+
+        // A different window's Done must not acknowledge either intent.
+        actions.confirmed(&30, false);
+        // The first request's delayed Done must not retire the newer restore.
+        actions.confirmed(&10, true);
+        assert_eq!(actions.click(&10, true, true, now), Minimize);
+
+        actions.confirmed(&20, true);
+        assert_eq!(actions.click(&20, false, true, now), Restore);
+        actions.confirmed(&20, false);
+        assert_eq!(actions.click(&20, true, false, now), Minimize);
+
+        // Closing a handle revokes only its own pending request.
+        actions.closed(&10);
+        assert_eq!(actions.click(&10, true, false, now), Minimize);
+        assert_eq!(actions.click(&20, true, false, now), Restore);
+    }
+
+    #[test]
     fn refused_request_expires_on_input_without_polling() {
         let now = Instant::now();
         let mut actions = TaskbarWindowActions::<u32>::default();
@@ -223,6 +248,21 @@ mod tests {
         assert!(!desktop.active());
         assert!(desktop.toggle([(7, true, true)]).is_empty());
         assert!(desktop.active());
+    }
+
+    #[test]
+    fn a_closed_window_cannot_be_restored_after_reusing_its_old_group() {
+        let mut desktop = ShowDesktop::<u64>::default();
+        assert_eq!(desktop.toggle([(10, true, false), (20, true, false)]),
+            [Action::Minimize(10), Action::Minimize(20)]);
+        desktop.closed(&10);
+        // The newly opened handle has a different identity, even if its
+        // application title and group are the same.
+        assert_eq!(desktop.toggle([(20, true, true), (30, true, false)]),
+            [Action::Restore(20)]);
+        assert!(!desktop.active());
+        assert_eq!(desktop.toggle([(30, true, false)]),
+            [Action::Minimize(30)]);
     }
 
     #[test]
