@@ -591,11 +591,14 @@ class RiceSpiceSettingsTests(unittest.TestCase):
 
         with mock.patch.object(backend, "datetime", Clock), \
                 mock.patch.object(backend, "_timedatectl", side_effect=[
-                    "CanNTP=yes\nNTP=no", ""]) as timedated:
+                    "CanNTP=yes\nNTP=no", "", "CanNTP=yes\nNTP=no"]) as timedated:
             self.assertEqual(backend.set_system_clock("2026-11-08 10:30:00"),
                              "2026-11-08 10:30:00")
-            self.assertEqual(timedated.call_args_list[1],
-                             mock.call("set-time", "2026-11-08 10:30:00"))
+            self.assertEqual(timedated.call_args_list, [
+                mock.call("show", "-p", "CanNTP", "-p", "NTP"),
+                mock.call("set-time", "2026-11-08 10:30:00"),
+                mock.call("show", "-p", "CanNTP", "-p", "NTP"),
+            ])
         with mock.patch.object(backend, "_timedatectl") as timedated:
             for invalid in ("not-a-date", "2026-99-08 10:30:00", "2000-02-31 10:30:00",
                             "; rm -rf /", "2026-11-08 10:30", None):
