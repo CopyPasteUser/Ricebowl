@@ -150,6 +150,11 @@ def version_history(info: DraftInfo) -> list[DraftInfo]:
         seen.add(current.path)
         chain.append(open_draft(current.path))
         current = previous_version(current)
+    if current is not None:
+        # Reaching the traversal cap with another parent is NOT a verified
+        # root. Never expose incomplete history as an authoritative lineage:
+        # export attribution and recovery must fail closed on deeper chains.
+        raise WorkspaceError("Creator version history exceeds the safe 64-version limit")
     return chain
 
 
