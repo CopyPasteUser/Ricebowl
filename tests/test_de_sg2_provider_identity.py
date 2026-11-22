@@ -69,6 +69,14 @@ class AudioDefaultIdentityTests(unittest.TestCase):
         self.assertEqual(state["writes"], 1)
         self.assertTrue(error.may_have_changed)
 
+    def test_invalid_kind_is_rejected_without_provider_access(self):
+        with mock.patch.object(audio, "_run") as provider:
+            for kind in (None, False, 1, [], {}):
+                with self.subTest(kind=kind):
+                    with self.assertRaises(audio.AudioDeviceError):
+                        audio.set_default(kind, NEW)
+            provider.assert_not_called()
+
 
 class NetworkProfileIdentityTests(unittest.TestCase):
     def test_same_uuid_same_type_but_new_label_never_certifies_activation(self):
@@ -201,6 +209,19 @@ class EnterpriseEnrollmentIdentityTests(unittest.TestCase):
         calls, error = self._attempt(active=False)
         self.assertEqual(len(calls), 1)
         self.assertIn("changed", str(error))
+
+    def test_expected_active_requires_a_boolean(self):
+        with (
+            mock.patch.object(backend, "connection_profiles") as inventory,
+            mock.patch.object(enrollment, "_run") as provider,
+        ):
+            for expected in (0, 1, None, "false"):
+                with self.subTest(expected=expected):
+                    with self.assertRaises(backend.SettingsError):
+                        enrollment.connect_enterprise_wifi(
+                            UUID, "private-secret", expected_active=expected)
+            inventory.assert_not_called()
+            provider.assert_not_called()
 
     def test_missing_profile_label_fails_before_secret_dispatch(self):
         malformed = {"uuid": UUID, "kind": "wifi", "active": False}
