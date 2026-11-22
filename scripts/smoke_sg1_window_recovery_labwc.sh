@@ -5,7 +5,7 @@ set -eu
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 native="$root/components/riceplate-wayland/target/release/riceplate-native"
 clicker="$root/components/riceplate-wayland/target/release/examples/wayland_pointer_click"
-for cmd in labwc dbus-run-session foot wlr-randr wtype; do
+for cmd in labwc dbus-run-session foot wlr-randr wtype timeout; do
     command -v "$cmd" >/dev/null || { echo "Missing SG1 dependency: $cmd" >&2; exit 1; }
 done
 test -x "$native" && test -x "$clicker" || {
@@ -97,7 +97,7 @@ for rice in chrome luna; do
             [ "$tries" -lt 40 ] || { echo "Missing rapid taskbar action receipts" >&2; exit 1; }
             await_state "$begin" "active=true minimized=false"
             # The restored app must receive actual compositor keyboard input.
-            (sleep .8; printf "%s" sg1-focus-ok) | wtype - -k Return \
+            (sleep .8; printf "%s" sg1-focus-ok) | timeout -k 3s 15s wtype - -k Return \
                 >"$runtime/keyboard.log" 2>&1 &
             keyboard=$!
             wait "$keyboard" || { cat "$runtime/keyboard.log" >&2; exit 1; }
