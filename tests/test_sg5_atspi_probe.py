@@ -111,6 +111,20 @@ class ProbeTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "no accessible applications"):
                 probe.run_entry("Command")
 
+    def test_missing_desktop_provider_fails_cleanly(self):
+        with patch.object(probe.pyatspi.Registry, "getDesktop", return_value=None):
+            with self.assertRaisesRegex(RuntimeError, "desktop provider unavailable"):
+                probe.run_entry("Command")
+            with self.assertRaisesRegex(RuntimeError, "desktop provider unavailable"):
+                probe.diagnostic_inventory()
+
+    def test_invalid_desktop_child_count_fails_cleanly(self):
+        class InvalidDesktop:
+            childCount = None
+        with patch.object(probe.pyatspi.Registry, "getDesktop", return_value=InvalidDesktop()):
+            with self.assertRaisesRegex(RuntimeError, "no accessible applications"):
+                probe.run_entry("Command")
+
     def test_truncated_accessibility_tree_is_not_an_absence_receipt(self):
         class Node:
             name = "inert"
