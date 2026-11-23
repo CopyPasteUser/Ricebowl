@@ -22,9 +22,13 @@ login, XFCE state, package installation or release sign-off JSON.
 **Context-race hardening (23 November 2026):** the collector reads the
 live `main` commit and **every open PR number, HEAD SHA and Draft flag**
 *twice*: before querying Actions and again after all workflow/job evidence
-has been evaluated. If either snapshot changes
-during collection, it fails closed **without writing a dossier**. This
-narrows the stale-result window but is not an atomic GitHub transaction;
+has been evaluated. It also fetches the required **trusted
+exact-source workflow run list a second time** and compares every accepted
+run ID, attempt, status and conclusion. New failed/pending runs, reruns,
+force-pushed PR heads and renamed/replaced PRs therefore block dossier
+publication. The second workflow fetch happens before the final live
+main/PR check. Any inconsistent snapshot fails **without writing a dossier**.
+This narrows the stale-result window but is not an atomic GitHub transaction;
 no report may bypass the later exact-source review or hardware gates.
 
 The dossier binds each accepted claim to the **latest trusted main run** of
