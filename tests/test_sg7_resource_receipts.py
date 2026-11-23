@@ -10,6 +10,7 @@ from pathlib import Path
 
 from scripts.verify_sg7_resource_receipts import EvidenceError, main, verify
 from scripts.sg7_safe_receipt_io import ReceiptReadError
+from scripts.sg7_dossier_io import DossierWriteError
 
 SHA = "a" * 40
 BASELINE = {
@@ -89,7 +90,7 @@ class SG7ResourceReceiptTests(unittest.TestCase):
     def test_manifest_write_failure_does_not_claim_success_or_leave_partial_proof(self):
         target = self.folder / "sg7-resource-acceptance.json"
         with patch("scripts.verify_sg7_resource_receipts.publish_dossier",
-                   side_effect=EvidenceError("atomic publication denied")):
+                   side_effect=DossierWriteError("atomic publication denied")):
             self.assertEqual(main(["--directory", str(self.folder),
                                    "--source-commit", SHA]), 1)
         self.assertFalse(target.exists())
