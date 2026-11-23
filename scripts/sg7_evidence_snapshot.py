@@ -40,7 +40,9 @@ def trusted_run_snapshot(evidence: object, source_sha: str,
                                             else ("push", "workflow_dispatch"))):
             continue
         identity = run.get("id")
-        attempt = run.get("run_attempt", 1)
+        # The GitHub workflow-runs REST response includes run_attempt. If it
+        # disappears, silently assuming attempt 1 could launder a rerun.
+        attempt = run.get("run_attempt")
         status = run.get("status")
         conclusion = run.get("conclusion")
         if (type(identity) is not int or identity <= 0
