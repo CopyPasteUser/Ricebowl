@@ -62,8 +62,8 @@ rebuild/attestation tests remain authoritative for their own scope.
 - The SG7 resource verifier now reads each raw cycle JSON and CPU receipt
 through a bounded, no-follow descriptor instead of a separate pathname
 check followed by `Path.read_bytes()`. It rejects directories, FIFOs,
-symlinks, oversized files and in-flight size/metadata changes without
-blocking on special files. The new standard-library helper has independent
+symlinks, oversized files, in-flight size/metadata changes **and
+atomic pathname replacement** without blocking on special files. The new standard-library helper has independent
 negative Linux tests; this is integrity hardening for **software-only
 receipts**, not a source signature, proof of their measurement origin or a
 physical system benchmark. Full repository and compositor tests are still
