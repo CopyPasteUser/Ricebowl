@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import json
 import sys
 import tempfile
 import unittest
@@ -113,7 +114,7 @@ class MatrixTests(unittest.TestCase):
                                  "A stale main/PR snapshot must never publish a dossier")
                 if expected == 0:
                     self.assertTrue(
-                        __import__("json").loads(output.read_text())["ready_for_formal_review"])
+                        json.loads(output.read_text())["ready_for_formal_review"])
 
 
     def test_invalid_sources_cannot_be_laundered(self):
