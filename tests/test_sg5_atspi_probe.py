@@ -118,6 +118,17 @@ class ProbeTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "desktop provider unavailable"):
                 probe.diagnostic_inventory()
 
+    def test_unreadable_desktop_metadata_is_not_a_dismissal(self):
+        class BrokenDesktop:
+            @property
+            def childCount(self):
+                raise AttributeError("internal provider text")
+        with patch.object(probe.pyatspi.Registry, "getDesktop", return_value=BrokenDesktop()):
+            with self.assertRaisesRegex(RuntimeError, "desktop metadata unavailable"):
+                probe.run_entry("Command")
+            with self.assertRaisesRegex(RuntimeError, "desktop metadata unavailable"):
+                probe.diagnostic_inventory()
+
     def test_invalid_desktop_child_count_fails_cleanly(self):
         class InvalidDesktop:
             childCount = None
