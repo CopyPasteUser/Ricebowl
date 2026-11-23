@@ -82,8 +82,18 @@ class SG7ResourceReceiptTests(unittest.TestCase):
         self.assertEqual(main(["--directory", str(self.folder), "--source-commit", SHA]), 0)
         manifest = json.loads((self.folder / "sg7-resource-acceptance.json").read_text())
         self.assertEqual(manifest, result)
+        self.assertEqual((self.folder / "sg7-resource-acceptance.json").stat().st_mode & 0o777, 0o600)
         # Re-runs may not silently overwrite an earlier evidence receipt.
         self.assertEqual(main(["--directory", str(self.folder), "--source-commit", SHA]), 1)
+
+    def test_manifest_write_failure_does_not_claim_success_or_leave_partial_proof(self):
+        target = self.folder / "sg7-resource-acceptance.json"
+        with patch("scripts.verify_sg7_resource_receipts.publish_dossier",
+                   side_effect=EvidenceError("atomic publication denied")):
+            self.assertEqual(main(["--directory", str(self.folder),
+                                   "--source-commit", SHA]), 1)
+        self.assertFalse(target.exists())
+        self.assertFalse(any(self.folder.glob(".sg7-resource-acceptance.json.*.tmp")))
 
     def test_missing_and_symlinked_receipts_are_not_trusted(self):
         self.path(2).unlink()
