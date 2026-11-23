@@ -32,7 +32,8 @@ class MatrixTests(unittest.TestCase):
             for job_name in sg7.REQUIRED_JOBS[path]:
                 steps = [{"name": step, "status": "completed", "conclusion": "success"}
                          for _, p, j, step in sg7.CHECKS if p == path and j == job_name]
-                self.jobs[path].append({"run_id": i, "run_attempt": 1, "name": job_name,
+                self.jobs[path].append({"run_id": i, "run_attempt": 1,
+                                         "head_sha": SHA, "name": job_name,
                                          "status": "completed", "conclusion": "success",
                                          "steps": steps})
 
@@ -94,6 +95,17 @@ class MatrixTests(unittest.TestCase):
                 self.assertEqual(next(check for check in report["checks"]
                     if check["id"] == "native-headless-labwc")["status"], "blocked")
         job["run_attempt"] = 1
+        self.assertTrue(self.matrix()["ready_for_formal_review"])
+
+    def test_job_with_mismatched_source_sha_never_certifies_any_step(self):
+        path = ".github/workflows/riceplate-native.yml"
+        job = self.jobs[path][0]
+        job["head_sha"] = "b" * 40
+        self.assertFalse(self.matrix()["ready_for_formal_review"])
+        failed = [step for step in self.matrix()["checks"] if
+                  step["workflow"] == path and step["status"] == "blocked"]
+        self.assertTrue(failed)
+        job["head_sha"] = SHA
         self.assertTrue(self.matrix()["ready_for_formal_review"])
 
     def test_pr_head_untrusted_and_missing_path_filtered_run(self):
