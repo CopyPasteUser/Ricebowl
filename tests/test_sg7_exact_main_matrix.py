@@ -26,6 +26,7 @@ class MatrixTests(unittest.TestCase):
         for i, (path, name) in enumerate(sg7.REQUIRED.items(), 1):
             self.runs.append({"id": i, "name": name, "path": path,
                               "head_sha": SHA, "head_branch": "main", "event": "push",
+                              "run_attempt": 1,
                               "status": "completed", "conclusion": "success"})
             self.jobs[path] = []
             for job_name in sg7.REQUIRED_JOBS[path]:
