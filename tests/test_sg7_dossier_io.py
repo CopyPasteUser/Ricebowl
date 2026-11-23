@@ -67,6 +67,13 @@ class DossierIOTests(unittest.TestCase):
         self.assertFalse(self.out.exists())
         self.assert_no_temp_files()
 
+    def test_fsync_error_leaves_no_published_report(self):
+        with patch("scripts.sg7_dossier_io.os.fsync", side_effect=OSError("disk sync error")):
+            with self.assertRaises(DossierWriteError):
+                publish_dossier(self.out, self.valid)
+        self.assertFalse(self.out.exists())
+        self.assert_no_temp_files()
+
     def test_racing_target_creation_is_never_overwritten(self):
         original_link = os.link
 
