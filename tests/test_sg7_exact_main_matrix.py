@@ -139,6 +139,34 @@ class MatrixTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     sg7._live_context(REPO, 'fixture-token')
 
+    def test_collector_refuses_new_or_rerun_trusted_workflow_during_collection(self):
+        initial = [dict(row) for row in self.runs]
+        pending = dict(initial[0], id=100, status="in_progress", conclusion=None)
+        failed = dict(initial[0], id=100, status="completed", conclusion="failure")
+        rerun = dict(initial[0], run_attempt=2)
+        for replacement in (
+            initial + [pending],
+            initial + [failed],
+            [rerun, *initial[1:]],
+        ):
+            with self.subTest(replacement=replacement), tempfile.TemporaryDirectory() as folder:
+                output = Path(folder) / "software-matrix.json"
+                env = {"GITHUB_SHA": SHA, "GITHUB_REPOSITORY": REPO,
+                       "GH_TOKEN": "test-only-token"}
+                with (patch.dict(sg7.os.environ, env),
+                      patch.object(sg7, "_live_context", return_value=(SHA, ())) as live,
+                      patch.object(sg7, "fetch_evidence", side_effect=[
+                          {"workflow_runs": initial}, {"workflow_runs": replacement}
+                      ]) as fetched,
+                      patch.object(sg7, "fetch_job_evidence", return_value=self.jobs),
+                      patch("sys.stderr", new_callable=io.StringIO)):
+                    self.assertEqual(sg7.main(["--output", str(output)]), 2)
+                self.assertEqual(fetched.call_count, 2)
+                self.assertEqual(live.call_count, 1,
+                                 "Changing workflow evidence fails before last context check")
+                self.assertFalse(output.exists(),
+                                 "No green evidence dossier for a changed workflow snapshot")
+
     def test_invalid_sources_cannot_be_laundered(self):
         for sha in ("b" * 39, "B" * 40, "", "../main"):
             with self.subTest(sha=sha), self.assertRaises(ValueError):
