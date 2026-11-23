@@ -67,6 +67,12 @@ class EvidenceSnapshotTests(unittest.TestCase):
             with self.subTest(field=field), self.assertRaises(ValueError):
                 self.snap([row])
 
+    def test_missing_explicit_attempt_is_not_assumed_to_be_first_run(self):
+        omitted = run()
+        del omitted["run_attempt"]
+        with self.assertRaisesRegex(ValueError, "run identity"):
+            self.snap([omitted])
+
     def test_malformed_top_level_context_fails(self):
         for data in ({}, {"workflow_runs": "not a list"}, None):
             with self.subTest(data=data), self.assertRaises(ValueError):
