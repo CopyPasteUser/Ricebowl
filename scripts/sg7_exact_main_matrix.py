@@ -20,6 +20,7 @@ from check_release_workflows import (
     fetch_job_evidence, validate_runs, validate_jobs,
 )
 from sg7_evidence_snapshot import trusted_run_snapshot
+from sg7_dossier_io import publish_dossier
 
 # Exact step names are deliberately strict: renamed/skipped/missing acceptance
 # steps must be reviewed and reflected in the dossier, never silently passed.
@@ -228,10 +229,7 @@ def main(argv: list[str] | None = None) -> int:
         final_main_sha, final_open_pr_snapshot = _live_context(repo, token)
         if (final_main_sha, final_open_pr_snapshot) != (main_sha, open_pr_snapshot):
             raise ValueError("Live main or PR identity/head changed during SG7 evidence collection")
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        with args.output.open("x", encoding="utf-8") as stream:
-            json.dump(report, stream, sort_keys=True, indent=2)
-            stream.write("\n")
+        publish_dossier(args.output, report)
     except (OSError, ValueError, urllib.error.URLError, WorkflowGateError) as exc:
         print(f"SG7: evidence collection failed closed: {exc}", file=sys.stderr)
         return 2
