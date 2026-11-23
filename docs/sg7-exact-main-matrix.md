@@ -32,7 +32,7 @@ This narrows the stale-result window but is not an atomic GitHub transaction;
 no report may bypass the later exact-source review or hardware gates.
 
 **Standalone verification (23 November):** the exact committed
-SG7 workflow-snapshot code passes **8/8** isolated Python 3.13 unit tests,
+SG7 workflow-snapshot code passes **9/9** isolated Python 3.13 unit tests,
 and the atomic-file-receipt reader passes **5/5** local Linux tests.
 These test synthetic evidence/descriptor edge cases, **not** the full
 `scripts/sg7_exact_main_matrix.py` integration, a real compositor or
