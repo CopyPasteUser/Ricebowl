@@ -19,6 +19,13 @@ login, XFCE state, package installation or release sign-off JSON.
    remain open until separately evidenced. Do **not** close the remaining SG1–SG5/SG7 items in #417 or tag 1.0
    because this dossier is green.
 
+**Context-race hardening (23 November 2026):** the collector reads the
+live `main` commit and open-PR count *twice*: before querying Actions and
+again after all workflow/job evidence has been evaluated. If either changes
+during collection, it fails closed **without writing a dossier**. This
+narrows the stale-result window but is not an atomic GitHub transaction;
+no report may bypass the later exact-source review or hardware gates.
+
 The dossier binds each accepted claim to the **latest trusted main run** of
 its named workflow and an **executed successful step** within the required
 job, rather than to the run's aggregate green status alone. Acceptance labels
