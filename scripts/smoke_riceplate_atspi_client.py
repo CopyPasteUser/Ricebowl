@@ -17,6 +17,9 @@ import pyatspi
 def run_entry(name: str):
     """Find the actual transient editor, bounded against broken providers."""
     root = pyatspi.Registry.getDesktop(0)
+    # A dead/empty accessibility registry is not a dismissal receipt.
+    if root.childCount <= 0:
+        raise RuntimeError("AT-SPI registry has no accessible applications")
     stack = [(root, 0)]
     visited = 0
     incomplete = False
