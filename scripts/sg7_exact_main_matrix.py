@@ -159,7 +159,12 @@ def _get_json(url: str, token: str) -> object:
         return json.load(stream)
 
 
-def _live_context(repository: str, token: str) -> tuple[str, int]:
+def _live_context(repository: str, token: str) -> tuple[str, tuple[tuple[int, str, bool], ...]]:
+    """Capture the actual open PR heads, not just their number.
+
+    A PR can close while another opens, or be force-pushed, leaving the same
+    count. Neither event may be hidden by a count-only context comparison.
+    """
     prefix = f"https://api.github.com/repos/{repository}"
     main = _get_json(prefix + "/git/ref/heads/main", token)
     sha = main.get("object", {}).get("sha") if isinstance(main, dict) else None
@@ -168,7 +173,20 @@ def _live_context(repository: str, token: str) -> tuple[str, int]:
     prs = _get_json(prefix + "/pulls?state=open&per_page=100", token)
     if not isinstance(prs, list) or len(prs) >= 100:
         raise ValueError("Open PR list unavailable or truncated")
-    return sha, len(prs)
+    identities = []
+    for pr in prs:
+        if not isinstance(pr, dict):
+            raise ValueError("Malformed live PR inventory")
+        number, head, draft = pr.get("number"), pr.get("head"), pr.get("draft")
+        head_sha = head.get("sha") if isinstance(head, dict) else None
+        if (type(number) is not int or number <= 0
+                or not isinstance(head_sha, str)
+                or not SHA_PATTERN.fullmatch(head_sha) or type(draft) is not bool):
+            raise ValueError("Untrusted live PR identity or head SHA")
+        identities.append((number, head_sha, draft))
+    if len(set(number for number, _, _ in identities)) != len(identities):
+        raise ValueError("Duplicate PR in live inventory")
+    return sha, tuple(sorted(identities))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -183,7 +201,7 @@ def main(argv: list[str] | None = None) -> int:
         print("SG7: invalid or untrusted runner context", file=sys.stderr)
         return 2
     try:
-        main_sha, open_prs = _live_context(repo, token)
+        main_sha, open_pr_snapshot = _live_context(repo, token)
         evidence = fetch_evidence(repo, sha, token)
         # The release-verifier selects all-or-nothing job identities; if any
         # workflow is missing we still output explicit per-check blockers.
@@ -193,14 +211,14 @@ def main(argv: list[str] | None = None) -> int:
         except WorkflowGateError:
             jobs = {}
         report = evaluate(evidence, jobs, sha=sha, main_sha=main_sha,
-                          repository=repo, open_prs=open_prs)
+                          repository=repo, open_prs=len(open_pr_snapshot))
         # Evidence collection makes several remote API requests. A merge or
         # newly opened PR during that interval invalidates the initial
         # main/PR snapshot, even when every retrieved Actions job was green.
         # Re-read both immediately before publishing any acceptance dossier.
-        final_main_sha, final_open_prs = _live_context(repo, token)
-        if (final_main_sha, final_open_prs) != (main_sha, open_prs):
-            raise ValueError("Live main or open PR count changed during SG7 evidence collection")
+        final_main_sha, final_open_pr_snapshot = _live_context(repo, token)
+        if (final_main_sha, final_open_pr_snapshot) != (main_sha, open_pr_snapshot):
+            raise ValueError("Live main or PR identity/head changed during SG7 evidence collection")
         args.output.parent.mkdir(parents=True, exist_ok=True)
         with args.output.open("x", encoding="utf-8") as stream:
             json.dump(report, stream, sort_keys=True, indent=2)
