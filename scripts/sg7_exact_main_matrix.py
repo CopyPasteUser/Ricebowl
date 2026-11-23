@@ -19,6 +19,7 @@ from check_release_workflows import (
     REQUIRED, REQUIRED_JOBS, WorkflowGateError, fetch_evidence,
     fetch_job_evidence, validate_runs, validate_jobs,
 )
+from sg7_evidence_snapshot import trusted_run_snapshot
 
 # Exact step names are deliberately strict: renamed/skipped/missing acceptance
 # steps must be reviewed and reflected in the dossier, never silently passed.
@@ -203,6 +204,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         main_sha, open_pr_snapshot = _live_context(repo, token)
         evidence = fetch_evidence(repo, sha, token)
+        initial_runs = trusted_run_snapshot(evidence, sha, REQUIRED)
         # The release-verifier selects all-or-nothing job identities; if any
         # workflow is missing we still output explicit per-check blockers.
         try:
@@ -212,6 +214,13 @@ def main(argv: list[str] | None = None) -> int:
             jobs = {}
         report = evaluate(evidence, jobs, sha=sha, main_sha=main_sha,
                           repository=repo, open_prs=len(open_pr_snapshot))
+        # Jobs may finish, fail, or be rerun while their earlier green state
+        # is being read. Refetch the trusted run identities and attempts:
+        # final context checks alone do not detect same-main Actions races.
+        current_runs = trusted_run_snapshot(fetch_evidence(repo, sha, token),
+                                             sha, REQUIRED)
+        if current_runs != initial_runs:
+            raise ValueError("Trusted workflow run state changed during SG7 evidence collection")
         # Evidence collection makes several remote API requests. A merge or
         # newly opened PR during that interval invalidates the initial
         # main/PR snapshot, even when every retrieved Actions job was green.
