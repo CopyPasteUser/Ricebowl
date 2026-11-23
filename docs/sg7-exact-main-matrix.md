@@ -48,9 +48,13 @@ publish the complete inode in one step. Existing files and symlinks are
 never overwritten; errors remove temporary output. Seven local Linux
 Python regression tests verify completed write, existing file/symlink,
 invalid serialization, non-finite floats, link failure and a competing
-writer. Collector-level negative cases are present but require complete
-repository test execution before merge. This is atomic **publication**,
-not a signed receipt or global transactional snapshot.
+writer. The same publisher now also protects
+`sg7-resource-acceptance.json` emitted by
+`scripts/verify_sg7_resource_receipts.py`; writer refusal yields an explicit
+BLOCKED status. Collector- and resource-verifier-level negative cases are
+present but require complete repository test execution before merge.
+This is atomic **publication**, not a signed receipt or global
+transactional snapshot.
 
 The dossier binds each accepted claim to the **latest trusted main run** of
 its named workflow and an **executed successful step** within the required
