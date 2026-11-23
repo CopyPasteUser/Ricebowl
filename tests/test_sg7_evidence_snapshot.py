@@ -57,6 +57,16 @@ class EvidenceSnapshotTests(unittest.TestCase):
         self.assertEqual(self.snap([wrong_branch, wrong_sha]), ())
         self.assertEqual(self.snap([run(event="workflow_dispatch")]), ())
 
+    def test_unhashable_or_empty_remote_metadata_cannot_crash_collector(self):
+        malformed_path = run()
+        malformed_path["path"] = ["not hashable"]
+        self.assertEqual(self.snap([malformed_path]), ())
+        for field, value in (("status", ""), ("conclusion", "")):
+            row = run()
+            row[field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                self.snap([row])
+
     def test_malformed_top_level_context_fails(self):
         for data in ({}, {"workflow_runs": "not a list"}, None):
             with self.subTest(data=data), self.assertRaises(ValueError):
