@@ -59,7 +59,17 @@ rebuild/attestation tests remain authoritative for their own scope.
   login/hardware sign-off. Verify its result on the *final main SHA*
   for later exact-final-main release review; SG6's software acceptance is
   already documented at the pinned SHA.
-- The three native `compare-replaced` cycles now check the previous
+- The SG7 resource verifier now reads each raw cycle JSON and CPU receipt
+through a bounded, no-follow descriptor instead of a separate pathname
+check followed by `Path.read_bytes()`. It rejects directories, FIFOs,
+symlinks, oversized files and in-flight size/metadata changes without
+blocking on special files. The new standard-library helper has independent
+negative Linux tests; this is integrity hardening for **software-only
+receipts**, not a source signature, proof of their measurement origin or a
+physical system benchmark. Full repository and compositor tests are still
+required for acceptance.
+
+The three native `compare-replaced` cycles now check the previous
   RicePlate PID/start-time disappears, and record independent `/proc`
   utime+stime intervals alongside PSS/RSS/threads/FDs. The source-bound
   resource verifier validates each same-process CPU sample, its tick-rate
