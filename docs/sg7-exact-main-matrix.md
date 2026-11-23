@@ -56,6 +56,15 @@ present but require complete repository test execution before merge.
 This is atomic **publication**, not a signed receipt or global
 transactional snapshot.
 
+**Per-job provenance (23 November):** before treating an executed step as
+successful, the SG7 validator additionally requires the GitHub job's
+`run_id`, explicit `run_attempt` **and `head_sha`** to match the
+selected exact-main workflow. The read-only GitHub API confirms those
+fields are present on this repository's historical job records. New
+negative unit cases check stale/missing attempts and a mismatched
+source SHA. These tests still need full-checkout execution; no CI run
+was started.
+
 The dossier binds each accepted claim to the **latest trusted main run** of
 its named workflow and an **executed successful step** within the required
 job, rather than to the run's aggregate green status alone. Acceptance labels
