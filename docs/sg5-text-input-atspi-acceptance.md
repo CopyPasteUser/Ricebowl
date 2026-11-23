@@ -51,6 +51,13 @@ standard-library, fake-provider unit tests run successfully against the
 exact committed source and test blobs in an isolated Python 3.13 sandbox.
 In addition to the original probe cases, they now reject incomplete,
 truncated or temporarily unreadable AT-SPI trees as false dismissal receipts.
+The existing private `scripts/smoke_luna_atspi.sh` now also includes
+a **separate real-pointer All Programs** flow: geometry is read from the
+native 1366×768 menu trace, the actual XP All Programs tile is clicked,
+and `Filter installed apps` is checked for keyboard input, backspace,
+AT-SPI focus/caret and Escape teardown. The fixture passed an isolated
+shell-syntax and geometry-coordinate check, **not a live labwc run**.
+
 This is **not** a live labwc/Orca/IME acceptance proof; run the actual
 external AT-SPI smoke on the final head before checking SG5.
 
