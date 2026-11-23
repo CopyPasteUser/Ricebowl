@@ -46,9 +46,11 @@ The public `scripts/smoke_riceplate_atspi_client.py` now requires **three
 consecutive absent samples** before reporting a dismissed editor absent.
 Intermittent provider errors or a still-visible entry reset confirmation.
 If diagnostic inventory fails after a timeout, the probe returns a clean
-failure and logs the error *type only*, never command content. Five
+failure and logs the error *type only*, never command content. Seven
 standard-library, fake-provider unit tests run successfully against the
 exact committed source and test blobs in an isolated Python 3.13 sandbox.
+In addition to the original probe cases, they now reject incomplete,
+truncated or temporarily unreadable AT-SPI trees as false dismissal receipts.
 This is **not** a live labwc/Orca/IME acceptance proof; run the actual
 external AT-SPI smoke on the final head before checking SG5.
 
