@@ -19,21 +19,35 @@ def run_entry(name: str):
     root = pyatspi.Registry.getDesktop(0)
     stack = [(root, 0)]
     visited = 0
+    incomplete = False
     while stack and visited < 900:
         node, depth = stack.pop()
         visited += 1
         try:
             if node.getRole() == pyatspi.ROLE_ENTRY and node.name == name:
                 return node
-            if depth >= 10:
+            count = node.childCount
+            if type(count) is not int or count < 0:
+                incomplete = True
                 continue
-            for index in range(min(node.childCount, 200) - 1, -1, -1):
+            if depth >= 10:
+                # A nested editor may be beyond the scan's depth limit.
+                incomplete |= count > 0
+                continue
+            if count > 200:
+                incomplete = True
+            for index in range(min(count, 200) - 1, -1, -1):
                 child = node.getChildAtIndex(index)
-                if child is not None:
+                if child is None:
+                    incomplete = True
+                else:
                     stack.append((child, depth + 1))
         except (LookupError, RuntimeError):
-            # A window may disappear between enumerating its parent and child.
-            continue
+            # A disappearing child must not be counted as proof that its
+            # editor was dismissed. Retry once the provider is stable.
+            incomplete = True
+    if stack or incomplete:
+        raise RuntimeError("AT-SPI traversal incomplete")
     return None
 
 
