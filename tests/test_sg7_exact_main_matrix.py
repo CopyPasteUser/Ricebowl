@@ -168,6 +168,40 @@ class MatrixTests(unittest.TestCase):
                 self.assertFalse(output.exists(),
                                  "No green evidence dossier for a changed workflow snapshot")
 
+    def test_collector_never_overwrites_existing_evidence(self):
+        # Even a passing matrix must not replace another process's dossier.
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / "software-matrix.json"
+            output.write_text("earlier report", encoding="utf-8")
+            env = {"GITHUB_SHA": SHA, "GITHUB_REPOSITORY": REPO,
+                   "GH_TOKEN": "test-only-token"}
+            with (patch.dict(sg7.os.environ, env),
+                  patch.object(sg7, "_live_context", return_value=(SHA, ())),
+                  patch.object(sg7, "fetch_evidence",
+                               return_value={"workflow_runs": self.runs}),
+                  patch.object(sg7, "fetch_job_evidence", return_value=self.jobs),
+                  patch("sys.stderr", new_callable=io.StringIO)):
+                self.assertEqual(sg7.main(["--output", str(output)]), 2)
+            self.assertEqual(output.read_text(), "earlier report")
+            self.assertEqual(list(Path(folder).glob(".*.tmp")), [])
+
+    def test_collector_fails_without_partial_output_if_report_is_unserializable(self):
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / "software-matrix.json"
+            env = {"GITHUB_SHA": SHA, "GITHUB_REPOSITORY": REPO,
+                   "GH_TOKEN": "test-only-token"}
+            invalid_report = {"unserializable": object()}
+            with (patch.dict(sg7.os.environ, env),
+                  patch.object(sg7, "_live_context", return_value=(SHA, ())),
+                  patch.object(sg7, "fetch_evidence",
+                               return_value={"workflow_runs": self.runs}),
+                  patch.object(sg7, "fetch_job_evidence", return_value=self.jobs),
+                  patch.object(sg7, "evaluate", return_value=invalid_report),
+                  patch("sys.stderr", new_callable=io.StringIO)):
+                self.assertEqual(sg7.main(["--output", str(output)]), 2)
+            self.assertFalse(output.exists())
+            self.assertEqual(list(Path(folder).glob(".*.tmp")), [])
+
     def test_invalid_sources_cannot_be_laundered(self):
         for sha in ("b" * 39, "B" * 40, "", "../main"):
             with self.subTest(sha=sha), self.assertRaises(ValueError):
