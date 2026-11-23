@@ -152,6 +152,10 @@ dbus-run-session -- sh -eu -c '
     # node does not prove that its filter has the same compositor behavior.
     # Use the exact on-screen menu geometry from the native labwc trace,
     # not an obsolete hard-coded bitmap or a synthetic Rust model.
+    # Re-enter the launcher from a neutral point so stale pointer focus from
+    # the preceding Escape does not silently lose the opener click.
+    "$clicker" --move-only 600 400 1366 768
+    sleep 0.15
     "$clicker" 35 748 1366 768
     probe --name "Filter installed apps" --absent
     menu_size=$(sed -n "s/.*menu trace show Some(((\\([0-9][0-9]*\\), \\([0-9][0-9]*\\)), true)).*/\\1 \\2/p" \
