@@ -45,10 +45,10 @@ streams JSON directly into its final report path. It creates a private 0600
 temporary file on the destination filesystem, serializes with strict JSON
 (no NaN), flushes and `fsync`s it, then uses an exclusive hard link to
 publish the complete inode in one step. Existing files and symlinks are
-never overwritten; errors remove temporary output. Seven local Linux
+never overwritten; errors remove temporary output. Nine local Linux
 Python regression tests verify completed write, existing file/symlink,
-invalid serialization, non-finite floats, link failure and a competing
-writer. The same publisher now also protects
+invalid serialization, non-finite floats, link/fsync failures and both simulated and genuinely
+concurrent competing writers. The same publisher now also protects
 `sg7-resource-acceptance.json` emitted by
 `scripts/verify_sg7_resource_receipts.py`; writer refusal yields an explicit
 BLOCKED status. Collector- and resource-verifier-level negative cases are
