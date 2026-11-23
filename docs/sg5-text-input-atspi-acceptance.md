@@ -40,6 +40,18 @@ Do not count menu-search keyboard navigation as full native IME and AT-SPI parit
 
 **Protocol separation:** wtype injects ordinary wl_keyboard events. Separately, the CI-only wayland_ime_v2_client uses real input-method-v2 requests and verifies a text-input-v3 Japanese preedit, commit and Unicode byte deletion through the compositor. The fixture validates only the exact checked transaction on Run when CI passes; it is not a production Fcitx/IBus engine or coverage for Rename/menu search.
 
+## Independent AT-SPI evidence-probe reliability (23 November 2026)
+
+The public `scripts/smoke_riceplate_atspi_client.py` now requires **three
+consecutive absent samples** before reporting a dismissed editor absent.
+Intermittent provider errors or a still-visible entry reset confirmation.
+If diagnostic inventory fails after a timeout, the probe returns a clean
+failure and logs the error *type only*, never command content. Five
+standard-library, fake-provider unit tests run successfully against the
+exact committed source and test blobs in an isolated Python 3.13 sandbox.
+This is **not** a live labwc/Orca/IME acceptance proof; run the actual
+external AT-SPI smoke on the final head before checking SG5.
+
 ## Remaining blockers before issue #417 SG5 can be checked
 
 - The external IME v2 -> compositor -> v3 **Run** protocol smoke passed #551 head (Native 44673725266). Still independently cover **Rename**, focus leave/re-enter and real candidate selection/RTL flows. One scripted Japanese transaction is not full IME parity.
