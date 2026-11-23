@@ -88,34 +88,56 @@ class MatrixTests(unittest.TestCase):
         self.assertFalse(self.matrix()["ready_for_formal_review"])
 
     def test_collector_rechecks_live_main_and_open_prs_before_publication(self):
-        # Remote Actions pages/jobs may take time to fetch. A green result
-        # from the initial main snapshot cannot certify a changed live main
-        # or a PR created during the evidence-gathering interval.
-        for final_context, expected in (
-            ((SHA, 0), 0),
-            (("b" * 40, 0), 2),
-            ((SHA, 1), 2),
+        old_pr = (590, 'c' * 40, True)
+        changed_head = (590, 'd' * 40, True)
+        replacement_pr = (597, 'c' * 40, True)
+        for initial_prs, final_context, expected in (
+            ((), (SHA, ()), 0),
+            ((), ('b' * 40, ()), 2),
+            ((), (SHA, (old_pr,)), 2),
+            ((old_pr,), (SHA, (changed_head,)), 2),
+            ((old_pr,), (SHA, (replacement_pr,)), 2),
+            ((old_pr,), (SHA, ((590, 'c' * 40, False),)), 2),
         ):
-            with self.subTest(final_context=final_context), tempfile.TemporaryDirectory() as folder:
-                output = Path(folder) / "software-matrix.json"
-                env = {"GITHUB_SHA": SHA, "GITHUB_REPOSITORY": REPO,
-                       "GH_TOKEN": "test-only-token"}
+            with self.subTest(initial=initial_prs, final=final_context), tempfile.TemporaryDirectory() as folder:
+                output = Path(folder) / 'software-matrix.json'
+                env = {'GITHUB_SHA': SHA, 'GITHUB_REPOSITORY': REPO, 'GH_TOKEN': 'test-only-token'}
                 with (patch.dict(sg7.os.environ, env),
-                      patch.object(sg7, "_live_context",
-                                   side_effect=[(SHA, 0), final_context]) as live,
-                      patch.object(sg7, "fetch_evidence",
-                                   return_value={"workflow_runs": self.runs}),
-                      patch.object(sg7, "fetch_job_evidence",
+                      patch.object(sg7, '_live_context',
+                                   side_effect=[(SHA, initial_prs), final_context]) as live,
+                      patch.object(sg7, 'fetch_evidence',
+                                   return_value={'workflow_runs': self.runs}),
+                      patch.object(sg7, 'fetch_job_evidence',
                                    return_value=self.jobs),
-                      patch("sys.stderr", new_callable=io.StringIO)):
-                    self.assertEqual(sg7.main(["--output", str(output)]), expected)
+                      patch('sys.stderr', new_callable=io.StringIO)):
+                    self.assertEqual(sg7.main(['--output', str(output)]), expected)
                 self.assertEqual(live.call_count, 2)
-                self.assertEqual(output.exists(), expected == 0,
-                                 "A stale main/PR snapshot must never publish a dossier")
+                self.assertEqual(output.exists(), expected == 0)
                 if expected == 0:
-                    self.assertTrue(
-                        json.loads(output.read_text())["ready_for_formal_review"])
+                    self.assertTrue(json.loads(output.read_text())['ready_for_formal_review'])
 
+    def test_live_context_pins_pr_identity_head_and_draft(self):
+        def pr(number, digest='b' * 40, draft=True):
+            return {'number': number, 'head': {'sha': digest}, 'draft': draft}
+
+        main = {'object': {'sha': SHA}}
+        with patch.object(sg7, '_get_json', side_effect=[main,
+                            [pr(10), pr(4, 'c' * 40, False)]]):
+            sha, snapshot = sg7._live_context(REPO, 'fixture-token')
+        self.assertEqual(sha, SHA)
+        self.assertEqual(snapshot, ((4, 'c' * 40, False), (10, 'b' * 40, True)))
+
+        for invalid in (
+            [pr(4), pr(4)],
+            [pr(True)],
+            [pr(4, 'bad')],
+            [pr(4, draft=None)],
+            [None],
+        ):
+            with self.subTest(invalid=invalid), patch.object(
+                    sg7, '_get_json', side_effect=[main, invalid]):
+                with self.assertRaises(ValueError):
+                    sg7._live_context(REPO, 'fixture-token')
 
     def test_invalid_sources_cannot_be_laundered(self):
         for sha in ("b" * 39, "B" * 40, "", "../main"):
