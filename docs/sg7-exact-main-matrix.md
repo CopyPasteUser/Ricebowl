@@ -40,6 +40,18 @@ source-locked Native/Portal job logs. The collector now requires explicit
 GitHub `run_attempt` values instead of assuming the first attempt when
 the API field is missing.
 
+**Atomic dossier publication (23 November):** the SG7 collector no longer
+streams JSON directly into its final report path. It creates a private 0600
+temporary file on the destination filesystem, serializes with strict JSON
+(no NaN), flushes and `fsync`s it, then uses an exclusive hard link to
+publish the complete inode in one step. Existing files and symlinks are
+never overwritten; errors remove temporary output. Seven local Linux
+Python regression tests verify completed write, existing file/symlink,
+invalid serialization, non-finite floats, link failure and a competing
+writer. Collector-level negative cases are present but require complete
+repository test execution before merge. This is atomic **publication**,
+not a signed receipt or global transactional snapshot.
+
 The dossier binds each accepted claim to the **latest trusted main run** of
 its named workflow and an **executed successful step** within the required
 job, rather than to the run's aggregate green status alone. Acceptance labels
