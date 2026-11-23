@@ -20,8 +20,9 @@ login, XFCE state, package installation or release sign-off JSON.
    because this dossier is green.
 
 **Context-race hardening (23 November 2026):** the collector reads the
-live `main` commit and open-PR count *twice*: before querying Actions and
-again after all workflow/job evidence has been evaluated. If either changes
+live `main` commit and **every open PR number, HEAD SHA and Draft flag**
+*twice*: before querying Actions and again after all workflow/job evidence
+has been evaluated. If either snapshot changes
 during collection, it fails closed **without writing a dossier**. This
 narrows the stale-result window but is not an atomic GitHub transaction;
 no report may bypass the later exact-source review or hardware gates.
