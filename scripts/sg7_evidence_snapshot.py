@@ -32,7 +32,8 @@ def trusted_run_snapshot(evidence: object, source_sha: str,
         if not isinstance(run, dict):
             continue
         path = run.get("path")
-        if (path not in required or run.get("name") != required[path]
+        if (type(path) is not str or path not in required
+                or run.get("name") != required[path]
                 or run.get("head_branch") != "main"
                 or run.get("head_sha") != source_sha
                 or run.get("event") not in (("push",) if path == _TESTS_WORKFLOW
@@ -44,8 +45,9 @@ def trusted_run_snapshot(evidence: object, source_sha: str,
         conclusion = run.get("conclusion")
         if (type(identity) is not int or identity <= 0
                 or type(attempt) is not int or attempt <= 0
-                or type(status) is not str
-                or conclusion is not None and type(conclusion) is not str):
+                or type(status) is not str or not status
+                or conclusion is not None and (type(conclusion) is not str
+                                               or not conclusion)):
             raise ValueError("Invalid trusted workflow run identity or state")
         key = (path, identity)
         if key in observed:
