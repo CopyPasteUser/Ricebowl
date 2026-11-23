@@ -31,6 +31,15 @@ main/PR check. Any inconsistent snapshot fails **without writing a dossier**.
 This narrows the stale-result window but is not an atomic GitHub transaction;
 no report may bypass the later exact-source review or hardware gates.
 
+**Standalone verification (23 November):** the exact committed
+SG7 workflow-snapshot code passes **8/8** isolated Python 3.13 unit tests,
+and the atomic-file-receipt reader passes **5/5** local Linux tests.
+These test synthetic evidence/descriptor edge cases, **not** the full
+`scripts/sg7_exact_main_matrix.py` integration, a real compositor or
+source-locked Native/Portal job logs. The collector now requires explicit
+GitHub `run_attempt` values instead of assuming the first attempt when
+the API field is missing.
+
 The dossier binds each accepted claim to the **latest trusted main run** of
 its named workflow and an **executed successful step** within the required
 job, rather than to the run's aggregate green status alone. Acceptance labels
