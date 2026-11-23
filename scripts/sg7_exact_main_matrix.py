@@ -62,7 +62,8 @@ SHA_PATTERN = re.compile(r"[0-9a-f]{40}\Z")
 REPO_PATTERN = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
 
 
-def _unique_job(jobs: object, name: str, run_id: int, run_attempt: int) -> dict | None:
+def _unique_job(jobs: object, name: str, run_id: int, run_attempt: int,
+                source_sha: str) -> dict | None:
     if not isinstance(jobs, list) or len(jobs) > 1000:
         return None
     matching = [job for job in jobs if isinstance(job, dict) and job.get("name") == name]
@@ -72,6 +73,7 @@ def _unique_job(jobs: object, name: str, run_id: int, run_attempt: int) -> dict 
     if (type(job.get("run_id")) is not int or job["run_id"] != run_id
             or type(job.get("run_attempt")) is not int
             or job["run_attempt"] != run_attempt
+            or job.get("head_sha") != source_sha
             or job.get("status") != "completed" or job.get("conclusion") != "success"):
         return None
     return job
@@ -129,7 +131,7 @@ def evaluate(evidence: object, jobs_by_workflow: object, *, sha: str,
     for code, path, job_name, step_name in CHECKS:
         run = selected.get(path)
         job = (_unique_job(jobs_by_workflow.get(path), job_name,
-                           run["id"], run.get("run_attempt"))
+                           run["id"], run.get("run_attempt"), sha)
                if run else None)
         steps = job.get("steps") if job else None
         matching = ([step for step in steps if isinstance(step, dict) and step.get("name") == step_name]
