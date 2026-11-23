@@ -98,13 +98,21 @@ def main() -> int:
     args = parser.parse_args()
     deadline = time.monotonic() + 10
     last = "no accessible native editor entry"
+    # A single missing AT-SPI sample can be an intermittent provider error,
+    # not proof that a dismissed dialog is gone. Confirm consecutive misses.
+    absent_samples = 0
     while time.monotonic() < deadline:
         try:
             state = sample(args.name)
             if args.absent:
                 if state is None:
-                    print("PASS: dismissed native editor absent from AT-SPI")
-                    return 0
+                    absent_samples += 1
+                    if absent_samples >= 3:
+                        print("PASS: dismissed native editor absent from AT-SPI")
+                        return 0
+                else:
+                    absent_samples = 0
+                    last = "native editor still present in AT-SPI"
             elif state is not None:
                 wanted = [] if args.selection is None else [tuple(args.selection)]
                 if (
@@ -126,10 +134,17 @@ def main() -> int:
                     f"selection={state['selections']}/{wanted}"
                 )
         except (LookupError, RuntimeError) as error:
+            absent_samples = 0
             last = "transient AT-SPI provider error: " + type(error).__name__
         time.sleep(0.15)
     print("FAIL: " + last, file=sys.stderr)
-    diagnostic_inventory()
+    try:
+        diagnostic_inventory()
+    except (LookupError, RuntimeError) as error:
+        # A failed provider must yield a clean failed test, not an uncaught
+        # exception (and never echo private editor text).
+        print("AT-SPI diagnostic unavailable: " + type(error).__name__,
+              file=sys.stderr)
     return 1
 
 
