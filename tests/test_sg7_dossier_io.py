@@ -5,6 +5,8 @@ import json
 import os
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 from pathlib import Path
 from unittest.mock import patch
 
@@ -72,6 +74,23 @@ class DossierIOTests(unittest.TestCase):
             with self.assertRaises(DossierWriteError):
                 publish_dossier(self.out, self.valid)
         self.assertFalse(self.out.exists())
+        self.assert_no_temp_files()
+
+    def test_two_real_concurrent_publishers_have_only_one_winner(self):
+        barrier = Barrier(2)
+
+        def writer(number):
+            barrier.wait(timeout=4)
+            try:
+                publish_dossier(self.out, {"writer": number})
+                return "published"
+            except DossierWriteError:
+                return "blocked"
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(writer, (1, 2)))
+        self.assertCountEqual(results, ("published", "blocked"))
+        self.assertIn(json.loads(self.out.read_text())["writer"], (1, 2))
         self.assert_no_temp_files()
 
     def test_racing_target_creation_is_never_overwritten(self):
