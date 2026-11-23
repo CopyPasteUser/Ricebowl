@@ -55,6 +55,25 @@ class SG7SafeReceiptIOTests(unittest.TestCase):
             with self.assertRaisesRegex(ReceiptReadError, "changed"):
                 read_regular_bytes(self.receipt, limit=1024)
 
+    def test_atomic_path_replacement_during_read_is_rejected(self):
+        # A stale file descriptor can still return well-formed old evidence
+        # after rename replaced the pathname with another regular file.
+        replacement = self.root / "new.json"
+        replacement.write_bytes(b'{"ok":evil}')
+        original = os.fstat
+        calls = 0
+
+        def replace_between_stats(fd):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                os.replace(replacement, self.receipt)
+            return original(fd)
+
+        with patch("scripts.sg7_safe_receipt_io.os.fstat", side_effect=replace_between_stats):
+            with self.assertRaisesRegex(ReceiptReadError, "changed"):
+                read_regular_bytes(self.receipt, limit=1024)
+
 
 if __name__ == "__main__":
     unittest.main()
