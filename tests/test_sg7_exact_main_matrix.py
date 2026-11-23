@@ -32,7 +32,7 @@ class MatrixTests(unittest.TestCase):
             for job_name in sg7.REQUIRED_JOBS[path]:
                 steps = [{"name": step, "status": "completed", "conclusion": "success"}
                          for _, p, j, step in sg7.CHECKS if p == path and j == job_name]
-                self.jobs[path].append({"run_id": i, "name": job_name,
+                self.jobs[path].append({"run_id": i, "run_attempt": 1, "name": job_name,
                                          "status": "completed", "conclusion": "success",
                                          "steps": steps})
 
@@ -81,6 +81,20 @@ class MatrixTests(unittest.TestCase):
         job = self.jobs[".github/workflows/ci.yml"][0]
         job["run_id"] = 999
         self.assertFalse(self.matrix()["ready_for_formal_review"])
+
+    def test_job_from_different_or_unverified_run_attempt_is_blocked(self):
+        path = ".github/workflows/riceplate-native.yml"
+        job = self.jobs[path][0]
+        for attempt in (0, 2, True, None):
+            with self.subTest(attempt=attempt):
+                job["run_attempt"] = attempt
+                report = self.matrix()
+                self.assertFalse(report["ready_for_formal_review"])
+                self.assertEqual(report["workflows"][path]["run_id"], 2)
+                self.assertEqual(next(check for check in report["checks"]
+                    if check["id"] == "native-headless-labwc")["status"], "blocked")
+        job["run_attempt"] = 1
+        self.assertTrue(self.matrix()["ready_for_formal_review"])
 
     def test_pr_head_untrusted_and_missing_path_filtered_run(self):
         removed = self.runs.pop()
