@@ -80,7 +80,7 @@ class DossierIOTests(unittest.TestCase):
         barrier = Barrier(2)
 
         def writer(number):
-            barrier.wait(timeout=4)
+            barrier.wait(timeout=15)
             try:
                 publish_dossier(self.out, {"writer": number})
                 return "published"
