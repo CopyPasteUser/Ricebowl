@@ -46,11 +46,11 @@ The public `scripts/smoke_riceplate_atspi_client.py` now requires **three
 consecutive absent samples** before reporting a dismissed editor absent.
 Intermittent provider errors or a still-visible entry reset confirmation.
 If diagnostic inventory fails after a timeout, the probe returns a clean
-failure and logs the error *type only*, never command content. Seven
+failure and logs the error *type only*, never command content. Eight
 standard-library, fake-provider unit tests run successfully against the
 exact committed source and test blobs in an isolated Python 3.13 sandbox.
 In addition to the original probe cases, they now reject incomplete,
-truncated or temporarily unreadable AT-SPI trees as false dismissal receipts.
+truncated or temporarily unreadable AT-SPI trees or an entirely empty registry as false dismissal receipts.
 The existing private `scripts/smoke_luna_atspi.sh` now also includes
 a **separate real-pointer All Programs** flow: geometry is read from the
 native 1366×768 menu trace, the actual XP All Programs tile is clicked,
