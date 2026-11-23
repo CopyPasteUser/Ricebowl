@@ -16,8 +16,10 @@ from pathlib import Path
 
 if __package__:
     from .ci_wayland_resource_smoke import LIMITS, Sample
+    from .sg7_safe_receipt_io import read_regular_bytes
 else:
     from ci_wayland_resource_smoke import LIMITS, Sample
+    from sg7_safe_receipt_io import read_regular_bytes
 
 CYCLES = 3
 FIELDS = frozenset(Sample.__dataclass_fields__)
@@ -50,7 +52,7 @@ def _read(path: Path) -> tuple[dict, str]:
     if path.is_symlink() or not path.is_file():
         raise EvidenceError(f"Missing or symlinked resource receipt: {path.name}")
     try:
-        data = path.read_bytes()
+        data = read_regular_bytes(path, limit=8192)
         if not 0 < len(data) <= 8192:
             raise EvidenceError(f"Empty or oversized resource receipt: {path.name}")
         obj = json.loads(data.decode("utf-8"), object_pairs_hook=_unique_pairs)
@@ -65,7 +67,7 @@ def _cpu_receipt(path: Path, baseline: dict, after: dict, cycle: int) -> tuple[f
     if path.is_symlink() or not path.is_file():
         raise EvidenceError(f"Missing or symlinked CPU receipt: cycle {cycle}")
     try:
-        data = path.read_bytes()
+        data = read_regular_bytes(path, limit=4096)
         if not 0 < len(data) <= 4096:
             raise EvidenceError(f"Oversized CPU receipt: cycle {cycle}")
         row = json.loads(data.decode("utf-8"), object_pairs_hook=_unique_pairs)
