@@ -14,15 +14,23 @@ from collections import Counter
 import pyatspi
 
 
-def run_entry(name: str):
-    """Find the actual transient editor, bounded against broken providers."""
+def _desktop_root():
+    """Require an enumerable public desktop, never treat outage as absence."""
     root = pyatspi.Registry.getDesktop(0)
-    # A disconnected/malformed desktop is not a dismissal receipt.
     if root is None:
         raise RuntimeError("AT-SPI desktop provider unavailable")
-    count = root.childCount
+    try:
+        count = root.childCount
+    except (LookupError, AttributeError, RuntimeError) as error:
+        raise RuntimeError("AT-SPI desktop metadata unavailable") from error
     if type(count) is not int or count <= 0:
         raise RuntimeError("AT-SPI registry has no accessible applications")
+    return root, count
+
+
+def run_entry(name: str):
+    """Find the actual transient editor, bounded against broken providers."""
+    root, _ = _desktop_root()
     stack = [(root, 0)]
     visited = 0
     incomplete = False
@@ -60,11 +68,8 @@ def run_entry(name: str):
 
 def diagnostic_inventory():
     """Only roles and whitelisted internal names; never user text/labels."""
-    root = pyatspi.Registry.getDesktop(0)
-    if root is None:
-        raise RuntimeError("AT-SPI desktop provider unavailable")
+    root, app_count = _desktop_root()
     counts = Counter()
-    app_count = root.childCount
     stack = [(root, 0)]
     seen = 0
     while stack and seen < 900:
