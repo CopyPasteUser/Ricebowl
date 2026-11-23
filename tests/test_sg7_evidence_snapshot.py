@@ -49,6 +49,11 @@ class EvidenceSnapshotTests(unittest.TestCase):
             with self.subTest(rows=rows), self.assertRaises(ValueError):
                 self.snap(rows)
 
+    def test_run_id_cannot_alias_two_different_required_workflows(self):
+        native = run(1, path=".github/workflows/riceplate-native.yml")
+        with self.assertRaisesRegex(ValueError, "Duplicate trusted workflow"):
+            self.snap([run(1), native])
+
     def test_untrusted_branch_name_or_sha_cannot_poison_snapshot(self):
         wrong_branch = run(1)
         wrong_branch["head_branch"] = "feature"
