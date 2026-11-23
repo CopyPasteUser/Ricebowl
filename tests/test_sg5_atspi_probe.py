@@ -104,6 +104,13 @@ class ProbeTests(unittest.TestCase):
         with patch.object(probe.pyatspi.Registry, "getDesktop", return_value=complete_tree):
             self.assertIsNone(probe.run_entry("Command"))
 
+    def test_empty_atspi_registry_does_not_pass_absence(self):
+        class EmptyDesktop:
+            childCount = 0
+        with patch.object(probe.pyatspi.Registry, "getDesktop", return_value=EmptyDesktop()):
+            with self.assertRaisesRegex(RuntimeError, "no accessible applications"):
+                probe.run_entry("Command")
+
     def test_truncated_accessibility_tree_is_not_an_absence_receipt(self):
         class Node:
             name = "inert"
