@@ -51,9 +51,10 @@ def trusted_run_snapshot(evidence: object, source_sha: str,
                 or conclusion is not None and (type(conclusion) is not str
                                                or not conclusion)):
             raise ValueError("Invalid trusted workflow run identity or state")
-        key = (path, identity)
-        if key in observed:
+        # GitHub Actions run IDs identify a single run globally. Sharing an
+        # ID across two required workflows would make step provenance unsafe.
+        if identity in observed:
             raise ValueError("Duplicate trusted workflow run")
-        observed.add(key)
+        observed.add(identity)
         rows.append((path, identity, attempt, status, conclusion or ""))
     return tuple(sorted(rows))
