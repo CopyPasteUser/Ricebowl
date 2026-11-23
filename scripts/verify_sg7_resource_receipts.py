@@ -17,11 +17,11 @@ from pathlib import Path
 if __package__:
     from .ci_wayland_resource_smoke import LIMITS, Sample
     from .sg7_safe_receipt_io import read_regular_bytes
-    from .sg7_dossier_io import publish_dossier
+    from .sg7_dossier_io import DossierWriteError, publish_dossier
 else:
     from ci_wayland_resource_smoke import LIMITS, Sample
     from sg7_safe_receipt_io import read_regular_bytes
-    from sg7_dossier_io import publish_dossier
+    from sg7_dossier_io import DossierWriteError, publish_dossier
 
 CYCLES = 3
 FIELDS = frozenset(Sample.__dataclass_fields__)
@@ -201,7 +201,7 @@ def main(argv: list[str] | None = None) -> int:
         target = args.directory / "sg7-resource-acceptance.json"
         # Publication is atomic and exclusive: no partial JSON report on error.
         publish_dossier(target, report)
-    except (EvidenceError, OSError) as exc:
+    except (DossierWriteError, EvidenceError, OSError) as exc:
         print(f"SG7 resource evidence: BLOCKED — {exc}", file=sys.stderr)
         return 1
     print(f"Verified {CYCLES} real labwc switch, CPU and teardown receipts for {args.source_commit}")
