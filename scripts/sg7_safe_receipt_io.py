@@ -33,11 +33,15 @@ def read_regular_bytes(path: Path, *, limit: int) -> bytes:
                 raise ReceiptReadError("SG7 receipt is not a bounded regular file")
             payload = stream.read(limit + 1)
             after = os.fstat(stream.fileno())
-            if (len(payload) != before.st_size or
-                    (before.st_dev, before.st_ino, before.st_size,
-                     before.st_mtime_ns, before.st_ctime_ns) !=
-                    (after.st_dev, after.st_ino, after.st_size,
-                     after.st_mtime_ns, after.st_ctime_ns)):
+            # A producer can atomically rename a different file over this
+            # pathname while the old descriptor remains perfectly readable.
+            # Confirm the verified inode is still the one named by the path.
+            current = os.stat(path, follow_symlinks=False)
+            identity = lambda st: (st.st_dev, st.st_ino, st.st_size,
+                                   st.st_mtime_ns, st.st_ctime_ns)
+            if (len(payload) != before.st_size or before.st_nlink == 0
+                    or after.st_nlink == 0 or identity(before) != identity(after)
+                    or identity(after) != identity(current)):
                 raise ReceiptReadError("SG7 receipt changed during verification")
             return payload
     except OSError as exc:
