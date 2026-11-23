@@ -17,9 +17,11 @@ from pathlib import Path
 if __package__:
     from .ci_wayland_resource_smoke import LIMITS, Sample
     from .sg7_safe_receipt_io import read_regular_bytes
+    from .sg7_dossier_io import publish_dossier
 else:
     from ci_wayland_resource_smoke import LIMITS, Sample
     from sg7_safe_receipt_io import read_regular_bytes
+    from sg7_dossier_io import publish_dossier
 
 CYCLES = 3
 FIELDS = frozenset(Sample.__dataclass_fields__)
@@ -197,10 +199,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         report = verify(args.directory, args.source_commit)
         target = args.directory / "sg7-resource-acceptance.json"
-        # Never overwrite or follow a pre-existing proof file.
-        with target.open("x", encoding="utf-8") as stream:
-            json.dump(report, stream, indent=2, sort_keys=True)
-            stream.write("\n")
+        # Publication is atomic and exclusive: no partial JSON report on error.
+        publish_dossier(target, report)
     except (EvidenceError, OSError) as exc:
         print(f"SG7 resource evidence: BLOCKED — {exc}", file=sys.stderr)
         return 1
