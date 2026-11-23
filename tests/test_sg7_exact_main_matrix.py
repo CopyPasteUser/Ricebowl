@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import sys
+import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
@@ -82,6 +85,36 @@ class MatrixTests(unittest.TestCase):
         self.assertFalse(self.matrix()["ready_for_formal_review"])
         self.runs.append(dict(removed, event="pull_request", head_branch="feature"))
         self.assertFalse(self.matrix()["ready_for_formal_review"])
+
+    def test_collector_rechecks_live_main_and_open_prs_before_publication(self):
+        # Remote Actions pages/jobs may take time to fetch. A green result
+        # from the initial main snapshot cannot certify a changed live main
+        # or a PR created during the evidence-gathering interval.
+        for final_context, expected in (
+            ((SHA, 0), 0),
+            (("b" * 40, 0), 2),
+            ((SHA, 1), 2),
+        ):
+            with self.subTest(final_context=final_context), tempfile.TemporaryDirectory() as folder:
+                output = Path(folder) / "software-matrix.json"
+                env = {"GITHUB_SHA": SHA, "GITHUB_REPOSITORY": REPO,
+                       "GH_TOKEN": "test-only-token"}
+                with (patch.dict(sg7.os.environ, env),
+                      patch.object(sg7, "_live_context",
+                                   side_effect=[(SHA, 0), final_context]) as live,
+                      patch.object(sg7, "fetch_evidence",
+                                   return_value={"workflow_runs": self.runs}),
+                      patch.object(sg7, "fetch_job_evidence",
+                                   return_value=self.jobs),
+                      patch("sys.stderr", new_callable=io.StringIO)):
+                    self.assertEqual(sg7.main(["--output", str(output)]), expected)
+                self.assertEqual(live.call_count, 2)
+                self.assertEqual(output.exists(), expected == 0,
+                                 "A stale main/PR snapshot must never publish a dossier")
+                if expected == 0:
+                    self.assertTrue(
+                        __import__("json").loads(output.read_text())["ready_for_formal_review"])
+
 
     def test_invalid_sources_cannot_be_laundered(self):
         for sha in ("b" * 39, "B" * 40, "", "../main"):
