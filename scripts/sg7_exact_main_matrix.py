@@ -194,6 +194,13 @@ def main(argv: list[str] | None = None) -> int:
             jobs = {}
         report = evaluate(evidence, jobs, sha=sha, main_sha=main_sha,
                           repository=repo, open_prs=open_prs)
+        # Evidence collection makes several remote API requests. A merge or
+        # newly opened PR during that interval invalidates the initial
+        # main/PR snapshot, even when every retrieved Actions job was green.
+        # Re-read both immediately before publishing any acceptance dossier.
+        final_main_sha, final_open_prs = _live_context(repo, token)
+        if (final_main_sha, final_open_prs) != (main_sha, open_prs):
+            raise ValueError("Live main or open PR count changed during SG7 evidence collection")
         args.output.parent.mkdir(parents=True, exist_ok=True)
         with args.output.open("x", encoding="utf-8") as stream:
             json.dump(report, stream, sort_keys=True, indent=2)
