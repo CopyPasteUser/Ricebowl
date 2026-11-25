@@ -12,6 +12,10 @@ Last reviewed: 2026-11-22 (SG6 preserved; SG1 third checkpoint reconciled agains
 
 ## Evidence checkpoints
 
+### Offline integration checkpoint — 25 November 2026
+
+The native menu IME landed in [#600](https://github.com/CopyPasteUser/Ricebowl/pull/600) at [`main@4bfd479b`](https://github.com/CopyPasteUser/Ricebowl/commit/4bfd479b00ac62376e3d0f0d207043444432c1d3). Real IME-v2 through private labwc verified Japanese preedit, commit, UTF-8 deletion and public AT-SPI teardown for both menu fields. The candidate and merged tree passed 503 Rust tests and the Python suite (1,929 discovered, 33 skipped). The full SG5 font, RTL and editor matrix remains open. [Integration evidence and resume checkpoint](https://github.com/CopyPasteUser/Ricebowl/issues/360#issuecomment-7161355589)
+
 ### SG1 — Native shared shell: 3 / 4
 - [x] Native taskbar/window lifecycle and XWayland integration exercised by installed real-labwc smoke ([Native post-merge #43678051154](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43678051154)).
 - [x] Desktop icon/multioutput positions and file actions exercised by native compositor smoke ([Native post-merge #43678051154](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43678051154)).
