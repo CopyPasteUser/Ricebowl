@@ -14,35 +14,62 @@ from collections import Counter
 import pyatspi
 
 
+def _desktop_root():
+    """Require an enumerable public desktop, never treat outage as absence."""
+    root = pyatspi.Registry.getDesktop(0)
+    if root is None:
+        raise RuntimeError("AT-SPI desktop provider unavailable")
+    try:
+        count = root.childCount
+    except (LookupError, AttributeError, RuntimeError) as error:
+        raise RuntimeError("AT-SPI desktop metadata unavailable") from error
+    if type(count) is not int or count <= 0:
+        raise RuntimeError("AT-SPI registry has no accessible applications")
+    return root, count
+
+
 def run_entry(name: str):
     """Find the actual transient editor, bounded against broken providers."""
-    root = pyatspi.Registry.getDesktop(0)
+    root, _ = _desktop_root()
     stack = [(root, 0)]
     visited = 0
+    incomplete = False
     while stack and visited < 900:
         node, depth = stack.pop()
         visited += 1
         try:
             if node.getRole() == pyatspi.ROLE_ENTRY and node.name == name:
                 return node
-            if depth >= 10:
+            count = node.childCount
+            if type(count) is not int or count < 0:
+                incomplete = True
                 continue
-            for index in range(min(node.childCount, 200) - 1, -1, -1):
+            if depth >= 10:
+                # A nested editor may be beyond the scan's depth limit.
+                incomplete |= count > 0
+                continue
+            if count > 200:
+                incomplete = True
+            for index in range(min(count, 200) - 1, -1, -1):
                 child = node.getChildAtIndex(index)
-                if child is not None:
+                if child is None:
+                    incomplete = True
+                else:
                     stack.append((child, depth + 1))
         except (LookupError, RuntimeError):
-            # A window may disappear between enumerating its parent and child.
-            continue
+            # A disappearing child must not be counted as proof that its
+            # editor was dismissed. Retry once the provider is stable.
+            incomplete = True
+    if stack or incomplete:
+        raise RuntimeError("AT-SPI traversal incomplete")
     return None
 
 
 
 def diagnostic_inventory():
     """Only roles and whitelisted internal names; never user text/labels."""
-    root = pyatspi.Registry.getDesktop(0)
+    root, app_count = _desktop_root()
     counts = Counter()
-    app_count = root.childCount
     stack = [(root, 0)]
     seen = 0
     while stack and seen < 900:
@@ -98,13 +125,21 @@ def main() -> int:
     args = parser.parse_args()
     deadline = time.monotonic() + 10
     last = "no accessible native editor entry"
+    # A single missing AT-SPI sample can be an intermittent provider error,
+    # not proof that a dismissed dialog is gone. Confirm consecutive misses.
+    absent_samples = 0
     while time.monotonic() < deadline:
         try:
             state = sample(args.name)
             if args.absent:
                 if state is None:
-                    print("PASS: dismissed native editor absent from AT-SPI")
-                    return 0
+                    absent_samples += 1
+                    if absent_samples >= 3:
+                        print("PASS: dismissed native editor absent from AT-SPI")
+                        return 0
+                else:
+                    absent_samples = 0
+                    last = "native editor still present in AT-SPI"
             elif state is not None:
                 wanted = [] if args.selection is None else [tuple(args.selection)]
                 if (
@@ -126,10 +161,17 @@ def main() -> int:
                     f"selection={state['selections']}/{wanted}"
                 )
         except (LookupError, RuntimeError) as error:
+            absent_samples = 0
             last = "transient AT-SPI provider error: " + type(error).__name__
         time.sleep(0.15)
     print("FAIL: " + last, file=sys.stderr)
-    diagnostic_inventory()
+    try:
+        diagnostic_inventory()
+    except (LookupError, RuntimeError) as error:
+        # A failed provider must yield a clean failed test, not an uncaught
+        # exception (and never echo private editor text).
+        print("AT-SPI diagnostic unavailable: " + type(error).__name__,
+              file=sys.stderr)
     return 1
 
 

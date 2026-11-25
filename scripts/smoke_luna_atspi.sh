@@ -17,7 +17,7 @@ mkdir -m 0700 "$runtime/config"
 export XDG_RUNTIME_DIR="$runtime" XDG_CONFIG_HOME="$runtime/config"
 export WLR_BACKENDS=headless WLR_HEADLESS_OUTPUTS=1 WLR_RENDERER=pixman
 export RICEBOWL_DE_NESTED=0 RICEBOWL_DE_SCREEN_READER=1
-export RICEBOWL_DE_TRACE_FILES=1
+export RICEBOWL_DE_TRACE_FILES=1 RICEBOWL_DE_TRACE_MENU=1
 export PATH="$root/components/riceplate-wayland/target/release:$PATH"
 # Own the entire XDG Desktop for the Rename fixture; never inspect the runner
 # or the user's actual home directory.
@@ -147,6 +147,39 @@ dbus-run-session -- sh -eu -c '
     wtype -k Escape
     kill -0 "$plate"
     echo "SG5: real Start search keyboard/AT-SPI focus/text/teardown PASS"
+
+    # All Programs is a separate native editable view; an accessible Search
+    # node does not prove that its filter has the same compositor behavior.
+    # Use the exact on-screen menu geometry from the native labwc trace,
+    # not an obsolete hard-coded bitmap or a synthetic Rust model.
+    # Re-enter the launcher from a neutral point so stale pointer focus from
+    # the preceding Escape does not silently lose the opener click.
+    "$clicker" --move-only 600 400 1366 768
+    sleep 0.15
+    "$clicker" 35 748 1366 768
+    probe --name "Filter installed apps" --absent
+    menu_size=$(sed -n "s/.*menu trace show Some(((\\([0-9][0-9]*\\), \\([0-9][0-9]*\\)), true)).*/\\1 \\2/p" \
+        "$runtime/native.log" | tail -n 1)
+    [ "$menu_size" = "480 456" ] || {
+        echo "SG5: 1366x768 native Luna menu geometry unverified: $menu_size" >&2
+        exit 1
+    }
+    set -- $menu_size
+    menu_w=$1
+    menu_h=$2
+    # Exact same logical hitbox (60,256) as the native E2E fixture.
+    "$clicker" "$((60 * menu_w / 320))" \
+        "$((768 - 40 - menu_h + 256 * menu_h / 304))" 1366 768
+    probe --name "Filter installed apps" --text "" --caret 0
+    wtype "abc"
+    probe --name "Filter installed apps" --text "abc" --caret 3
+    wtype -k BackSpace
+    probe --name "Filter installed apps" --text "ab" --caret 2
+    wtype -k Escape
+    probe --name "Filter installed apps" --absent
+    wtype -k Escape
+    kill -0 "$plate"
+    echo "SG5: real All Programs filter keyboard/AT-SPI focus/text/teardown PASS"
 
     wtype -M logo -k r -m logo
     probe --text "" --caret 0
