@@ -120,10 +120,21 @@ class CreatorHistoryTests(unittest.TestCase):
             current, _ = workspace.save_revision(
                 current.path, {"/panel/height": 44 + number % 2},
                 expected_sha256=current.semantic_sha256)
-        chain = workspace.version_history(workspace.open_draft(current.path))
-        self.assertEqual(len(chain), creator_history.MAX_HISTORY_DEPTH)
-        self.assertEqual(chain[0].path, current.path)
-        self.assertNotEqual(chain[-1].path, original.path)
+        # A longer-than-supported lineage must not pretend that its 64th
+        # ancestor is the verified attribution root. Keep every immutable
+        # revision accessible, but reject incomplete provenance inspection.
+        reopened = workspace.open_draft(current.path)
+        self.assertEqual(reopened.path, current.path)
+        self.assertEqual(workspace.open_draft(original.path).path, original.path)
+        with self.assertRaisesRegex(workspace.WorkspaceError,
+                                    "history exceeds the safe"):
+            workspace.version_history(reopened)
+        destination = workspace._private_directory() / "over-depth.ricepack"
+        with self.assertRaisesRegex(workspace.WorkspaceError,
+                                    "history exceeds the safe"):
+            workspace.export_draft(reopened, destination)
+        self.assertFalse(destination.exists(),
+                         "An incomplete Creator lineage must not be exported")
 
     def test_receipt_parent_hash_cannot_be_forged_without_detection(self):
         original = workspace.create_draft("orbit")
