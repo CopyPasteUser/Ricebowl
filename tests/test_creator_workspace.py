@@ -155,13 +155,17 @@ class CreatorWorkspaceTests(unittest.TestCase):
         ]
         by_path = {entry.path: entry for entry in versions}
 
-        def parent(entry):
+        def receipt(entry):
             index = versions.index(entry)
-            return versions[index + 1] if index + 1 < len(versions) else None
+            if index + 1 == len(versions):
+                return None
+            parent = versions[index + 1]
+            return {"parent": {"filename": parent.path.name,
+                               "semantic_sha256": parent.semantic_sha256}}
 
-        with patch.object(workspace, "open_draft",
-                          side_effect=lambda path: by_path[path]), \
-                patch.object(workspace, "previous_version", side_effect=parent):
+        with patch.object(workspace, "_private_directory", return_value=Path("/unmounted")), \
+                patch.object(workspace, "_read_draft", side_effect=by_path.__getitem__), \
+                patch.object(workspace, "_history_receipt", side_effect=receipt):
             # Exactly 64 verified versions ending at a root are allowed.
             self.assertEqual(workspace.version_history(versions[1]), versions[1:])
             # The same 64-link prefix with a still-present parent is unsafe.
@@ -178,12 +182,14 @@ class CreatorWorkspaceTests(unittest.TestCase):
         ]
         by_path = {entry.path: entry for entry in versions}
 
-        def parent(entry):
-            return versions[(entry.modified_ns + 1) % limit]
+        def receipt(entry):
+            parent = versions[(entry.modified_ns + 1) % limit]
+            return {"parent": {"filename": parent.path.name,
+                               "semantic_sha256": parent.semantic_sha256}}
 
-        with patch.object(workspace, "open_draft",
-                          side_effect=lambda path: by_path[path]), \
-                patch.object(workspace, "previous_version", side_effect=parent):
+        with patch.object(workspace, "_private_directory", return_value=Path("/unmounted")), \
+                patch.object(workspace, "_read_draft", side_effect=by_path.__getitem__), \
+                patch.object(workspace, "_history_receipt", side_effect=receipt):
             with self.assertRaisesRegex(workspace.WorkspaceError, "history exceeds"):
                 workspace.version_history(versions[0])
 

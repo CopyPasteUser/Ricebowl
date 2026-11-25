@@ -9,6 +9,7 @@ import json
 import os
 import tempfile
 import unittest
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from unittest import mock
@@ -183,6 +184,34 @@ class CreatorReleaseTests(unittest.TestCase):
                                     "attribution changed"):
             creator_release.publish_export(plan, destination)
         self.assertFalse(destination.exists())
+
+    def test_archive_uses_the_attribution_from_the_reviewed_lineage(self):
+        draft = creator_workspace.create_draft("heritage")
+        receipt_path = draft.path.with_suffix(".history")
+        original = receipt_path.read_bytes()
+        replacement = json.loads(original)
+        replacement["kind"] = "import"
+        replacement["attribution"] = {
+            "wallpaper_id": "review-artwork", "rice": CREDIT, "wallpaper": CREDIT,
+        }
+
+        @contextmanager
+        def temporary_review_directory(**kwargs):
+            with tempfile.TemporaryDirectory(**kwargs) as directory:
+                receipt_path.write_text(json.dumps(replacement))
+                try:
+                    yield directory
+                finally:
+                    receipt_path.write_bytes(original)
+
+        with mock.patch.object(creator_release, "tempfile") as review_tempfile:
+            review_tempfile.TemporaryDirectory = temporary_review_directory
+            plan = creator_release.prepare_export(draft)
+
+        self.assertEqual(plan.manifest["provenance"]["author"], "")
+        destination = self.root / "reviewed-lineage.ricepack"
+        creator_release.publish_export(plan, destination)
+        self.assertEqual(pack.inspect_pack(destination)["manifest"], plan.manifest)
 
     def test_export_publishes_only_reviewed_bytes_without_reserializing_assets(self):
         review = creator_release.prepare_export(self._visual_drafts()[0][0])

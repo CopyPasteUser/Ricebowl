@@ -47,6 +47,9 @@ class DraftInfo:
     modified_ns: int
 
 
+_HistoryEntry = tuple[DraftInfo, dict[str, Any] | None]
+
+
 def _private_directory(*, create: bool = True) -> Path:
     """Resolve a small user-private workspace, rejecting symlinked parents."""
     configured = os.environ.get("XDG_STATE_HOME")
@@ -71,19 +74,27 @@ def _new_file(directory: Path) -> Path:
     return directory / f"draft-{secrets.token_hex(12)}.json"
 
 
-def open_draft(path: Path) -> DraftInfo:
+def _read_draft(path: Path) -> DraftInfo:
     snapshot = review.review(str(path))
     metadata = path.lstat()
     if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.geteuid()
             or metadata.st_mode & 0o077):
         raise WorkspaceError("Creator draft must be a private regular file")
-    info = DraftInfo(path, snapshot["recipe"]["name"], snapshot["summary"]["id"],
+    return DraftInfo(path, snapshot["recipe"]["name"], snapshot["summary"]["id"],
                      snapshot["summary"]["semantic_sha256"], metadata.st_mtime_ns)
+
+
+def _history_receipt(info: DraftInfo) -> dict[str, Any] | None:
+    try:
+        return creator_history.read(info.path, info.semantic_sha256)
+    except creator_history.HistoryError as exc:
+        raise WorkspaceError(str(exc)) from exc
+
+
+def open_draft(path: Path) -> DraftInfo:
+    info = _read_draft(path)
     if path.parent == _private_directory() and path.name.startswith("draft-"):
-        try:
-            creator_history.read(path, info.semantic_sha256)
-        except creator_history.HistoryError as exc:
-            raise WorkspaceError(str(exc)) from exc
+        _history_receipt(info)
     return info
 
 
@@ -122,15 +133,12 @@ def _publish_version(target: Path, payload: bytes, kind: str, *,
 
 def previous_version(info: DraftInfo) -> DraftInfo | None:
     """Follow one verified parent receipt, including after restarting Creator."""
-    current = open_draft(info.path)
-    if current.semantic_sha256 != info.semantic_sha256:
-        raise WorkspaceError("Creator draft changed since it was opened")
     if info.path.parent != _private_directory():
         raise WorkspaceError("Creator history is only available for private workspace drafts")
-    try:
-        receipt = creator_history.read(info.path, current.semantic_sha256)
-    except creator_history.HistoryError as exc:
-        raise WorkspaceError(str(exc)) from exc
+    current = _read_draft(info.path)
+    if current.semantic_sha256 != info.semantic_sha256:
+        raise WorkspaceError("Creator draft changed since it was opened")
+    receipt = _history_receipt(current)
     if receipt is None or receipt["parent"] is None:
         return None
     ancestor = open_draft(info.path.parent / receipt["parent"]["filename"])
@@ -141,21 +149,33 @@ def previous_version(info: DraftInfo) -> DraftInfo | None:
 
 def version_history(info: DraftInfo) -> list[DraftInfo]:
     """Newest first; validate each link with a strict 64-version traversal bound."""
-    chain: list[DraftInfo] = []
+    return [version for version, _ in _verified_history(info)]
+
+
+def _verified_history(info: DraftInfo) -> list[_HistoryEntry]:
+    """Retain the exact receipts used to verify each link and root attribution."""
+    folder = _private_directory()
+    if info.path.parent != folder:
+        raise WorkspaceError("Creator history is only available for private workspace drafts")
+    chain: list[_HistoryEntry] = []
     seen: set[Path] = set()
-    current: DraftInfo | None = info
-    while current is not None and len(chain) < creator_history.MAX_HISTORY_DEPTH:
-        if current.path in seen:
+    path, digest = info.path, info.semantic_sha256
+    while len(chain) < creator_history.MAX_HISTORY_DEPTH:
+        if path in seen:
             raise WorkspaceError("Creator version history contains a cycle")
-        seen.add(current.path)
-        chain.append(open_draft(current.path))
-        current = previous_version(current)
-    if current is not None:
-        # Reaching the traversal cap with another parent is NOT a verified
-        # root. Never expose incomplete history as an authoritative lineage:
-        # export attribution and recovery must fail closed on deeper chains.
-        raise WorkspaceError("Creator version history exceeds the safe 64-version limit")
-    return chain
+        seen.add(path)
+        current = _read_draft(path)
+        if current.semantic_sha256 != digest:
+            if not chain:
+                raise WorkspaceError("Creator draft changed since it was opened")
+            raise WorkspaceError("An earlier Creator version was modified; history cannot be trusted")
+        receipt = _history_receipt(current)
+        chain.append((current, receipt))
+        if receipt is None or receipt["parent"] is None:
+            return chain
+        parent = receipt["parent"]
+        path, digest = folder / parent["filename"], parent["semantic_sha256"]
+    raise WorkspaceError("Creator version history exceeds the safe 64-version limit")
 
 
 def list_drafts() -> list[DraftInfo]:
@@ -429,14 +449,13 @@ def upgrade_to_artwork(info: DraftInfo) -> DraftInfo:
 
 
 def export_draft(info: DraftInfo, destination: Path) -> dict[str, Any]:
-    if open_draft(info.path).semantic_sha256 != info.semantic_sha256:
-        raise WorkspaceError("Draft changed on disk. Reload before exporting")
+    return _export_draft(destination, _verified_history(info))
+
+
+def _export_draft(destination: Path, history: list[_HistoryEntry]) -> dict[str, Any]:
+    info, _ = history[0]
+    _, receipt = history[-1]
     recipe = recipes.load(str(info.path))
-    history = version_history(info)
-    root = history[-1]
-    receipt = creator_history.read(root.path, root.semantic_sha256)
-    if receipt is not None and receipt["parent"] is not None:
-        raise WorkspaceError("Creator history exceeds the safe attribution lookup limit")
     inherited = receipt.get("attribution") if receipt is not None else None
     if inherited is not None and pack._wallpaper_identity(recipe)[0] == inherited["wallpaper_id"]:
         wallpaper_credit = inherited["wallpaper"]
