@@ -20,16 +20,17 @@ pub fn header(canvas: &mut [u8], palette: MenuPalette) {
     // Three optical bands and a hairline gold return make this feel like an
     // early-2000s desktop surface rather than a generic toolbar.
     for y in 0..38 {
-        let tone = if y == 0 { 0xffd2_ecff }
-            else if y <= 3 {
-                blend(palette.header, 0xffb0_dcff, 174 - y * 18)
-            } else if y <= 14 {
-                blend(palette.header, 0xff64_a4f3, 110 - (y - 4) * 4)
-            } else if y <= 29 {
-                blend(palette.header, 0xff03_317c, (y - 14) * 5)
-            } else {
-                blend(palette.header, 0xff07_245c, 90 + (y - 30) * 10)
-            };
+        let tone = if y == 0 {
+            0xffd2_ecff
+        } else if y <= 3 {
+            blend(palette.header, 0xffb0_dcff, 174 - y * 18)
+        } else if y <= 14 {
+            blend(palette.header, 0xff64_a4f3, 110 - (y - 4) * 4)
+        } else if y <= 29 {
+            blend(palette.header, 0xff03_317c, (y - 14) * 5)
+        } else {
+            blend(palette.header, 0xff07_245c, 90 + (y - 30) * 10)
+        };
         fill_rect(canvas, w, h, 0, y, w, 1, tone);
     }
     fill_rect(canvas, w, h, 0, 1, 1, 35, 0xffd0_eaff);
@@ -65,8 +66,7 @@ pub fn shelf(canvas: &mut [u8], palette: MenuPalette) {
         let progress = (y - 38) * 255 / (h - 66);
         let warm = blend(palette.background, 0xfff0_e9d9, progress / 13);
         fill_rect(canvas, w, h, 0, y, split, 1, warm);
-        let blue = blend(palette.selection, 0xffff_ffff,
-                         5 + 43 * progress / 255);
+        let blue = blend(palette.selection, 0xffff_ffff, 5 + 43 * progress / 255);
         fill_rect(canvas, w, h, split, y, w - split, 1, blue);
     }
     fill_rect(canvas, w, h, 0, 38, split, 1, 0xffff_ffff);
@@ -92,36 +92,88 @@ pub fn left_all_programs_rule(canvas: &mut [u8]) {
 /// Original bevelled footer buttons, using shared native_menu hit rectangles.
 /// Lock and Log off are actual session actions; Log off looks disabled when the
 /// compositor's supervised logout is unavailable (e.g. Creator preview).
-fn footer_button(canvas: &mut [u8], left: u32, right: u32, hovered: bool,
-                 disabled: bool, warm: bool) {
+fn footer_button(
+    canvas: &mut [u8],
+    left: u32,
+    right: u32,
+    hovered: bool,
+    disabled: bool,
+    warm: bool,
+) {
     let (w, h) = (native_menu::WIDTH, native_menu::HEIGHT);
     let y = native_menu::LUNA_FOOTER_Y + 3;
     let span = right.saturating_sub(left);
-    let base = if disabled { 0xff64_7895 } else if warm { 0xffa8_5829 }
-               else { 0xff3d_70be };
-    let face = if hovered && !disabled { blend(base, 0xffff_ffff, 75) }
-               else { blend(base, 0xffff_ffff, 18) };
-    fill_rounded_rect(canvas, w, h, left, y, span, 22, 4,
-                      blend(base, 0xff00_1039, 94));
-    fill_rounded_rect(canvas, w, h, left + 1, y + 1, span.saturating_sub(2),
-                      19, 3, face);
-    fill_rect(canvas, w, h, left + 5, y + 2, span.saturating_sub(10), 1,
-              if disabled { 0xff91_a3bd } else { 0xffb9_d9ff });
+    let base = if disabled {
+        0xff64_7895
+    } else if warm {
+        0xffa8_5829
+    } else {
+        0xff3d_70be
+    };
+    let face = if hovered && !disabled {
+        blend(base, 0xffff_ffff, 75)
+    } else {
+        blend(base, 0xffff_ffff, 18)
+    };
+    fill_rounded_rect(
+        canvas,
+        w,
+        h,
+        left,
+        y,
+        span,
+        22,
+        4,
+        blend(base, 0xff00_1039, 94),
+    );
+    fill_rounded_rect(
+        canvas,
+        w,
+        h,
+        left + 1,
+        y + 1,
+        span.saturating_sub(2),
+        19,
+        3,
+        face,
+    );
+    fill_rect(
+        canvas,
+        w,
+        h,
+        left + 5,
+        y + 2,
+        span.saturating_sub(10),
+        1,
+        if disabled { 0xff91_a3bd } else { 0xffb9_d9ff },
+    );
     // Small hand-painted lock/power glyph, not a Windows icon asset.
     if warm {
-        fill_rounded_rect(canvas, w, h, left + 8, y + 6, 11, 11, 5,
-                          if disabled { 0xffa5_b5c9 } else { 0xffff_e6b2 });
+        fill_rounded_rect(
+            canvas,
+            w,
+            h,
+            left + 8,
+            y + 6,
+            11,
+            11,
+            5,
+            if disabled { 0xffa5_b5c9 } else { 0xffff_e6b2 },
+        );
         fill_rect(canvas, w, h, left + 12, y + 4, 3, 8, face);
     } else {
-        fill_rounded_rect(canvas, w, h, left + 9, y + 4, 10, 11, 5,
-                          0xffde_ecff);
+        fill_rounded_rect(canvas, w, h, left + 9, y + 4, 10, 11, 5, 0xffde_ecff);
         fill_rect(canvas, w, h, left + 8, y + 10, 13, 8, 0xffff_cb68);
         fill_rect(canvas, w, h, left + 14, y + 13, 2, 4, 0xff43_6191);
     }
 }
 
-pub fn footer(canvas: &mut [u8], palette: MenuPalette,
-              hovered: Option<native_menu::Hit>, logout_enabled: bool) {
+pub fn footer(
+    canvas: &mut [u8],
+    palette: MenuPalette,
+    hovered: Option<native_menu::Hit>,
+    logout_enabled: bool,
+) {
     let (w, h) = (native_menu::WIDTH, native_menu::HEIGHT);
     for y in h - 28..h {
         let local = y - (h - 28);
@@ -139,17 +191,49 @@ pub fn footer(canvas: &mut [u8], palette: MenuPalette,
     let lock = native_menu::LUNA_LOCK_RECT;
     let logout = native_menu::LUNA_LOGOUT_RECT;
     let close = native_menu::LUNA_CLOSE_RECT;
-    footer_button(canvas, lock.0, lock.1,
-                  hovered == Some(native_menu::Hit::FooterLock), false, false);
-    footer_button(canvas, logout.0, logout.1,
-                  hovered == Some(native_menu::Hit::FooterLogout), !logout_enabled, true);
+    footer_button(
+        canvas,
+        lock.0,
+        lock.1,
+        hovered == Some(native_menu::Hit::FooterLock),
+        false,
+        false,
+    );
+    footer_button(
+        canvas,
+        logout.0,
+        logout.1,
+        hovered == Some(native_menu::Hit::FooterLogout),
+        !logout_enabled,
+        true,
+    );
     // Close stays in its previous 64px region, with an independent hit target.
-    fill_rounded_rect(canvas, w, h, close.0, h - 24, close.1 - close.0,
-                      20, 5, 0xff0c_327d);
-    fill_rounded_rect(canvas, w, h, close.0 + 2, h - 23, close.1 - close.0 - 4,
-                      17, 4, if hovered == Some(native_menu::Hit::Close) {
-                          0xff66_9be0
-                      } else { 0xff38_73c6 });
+    fill_rounded_rect(
+        canvas,
+        w,
+        h,
+        close.0,
+        h - 24,
+        close.1 - close.0,
+        20,
+        5,
+        0xff0c_327d,
+    );
+    fill_rounded_rect(
+        canvas,
+        w,
+        h,
+        close.0 + 2,
+        h - 23,
+        close.1 - close.0 - 4,
+        17,
+        4,
+        if hovered == Some(native_menu::Hit::Close) {
+            0xff66_9be0
+        } else {
+            0xff38_73c6
+        },
+    );
     fill_rect(canvas, w, h, close.0 + 10, h - 21, 44, 1, 0xffa7_d8ff);
 }
 
@@ -158,26 +242,61 @@ pub fn footer(canvas: &mut [u8], palette: MenuPalette,
 pub fn all_programs_chevron(canvas: &mut [u8], x: u32, y: u32, selected: bool) {
     let (w, h) = (native_menu::WIDTH, native_menu::HEIGHT);
     fill_rounded_rect(canvas, w, h, x, y, 17, 17, 7, 0xff1d_702c);
-    fill_rounded_rect(canvas, w, h, x + 1, y + 1, 15, 14, 6,
-                      if selected { 0xff5c_c547 } else { 0xff46_a833 });
+    fill_rounded_rect(
+        canvas,
+        w,
+        h,
+        x + 1,
+        y + 1,
+        15,
+        14,
+        6,
+        if selected { 0xff5c_c547 } else { 0xff46_a833 },
+    );
     fill_rect(canvas, w, h, x + 5, y + 2, 7, 1, 0xffad_f49e);
     // White east-facing arrow: unlike the previous thin triangle, it retains
     // its silhouette against both the ivory and selected cobalt backgrounds.
     fill_rect(canvas, w, h, x + 4, y + 7, 8, 3, 0xffff_ffff);
     for step in 0..5 {
-        fill_rect(canvas, w, h, x + 9 + step, y + 4 + step,
-                  1, 9 - 2 * step, 0xffff_ffff);
+        fill_rect(
+            canvas,
+            w,
+            h,
+            x + 9 + step,
+            y + 4 + step,
+            1,
+            9 - 2 * step,
+            0xffff_ffff,
+        );
     }
 }
 
 /// XP pale shelf separators, constrained to the real right-hand group edges.
 pub fn system_group_rule(canvas: &mut [u8], y: u32) {
     let (w, h) = (native_menu::WIDTH, native_menu::HEIGHT);
-    if y <= 39 || y >= h - 28 { return; }
-    fill_rect(canvas, w, h, native_menu::COLUMNS_SPLIT + 8, y,
-              w - native_menu::COLUMNS_SPLIT - 18, 1, 0xffa7_c5e8);
-    fill_rect(canvas, w, h, native_menu::COLUMNS_SPLIT + 8, y + 1,
-              w - native_menu::COLUMNS_SPLIT - 18, 1, 0xfff7_ffff);
+    if y <= 39 || y >= h - 28 {
+        return;
+    }
+    fill_rect(
+        canvas,
+        w,
+        h,
+        native_menu::COLUMNS_SPLIT + 8,
+        y,
+        w - native_menu::COLUMNS_SPLIT - 18,
+        1,
+        0xffa7_c5e8,
+    );
+    fill_rect(
+        canvas,
+        w,
+        h,
+        native_menu::COLUMNS_SPLIT + 8,
+        y + 1,
+        w - native_menu::COLUMNS_SPLIT - 18,
+        1,
+        0xfff7_ffff,
+    );
 }
 
 /// 12px original RiceBowl command symbols. They use the same safe action IDs
@@ -197,8 +316,16 @@ pub fn action_icon(canvas: &mut [u8], x: u32, y: u32, action: &str, selected: bo
             // Control Panel: copper gear surrounding a separate blue dial.
             // This symbol is original pixel art, not proprietary XP artwork.
             let rim = 0xff7d_571d;
-            for (dx, dy) in [(5, 0), (6, 0), (0, 5), (0, 6),
-                             (11, 5), (11, 6), (5, 11), (6, 11)] {
+            for (dx, dy) in [
+                (5, 0),
+                (6, 0),
+                (0, 5),
+                (0, 6),
+                (11, 5),
+                (11, 6),
+                (5, 11),
+                (6, 11),
+            ] {
                 fill_rect(canvas, w, h, x + dx, y + dy, 2, 2, rim);
             }
             fill_rounded_rect(canvas, w, h, x + 2, y + 2, 10, 10, 4, rim);
@@ -283,16 +410,37 @@ pub fn action_icon(canvas: &mut [u8], x: u32, y: u32, action: &str, selected: bo
             // drawing the same placeholder window for every app lost that
             // legibility. These are original, non-vendor bitmap glyphs.
             let app_id = app.to_ascii_lowercase();
-            let browser = ["firefox", "chrom", "brave", "epiphany", "vivaldi",
-                           "browser", "edge"].iter().any(|part| app_id.contains(*part));
+            let browser = [
+                "firefox", "chrom", "brave", "epiphany", "vivaldi", "browser", "edge",
+            ]
+            .iter()
+            .any(|part| app_id.contains(*part));
             let mail = ["thunderbird", "geary", "evolution", "kmail", "mail"]
-                .iter().any(|part| app_id.contains(*part));
+                .iter()
+                .any(|part| app_id.contains(*part));
             let files = ["thunar", "ricefield", "nautilus", "dolphin", "nemo", "caja"]
-                .iter().any(|part| app_id.contains(*part));
-            let terminal = ["alacritty", "foot.desktop", "kitty", "konsole",
-                            "terminal", "xterm"].iter().any(|part| app_id.contains(*part));
-            let editor = ["code.desktop", "mousepad", "gedit", "kate",
-                          "editor", "notepad"].iter().any(|part| app_id.contains(*part));
+                .iter()
+                .any(|part| app_id.contains(*part));
+            let terminal = [
+                "alacritty",
+                "foot.desktop",
+                "kitty",
+                "konsole",
+                "terminal",
+                "xterm",
+            ]
+            .iter()
+            .any(|part| app_id.contains(*part));
+            let editor = [
+                "code.desktop",
+                "mousepad",
+                "gedit",
+                "kate",
+                "editor",
+                "notepad",
+            ]
+            .iter()
+            .any(|part| app_id.contains(*part));
             if browser {
                 fill_rounded_rect(canvas, w, h, x, y, 14, 14, 7, 0xff1f_5699);
                 fill_rounded_rect(canvas, w, h, x + 2, y + 2, 10, 10, 5, 0xff5f_c5ea);
@@ -304,10 +452,8 @@ pub fn action_icon(canvas: &mut [u8], x: u32, y: u32, action: &str, selected: bo
                 fill_rounded_rect(canvas, w, h, x, y + 1, 14, 12, 2, 0xff33_70ac);
                 fill_rect(canvas, w, h, x + 2, y + 3, 10, 8, 0xffec_f4fb);
                 for step in 0..5_u32 {
-                    fill_rect(canvas, w, h, x + 2 + step, y + 3 + step,
-                              1, 1, 0xff79_b9dd);
-                    fill_rect(canvas, w, h, x + 11 - step, y + 3 + step,
-                              1, 1, 0xff79_b9dd);
+                    fill_rect(canvas, w, h, x + 2 + step, y + 3 + step, 1, 1, 0xff79_b9dd);
+                    fill_rect(canvas, w, h, x + 11 - step, y + 3 + step, 1, 1, 0xff79_b9dd);
                 }
             } else if files {
                 fill_rect(canvas, w, h, x, y + 3, 14, 10, 0xffa3_7229);
@@ -328,18 +474,18 @@ pub fn action_icon(canvas: &mut [u8], x: u32, y: u32, action: &str, selected: bo
                 }
                 fill_rect(canvas, w, h, x + 10, y + 9, 2, 4, 0xffdd_b34f);
             } else {
-            // Unknown applications retain a truthful generic app glyph, not
-            // a guessed logo or an identifier-derived executable action.
-            let tint = match app.bytes().fold(0_u8, |acc, b| acc.wrapping_add(b)) % 3 {
-                0 => 0xff59_9ad5,
-                1 => 0xff64_a755,
-                _ => 0xffba_8a42,
-            };
-            fill_rect(canvas, w, h, x, y + 1, 14, 13, ink);
-            fill_rect(canvas, w, h, x + 1, y + 2, 12, 11, 0xfff5_f9fd);
-            fill_rect(canvas, w, h, x + 2, y + 3, 10, 3, tint);
-            fill_rect(canvas, w, h, x + 3, y + 8, 7, 1, 0xff70_9ec7);
-            fill_rect(canvas, w, h, x + 3, y + 10, 5, 1, 0xffa5_bac8);
+                // Unknown applications retain a truthful generic app glyph, not
+                // a guessed logo or an identifier-derived executable action.
+                let tint = match app.bytes().fold(0_u8, |acc, b| acc.wrapping_add(b)) % 3 {
+                    0 => 0xff59_9ad5,
+                    1 => 0xff64_a755,
+                    _ => 0xffba_8a42,
+                };
+                fill_rect(canvas, w, h, x, y + 1, 14, 13, ink);
+                fill_rect(canvas, w, h, x + 1, y + 2, 12, 11, 0xfff5_f9fd);
+                fill_rect(canvas, w, h, x + 2, y + 3, 10, 3, tint);
+                fill_rect(canvas, w, h, x + 3, y + 8, 7, 1, 0xff70_9ec7);
+                fill_rect(canvas, w, h, x + 3, y + 10, 5, 1, 0xffa5_bac8);
             }
         }
         _ => fill_rounded_rect(canvas, w, h, x + 3, y + 3, 7, 7, 3, light),
@@ -352,15 +498,17 @@ mod tests {
     use crate::recipe;
 
     fn at(pixels: &[u8], x: u32, y: u32) -> u32 {
-        u32::from_le_bytes(pixels[((y * native_menu::WIDTH + x) * 4) as usize..]
-            [..4].try_into().unwrap())
+        u32::from_le_bytes(
+            pixels[((y * native_menu::WIDTH + x) * 4) as usize..][..4]
+                .try_into()
+                .unwrap(),
+        )
     }
 
     #[test]
     fn native_start_icons_match_real_app_categories_without_vendor_artwork() {
         let render = |action: &str| {
-            let mut pixels = vec![0_u8;
-                (native_menu::WIDTH * native_menu::HEIGHT * 4) as usize];
+            let mut pixels = vec![0_u8; (native_menu::WIDTH * native_menu::HEIGHT * 4) as usize];
             action_icon(&mut pixels, 10, 47, action, false);
             pixels
         };
@@ -372,8 +520,7 @@ mod tests {
         let other = render("desktop:unknown-app.desktop");
         for category in [&browser, &mail, &files, &terminal, &editor] {
             assert_ne!(category, &other);
-            assert!((47_u32..61).any(|row|
-                (10_u32..24).any(|col| at(category, col, row) != 0)));
+            assert!((47_u32..61).any(|row| (10_u32..24).any(|col| at(category, col, row) != 0)));
             assert_eq!(at(category, 50, 50), 0);
         }
         assert_ne!(browser, mail);
@@ -385,7 +532,9 @@ mod tests {
     fn luna_chrome_has_distinct_header_programs_and_system_panes() {
         let style = recipe::parse(
             include_str!("../../../examples/wayland/xp-luna-columns.json"),
-            Some("xp-luna-columns")).unwrap();
+            Some("xp-luna-columns"),
+        )
+        .unwrap();
         let palette = style.menu.unwrap().palette.unwrap();
         let mut pixels = vec![0; (native_menu::WIDTH * native_menu::HEIGHT * 4) as usize];
         header(&mut pixels, palette);
@@ -428,25 +577,42 @@ mod tests {
         assert_ne!(pixels, before);
         // The browser badge is round now: the transparent corner stays
         // transparent, while the body occupies the original 14x14 cell.
-        assert!((80_u32..94).any(|y|
-            (14_u32..28).any(|x| at(&pixels, x, y) != 0)));
+        assert!((80_u32..94).any(|y| (14_u32..28).any(|x| at(&pixels, x, y) != 0)));
         assert_eq!(at(&pixels, 14, 100), 0);
     }
 
     #[test]
     fn luna_footer_hover_and_logout_unavailability_are_painted_not_faked() {
-        let style = recipe::parse(include_str!("../../../examples/wayland/xp-luna-columns.json"),
-                                  Some("xp-luna-columns")).unwrap();
+        let style = recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns"),
+        )
+        .unwrap();
         let palette = style.menu.unwrap().palette.unwrap();
         let frame = || vec![0; (native_menu::WIDTH * native_menu::HEIGHT * 4) as usize];
         let mut idle = frame();
         footer(&mut idle, palette, None, true);
         let mut locked = frame();
-        footer(&mut locked, palette, Some(native_menu::Hit::FooterLock), true);
+        footer(
+            &mut locked,
+            palette,
+            Some(native_menu::Hit::FooterLock),
+            true,
+        );
         let mut logged_out = frame();
-        footer(&mut logged_out, palette, Some(native_menu::Hit::FooterLogout), true);
+        footer(
+            &mut logged_out,
+            palette,
+            Some(native_menu::Hit::FooterLogout),
+            true,
+        );
         let mut unavailable = frame();
-        footer(&mut unavailable, palette, Some(native_menu::Hit::FooterLogout), false);
+        footer(
+            &mut unavailable,
+            palette,
+            Some(native_menu::Hit::FooterLogout),
+            false,
+        );
         // Distinct live hover states for only the actual button surfaces.
         assert_ne!(at(&idle, 45, 287), at(&locked, 45, 287));
         assert_eq!(at(&idle, 140, 287), at(&locked, 140, 287));
@@ -461,8 +627,11 @@ mod tests {
 
     #[test]
     fn menu_chrome_has_bevel_shelf_and_actionable_footer() {
-        let style = recipe::parse(include_str!("../../../examples/wayland/xp-luna-columns.json"),
-                                  Some("xp-luna-columns")).unwrap();
+        let style = recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns"),
+        )
+        .unwrap();
         let menu = style.menu.unwrap();
         let palette = menu.palette.unwrap();
         let mut pixels = vec![0; (native_menu::WIDTH * native_menu::HEIGHT * 4) as usize];
@@ -471,8 +640,10 @@ mod tests {
         footer(&mut pixels, palette, None, false);
         assert_ne!(at(&pixels, 100, 0), at(&pixels, 100, 29));
         assert_ne!(at(&pixels, 240, 48), at(&pixels, 240, 240));
-        assert_ne!(at(&pixels, 280, native_menu::HEIGHT - 16),
-                   at(&pixels, 200, native_menu::HEIGHT - 16));
+        assert_ne!(
+            at(&pixels, 280, native_menu::HEIGHT - 16),
+            at(&pixels, 200, native_menu::HEIGHT - 16)
+        );
         action_icon(&mut pixels, 14, 110, "terminal", false);
         assert_ne!(at(&pixels, 14, 110), 0);
         action_icon(&mut pixels, 14, 132, "documents", false);
@@ -480,8 +651,10 @@ mod tests {
         assert_ne!(at(&pixels, 14, 138), at(&pixels, 14, 156));
         let mut state = native_menu::MenuState::default();
         state.open();
-        assert_eq!(state.hit(&menu, 280.0, f64::from(native_menu::HEIGHT - 16)),
-                   Some(native_menu::Hit::Close));
+        assert_eq!(
+            state.hit(&menu, 280.0, f64::from(native_menu::HEIGHT - 16)),
+            Some(native_menu::Hit::Close)
+        );
     }
 
     #[test]
@@ -495,12 +668,27 @@ mod tests {
         let settings = render("settings");
         let lock = render("lock");
         let logout = render("logout");
-        assert_ne!(programs, settings, "Control Panel must not reuse the Programs folder");
+        assert_ne!(
+            programs, settings,
+            "Control Panel must not reuse the Programs folder"
+        );
         assert_ne!(lock, logout, "Log off must not reuse the lock glyph");
         for pixels in [&programs, &settings, &lock, &logout] {
-            assert_eq!(at(pixels, 30, 107), 0, "glyph may not paint outside its tile");
-            assert_eq!(at(pixels, 46, 113), 0, "glyph may not paint into neighbouring text");
-            assert_ne!(at(pixels, 37, 108), 0, "glyph is visible on actual menu pixels");
+            assert_eq!(
+                at(pixels, 30, 107),
+                0,
+                "glyph may not paint outside its tile"
+            );
+            assert_eq!(
+                at(pixels, 46, 113),
+                0,
+                "glyph may not paint into neighbouring text"
+            );
+            assert_ne!(
+                at(pixels, 37, 108),
+                0,
+                "glyph is visible on actual menu pixels"
+            );
         }
     }
 }

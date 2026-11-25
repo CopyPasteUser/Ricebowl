@@ -465,10 +465,17 @@ mod tests {
         let source = include_str!("bidi_mirroring.rs");
         // The source file has an exactly one-to-one set of generated match
         // arms. The count guards accidentally truncated source updates.
-        assert_eq!(source.lines().filter(|line| line.trim_start().starts_with("'\\u{")).count(),
-                   UNICODE_MIRROR_PAIR_COUNT);
+        assert_eq!(
+            source
+                .lines()
+                .filter(|line| line.trim_start().starts_with("'\\u{"))
+                .count(),
+            UNICODE_MIRROR_PAIR_COUNT
+        );
         for (left, right) in [
-            ('(', ')'), ('⟦', '⟧'), ('\u{0F3A}', '\u{0F3B}'),
+            ('(', ')'),
+            ('⟦', '⟧'),
+            ('\u{0F3A}', '\u{0F3B}'),
             ('\u{221D}', '\u{1DB10}'),
         ] {
             assert_eq!(mirrored(left), right);

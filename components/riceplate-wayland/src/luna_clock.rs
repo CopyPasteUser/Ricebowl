@@ -44,41 +44,51 @@ fn path() -> Option<PathBuf> {
     let root = env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
-    if !root.is_absolute() { return None; }
+    if !root.is_absolute() {
+        return None;
+    }
     Some(root.join("ricebowl/luna-panel.json"))
 }
 
 fn read_private(path: &Path) -> io::Result<Option<ClockFormat>> {
-    let Some(directory) = path.parent() else { return Ok(None); };
+    let Some(directory) = path.parent() else {
+        return Ok(None);
+    };
     let parent = fs::symlink_metadata(directory)?;
     let uid = unsafe { libc::geteuid() };
-    if !parent.is_dir() || parent.uid() != uid
-        || parent.permissions().mode() & 0o022 != 0
-    {
+    if !parent.is_dir() || parent.uid() != uid || parent.permissions().mode() & 0o022 != 0 {
         return Ok(None);
     }
-    let mut file = OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(path)?;
+    let mut file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)?;
     let meta = file.metadata()?;
-    if !meta.is_file() || meta.uid() != uid
-        || meta.permissions().mode() & 0o077 != 0 || meta.len() > MAX_BYTES
+    if !meta.is_file()
+        || meta.uid() != uid
+        || meta.permissions().mode() & 0o077 != 0
+        || meta.len() > MAX_BYTES
     {
         return Ok(None);
     }
     let mut content = Vec::with_capacity(meta.len() as usize);
     file.take(MAX_BYTES + 1).read_to_end(&mut content)?;
-    if content.len() as u64 > MAX_BYTES { return Ok(None); }
+    if content.len() as u64 > MAX_BYTES {
+        return Ok(None);
+    }
     Ok(parse(&content))
 }
 
 /// Read once when the XP Luna recipe starts. Never change the existing generic
 /// desktop clock, never create files and never trust a symlink as configuration.
 pub fn load() -> ClockFormat {
-    let Some(path) = path() else { return ClockFormat::Hour24 };
+    let Some(path) = path() else {
+        return ClockFormat::Hour24;
+    };
     match read_private(&path) {
         Ok(Some(format)) => format,
         Ok(None) => ClockFormat::Hour24,
-        Err(error) if error.kind() == io::ErrorKind::NotFound =>
-            ClockFormat::Hour24,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => ClockFormat::Hour24,
         Err(error) => {
             eprintln!("RicePlate: Luna clock preference ignored: {error}");
             ClockFormat::Hour24
@@ -103,11 +113,16 @@ mod tests {
 
     #[test]
     fn private_config_reader_rejects_symlinks_and_public_permissions() {
-        use std::os::unix::fs::{DirBuilderExt, symlink};
+        use std::os::unix::fs::{symlink, DirBuilderExt};
         use std::time::{SystemTime, UNIX_EPOCH};
-        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let dir = env::temp_dir().join(format!(
-            "ricebowl-luna-clock-{}-{stamp}", std::process::id()));
+            "ricebowl-luna-clock-{}-{stamp}",
+            std::process::id()
+        ));
         fs::DirBuilder::new().mode(0o700).create(&dir).unwrap();
         let file = dir.join("luna-panel.json");
         let other = dir.join("other.json");
@@ -127,8 +142,14 @@ mod tests {
 
     #[test]
     fn preferences_require_the_exact_versioned_schema() {
-        assert_eq!(parse(br#"{"version":1,"clock_format":"12h"}"#), Some(ClockFormat::Hour12));
-        assert_eq!(parse(br#"{"version":1,"clock_format":"24h"}"#), Some(ClockFormat::Hour24));
+        assert_eq!(
+            parse(br#"{"version":1,"clock_format":"12h"}"#),
+            Some(ClockFormat::Hour12)
+        );
+        assert_eq!(
+            parse(br#"{"version":1,"clock_format":"24h"}"#),
+            Some(ClockFormat::Hour24)
+        );
         for invalid in [
             br#"{"version":2,"clock_format":"12h"}"#.as_slice(),
             br#"{"version":1,"clock_format":"12h","shell":"evil"}"#.as_slice(),

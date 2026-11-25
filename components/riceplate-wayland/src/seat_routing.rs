@@ -16,14 +16,22 @@ pub(crate) struct SeatAssignments<S> {
 
 impl<S> Default for SeatAssignments<S> {
     fn default() -> Self {
-        Self { present: Vec::new(), keyboard: None, pointer: None }
+        Self {
+            present: Vec::new(),
+            keyboard: None,
+            pointer: None,
+        }
     }
 }
 
 /// Select the Wayland seat that actually initiated a window activation.
 /// Assistive actions have no accompanying compositor input serial/seat.
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum ActivationSource { Pointer, Keyboard, Assistive }
+pub(crate) enum ActivationSource {
+    Pointer,
+    Keyboard,
+    Assistive,
+}
 
 /// Why a real pointer gesture cannot be associated with a keyboard proxy.
 /// Callers can display a non-capturing pointer-only fallback instead of
@@ -64,13 +72,17 @@ impl<S: Clone + PartialEq> SeatAssignments<S> {
     }
 
     pub(crate) fn release_keyboard(&mut self, seat: &S) -> bool {
-        if !self.owns_keyboard(seat) { return false; }
+        if !self.owns_keyboard(seat) {
+            return false;
+        }
         self.keyboard = None;
         true
     }
 
     pub(crate) fn release_pointer(&mut self, seat: &S) -> bool {
-        if !self.owns_pointer(seat) { return false; }
+        if !self.owns_pointer(seat) {
+            return false;
+        }
         self.pointer = None;
         true
     }
@@ -85,9 +97,17 @@ impl<S: Clone + PartialEq> SeatAssignments<S> {
     /// and keyboard proxies are both live and belong to the SAME wl_seat.
     /// The specific failure lets integration leave the shortcut pointer-only.
     pub(crate) fn focus_seat_for_pointer_gesture(&self) -> Result<&S, FocusSeatError> {
-        let pointer = self.pointer.as_ref().ok_or(FocusSeatError::NoPointerProxy)?;
-        let keyboard = self.keyboard.as_ref().ok_or(FocusSeatError::NoKeyboardProxy)?;
-        if pointer != keyboard { return Err(FocusSeatError::DifferentSeats); }
+        let pointer = self
+            .pointer
+            .as_ref()
+            .ok_or(FocusSeatError::NoPointerProxy)?;
+        let keyboard = self
+            .keyboard
+            .as_ref()
+            .ok_or(FocusSeatError::NoKeyboardProxy)?;
+        if pointer != keyboard {
+            return Err(FocusSeatError::DifferentSeats);
+        }
         Ok(keyboard)
     }
 
@@ -99,10 +119,16 @@ impl<S: Clone + PartialEq> SeatAssignments<S> {
     /// exists. This matters when a compositor advertises several input seats.
     pub(crate) fn activation_seat_for(&self, source: ActivationSource) -> Option<&S> {
         match source {
-            ActivationSource::Keyboard => self.keyboard.as_ref()
-                .or(self.pointer.as_ref()).or(self.present.first()),
-            ActivationSource::Pointer | ActivationSource::Assistive => self.pointer.as_ref()
-                .or(self.keyboard.as_ref()).or(self.present.first()),
+            ActivationSource::Keyboard => self
+                .keyboard
+                .as_ref()
+                .or(self.pointer.as_ref())
+                .or(self.present.first()),
+            ActivationSource::Pointer | ActivationSource::Assistive => self
+                .pointer
+                .as_ref()
+                .or(self.keyboard.as_ref())
+                .or(self.present.first()),
         }
     }
 
@@ -130,8 +156,14 @@ mod tests {
         assert!(!s.release_pointer(&"seat-a"));
         assert!(s.owns_keyboard(&"seat-a"));
         assert!(s.owns_pointer(&"seat-b"));
-        assert_eq!(s.activation_seat_for(ActivationSource::Assistive), Some(&"seat-b"));
-        assert_eq!(s.activation_seat_for(ActivationSource::Keyboard), Some(&"seat-a"));
+        assert_eq!(
+            s.activation_seat_for(ActivationSource::Assistive),
+            Some(&"seat-b")
+        );
+        assert_eq!(
+            s.activation_seat_for(ActivationSource::Keyboard),
+            Some(&"seat-a")
+        );
     }
 
     #[test]
@@ -143,11 +175,17 @@ mod tests {
         s.forget_seat(&"seat-a");
         assert!(!s.owns_keyboard(&"seat-a"));
         assert!(s.owns_pointer(&"seat-b"));
-        assert_eq!(s.activation_seat_for(ActivationSource::Assistive), Some(&"seat-b"));
+        assert_eq!(
+            s.activation_seat_for(ActivationSource::Assistive),
+            Some(&"seat-b")
+        );
         assert!(!s.release_keyboard(&"seat-a"));
         assert!(s.release_pointer(&"seat-b"));
         // Capability loss does not mean the still-advertised seat vanished.
-        assert_eq!(s.activation_seat_for(ActivationSource::Assistive), Some(&"seat-b"));
+        assert_eq!(
+            s.activation_seat_for(ActivationSource::Assistive),
+            Some(&"seat-b")
+        );
         s.forget_seat(&"seat-b");
         assert_eq!(s.activation_seat_for(ActivationSource::Assistive), None);
     }
@@ -187,8 +225,14 @@ mod tests {
         seats.appeared("secondary");
         seats.appeared("secondary");
         seats.forget_seat(&"primary");
-        assert_eq!(seats.activation_seat_for(ActivationSource::Assistive), Some(&"secondary"));
-        assert_eq!(seats.activation_seat_for(ActivationSource::Keyboard), Some(&"secondary"));
+        assert_eq!(
+            seats.activation_seat_for(ActivationSource::Assistive),
+            Some(&"secondary")
+        );
+        assert_eq!(
+            seats.activation_seat_for(ActivationSource::Keyboard),
+            Some(&"secondary")
+        );
         seats.forget_seat(&"secondary");
         assert_eq!(seats.activation_seat_for(ActivationSource::Assistive), None);
     }
@@ -200,10 +244,16 @@ mod tests {
         seats.appeared(2_u8);
         seats.claim_pointer(2);
         seats.forget_seat(&1);
-        assert_eq!(seats.activation_seat_for(ActivationSource::Pointer), Some(&2));
+        assert_eq!(
+            seats.activation_seat_for(ActivationSource::Pointer),
+            Some(&2)
+        );
         assert!(seats.owns_pointer(&2));
         seats.release_pointer(&2);
-        assert_eq!(seats.activation_seat_for(ActivationSource::Assistive), Some(&2));
+        assert_eq!(
+            seats.activation_seat_for(ActivationSource::Assistive),
+            Some(&2)
+        );
     }
 
     #[test]
@@ -212,31 +262,51 @@ mod tests {
         let mut seats = SeatAssignments::default();
         seats.appeared("primary");
         seats.appeared("secondary");
-        assert_eq!(seats.focus_seat_for_pointer_gesture(),
-                   Err(FocusSeatError::NoPointerProxy));
+        assert_eq!(
+            seats.focus_seat_for_pointer_gesture(),
+            Err(FocusSeatError::NoPointerProxy)
+        );
         seats.claim_pointer("secondary");
-        assert_eq!(seats.focus_seat_for_pointer_gesture(),
-                   Err(FocusSeatError::NoKeyboardProxy));
+        assert_eq!(
+            seats.focus_seat_for_pointer_gesture(),
+            Err(FocusSeatError::NoKeyboardProxy)
+        );
         seats.claim_keyboard("primary");
-        assert_eq!(seats.focus_seat_for_pointer_gesture(),
-                   Err(FocusSeatError::DifferentSeats));
+        assert_eq!(
+            seats.focus_seat_for_pointer_gesture(),
+            Err(FocusSeatError::DifferentSeats)
+        );
         seats.claim_keyboard("secondary");
         assert_eq!(seats.focus_seat_for_pointer_gesture(), Ok(&"secondary"));
         seats.forget_seat(&"secondary");
-        assert_eq!(seats.focus_seat_for_pointer_gesture(),
-                   Err(FocusSeatError::NoPointerProxy));
+        assert_eq!(
+            seats.focus_seat_for_pointer_gesture(),
+            Err(FocusSeatError::NoPointerProxy)
+        );
     }
 
     #[test]
     fn no_keyboard_grab_or_fabricated_focus_is_needed_for_seat_selection() {
         let mut s = SeatAssignments::default();
         s.appeared(10);
-        assert_eq!(s.activation_seat_for(ActivationSource::Assistive), Some(&10));
+        assert_eq!(
+            s.activation_seat_for(ActivationSource::Assistive),
+            Some(&10)
+        );
         s.claim_keyboard(20);
-        assert_eq!(s.activation_seat_for(ActivationSource::Assistive), Some(&20));
+        assert_eq!(
+            s.activation_seat_for(ActivationSource::Assistive),
+            Some(&20)
+        );
         s.claim_pointer(30);
-        assert_eq!(s.activation_seat_for(ActivationSource::Assistive), Some(&30));
+        assert_eq!(
+            s.activation_seat_for(ActivationSource::Assistive),
+            Some(&30)
+        );
         assert!(s.release_pointer(&30));
-        assert_eq!(s.activation_seat_for(ActivationSource::Assistive), Some(&20));
+        assert_eq!(
+            s.activation_seat_for(ActivationSource::Assistive),
+            Some(&20)
+        );
     }
 }

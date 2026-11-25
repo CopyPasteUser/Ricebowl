@@ -1,10 +1,16 @@
 //! Bounded, input-independent navigation for a real native RicePlate menu.
 //! Every row maps to a validated recipe action; labels never become commands.
 
-use std::{collections::HashSet, time::{Duration, Instant}};
+use std::{
+    collections::HashSet,
+    time::{Duration, Instant},
+};
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::{installed_apps::{self, App}, recipe::{MenuContentKind, MenuPresentation, NativeMenu}};
+use crate::{
+    installed_apps::{self, App},
+    recipe::{MenuContentKind, MenuPresentation, NativeMenu},
+};
 
 pub const WIDTH: u32 = 320;
 pub const HEIGHT: u32 = 304;
@@ -17,20 +23,24 @@ const HEADER_BUTTON_WIDTH: u32 = 56;
 const HEADER_BUTTON_GAP: u32 = 4;
 const HEADER_BUTTON_MARGIN: u32 = 4;
 /// Space reserved for actual search/saved buttons beside the menu title.
-pub const HEADER_ACTIONS_WIDTH: u32 = HEADER_BUTTON_WIDTH * 2
-    + HEADER_BUTTON_GAP + HEADER_BUTTON_MARGIN;
+pub const HEADER_ACTIONS_WIDTH: u32 =
+    HEADER_BUTTON_WIDTH * 2 + HEADER_BUTTON_GAP + HEADER_BUTTON_MARGIN;
 
 /// Keep the entire native menu reachable on a small or rotated logical output.
 /// A fixed-ratio fit is used only when the original dimensions cannot fit;
 /// the painter and pointer coordinate transform share this geometry.
 pub fn fitted_size(output_width: u32, output_height: u32, panel_height: u32) -> (u32, u32) {
     let available_width = output_width.saturating_sub(8).max(1);
-    let available_height = output_height.saturating_sub(panel_height.saturating_add(8)).max(1);
+    let available_height = output_height
+        .saturating_sub(panel_height.saturating_add(8))
+        .max(1);
     let scale = (available_width as f64 / WIDTH as f64)
         .min(available_height as f64 / HEIGHT as f64)
         .min(1.0);
-    ((WIDTH as f64 * scale).floor().max(1.0) as u32,
-     (HEIGHT as f64 * scale).floor().max(1.0) as u32)
+    (
+        (WIDTH as f64 * scale).floor().max(1.0) as u32,
+        (HEIGHT as f64 * scale).floor().max(1.0) as u32,
+    )
 }
 
 /// Optional Luna-columns presentation size at common desktop resolutions.
@@ -39,8 +49,7 @@ pub fn fitted_size(output_width: u32, output_height: u32, panel_height: u32) -> 
 /// On ordinary 800-1024px nested laptop outputs show a physically readable
 /// XP menu, not the undersized 320px reference raster. On rotated/tiny
 /// outputs keep the original full-size/compact fallbacks.
-pub fn fitted_luna_size(output_width: u32, output_height: u32,
-                        panel_height: u32) -> (u32, u32) {
+pub fn fitted_luna_size(output_width: u32, output_height: u32, panel_height: u32) -> (u32, u32) {
     let available_width = output_width.saturating_sub(8);
     let available_height = output_height.saturating_sub(panel_height.saturating_add(8));
     // XP X11 gives the Start menu a substantial portion of the desktop.
@@ -54,7 +63,9 @@ pub fn fitted_luna_size(output_width: u32, output_height: u32,
     } else if output_width >= 960 && available_width >= 400 && available_height >= 380 {
         (400, 380)
     } else if (760..1280).contains(&output_width)
-        && available_width >= 360 && available_height >= 342 {
+        && available_width >= 360
+        && available_height >= 342
+    {
         (360, 342)
     } else {
         return fitted_size(output_width, output_height, panel_height);
@@ -63,8 +74,10 @@ pub fn fitted_luna_size(output_width: u32, output_height: u32,
 }
 
 pub fn input_coords(position: (f64, f64), size: (u32, u32)) -> (f64, f64) {
-    (position.0 * f64::from(WIDTH) / f64::from(size.0.max(1)),
-     position.1 * f64::from(HEIGHT) / f64::from(size.1.max(1)))
+    (
+        position.0 * f64::from(WIDTH) / f64::from(size.0.max(1)),
+        position.1 * f64::from(HEIGHT) / f64::from(size.1.max(1)),
+    )
 }
 pub const TAB_TOP: u32 = 46;
 pub const TAB_HEIGHT: u32 = 40;
@@ -97,13 +110,17 @@ pub const COMPACT_ACTION_HEIGHT: u32 = 34;
 pub const COMPACT_FOOTER_HEIGHT: u32 = 25;
 
 pub fn compact_layout(size: (u32, u32)) -> bool {
-    (size.0 < WIDTH || size.1 < HEIGHT) && size.0 >= COMPACT_MIN_WIDTH
+    (size.0 < WIDTH || size.1 < HEIGHT)
+        && size.0 >= COMPACT_MIN_WIDTH
         && size.1 >= COMPACT_MIN_HEIGHT
 }
 
 pub fn compact_visible_actions(size: (u32, u32)) -> usize {
-    ((size.1.saturating_sub(COMPACT_ACTION_TOP + COMPACT_FOOTER_HEIGHT)
-        / COMPACT_ACTION_HEIGHT) as usize).clamp(1, VISIBLE_ACTIONS)
+    ((size
+        .1
+        .saturating_sub(COMPACT_ACTION_TOP + COMPACT_FOOTER_HEIGHT)
+        / COMPACT_ACTION_HEIGHT) as usize)
+        .clamp(1, VISIBLE_ACTIONS)
 }
 const APP_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
 const APP_REMOVED_NOTICE: &str = "Selected application is no longer available";
@@ -191,28 +208,35 @@ pub fn header_button_rect(size: (u32, u32), hit: Hit) -> Option<(u32, u32, u32, 
 /// Full-size Luna footer only. Compact outputs and other menu variants keep
 /// their original one-click Close target, avoiding unusable miniature buttons.
 pub fn luna_footer_hit(menu: &NativeMenu, x: f64, y: f64) -> Option<Hit> {
-    if menu.presentation != MenuPresentation::Columns || menu.palette.is_none()
-        || !x.is_finite() || !y.is_finite() || x < 0.0
-        || x >= f64::from(WIDTH) || y < f64::from(LUNA_FOOTER_Y)
-        || y >= f64::from(HEIGHT) {
+    if menu.presentation != MenuPresentation::Columns
+        || menu.palette.is_none()
+        || !x.is_finite()
+        || !y.is_finite()
+        || x < 0.0
+        || x >= f64::from(WIDTH)
+        || y < f64::from(LUNA_FOOTER_Y)
+        || y >= f64::from(HEIGHT)
+    {
         return None;
     }
     if x >= f64::from(LUNA_LOCK_RECT.0) && x < f64::from(LUNA_LOCK_RECT.1) {
         Some(Hit::FooterLock)
-    } else if x >= f64::from(LUNA_LOGOUT_RECT.0)
-        && x < f64::from(LUNA_LOGOUT_RECT.1) {
+    } else if x >= f64::from(LUNA_LOGOUT_RECT.0) && x < f64::from(LUNA_LOGOUT_RECT.1) {
         Some(Hit::FooterLogout)
-    } else if x >= f64::from(LUNA_CLOSE_RECT.0)
-        && x < f64::from(LUNA_CLOSE_RECT.1) {
+    } else if x >= f64::from(LUNA_CLOSE_RECT.0) && x < f64::from(LUNA_CLOSE_RECT.1) {
         Some(Hit::Close)
-    } else { None }
+    } else {
+        None
+    }
 }
 
 fn header_hit(x: f64, y: f64, size: (u32, u32)) -> Option<Hit> {
     [Hit::Search, Hit::Saved].into_iter().find(|hit| {
         header_button_rect(size, *hit).is_some_and(|(left, top, width, height)| {
-            x >= f64::from(left) && x < f64::from(left + width)
-                && y >= f64::from(top) && y < f64::from(top + height)
+            x >= f64::from(left)
+                && x < f64::from(left + width)
+                && y >= f64::from(top)
+                && y < f64::from(top + height)
         })
     })
 }
@@ -238,11 +262,18 @@ pub struct MenuState {
 
 impl MenuState {
     pub fn with_pins(pins: Vec<String>) -> Self {
-        Self { pins, ..Self::default() }
+        Self {
+            pins,
+            ..Self::default()
+        }
     }
 
     pub fn with_pins_and_recents(pins: Vec<String>, recent_apps: Vec<String>) -> Self {
-        Self { pins, recent_apps, ..Self::default() }
+        Self {
+            pins,
+            recent_apps,
+            ..Self::default()
+        }
     }
 
     pub fn recent_apps(&self) -> &[String] {
@@ -252,7 +283,10 @@ impl MenuState {
     /// Refresh the bounded application index when the menu is opened, never on
     /// keypress or during rendering. Changes are picked up on the next opening.
     pub fn refresh_apps(&mut self) {
-        if self.last_app_refresh.is_some_and(|last| last.elapsed() < APP_REFRESH_INTERVAL) {
+        if self
+            .last_app_refresh
+            .is_some_and(|last| last.elapsed() < APP_REFRESH_INTERVAL)
+        {
             return;
         }
         self.replace_apps(installed_apps::discover());
@@ -263,12 +297,19 @@ impl MenuState {
     /// silently turn Enter into activation of its successor.
     fn replace_apps(&mut self, apps: Vec<App>) {
         let selected_action = if self.view == View::Programs {
-            self.program_actions().get(self.selected).map(|action| (*action).to_owned())
-        } else { None };
+            self.program_actions()
+                .get(self.selected)
+                .map(|action| (*action).to_owned())
+        } else {
+            None
+        };
         self.apps = apps;
         if let Some(action) = selected_action {
-            if let Some(index) = self.program_actions().iter()
-                .position(|candidate| *candidate == action) {
+            if let Some(index) = self
+                .program_actions()
+                .iter()
+                .position(|candidate| *candidate == action)
+            {
                 self.selected = index;
             } else {
                 // Out of bounds until a fresh pointer or keyboard gesture.
@@ -279,8 +320,8 @@ impl MenuState {
         } else if self.view == View::Programs {
             self.selected = self.selected.min(self.program_actions().len());
         }
-        self.recent_apps.retain(|id|
-            self.apps.iter().any(|app| app.action == *id));
+        self.recent_apps
+            .retain(|id| self.apps.iter().any(|app| app.action == *id));
     }
 
     /// A single catalog ordering contract for painting, keyboard selection
@@ -290,16 +331,23 @@ impl MenuState {
         if query.is_empty() {
             return self.apps.iter().map(|app| app.action.as_str()).collect();
         }
-        let mut matches: Vec<_> = self.apps.iter().enumerate()
-            .filter_map(|(index, app)| app.match_score(query)
-                .map(|score| (score, index, app.action.as_str())))
+        let mut matches: Vec<_> = self
+            .apps
+            .iter()
+            .enumerate()
+            .filter_map(|(index, app)| {
+                app.match_score(query)
+                    .map(|score| (score, index, app.action.as_str()))
+            })
             .collect();
         matches.sort_by_key(|(score, index, _)| (*score, *index));
         matches.into_iter().map(|(_, _, action)| action).collect()
     }
 
     pub fn label<'a>(&'a self, action: &'a str) -> &'a str {
-        self.apps.iter().find(|app| app.action == action)
+        self.apps
+            .iter()
+            .find(|app| app.action == action)
             .map_or_else(|| action_label(action), |app| app.name.as_str())
     }
 
@@ -307,8 +355,12 @@ impl MenuState {
     /// for search and assistive technology, but paint short, unambiguous labels
     /// that actually fit the fixed-width native menu, including unavailable
     /// logout. Other menu presentations retain their established wording.
-    pub fn visible_label<'a>(&'a self, menu: &NativeMenu, action: &'a str,
-                             logout_enabled: bool) -> &'a str {
+    pub fn visible_label<'a>(
+        &'a self,
+        menu: &NativeMenu,
+        action: &'a str,
+        logout_enabled: bool,
+    ) -> &'a str {
         if menu.presentation == MenuPresentation::Columns {
             match action {
                 "applications" if menu.palette.is_some() => return "All Programs",
@@ -328,14 +380,19 @@ impl MenuState {
     }
 
     pub fn app_path(&self, action: &str) -> Option<&std::path::Path> {
-        self.apps.iter().find(|app| app.action == action).map(|app| app.path.as_path())
+        self.apps
+            .iter()
+            .find(|app| app.action == action)
+            .map(|app| app.path.as_path())
     }
 
     /// Promote a successfully dispatched desktop application in Luna's
     /// narrow start-menu preview, without changing the alphabetic catalogue.
     /// Fixed recipe commands and unknown desktop IDs cannot enter history.
     pub fn record_app_launch(&mut self, action: &str) -> bool {
-        if !self.apps.iter().any(|app| app.action == action) { return false; }
+        if !self.apps.iter().any(|app| app.action == action) {
+            return false;
+        }
         self.recent_apps.retain(|previous| previous != action);
         self.recent_apps.insert(0, action.to_owned());
         self.recent_apps.truncate(MAX_RECENT_APPS);
@@ -347,40 +404,54 @@ impl MenuState {
     /// fresh login, *after* previously launched apps. Never synthesize app
     /// links, bypass XDG visibility or launch guessed command lines.
     fn luna_preview_apps(&self, limit: usize) -> Vec<&str> {
-        if limit == 0 { return Vec::new(); }
+        if limit == 0 {
+            return Vec::new();
+        }
         let mut result = Vec::with_capacity(limit.min(self.apps.len()));
         for id in &self.recent_apps {
             if let Some(app) = self.apps.iter().find(|app| app.action == *id) {
                 if !result.contains(&app.action.as_str()) {
                     result.push(app.action.as_str());
-                    if result.len() == limit { return result; }
+                    if result.len() == limit {
+                        return result;
+                    }
                 }
             }
         }
         const BROWSER: &[&str] = &[
-            "desktop:firefox.desktop", "desktop:org.mozilla.firefox.desktop",
-            "desktop:chromium.desktop", "desktop:chromium-browser.desktop",
-            "desktop:google-chrome.desktop", "desktop:org.gnome.Epiphany.desktop",
+            "desktop:firefox.desktop",
+            "desktop:org.mozilla.firefox.desktop",
+            "desktop:chromium.desktop",
+            "desktop:chromium-browser.desktop",
+            "desktop:google-chrome.desktop",
+            "desktop:org.gnome.Epiphany.desktop",
         ];
         const MAIL: &[&str] = &[
-            "desktop:thunderbird.desktop", "desktop:org.mozilla.Thunderbird.desktop",
-            "desktop:org.gnome.Evolution.desktop", "desktop:geary.desktop",
+            "desktop:thunderbird.desktop",
+            "desktop:org.mozilla.Thunderbird.desktop",
+            "desktop:org.gnome.Evolution.desktop",
+            "desktop:geary.desktop",
             "desktop:org.gnome.Geary.desktop",
         ];
         for candidates in [BROWSER, MAIL] {
-            if let Some(app) = candidates.iter()
+            if let Some(app) = candidates
+                .iter()
                 .find_map(|id| self.apps.iter().find(|app| app.action == *id))
             {
                 if !result.contains(&app.action.as_str()) {
                     result.push(app.action.as_str());
-                    if result.len() == limit { return result; }
+                    if result.len() == limit {
+                        return result;
+                    }
                 }
             }
         }
         for app in &self.apps {
             if !result.contains(&app.action.as_str()) {
                 result.push(app.action.as_str());
-                if result.len() == limit { break; }
+                if result.len() == limit {
+                    break;
+                }
             }
         }
         result
@@ -405,7 +476,9 @@ impl MenuState {
 
     pub fn group_by(&mut self, menu: &NativeMenu, delta: isize) {
         let count = menu.groups.len();
-        if count == 0 { return; }
+        if count == 0 {
+            return;
+        }
         let step = delta.rem_euclid(count as isize) as usize;
         let target = (self.group + step) % count;
         self.select_group(menu, target);
@@ -413,13 +486,19 @@ impl MenuState {
 
     /// Select a visible section in columns mode, or switch ordinary menus.
     pub fn select_group(&mut self, menu: &NativeMenu, index: usize) {
-        if index >= menu.groups.len() { return; }
+        if index >= menu.groups.len() {
+            return;
+        }
         self.open_group(index);
         if menu.presentation == MenuPresentation::Columns && index > 0 {
-            self.selected = self.composed_sections(menu)
-                .and_then(|sections| sections.into_iter()
-                    .find(|section| section.title == menu.groups[index].title)
-                    .and_then(|section| section.items.first().map(|tile| tile.index)))
+            self.selected = self
+                .composed_sections(menu)
+                .and_then(|sections| {
+                    sections
+                        .into_iter()
+                        .find(|section| section.title == menu.groups[index].title)
+                        .and_then(|section| section.items.first().map(|tile| tile.index))
+                })
                 .unwrap_or(0);
         }
     }
@@ -429,14 +508,18 @@ impl MenuState {
     pub fn horizontal_by(&mut self, menu: &NativeMenu, delta: isize) {
         if menu.presentation == MenuPresentation::Columns && self.view == View::Groups {
             if let Some(sections) = self.composed_sections(menu) {
-                let tiles: Vec<_> = sections.iter().flat_map(|section| section.items.iter())
+                let tiles: Vec<_> = sections
+                    .iter()
+                    .flat_map(|section| section.items.iter())
                     .collect();
                 if let Some(current) = tiles.iter().find(|tile| tile.index == self.selected) {
                     let target_right = delta > 0;
                     if (current.x >= COLUMNS_SPLIT) != target_right {
-                        if let Some(target) = tiles.iter()
+                        if let Some(target) = tiles
+                            .iter()
                             .filter(|tile| (tile.x >= COLUMNS_SPLIT) == target_right)
-                            .min_by_key(|tile| (tile.y.abs_diff(current.y), tile.index)) {
+                            .min_by_key(|tile| (tile.y.abs_diff(current.y), tile.index))
+                        {
                             self.selected = target.index;
                         }
                     }
@@ -445,11 +528,18 @@ impl MenuState {
             return;
         }
         let neighbour = self.composed_sections(menu).and_then(|sections| {
-            let tiles: Vec<_> = sections.iter().flat_map(|section| section.items.iter()).collect();
-            let current = tiles.iter().find(|tile| tile.index == self.selected && tile.grid)?;
+            let tiles: Vec<_> = sections
+                .iter()
+                .flat_map(|section| section.items.iter())
+                .collect();
+            let current = tiles
+                .iter()
+                .find(|tile| tile.index == self.selected && tile.grid)?;
             let target_x = current.x as isize + delta * current.width as isize;
-            tiles.iter().find(|tile| tile.grid && tile.y == current.y &&
-                tile.x as isize == target_x).map(|tile| tile.index)
+            tiles
+                .iter()
+                .find(|tile| tile.grid && tile.y == current.y && tile.x as isize == target_x)
+                .map(|tile| tile.index)
         });
         if let Some(index) = neighbour {
             self.selected = index;
@@ -468,45 +558,67 @@ impl MenuState {
     }
 
     pub fn actions<'a>(&'a self, menu: &'a NativeMenu) -> Vec<&'a str> {
-        let all = || menu.groups.iter().flat_map(|group|
-            group.actions.iter().map(String::as_str));
+        let all = || {
+            menu.groups
+                .iter()
+                .flat_map(|group| group.actions.iter().map(String::as_str))
+        };
         match self.view {
             View::Groups => {
                 if let Some(sections) = self.composed_sections(menu) {
-                    sections.into_iter().flat_map(|section| section.items.into_iter()
-                        .map(|tile| tile.action)).collect()
+                    sections
+                        .into_iter()
+                        .flat_map(|section| section.items.into_iter().map(|tile| tile.action))
+                        .collect()
                 } else {
-                    menu.groups.get(self.group).into_iter()
-                        .flat_map(|group| group.actions.iter().map(String::as_str)).collect()
+                    menu.groups
+                        .get(self.group)
+                        .into_iter()
+                        .flat_map(|group| group.actions.iter().map(String::as_str))
+                        .collect()
                 }
             }
             View::Programs => self.program_actions(),
             View::Search => {
                 let query = self.search.trim().to_lowercase();
                 let mut seen = HashSet::new();
-                let mut result: Vec<_> = all().filter(|action| action_label(action)
-                    .to_lowercase().contains(&query) && seen.insert(*action)).collect();
+                let mut result: Vec<_> = all()
+                    .filter(|action| {
+                        action_label(action).to_lowercase().contains(&query) && seen.insert(*action)
+                    })
+                    .collect();
                 // Empty search retains the old action list and does not dump
                 // every installed application into the four-row menu.
                 if !query.is_empty() {
                     // Exact/prefix name matches should not disappear behind
                     // generic keyword hits from alphabetically earlier apps.
                     // The original catalogue order breaks ties predictably.
-                    let mut apps: Vec<_> = self.apps.iter().enumerate()
-                        .filter_map(|(index, app)| app.match_score(&query)
-                            .map(|score| (score, index, app.action.as_str())))
+                    let mut apps: Vec<_> = self
+                        .apps
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(index, app)| {
+                            app.match_score(&query)
+                                .map(|score| (score, index, app.action.as_str()))
+                        })
                         .collect();
                     apps.sort_by_key(|(score, index, _)| (*score, *index));
-                    result.extend(apps.into_iter().map(|(_, _, action)| action)
-                        .filter(|action| seen.insert(*action)));
+                    result.extend(
+                        apps.into_iter()
+                            .map(|(_, _, action)| action)
+                            .filter(|action| seen.insert(*action)),
+                    );
                 }
                 result
             }
             View::Saved => {
                 let mut seen = HashSet::new();
-                all().filter(|action| self.pins.iter().any(|pin| pin.as_str() == *action)
-                    && seen.insert(*action)).collect()
-            },
+                all()
+                    .filter(|action| {
+                        self.pins.iter().any(|pin| pin.as_str() == *action) && seen.insert(*action)
+                    })
+                    .collect()
+            }
         }
     }
 
@@ -524,78 +636,132 @@ impl MenuState {
         // at the top, the terminal in the central program area, and the real
         // All Programs action directly above the footer. Crucially these are
         // the SAME MenuTile bounds consumed by pointer, keyboard and AT.
-        let luna_start = menu.palette.is_some() && sources.len() == 2
+        let luna_start = menu.palette.is_some()
+            && sources.len() == 2
             && sources[0].kind == MenuContentKind::Actions
             && sources[1].kind == MenuContentKind::AppsList
-            && programs.actions.iter().map(String::as_str)
+            && programs
+                .actions
+                .iter()
+                .map(String::as_str)
                 .eq(["applications", "terminal"]);
         if luna_start {
             let preview = self.luna_preview_apps(sources[1].limit);
             let mut items = Vec::with_capacity(preview.len());
             for (row, action) in preview.into_iter().enumerate() {
                 items.push(MenuTile {
-                    action, index, x: COLUMNS_LEFT, y: 58 + row as u32 * 30,
-                    width: left_width, height: 30, grid: false,
+                    action,
+                    index,
+                    x: COLUMNS_LEFT,
+                    y: 58 + row as u32 * 30,
+                    width: left_width,
+                    height: 30,
+                    grid: false,
                 });
                 index += 1;
             }
             result.push(MenuSection {
-                title: &sources[1].title, x: COLUMNS_LEFT,
-                kind: MenuContentKind::AppsList, top: 42, items,
+                title: &sources[1].title,
+                x: COLUMNS_LEFT,
+                kind: MenuContentKind::AppsList,
+                top: 42,
+                items,
             });
             let mut items = Vec::with_capacity(2);
             // Four genuine, recent/discovered applications now fill the
             // program pane, followed by a distinct Terminal row. All Programs
             // keeps its longstanding real footer-adjacent hit rectangle.
-            for (action, y, h) in [("terminal", 191_u32, 30_u32),
-                                   ("applications", 242, 28)] {
+            for (action, y, h) in [("terminal", 191_u32, 30_u32), ("applications", 242, 28)] {
                 items.push(MenuTile {
-                    action, index, x: COLUMNS_LEFT, y,
-                    width: left_width, height: h, grid: false,
+                    action,
+                    index,
+                    x: COLUMNS_LEFT,
+                    y,
+                    width: left_width,
+                    height: h,
+                    grid: false,
                 });
                 index += 1;
             }
             result.push(MenuSection {
-                title: &sources[0].title, x: COLUMNS_LEFT,
-                kind: MenuContentKind::Actions, top: 128, items,
+                title: &sources[0].title,
+                x: COLUMNS_LEFT,
+                kind: MenuContentKind::Actions,
+                top: 128,
+                items,
             });
         } else {
-        for source in sources {
-            let actions: Vec<&str> = match source.kind {
-                MenuContentKind::Actions => programs.actions.iter().map(String::as_str)
-                    .take(source.limit).collect(),
-                MenuContentKind::Favorites => self.pins.iter().filter(|pin|
-                    menu.groups.iter().any(|group| group.actions.contains(pin)))
-                    .map(String::as_str).take(source.limit).collect(),
-                MenuContentKind::AppsList | MenuContentKind::AppsGrid => {
-                    if menu.palette.is_some() { self.luna_preview_apps(source.limit) }
-                    else { self.apps.iter().map(|app| app.action.as_str())
-                        .take(source.limit).collect() }
+            for source in sources {
+                let actions: Vec<&str> = match source.kind {
+                    MenuContentKind::Actions => programs
+                        .actions
+                        .iter()
+                        .map(String::as_str)
+                        .take(source.limit)
+                        .collect(),
+                    MenuContentKind::Favorites => self
+                        .pins
+                        .iter()
+                        .filter(|pin| menu.groups.iter().any(|group| group.actions.contains(pin)))
+                        .map(String::as_str)
+                        .take(source.limit)
+                        .collect(),
+                    MenuContentKind::AppsList | MenuContentKind::AppsGrid => {
+                        if menu.palette.is_some() {
+                            self.luna_preview_apps(source.limit)
+                        } else {
+                            self.apps
+                                .iter()
+                                .map(|app| app.action.as_str())
+                                .take(source.limit)
+                                .collect()
+                        }
+                    }
+                };
+                let grid = source.kind == MenuContentKind::AppsGrid;
+                let row_height = if grid {
+                    CONTENT_GRID_HEIGHT
+                } else {
+                    CONTENT_LIST_HEIGHT
+                };
+                let mut items = Vec::with_capacity(actions.len());
+                for (position, action) in actions.into_iter().enumerate() {
+                    let col = if grid { position % 2 } else { 0 };
+                    let row = if grid { position / 2 } else { position };
+                    let tile_width = if grid { left_width / 2 } else { left_width };
+                    items.push(MenuTile {
+                        action,
+                        index,
+                        x: COLUMNS_LEFT + col as u32 * tile_width,
+                        y: top + CONTENT_HEADER_HEIGHT + row as u32 * row_height,
+                        width: tile_width,
+                        height: row_height,
+                        grid,
+                    });
+                    index += 1;
                 }
-            };
-            let grid = source.kind == MenuContentKind::AppsGrid;
-            let row_height = if grid { CONTENT_GRID_HEIGHT } else { CONTENT_LIST_HEIGHT };
-            let mut items = Vec::with_capacity(actions.len());
-            for (position, action) in actions.into_iter().enumerate() {
-                let col = if grid { position % 2 } else { 0 };
-                let row = if grid { position / 2 } else { position };
-                let tile_width = if grid { left_width / 2 } else { left_width };
-                items.push(MenuTile {
-                    action, index, x: COLUMNS_LEFT + col as u32 * tile_width,
-                    y: top + CONTENT_HEADER_HEIGHT + row as u32 * row_height,
-                    width: tile_width, height: row_height, grid,
+                result.push(MenuSection {
+                    title: &source.title,
+                    x: COLUMNS_LEFT,
+                    kind: source.kind,
+                    top,
+                    items,
                 });
-                index += 1;
+                let rows = if grid {
+                    source.limit.div_ceil(2)
+                } else {
+                    source.limit
+                };
+                top += CONTENT_HEADER_HEIGHT + rows as u32 * row_height;
             }
-            result.push(MenuSection { title: &source.title, x: COLUMNS_LEFT,
-                                      kind: source.kind, top, items });
-            let rows = if grid { source.limit.div_ceil(2) } else { source.limit };
-            top += CONTENT_HEADER_HEIGHT + rows as u32 * row_height;
-        }
         }
 
-        let right_count = menu.groups.iter().skip(1)
-            .map(|group| group.actions.len()).sum::<usize>();
+        let right_count = menu
+            .groups
+            .iter()
+            .skip(1)
+            .map(|group| group.actions.len())
+            .sum::<usize>();
         let right_row_height = if menu.palette.is_some() && right_count > 8 {
             COLUMNS_RIGHT_XP_PARITY_ROW_HEIGHT
         } else if menu.palette.is_some() && right_count > 6 {
@@ -605,20 +771,33 @@ impl MenuState {
         } else {
             CONTENT_LIST_HEIGHT
         };
-        top = if menu.palette.is_some() { COLUMNS_RIGHT_TOP } else { COLUMNS_TOP };
+        top = if menu.palette.is_some() {
+            COLUMNS_RIGHT_TOP
+        } else {
+            COLUMNS_TOP
+        };
         let right_width = WIDTH - COLUMNS_RIGHT - 8;
         for group in menu.groups.iter().skip(1) {
             let mut items = Vec::with_capacity(group.actions.len());
             for (row, action) in group.actions.iter().enumerate() {
                 items.push(MenuTile {
-                    action, index, x: COLUMNS_RIGHT,
+                    action,
+                    index,
+                    x: COLUMNS_RIGHT,
                     y: top + CONTENT_HEADER_HEIGHT + row as u32 * right_row_height,
-                    width: right_width, height: right_row_height, grid: false,
+                    width: right_width,
+                    height: right_row_height,
+                    grid: false,
                 });
                 index += 1;
             }
-            result.push(MenuSection { title: &group.title, x: COLUMNS_RIGHT,
-                kind: MenuContentKind::Actions, top, items });
+            result.push(MenuSection {
+                title: &group.title,
+                x: COLUMNS_RIGHT,
+                kind: MenuContentKind::Actions,
+                top,
+                items,
+            });
             top += CONTENT_HEADER_HEIGHT + group.actions.len() as u32 * right_row_height;
         }
         Some(result)
@@ -627,7 +806,9 @@ impl MenuState {
     /// Compose only validated sources. Reserving each section's declared
     /// capacity keeps the popup geometry stable when favorites change.
     pub fn composed_sections<'a>(&'a self, menu: &'a NativeMenu) -> Option<Vec<MenuSection<'a>>> {
-        if self.view != View::Groups { return None; }
+        if self.view != View::Groups {
+            return None;
+        }
         if menu.presentation == MenuPresentation::Columns {
             return self.column_sections(menu);
         }
@@ -641,29 +822,60 @@ impl MenuState {
         let mut sections = Vec::with_capacity(composition.len());
         for source in composition {
             let actions: Vec<&str> = match source.kind {
-                MenuContentKind::Actions => group.actions.iter().map(String::as_str)
-                    .take(source.limit).collect(),
-                MenuContentKind::Favorites => self.pins.iter().filter(|pin|
-                    menu.groups.iter().any(|group| group.actions.contains(pin)))
-                    .map(String::as_str).take(source.limit).collect(),
-                MenuContentKind::AppsList | MenuContentKind::AppsGrid => self.apps.iter()
-                    .map(|app| app.action.as_str()).take(source.limit).collect(),
+                MenuContentKind::Actions => group
+                    .actions
+                    .iter()
+                    .map(String::as_str)
+                    .take(source.limit)
+                    .collect(),
+                MenuContentKind::Favorites => self
+                    .pins
+                    .iter()
+                    .filter(|pin| menu.groups.iter().any(|group| group.actions.contains(pin)))
+                    .map(String::as_str)
+                    .take(source.limit)
+                    .collect(),
+                MenuContentKind::AppsList | MenuContentKind::AppsGrid => self
+                    .apps
+                    .iter()
+                    .map(|app| app.action.as_str())
+                    .take(source.limit)
+                    .collect(),
             };
             let grid = source.kind == MenuContentKind::AppsGrid;
-            let row_height = if grid { CONTENT_GRID_HEIGHT } else { CONTENT_LIST_HEIGHT };
+            let row_height = if grid {
+                CONTENT_GRID_HEIGHT
+            } else {
+                CONTENT_LIST_HEIGHT
+            };
             let mut items = Vec::with_capacity(actions.len());
             for (position, action) in actions.into_iter().enumerate() {
                 let column = if grid { position % 2 } else { 0 };
                 let row = if grid { position / 2 } else { position };
                 let tile_width = if grid { width / 2 } else { width };
-                items.push(MenuTile { action, index, x: left + column as u32 * tile_width,
+                items.push(MenuTile {
+                    action,
+                    index,
+                    x: left + column as u32 * tile_width,
                     y: top + CONTENT_HEADER_HEIGHT + row as u32 * row_height,
-                    width: tile_width, height: row_height, grid });
+                    width: tile_width,
+                    height: row_height,
+                    grid,
+                });
                 index += 1;
             }
-            sections.push(MenuSection { title: &source.title, x: left,
-                kind: source.kind, top, items });
-            let rows = if grid { source.limit.div_ceil(2) } else { source.limit };
+            sections.push(MenuSection {
+                title: &source.title,
+                x: left,
+                kind: source.kind,
+                top,
+                items,
+            });
+            let rows = if grid {
+                source.limit.div_ceil(2)
+            } else {
+                source.limit
+            };
             top += CONTENT_HEADER_HEIGHT + rows as u32 * row_height;
         }
         Some(sections)
@@ -679,24 +891,38 @@ impl MenuState {
         // Count matches without re-sorting the entire app catalog per repaint.
         let selected = if self.view == View::Programs {
             let query = self.search.trim();
-            let count = if query.is_empty() { self.apps.len() } else {
-                self.apps.iter().filter(|app| app.match_score(query).is_some()).count()
+            let count = if query.is_empty() {
+                self.apps.len()
+            } else {
+                self.apps
+                    .iter()
+                    .filter(|app| app.match_score(query).is_some())
+                    .count()
             };
             self.selected.min(count.saturating_sub(1))
-        } else { self.selected };
+        } else {
+            self.selected
+        };
         (selected / rows) * rows
     }
 
     /// A non-interactive counter for scrollable action lists. Fully composed
     /// recipe sections have fixed geometry and must not suggest paging.
     pub fn page_status(&self, menu: &NativeMenu, rows: usize) -> Option<(usize, usize, usize)> {
-        if self.view == View::Groups && (menu.presentation == MenuPresentation::Columns
-            || menu.groups.get(self.group).is_some_and(|group| group.content.is_some())) {
+        if self.view == View::Groups
+            && (menu.presentation == MenuPresentation::Columns
+                || menu
+                    .groups
+                    .get(self.group)
+                    .is_some_and(|group| group.content.is_some()))
+        {
             return None;
         }
         let rows = rows.clamp(1, VISIBLE_ACTIONS);
         let total = self.actions(menu).len();
-        if total <= rows { return None; }
+        if total <= rows {
+            return None;
+        }
         let first = self.first_action_row_for(rows).min(total - 1);
         Some((first + 1, (first + rows).min(total), total))
     }
@@ -707,15 +933,18 @@ impl MenuState {
     pub fn accessible_summary(&self, menu: &NativeMenu, rows: usize) -> String {
         let intro = match self.view {
             View::Groups => "Menu".to_owned(),
-            View::Programs if !self.search.is_empty() =>
-                format!("All Programs: {}", self.search),
+            View::Programs if !self.search.is_empty() => format!("All Programs: {}", self.search),
             View::Programs => "All Programs".to_owned(),
             View::Search if self.search.is_empty() => "Find".to_owned(),
             View::Search => format!("Find: {}", self.search),
             View::Saved => "Saved actions".to_owned(),
         };
         let count = self.actions(menu).len();
-        let noun = if self.view == View::Programs { "apps" } else { "actions" };
+        let noun = if self.view == View::Programs {
+            "apps"
+        } else {
+            "actions"
+        };
         let detail = if count == 0 {
             match self.view {
                 View::Programs if !self.search.is_empty() => "No matching apps".to_owned(),
@@ -727,9 +956,18 @@ impl MenuState {
         } else if let Some((first, last, total)) = self.page_status(menu, rows) {
             format!("Showing {noun} {first} through {last} of {total}")
         } else {
-            format!("{count} available {}", if count == 1 {
-                if self.view == View::Programs { "app" } else { "action" }
-            } else { noun })
+            format!(
+                "{count} available {}",
+                if count == 1 {
+                    if self.view == View::Programs {
+                        "app"
+                    } else {
+                        "action"
+                    }
+                } else {
+                    noun
+                }
+            )
         };
         let help = match self.view {
             View::Programs => "Type to filter installed apps; Backspace edits; Enter opens the selected application; Escape returns to the menu",
@@ -737,8 +975,9 @@ impl MenuState {
             View::Groups => "Type to search; F2 or right click pins actions; F3 opens Saved",
             View::Saved => "F2 or right click removes saved actions; F3 returns to menu",
         };
-        let status = self.notice.map_or_else(String::new,
-            |notice| format!(" Status: {notice}."));
+        let status = self
+            .notice
+            .map_or_else(String::new, |notice| format!(" Status: {notice}."));
         format!("{intro}. {detail}. {help}{status}")
     }
 
@@ -765,8 +1004,11 @@ impl MenuState {
     /// shortcuts: enter search, clear a query, then return to the groups.
     pub fn search_button(&mut self) {
         if self.view == View::Programs {
-            if self.search.is_empty() { self.back(); }
-            else { self.clear_search(); }
+            if self.search.is_empty() {
+                self.back();
+            } else {
+                self.clear_search();
+            }
         } else if self.view != View::Search {
             self.start_search();
         } else if !self.search.is_empty() {
@@ -784,15 +1026,25 @@ impl MenuState {
     }
 
     pub fn search_button_label(&self) -> &'static str {
-        if self.view == View::Programs && !self.search.is_empty() { "Clear" }
-        else if self.view == View::Programs { "Back" }
-        else if self.view != View::Search { "Find" }
-        else if self.search.is_empty() { "Back" }
-        else { "Clear" }
+        if self.view == View::Programs && !self.search.is_empty() {
+            "Clear"
+        } else if self.view == View::Programs {
+            "Back"
+        } else if self.view != View::Search {
+            "Find"
+        } else if self.search.is_empty() {
+            "Back"
+        } else {
+            "Clear"
+        }
     }
 
     pub fn saved_button_label(&self) -> &'static str {
-        if self.view == View::Saved { "Back" } else { "Saved" }
+        if self.view == View::Saved {
+            "Back"
+        } else {
+            "Saved"
+        }
     }
 
     /// Accept a complete UTF-8 keyboard event atomically, including several
@@ -801,13 +1053,18 @@ impl MenuState {
     /// rejected before rendering. Bounds apply to the final string.
     pub fn search_input(&mut self, text: &str) -> bool {
         let incoming = text.chars().count();
-        if incoming == 0 || self.search.chars().count().saturating_add(incoming) > 32
+        if incoming == 0
+            || self.search.chars().count().saturating_add(incoming) > 32
             || self.search.len().saturating_add(text.len()) > 96
-            || text.chars().any(|c| c.is_control()
-                || matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')) {
+            || text.chars().any(|c| {
+                c.is_control() || matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+            })
+        {
             return false;
         }
-        if !matches!(self.view, View::Search | View::Programs) { self.start_search(); }
+        if !matches!(self.view, View::Search | View::Programs) {
+            self.start_search();
+        }
         self.search.push_str(text);
         self.selected = 0;
         self.notice = None;
@@ -821,7 +1078,9 @@ impl MenuState {
     /// slash key opens Search only from a non-editing view; inside Search or
     /// All Programs it is ordinary query text and must not erase the query.
     pub fn keyboard_text(&mut self, text: &str, ctrl: bool, alt: bool) -> bool {
-        if ctrl || alt { return false; }
+        if ctrl || alt {
+            return false;
+        }
         if text == "/" && !matches!(self.view, View::Search | View::Programs) {
             self.start_search();
             return true;
@@ -839,7 +1098,9 @@ impl MenuState {
     /// Delete exactly one UAX #29 cluster, never one Unicode scalar. Search
     /// strings can contain accents, emoji ZWJ, regional flags and modifiers.
     pub fn backspace(&mut self) -> bool {
-        if !matches!(self.view, View::Search | View::Programs) { return false; }
+        if !matches!(self.view, View::Search | View::Programs) {
+            return false;
+        }
         let Some((start, _)) = self.search.grapheme_indices(true).next_back() else {
             return false;
         };
@@ -851,7 +1112,11 @@ impl MenuState {
     }
 
     pub fn show_saved(&mut self) {
-        self.view = if self.view == View::Saved { View::Groups } else { View::Saved };
+        self.view = if self.view == View::Saved {
+            View::Groups
+        } else {
+            View::Saved
+        };
         self.search.clear();
         self.notice = None;
         self.selected = 0;
@@ -859,7 +1124,9 @@ impl MenuState {
     }
 
     pub fn back(&mut self) -> bool {
-        if self.view == View::Groups { return false; }
+        if self.view == View::Groups {
+            return false;
+        }
         self.view = View::Groups;
         self.search.clear();
         self.notice = None;
@@ -869,10 +1136,18 @@ impl MenuState {
     }
 
     pub fn toggle_pin(&mut self, menu: &NativeMenu) -> bool {
-        let Some(action) = self.current_action(menu).map(str::to_owned) else { return false; };
+        let Some(action) = self.current_action(menu).map(str::to_owned) else {
+            return false;
+        };
         // A pin is a validated recipe action. Installed apps are searchable,
         // but are not persisted in the recipe-action pin format.
-        if !menu.groups.iter().any(|group| group.actions.contains(&action)) { return false; }
+        if !menu
+            .groups
+            .iter()
+            .any(|group| group.actions.contains(&action))
+        {
+            return false;
+        }
         if let Some(index) = self.pins.iter().position(|item| *item == action) {
             self.pins.remove(index);
         } else if self.pins.len() < MAX_PINS {
@@ -880,16 +1155,28 @@ impl MenuState {
         } else {
             return false;
         }
-        self.selected = self.selected.min(self.actions(menu).len().saturating_sub(1));
+        self.selected = self
+            .selected
+            .min(self.actions(menu).len().saturating_sub(1));
         true
     }
 
     pub fn select_by(&mut self, menu: &NativeMenu, delta: isize) {
-        if delta == 0 { return; }
+        if delta == 0 {
+            return;
+        }
         let count = self.actions(menu).len();
-        if count == 0 { self.selected = 0; return; }
-        let start = if self.selected < count { self.selected }
-            else if delta < 0 { 0 } else { count - 1 };
+        if count == 0 {
+            self.selected = 0;
+            return;
+        }
+        let start = if self.selected < count {
+            self.selected
+        } else if delta < 0 {
+            0
+        } else {
+            count - 1
+        };
         // Modular arithmetic avoids signed overflow even for extreme deltas.
         let step = delta.rem_euclid(count as isize) as usize;
         self.selected = (start + step) % count;
@@ -897,7 +1184,9 @@ impl MenuState {
     }
 
     fn clear_removed_app_notice(&mut self) {
-        if self.notice == Some(APP_REMOVED_NOTICE) { self.notice = None; }
+        if self.notice == Some(APP_REMOVED_NOTICE) {
+            self.notice = None;
+        }
     }
 
     /// Home/End jump to the real first/last action in the current group,
@@ -905,30 +1194,42 @@ impl MenuState {
     pub fn select_edge(&mut self, menu: &NativeMenu, last: bool) {
         let count = self.actions(menu).len();
         self.selected = if last { count.saturating_sub(1) } else { 0 };
-        if count > 0 { self.clear_removed_app_notice(); }
+        if count > 0 {
+            self.clear_removed_app_notice();
+        }
     }
 
     /// PageUp/PageDown advance the visible viewport without wrapping around
     /// a long search result. Arrow keys retain their existing cyclic behavior.
     pub fn page_by(&mut self, menu: &NativeMenu, delta: isize) {
         let count = self.actions(menu).len();
-        if count == 0 { self.selected = 0; return; }
-        if delta == 0 { return; }
-        self.selected = self.selected.saturating_add_signed(delta)
-            .min(count - 1);
+        if count == 0 {
+            self.selected = 0;
+            return;
+        }
+        if delta == 0 {
+            return;
+        }
+        self.selected = self.selected.saturating_add_signed(delta).min(count - 1);
         self.clear_removed_app_notice();
     }
 
     /// A wheel notch advances one *visible page*. Continuous touchpad deltas
     /// accumulate until a page threshold; zero/stop/horizontal-only events do
     /// nothing. Bounded movement cannot run beyond the last real action.
-    pub fn scroll_pages(&mut self, menu: &NativeMenu, discrete: i32,
-                        pixels: f64, visible_rows: usize) -> bool {
+    pub fn scroll_pages(
+        &mut self,
+        menu: &NativeMenu,
+        discrete: i32,
+        pixels: f64,
+        visible_rows: usize,
+    ) -> bool {
         let rows = visible_rows.clamp(1, VISIBLE_ACTIONS);
         // Composed groups have an already fully visible fixed geometry; there
         // is no viewport to move. Search/saved lists do use a paged viewport.
         if (self.view == View::Groups && self.composed_sections(menu).is_some())
-            || self.actions(menu).len() <= rows {
+            || self.actions(menu).len() <= rows
+        {
             self.wheel_remainder = 0.0;
             return false;
         }
@@ -936,14 +1237,18 @@ impl MenuState {
             self.wheel_remainder = 0.0;
             discrete.clamp(-3, 3)
         } else {
-            if !pixels.is_finite() { return false; }
+            if !pixels.is_finite() {
+                return false;
+            }
             self.wheel_remainder = (self.wheel_remainder + pixels)
                 .clamp(-3.0 * WHEEL_PAGE_PIXELS, 3.0 * WHEEL_PAGE_PIXELS);
             let pages = (self.wheel_remainder / WHEEL_PAGE_PIXELS).trunc() as i32;
             self.wheel_remainder -= f64::from(pages) * WHEEL_PAGE_PIXELS;
             pages
         };
-        if pages == 0 { return false; }
+        if pages == 0 {
+            return false;
+        }
         let previous = self.selected;
         self.page_by(menu, pages as isize * rows as isize);
         self.selected != previous
@@ -967,34 +1272,52 @@ impl MenuState {
         if let Some(hit) = header_hit(x, y, (WIDTH, HEIGHT)) {
             return Some(hit);
         }
-        if menu.presentation == MenuPresentation::Columns && menu.palette.is_some()
-            && y >= f64::from(LUNA_FOOTER_Y) {
+        if menu.presentation == MenuPresentation::Columns
+            && menu.palette.is_some()
+            && y >= f64::from(LUNA_FOOTER_Y)
+        {
             return luna_footer_hit(menu, x, y);
         }
         match menu.presentation {
-            MenuPresentation::Tabs if (f64::from(TAB_TOP)..f64::from(TAB_TOP + TAB_HEIGHT)).contains(&y) => {
+            MenuPresentation::Tabs
+                if (f64::from(TAB_TOP)..f64::from(TAB_TOP + TAB_HEIGHT)).contains(&y) =>
+            {
                 let index = (x as usize * menu.groups.len()) / WIDTH as usize;
                 return (index < menu.groups.len()).then_some(Hit::Group(index));
             }
-            MenuPresentation::Sidebar if x < f64::from(SIDEBAR_WIDTH)
-                && (f64::from(TAB_TOP)..f64::from(TAB_TOP + menu.groups.len() as u32 * SIDEBAR_ROW_HEIGHT)).contains(&y) => {
-                return Some(Hit::Group((y as u32 - TAB_TOP) as usize / SIDEBAR_ROW_HEIGHT as usize));
+            MenuPresentation::Sidebar
+                if x < f64::from(SIDEBAR_WIDTH)
+                    && (f64::from(TAB_TOP)
+                        ..f64::from(TAB_TOP + menu.groups.len() as u32 * SIDEBAR_ROW_HEIGHT))
+                        .contains(&y) =>
+            {
+                return Some(Hit::Group(
+                    (y as u32 - TAB_TOP) as usize / SIDEBAR_ROW_HEIGHT as usize,
+                ));
             }
             _ => {}
         }
         if let Some(sections) = self.composed_sections(menu) {
-            return sections.iter().flat_map(|section| section.items.iter())
-                .find(|tile| x >= f64::from(tile.x) && x < f64::from(tile.x + tile.width)
-                    && y >= f64::from(tile.y) && y < f64::from(tile.y + tile.height))
+            return sections
+                .iter()
+                .flat_map(|section| section.items.iter())
+                .find(|tile| {
+                    x >= f64::from(tile.x)
+                        && x < f64::from(tile.x + tile.width)
+                        && y >= f64::from(tile.y)
+                        && y < f64::from(tile.y + tile.height)
+                })
                 .map(|tile| Hit::Action(tile.index))
                 .or_else(|| (y >= f64::from(HEIGHT - 28)).then_some(Hit::Close));
         }
-        if (f64::from(ACTION_TOP)..f64::from(ACTION_TOP + VISIBLE_ACTIONS as u32 * ACTION_HEIGHT)).contains(&y) {
+        if (f64::from(ACTION_TOP)..f64::from(ACTION_TOP + VISIBLE_ACTIONS as u32 * ACTION_HEIGHT))
+            .contains(&y)
+        {
             if menu.presentation == MenuPresentation::Sidebar && x < f64::from(SIDEBAR_WIDTH) {
                 return None;
             }
-            let index = self.first_action_row() +
-                ((y as u32 - ACTION_TOP) / ACTION_HEIGHT) as usize;
+            let index =
+                self.first_action_row() + ((y as u32 - ACTION_TOP) / ACTION_HEIGHT) as usize;
             return self.actions(menu).get(index).map(|_| Hit::Action(index));
         }
         (y >= f64::from(HEIGHT - 28)).then_some(Hit::Close)
@@ -1002,26 +1325,35 @@ impl MenuState {
 
     /// Compact rendering flattens optional recipe sections into a readable,
     /// paged action list. Both pointer hits and painting use this viewport.
-    pub fn compact_hit(&self, menu: &NativeMenu, x: f64, y: f64,
-                       size: (u32, u32)) -> Option<Hit> {
-        if !self.visible || !compact_layout(size) || !x.is_finite() || !y.is_finite()
-            || x < 0.0 || y < 0.0 || x >= f64::from(size.0)
-            || y >= f64::from(size.1) {
+    pub fn compact_hit(&self, menu: &NativeMenu, x: f64, y: f64, size: (u32, u32)) -> Option<Hit> {
+        if !self.visible
+            || !compact_layout(size)
+            || !x.is_finite()
+            || !y.is_finite()
+            || x < 0.0
+            || y < 0.0
+            || x >= f64::from(size.0)
+            || y >= f64::from(size.1)
+        {
             return None;
         }
         if let Some(hit) = header_hit(x, y, size) {
             return Some(hit);
         }
         if (f64::from(COMPACT_TABS_TOP)..f64::from(COMPACT_TABS_TOP + COMPACT_TABS_HEIGHT))
-            .contains(&y) && !menu.groups.is_empty() {
+            .contains(&y)
+            && !menu.groups.is_empty()
+        {
             let index = x as usize * menu.groups.len() / size.0 as usize;
             return (index < menu.groups.len()).then_some(Hit::Group(index));
         }
         let rows = compact_visible_actions(size);
-        if (f64::from(COMPACT_ACTION_TOP)..f64::from(COMPACT_ACTION_TOP +
-            rows as u32 * COMPACT_ACTION_HEIGHT)).contains(&y) {
-            let index = self.first_action_row_for(rows) +
-                (y as u32 - COMPACT_ACTION_TOP) as usize / COMPACT_ACTION_HEIGHT as usize;
+        if (f64::from(COMPACT_ACTION_TOP)
+            ..f64::from(COMPACT_ACTION_TOP + rows as u32 * COMPACT_ACTION_HEIGHT))
+            .contains(&y)
+        {
+            let index = self.first_action_row_for(rows)
+                + (y as u32 - COMPACT_ACTION_TOP) as usize / COMPACT_ACTION_HEIGHT as usize;
             return self.actions(menu).get(index).map(|_| Hit::Action(index));
         }
         (y >= f64::from(size.1 - COMPACT_FOOTER_HEIGHT)).then_some(Hit::Close)
@@ -1034,27 +1366,38 @@ mod tests {
     use crate::recipe::NativeMenuGroup;
 
     fn demo_apps(count: usize) -> Vec<App> {
-        (0..count).map(|index| App {
-            action: format!("desktop:demo-{index}.desktop"),
-            name: format!("Demo App {index}"),
-            search_text: format!("demo app {index}"),
-            path: format!("/usr/share/applications/demo-{index}.desktop").into(),
-        }).collect()
+        (0..count)
+            .map(|index| App {
+                action: format!("desktop:demo-{index}.desktop"),
+                name: format!("Demo App {index}"),
+                search_text: format!("demo app {index}"),
+                path: format!("/usr/share/applications/demo-{index}.desktop").into(),
+            })
+            .collect()
     }
 
     #[test]
     fn luna_sidebar_riceclip_action_is_visible_and_clickable_not_just_declared() {
         let style = crate::recipe::parse(
-            include_str!("../../../examples/wayland/xp-luna.json"), Some("xp-luna")).unwrap();
+            include_str!("../../../examples/wayland/xp-luna.json"),
+            Some("xp-luna"),
+        )
+        .unwrap();
         let menu = style.menu.as_ref().unwrap();
-        let state = MenuState { visible: true, group: 1, ..MenuState::default() };
+        let state = MenuState {
+            visible: true,
+            group: 1,
+            ..MenuState::default()
+        };
         let sections = state.composed_sections(menu).unwrap();
         assert_eq!(sections.len(), 1);
         let actions: Vec<_> = sections[0].items.iter().map(|tile| tile.action).collect();
         assert_eq!(actions, vec!["settings", "notifications", "clip-history"]);
         let clip = sections[0].items.last().unwrap();
-        assert_eq!(state.hit(menu, f64::from(clip.x + 10), f64::from(clip.y + 10)),
-                   Some(Hit::Action(2)));
+        assert_eq!(
+            state.hit(menu, f64::from(clip.x + 10), f64::from(clip.y + 10)),
+            Some(Hit::Action(2))
+        );
         assert_eq!(action_label("clip-history"), "RiceClip history");
     }
 
@@ -1062,17 +1405,27 @@ mod tests {
     fn luna_footer_actions_have_nonoverlapping_pointer_bounds_and_opt_in_only() {
         let luna = crate::recipe::parse(
             include_str!("../../../examples/wayland/xp-luna-columns.json"),
-            Some("xp-luna-columns")).unwrap();
+            Some("xp-luna-columns"),
+        )
+        .unwrap();
         let menu = luna.menu.as_ref().unwrap();
         let mut state = MenuState::default();
         state.open();
         for (x, expected) in [
-            (0.0, None), (6.0, None), (7.0, Some(Hit::FooterLock)),
-            (78.9, Some(Hit::FooterLock)), (79.0, None),
-            (85.0, None), (86.0, Some(Hit::FooterLogout)),
-            (182.9, Some(Hit::FooterLogout)), (183.0, None),
-            (200.0, None), (250.0, None), (251.0, Some(Hit::Close)),
-            (314.9, Some(Hit::Close)), (315.0, None),
+            (0.0, None),
+            (6.0, None),
+            (7.0, Some(Hit::FooterLock)),
+            (78.9, Some(Hit::FooterLock)),
+            (79.0, None),
+            (85.0, None),
+            (86.0, Some(Hit::FooterLogout)),
+            (182.9, Some(Hit::FooterLogout)),
+            (183.0, None),
+            (200.0, None),
+            (250.0, None),
+            (251.0, Some(Hit::Close)),
+            (314.9, Some(Hit::Close)),
+            (315.0, None),
         ] {
             assert_eq!(state.hit(menu, x, 291.0), expected, "x={x}");
         }
@@ -1084,20 +1437,30 @@ mod tests {
         assert_eq!(state.hit(menu, -2.0, 290.0), None);
         // The existing compact menu continues to expose one Close target.
         let size = fitted_size(320, 240, 40);
-        assert_eq!(state.compact_hit(menu, 20.0, f64::from(size.1 - 5), size),
-                   Some(Hit::Close));
+        assert_eq!(
+            state.compact_hit(menu, 20.0, f64::from(size.1 - 5), size),
+            Some(Hit::Close)
+        );
         // Palette-free columns must keep the pre-existing full-width Close.
         let mut plain = crate::recipe::parse(
             include_str!("../../../examples/wayland/xp-luna-columns.json"),
-            Some("xp-luna-columns")).unwrap();
+            Some("xp-luna-columns"),
+        )
+        .unwrap();
         plain.menu.as_mut().unwrap().palette = None;
-        assert_eq!(state.hit(plain.menu.as_ref().unwrap(), 20.0, 290.0),
-                   Some(Hit::Close));
+        assert_eq!(
+            state.hit(plain.menu.as_ref().unwrap(), 20.0, 290.0),
+            Some(Hit::Close)
+        );
         let sidebar = crate::recipe::parse(
             include_str!("../../../examples/wayland/xp-luna.json"),
-            Some("xp-luna")).unwrap();
-        assert_eq!(state.hit(sidebar.menu.as_ref().unwrap(), 20.0, 290.0),
-                   Some(Hit::Close));
+            Some("xp-luna"),
+        )
+        .unwrap();
+        assert_eq!(
+            state.hit(sidebar.menu.as_ref().unwrap(), 20.0, 290.0),
+            Some(Hit::Close)
+        );
         state.footer_hover = Some(Hit::FooterLock);
         state.close();
         assert_eq!(state.footer_hover, None);
@@ -1109,38 +1472,64 @@ mod tests {
     fn luna_places_and_existing_session_actions_have_distinct_bounded_hits() {
         let recipe = crate::recipe::parse(
             include_str!("../../../examples/wayland/xp-luna-columns.json"),
-            Some("xp-luna-columns")).unwrap();
+            Some("xp-luna-columns"),
+        )
+        .unwrap();
         let menu = recipe.menu.as_ref().unwrap();
         let mut state = MenuState::default();
         state.apps = demo_apps(2);
         state.open();
-        assert_eq!(menu.groups[1].actions.iter().map(String::as_str)
-                   .collect::<Vec<_>>(),
-                   vec!["documents", "computer", "pictures", "music", "settings", "notifications",
-                        "help", "run"]);
+        assert_eq!(
+            menu.groups[1]
+                .actions
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            vec![
+                "documents",
+                "computer",
+                "pictures",
+                "music",
+                "settings",
+                "notifications",
+                "help",
+                "run"
+            ]
+        );
         assert_eq!(state.visible_label(menu, "documents", true), "My Documents");
         assert_eq!(state.visible_label(menu, "computer", true), "My Computer");
         assert_eq!(state.visible_label(menu, "pictures", true), "My Pictures");
         assert_eq!(state.visible_label(menu, "music", true), "My Music");
         for (y, index, action) in [
-            (80.0, 4, "documents"), (98.0, 5, "computer"),
-            (116.0, 6, "pictures"), (134.0, 7, "music"),
-            (152.0, 8, "settings"), (170.0, 9, "notifications"),
-            (188.0, 10, "help"), (206.0, 11, "run"),
-            (232.0, 12, "lock"), (250.0, 13, "logout"),
+            (80.0, 4, "documents"),
+            (98.0, 5, "computer"),
+            (116.0, 6, "pictures"),
+            (134.0, 7, "music"),
+            (152.0, 8, "settings"),
+            (170.0, 9, "notifications"),
+            (188.0, 10, "help"),
+            (206.0, 11, "run"),
+            (232.0, 12, "lock"),
+            (250.0, 13, "logout"),
         ] {
             assert_eq!(state.hit(menu, 190.0, y), Some(Hit::Action(index)));
             assert_eq!(state.actions(menu)[index], action);
         }
         let sections = state.composed_sections(menu).unwrap();
         let right = sections.iter().filter(|section| section.x >= COLUMNS_SPLIT);
-        assert!(right.flat_map(|section| &section.items).all(|tile|
-            tile.y >= 38 && tile.y + tile.height <= HEIGHT - 28));
-        assert_eq!(state.hit(menu, 280.0, f64::from(HEIGHT - 16)), Some(Hit::Close));
-        let mut overflow: serde_json::Value = serde_json::from_str(
-            include_str!("../../../examples/wayland/xp-luna-columns.json")).unwrap();
-        overflow["menu"]["groups"][2]["actions"] = serde_json::json!(
-            ["lock", "logout", "wifi-toggle", "audio-mute"]);
+        assert!(right
+            .flat_map(|section| &section.items)
+            .all(|tile| tile.y >= 38 && tile.y + tile.height <= HEIGHT - 28));
+        assert_eq!(
+            state.hit(menu, 280.0, f64::from(HEIGHT - 16)),
+            Some(Hit::Close)
+        );
+        let mut overflow: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../examples/wayland/xp-luna-columns.json"
+        ))
+        .unwrap();
+        overflow["menu"]["groups"][2]["actions"] =
+            serde_json::json!(["lock", "logout", "wifi-toggle", "audio-mute"]);
         assert!(crate::recipe::parse(&overflow.to_string(), Some("xp-luna-columns")).is_err());
         // Palette-free column recipes keep the original y geometry and
         // two-actions-per-group validation contract.
@@ -1150,11 +1539,16 @@ mod tests {
         assert!(crate::recipe::parse(&plain.to_string(), Some("xp-luna-columns")).is_err());
         let mut old_layout = crate::recipe::parse(
             include_str!("../../../examples/wayland/xp-luna-columns.json"),
-            Some("xp-luna-columns")).unwrap();
+            Some("xp-luna-columns"),
+        )
+        .unwrap();
         let classic = old_layout.menu.as_mut().unwrap();
         classic.palette = None;
         let legacy_sections = state.composed_sections(classic).unwrap();
-        assert_eq!(legacy_sections[2].items[0].y, COLUMNS_TOP + CONTENT_HEADER_HEIGHT);
+        assert_eq!(
+            legacy_sections[2].items[0].y,
+            COLUMNS_TOP + CONTENT_HEADER_HEIGHT
+        );
         assert_eq!(legacy_sections[2].items[0].height, CONTENT_LIST_HEIGHT);
         // The bottom All Programs row is a real hit target, not painted
         // decoration. The first preview row is keyboard index zero.
@@ -1171,23 +1565,31 @@ mod tests {
     fn luna_program_column_is_ordered_and_hit_tested_like_xp() {
         let style = crate::recipe::parse(
             include_str!("../../../examples/wayland/xp-luna-columns.json"),
-            Some("xp-luna-columns")).unwrap();
+            Some("xp-luna-columns"),
+        )
+        .unwrap();
         let menu = style.menu.as_ref().unwrap();
         let mut state = MenuState::default();
         state.apps = demo_apps(2);
         state.open();
         let sections = state.composed_sections(menu).unwrap();
-        let left: Vec<_> = sections.iter().filter(|section| section.x < COLUMNS_SPLIT)
-            .flat_map(|section| &section.items).collect();
+        let left: Vec<_> = sections
+            .iter()
+            .filter(|section| section.x < COLUMNS_SPLIT)
+            .flat_map(|section| &section.items)
+            .collect();
         assert_eq!(left.len(), 4);
-        assert_eq!(left.iter().map(|tile| tile.index).collect::<Vec<_>>(),
-                   vec![0, 1, 2, 3]);
+        assert_eq!(
+            left.iter().map(|tile| tile.index).collect::<Vec<_>>(),
+            vec![0, 1, 2, 3]
+        );
         assert!(left[0].action.starts_with("desktop:"));
         assert_eq!(left[2].action, "terminal");
         assert_eq!(left[3].action, "applications");
         assert!(left.windows(2).all(|pair| pair[0].y < pair[1].y));
-        assert!(left.iter().all(|tile| tile.y >= 38 &&
-            tile.y + tile.height <= LUNA_FOOTER_Y));
+        assert!(left
+            .iter()
+            .all(|tile| tile.y >= 38 && tile.y + tile.height <= LUNA_FOOTER_Y));
         assert_eq!(state.hit(menu, 60.0, 255.0), Some(Hit::Action(3)));
         assert_eq!(state.hit(menu, 60.0, 205.0), Some(Hit::Action(2)));
         assert_eq!(state.hit(menu, 60.0, 180.0), None);
@@ -1202,18 +1604,28 @@ mod tests {
     fn luna_all_programs_uses_real_apps_with_paging_and_pointer_navigation() {
         let recipe = crate::recipe::parse(
             include_str!("../../../examples/wayland/xp-luna-columns.json"),
-            Some("xp-luna-columns")).unwrap();
+            Some("xp-luna-columns"),
+        )
+        .unwrap();
         let menu = recipe.menu.as_ref().unwrap();
         let mut state = MenuState::default();
         state.apps = demo_apps(9);
         state.open();
-        assert_eq!(state.visible_label(menu, "applications", false), "All Programs");
+        assert_eq!(
+            state.visible_label(menu, "applications", false),
+            "All Programs"
+        );
         let mut plain = crate::recipe::parse(
             include_str!("../../../examples/wayland/xp-luna-columns.json"),
-            Some("xp-luna-columns")).unwrap();
+            Some("xp-luna-columns"),
+        )
+        .unwrap();
         let plain_menu = plain.menu.as_mut().unwrap();
         plain_menu.palette = None;
-        assert_eq!(state.visible_label(plain_menu, "applications", false), "Applications");
+        assert_eq!(
+            state.visible_label(plain_menu, "applications", false),
+            "Applications"
+        );
         assert_eq!(state.hit(menu, 20.0, 255.0), Some(Hit::Action(5)));
         assert_eq!(state.actions(menu)[5], "applications");
 
@@ -1226,7 +1638,8 @@ mod tests {
         assert!(state.scroll_pages(menu, 1, 0.0, VISIBLE_ACTIONS));
         assert_eq!(state.current_action(menu), Some("desktop:demo-4.desktop"));
         assert_eq!(state.hit(menu, 20.0, 116.0), Some(Hit::Action(4)));
-        assert!(state.accessible_summary(menu, VISIBLE_ACTIONS)
+        assert!(state
+            .accessible_summary(menu, VISIBLE_ACTIONS)
             .contains("Showing apps 5 through 8 of 9"));
         // Recipe pin storage cannot persist arbitrary .desktop file paths.
         assert!(!state.toggle_pin(menu));
@@ -1240,7 +1653,8 @@ mod tests {
         assert!(state.search_input("8"));
         assert_eq!(state.view, View::Programs);
         assert_eq!(state.actions(menu), vec!["desktop:demo-8.desktop"]);
-        assert!(state.accessible_summary(menu, VISIBLE_ACTIONS)
+        assert!(state
+            .accessible_summary(menu, VISIBLE_ACTIONS)
             .contains("All Programs: 8"));
         assert_eq!(state.search_button_label(), "Clear");
         state.search_button();
@@ -1254,7 +1668,8 @@ mod tests {
             assert!(state.search_input(character));
         }
         assert!(state.actions(menu).is_empty());
-        assert!(state.accessible_summary(menu, VISIBLE_ACTIONS)
+        assert!(state
+            .accessible_summary(menu, VISIBLE_ACTIONS)
             .contains("No matching apps"));
         assert!(state.backspace());
         assert_eq!(state.search, "ter");
@@ -1269,7 +1684,8 @@ mod tests {
         state.show_programs();
         state.apps.clear();
         assert!(state.actions(menu).is_empty());
-        assert!(state.accessible_summary(menu, VISIBLE_ACTIONS)
+        assert!(state
+            .accessible_summary(menu, VISIBLE_ACTIONS)
             .contains("No installed apps"));
     }
 
@@ -1282,35 +1698,57 @@ mod tests {
             ("Browser", "browser"),
             ("Browser Plus", "browser plus"),
             ("Web Browser", "web browser"),
-        ].into_iter().enumerate().map(|(index, (name, search_text))| App {
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, (name, search_text))| App {
             action: format!("desktop:app-{index}.desktop"),
-            name: name.into(), search_text: search_text.into(),
+            name: name.into(),
+            search_text: search_text.into(),
             path: format!("/usr/share/applications/app-{index}.desktop").into(),
-        }).collect();
+        })
+        .collect();
         state.open();
         state.show_programs();
-        let original: Vec<String> = state.actions(&data).into_iter()
-            .map(str::to_owned).collect();
+        let original: Vec<String> = state
+            .actions(&data)
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
         for character in "browser".chars() {
             assert!(state.search_input(&character.to_string()));
         }
-        assert_eq!(state.actions(&data), vec![
-            "desktop:app-1.desktop", "desktop:app-2.desktop",
-            "desktop:app-3.desktop", "desktop:app-0.desktop",
-        ]);
-        assert!(state.accessible_summary(&data, VISIBLE_ACTIONS)
+        assert_eq!(
+            state.actions(&data),
+            vec![
+                "desktop:app-1.desktop",
+                "desktop:app-2.desktop",
+                "desktop:app-3.desktop",
+                "desktop:app-0.desktop",
+            ]
+        );
+        assert!(state
+            .accessible_summary(&data, VISIBLE_ACTIONS)
             .contains("4 available apps"));
         state.search_button();
-        assert_eq!(state.actions(&data).into_iter().map(str::to_owned).collect::<Vec<_>>(), original);
+        assert_eq!(
+            state
+                .actions(&data)
+                .into_iter()
+                .map(str::to_owned)
+                .collect::<Vec<_>>(),
+            original
+        );
         assert_eq!(state.view, View::Programs);
     }
-
 
     #[test]
     fn luna_x11_parity_shows_four_real_apps_without_overlapping_system_actions() {
         let style = crate::recipe::parse(
             include_str!("../../../examples/wayland/xp-luna-columns.json"),
-            Some("xp-luna-columns")).unwrap();
+            Some("xp-luna-columns"),
+        )
+        .unwrap();
         let menu = style.menu.as_ref().unwrap();
         let mut state = MenuState::default();
         state.apps = demo_apps(8);
@@ -1318,8 +1756,10 @@ mod tests {
         let sections = state.composed_sections(menu).unwrap();
         let recent = &sections[0].items;
         assert_eq!(recent.len(), 4);
-        assert_eq!(recent.iter().map(|item| item.y).collect::<Vec<_>>(),
-                   vec![58, 88, 118, 148]);
+        assert_eq!(
+            recent.iter().map(|item| item.y).collect::<Vec<_>>(),
+            vec![58, 88, 118, 148]
+        );
         let terminal = &sections[1].items[0];
         let all_programs = &sections[1].items[1];
         assert_eq!(terminal.action, "terminal");
@@ -1329,8 +1769,10 @@ mod tests {
         assert_eq!(all_programs.y, 242);
         assert!(terminal.y + terminal.height < all_programs.y);
         for tile in recent.iter().chain(sections[1].items.iter()) {
-            assert_eq!(state.hit(menu, f64::from(tile.x + 12),
-                                       f64::from(tile.y + 12)), Some(Hit::Action(tile.index)));
+            assert_eq!(
+                state.hit(menu, f64::from(tile.x + 12), f64::from(tile.y + 12)),
+                Some(Hit::Action(tile.index))
+            );
         }
     }
 
@@ -1338,11 +1780,14 @@ mod tests {
     fn luna_preview_prefers_real_browser_and_mail_on_fresh_login() {
         let recipe = crate::recipe::parse(
             include_str!("../../../examples/wayland/xp-luna-columns.json"),
-            Some("xp-luna-columns")).unwrap();
+            Some("xp-luna-columns"),
+        )
+        .unwrap();
         let menu = recipe.menu.as_ref().unwrap();
         let mut state = MenuState::default();
         let app = |id: &str, name: &str| App {
-            action: format!("desktop:{id}"), name: name.into(),
+            action: format!("desktop:{id}"),
+            name: name.into(),
             search_text: name.to_lowercase(),
             path: format!("/usr/share/applications/{id}").into(),
         };
@@ -1353,39 +1798,65 @@ mod tests {
             app("z-viewer.desktop", "Viewer"),
         ];
         state.open();
-        assert_eq!(&state.actions(menu)[..2],
-                   &["desktop:firefox.desktop", "desktop:thunderbird.desktop"]);
+        assert_eq!(
+            &state.actions(menu)[..2],
+            &["desktop:firefox.desktop", "desktop:thunderbird.desktop"]
+        );
         assert!(state.record_app_launch("desktop:z-viewer.desktop"));
-        assert_eq!(&state.actions(menu)[..2],
-                   &["desktop:z-viewer.desktop", "desktop:firefox.desktop"]);
+        assert_eq!(
+            &state.actions(menu)[..2],
+            &["desktop:z-viewer.desktop", "desktop:firefox.desktop"]
+        );
         assert!(state.record_app_launch("desktop:thunderbird.desktop"));
-        assert_eq!(&state.actions(menu)[..2],
-                   &["desktop:thunderbird.desktop", "desktop:z-viewer.desktop"]);
+        assert_eq!(
+            &state.actions(menu)[..2],
+            &["desktop:thunderbird.desktop", "desktop:z-viewer.desktop"]
+        );
         state.recent_apps.clear();
-        state.apps.retain(|app| app.action != "desktop:thunderbird.desktop");
-        assert_eq!(&state.actions(menu)[..2],
-                   &["desktop:firefox.desktop", "desktop:a-editor.desktop"]);
+        state
+            .apps
+            .retain(|app| app.action != "desktop:thunderbird.desktop");
+        assert_eq!(
+            &state.actions(menu)[..2],
+            &["desktop:firefox.desktop", "desktop:a-editor.desktop"]
+        );
         // No phantom Browser or Mail entries on systems lacking both.
-        state.apps.retain(|app| app.action != "desktop:firefox.desktop");
-        assert_eq!(&state.actions(menu)[..2],
-                   &["desktop:a-editor.desktop", "desktop:z-viewer.desktop"]);
+        state
+            .apps
+            .retain(|app| app.action != "desktop:firefox.desktop");
+        assert_eq!(
+            &state.actions(menu)[..2],
+            &["desktop:a-editor.desktop", "desktop:z-viewer.desktop"]
+        );
     }
 
     #[test]
     fn luna_preview_never_uses_hidden_or_missing_default_app_ids() {
         let mut state = MenuState::default();
         state.apps = vec![
-            App { action: "desktop:a.desktop".into(), name: "A".into(),
-                  search_text: "a".into(), path: "/tmp/a.desktop".into() },
-            App { action: "desktop:z.desktop".into(), name: "Z".into(),
-                  search_text: "z".into(), path: "/tmp/z.desktop".into() },
+            App {
+                action: "desktop:a.desktop".into(),
+                name: "A".into(),
+                search_text: "a".into(),
+                path: "/tmp/a.desktop".into(),
+            },
+            App {
+                action: "desktop:z.desktop".into(),
+                name: "Z".into(),
+                search_text: "z".into(),
+                path: "/tmp/z.desktop".into(),
+            },
         ];
-        state.recent_apps = vec!["desktop:firefox.desktop".into(),
-                                 "desktop:missing.desktop".into(),
-                                 "desktop:z.desktop".into(),
-                                 "desktop:z.desktop".into()];
-        assert_eq!(state.luna_preview_apps(4),
-                   vec!["desktop:z.desktop", "desktop:a.desktop"]);
+        state.recent_apps = vec![
+            "desktop:firefox.desktop".into(),
+            "desktop:missing.desktop".into(),
+            "desktop:z.desktop".into(),
+            "desktop:z.desktop".into(),
+        ];
+        assert_eq!(
+            state.luna_preview_apps(4),
+            vec!["desktop:z.desktop", "desktop:a.desktop"]
+        );
         assert!(state.luna_preview_apps(0).is_empty());
         state.apps.clear();
         assert!(state.luna_preview_apps(2).is_empty());
@@ -1395,40 +1866,54 @@ mod tests {
     fn luna_preview_prioritizes_launched_apps_without_changing_other_rices() {
         let recipe = crate::recipe::parse(
             include_str!("../../../examples/wayland/xp-luna-columns.json"),
-            Some("xp-luna-columns")).unwrap();
+            Some("xp-luna-columns"),
+        )
+        .unwrap();
         let menu = recipe.menu.as_ref().unwrap();
         let mut state = MenuState::default();
         state.apps = demo_apps(12);
         state.open();
-        assert_eq!(&state.actions(menu)[..2],
-                   &["desktop:demo-0.desktop", "desktop:demo-1.desktop"]);
+        assert_eq!(
+            &state.actions(menu)[..2],
+            &["desktop:demo-0.desktop", "desktop:demo-1.desktop"]
+        );
         assert!(!state.record_app_launch("terminal"));
         assert!(!state.record_app_launch("desktop:unindexed.desktop"));
         assert!(state.record_app_launch("desktop:demo-9.desktop"));
         assert!(state.record_app_launch("desktop:demo-4.desktop"));
         assert!(state.record_app_launch("desktop:demo-9.desktop"));
-        assert_eq!(&state.actions(menu)[..2],
-                   &["desktop:demo-9.desktop", "desktop:demo-4.desktop"]);
+        assert_eq!(
+            &state.actions(menu)[..2],
+            &["desktop:demo-9.desktop", "desktop:demo-4.desktop"]
+        );
         assert_eq!(state.recent_apps.len(), 2);
         state.open();
-        assert_eq!(&state.actions(menu)[..2],
-                   &["desktop:demo-9.desktop", "desktop:demo-4.desktop"]);
+        assert_eq!(
+            &state.actions(menu)[..2],
+            &["desktop:demo-9.desktop", "desktop:demo-4.desktop"]
+        );
 
         // The unfiltered All Programs index and non-Luna columns remain
         // alphabetic; session recency must never become a recipe-wide theme.
         state.show_programs();
-        assert_eq!(&state.actions(menu)[..2],
-                   &["desktop:demo-0.desktop", "desktop:demo-1.desktop"]);
+        assert_eq!(
+            &state.actions(menu)[..2],
+            &["desktop:demo-0.desktop", "desktop:demo-1.desktop"]
+        );
         state.back();
         let mut other = crate::recipe::parse(
             include_str!("../../../examples/wayland/xp-luna-columns.json"),
-            Some("xp-luna-columns")).unwrap();
+            Some("xp-luna-columns"),
+        )
+        .unwrap();
         let other_menu = other.menu.as_mut().unwrap();
         other_menu.palette = None;
         // Palette-free columns retain their historical action-first order;
         // only opt-in Luna moves discovered app previews to the top.
-        assert_eq!(&state.actions(other_menu)[2..4],
-                   &["desktop:demo-0.desktop", "desktop:demo-1.desktop"]);
+        assert_eq!(
+            &state.actions(other_menu)[2..4],
+            &["desktop:demo-0.desktop", "desktop:demo-1.desktop"]
+        );
 
         for index in 0..12 {
             assert!(state.record_app_launch(&format!("desktop:demo-{index}.desktop")));
@@ -1443,9 +1928,15 @@ mod tests {
     #[test]
     fn page_counter_tracks_visible_action_range_without_false_composition() {
         let mut data = menu();
-        data.groups[0].actions = vec!["terminal".into(), "applications".into(),
-            "settings".into(), "lock".into(), "audio-up".into(),
-            "audio-down".into(), "notifications".into()];
+        data.groups[0].actions = vec![
+            "terminal".into(),
+            "applications".into(),
+            "settings".into(),
+            "lock".into(),
+            "audio-up".into(),
+            "audio-down".into(),
+            "notifications".into(),
+        ];
         let mut state = MenuState::default();
         state.open();
         assert_eq!(state.page_status(&data, VISIBLE_ACTIONS), Some((1, 4, 7)));
@@ -1457,7 +1948,9 @@ mod tests {
 
         let mut composed = menu();
         composed.groups[0].content = Some(vec![crate::recipe::NativeMenuContent {
-            kind: MenuContentKind::Actions, title: "Commands".into(), limit: 2,
+            kind: MenuContentKind::Actions,
+            title: "Commands".into(),
+            limit: 2,
         }]);
         state.open();
         assert_eq!(state.page_status(&composed, 1), None);
@@ -1466,35 +1959,61 @@ mod tests {
     #[test]
     fn accessibility_summary_tracks_paging_and_empty_search_or_saved_views() {
         let mut data = menu();
-        data.groups[0].actions = ["terminal", "applications", "settings", "lock",
-            "audio-up", "audio-down"].into_iter().map(str::to_owned).collect();
+        data.groups[0].actions = [
+            "terminal",
+            "applications",
+            "settings",
+            "lock",
+            "audio-up",
+            "audio-down",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
         data.groups.truncate(1);
         let mut state = MenuState::default();
         state.start_search();
-        assert!(state.accessible_summary(&data, VISIBLE_ACTIONS)
+        assert!(state
+            .accessible_summary(&data, VISIBLE_ACTIONS)
             .contains("Showing actions 1 through 4 of 6"));
         state.page_by(&data, 4);
-        assert!(state.accessible_summary(&data, VISIBLE_ACTIONS)
+        assert!(state
+            .accessible_summary(&data, VISIBLE_ACTIONS)
             .contains("Showing actions 5 through 6 of 6"));
         assert!(state.search_input("z"));
-        assert!(state.accessible_summary(&data, VISIBLE_ACTIONS)
+        assert!(state
+            .accessible_summary(&data, VISIBLE_ACTIONS)
             .contains("No matching actions"));
         state.show_saved();
-        assert!(state.accessible_summary(&data, VISIBLE_ACTIONS)
+        assert!(state
+            .accessible_summary(&data, VISIBLE_ACTIONS)
             .contains("No saved actions"));
-        assert!(state.accessible_summary(&data, VISIBLE_ACTIONS)
+        assert!(state
+            .accessible_summary(&data, VISIBLE_ACTIONS)
             .contains("F3 returns to menu"));
         state.pins.push("terminal".to_owned());
-        assert!(state.accessible_summary(&data, VISIBLE_ACTIONS)
+        assert!(state
+            .accessible_summary(&data, VISIBLE_ACTIONS)
             .contains("1 available action"));
     }
 
     #[test]
     fn wheel_pages_long_action_lists_without_overflow_or_touchpad_jitter() {
         let mut menu = menu();
-        menu.groups[0].actions = ["terminal", "applications", "settings", "lock",
-            "audio-up", "audio-down", "notifications", "logout", "wifi-toggle"]
-            .into_iter().map(String::from).collect();
+        menu.groups[0].actions = [
+            "terminal",
+            "applications",
+            "settings",
+            "lock",
+            "audio-up",
+            "audio-down",
+            "notifications",
+            "logout",
+            "wifi-toggle",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
         let mut state = MenuState::default();
         state.open();
         assert!(!state.scroll_pages(&menu, 0, 23.0, VISIBLE_ACTIONS));
@@ -1521,7 +2040,9 @@ mod tests {
     fn wheel_uses_compact_rows_and_never_scrolls_fully_visible_composition() {
         let mut menu = menu();
         menu.groups[0].actions = ["terminal", "applications", "settings", "lock"]
-            .into_iter().map(String::from).collect();
+            .into_iter()
+            .map(String::from)
+            .collect();
         let mut state = MenuState::default();
         state.open();
         assert!(!state.scroll_pages(&menu, 1, 0.0, VISIBLE_ACTIONS));
@@ -1530,7 +2051,9 @@ mod tests {
         assert!(state.scroll_pages(&menu, -1, 0.0, 1));
         assert_eq!(state.selected, 0);
         menu.groups[0].content = Some(vec![crate::recipe::NativeMenuContent {
-            kind: MenuContentKind::Actions, title: "Commands".into(), limit: 4,
+            kind: MenuContentKind::Actions,
+            title: "Commands".into(),
+            limit: 4,
         }]);
         assert!(!state.scroll_pages(&menu, 1, 0.0, 1));
         assert_eq!(state.selected, 0);
@@ -1543,11 +2066,17 @@ mod tests {
             let mut state = MenuState::default();
             state.open();
             let hit = |state: &MenuState, x: f64, y: f64| {
-                if compact_layout(size) { state.compact_hit(&menu, x, y, size) }
-                else { state.hit(&menu, x, y) }
+                if compact_layout(size) {
+                    state.compact_hit(&menu, x, y, size)
+                } else {
+                    state.hit(&menu, x, y)
+                }
             };
             let (x, y, width, height) = header_button_rect(size, Hit::Search).unwrap();
-            assert_eq!(hit(&state, f64::from(x + 2), f64::from(y + 2)), Some(Hit::Search));
+            assert_eq!(
+                hit(&state, f64::from(x + 2), f64::from(y + 2)),
+                Some(Hit::Search)
+            );
             assert_eq!(hit(&state, f64::from(x + width), f64::from(y + 2)), None);
             assert_eq!(hit(&state, f64::from(x + 2), f64::from(y + height)), None);
             state.search_button();
@@ -1561,7 +2090,10 @@ mod tests {
             state.search_button();
             assert_eq!(state.view, View::Groups);
             let (x, y, _, _) = header_button_rect(size, Hit::Saved).unwrap();
-            assert_eq!(hit(&state, f64::from(x + 2), f64::from(y + 2)), Some(Hit::Saved));
+            assert_eq!(
+                hit(&state, f64::from(x + 2), f64::from(y + 2)),
+                Some(Hit::Saved)
+            );
             state.show_saved();
             assert_eq!(state.view, View::Saved);
             assert_eq!(state.saved_button_label(), "Back");
@@ -1608,17 +2140,31 @@ mod tests {
     fn columns_show_real_programs_and_system_actions_simultaneously() {
         let recipe = crate::recipe::parse(
             include_str!("../../../examples/wayland/xp-luna-columns.json"),
-            Some("xp-luna-columns")).unwrap();
+            Some("xp-luna-columns"),
+        )
+        .unwrap();
         let menu = recipe.menu.as_ref().unwrap();
         assert_eq!(menu.presentation, MenuPresentation::Columns);
         let mut state = MenuState::default();
         state.open();
         // No installed-app fixtures: all real fixed actions remain present.
-        assert_eq!(state.actions(menu), vec![
-            "terminal", "applications", "documents", "computer",
-            "pictures", "music", "settings", "notifications", "help", "run",
-            "lock", "logout"
-        ]);
+        assert_eq!(
+            state.actions(menu),
+            vec![
+                "terminal",
+                "applications",
+                "documents",
+                "computer",
+                "pictures",
+                "music",
+                "settings",
+                "notifications",
+                "help",
+                "run",
+                "lock",
+                "logout"
+            ]
+        );
         assert_eq!(state.hit(menu, 20.0, 205.0), Some(Hit::Action(0)));
         assert_eq!(state.hit(menu, 20.0, 255.0), Some(Hit::Action(1)));
         assert_eq!(state.hit(menu, 200.0, 80.0), Some(Hit::Action(2)));
@@ -1648,12 +2194,23 @@ mod tests {
         // The visible shelf labels fit without losing their meaning. The
         // accessible action labels remain complete and shared with search.
         let right_width = WIDTH - COLUMNS_RIGHT - 8;
-        for action in ["pictures", "music", "settings", "notifications",
-                       "help", "run", "lock", "logout"] {
+        for action in [
+            "pictures",
+            "music",
+            "settings",
+            "notifications",
+            "help",
+            "run",
+            "lock",
+            "logout",
+        ] {
             let label = state.visible_label(menu, action, false);
             assert!(label.len() * 8 <= (right_width - 20) as usize, "{label}");
         }
-        assert_eq!(state.visible_label(menu, "settings", false), "Control Panel");
+        assert_eq!(
+            state.visible_label(menu, "settings", false),
+            "Control Panel"
+        );
         assert_eq!(state.visible_label(menu, "help", false), "Help & Support");
         assert_eq!(state.visible_label(menu, "run", false), "Run...");
         assert_eq!(state.visible_label(menu, "logout", false), "Log out (N/A)");
@@ -1662,24 +2219,36 @@ mod tests {
         assert_eq!(state.label("logout"), "Log out of RiceBowl");
         let original = crate::recipe::parse(
             include_str!("../../../examples/wayland/xp-luna.json"),
-            Some("xp-luna")).unwrap();
+            Some("xp-luna"),
+        )
+        .unwrap();
         let legacy_menu = original.menu.as_ref().unwrap();
-        assert_eq!(state.visible_label(legacy_menu, "settings", false), "RiceSpice settings");
-        assert_eq!(state.visible_label(legacy_menu, "logout", false),
-                   "Log out (unavailable)");
+        assert_eq!(
+            state.visible_label(legacy_menu, "settings", false),
+            "RiceSpice settings"
+        );
+        assert_eq!(
+            state.visible_label(legacy_menu, "logout", false),
+            "Log out (unavailable)"
+        );
     }
 
     #[test]
     fn columns_remain_scrollable_on_compact_outputs() {
         let recipe = crate::recipe::parse(
             include_str!("../../../examples/wayland/xp-luna-columns.json"),
-            Some("xp-luna-columns")).unwrap();
+            Some("xp-luna-columns"),
+        )
+        .unwrap();
         let menu = recipe.menu.as_ref().unwrap();
         let mut state = MenuState::default();
         state.open();
         let size = fitted_size(320, 240, 40);
         assert!(compact_layout(size));
-        assert_eq!(state.compact_hit(menu, 8.0, 50.0, size), Some(Hit::Group(0)));
+        assert_eq!(
+            state.compact_hit(menu, 8.0, 50.0, size),
+            Some(Hit::Group(0))
+        );
         state.select_group(menu, 1);
         assert_eq!(state.current_action(menu), Some("documents"));
         state.select_group(menu, 2);
@@ -1714,8 +2283,7 @@ mod tests {
         assert!(tiny.0 > 0 && tiny.1 > 0);
         let origin = input_coords((0.0, 0.0), tiny);
         assert_eq!(origin, (0.0, 0.0));
-        let center = input_coords((f64::from(tiny.0) / 2.0,
-                                   f64::from(tiny.1) / 2.0), tiny);
+        let center = input_coords((f64::from(tiny.0) / 2.0, f64::from(tiny.1) / 2.0), tiny);
         assert_eq!(center, (f64::from(WIDTH) / 2.0, f64::from(HEIGHT) / 2.0));
         assert!(compact_layout(tiny));
         assert_eq!(compact_visible_actions(tiny), 2);
@@ -1752,25 +2320,44 @@ mod tests {
     #[test]
     fn compact_menu_reflows_both_presentations_without_losing_actions() {
         let mut data = menu();
-        data.groups[0].actions = vec!["applications".into(), "terminal".into(),
-            "audio-up".into(), "audio-down".into(), "wifi-toggle".into()];
+        data.groups[0].actions = vec![
+            "applications".into(),
+            "terminal".into(),
+            "audio-up".into(),
+            "audio-down".into(),
+            "wifi-toggle".into(),
+        ];
         let mut state = MenuState::default();
         state.open();
         let size = fitted_size(320, 240, 36);
         assert_eq!(compact_visible_actions(size), 2);
         state.select_by(&data, 4);
         assert_eq!(state.first_action_row_for(2), 4);
-        assert_eq!(state.compact_hit(&data, 22.0, 78.0, size), Some(Hit::Action(4)));
+        assert_eq!(
+            state.compact_hit(&data, 22.0, 78.0, size),
+            Some(Hit::Action(4))
+        );
         assert_eq!(state.compact_hit(&data, 22.0, 112.0, size), None);
-        assert_eq!(state.compact_hit(&data, 22.0, 50.0, size), Some(Hit::Group(0)));
-        assert_eq!(state.compact_hit(&data, 22.0, f64::from(size.1 - 5), size), Some(Hit::Close));
+        assert_eq!(
+            state.compact_hit(&data, 22.0, 50.0, size),
+            Some(Hit::Group(0))
+        );
+        assert_eq!(
+            state.compact_hit(&data, 22.0, f64::from(size.1 - 5), size),
+            Some(Hit::Close)
+        );
         data.presentation = MenuPresentation::Sidebar;
-        assert_eq!(state.compact_hit(&data, f64::from(size.0 - 2), 50.0, size),
-                   Some(Hit::Group(1)));
+        assert_eq!(
+            state.compact_hit(&data, f64::from(size.0 - 2), 50.0, size),
+            Some(Hit::Group(1))
+        );
         state.start_search();
         assert!(state.search_input("v"));
         assert_eq!(state.actions(&data), vec!["audio-up", "audio-down"]);
-        assert_eq!(state.compact_hit(&data, 20.0, 78.0, size), Some(Hit::Action(0)));
+        assert_eq!(
+            state.compact_hit(&data, 20.0, 78.0, size),
+            Some(Hit::Action(0))
+        );
         assert_eq!(state.compact_hit(&data, f64::NAN, 78.0, size), None);
         assert_eq!(state.compact_hit(&data, -1.0, 78.0, size), None);
     }
@@ -1794,10 +2381,17 @@ mod tests {
             title: "Demo".into(),
             presentation: MenuPresentation::Tabs,
             palette: None,
-            groups: vec![NativeMenuGroup { title: "Tools".into(), actions: vec![
-                "terminal".into(), "audio-up".into(), "audio-down".into(),
-                "wifi-toggle".into(), "notifications".into(),
-            ], content: None }],
+            groups: vec![NativeMenuGroup {
+                title: "Tools".into(),
+                actions: vec![
+                    "terminal".into(),
+                    "audio-up".into(),
+                    "audio-down".into(),
+                    "wifi-toggle".into(),
+                    "notifications".into(),
+                ],
+                content: None,
+            }],
         };
         let mut state = MenuState::default();
         state.open();
@@ -1826,8 +2420,11 @@ mod tests {
         state.start_search();
         assert_eq!(state.search_caret(), 0);
         assert!(state.keyboard_text("👩‍💻e\u{301}🇩🇪", false, false));
-        assert_eq!(state.search_caret(), 3,
-                   "AT-SPI caret must count extended graphemes, not scalars");
+        assert_eq!(
+            state.search_caret(),
+            3,
+            "AT-SPI caret must count extended graphemes, not scalars"
+        );
         assert!(state.backspace());
         assert_eq!(state.search_caret(), 2);
         assert_eq!(state.search, "👩‍💻e\u{301}");
@@ -1854,14 +2451,19 @@ mod tests {
         assert!(!state.keyboard_text("a", true, false));
         assert!(!state.keyboard_text("x", false, true));
         assert!(!state.keyboard_text("/", true, true));
-        assert_eq!(state.search, "lib/café",
-                   "Ctrl/Alt keyboard events must not alter the editor");
+        assert_eq!(
+            state.search, "lib/café",
+            "Ctrl/Alt keyboard events must not alter the editor"
+        );
 
         state.show_programs();
         assert!(state.keyboard_text("docs", false, false));
         assert!(state.keyboard_text("/", false, false));
-        assert_eq!(state.view, View::Programs,
-                   "slash inside All Programs must not switch views");
+        assert_eq!(
+            state.view,
+            View::Programs,
+            "slash inside All Programs must not switch views"
+        );
         assert_eq!(state.search, "docs/");
         assert!(state.backspace());
         assert_eq!(state.search, "docs");
@@ -1881,8 +2483,10 @@ mod tests {
         assert!(!state.keyboard_text("\n", false, false));
         assert!(!state.keyboard_text("\u{202e}", false, false));
         assert!(!state.keyboard_text(&"x".repeat(33), false, false));
-        assert_eq!(state.search, before,
-                   "invalid Unicode must not mutate a partially entered query");
+        assert_eq!(
+            state.search, before,
+            "invalid Unicode must not mutate a partially entered query"
+        );
         assert!(state.backspace());
         assert_eq!(state.search, "👩‍💻e\u{301}");
         assert!(state.backspace());
@@ -1897,10 +2501,18 @@ mod tests {
             title: "Demo".into(),
             presentation: MenuPresentation::Tabs,
             palette: None,
-            groups: vec![NativeMenuGroup { title: "Tools".into(), actions: vec![
-                "applications".into(), "terminal".into(), "lock".into(),
-                "logout".into(), "wifi-toggle".into(), "audio-up".into(),
-            ], content: None }],
+            groups: vec![NativeMenuGroup {
+                title: "Tools".into(),
+                actions: vec![
+                    "applications".into(),
+                    "terminal".into(),
+                    "lock".into(),
+                    "logout".into(),
+                    "wifi-toggle".into(),
+                    "audio-up".into(),
+                ],
+                content: None,
+            }],
         };
         let mut state = MenuState::default();
         state.open();
@@ -1935,11 +2547,24 @@ mod tests {
         }];
         state.open();
         state.start_search();
-        assert_eq!(state.actions(&data), vec!["applications", "terminal", "lock", "logout"]);
-        for character in ["w", "r", "i"] { assert!(state.search_input(character)); }
-        assert_eq!(state.current_action(&data), Some("desktop:org.example.Editor.desktop"));
-        assert_eq!(state.label("desktop:org.example.Editor.desktop"), "Example Editor");
-        assert!(state.app_path("desktop:org.example.Editor.desktop").is_some());
+        assert_eq!(
+            state.actions(&data),
+            vec!["applications", "terminal", "lock", "logout"]
+        );
+        for character in ["w", "r", "i"] {
+            assert!(state.search_input(character));
+        }
+        assert_eq!(
+            state.current_action(&data),
+            Some("desktop:org.example.Editor.desktop")
+        );
+        assert_eq!(
+            state.label("desktop:org.example.Editor.desktop"),
+            "Example Editor"
+        );
+        assert!(state
+            .app_path("desktop:org.example.Editor.desktop")
+            .is_some());
         assert!(!state.toggle_pin(&data));
         assert!(state.pins.is_empty());
         state.back();
@@ -1958,8 +2583,13 @@ mod tests {
         });
         state.open();
         assert!(state.search_input("ü"));
-        assert_eq!(state.current_action(&data), Some("desktop:schreibwerk.desktop"));
-        for _ in 0..31 { assert!(state.search_input("a")); }
+        assert_eq!(
+            state.current_action(&data),
+            Some("desktop:schreibwerk.desktop")
+        );
+        for _ in 0..31 {
+            assert!(state.search_input("a"));
+        }
         assert!(!state.search_input("a"));
         assert!(state.backspace());
     }
@@ -1968,7 +2598,16 @@ mod tests {
     fn search_accepts_unicode_commits_and_deletes_whole_uax29_clusters() {
         let mut state = MenuState::default();
         state.open();
-        for cluster in ["e\u{301}", "👩‍💻", "🇩🇪", "👍🏽", "שלום", "سلام", "हिन्दी", "日本語"] {
+        for cluster in [
+            "e\u{301}",
+            "👩‍💻",
+            "🇩🇪",
+            "👍🏽",
+            "שלום",
+            "سلام",
+            "हिन्दी",
+            "日本語",
+        ] {
             assert!(state.search_input(cluster), "valid Unicode: {cluster:?}");
             assert_eq!(state.view, View::Search);
             assert!(state.search.ends_with(cluster));
@@ -1991,8 +2630,14 @@ mod tests {
         state.open();
         assert!(state.search_input("音楽"));
         let previous = state.search.clone();
-        for rejected in ["", "bad\ninput", "\u{202e}fake", "\u{2067}hidden",
-                         &"x".repeat(33), &"🦀".repeat(25)] {
+        for rejected in [
+            "",
+            "bad\ninput",
+            "\u{202e}fake",
+            "\u{2067}hidden",
+            &"x".repeat(33),
+            &"🦀".repeat(25),
+        ] {
             assert!(!state.search_input(rejected));
             assert_eq!(state.search, previous, "rejection mutated the query");
         }
@@ -2005,8 +2650,10 @@ mod tests {
         let data = menu();
         let mut state = MenuState::default();
         let app = |id: &str, name: &str, search: &str| App {
-            action: format!("desktop:{id}.desktop"), name: name.into(),
-            search_text: search.into(), path: format!("/usr/share/applications/{id}.desktop").into(),
+            action: format!("desktop:{id}.desktop"),
+            name: name.into(),
+            search_text: search.into(),
+            path: format!("/usr/share/applications/{id}.desktop").into(),
         };
         state.apps = vec![
             app("a", "Archive", "archive file manager utility"),
@@ -2021,10 +2668,16 @@ mod tests {
         for ch in "file manager".chars() {
             assert!(state.search_input(&ch.to_string()));
         }
-        assert_eq!(state.actions(&data), vec![
-            "desktop:c.desktop", "desktop:e.desktop", "desktop:d.desktop",
-            "desktop:b.desktop", "desktop:a.desktop",
-        ]);
+        assert_eq!(
+            state.actions(&data),
+            vec![
+                "desktop:c.desktop",
+                "desktop:e.desktop",
+                "desktop:d.desktop",
+                "desktop:b.desktop",
+                "desktop:a.desktop",
+            ]
+        );
         assert_eq!(state.current_action(&data), Some("desktop:c.desktop"));
         state.select_by(&data, 4);
         assert_eq!(state.current_action(&data), Some("desktop:a.desktop"));
@@ -2056,16 +2709,42 @@ mod tests {
         let mut data = menu();
         data.presentation = MenuPresentation::Sidebar;
         data.groups[0].content = Some(vec![
-            NativeMenuContent { kind: MenuContentKind::Actions, title: "Quick Links".into(), limit: 2 },
-            NativeMenuContent { kind: MenuContentKind::AppsGrid, title: "Apps".into(), limit: 2 },
+            NativeMenuContent {
+                kind: MenuContentKind::Actions,
+                title: "Quick Links".into(),
+                limit: 2,
+            },
+            NativeMenuContent {
+                kind: MenuContentKind::AppsGrid,
+                title: "Apps".into(),
+                limit: 2,
+            },
         ]);
         let mut state = MenuState::default();
-        state.apps = vec![App { action: "desktop:a.desktop".into(), name: "Editor".into(),
-            search_text: "editor".into(), path: "/usr/share/applications/a.desktop".into() },
-            App { action: "desktop:b.desktop".into(), name: "Browser".into(),
-            search_text: "browser".into(), path: "/usr/share/applications/b.desktop".into() }];
+        state.apps = vec![
+            App {
+                action: "desktop:a.desktop".into(),
+                name: "Editor".into(),
+                search_text: "editor".into(),
+                path: "/usr/share/applications/a.desktop".into(),
+            },
+            App {
+                action: "desktop:b.desktop".into(),
+                name: "Browser".into(),
+                search_text: "browser".into(),
+                path: "/usr/share/applications/b.desktop".into(),
+            },
+        ];
         state.open();
-        assert_eq!(state.actions(&data), vec!["applications", "terminal", "desktop:a.desktop", "desktop:b.desktop"]);
+        assert_eq!(
+            state.actions(&data),
+            vec![
+                "applications",
+                "terminal",
+                "desktop:a.desktop",
+                "desktop:b.desktop"
+            ]
+        );
         let sections = state.composed_sections(&data).unwrap();
         assert_eq!(sections.len(), 2);
         assert_eq!(sections[1].items[0].index, 2);
@@ -2089,12 +2768,24 @@ mod tests {
         use crate::recipe::NativeMenuContent;
         let mut data = menu();
         data.groups[0].content = Some(vec![
-            NativeMenuContent { kind: MenuContentKind::Favorites, title: "Pinned".into(), limit: 2 },
-            NativeMenuContent { kind: MenuContentKind::AppsList, title: "Installed".into(), limit: 2 },
+            NativeMenuContent {
+                kind: MenuContentKind::Favorites,
+                title: "Pinned".into(),
+                limit: 2,
+            },
+            NativeMenuContent {
+                kind: MenuContentKind::AppsList,
+                title: "Installed".into(),
+                limit: 2,
+            },
         ]);
         let mut state = MenuState::with_pins(vec!["terminal".into(), "not-in-recipe".into()]);
-        state.apps = vec![App { action: "desktop:a.desktop".into(), name: "Editor".into(),
-            search_text: "editor".into(), path: "/usr/share/applications/a.desktop".into() }];
+        state.apps = vec![App {
+            action: "desktop:a.desktop".into(),
+            name: "Editor".into(),
+            search_text: "editor".into(),
+            path: "/usr/share/applications/a.desktop".into(),
+        }];
         state.open();
         assert_eq!(state.actions(&data), vec!["terminal", "desktop:a.desktop"]);
         assert_eq!(state.hit(&data, 20.0, 124.0), Some(Hit::Action(0)));
@@ -2106,9 +2797,15 @@ mod tests {
     #[test]
     fn keyboard_page_and_edge_navigation_remain_in_visible_action_bounds() {
         let mut data = menu();
-        data.groups[0].actions = vec!["terminal".into(), "audio-up".into(),
-            "audio-down".into(), "lock".into(), "wifi-toggle".into(),
-            "notifications".into(), "logout".into()];
+        data.groups[0].actions = vec![
+            "terminal".into(),
+            "audio-up".into(),
+            "audio-down".into(),
+            "lock".into(),
+            "wifi-toggle".into(),
+            "notifications".into(),
+            "logout".into(),
+        ];
         let mut state = MenuState::default();
         state.open();
         state.select_edge(&data, true);
@@ -2143,8 +2840,13 @@ mod tests {
     #[test]
     fn refreshed_program_catalog_never_dispatches_another_app_by_stale_index() {
         let data = menu();
-        let mut state = MenuState::with_pins_and_recents(Vec::new(),
-            vec!["desktop:demo-2.desktop".into(), "desktop:removed.desktop".into()]);
+        let mut state = MenuState::with_pins_and_recents(
+            Vec::new(),
+            vec![
+                "desktop:demo-2.desktop".into(),
+                "desktop:removed.desktop".into(),
+            ],
+        );
         state.open();
         state.replace_apps(demo_apps(6));
         state.show_programs();
@@ -2155,27 +2857,45 @@ mod tests {
         let mut reordered = demo_apps(6);
         reordered.reverse();
         state.replace_apps(reordered);
-        assert_eq!(state.current_action(&data), Some(action.as_str()),
-            "reordering catalog must not retarget Enter");
+        assert_eq!(
+            state.current_action(&data),
+            Some(action.as_str()),
+            "reordering catalog must not retarget Enter"
+        );
         assert_eq!(state.selected, 3);
 
         let mut removed = demo_apps(6);
         removed.retain(|app| app.action != action);
         state.replace_apps(removed);
-        assert_eq!(state.current_action(&data), None,
-            "removed selection must not launch a different app");
+        assert_eq!(
+            state.current_action(&data),
+            None,
+            "removed selection must not launch a different app"
+        );
         assert_eq!(state.selected, 5);
-        assert_eq!(state.first_action_row(), 4,
-            "an invalid selection must not hide remaining apps");
-        assert!(state.accessible_summary(&data, VISIBLE_ACTIONS)
+        assert_eq!(
+            state.first_action_row(),
+            4,
+            "an invalid selection must not hide remaining apps"
+        );
+        assert!(state
+            .accessible_summary(&data, VISIBLE_ACTIONS)
             .contains("Status: Selected application is no longer available."));
-        assert!(state.recent_apps().is_empty(),
-            "removed and unknown recent IDs are pruned");
+        assert!(
+            state.recent_apps().is_empty(),
+            "removed and unknown recent IDs are pruned"
+        );
 
         state.select_by(&data, 1);
-        assert_eq!(state.current_action(&data), Some("desktop:demo-0.desktop"),
-            "explicit keyboard navigation establishes a fresh selection");
-        assert_eq!(state.notice, None, "fresh focus clears the removed-app error");
+        assert_eq!(
+            state.current_action(&data),
+            Some("desktop:demo-0.desktop"),
+            "explicit keyboard navigation establishes a fresh selection"
+        );
+        assert_eq!(
+            state.notice, None,
+            "fresh focus clears the removed-app error"
+        );
         state.select_by(&data, isize::MIN);
         assert!(state.selected < state.actions(&data).len());
     }
@@ -2203,7 +2923,8 @@ mod tests {
         let mut state = MenuState::default();
         state.open();
         state.notice = Some("Unavailable or denied");
-        assert!(state.accessible_summary(&data, VISIBLE_ACTIONS)
+        assert!(state
+            .accessible_summary(&data, VISIBLE_ACTIONS)
             .contains("Status: Unavailable or denied."));
 
         state.start_search();
@@ -2245,16 +2966,20 @@ mod tests {
     fn restored_recents_only_surface_installed_apps_and_remain_bounded() {
         let mut state = MenuState::with_pins_and_recents(
             Vec::new(),
-            vec!["desktop:removed.desktop".into(), "desktop:demo-1.desktop".into()],
+            vec![
+                "desktop:removed.desktop".into(),
+                "desktop:demo-1.desktop".into(),
+            ],
         );
         state.apps = vec![App {
-            action: "desktop:demo-1.desktop".into(), name: "Editor".into(),
-            search_text: "editor".into(), path: "/usr/share/applications/demo-1.desktop".into(),
+            action: "desktop:demo-1.desktop".into(),
+            name: "Editor".into(),
+            search_text: "editor".into(),
+            path: "/usr/share/applications/demo-1.desktop".into(),
         }];
         assert_eq!(state.luna_preview_apps(3), vec!["desktop:demo-1.desktop"]);
         assert!(state.record_app_launch("desktop:demo-1.desktop"));
         assert!(!state.record_app_launch("desktop:removed.desktop"));
         assert_eq!(state.recent_apps()[0], "desktop:demo-1.desktop");
     }
-
 }

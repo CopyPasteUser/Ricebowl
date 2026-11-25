@@ -41,8 +41,16 @@ pub struct TaskGroup {
 }
 
 pub fn task_label(title: &str, app_id: &str) -> String {
-    let label = if title.trim().is_empty() { app_id } else { title };
-    let label = if label.trim().is_empty() { "Window" } else { label };
+    let label = if title.trim().is_empty() {
+        app_id
+    } else {
+        title
+    };
+    let label = if label.trim().is_empty() {
+        "Window"
+    } else {
+        label
+    };
     label.chars().take(18).collect()
 }
 
@@ -51,7 +59,9 @@ pub fn group_windows<'a>(windows: impl IntoIterator<Item = WindowInfo<'a>>) -> V
     let mut groups: Vec<TaskGroup> = Vec::new();
     let mut by_app_id: HashMap<&'a str, usize> = HashMap::new();
     for window in windows {
-        if !window.ready { continue; }
+        if !window.ready {
+            continue;
+        }
         let id = window.app_id.trim();
         if !id.is_empty() {
             if let Some(&index) = by_app_id.get(id) {
@@ -67,8 +77,10 @@ pub fn group_windows<'a>(windows: impl IntoIterator<Item = WindowInfo<'a>>) -> V
             by_app_id.insert(id, groups.len());
         }
         groups.push(TaskGroup {
-            members: vec![window.index], representative: window.index,
-            label: task_label(window.title, window.app_id), active: window.active,
+            members: vec![window.index],
+            representative: window.index,
+            label: task_label(window.title, window.app_id),
+            active: window.active,
         });
     }
     groups
@@ -79,7 +91,9 @@ pub fn visible_label(group: &TaskGroup, cell_width: u32) -> String {
     let capacity = (cell_width.saturating_sub(16) / 8) as usize;
     let suffix = if group.members.len() > 1 {
         format!(" ({})", group.members.len())
-    } else { String::new() };
+    } else {
+        String::new()
+    };
     if capacity < suffix.len() {
         return suffix.chars().take(capacity).collect();
     }
@@ -94,8 +108,8 @@ pub fn click_target(group: &TaskGroup, active_index: Option<usize>) -> (usize, b
         return (group.representative, true);
     }
     if group.active && group.members.len() > 1 {
-        let next = active_index.and_then(|current| group.members.iter()
-            .position(|&member| member == current))
+        let next = active_index
+            .and_then(|current| group.members.iter().position(|&member| member == current))
             .map_or(0, |position| (position + 1) % group.members.len());
         return (group.members[next], false);
     }
@@ -107,18 +121,31 @@ mod tests {
     use super::*;
 
     fn window<'a>(index: usize, app_id: &'a str, title: &'a str, active: bool) -> WindowInfo<'a> {
-        WindowInfo { index, app_id, title, active, ready: true }
+        WindowInfo {
+            index,
+            app_id,
+            title,
+            active,
+            ready: true,
+        }
     }
 
     #[test]
     fn groups_repeated_app_ids_but_never_unknown_or_not_ready_windows() {
-        let list = vec![window(0, "editor", "First", false),
-                        window(1, "terminal", "Shell", false),
-                        window(2, "editor", "Second", true),
-                        window(3, "", "Anonymous A", false),
-                        window(4, "", "Anonymous B", false),
-                        WindowInfo { index: 5, app_id: "editor", title: "Incomplete",
-                                     active: false, ready: false }];
+        let list = vec![
+            window(0, "editor", "First", false),
+            window(1, "terminal", "Shell", false),
+            window(2, "editor", "Second", true),
+            window(3, "", "Anonymous A", false),
+            window(4, "", "Anonymous B", false),
+            WindowInfo {
+                index: 5,
+                app_id: "editor",
+                title: "Incomplete",
+                active: false,
+                ready: false,
+            },
+        ];
         let groups = group_windows(list);
         assert_eq!(groups.len(), 4);
         assert_eq!(groups[0].members, [0, 2]);
@@ -159,10 +186,23 @@ mod tests {
     #[test]
     fn foreign_toplevel_states_track_activation_and_minimize_independently() {
         let encoded: Vec<u8> = [0_u32, 2, 3, 1]
-            .iter().flat_map(|value| value.to_ne_bytes()).collect();
-        assert_eq!(decode_window_state(&encoded), WindowState { active: true, minimized: true });
-        assert_eq!(decode_window_state(&1_u32.to_ne_bytes()),
-            WindowState { active: false, minimized: true });
+            .iter()
+            .flat_map(|value| value.to_ne_bytes())
+            .collect();
+        assert_eq!(
+            decode_window_state(&encoded),
+            WindowState {
+                active: true,
+                minimized: true
+            }
+        );
+        assert_eq!(
+            decode_window_state(&1_u32.to_ne_bytes()),
+            WindowState {
+                active: false,
+                minimized: true
+            }
+        );
         assert_eq!(decode_window_state(&[0, 0, 0]), WindowState::default());
         assert_eq!(decode_window_state(&[]), WindowState::default());
     }
