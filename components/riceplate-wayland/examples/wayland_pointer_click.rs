@@ -23,7 +23,8 @@ impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for Probe {
         _: &GlobalListContents,
         _: &Connection,
         _: &QueueHandle<Self>,
-    ) {}
+    ) {
+    }
 }
 
 wayland_client::delegate_noop!(Probe: ZwlrVirtualPointerManagerV1);
@@ -39,7 +40,8 @@ impl Dispatch<wl_seat::WlSeat, ()> for Probe {
         _: &(),
         _: &Connection,
         _: &QueueHandle<Self>,
-    ) {}
+    ) {
+    }
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -49,12 +51,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Destroying the pointer immediately may withdraw compositor seat focus.
     // The duration is hard-capped; never leave an indefinite input device.
     let hold_ms = if values.first().map(String::as_str) == Some("--hold-ms") {
-        let amount = values.get(1).ok_or("Missing --hold-ms duration")?.parse::<u32>()?;
+        let amount = values
+            .get(1)
+            .ok_or("Missing --hold-ms duration")?
+            .parse::<u32>()?;
         if !(1..=15000).contains(&amount) {
             return Err("Pointer hold must be 1..15000 milliseconds".into());
         }
         Some(amount)
-    } else { None };
+    } else {
+        None
+    };
     let move_only = values.first().map(String::as_str) == Some("--move-only");
     let scroll = match values.first().map(String::as_str) {
         Some("--scroll-down") => 1.0,
@@ -63,21 +70,34 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
     let right_click = values.first().map(String::as_str) == Some("--right-click");
     let drag = values.first().map(String::as_str) == Some("--drag-to");
-    let args = if hold_ms.is_some() { &values[2..] }
-        else if move_only || scroll != 0.0 || right_click || drag {
-            &values[1..]
-        } else { &values[..] };
+    let args = if hold_ms.is_some() {
+        &values[2..]
+    } else if move_only || scroll != 0.0 || right_click || drag {
+        &values[1..]
+    } else {
+        &values[..]
+    };
     if args.len() != if drag { 6 } else { 4 } {
         return Err("Usage: wayland_pointer_click [--hold-ms N|--move-only|--scroll-down|--scroll-up|--right-click|--drag-to END_X END_Y] X Y OUTPUT_WIDTH OUTPUT_HEIGHT".into());
     }
-    let coordinates = args.iter().map(|arg| arg.parse::<u32>())
+    let coordinates = args
+        .iter()
+        .map(|arg| arg.parse::<u32>())
         .collect::<Result<Vec<_>, _>>()?;
     let (end, base) = if drag {
         (Some((coordinates[0], coordinates[1])), &coordinates[2..])
-    } else { (None, &coordinates[..]) };
+    } else {
+        (None, &coordinates[..])
+    };
     let [x, y, width, height] = [base[0], base[1], base[2], base[3]];
-    if width < 1 || height < 1 || x >= width || y >= height || width > 16384 || height > 16384
-        || end.is_some_and(|(end_x, end_y)| end_x >= width || end_y >= height) {
+    if width < 1
+        || height < 1
+        || x >= width
+        || y >= height
+        || width > 16384
+        || height > 16384
+        || end.is_some_and(|(end_x, end_y)| end_x >= width || end_y >= height)
+    {
         return Err("Pointer coordinates must be inside a bounded Wayland output".into());
     }
 
@@ -115,11 +135,17 @@ fn main() -> Result<(), Box<dyn Error>> {
             // Intermediate frames keep the UI event path fully observable.
             for step in 1..=12_u32 {
                 let interp = |start: u32, finish: u32| -> u32 {
-                    (i64::from(start) + (i64::from(finish) - i64::from(start))
-                        * i64::from(step) / 12) as u32
+                    (i64::from(start)
+                        + (i64::from(finish) - i64::from(start)) * i64::from(step) / 12)
+                        as u32
                 };
-                pointer.motion_absolute(3 + step, interp(x, end_x),
-                    interp(y, end_y), width, height);
+                pointer.motion_absolute(
+                    3 + step,
+                    interp(x, end_x),
+                    interp(y, end_y),
+                    width,
+                    height,
+                );
                 pointer.frame();
                 conn.flush()?;
                 std::thread::sleep(Duration::from_millis(25));
@@ -136,11 +162,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     pointer.destroy();
     manager.destroy();
     conn.flush()?;
-    println!("Delivered native Wayland {} at {x},{y}",
-        if move_only { "pointer motion" }
-        else if scroll != 0.0 { "wheel axis" }
-        else if right_click { "right click" }
-        else if drag { "drag-and-drop" }
-        else { "pointer click" });
+    println!(
+        "Delivered native Wayland {} at {x},{y}",
+        if move_only {
+            "pointer motion"
+        } else if scroll != 0.0 {
+            "wheel axis"
+        } else if right_click {
+            "right click"
+        } else if drag {
+            "drag-and-drop"
+        } else {
+            "pointer click"
+        }
+    );
     Ok(())
 }

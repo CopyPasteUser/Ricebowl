@@ -10,13 +10,27 @@ pub const MAX_INPUT: usize = 192;
 const MAX_ARGUMENTS: usize = 16;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Kind { Run, Help, FileRename, FileTrash }
+pub enum Kind {
+    Run,
+    Help,
+    FileRename,
+    FileTrash,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Hit { Input, Accept, Cancel }
+pub enum Hit {
+    Input,
+    Accept,
+    Cancel,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CursorMove { Left, Right, Home, End }
+pub enum CursorMove {
+    Left,
+    Right,
+    Home,
+    End,
+}
 
 #[derive(Debug, Clone)]
 pub struct State {
@@ -37,9 +51,7 @@ pub struct State {
 /// Pixel position of each *logical* caret in the visible, painted run.
 /// The visual measurement callback must not apply Unicode BiDi a second
 /// time. Text and the permutation are bounded by MAX_INPUT scalars.
-fn bidi_caret_pixels<F: Fn(&str) -> u32>(display: &str, measure_visual: &F)
-    -> Option<Vec<u32>>
-{
+fn bidi_caret_pixels<F: Fn(&str) -> u32>(display: &str, measure_visual: &F) -> Option<Vec<u32>> {
     let map = crate::bidi_layout::visual_cluster_map(display)?;
     let clusters: Vec<&str> = display.graphemes(true).collect();
     let mut visual_text = String::with_capacity(display.len());
@@ -49,17 +61,26 @@ fn bidi_caret_pixels<F: Fn(&str) -> u32>(display: &str, measure_visual: &F)
         visual_text.push_str(clusters[*logical]);
         visual_edges.push(measure_visual(&visual_text));
     }
-    Some((0..=clusters.len()).map(|caret| visual_edges[map.caret_edge(caret)]).collect())
+    Some(
+        (0..=clusters.len())
+            .map(|caret| visual_edges[map.caret_edge(caret)])
+            .collect(),
+    )
 }
 
 impl State {
-    fn editable(&self) -> bool { matches!(self.kind, Kind::Run | Kind::FileRename) }
+    fn editable(&self) -> bool {
+        matches!(self.kind, Kind::Run | Kind::FileRename)
+    }
 
     /// Byte boundaries of complete extended graphemes, including a final
     /// end-of-input sentinel. The 192-scalar input cap bounds this Vec.
     fn boundaries(&self) -> Vec<usize> {
-        let mut points: Vec<usize> = self.input.grapheme_indices(true)
-            .map(|(offset, _)| offset).collect();
+        let mut points: Vec<usize> = self
+            .input
+            .grapheme_indices(true)
+            .map(|(offset, _)| offset)
+            .collect();
         points.push(self.input.len());
         points
     }
@@ -67,9 +88,13 @@ impl State {
     /// Prefill a name only for an owner-selected verified Desktop entry.
     /// Refuse names outside the editor's representable bounds; never truncate.
     pub fn prefill_name(&mut self, name: &str) -> bool {
-        if self.kind != Kind::FileRename || name.is_empty()
+        if self.kind != Kind::FileRename
+            || name.is_empty()
             || name.chars().count() > MAX_INPUT
-            || name.chars().any(char::is_control) { return false; }
+            || name.chars().any(char::is_control)
+        {
+            return false;
+        }
         self.input = name.to_owned();
         self.preedit = None;
         self.cursor = self.input.graphemes(true).count();
@@ -78,14 +103,24 @@ impl State {
     }
 
     pub fn new(kind: Kind) -> Self {
-        Self { kind, input: String::new(), preedit: None, cursor: 0,
-               selection_anchor: None, notice: None, hover: None, pressed: None }
+        Self {
+            kind,
+            input: String::new(),
+            preedit: None,
+            cursor: 0,
+            selection_anchor: None,
+            notice: None,
+            hover: None,
+            pressed: None,
+        }
     }
 
     /// Insert exactly one user-perceived character from a native key event.
     /// Retain this narrow API for callers that dispatch individual graphemes.
     pub fn enter(&mut self, content: &str) -> bool {
-        if content.graphemes(true).count() != 1 { return false; }
+        if content.graphemes(true).count() != 1 {
+            return false;
+        }
         self.commit_text(content)
     }
 
@@ -101,7 +136,9 @@ impl State {
     /// Selected text is a whole-grapheme UTF-8 slice. IME preedit is not
     /// committed editor data and must never become clipboard ownership.
     pub fn selected_text(&self) -> Option<&str> {
-        if !self.editable() || self.preedit.is_some() { return None; }
+        if !self.editable() || self.preedit.is_some() {
+            return None;
+        }
         let (start, end) = self.selected_graphemes()?;
         let points = self.boundaries();
         Some(&self.input[points[start]..points[end]])
@@ -111,7 +148,9 @@ impl State {
     /// publishing. A failed/unavailable clipboard must not destroy the
     /// user's selected command or filename.
     pub fn cut_selected(&mut self) -> bool {
-        if self.selected_text().is_none() { return false; }
+        if self.selected_text().is_none() {
+            return false;
+        }
         self.remove_selection()
     }
 
@@ -123,7 +162,9 @@ impl State {
     }
 
     fn remove_selection(&mut self) -> bool {
-        let Some((start, end)) = self.selected_graphemes() else { return false };
+        let Some((start, end)) = self.selected_graphemes() else {
+            return false;
+        };
         let points = self.boundaries();
         self.input.replace_range(points[start]..points[end], "");
         self.cursor = start;
@@ -136,14 +177,20 @@ impl State {
     /// Ctrl+A selects only the real editable Run/Rename buffer. Neither
     /// recipe data nor background desktop shortcuts can invoke this path.
     pub fn select_all(&mut self) -> bool {
-        if !self.editable() { return false; }
+        if !self.editable() {
+            return false;
+        }
         let end = self.input.graphemes(true).count();
-        if end == 0 { return false; }
+        if end == 0 {
+            return false;
+        }
         let previous = (self.cursor, self.selection_anchor);
         self.cursor = end;
         self.selection_anchor = Some(0);
         let changed = previous != (self.cursor, self.selection_anchor);
-        if changed { self.preedit = None; }
+        if changed {
+            self.preedit = None;
+        }
         changed
     }
 
@@ -152,19 +199,29 @@ impl State {
     /// count rather than rejecting valid replacement at MAX_INPUT.
     pub fn commit_text(&mut self, content: &str) -> bool {
         let incoming = content.chars().count();
-        if !self.editable() || incoming == 0 || incoming > MAX_INPUT
-            || content.chars().any(char::is_control) { return false; }
+        if !self.editable()
+            || incoming == 0
+            || incoming > MAX_INPUT
+            || content.chars().any(char::is_control)
+        {
+            return false;
+        }
         let points = self.boundaries();
         let caret = self.cursor.min(points.len() - 1);
         let (start, end) = self.selected_graphemes().unwrap_or((caret, caret));
         let existing = self.input.chars().count();
         let replaced = self.input[points[start]..points[end]].chars().count();
-        if existing.saturating_sub(replaced) > MAX_INPUT - incoming { return false; }
+        if existing.saturating_sub(replaced) > MAX_INPUT - incoming {
+            return false;
+        }
         let byte_start = points[start];
-        self.input.replace_range(points[start]..points[end], content);
+        self.input
+            .replace_range(points[start]..points[end], content);
         // Unicode joining across replacement boundaries changes grapheme
         // counts, so derive the new cursor from the final stored buffer.
-        self.cursor = self.input[..byte_start + content.len()].graphemes(true).count();
+        self.cursor = self.input[..byte_start + content.len()]
+            .graphemes(true)
+            .count();
         self.selection_anchor = None;
         self.preedit = None;
         self.notice = None;
@@ -173,12 +230,21 @@ impl State {
 
     /// Backspace removes the selected graphemes, otherwise the preceding one.
     pub fn erase(&mut self) -> bool {
-        if !self.editable() { return false; }
-        if self.remove_selection() { return true; }
-        if self.cursor == 0 { return false; }
+        if !self.editable() {
+            return false;
+        }
+        if self.remove_selection() {
+            return true;
+        }
+        if self.cursor == 0 {
+            return false;
+        }
         let points = self.boundaries();
-        if self.cursor >= points.len() { return false; }
-        self.input.replace_range(points[self.cursor - 1]..points[self.cursor], "");
+        if self.cursor >= points.len() {
+            return false;
+        }
+        self.input
+            .replace_range(points[self.cursor - 1]..points[self.cursor], "");
         self.cursor -= 1;
         self.selection_anchor = None;
         self.preedit = None;
@@ -188,11 +254,18 @@ impl State {
 
     /// Delete removes the selection or the next complete grapheme.
     pub fn delete(&mut self) -> bool {
-        if !self.editable() { return false; }
-        if self.remove_selection() { return true; }
+        if !self.editable() {
+            return false;
+        }
+        if self.remove_selection() {
+            return true;
+        }
         let points = self.boundaries();
-        if self.cursor + 1 >= points.len() { return false; }
-        self.input.replace_range(points[self.cursor]..points[self.cursor + 1], "");
+        if self.cursor + 1 >= points.len() {
+            return false;
+        }
+        self.input
+            .replace_range(points[self.cursor]..points[self.cursor + 1], "");
         self.selection_anchor = None;
         self.preedit = None;
         self.notice = None;
@@ -207,7 +280,9 @@ impl State {
     /// collapses an existing selection before moving further; pure RTL
     /// movement still follows the previously validated visual caret map.
     pub fn move_cursor_select(&mut self, movement: CursorMove, extend: bool) -> bool {
-        if !self.editable() { return false; }
+        if !self.editable() {
+            return false;
+        }
         let previous = (self.cursor, self.selection_anchor);
         if !extend {
             if let Some((start, end)) = self.selected_graphemes() {
@@ -219,9 +294,17 @@ impl State {
                         if let Some(map) = crate::bidi_layout::visual_cluster_map(&self.input) {
                             if map.caret_edge(start) <= map.caret_edge(end) {
                                 (start, end)
-                            } else { (end, start) }
-                        } else { (start, end) };
-                    self.cursor = if movement == CursorMove::Left { left } else { right };
+                            } else {
+                                (end, start)
+                            }
+                        } else {
+                            (start, end)
+                        };
+                    self.cursor = if movement == CursorMove::Left {
+                        left
+                    } else {
+                        right
+                    };
                     self.selection_anchor = None;
                     self.preedit = None;
                     return true;
@@ -230,12 +313,14 @@ impl State {
         }
         let count = self.input.graphemes(true).count();
         self.cursor = match movement {
-            CursorMove::Left => crate::bidi_layout::visual_arrow_target(
-                &self.input, self.cursor, false,
-            ).unwrap_or_else(|| self.cursor.saturating_sub(1)),
-            CursorMove::Right => crate::bidi_layout::visual_arrow_target(
-                &self.input, self.cursor, true,
-            ).unwrap_or_else(|| self.cursor.saturating_add(1).min(count)),
+            CursorMove::Left => {
+                crate::bidi_layout::visual_arrow_target(&self.input, self.cursor, false)
+                    .unwrap_or_else(|| self.cursor.saturating_sub(1))
+            }
+            CursorMove::Right => {
+                crate::bidi_layout::visual_arrow_target(&self.input, self.cursor, true)
+                    .unwrap_or_else(|| self.cursor.saturating_add(1).min(count))
+            }
             CursorMove::Home => 0,
             CursorMove::End => count,
         };
@@ -243,30 +328,43 @@ impl State {
             Some(previous.1.unwrap_or(previous.0))
         } else if extend {
             previous.1
-        } else { None };
-        if self.selection_anchor == Some(self.cursor) { self.selection_anchor = None; }
+        } else {
+            None
+        };
+        if self.selection_anchor == Some(self.cursor) {
+            self.selection_anchor = None;
+        }
         let changed = previous != (self.cursor, self.selection_anchor);
-        if changed { self.preedit = None; }
+        if changed {
+            self.preedit = None;
+        }
         changed
     }
 
     /// Use identical glyph advances for painting and mouse hit-testing.
     /// The caret stays on a visible complete grapheme boundary.
     fn visible_range<F: Fn(&str) -> u32>(
-        &self, max_width: u32, measure: &F, points: &[usize],
+        &self,
+        max_width: u32,
+        measure: &F,
+        points: &[usize],
     ) -> (usize, usize) {
         let count = points.len() - 1;
         let cursor = self.cursor.min(count);
         let mut start = cursor;
         while start > 0 {
             let candidate = &self.input[points[start - 1]..points[cursor]];
-            if measure(candidate).saturating_add(2) > max_width { break; }
+            if measure(candidate).saturating_add(2) > max_width {
+                break;
+            }
             start -= 1;
         }
         let mut end = cursor;
         while end < count {
             let candidate = &self.input[points[start]..points[end + 1]];
-            if measure(candidate).saturating_add(2) > max_width { break; }
+            if measure(candidate).saturating_add(2) > max_width {
+                break;
+            }
             end += 1;
         }
         (start, end)
@@ -275,9 +373,7 @@ impl State {
     /// Calculate the visible input and caret from the exact active font
     /// metrics. Never clip a combining cluster or position a caret inside
     /// the invisible half of an emoji during horizontal scrolling.
-    pub fn input_view<F: Fn(&str) -> u32>(&self, max_width: u32, measure: F)
-        -> (String, u32)
-    {
+    pub fn input_view<F: Fn(&str) -> u32>(&self, max_width: u32, measure: F) -> (String, u32) {
         let points = self.boundaries();
         let (start, end) = self.visible_range(max_width, &measure, &points);
         let cursor = self.cursor.min(points.len() - 1);
@@ -290,7 +386,10 @@ impl State {
     /// A scrolled field must not select hidden characters. x is relative to
     /// the rendered input text origin in the native dialog.
     pub fn place_cursor_at<F: Fn(&str) -> u32>(
-        &mut self, x: f64, max_width: u32, measure: F,
+        &mut self,
+        x: f64,
+        max_width: u32,
+        measure: F,
     ) -> bool {
         if !self.editable() || !x.is_finite() || max_width == 0 {
             return false;
@@ -302,16 +401,19 @@ impl State {
         let mut previous = 0_u32;
         for index in start..end {
             let next = measure(&self.input[points[start]..points[index + 1]]);
-            let midpoint = f64::from(previous) +
-                f64::from(next.saturating_sub(previous)) / 2.0;
-            if x < midpoint { break; }
+            let midpoint = f64::from(previous) + f64::from(next.saturating_sub(previous)) / 2.0;
+            if x < midpoint {
+                break;
+            }
             selected = index + 1;
             previous = next;
         }
         let changed = self.cursor != selected || self.selection_anchor.is_some();
         self.cursor = selected;
         self.selection_anchor = None;
-        if changed { self.preedit = None; }
+        if changed {
+            self.preedit = None;
+        }
         changed
     }
 
@@ -319,7 +421,10 @@ impl State {
     /// substring and glyph advances as the native renderer. Existing LTR
     /// input keeps the allocation-free, legacy hit-testing behavior.
     pub fn input_view_bidi<F: Fn(&str) -> u32, G: Fn(&str) -> u32>(
-        &self, max_width: u32, measure: F, measure_visual: G,
+        &self,
+        max_width: u32,
+        measure: F,
+        measure_visual: G,
     ) -> (String, u32) {
         let (display, legacy_x) = self.input_view(max_width, &measure);
         let points = self.boundaries();
@@ -335,7 +440,11 @@ impl State {
     /// including reversed RTL runs. Ties prefer the existing caret where
     /// two logical positions share the same visual BiDi boundary.
     pub fn place_cursor_at_bidi<F: Fn(&str) -> u32, G: Fn(&str) -> u32>(
-        &mut self, x: f64, max_width: u32, measure: F, measure_visual: G,
+        &mut self,
+        x: f64,
+        max_width: u32,
+        measure: F,
+        measure_visual: G,
     ) -> bool {
         if !self.editable() || !x.is_finite() || max_width == 0 {
             return false;
@@ -361,7 +470,9 @@ impl State {
         self.cursor = selected;
         let changed = self.cursor != old || self.selection_anchor.is_some();
         self.selection_anchor = None;
-        if changed { self.preedit = None; }
+        if changed {
+            self.preedit = None;
+        }
         changed
     }
 
@@ -369,13 +480,22 @@ impl State {
     /// one-line viewport and measured with the same visual glyph advances
     /// as the cursor. Disjoint BiDi ranges are not joined into a false span.
     pub fn selection_pixels<F: Fn(&str) -> u32, G: Fn(&str) -> u32>(
-        &self, max_width: u32, measure: F, measure_visual: G,
+        &self,
+        max_width: u32,
+        measure: F,
+        measure_visual: G,
     ) -> Vec<(u32, u32)> {
-        let Some((lower, upper)) = self.selected_graphemes() else { return Vec::new() };
-        if max_width == 0 { return Vec::new(); }
+        let Some((lower, upper)) = self.selected_graphemes() else {
+            return Vec::new();
+        };
+        if max_width == 0 {
+            return Vec::new();
+        }
         let points = self.boundaries();
         let (start, end) = self.visible_range(max_width, &measure, &points);
-        if lower >= end || upper <= start || start == end { return Vec::new(); }
+        if lower >= end || upper <= start || start == end {
+            return Vec::new();
+        }
         let visible = &self.input[points[start]..points[end]];
         let clusters: Vec<&str> = visible.graphemes(true).collect();
         let order = crate::bidi_layout::visual_cluster_map(visible)
@@ -406,7 +526,9 @@ impl State {
     pub fn surrounding_selection(&self) -> (String, i32, i32) {
         let points = self.boundaries();
         let cursor = points[self.cursor.min(points.len() - 1)] as i32;
-        let anchor = points[self.selection_anchor.unwrap_or(self.cursor)
+        let anchor = points[self
+            .selection_anchor
+            .unwrap_or(self.cursor)
             .min(points.len() - 1)] as i32;
         (self.input.clone(), cursor, anchor)
     }
@@ -423,14 +545,20 @@ impl State {
         // A rejected oversize/control-character commit invalidates the
         // complete text-input-v3 Done batch, including valid-looking deletes.
         // Do not treat a dropped commit as "no commit" and delete user text.
-        if !self.editable() || pending.invalid_commit { return false; }
+        if !self.editable() || pending.invalid_commit {
+            return false;
+        }
         let mut candidate = self.clone();
         candidate.preedit = None;
         if let Some((before, after)) = pending.delete {
             let (text, cursor) = candidate.surrounding_text();
             let cursor = cursor as usize;
-            let Some(start) = cursor.checked_sub(before as usize) else { return false; };
-            let Some(end) = cursor.checked_add(after as usize) else { return false; };
+            let Some(start) = cursor.checked_sub(before as usize) else {
+                return false;
+            };
+            let Some(end) = cursor.checked_add(after as usize) else {
+                return false;
+            };
             let points = candidate.boundaries();
             if end > text.len() || !points.contains(&start) || !points.contains(&end) {
                 return false;
@@ -440,17 +568,20 @@ impl State {
             candidate.selection_anchor = None;
         }
         if let Some(content) = pending.commit.as_deref() {
-            if !content.is_empty() && !candidate.commit_text(content) { return false; }
+            if !content.is_empty() && !candidate.commit_text(content) {
+                return false;
+            }
         }
         if let Some(ref result) = pending.preedit {
-            let Ok(preedit) = result else { return false; };
+            let Ok(preedit) = result else {
+                return false;
+            };
             // Preedit is *displayed in place of* the current selection,
             // not appended after it. Counting selected characters twice
             // rejects valid IME replacements at the 192-scalar boundary.
             let points = candidate.boundaries();
             let caret = candidate.cursor.min(points.len() - 1);
-            let (start, end) = candidate.selected_graphemes()
-                .unwrap_or((caret, caret));
+            let (start, end) = candidate.selected_graphemes().unwrap_or((caret, caret));
             let replaced = candidate.input[points[start]..points[end]].chars().count();
             let base = candidate.input.chars().count().saturating_sub(replaced);
             if base > MAX_INPUT.saturating_sub(preedit.text.chars().count()) {
@@ -466,7 +597,10 @@ impl State {
     /// caret and underline. This is a view only: the committed input remains
     /// unchanged until a valid Done commit transaction arrives.
     pub fn input_view_composing<F: Fn(&str) -> u32, G: Fn(&str) -> u32>(
-        &self, max_width: u32, measure: F, measure_visual: G,
+        &self,
+        max_width: u32,
+        measure: F,
+        measure_visual: G,
     ) -> (String, u32, Option<(u32, u32)>) {
         let Some(preedit) = self.preedit.as_ref() else {
             let (text, caret) = self.input_view_bidi(max_width, measure, measure_visual);
@@ -479,8 +613,7 @@ impl State {
         // commit_text() replaces the selected range. The old cursor can be
         // *after* that range; using its former byte offset after replacement
         // panics when a shorter preedit replaces a longer selection.
-        let (selection_start, _) = self.selected_graphemes()
-            .unwrap_or((caret, caret));
+        let (selection_start, _) = self.selected_graphemes().unwrap_or((caret, caret));
         let insertion = points[selection_start];
         if !preview.commit_text(&preedit.text) {
             let (text, caret) = self.input_view_bidi(max_width, measure, measure_visual);
@@ -493,7 +626,8 @@ impl State {
         // complete final grapheme touched by the preedit; counting graphemes
         // in standalone UTF-8 prefixes can yield a zero-width underline.
         let composed_points = preview.boundaries();
-        let begin_cursor = composed_points.partition_point(|&byte| byte <= insertion)
+        let begin_cursor = composed_points
+            .partition_point(|&byte| byte <= insertion)
             .saturating_sub(1);
         let end_cursor = composed_points.partition_point(|&byte| byte < end);
         let caret_byte = insertion + preedit.cursor.unwrap_or(preedit.text.len());
@@ -504,11 +638,16 @@ impl State {
         let points = preview.boundaries();
         let (first, last) = preview.visible_range(max_width, &measure, &points);
         let edges = bidi_caret_pixels(&display, &measure_visual);
-        let display_points: Vec<usize> = display.grapheme_indices(true)
-            .map(|(i, _)| i).chain(std::iter::once(display.len())).collect();
+        let display_points: Vec<usize> = display
+            .grapheme_indices(true)
+            .map(|(i, _)| i)
+            .chain(std::iter::once(display.len()))
+            .collect();
         let locate = |cursor: usize| {
             let local = cursor.saturating_sub(first).min(last - first);
-            edges.as_ref().map(|pixel| pixel[local])
+            edges
+                .as_ref()
+                .map(|pixel| pixel[local])
                 .unwrap_or_else(|| measure(&display[..display_points[local]]))
                 .min(max_width.saturating_sub(1))
         };
@@ -521,33 +660,44 @@ impl State {
     /// this buffer. Pipes, redirects, substitutions and globbing are never
     /// executed or interpreted; no expansion and no shell invocation.
     pub fn argv(&self) -> Result<Vec<String>, &'static str> {
-        if self.kind != Kind::Run { return Err("Not a Run dialog"); }
+        if self.kind != Kind::Run {
+            return Err("Not a Run dialog");
+        }
         parse_argv(&self.input)
     }
 }
 
 pub fn hit(x: f64, y: f64, kind: Kind) -> Option<Hit> {
-    if !x.is_finite() || !y.is_finite()
+    if !x.is_finite()
+        || !y.is_finite()
         || !(0.0..f64::from(WIDTH)).contains(&x)
-        || !(0.0..f64::from(HEIGHT)).contains(&y) {
+        || !(0.0..f64::from(HEIGHT)).contains(&y)
+    {
         return None;
     }
     if (414.0..438.0).contains(&x) && (9.0..32.0).contains(&y) {
         return Some(Hit::Cancel);
     }
-    if matches!(kind, Kind::Run | Kind::FileRename) && (118.0..424.0).contains(&x) &&
-        (111.0..143.0).contains(&y) { return Some(Hit::Input); }
+    if matches!(kind, Kind::Run | Kind::FileRename)
+        && (118.0..424.0).contains(&x)
+        && (111.0..143.0).contains(&y)
+    {
+        return Some(Hit::Input);
+    }
     if (260.0..338.0).contains(&x) && (188.0..218.0).contains(&y) {
         return Some(Hit::Accept);
     }
-    if kind != Kind::Help && (346.0..424.0).contains(&x) &&
-        (188.0..218.0).contains(&y) { return Some(Hit::Cancel); }
+    if kind != Kind::Help && (346.0..424.0).contains(&x) && (188.0..218.0).contains(&y) {
+        return Some(Hit::Cancel);
+    }
     None
 }
 
 pub fn position(output: (u32, u32), panel: u32, top: bool) -> Option<(u32, u32)> {
     let available = output.1.checked_sub(panel)?;
-    if output.0 < WIDTH || available < HEIGHT { return None; }
+    if output.0 < WIDTH || available < HEIGHT {
+        return None;
+    }
     let x = (output.0 - WIDTH) / 2;
     let y = (available - HEIGHT) / 2 + if top { panel } else { 0 };
     Some((x, y))
@@ -571,8 +721,11 @@ pub fn parse_argv(raw: &str) -> Result<Vec<String>, &'static str> {
             escape = true;
             active = true;
         } else if let Some(q) = quoted {
-            if c == q { quoted = None; }
-            else { word.push(c); }
+            if c == q {
+                quoted = None;
+            } else {
+                word.push(c);
+            }
         } else if matches!(c, '\'' | '"') {
             quoted = Some(c);
             active = true;
@@ -587,19 +740,29 @@ pub fn parse_argv(raw: &str) -> Result<Vec<String>, &'static str> {
             word.push(c);
             active = true;
         }
-        if result.len() >= MAX_ARGUMENTS { return Err("Too many arguments"); }
+        if result.len() >= MAX_ARGUMENTS {
+            return Err("Too many arguments");
+        }
     }
-    if escape || quoted.is_some() { return Err("Unclosed quote or escape"); }
-    if active { result.push(word); }
-    if result.is_empty() || result[0].is_empty() { return Err("Enter a program name"); }
+    if escape || quoted.is_some() {
+        return Err("Unclosed quote or escape");
+    }
+    if active {
+        result.push(word);
+    }
+    if result.is_empty() || result[0].is_empty() {
+        return Err("Enter a program name");
+    }
     let program = &result[0];
     // No cwd-dependent './' binaries or implicit shell aliases. A normal
     // executable from PATH or an explicit absolute executable is accepted.
     let path = Path::new(program);
     if (program.contains('/') && !path.is_absolute())
-        || program == "." || program == ".."
+        || program == "."
+        || program == ".."
         || program.bytes().any(|b| b < 0x21 || b == 0x7f)
-        || result.len() > MAX_ARGUMENTS {
+        || result.len() > MAX_ARGUMENTS
+    {
         return Err("Use an executable name or absolute path");
     }
     Ok(result)
@@ -632,12 +795,23 @@ mod tests {
         assert!(editor.commit_text("safe"));
         assert!(editor.select_all());
         let original = (editor.input.clone(), editor.cursor, editor.selection_anchor);
-        for rejected in ["", "bad\nname", "nul\0byte", "\u{202e}", &"🧪".repeat(MAX_INPUT + 1)] {
+        for rejected in [
+            "",
+            "bad\nname",
+            "nul\0byte",
+            "\u{202e}",
+            &"🧪".repeat(MAX_INPUT + 1),
+        ] {
             // Unicode BiDi formatting controls are handled by a separate
             // policy; only universal editor constraints are asserted here.
-            if rejected == "\u{202e}" { continue; }
+            if rejected == "\u{202e}" {
+                continue;
+            }
             assert!(!editor.paste_text(rejected));
-            assert_eq!((editor.input.clone(), editor.cursor, editor.selection_anchor), original);
+            assert_eq!(
+                (editor.input.clone(), editor.cursor, editor.selection_anchor),
+                original
+            );
         }
         assert!(editor.paste_text("🇯🇵"));
         assert_eq!(editor.input, "🇯🇵");
@@ -696,10 +870,14 @@ mod tests {
 
     #[test]
     fn quoted_args_are_passed_literally_without_shell() {
-        assert_eq!(parse_argv("foot -e 'echo hello'").unwrap(),
-                   vec!["foot", "-e", "echo hello"]);
-        assert_eq!(parse_argv("gio open \"file:///tmp/a b\"").unwrap(),
-                   vec!["gio", "open", "file:///tmp/a b"]);
+        assert_eq!(
+            parse_argv("foot -e 'echo hello'").unwrap(),
+            vec!["foot", "-e", "echo hello"]
+        );
+        assert_eq!(
+            parse_argv("gio open \"file:///tmp/a b\"").unwrap(),
+            vec!["gio", "open", "file:///tmp/a b"]
+        );
         assert_eq!(parse_argv("/usr/bin/true").unwrap(), vec!["/usr/bin/true"]);
         assert!(parse_argv("foot; rm -rf /").is_err());
         assert!(parse_argv("echo $(touch /tmp/pwn)").is_err());
@@ -719,7 +897,9 @@ mod tests {
         assert_eq!(state.input, "ä");
         assert!(state.erase());
         assert!(!state.erase());
-        for _ in 0..MAX_INPUT { assert!(state.enter("x")); }
+        for _ in 0..MAX_INPUT {
+            assert!(state.enter("x"));
+        }
         assert!(!state.enter("x"));
         assert!(state.argv().is_ok());
         let mut help = State::new(Kind::Help);
@@ -731,7 +911,9 @@ mod tests {
     #[test]
     fn unicode_cursor_navigation_and_midline_edits() {
         let mut state = State::new(Kind::Run);
-        for letter in ["ä", "🧪", "b"] { assert!(state.enter(letter)); }
+        for letter in ["ä", "🧪", "b"] {
+            assert!(state.enter(letter));
+        }
         assert_eq!(state.cursor, 3);
         assert!(state.move_cursor(CursorMove::Left));
         assert_eq!(state.cursor, 2);
@@ -804,7 +986,6 @@ mod tests {
         assert_eq!(state.input, "a\u{301}👩‍💻b");
     }
 
-
     #[test]
     fn wayland_preedit_is_visible_but_never_committed_before_done() {
         let mut state = State::new(Kind::Run);
@@ -813,8 +994,7 @@ mod tests {
         pending.preedit(Some(" あ".to_string()), 4, 4);
         assert!(state.apply_ime(&pending));
         let metric = |text: &str| (text.graphemes(true).count() as u32) * 8;
-        let (painted, caret, underline) =
-            state.input_view_composing(200, metric, metric);
+        let (painted, caret, underline) = state.input_view_composing(200, metric, metric);
         assert_eq!(painted, "foot あ");
         assert_eq!(caret, 48);
         assert_eq!(underline, Some((32, 48)));
@@ -822,8 +1002,10 @@ mod tests {
         assert_eq!(state.argv().unwrap(), ["foot"]);
         assert!(state.move_cursor(CursorMove::Home));
         assert!(state.preedit.is_none());
-        assert_eq!(state.input_view_composing(200, metric, metric),
-                   ("foot".into(), 0, None));
+        assert_eq!(
+            state.input_view_composing(200, metric, metric),
+            ("foot".into(), 0, None)
+        );
     }
 
     #[test]
@@ -836,8 +1018,10 @@ mod tests {
         // although it is the only pending IME text.
         pending.preedit(Some("\u{301}".into()), 0, 0);
         assert!(state.apply_ime(&pending));
-        assert_eq!(state.input_view_composing(200, metric, metric),
-                   ("e\u{301}".into(), 8, Some((0, 8))));
+        assert_eq!(
+            state.input_view_composing(200, metric, metric),
+            ("e\u{301}".into(), 8, Some((0, 8)))
+        );
         assert_eq!(state.input, "e", "preedit must not mutate Run argv");
         assert_eq!(state.argv().unwrap(), ["e"]);
 
@@ -853,8 +1037,10 @@ mod tests {
         pending.reset();
         pending.preedit(Some("a\u{301}".into()), 1, 1);
         assert!(state.apply_ime(&pending));
-        assert_eq!(state.input_view_composing(200, metric, metric),
-                   ("e\u{301}a\u{301}".into(), 16, Some((8, 16))));
+        assert_eq!(
+            state.input_view_composing(200, metric, metric),
+            ("e\u{301}a\u{301}".into(), 16, Some((8, 16)))
+        );
         assert_eq!(state.input, "e\u{301}");
     }
 
@@ -868,8 +1054,10 @@ mod tests {
         let mut pending = crate::native_ime::Pending::default();
         pending.preedit(Some("\u{200d}".into()), 3, 3);
         assert!(state.apply_ime(&pending));
-        assert_eq!(state.input_view_composing(200, metric, metric),
-                   ("👩‍💻".into(), 8, Some((0, 8))));
+        assert_eq!(
+            state.input_view_composing(200, metric, metric),
+            ("👩‍💻".into(), 8, Some((0, 8)))
+        );
         assert_eq!(state.input, "👩💻");
     }
 
@@ -882,8 +1070,7 @@ mod tests {
         let mut pending = crate::native_ime::Pending::default();
         pending.preedit(Some("é".to_owned()), 2, 2);
         assert!(state.apply_ime(&pending));
-        let (painted, caret, underline) =
-            state.input_view_composing(200, metric, metric);
+        let (painted, caret, underline) = state.input_view_composing(200, metric, metric);
         assert_eq!(painted, "é");
         assert_eq!(caret, 8);
         assert_eq!(underline, Some((0, 8)));
@@ -908,10 +1095,11 @@ mod tests {
         assert!(state.select_all());
         let mut pending = crate::native_ime::Pending::default();
         pending.preedit(Some("日本語".to_owned()), 9, 9);
-        assert!(state.apply_ime(&pending),
-                "selected characters must not count against the preview limit");
-        let (painted, caret, underline) =
-            state.input_view_composing(200, metric, metric);
+        assert!(
+            state.apply_ime(&pending),
+            "selected characters must not count against the preview limit"
+        );
+        let (painted, caret, underline) = state.input_view_composing(200, metric, metric);
         assert_eq!(painted, "日本語");
         assert_eq!(caret, 24);
         assert_eq!(underline, Some((0, 24)));
@@ -927,17 +1115,21 @@ mod tests {
         pending.reset();
         pending.preedit(Some("XYZ".to_owned()), 3, 3);
         assert!(!excess.apply_ime(&pending));
-        assert_eq!((excess.input.clone(), excess.cursor, excess.selection_anchor), prior);
+        assert_eq!(
+            (excess.input.clone(), excess.cursor, excess.selection_anchor),
+            prior
+        );
 
         let mut mixed = State::new(Kind::FileRename);
         assert!(mixed.commit_text("prefix-👩‍💻-suffix"));
         assert!(mixed.move_cursor(CursorMove::Home));
-        for _ in 0..7 { assert!(mixed.move_cursor_select(CursorMove::Right, true)); }
+        for _ in 0..7 {
+            assert!(mixed.move_cursor_select(CursorMove::Right, true));
+        }
         pending.reset();
         pending.preedit(Some("漢".to_owned()), 3, 3);
         assert!(mixed.apply_ime(&pending));
-        let (painted, _, underline) =
-            mixed.input_view_composing(200, metric, metric);
+        let (painted, _, underline) = mixed.input_view_composing(200, metric, metric);
         assert_eq!(painted, "漢👩‍💻-suffix");
         assert!(underline.is_some());
         assert_eq!(mixed.input, "prefix-👩‍💻-suffix");
@@ -964,8 +1156,10 @@ mod tests {
         let mut state = State::new(Kind::Run);
         assert!(state.commit_text("אבג"));
         assert_eq!(state.cursor, 3);
-        assert!(!state.move_cursor(CursorMove::Left),
-            "at the visually leftmost edge");
+        assert!(
+            !state.move_cursor(CursorMove::Left),
+            "at the visually leftmost edge"
+        );
         assert!(state.move_cursor(CursorMove::Right));
         assert_eq!(state.cursor, 2);
         assert!(state.move_cursor(CursorMove::Left));
@@ -996,9 +1190,15 @@ mod tests {
         let measure = |s: &str| (s.graphemes(true).count() * 8) as u32;
         let mut state = State::new(Kind::FileRename);
         assert!(state.commit_text("אבג"));
-        assert_eq!(state.input_view_bidi(80, measure, measure), ("אבג".into(), 0));
+        assert_eq!(
+            state.input_view_bidi(80, measure, measure),
+            ("אבג".into(), 0)
+        );
         assert!(state.move_cursor(CursorMove::Home));
-        assert_eq!(state.input_view_bidi(80, measure, measure), ("אבג".into(), 24));
+        assert_eq!(
+            state.input_view_bidi(80, measure, measure),
+            ("אבג".into(), 24)
+        );
         assert!(state.place_cursor_at_bidi(9.0, 80, measure, measure));
         assert_eq!(state.cursor, 2);
         assert!(state.enter("Z"));
@@ -1009,7 +1209,10 @@ mod tests {
         let mut mixed = State::new(Kind::FileRename);
         assert!(mixed.commit_text("abc אבג"));
         assert!(mixed.move_cursor(CursorMove::Home));
-        assert_eq!(mixed.input_view_bidi(80, measure, measure), ("abc אבג".into(), 0));
+        assert_eq!(
+            mixed.input_view_bidi(80, measure, measure),
+            ("abc אבג".into(), 0)
+        );
         assert!(mixed.place_cursor_at_bidi(55.0, 80, measure, measure));
         assert_eq!(mixed.cursor, 4, "the RTL run starts at its right edge");
         assert!(mixed.place_cursor_at_bidi(33.0, 80, measure, measure));
@@ -1021,10 +1224,16 @@ mod tests {
         let measure = |s: &str| (s.graphemes(true).count() * 8) as u32;
         let mut state = State::new(Kind::FileRename);
         assert!(state.commit_text("אבגדה"));
-        assert_eq!(state.input_view_bidi(18, measure, measure), ("דה".into(), 0));
+        assert_eq!(
+            state.input_view_bidi(18, measure, measure),
+            ("דה".into(), 0)
+        );
         assert!(state.place_cursor_at_bidi(15.0, 18, measure, measure));
         assert_eq!(state.cursor, 3);
-        assert_eq!(state.input_view_bidi(18, measure, measure), ("בג".into(), 0));
+        assert_eq!(
+            state.input_view_bidi(18, measure, measure),
+            ("בג".into(), 0)
+        );
         // A joined emoji is one grapheme/caret, even inside a BiDi run.
         let mut emoji = State::new(Kind::FileRename);
         assert!(emoji.commit_text("אב👩‍💻"));
@@ -1037,7 +1246,9 @@ mod tests {
     #[test]
     fn horizontal_view_keeps_caret_visible_with_actual_font_metrics() {
         let mut state = State::new(Kind::Run);
-        for c in "abcdef".chars() { assert!(state.enter(&c.to_string())); }
+        for c in "abcdef".chars() {
+            assert!(state.enter(&c.to_string()));
+        }
         let measure = |text: &str| text.chars().count() as u32 * 8;
         assert_eq!(state.input_view(26, measure), ("def".into(), 24));
         assert!(state.move_cursor(CursorMove::Home));
@@ -1049,16 +1260,26 @@ mod tests {
         assert_eq!(state.input_view(1, measure), ("".into(), 0));
         // Variable-width fonts use their real measured advances instead of
         // assuming eight fixed pixels per glyph.
-        assert_eq!(state.input_view(13, |text| text.chars().map(|c|
-            if c == 'f' { 11 } else { 7 }).sum()), ("f".into(), 11));
+        assert_eq!(
+            state.input_view(13, |text| text
+                .chars()
+                .map(|c| if c == 'f' { 11 } else { 7 })
+                .sum()),
+            ("f".into(), 11)
+        );
     }
 
     #[test]
     fn clicking_run_input_moves_unicode_caret_using_actual_font_widths() {
         let mut state = State::new(Kind::Run);
-        for ch in "a界bc".chars() { assert!(state.enter(&ch.to_string())); }
-        let width = |text: &str| text.chars().map(|ch|
-            if ch == '界' { 14_u32 } else { 8_u32 }).sum();
+        for ch in "a界bc".chars() {
+            assert!(state.enter(&ch.to_string()));
+        }
+        let width = |text: &str| {
+            text.chars()
+                .map(|ch| if ch == '界' { 14_u32 } else { 8_u32 })
+                .sum()
+        };
         assert_eq!(state.input_view(80, width), ("a界bc".into(), 38));
         assert!(state.place_cursor_at(16.0, 80, width));
         assert_eq!(state.cursor, 2, "click past wide glyph midpoint");
@@ -1078,7 +1299,9 @@ mod tests {
     #[test]
     fn clicking_scrolled_run_input_never_selects_invisible_prefix() {
         let mut state = State::new(Kind::Run);
-        for ch in "abcdef".chars() { assert!(state.enter(&ch.to_string())); }
+        for ch in "abcdef".chars() {
+            assert!(state.enter(&ch.to_string()));
+        }
         let width = |text: &str| text.chars().count() as u32 * 8;
         assert_eq!(state.input_view(26, width), ("def".into(), 24));
         assert!(state.place_cursor_at(-50.0, 26, width));
@@ -1152,8 +1375,10 @@ mod tests {
         state.cursor = 5;
         let measure = |t: &str| (t.graphemes(true).count() * 8) as u32;
         // Two separate painted ranges across the LTR/RTL run boundary.
-        assert_eq!(state.selection_pixels(80, measure, measure),
-                   vec![(16, 32), (48, 56)]);
+        assert_eq!(
+            state.selection_pixels(80, measure, measure),
+            vec![(16, 32), (48, 56)]
+        );
         assert_eq!(state.surrounding_selection(), ("abc אבג".into(), 6, 2));
         assert!(state.delete());
         assert_eq!(state.input, "abבג");
@@ -1170,7 +1395,10 @@ mod tests {
         assert!(state.select_all());
         let snapshot = (state.input.clone(), state.cursor, state.selection_anchor);
         assert!(!state.commit_text(&"x".repeat(MAX_INPUT + 1)));
-        assert_eq!((state.input.clone(), state.cursor, state.selection_anchor), snapshot);
+        assert_eq!(
+            (state.input.clone(), state.cursor, state.selection_anchor),
+            snapshot
+        );
         assert!(state.commit_text("foot"));
         assert_eq!(state.argv().unwrap(), ["foot"]);
     }

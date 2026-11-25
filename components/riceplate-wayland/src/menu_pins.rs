@@ -33,18 +33,30 @@ fn path(id: &str) -> Option<PathBuf> {
     let config = env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
-    config.is_absolute().then(|| config.join("ricebowl/native-menu-pins").join(format!("{id}.json")))
+    config.is_absolute().then(|| {
+        config
+            .join("ricebowl/native-menu-pins")
+            .join(format!("{id}.json"))
+    })
 }
 
 fn valid(id: &str, menu: &NativeMenu, pins: &[String]) -> bool {
-    let allowed: HashSet<&str> = menu.groups.iter()
-        .flat_map(|group| group.actions.iter().map(String::as_str)).collect();
+    let allowed: HashSet<&str> = menu
+        .groups
+        .iter()
+        .flat_map(|group| group.actions.iter().map(String::as_str))
+        .collect();
     let mut seen = HashSet::new();
-    pins.len() <= MAX_PINS && pins.iter().all(|pin|
-        allowed.contains(pin.as_str()) && seen.insert(pin.as_str()))
-        && !id.is_empty() && id.len() <= 32
+    pins.len() <= MAX_PINS
+        && pins
+            .iter()
+            .all(|pin| allowed.contains(pin.as_str()) && seen.insert(pin.as_str()))
+        && !id.is_empty()
+        && id.len() <= 32
         && id.as_bytes()[0].is_ascii_lowercase()
-        && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
 fn parse(raw: &[u8], id: &str, menu: &NativeMenu) -> Result<Vec<String>, Box<dyn Error>> {
@@ -56,20 +68,28 @@ fn parse(raw: &[u8], id: &str, menu: &NativeMenu) -> Result<Vec<String>, Box<dyn
 }
 
 pub fn restore(id: &str, menu: &NativeMenu) -> Result<Vec<String>, Box<dyn Error>> {
-    let Some(location) = path(id) else { return Ok(Vec::new()); };
+    let Some(location) = path(id) else {
+        return Ok(Vec::new());
+    };
     restore_at(&location, id, menu)
 }
 
 fn restore_at(location: &Path, id: &str, menu: &NativeMenu) -> Result<Vec<String>, Box<dyn Error>> {
-    let file = match OpenOptions::new().read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC).open(location) {
-            Ok(file) => file,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(error) => return Err(error.into()),
-        };
+    let file = match OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(location)
+    {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error.into()),
+    };
     let meta = file.metadata()?;
-    if !meta.is_file() || meta.uid() != unsafe { libc::geteuid() }
-        || meta.mode() & 0o077 != 0 || meta.len() > MAX_BYTES {
+    if !meta.is_file()
+        || meta.uid() != unsafe { libc::geteuid() }
+        || meta.mode() & 0o077 != 0
+        || meta.len() > MAX_BYTES
+    {
         return Err("Native menu favorites require a private regular file".into());
     }
     let mut bytes = Vec::new();
@@ -81,48 +101,80 @@ fn restore_at(location: &Path, id: &str, menu: &NativeMenu) -> Result<Vec<String
 }
 
 pub fn save(id: &str, menu: &NativeMenu, pins: &[String]) -> Result<(), Box<dyn Error>> {
-    let Some(location) = path(id) else { return Ok(()); };
+    let Some(location) = path(id) else {
+        return Ok(());
+    };
     save_at(&location, id, menu, pins)
 }
 
-fn save_at(location: &Path, id: &str, menu: &NativeMenu,
-           pins: &[String]) -> Result<(), Box<dyn Error>> {
-    if !valid(id, menu, pins) { return Err("Unsupported or duplicate menu favorite".into()); }
+fn save_at(
+    location: &Path,
+    id: &str,
+    menu: &NativeMenu,
+    pins: &[String],
+) -> Result<(), Box<dyn Error>> {
+    if !valid(id, menu, pins) {
+        return Err("Unsupported or duplicate menu favorite".into());
+    }
     let directory = location.parent().ok_or("Missing favorites directory")?;
-    let root = directory.parent().ok_or("Missing RiceBowl configuration directory")?;
+    let root = directory
+        .parent()
+        .ok_or("Missing RiceBowl configuration directory")?;
     fs::create_dir_all(root)?;
     let root_meta = fs::symlink_metadata(root)?;
-    if !root_meta.is_dir() || root_meta.file_type().is_symlink()
-        || root_meta.uid() != unsafe { libc::geteuid() } {
+    if !root_meta.is_dir()
+        || root_meta.file_type().is_symlink()
+        || root_meta.uid() != unsafe { libc::geteuid() }
+    {
         return Err("RiceBowl configuration directory is not owned by this user".into());
     }
-    if !directory.exists() { DirBuilder::new().mode(0o700).create(directory)?; }
+    if !directory.exists() {
+        DirBuilder::new().mode(0o700).create(directory)?;
+    }
     let dir_meta = fs::symlink_metadata(directory)?;
-    if !dir_meta.is_dir() || dir_meta.file_type().is_symlink()
-        || dir_meta.uid() != unsafe { libc::geteuid() } || dir_meta.mode() & 0o077 != 0 {
+    if !dir_meta.is_dir()
+        || dir_meta.file_type().is_symlink()
+        || dir_meta.uid() != unsafe { libc::geteuid() }
+        || dir_meta.mode() & 0o077 != 0
+    {
         return Err("Native favorites directory must be owner-private".into());
     }
     match fs::symlink_metadata(location) {
-        Ok(meta) if !meta.is_file() || meta.file_type().is_symlink()
-            || meta.uid() != unsafe { libc::geteuid() } || meta.mode() & 0o077 != 0 =>
-                return Err("Refusing to replace an unmanaged favorites file".into()),
+        Ok(meta)
+            if !meta.is_file()
+                || meta.file_type().is_symlink()
+                || meta.uid() != unsafe { libc::geteuid() }
+                || meta.mode() & 0o077 != 0 =>
+        {
+            return Err("Refusing to replace an unmanaged favorites file".into())
+        }
         Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
         _ => {}
     }
     let bytes = serde_json::to_vec(&SavedPins {
-        schema_version: 1, recipe: id.to_owned(), pins: pins.to_vec(),
+        schema_version: 1,
+        recipe: id.to_owned(),
+        pins: pins.to_vec(),
     })?;
-    if bytes.len() as u64 > MAX_BYTES { return Err("Too many favorite bytes".into()); }
+    if bytes.len() as u64 > MAX_BYTES {
+        return Err("Too many favorite bytes".into());
+    }
     let nonce = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
     let temporary = directory.join(format!(".{id}-{}-{nonce}.tmp", std::process::id()));
     let result = (|| -> Result<(), Box<dyn Error>> {
-        let mut file = OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temporary)?;
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&temporary)?;
         file.write_all(&bytes)?;
         file.sync_all()?;
         fs::rename(&temporary, location)?;
         Ok(())
     })();
-    if result.is_err() { let _ = fs::remove_file(temporary); }
+    if result.is_err() {
+        let _ = fs::remove_file(temporary);
+    }
     result
 }
 
@@ -134,12 +186,20 @@ mod tests {
     const TEST_ID: &str = "mockup-desktop";
 
     fn menu() -> NativeMenu {
-        crate::recipe::parse(include_str!("../../../tests/fixtures/riceplate-desktop-v5.json"),
-                             Some(TEST_ID)).unwrap().menu.unwrap()
+        crate::recipe::parse(
+            include_str!("../../../tests/fixtures/riceplate-desktop-v5.json"),
+            Some(TEST_ID),
+        )
+        .unwrap()
+        .menu
+        .unwrap()
     }
 
     fn location() -> PathBuf {
-        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let root = env::temp_dir().join(format!("riceplate-pins-{}-{nonce}", std::process::id()));
         fs::create_dir(&root).unwrap();
         root.join("ricebowl/native-menu-pins/mockup-desktop.json")
@@ -154,7 +214,10 @@ mod tests {
         save_at(&location, TEST_ID, &data, &pins).unwrap();
         assert_eq!(restore_at(&location, TEST_ID, &data).unwrap(), pins);
         assert_eq!(fs::metadata(&location).unwrap().mode() & 0o077, 0);
-        assert_eq!(fs::metadata(location.parent().unwrap()).unwrap().mode() & 0o077, 0);
+        assert_eq!(
+            fs::metadata(location.parent().unwrap()).unwrap().mode() & 0o077,
+            0
+        );
         fs::remove_dir_all(location.ancestors().nth(3).unwrap()).unwrap();
     }
 
@@ -162,7 +225,11 @@ mod tests {
     fn refuses_cross_rice_unknown_duplicate_and_traversal() {
         let data = menu();
         let first = data.groups[0].actions[0].clone();
-        let saved = SavedPins { schema_version: 1, recipe: "other".into(), pins: vec![first.clone()] };
+        let saved = SavedPins {
+            schema_version: 1,
+            recipe: "other".into(),
+            pins: vec![first.clone()],
+        };
         assert!(parse(&serde_json::to_vec(&saved).unwrap(), TEST_ID, &data).is_err());
         assert!(!valid("../classic", &data, &[first.clone()]));
         assert!(!valid(TEST_ID, &data, &[first.clone(), first]));

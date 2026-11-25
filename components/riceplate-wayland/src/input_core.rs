@@ -4,12 +4,12 @@
 //! transitions decide focus navigation, pointer cosmetics and hit bounds;
 //! recipes still define layout and the approved action that executes.
 
-use std::time::{Duration, Instant};
-use smithay_client_toolkit::seat::keyboard::Keysym;
 use crate::{
     panel_chrome::ButtonVisual,
     recipe::{self, Hit, PanelStyle},
 };
+use smithay_client_toolkit::seat::keyboard::Keysym;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PanelKey {
@@ -22,8 +22,7 @@ pub(crate) fn panel_key(key: Keysym) -> Option<PanelKey> {
     match key {
         Keysym::Right | Keysym::Down | Keysym::Tab => Some(PanelKey::Step(1)),
         Keysym::Left | Keysym::Up | Keysym::ISO_Left_Tab => Some(PanelKey::Step(-1)),
-        Keysym::Return | Keysym::KP_Enter | Keysym::space | Keysym::Menu =>
-            Some(PanelKey::Invoke),
+        Keysym::Return | Keysym::KP_Enter | Keysym::space | Keysym::Menu => Some(PanelKey::Invoke),
         Keysym::Escape => Some(PanelKey::Dismiss),
         _ => None,
     }
@@ -32,19 +31,33 @@ pub(crate) fn panel_key(key: Keysym) -> Option<PanelKey> {
 /// All panel mouse actions use recipe::hit after checking the same logical
 /// surface bounds. A collapsed 3px handle is not an interactive taskbar.
 pub(crate) fn panel_hit(
-    style: &PanelStyle, width: u32, height: u32, position: (f64, f64),
-    tasks: usize, offset: usize,
+    style: &PanelStyle,
+    width: u32,
+    height: u32,
+    position: (f64, f64),
+    tasks: usize,
+    offset: usize,
 ) -> Option<Hit> {
     let (x, y) = position;
-    if !x.is_finite() || !y.is_finite() || x < 0.0 || y < 0.0
-        || x >= f64::from(width) || y >= f64::from(height) {
+    if !x.is_finite()
+        || !y.is_finite()
+        || x < 0.0
+        || y < 0.0
+        || x >= f64::from(width)
+        || y >= f64::from(height)
+    {
         return None;
     }
     recipe::hit(x, width, tasks, offset, style)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum PointerSignal { Hover, Leave, Press, Release }
+pub(crate) enum PointerSignal {
+    Hover,
+    Leave,
+    Press,
+    Release,
+}
 
 /// Physical hover/pressed feedback is strictly surface scoped. A leave on
 /// one monitor must not erase a newer hover on another monitor. Release
@@ -53,11 +66,18 @@ pub(crate) enum PointerSignal { Hover, Leave, Press, Release }
 /// changes. A high-frequency Motion over the same widget must not clone a
 /// Wayland surface proxy or schedule another frame.
 fn assign_target<S: Clone + PartialEq, T: PartialEq>(
-    slot: &mut Option<(S, T)>, surface: &S, target: Option<T>,
+    slot: &mut Option<(S, T)>,
+    surface: &S,
+    target: Option<T>,
 ) -> bool {
     if slot.as_ref().is_none_or(|(owner, _)| owner != surface)
-        || slot.as_ref().is_some_and(|(_, old)| target.as_ref() != Some(old)) {
-        if slot.is_none() && target.is_none() { return false; }
+        || slot
+            .as_ref()
+            .is_some_and(|(_, old)| target.as_ref() != Some(old))
+    {
+        if slot.is_none() && target.is_none() {
+            return false;
+        }
         *slot = target.map(|hit| (surface.clone(), hit));
         return true;
     }
@@ -208,9 +228,7 @@ impl<S, O, W> Default for DesktopFocusLease<S, O, W> {
 impl<S: PartialEq, O: PartialEq, W: PartialEq + Clone> DesktopFocusLease<S, O, W> {
     /// Compatibility wrapper for the initial #367 contract. New integration
     /// must use request_at() and handle errors rather than ignoring them.
-    pub(crate) fn request(
-        &mut self, intent: DesktopFocusIntent, seat: S, output: O, surface: W,
-    ) {
+    pub(crate) fn request(&mut self, intent: DesktopFocusIntent, seat: S, output: O, surface: W) {
         let _ = self.request_at(intent, seat, output, surface, Instant::now());
     }
 
@@ -219,8 +237,12 @@ impl<S: PartialEq, O: PartialEq, W: PartialEq + Clone> DesktopFocusLease<S, O, W
     /// across consecutive generations is rejected: an old Enter could
     /// otherwise authorize the new gesture with no compositor round-trip.
     pub(crate) fn request_at(
-        &mut self, intent: DesktopFocusIntent, seat: S, output: O,
-        surface: W, now: Instant,
+        &mut self,
+        intent: DesktopFocusIntent,
+        seat: S,
+        output: O,
+        surface: W,
+        now: Instant,
     ) -> Result<DesktopFocusTicket, DesktopFocusError> {
         self.cancel();
         if self.last_surface.as_ref() == Some(&surface) {
@@ -236,7 +258,12 @@ impl<S: PartialEq, O: PartialEq, W: PartialEq + Clone> DesktopFocusLease<S, O, W
         self.last_surface = Some(surface.clone());
         let ticket = DesktopFocusTicket(generation);
         self.request = Some(DesktopFocusRequest {
-            seat, output, surface, intent, ticket, deadline,
+            seat,
+            output,
+            surface,
+            intent,
+            ticket,
+            deadline,
         });
         Ok(ticket)
     }
@@ -256,13 +283,19 @@ impl<S: PartialEq, O: PartialEq, W: PartialEq + Clone> DesktopFocusLease<S, O, W
     /// Only pending acquisitions require a one-shot deadline; confirmed focus
     /// is revoked by genuine compositor events and explicit teardown.
     pub(crate) fn pending_deadline(&self) -> Option<Instant> {
-        self.request.as_ref().filter(|_| !self.confirmed).map(|r| r.deadline)
+        self.request
+            .as_ref()
+            .filter(|_| !self.confirmed)
+            .map(|r| r.deadline)
     }
 
     /// Called at/after pending_deadline by integration's one-shot timer. It is
     /// safe to call redundantly, including after another focus was confirmed.
     pub(crate) fn expire_pending_at(&mut self, now: Instant) -> bool {
-        if self.pending_deadline().is_some_and(|deadline| now >= deadline) {
+        if self
+            .pending_deadline()
+            .is_some_and(|deadline| now >= deadline)
+        {
             self.cancel();
             true
         } else {
@@ -286,26 +319,33 @@ impl<S: PartialEq, O: PartialEq, W: PartialEq + Clone> DesktopFocusLease<S, O, W
     /// The event time is injectable for deterministic compositor-order tests.
     /// An Enter for a different RicePlate surface on the owning keyboard seat
     /// revokes the lease. An unrelated seat cannot revoke or confirm it.
-    pub(crate) fn compositor_enter_at(
-        &mut self, seat: &S, surface: &W, now: Instant,
-    ) -> bool {
+    pub(crate) fn compositor_enter_at(&mut self, seat: &S, surface: &W, now: Instant) -> bool {
         if self.expire_pending_at(now) {
             return false;
         }
-        let Some(target) = &self.request else { return false; };
-        if &target.seat != seat { return false; }
+        let Some(target) = &self.request else {
+            return false;
+        };
+        if &target.seat != seat {
+            return false;
+        }
         if &target.surface != surface {
             self.cancel();
             return false;
         }
-        if self.confirmed { return false; }
+        if self.confirmed {
+            return false;
+        }
         self.confirmed = true;
         true
     }
 
     pub(crate) fn compositor_leave(&mut self, seat: &S, surface: &W) -> bool {
-        if self.request.as_ref().is_some_and(|target|
-            &target.seat == seat && &target.surface == surface) {
+        if self
+            .request
+            .as_ref()
+            .is_some_and(|target| &target.seat == seat && &target.surface == surface)
+        {
             self.cancel();
             return true;
         }
@@ -316,16 +356,22 @@ impl<S: PartialEq, O: PartialEq, W: PartialEq + Clone> DesktopFocusLease<S, O, W
     /// as a matching seat/surface and a compositor-confirmed Enter. Tickets
     /// prevent UI actions queued for a previous popup being replayed later.
     pub(crate) fn can_dispatch_ticket(
-        &self, ticket: DesktopFocusTicket, seat: &S, surface: &W,
+        &self,
+        ticket: DesktopFocusTicket,
+        seat: &S,
+        surface: &W,
     ) -> bool {
-        self.confirmed && self.request.as_ref().is_some_and(|target|
-            target.ticket == ticket && &target.seat == seat && &target.surface == surface)
+        self.confirmed
+            && self.request.as_ref().is_some_and(|target| {
+                target.ticket == ticket && &target.seat == seat && &target.surface == surface
+            })
     }
 
     /// Legacy surface-only check; integration should use can_dispatch_ticket()
     /// for queued keys and keyboard repeats.
     pub(crate) fn can_dispatch(&self, seat: &S, surface: &W) -> bool {
-        self.ticket().is_some_and(|ticket| self.can_dispatch_ticket(ticket, seat, surface))
+        self.ticket()
+            .is_some_and(|ticket| self.can_dispatch_ticket(ticket, seat, surface))
     }
 
     pub(crate) fn intent(&self) -> Option<DesktopFocusIntent> {
@@ -338,13 +384,13 @@ impl<S: PartialEq, O: PartialEq, W: PartialEq + Clone> DesktopFocusLease<S, O, W
         self.request.as_ref().map(|target| &target.output)
     }
 
-
     /// A second gesture on the same still-live target must not destroy and
     /// recreate its compositor-owned focus surface. This matches only the
     /// original seat/output/surface; it never confirms pending keyboard access.
     pub(crate) fn matches_live_request(&self, seat: &S, output: &O, surface: &W) -> bool {
-        self.request.as_ref().is_some_and(|target|
-            &target.seat == seat && &target.output == output && &target.surface == surface)
+        self.request.as_ref().is_some_and(|target| {
+            &target.seat == seat && &target.output == output && &target.surface == surface
+        })
     }
 
     pub(crate) fn surface_closed(&mut self, surface: &W) -> bool {
@@ -359,7 +405,10 @@ impl<S: PartialEq, O: PartialEq, W: PartialEq + Clone> DesktopFocusLease<S, O, W
         self.revoke_when(|target| &target.seat == seat)
     }
 
-    fn revoke_when(&mut self, condition: impl FnOnce(&DesktopFocusRequest<S, O, W>) -> bool) -> bool {
+    fn revoke_when(
+        &mut self,
+        condition: impl FnOnce(&DesktopFocusRequest<S, O, W>) -> bool,
+    ) -> bool {
         if self.request.as_ref().is_some_and(condition) {
             self.cancel();
             true
@@ -390,12 +439,22 @@ mod tests {
     #[test]
     fn recently_closed_focus_surface_remains_identifiable_for_late_keyboard_leave() {
         let mut lease = DesktopFocusLease::<&str, &str, &str>::default();
-        lease.request(DesktopFocusIntent::PointerSelection, "seat", "output", "ephemeral");
+        lease.request(
+            DesktopFocusIntent::PointerSelection,
+            "seat",
+            "output",
+            "ephemeral",
+        );
         assert!(lease.was_last_surface(&"ephemeral"));
         assert!(!lease.was_last_surface(&"unrelated"));
         lease.cancel();
         assert!(lease.was_last_surface(&"ephemeral"));
-        lease.request(DesktopFocusIntent::PointerSelection, "seat", "output", "next");
+        lease.request(
+            DesktopFocusIntent::PointerSelection,
+            "seat",
+            "output",
+            "next",
+        );
         assert!(!lease.was_last_surface(&"ephemeral"));
         assert!(lease.was_last_surface(&"next"));
     }
@@ -404,8 +463,12 @@ mod tests {
     fn focus_lease_never_retargets_a_different_output_or_stale_gesture() {
         let mut lease = DesktopFocusLease::<&str, &str, &str>::default();
         assert_eq!(lease.active_output(), None);
-        lease.request(DesktopFocusIntent::PointerSelection,
-                      "seat", "HDMI-A-1", "temporary");
+        lease.request(
+            DesktopFocusIntent::PointerSelection,
+            "seat",
+            "HDMI-A-1",
+            "temporary",
+        );
         assert_eq!(lease.active_output(), Some(&"HDMI-A-1"));
         assert!(!lease.can_dispatch(&"seat", &"temporary"));
         assert!(lease.compositor_enter(&"seat", &"temporary"));
@@ -413,8 +476,12 @@ mod tests {
         lease.output_removed(&"HDMI-A-1");
         assert_eq!(lease.active_output(), None);
         assert!(!lease.can_dispatch(&"seat", &"temporary"));
-        lease.request(DesktopFocusIntent::PointerSelection,
-                      "seat", "DP-1", "fresh-surface");
+        lease.request(
+            DesktopFocusIntent::PointerSelection,
+            "seat",
+            "DP-1",
+            "fresh-surface",
+        );
         assert_eq!(lease.active_output(), Some(&"DP-1"));
         assert!(!lease.can_dispatch(&"seat", &"fresh-surface"));
     }
@@ -424,8 +491,12 @@ mod tests {
         let mut focus = DesktopFocusLease::default();
         assert_eq!(focus.phase(), DesktopFocusPhase::Idle);
         assert!(!focus.compositor_enter(&"seat-a", &"icon"));
-        focus.request(DesktopFocusIntent::PointerSelection,
-                      "seat-a", "HDMI-A-1", "temporary-focus-surface");
+        focus.request(
+            DesktopFocusIntent::PointerSelection,
+            "seat-a",
+            "HDMI-A-1",
+            "temporary-focus-surface",
+        );
         assert_eq!(focus.phase(), DesktopFocusPhase::AwaitingCompositor);
         assert!(!focus.can_dispatch(&"seat-a", &"temporary-focus-surface"));
         assert!(!focus.compositor_enter(&"seat-b", &"temporary-focus-surface"));
@@ -443,8 +514,10 @@ mod tests {
         focus.request(DesktopFocusIntent::KeyboardNavigation, 1, 10, 100);
         assert!(!focus.compositor_enter(&1, &101));
         assert_eq!(focus.phase(), DesktopFocusPhase::Idle);
-        assert!(!focus.compositor_enter(&1, &100),
-                "stale compositor Enter cannot revive a cancelled request");
+        assert!(
+            !focus.compositor_enter(&1, &100),
+            "stale compositor Enter cannot revive a cancelled request"
+        );
     }
 
     #[test]
@@ -466,20 +539,32 @@ mod tests {
     #[test]
     fn removing_the_target_output_seat_or_surface_revokes_focus() {
         let mut focus = DesktopFocusLease::default();
-        focus.request(DesktopFocusIntent::PointerSelection,
-                      "seat-a", "DP-1", "surface-a");
+        focus.request(
+            DesktopFocusIntent::PointerSelection,
+            "seat-a",
+            "DP-1",
+            "surface-a",
+        );
         assert!(!focus.output_removed(&"HDMI-A-1"));
         assert!(!focus.seat_removed(&"seat-b"));
         assert!(!focus.surface_closed(&"other-surface"));
         assert!(focus.compositor_enter(&"seat-a", &"surface-a"));
         assert!(focus.output_removed(&"DP-1"));
         assert!(!focus.can_dispatch(&"seat-a", &"surface-a"));
-        focus.request(DesktopFocusIntent::AssistiveAction,
-                      "seat-a", "DP-1", "surface-b");
+        focus.request(
+            DesktopFocusIntent::AssistiveAction,
+            "seat-a",
+            "DP-1",
+            "surface-b",
+        );
         assert!(focus.seat_removed(&"seat-a"));
         assert_eq!(focus.phase(), DesktopFocusPhase::Idle);
-        focus.request(DesktopFocusIntent::KeyboardNavigation,
-                      "seat-a", "DP-1", "surface-c");
+        focus.request(
+            DesktopFocusIntent::KeyboardNavigation,
+            "seat-a",
+            "DP-1",
+            "surface-c",
+        );
         assert!(focus.surface_closed(&"surface-c"));
         assert_eq!(focus.phase(), DesktopFocusPhase::Idle);
     }
@@ -490,8 +575,10 @@ mod tests {
         focus.request(DesktopFocusIntent::PointerSelection, 1, 10, 100);
         assert!(focus.matches_live_request(&1, &10, &100));
         assert_eq!(focus.phase(), DesktopFocusPhase::AwaitingCompositor);
-        assert!(!focus.can_dispatch(&1, &100),
-            "matching a target is not fabricated compositor confirmation");
+        assert!(
+            !focus.can_dispatch(&1, &100),
+            "matching a target is not fabricated compositor confirmation"
+        );
         for mismatch in [(2, 10, 100), (1, 11, 100), (1, 10, 101)] {
             assert!(!focus.matches_live_request(&mismatch.0, &mismatch.1, &mismatch.2));
         }
@@ -500,8 +587,10 @@ mod tests {
         assert!(focus.matches_live_request(&1, &10, &100));
         assert!(focus.can_dispatch_ticket(ticket, &1, &100));
         assert!(focus.compositor_leave(&1, &100));
-        assert!(!focus.matches_live_request(&1, &10, &100),
-            "real keyboard Leave cancels authorization, even for the same target");
+        assert!(
+            !focus.matches_live_request(&1, &10, &100),
+            "real keyboard Leave cancels authorization, even for the same target"
+        );
     }
 
     #[test]
@@ -525,13 +614,19 @@ mod tests {
     fn focus_timeout_never_grants_late_keyboard_enter() {
         let now = Instant::now();
         let mut focus = DesktopFocusLease::default();
-        let ticket = focus.request_at(DesktopFocusIntent::PointerSelection,
-            "seat", "DP-1", "temporary-1", now).unwrap();
+        let ticket = focus
+            .request_at(
+                DesktopFocusIntent::PointerSelection,
+                "seat",
+                "DP-1",
+                "temporary-1",
+                now,
+            )
+            .unwrap();
         assert_eq!(focus.pending_deadline(), Some(now + DESKTOP_FOCUS_TIMEOUT));
         assert!(!focus.expire_pending_at(now + DESKTOP_FOCUS_TIMEOUT - Duration::from_nanos(1)));
         assert_eq!(focus.phase(), DesktopFocusPhase::AwaitingCompositor);
-        assert!(!focus.compositor_enter_at(&"seat", &"temporary-1",
-            now + DESKTOP_FOCUS_TIMEOUT));
+        assert!(!focus.compositor_enter_at(&"seat", &"temporary-1", now + DESKTOP_FOCUS_TIMEOUT));
         assert_eq!(focus.phase(), DesktopFocusPhase::Idle);
         assert!(!focus.can_dispatch_ticket(ticket, &"seat", &"temporary-1"));
         assert!(!focus.compositor_enter(&"seat", &"temporary-1"));
@@ -541,39 +636,44 @@ mod tests {
     fn unconfirmed_exclusive_layer_retires_at_acquisition_deadline() {
         let now = Instant::now();
         let mut focus = DesktopFocusLease::default();
-        let ticket = focus.request_at(DesktopFocusIntent::PointerSelection,
-            1, 10, 50, now).unwrap();
+        let ticket = focus
+            .request_at(DesktopFocusIntent::PointerSelection, 1, 10, 50, now)
+            .unwrap();
         // The overlay's five-second UI lifetime must not extend a pending
         // exclusive keyboard grab when the compositor never confirms Enter.
         let visual_expires = now + Duration::from_secs(5);
-        assert!(!focus.should_close_layer_at(visual_expires,
-            now + DESKTOP_FOCUS_TIMEOUT - Duration::from_nanos(1)));
+        assert!(!focus.should_close_layer_at(
+            visual_expires,
+            now + DESKTOP_FOCUS_TIMEOUT - Duration::from_nanos(1)
+        ));
         assert_eq!(focus.phase(), DesktopFocusPhase::AwaitingCompositor);
-        assert!(focus.should_close_layer_at(visual_expires,
-            now + DESKTOP_FOCUS_TIMEOUT));
+        assert!(focus.should_close_layer_at(visual_expires, now + DESKTOP_FOCUS_TIMEOUT));
         assert_eq!(focus.phase(), DesktopFocusPhase::Idle);
         assert_eq!(focus.ticket(), None);
         assert_eq!(focus.pending_deadline(), None);
         assert!(!focus.can_dispatch_ticket(ticket, &1, &50));
-        assert!(!focus.compositor_enter_at(&1, &50,
-            now + DESKTOP_FOCUS_TIMEOUT + Duration::from_millis(1)));
+        assert!(!focus.compositor_enter_at(
+            &1,
+            &50,
+            now + DESKTOP_FOCUS_TIMEOUT + Duration::from_millis(1)
+        ));
     }
 
     #[test]
     fn compositor_confirmed_layer_uses_its_visual_lifetime_not_pending_deadline() {
         let now = Instant::now();
         let mut focus = DesktopFocusLease::default();
-        let ticket = focus.request_at(DesktopFocusIntent::PointerSelection,
-            1, 10, 51, now).unwrap();
-        assert!(focus.compositor_enter_at(&1, &51,
-            now + Duration::from_millis(100)));
+        let ticket = focus
+            .request_at(DesktopFocusIntent::PointerSelection, 1, 10, 51, now)
+            .unwrap();
+        assert!(focus.compositor_enter_at(&1, &51, now + Duration::from_millis(100)));
         assert_eq!(focus.pending_deadline(), None);
         let visual_expires = now + Duration::from_secs(5);
-        assert!(!focus.should_close_layer_at(visual_expires,
-            now + DESKTOP_FOCUS_TIMEOUT));
+        assert!(!focus.should_close_layer_at(visual_expires, now + DESKTOP_FOCUS_TIMEOUT));
         assert!(focus.can_dispatch_ticket(ticket, &1, &51));
-        assert!(!focus.should_close_layer_at(visual_expires,
-            visual_expires - Duration::from_nanos(1)));
+        assert!(
+            !focus.should_close_layer_at(visual_expires, visual_expires - Duration::from_nanos(1))
+        );
         assert!(focus.should_close_layer_at(visual_expires, visual_expires));
         // Integration closes the surface and cancels the ticket at this point.
         focus.cancel();
@@ -584,12 +684,15 @@ mod tests {
     fn consecutive_activation_rejects_reused_surface_and_old_enter() {
         let now = Instant::now();
         let mut focus = DesktopFocusLease::default();
-        let first = focus.request_at(DesktopFocusIntent::PointerSelection,
-            1, 2, 10, now).unwrap();
+        let first = focus
+            .request_at(DesktopFocusIntent::PointerSelection, 1, 2, 10, now)
+            .unwrap();
         assert!(focus.compositor_enter_at(&1, &10, now));
         assert!(focus.can_dispatch_ticket(first, &1, &10));
-        assert_eq!(focus.request_at(DesktopFocusIntent::PointerSelection,
-            1, 2, 10, now), Err(DesktopFocusError::ReusedSurface));
+        assert_eq!(
+            focus.request_at(DesktopFocusIntent::PointerSelection, 1, 2, 10, now),
+            Err(DesktopFocusError::ReusedSurface)
+        );
         // The layer-shell integration must not map an Exclusive surface for
         // this denied request. No stale ticket/deadline/input authorization
         // survives, even after the original compositor Enter succeeded.
@@ -598,8 +701,9 @@ mod tests {
         assert_eq!(focus.pending_deadline(), None);
         assert!(!focus.can_dispatch(&1, &10));
         assert!(!focus.compositor_enter_at(&1, &10, now));
-        let second = focus.request_at(DesktopFocusIntent::KeyboardNavigation,
-            1, 2, 11, now).unwrap();
+        let second = focus
+            .request_at(DesktopFocusIntent::KeyboardNavigation, 1, 2, 11, now)
+            .unwrap();
         assert_ne!(first, second);
         assert!(!focus.can_dispatch_ticket(first, &1, &10));
         assert!(focus.compositor_enter_at(&1, &11, now));
@@ -611,11 +715,13 @@ mod tests {
     fn wrong_seat_and_stale_leave_do_not_revoke_new_target() {
         let now = Instant::now();
         let mut focus = DesktopFocusLease::default();
-        let _ = focus.request_at(DesktopFocusIntent::PointerSelection,
-            5, 1, 100, now).unwrap();
+        let _ = focus
+            .request_at(DesktopFocusIntent::PointerSelection, 5, 1, 100, now)
+            .unwrap();
         assert!(focus.compositor_enter_at(&5, &100, now));
-        let next = focus.request_at(DesktopFocusIntent::PointerSelection,
-            5, 2, 101, now).unwrap();
+        let next = focus
+            .request_at(DesktopFocusIntent::PointerSelection, 5, 2, 101, now)
+            .unwrap();
         assert!(!focus.compositor_leave(&5, &100));
         assert!(!focus.compositor_enter_at(&6, &101, now));
         assert_eq!(focus.phase(), DesktopFocusPhase::AwaitingCompositor);
@@ -632,10 +738,14 @@ mod tests {
     fn confirmed_focus_is_not_expired_by_acquisition_deadline() {
         let now = Instant::now();
         let mut focus = DesktopFocusLease::default();
-        let ticket = focus.request_at(DesktopFocusIntent::AssistiveAction,
-            1, 1, 42, now).unwrap();
-        assert!(focus.compositor_enter_at(&1, &42,
-            now + DESKTOP_FOCUS_TIMEOUT - Duration::from_millis(1)));
+        let ticket = focus
+            .request_at(DesktopFocusIntent::AssistiveAction, 1, 1, 42, now)
+            .unwrap();
+        assert!(focus.compositor_enter_at(
+            &1,
+            &42,
+            now + DESKTOP_FOCUS_TIMEOUT - Duration::from_millis(1)
+        ));
         assert_eq!(focus.pending_deadline(), None);
         assert!(!focus.expire_pending_at(now + DESKTOP_FOCUS_TIMEOUT * 10));
         assert!(focus.can_dispatch_ticket(ticket, &1, &42));
@@ -650,20 +760,29 @@ mod tests {
         // the test does not depend on CI wall-clock scheduling or a GPU.
         // The separate native labwc smoke still proves actual keyboard Enter.
         let start = Instant::now();
-        for sequence in 0..4096_u32 { // 4^6 event orderings
+        for sequence in 0..4096_u32 {
+            // 4^6 event orderings
             let mut focus = DesktopFocusLease::<u8, u8, u32>::default();
-            let ticket = focus.request_at(
-                DesktopFocusIntent::PointerSelection, 1, 7, 100, start,
-            ).expect("fresh temporary surface");
+            let ticket = focus
+                .request_at(DesktopFocusIntent::PointerSelection, 1, 7, 100, start)
+                .expect("fresh temporary surface");
             let mut choices = sequence;
             let mut at = start;
             for _ in 0..6 {
                 at += Duration::from_millis(310);
                 match choices & 3 {
-                    0 => { focus.compositor_enter_at(&1, &100, at); }
-                    1 => { focus.compositor_enter_at(&2, &100, at); }
-                    2 => { focus.compositor_leave(&1, &100); }
-                    _ => { focus.expire_pending_at(at); }
+                    0 => {
+                        focus.compositor_enter_at(&1, &100, at);
+                    }
+                    1 => {
+                        focus.compositor_enter_at(&2, &100, at);
+                    }
+                    2 => {
+                        focus.compositor_leave(&1, &100);
+                    }
+                    _ => {
+                        focus.expire_pending_at(at);
+                    }
                 }
                 choices >>= 2;
                 assert_eq!(
@@ -680,23 +799,27 @@ mod tests {
             // Reacquisition must use a new surface/ticket. A late Enter for
             // the old surface cannot authenticate the new request, and a
             // later old Leave must not revoke genuinely new ownership.
-            let newer = focus.request_at(
-                DesktopFocusIntent::KeyboardNavigation, 1, 7, 101,
-                start + Duration::from_secs(10),
-            ).expect("new user gesture requires fresh surface");
+            let newer = focus
+                .request_at(
+                    DesktopFocusIntent::KeyboardNavigation,
+                    1,
+                    7,
+                    101,
+                    start + Duration::from_secs(10),
+                )
+                .expect("new user gesture requires fresh surface");
             assert_ne!(ticket, newer);
             assert!(!focus.can_dispatch_ticket(ticket, &1, &100));
             assert!(!focus.can_dispatch_ticket(ticket, &1, &101));
             if sequence & 1 == 0 {
-                assert!(!focus.compositor_enter_at(
-                    &1, &100, start + Duration::from_secs(10),
-                ));
-                assert_eq!(focus.phase(), DesktopFocusPhase::Idle,
-                    "stale Enter from the same seat must fail closed");
+                assert!(!focus.compositor_enter_at(&1, &100, start + Duration::from_secs(10),));
+                assert_eq!(
+                    focus.phase(),
+                    DesktopFocusPhase::Idle,
+                    "stale Enter from the same seat must fail closed"
+                );
             } else {
-                assert!(focus.compositor_enter_at(
-                    &1, &101, start + Duration::from_secs(10),
-                ));
+                assert!(focus.compositor_enter_at(&1, &101, start + Duration::from_secs(10),));
                 assert!(!focus.compositor_leave(&1, &100));
                 assert!(focus.can_dispatch_ticket(newer, &1, &101));
                 assert!(!focus.can_dispatch_ticket(ticket, &1, &101));
@@ -717,8 +840,11 @@ mod tests {
             .arg(path)
             .output()
             .expect("POSIX shell is required by the Linux desktop test suite");
-        assert!(result.status.success(), "focus smoke syntax: {}",
-            String::from_utf8_lossy(&result.stderr));
+        assert!(
+            result.status.success(),
+            "focus smoke syntax: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
     }
 
     #[test]
@@ -739,18 +865,27 @@ mod tests {
         let classic = recipe::load("classic").unwrap();
         let luna = recipe::parse(
             include_str!("../../../examples/wayland/xp-luna-columns.json"),
-            Some("xp-luna-columns")).unwrap();
+            Some("xp-luna-columns"),
+        )
+        .unwrap();
         for style in [&classic, &luna] {
             let width = 1366;
             let placed = recipe::layout(style, width, 2);
-            let launcher = placed.iter()
-                .find(|item| item.widget == Widget::Launcher).unwrap();
-            let position = (f64::from(launcher.x + launcher.width / 2),
-                            f64::from(style.height / 2));
-            assert_eq!(panel_hit(style, width, style.height, position, 2, 0),
-                       Some(Hit::Launcher));
+            let launcher = placed
+                .iter()
+                .find(|item| item.widget == Widget::Launcher)
+                .unwrap();
+            let position = (
+                f64::from(launcher.x + launcher.width / 2),
+                f64::from(style.height / 2),
+            );
+            assert_eq!(
+                panel_hit(style, width, style.height, position, 2, 0),
+                Some(Hit::Launcher)
+            );
             for bad in [
-                (-1.0, position.1), (position.0, -1.0),
+                (-1.0, position.1),
+                (position.0, -1.0),
                 (f64::from(width), position.1),
                 (position.0, f64::from(style.height)),
                 (position.0, f64::NAN),
@@ -767,67 +902,142 @@ mod tests {
         let mut pressed = None;
         let a = "output-a";
         let b = "output-b";
-        assert!(update_feedback(&mut hovered, &mut pressed, &a,
-            Some(Hit::Launcher), PointerSignal::Hover));
-        assert!(!update_feedback(&mut hovered, &mut pressed, &a,
-            Some(Hit::Launcher), PointerSignal::Hover));
-        assert!(update_feedback(&mut hovered, &mut pressed, &a,
-            Some(Hit::Launcher), PointerSignal::Press));
+        assert!(update_feedback(
+            &mut hovered,
+            &mut pressed,
+            &a,
+            Some(Hit::Launcher),
+            PointerSignal::Hover
+        ));
+        assert!(!update_feedback(
+            &mut hovered,
+            &mut pressed,
+            &a,
+            Some(Hit::Launcher),
+            PointerSignal::Hover
+        ));
+        assert!(update_feedback(
+            &mut hovered,
+            &mut pressed,
+            &a,
+            Some(Hit::Launcher),
+            PointerSignal::Press
+        ));
         assert_eq!(pressed, Some((a, Hit::Launcher)));
-        assert!(update_feedback(&mut hovered, &mut pressed, &b,
-            Some(Hit::Task(0)), PointerSignal::Hover));
-        assert!(update_feedback(&mut hovered, &mut pressed, &a,
-            None, PointerSignal::Leave));
+        assert!(update_feedback(
+            &mut hovered,
+            &mut pressed,
+            &b,
+            Some(Hit::Task(0)),
+            PointerSignal::Hover
+        ));
+        assert!(update_feedback(
+            &mut hovered,
+            &mut pressed,
+            &a,
+            None,
+            PointerSignal::Leave
+        ));
         assert_eq!(hovered, Some((b, Hit::Task(0))));
         assert_eq!(pressed, None);
-        assert!(!update_feedback(&mut hovered, &mut pressed, &a,
-            None, PointerSignal::Leave));
-        assert!(update_feedback(&mut hovered, &mut pressed, &b,
-            Some(Hit::Task(0)), PointerSignal::Press));
-        assert!(update_feedback(&mut hovered, &mut pressed, &b,
-            Some(Hit::Task(0)), PointerSignal::Release));
+        assert!(!update_feedback(
+            &mut hovered,
+            &mut pressed,
+            &a,
+            None,
+            PointerSignal::Leave
+        ));
+        assert!(update_feedback(
+            &mut hovered,
+            &mut pressed,
+            &b,
+            Some(Hit::Task(0)),
+            PointerSignal::Press
+        ));
+        assert!(update_feedback(
+            &mut hovered,
+            &mut pressed,
+            &b,
+            Some(Hit::Task(0)),
+            PointerSignal::Release
+        ));
         assert_eq!(pressed, None);
-        assert!(update_feedback(&mut hovered, &mut pressed, &b,
-            None, PointerSignal::Leave));
+        assert!(update_feedback(
+            &mut hovered,
+            &mut pressed,
+            &b,
+            None,
+            PointerSignal::Leave
+        ));
         assert_eq!(hovered, None);
     }
 
     #[test]
     fn pressed_visual_only_appears_over_its_hit_target() {
         let visual = PanelPointerVisual {
-            hovered: Some(Hit::Launcher), pressed: Some(Hit::Launcher),
+            hovered: Some(Hit::Launcher),
+            pressed: Some(Hit::Launcher),
         };
         assert_eq!(visual.button(Hit::Launcher), ButtonVisual::Pressed);
         assert_eq!(visual.button(Hit::Task(0)), ButtonVisual::Normal);
-        assert_eq!(PanelPointerVisual { hovered: None,
-                     pressed: Some(Hit::Launcher) }.button(Hit::Launcher),
-                   ButtonVisual::Normal);
+        assert_eq!(
+            PanelPointerVisual {
+                hovered: None,
+                pressed: Some(Hit::Launcher)
+            }
+            .button(Hit::Launcher),
+            ButtonVisual::Normal
+        );
     }
     #[test]
     fn unchanged_motion_does_not_clone_wayland_surface_owner() {
         use std::{cell::Cell, rc::Rc};
         #[derive(Debug)]
-        struct Owner { id: usize, clones: Rc<Cell<u64>> }
+        struct Owner {
+            id: usize,
+            clones: Rc<Cell<u64>>,
+        }
         impl PartialEq for Owner {
-            fn eq(&self, other: &Self) -> bool { self.id == other.id }
+            fn eq(&self, other: &Self) -> bool {
+                self.id == other.id
+            }
         }
         impl Clone for Owner {
             fn clone(&self) -> Self {
                 self.clones.set(self.clones.get() + 1);
-                Self { id: self.id, clones: self.clones.clone() }
+                Self {
+                    id: self.id,
+                    clones: self.clones.clone(),
+                }
             }
         }
         let clones = Rc::new(Cell::new(0));
-        let owner = Owner { id: 1, clones: clones.clone() };
+        let owner = Owner {
+            id: 1,
+            clones: clones.clone(),
+        };
         let mut hovered = None;
         let mut pressed = None;
-        assert!(update_feedback(&mut hovered, &mut pressed, &owner,
-            Some(Hit::Launcher), PointerSignal::Hover));
+        assert!(update_feedback(
+            &mut hovered,
+            &mut pressed,
+            &owner,
+            Some(Hit::Launcher),
+            PointerSignal::Hover
+        ));
         for _ in 0..10_000 {
-            assert!(!update_feedback(&mut hovered, &mut pressed, &owner,
-                Some(Hit::Launcher), PointerSignal::Hover));
+            assert!(!update_feedback(
+                &mut hovered,
+                &mut pressed,
+                &owner,
+                Some(Hit::Launcher),
+                PointerSignal::Hover
+            ));
         }
-        assert_eq!(clones.get(), 1, "unchanged hover must not clone a wl_surface");
+        assert_eq!(
+            clones.get(),
+            1,
+            "unchanged hover must not clone a wl_surface"
+        );
     }
-
 }

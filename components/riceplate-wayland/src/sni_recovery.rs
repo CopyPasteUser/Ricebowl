@@ -13,7 +13,10 @@ pub(crate) struct Retry {
 
 impl Retry {
     pub(crate) fn new(enabled: bool, now: Instant) -> Self {
-        Self { enabled, next: now + RETRY_INTERVAL }
+        Self {
+            enabled,
+            next: now + RETRY_INTERVAL,
+        }
     }
 
     pub(crate) fn timeout(&self, connected: bool, now: Instant) -> Option<Duration> {
@@ -62,7 +65,10 @@ mod tests {
         let mut retry = Retry::new(true, now);
         retry.attempted(now + RETRY_INTERVAL);
         assert!(!retry.due(false, now + RETRY_INTERVAL));
-        assert_eq!(retry.timeout(false, now + RETRY_INTERVAL), Some(RETRY_INTERVAL));
+        assert_eq!(
+            retry.timeout(false, now + RETRY_INTERVAL),
+            Some(RETRY_INTERVAL)
+        );
         assert!(retry.due(false, now + 2 * RETRY_INTERVAL));
     }
 }

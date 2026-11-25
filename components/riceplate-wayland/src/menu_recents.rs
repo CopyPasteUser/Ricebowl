@@ -1,6 +1,7 @@
 //! Private, bounded XDG application recents for opt-in native XP Luna only.
 //! No Exec fields or user-controlled commands are stored or evaluated.
 
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
     env,
@@ -15,7 +16,6 @@ use std::{
     path::{Component, Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
-use serde::{Deserialize, Serialize};
 
 pub const MAX_RECENT: usize = 8;
 const MAX_BYTES: u64 = 2048;
@@ -33,19 +33,30 @@ fn path(id: &str) -> Option<PathBuf> {
     if id != RICE_ID || env::var("RICEBOWL_DE_NESTED").ok().as_deref() == Some("1") {
         return None;
     }
-    let config = env::var_os("XDG_CONFIG_HOME").map(PathBuf::from)
+    let config = env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
         .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
-    config.is_absolute().then(|| config.join("ricebowl/native-menu-recents").join(format!("{id}.json")))
+    config.is_absolute().then(|| {
+        config
+            .join("ricebowl/native-menu-recents")
+            .join(format!("{id}.json"))
+    })
 }
 
 fn valid(apps: &[String]) -> bool {
     let mut seen = HashSet::new();
-    apps.len() <= MAX_RECENT && apps.iter().all(|app| {
-        let Some(id) = app.strip_prefix("desktop:") else { return false; };
-        id.len() <= 160 && id.ends_with(".desktop")
-            && id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
-            && seen.insert(app.as_str())
-    })
+    apps.len() <= MAX_RECENT
+        && apps.iter().all(|app| {
+            let Some(id) = app.strip_prefix("desktop:") else {
+                return false;
+            };
+            id.len() <= 160
+                && id.ends_with(".desktop")
+                && id
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+                && seen.insert(app.as_str())
+        })
 }
 
 fn parse(bytes: &[u8], id: &str) -> Result<Vec<String>, Box<dyn Error>> {
@@ -62,16 +73,24 @@ fn parse(bytes: &[u8], id: &str) -> Result<Vec<String>, Box<dyn Error>> {
 // read/write/rename/unlink operations into an attacker-selected directory.
 fn open_at(parent: &File, name: &CStr, flags: i32, mode: libc::mode_t) -> io::Result<File> {
     let fd = unsafe {
-        libc::openat(parent.as_raw_fd(), name.as_ptr(),
-                     flags | libc::O_CLOEXEC | libc::O_NOFOLLOW, mode)
+        libc::openat(
+            parent.as_raw_fd(),
+            name.as_ptr(),
+            flags | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+            mode,
+        )
     };
-    if fd < 0 { return Err(io::Error::last_os_error()); }
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
     Ok(unsafe { File::from_raw_fd(fd) })
 }
 
-fn child_directory(parent: &File, name: &CStr, create: bool)
-    -> Result<Option<File>, Box<dyn Error>>
-{
+fn child_directory(
+    parent: &File,
+    name: &CStr,
+    create: bool,
+) -> Result<Option<File>, Box<dyn Error>> {
     let flags = libc::O_RDONLY | libc::O_DIRECTORY;
     match open_at(parent, name, flags, 0) {
         Ok(directory) => Ok(Some(directory)),
@@ -93,10 +112,10 @@ fn child_directory(parent: &File, name: &CStr, create: bool)
 // Walk even the XDG_CONFIG_HOME ancestors from the filesystem root using
 // O_DIRECTORY|O_NOFOLLOW; a replaced ancestor can no longer retarget the
 // history operation. Only the intended XDG tree is created when saving.
-fn absolute_directory(path: &Path, create: bool)
-    -> Result<Option<File>, Box<dyn Error>>
-{
-    if !path.is_absolute() { return Err("Absolute XDG configuration path required".into()); }
+fn absolute_directory(path: &Path, create: bool) -> Result<Option<File>, Box<dyn Error>> {
+    if !path.is_absolute() {
+        return Err("Absolute XDG configuration path required".into());
+    }
     let mut directory = File::open("/")?;
     for component in path.components() {
         match component {
@@ -114,22 +133,34 @@ fn absolute_directory(path: &Path, create: bool)
     Ok(Some(directory))
 }
 
-fn history_directory(location: &Path, create: bool)
-    -> Result<Option<File>, Box<dyn Error>>
-{
-    let directory = location.parent().ok_or("Missing recent applications directory")?;
-    let root = directory.parent().ok_or("Missing RiceBowl configuration directory")?;
+fn history_directory(location: &Path, create: bool) -> Result<Option<File>, Box<dyn Error>> {
+    let directory = location
+        .parent()
+        .ok_or("Missing recent applications directory")?;
+    let root = directory
+        .parent()
+        .ok_or("Missing RiceBowl configuration directory")?;
     let base = root.parent().ok_or("Missing XDG configuration directory")?;
-    let Some(base_fd) = absolute_directory(base, create)? else { return Ok(None); };
-    let root_name = CString::new(root.file_name().ok_or("Missing RiceBowl directory name")?.as_bytes())?;
+    let Some(base_fd) = absolute_directory(base, create)? else {
+        return Ok(None);
+    };
+    let root_name = CString::new(
+        root.file_name()
+            .ok_or("Missing RiceBowl directory name")?
+            .as_bytes(),
+    )?;
     let Some(root_fd) = child_directory(&base_fd, &root_name, create)? else {
         return Ok(None);
     };
     if root_fd.metadata()?.uid() != unsafe { libc::geteuid() } {
         return Err("Unsafe RiceBowl configuration directory owner".into());
     }
-    let history_name = CString::new(directory.file_name()
-        .ok_or("Missing XP Luna history directory name")?.as_bytes())?;
+    let history_name = CString::new(
+        directory
+            .file_name()
+            .ok_or("Missing XP Luna history directory name")?
+            .as_bytes(),
+    )?;
     let Some(history_fd) = child_directory(&root_fd, &history_name, create)? else {
         return Ok(None);
     };
@@ -141,13 +172,15 @@ fn history_directory(location: &Path, create: bool)
 }
 
 fn history_name(location: &Path) -> Result<CString, Box<dyn Error>> {
-    Ok(CString::new(location.file_name()
-        .ok_or("Missing XP Luna history filename")?.as_bytes())?)
+    Ok(CString::new(
+        location
+            .file_name()
+            .ok_or("Missing XP Luna history filename")?
+            .as_bytes(),
+    )?)
 }
 
-fn checked_history_file(directory: &File, name: &CStr)
-    -> Result<Option<File>, Box<dyn Error>>
-{
+fn checked_history_file(directory: &File, name: &CStr) -> Result<Option<File>, Box<dyn Error>> {
     // O_NONBLOCK stops substituted FIFOs from blocking before fstat can
     // reject the non-regular file. The descriptor never follows a symlink.
     let file = match open_at(directory, name, libc::O_RDONLY | libc::O_NONBLOCK, 0) {
@@ -156,8 +189,10 @@ fn checked_history_file(directory: &File, name: &CStr)
         Err(error) => return Err(error.into()),
     };
     let metadata = file.metadata()?;
-    if !metadata.is_file() || metadata.uid() != unsafe { libc::geteuid() }
-        || metadata.mode() & 0o077 != 0 || metadata.nlink() != 1
+    if !metadata.is_file()
+        || metadata.uid() != unsafe { libc::geteuid() }
+        || metadata.mode() & 0o077 != 0
+        || metadata.nlink() != 1
         || metadata.len() > MAX_BYTES
     {
         return Err("XP Luna recent applications require a private regular file".into());
@@ -166,13 +201,13 @@ fn checked_history_file(directory: &File, name: &CStr)
 }
 
 pub fn restore(id: &str) -> Result<Vec<String>, Box<dyn Error>> {
-    let Some(location) = path(id) else { return Ok(Vec::new()); };
+    let Some(location) = path(id) else {
+        return Ok(Vec::new());
+    };
     restore_at(&location, id)
 }
 
-fn restore_from(directory: &File, name: &CStr, id: &str)
-    -> Result<Vec<String>, Box<dyn Error>>
-{
+fn restore_from(directory: &File, name: &CStr, id: &str) -> Result<Vec<String>, Box<dyn Error>> {
     let Some(file) = checked_history_file(directory, name)? else {
         return Ok(Vec::new());
     };
@@ -192,18 +227,20 @@ fn restore_at(location: &Path, id: &str) -> Result<Vec<String>, Box<dyn Error>> 
 }
 
 pub fn save(id: &str, apps: &[String]) -> Result<(), Box<dyn Error>> {
-    let Some(location) = path(id) else { return Ok(()); };
+    let Some(location) = path(id) else {
+        return Ok(());
+    };
     save_at(&location, id, apps)
 }
 
-fn save_to(directory: &File, name: &CStr, id: &str, apps: &[String])
-    -> Result<(), Box<dyn Error>>
-{
+fn save_to(directory: &File, name: &CStr, id: &str, apps: &[String]) -> Result<(), Box<dyn Error>> {
     // A pre-existing file must be owned, private and regular. The atomic
     // rename is relative to the same already-validated directory descriptor.
     let existing = checked_history_file(directory, name)?;
     let bytes = serde_json::to_vec(&History {
-        schema_version: 1, recipe: id.to_owned(), apps: apps.to_vec(),
+        schema_version: 1,
+        recipe: id.to_owned(),
+        apps: apps.to_vec(),
     })?;
     if bytes.len() as u64 > MAX_BYTES {
         return Err("Recent applications file is oversized".into());
@@ -215,25 +252,39 @@ fn save_to(directory: &File, name: &CStr, id: &str, apps: &[String])
     if let Some(file) = existing {
         let mut previous = Vec::new();
         file.take(MAX_BYTES + 1).read_to_end(&mut previous)?;
-        if previous == bytes { return Ok(()); }
+        if previous == bytes {
+            return Ok(());
+        }
     }
     let nonce = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
     let temp_name = CString::new(format!(".{id}-{}-{nonce}.tmp", std::process::id()))?;
     let result = (|| -> Result<(), Box<dyn Error>> {
-        let mut file = open_at(directory, &temp_name,
-            libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL, 0o600)?;
+        let mut file = open_at(
+            directory,
+            &temp_name,
+            libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL,
+            0o600,
+        )?;
         file.write_all(&bytes)?;
         file.sync_all()?;
         let renamed = unsafe {
-            libc::renameat(directory.as_raw_fd(), temp_name.as_ptr(),
-                           directory.as_raw_fd(), name.as_ptr())
+            libc::renameat(
+                directory.as_raw_fd(),
+                temp_name.as_ptr(),
+                directory.as_raw_fd(),
+                name.as_ptr(),
+            )
         };
-        if renamed != 0 { return Err(io::Error::last_os_error().into()); }
+        if renamed != 0 {
+            return Err(io::Error::last_os_error().into());
+        }
         directory.sync_all()?; // also make the rename durable
         Ok(())
     })();
     if result.is_err() {
-        unsafe { libc::unlinkat(directory.as_raw_fd(), temp_name.as_ptr(), 0); }
+        unsafe {
+            libc::unlinkat(directory.as_raw_fd(), temp_name.as_ptr(), 0);
+        }
     }
     result
 }
@@ -242,8 +293,8 @@ fn save_at(location: &Path, id: &str, apps: &[String]) -> Result<(), Box<dyn Err
     if id != RICE_ID || !valid(apps) {
         return Err("Unsupported XP Luna app history".into());
     }
-    let directory = history_directory(location, true)?
-        .ok_or("Cannot create XP Luna history directory")?;
+    let directory =
+        history_directory(location, true)?.ok_or("Cannot create XP Luna history directory")?;
     save_to(&directory, &history_name(location)?, id, apps)
 }
 
@@ -280,8 +331,12 @@ mod tests {
     use std::os::unix::fs::symlink;
 
     fn location() -> PathBuf {
-        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let root = env::temp_dir().join(format!("riceplate-recents-{}-{nonce}", std::process::id()));
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root =
+            env::temp_dir().join(format!("riceplate-recents-{}-{nonce}", std::process::id()));
         fs::create_dir(&root).unwrap();
         root.join("ricebowl/native-menu-recents/xp-luna-columns.json")
     }
@@ -289,12 +344,17 @@ mod tests {
     #[test]
     fn private_history_roundtrips_and_does_not_run_commands() {
         let location = location();
-        let entries = vec!["desktop:org.example.Editor.desktop".into(),
-                           "desktop:utilities-terminal.desktop".into()];
+        let entries = vec![
+            "desktop:org.example.Editor.desktop".into(),
+            "desktop:utilities-terminal.desktop".into(),
+        ];
         save_at(&location, RICE_ID, &entries).unwrap();
         assert_eq!(restore_at(&location, RICE_ID).unwrap(), entries);
         assert_eq!(fs::metadata(&location).unwrap().mode() & 0o077, 0);
-        assert_eq!(fs::metadata(location.parent().unwrap()).unwrap().mode() & 0o077, 0);
+        assert_eq!(
+            fs::metadata(location.parent().unwrap()).unwrap().mode() & 0o077,
+            0
+        );
         fs::remove_dir_all(location.ancestors().nth(3).unwrap()).unwrap();
     }
 
@@ -306,8 +366,10 @@ mod tests {
         save_at(&location, RICE_ID, &first).unwrap();
         save_at(&location, RICE_ID, &second).unwrap();
         assert_eq!(restore_at(&location, RICE_ID).unwrap(), second);
-        let names: Vec<_> = fs::read_dir(location.parent().unwrap()).unwrap()
-            .map(|entry| entry.unwrap().file_name()).collect();
+        let names: Vec<_> = fs::read_dir(location.parent().unwrap())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
         assert_eq!(names.len(), 1);
         assert_eq!(names[0].as_os_str(), location.file_name().unwrap());
         fs::remove_dir_all(location.ancestors().nth(3).unwrap()).unwrap();
@@ -481,7 +543,10 @@ mod tests {
         assert_eq!(restore_from(&pinned, &name, RICE_ID).unwrap(), second);
         clear_from(&pinned, &name).unwrap();
         assert!(!moved.join(location.file_name().unwrap()).exists());
-        assert!(fs::symlink_metadata(parent).unwrap().file_type().is_symlink());
+        assert!(fs::symlink_metadata(parent)
+            .unwrap()
+            .file_type()
+            .is_symlink());
         fs::remove_file(parent).unwrap();
         fs::rename(&moved, parent).unwrap();
         fs::remove_dir_all(location.ancestors().nth(3).unwrap()).unwrap();
@@ -492,7 +557,9 @@ mod tests {
         let location = location();
         let config_base = location.ancestors().nth(3).unwrap();
         let moved = config_base.with_file_name(format!(
-            "{}-relocated", config_base.file_name().unwrap().to_string_lossy()));
+            "{}-relocated",
+            config_base.file_name().unwrap().to_string_lossy()
+        ));
         fs::rename(config_base, &moved).unwrap();
         symlink(&moved, config_base).unwrap();
         assert!(save_at(&location, RICE_ID, &[]).is_err());
@@ -514,5 +581,4 @@ mod tests {
         assert!(clear_at(&location).is_err());
         fs::remove_dir_all(location.ancestors().nth(3).unwrap()).unwrap();
     }
-
 }

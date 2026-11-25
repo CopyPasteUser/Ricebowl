@@ -54,7 +54,9 @@ impl FrameGate {
         self.stats.busy_retries = self.stats.busy_retries.saturating_add(1);
     }
 
-    pub(crate) fn stats(&self) -> FrameStats { self.stats }
+    pub(crate) fn stats(&self) -> FrameStats {
+        self.stats
+    }
 }
 
 #[cfg(test)]

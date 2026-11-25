@@ -1,16 +1,27 @@
 //! Opt-in XP Luna desktop selection and double-click policy.
 //! Pure, bounded in-memory state: no compositor handles, services or persistence.
 //! Indices identify real icon layers, not recipe IDs repeated across outputs.
-use std::{collections::BTreeSet, time::{Duration, Instant}};
+use std::{
+    collections::BTreeSet,
+    time::{Duration, Instant},
+};
 
 pub const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(650);
 const MAX_DRIFT: f64 = 8.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Mode { Replace, Toggle, Range }
+pub enum Mode {
+    Replace,
+    Toggle,
+    Range,
+}
 
 #[derive(Debug, Clone, Copy)]
-struct Click { icon: usize, at: Instant, point: (f64, f64) }
+struct Click {
+    icon: usize,
+    at: Instant,
+    point: (f64, f64),
+}
 
 #[derive(Debug, Default)]
 pub struct Selection {
@@ -21,11 +32,17 @@ pub struct Selection {
 
 impl Selection {
     /// Keyboard-range anchor; kept for existing single-selection callers.
-    pub fn selected(&self) -> Option<usize> { self.anchor }
+    pub fn selected(&self) -> Option<usize> {
+        self.anchor
+    }
 
-    pub fn is_selected(&self, icon: usize) -> bool { self.selected.contains(&icon) }
+    pub fn is_selected(&self, icon: usize) -> bool {
+        self.selected.contains(&icon)
+    }
 
-    pub fn count(&self) -> usize { self.selected.len() }
+    pub fn count(&self) -> usize {
+        self.selected.len()
+    }
 
     /// Previous anchor of a normal single click, for backwards compatibility.
     pub fn select(&mut self, icon: usize) -> Option<usize> {
@@ -39,7 +56,9 @@ impl Selection {
         old
     }
 
-    pub fn cancel(&mut self) { self.last = None; }
+    pub fn cancel(&mut self) {
+        self.last = None;
+    }
 
     pub fn clear(&mut self) -> Option<usize> {
         let anchor = self.anchor;
@@ -59,14 +78,22 @@ impl Selection {
     /// wl_output as the clicked icon. A synthetic or hidden index is ignored.
     /// Returns only changed layer indices so rendering stays event-driven.
     pub fn choose(&mut self, icon: usize, mode: Mode, peers: &[bool]) -> Vec<usize> {
-        if !peers.get(icon).copied().unwrap_or(false) { return Vec::new(); }
+        if !peers.get(icon).copied().unwrap_or(false) {
+            return Vec::new();
+        }
         let before = self.selected.clone();
-        self.selected.retain(|old| peers.get(*old).copied().unwrap_or(false));
-        if self.anchor.is_some_and(|old| !peers.get(old).copied().unwrap_or(false)) {
+        self.selected
+            .retain(|old| peers.get(*old).copied().unwrap_or(false));
+        if self
+            .anchor
+            .is_some_and(|old| !peers.get(old).copied().unwrap_or(false))
+        {
             self.anchor = None;
         }
         match mode {
-            Mode::Replace => { self.select(icon); }
+            Mode::Replace => {
+                self.select(icon);
+            }
             Mode::Toggle => {
                 self.cancel();
                 if !self.selected.remove(&icon) {
@@ -76,48 +103,72 @@ impl Selection {
             }
             Mode::Range => {
                 self.cancel();
-                let start = self.anchor.filter(|old| peers.get(*old).copied().unwrap_or(false))
+                let start = self
+                    .anchor
+                    .filter(|old| peers.get(*old).copied().unwrap_or(false))
                     .unwrap_or(icon);
                 self.selected.clear();
                 for index in start.min(icon)..=start.max(icon) {
-                    if peers[index] { self.selected.insert(index); }
+                    if peers[index] {
+                        self.selected.insert(index);
+                    }
                 }
                 self.anchor = Some(start);
             }
         }
-        before.symmetric_difference(&self.selected).copied().collect()
+        before
+            .symmetric_difference(&self.selected)
+            .copied()
+            .collect()
     }
 
     /// Ctrl+A selects only shortcuts on the currently focused output.
     /// This is not a batch launch, file operation or cross-monitor selection.
     pub fn all_on_output(&mut self, peers: &[bool], anchor: usize) -> Vec<usize> {
-        if !peers.get(anchor).copied().unwrap_or(false) { return Vec::new(); }
+        if !peers.get(anchor).copied().unwrap_or(false) {
+            return Vec::new();
+        }
         let before = self.selected.clone();
-        self.selected = peers.iter().enumerate()
-            .filter_map(|(index, visible)| visible.then_some(index)).collect();
+        self.selected = peers
+            .iter()
+            .enumerate()
+            .filter_map(|(index, visible)| visible.then_some(index))
+            .collect();
         self.anchor = Some(anchor);
         self.cancel();
-        before.symmetric_difference(&self.selected).copied().collect()
+        before
+            .symmetric_difference(&self.selected)
+            .copied()
+            .collect()
     }
 
     /// Disconnect/reflow must never keep an invisible shortcut selected.
     pub fn retain_visible(&mut self, visible: &[bool]) -> Vec<usize> {
         let before = self.selected.clone();
-        self.selected.retain(|index| visible.get(*index).copied().unwrap_or(false));
-        if self.anchor.is_some_and(|index| !visible.get(index).copied().unwrap_or(false)) {
+        self.selected
+            .retain(|index| visible.get(*index).copied().unwrap_or(false));
+        if self
+            .anchor
+            .is_some_and(|index| !visible.get(index).copied().unwrap_or(false))
+        {
             self.anchor = self.selected.iter().next().copied();
         }
-        if before != self.selected { self.cancel(); }
+        if before != self.selected {
+            self.cancel();
+        }
         before.difference(&self.selected).copied().collect()
     }
 
     /// A modified click cannot accidentally activate a shortcut. Only a
     /// single, currently selected icon is eligible for a double-click.
     pub fn release(&mut self, icon: usize, point: (f64, f64), now: Instant) -> bool {
-        if self.selected.len() != 1 || !self.selected.contains(&icon)
-            || !point.0.is_finite() || !point.1.is_finite()
+        if self.selected.len() != 1
+            || !self.selected.contains(&icon)
+            || !point.0.is_finite()
+            || !point.1.is_finite()
             || !(0.0..f64::from(crate::recipe::ICON_WIDTH)).contains(&point.0)
-            || !(0.0..f64::from(crate::recipe::ICON_HEIGHT)).contains(&point.1) {
+            || !(0.0..f64::from(crate::recipe::ICON_HEIGHT)).contains(&point.1)
+        {
             self.cancel();
             return false;
         }
@@ -125,12 +176,23 @@ impl Selection {
             self.cancel();
             return false;
         }
-        let activate = self.last.is_some_and(|prev| prev.icon == icon
-            && (prev.point.0 - point.0).abs() <= MAX_DRIFT
-            && (prev.point.1 - point.1).abs() <= MAX_DRIFT
-            && now.checked_duration_since(prev.at)
-                .is_some_and(|delta| delta <= DOUBLE_CLICK_INTERVAL));
-        self.last = if activate { None } else { Some(Click { icon, at: now, point }) };
+        let activate = self.last.is_some_and(|prev| {
+            prev.icon == icon
+                && (prev.point.0 - point.0).abs() <= MAX_DRIFT
+                && (prev.point.1 - point.1).abs() <= MAX_DRIFT
+                && now
+                    .checked_duration_since(prev.at)
+                    .is_some_and(|delta| delta <= DOUBLE_CLICK_INTERVAL)
+        });
+        self.last = if activate {
+            None
+        } else {
+            Some(Click {
+                icon,
+                at: now,
+                point,
+            })
+        };
         activate
     }
 }
@@ -139,7 +201,9 @@ impl Selection {
 mod tests {
     use super::*;
 
-    fn all(count: usize) -> Vec<bool> { vec![true; count] }
+    fn all(count: usize) -> Vec<bool> {
+        vec![true; count]
+    }
 
     #[test]
     fn first_click_selects_second_activates_and_third_is_only_selection() {
@@ -226,8 +290,13 @@ mod tests {
         assert!(!state.release(2, (50.0, 30.0), t + Duration::from_millis(50)));
         state.cancel();
         assert!(!state.release(2, (50.0, 30.0), t + Duration::from_millis(60)));
-        for point in [(-1.0, 30.0), (104.0, 30.0), (20.0, 88.0),
-                      (f64::NAN, 1.0), (f64::INFINITY, 1.0)] {
+        for point in [
+            (-1.0, 30.0),
+            (104.0, 30.0),
+            (20.0, 88.0),
+            (f64::NAN, 1.0),
+            (f64::INFINITY, 1.0),
+        ] {
             assert!(!state.release(2, point, t + Duration::from_millis(70)));
         }
         assert!(!state.release(2, (50.0, 30.0), t + Duration::from_millis(80)));

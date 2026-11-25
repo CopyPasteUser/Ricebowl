@@ -3,7 +3,10 @@
 //! compositor-mediated preedit, commit and UTF-8 byte deletion reach Run.
 //! No test-only backdoors in RicePlate or input-method background services.
 
-use std::{error::Error, time::{Duration, Instant}};
+use std::{
+    error::Error,
+    time::{Duration, Instant},
+};
 
 use wayland_client::{
     globals::{registry_queue_init, GlobalListContents},
@@ -25,25 +28,38 @@ struct Probe {
 
 impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for Probe {
     fn event(
-        _: &mut Self, _: &wl_registry::WlRegistry, _: wl_registry::Event,
-        _: &GlobalListContents, _: &Connection, _: &QueueHandle<Self>,
-    ) {}
+        _: &mut Self,
+        _: &wl_registry::WlRegistry,
+        _: wl_registry::Event,
+        _: &GlobalListContents,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
 }
 
 impl Dispatch<wl_seat::WlSeat, ()> for Probe {
     fn event(
-        _: &mut Self, _: &wl_seat::WlSeat, _: wl_seat::Event,
-        _: &(), _: &Connection, _: &QueueHandle<Self>,
-    ) {}
+        _: &mut Self,
+        _: &wl_seat::WlSeat,
+        _: wl_seat::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
 }
 
 wayland_client::delegate_noop!(Probe: ZwpInputMethodManagerV2);
 
 impl Dispatch<ZwpInputMethodV2, ()> for Probe {
     fn event(
-        state: &mut Self, _: &ZwpInputMethodV2,
-        event: zwp_input_method_v2::Event, _: &(),
-        _: &Connection, _: &QueueHandle<Self>,
+        state: &mut Self,
+        _: &ZwpInputMethodV2,
+        event: zwp_input_method_v2::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
     ) {
         match event {
             zwp_input_method_v2::Event::Activate => {
@@ -89,7 +105,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     while Instant::now() < deadline {
         queue.roundtrip(&mut probe)?;
-        if probe.unavailable { return Err("labwc rejected external input method".into()); }
+        if probe.unavailable {
+            return Err("labwc rejected external input method".into());
+        }
         if !probe.active {
             if !matches!(phase, Phase::Waiting) {
                 return Err("input method lost focus before committed text was confirmed".into());
@@ -100,15 +118,20 @@ fn main() -> Result<(), Box<dyn Error>> {
                     // Real IME-visible, uncommitted Japanese candidate. The
                     // full UTF-8 cursor is supplied in bytes, not scalars.
                     let preedit = "にほんご";
-                    input.set_preedit_string(preedit.to_owned(), preedit.len() as i32,
-                                              preedit.len() as i32);
+                    input.set_preedit_string(
+                        preedit.to_owned(),
+                        preedit.len() as i32,
+                        preedit.len() as i32,
+                    );
                     input.commit(probe.serial);
                     conn.flush()?;
-                    Phase::Preediting { serial: probe.serial, since: Instant::now() }
+                    Phase::Preediting {
+                        serial: probe.serial,
+                        since: Instant::now(),
+                    }
                 }
                 Phase::Preediting { serial, since }
-                    if probe.serial > serial
-                        && since.elapsed() >= Duration::from_millis(250) =>
+                    if probe.serial > serial && since.elapsed() >= Duration::from_millis(250) =>
                 {
                     // A second compositor-confirmed transaction ends preedit
                     // and commits native CJK Unicode; keyboard events alone
@@ -117,7 +140,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                     input.commit_string("日本語".to_owned());
                     input.commit(probe.serial);
                     conn.flush()?;
-                    Phase::Committed { serial: probe.serial }
+                    Phase::Committed {
+                        serial: probe.serial,
+                    }
                 }
                 Phase::Committed { serial }
                     if probe.serial > serial && probe.surrounding == "日本語" =>
@@ -129,7 +154,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                     input.commit_string("界".to_owned());
                     input.commit(probe.serial);
                     conn.flush()?;
-                    Phase::Replaced { serial: probe.serial }
+                    Phase::Replaced {
+                        serial: probe.serial,
+                    }
                 }
                 Phase::Replaced { serial }
                     if probe.serial > serial && probe.surrounding == "日本界" =>

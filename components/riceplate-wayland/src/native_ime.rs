@@ -18,12 +18,21 @@ pub(crate) struct RecentCommit {
 }
 
 pub(crate) fn suppress_keyboard_echo(
-    composing: bool, recent_commit: &mut Option<RecentCommit>, now: Instant,
-    text: Option<&str>, return_key: bool,
+    composing: bool,
+    recent_commit: &mut Option<RecentCommit>,
+    now: Instant,
+    text: Option<&str>,
+    return_key: bool,
 ) -> bool {
-    if composing { return text.is_some() || return_key; }
-    if text.is_none() && !return_key { return false; }
-    let Some(committed) = recent_commit.take() else { return false; };
+    if composing {
+        return text.is_some() || return_key;
+    }
+    if text.is_none() && !return_key {
+        return false;
+    }
+    let Some(committed) = recent_commit.take() else {
+        return false;
+    };
     now.checked_duration_since(committed.at)
         .is_some_and(|elapsed| elapsed <= IME_ECHO_WINDOW)
         && (return_key || text == Some(committed.text.as_str()))
@@ -33,11 +42,20 @@ pub(crate) fn suppress_keyboard_echo(
 /// composition, only the matching text echo or candidate-confirming Return
 /// may be suppressed. Other characters must never vanish after IME Done.
 pub(crate) fn owns_keyboard_edit(
-    composing: bool, recent_commit: &mut Option<RecentCommit>, now: Instant,
-    text: Option<&str>, return_key: bool, editor_control: bool, escape: bool,
+    composing: bool,
+    recent_commit: &mut Option<RecentCommit>,
+    now: Instant,
+    text: Option<&str>,
+    return_key: bool,
+    editor_control: bool,
+    escape: bool,
 ) -> bool {
-    if composing { return text.is_some() || editor_control; }
-    if escape { return false; }
+    if composing {
+        return text.is_some() || editor_control;
+    }
+    if escape {
+        return false;
+    }
     suppress_keyboard_echo(false, recent_commit, now, text, return_key)
 }
 
@@ -58,14 +76,22 @@ impl Preedit {
         let limit = crate::luna_dialog::MAX_INPUT;
         if text.len() > limit * 4
             || text.chars().take(limit + 1).count() > limit
-            || text.chars().any(char::is_control) { return None; }
+            || text.chars().any(char::is_control)
+        {
+            return None;
+        }
         let (cursor, anchor) = match (begin, end) {
             (-1, -1) => (None, None),
             (a, b) if a >= 0 && b >= 0 => {
                 let a = usize::try_from(a).ok()?;
                 let b = usize::try_from(b).ok()?;
-                if !text.is_char_boundary(a) || !text.is_char_boundary(b)
-                    || a > text.len() || b > text.len() { return None; }
+                if !text.is_char_boundary(a)
+                    || !text.is_char_boundary(b)
+                    || a > text.len()
+                    || b > text.len()
+                {
+                    return None;
+                }
                 // text-input-v3 specifies UTF-8 *byte* offsets, not
                 // extended-grapheme indices. A valid IME may put its cursor
                 // between a base and combining mark (or inside a ZWJ
@@ -76,7 +102,11 @@ impl Preedit {
             }
             _ => return None,
         };
-        Some(Self { text: text.to_owned(), cursor, anchor })
+        Some(Self {
+            text: text.to_owned(),
+            cursor,
+            anchor,
+        })
     }
 }
 #[derive(Default, Clone, Debug)]
@@ -91,7 +121,9 @@ pub(crate) struct Pending {
 }
 
 impl Pending {
-    pub(crate) fn reset(&mut self) { *self = Self::default(); }
+    pub(crate) fn reset(&mut self) {
+        *self = Self::default();
+    }
 
     pub(crate) fn preedit(&mut self, text: Option<String>, start: i32, end: i32) {
         self.preedit = Some(Preedit::parse(text.as_deref().unwrap_or(""), start, end).ok_or(()));
@@ -125,7 +157,10 @@ mod tests {
     use super::*;
 
     fn committed(text: &str, at: Instant) -> Option<RecentCommit> {
-        Some(RecentCommit { at, text: text.to_owned() })
+        Some(RecentCommit {
+            at,
+            text: text.to_owned(),
+        })
     }
 
     #[test]
@@ -137,31 +172,65 @@ mod tests {
         assert!(last.is_some());
         // This is a new character typed immediately after the IME commit.
         // The old any-key guard incorrectly lost it.
-        assert!(!suppress_keyboard_echo(false, &mut last,
-                                       now + Duration::from_millis(4), Some("b"), false));
+        assert!(!suppress_keyboard_echo(
+            false,
+            &mut last,
+            now + Duration::from_millis(4),
+            Some("b"),
+            false
+        ));
         assert!(last.is_none(), "unmatched text must disarm the old echo");
-        assert!(!suppress_keyboard_echo(false, &mut last,
-                                       now + Duration::from_millis(5), Some("あ"), false));
+        assert!(!suppress_keyboard_echo(
+            false,
+            &mut last,
+            now + Duration::from_millis(5),
+            Some("あ"),
+            false
+        ));
 
         let mut duplicate = committed("é", now);
-        assert!(suppress_keyboard_echo(false, &mut duplicate,
-                                      now + Duration::from_millis(3), Some("é"), false));
+        assert!(suppress_keyboard_echo(
+            false,
+            &mut duplicate,
+            now + Duration::from_millis(3),
+            Some("é"),
+            false
+        ));
         assert!(duplicate.is_none());
-        assert!(!suppress_keyboard_echo(false, &mut duplicate,
-                                       now + Duration::from_millis(4), Some("é"), false));
+        assert!(!suppress_keyboard_echo(
+            false,
+            &mut duplicate,
+            now + Duration::from_millis(4),
+            Some("é"),
+            false
+        ));
         // A candidate-confirming Return may be mirrored by wl_keyboard.
         let mut accept = committed("日本語", now);
-        assert!(suppress_keyboard_echo(false, &mut accept,
-                                      now + Duration::from_millis(6), None, true));
+        assert!(suppress_keyboard_echo(
+            false,
+            &mut accept,
+            now + Duration::from_millis(6),
+            None,
+            true
+        ));
         assert!(accept.is_none());
         let mut expired = committed("x", now);
-        assert!(!suppress_keyboard_echo(false, &mut expired,
-                                       now + IME_ECHO_WINDOW + Duration::from_millis(1),
-                                       Some("x"), false));
+        assert!(!suppress_keyboard_echo(
+            false,
+            &mut expired,
+            now + IME_ECHO_WINDOW + Duration::from_millis(1),
+            Some("x"),
+            false
+        ));
         assert!(expired.is_none());
         let mut out_of_order = committed("x", now);
-        assert!(!suppress_keyboard_echo(false, &mut out_of_order,
-                                       now - Duration::from_millis(1), Some("x"), false));
+        assert!(!suppress_keyboard_echo(
+            false,
+            &mut out_of_order,
+            now - Duration::from_millis(1),
+            Some("x"),
+            false
+        ));
         assert!(out_of_order.is_none());
     }
 
@@ -170,27 +239,73 @@ mod tests {
         let now = Instant::now();
         let mut marker = committed("字", now);
         // Active preedit defers printable text and all destructive/nav keys.
-        assert!(owns_keyboard_edit(true, &mut marker, now,
-                                   Some("a"), false, false, false));
-        assert!(owns_keyboard_edit(true, &mut marker, now,
-                                   None, false, true, false));
-        assert!(owns_keyboard_edit(true, &mut marker, now,
-                                   None, true, true, false));
-        assert!(!owns_keyboard_edit(true, &mut marker, now,
-                                    None, false, false, false));
+        assert!(owns_keyboard_edit(
+            true,
+            &mut marker,
+            now,
+            Some("a"),
+            false,
+            false,
+            false
+        ));
+        assert!(owns_keyboard_edit(
+            true,
+            &mut marker,
+            now,
+            None,
+            false,
+            true,
+            false
+        ));
+        assert!(owns_keyboard_edit(
+            true,
+            &mut marker,
+            now,
+            None,
+            true,
+            true,
+            false
+        ));
+        assert!(!owns_keyboard_edit(
+            true,
+            &mut marker,
+            now,
+            None,
+            false,
+            false,
+            false
+        ));
         assert!(marker.is_some());
         // Done releases Escape immediately even within the guard window.
-        assert!(!owns_keyboard_edit(false, &mut marker,
-                                    now + Duration::from_millis(1),
-                                    None, false, true, true));
+        assert!(!owns_keyboard_edit(
+            false,
+            &mut marker,
+            now + Duration::from_millis(1),
+            None,
+            false,
+            true,
+            true
+        ));
         assert!(marker.is_some());
-        assert!(!owns_keyboard_edit(false, &mut marker,
-                                    now + Duration::from_millis(2),
-                                    None, false, true, false));
+        assert!(!owns_keyboard_edit(
+            false,
+            &mut marker,
+            now + Duration::from_millis(2),
+            None,
+            false,
+            true,
+            false
+        ));
         assert!(marker.is_some());
-        assert!(!owns_keyboard_edit(false, &mut marker,
-                                    now + Duration::from_millis(3),
-                                    Some("x"), false, false, false));
+        assert!(!owns_keyboard_edit(
+            false,
+            &mut marker,
+            now + Duration::from_millis(3),
+            Some("x"),
+            false,
+            false,
+            false
+        ));
         assert!(marker.is_none());
     }
 
@@ -203,11 +318,17 @@ mod tests {
         pending.delete(3, 0);
         pending.commit(Some("あ".repeat(max + 1)));
         assert!(pending.invalid_commit);
-        assert!(pending.commit.is_none(), "never retain the attacker-sized string");
+        assert!(
+            pending.commit.is_none(),
+            "never retain the attacker-sized string"
+        );
         let mut state = State::new(Kind::Run);
         assert!(state.commit_text("old"));
         assert!(!state.apply_ime(&pending));
-        assert_eq!(state.input, "old", "delete must roll back as part of invalid Done");
+        assert_eq!(
+            state.input, "old",
+            "delete must roll back as part of invalid Done"
+        );
 
         // Later valid buffered commit overrides the invalid one, mirroring
         // text-input-v3 and the pre-existing Luna editor contract.
@@ -283,8 +404,7 @@ mod tests {
         // UTF-8 byte size must fail before an unbounded character traversal.
         assert!(Preedit::parse(&"x".repeat(limit * 4 + 1), -1, -1).is_none());
         // The bound must not alter valid byte-offset/grapheme IME caret data.
-        assert_eq!(Preedit::parse("a\u{301}👩‍💻", 3, 14).unwrap().cursor,
-                   Some(3));
+        assert_eq!(Preedit::parse("a\u{301}👩‍💻", 3, 14).unwrap().cursor, Some(3));
     }
 
     #[test]
@@ -351,6 +471,9 @@ mod tests {
         assert_eq!(state.argv().unwrap(), ["foot"]);
         assert!(state.preedit.is_some());
         state.commit_text("x");
-        assert!(state.preedit.is_none(), "direct keyboard input cancels stale composition");
+        assert!(
+            state.preedit.is_none(),
+            "direct keyboard input cancels stale composition"
+        );
     }
 }

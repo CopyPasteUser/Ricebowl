@@ -2,7 +2,10 @@
 //! This mode creates no layer surfaces, polls no display commands and never
 //! changes outputs. A dead compositor closes stdout and exits the watcher.
 
-use std::{error::Error, io::{self, Write}};
+use std::{
+    error::Error,
+    io::{self, Write},
+};
 
 use smithay_client_toolkit::{
     delegate_registry,
@@ -10,11 +13,7 @@ use smithay_client_toolkit::{
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
 };
-use wayland_client::{
-    globals::registry_queue_init,
-    protocol::wl_output,
-    Connection, QueueHandle,
-};
+use wayland_client::{globals::registry_queue_init, protocol::wl_output, Connection, QueueHandle};
 
 struct Watcher {
     registry: RegistryState,
@@ -35,7 +34,9 @@ impl Watcher {
 }
 
 impl OutputHandler for Watcher {
-    fn output_state(&mut self) -> &mut OutputState { &mut self.outputs }
+    fn output_state(&mut self) -> &mut OutputState {
+        &mut self.outputs
+    }
 
     fn new_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {
         self.changed();
@@ -52,7 +53,9 @@ impl OutputHandler for Watcher {
 
 delegate_registry!(Watcher);
 impl ProvidesRegistryState for Watcher {
-    fn registry(&mut self) -> &mut RegistryState { &mut self.registry }
+    fn registry(&mut self) -> &mut RegistryState {
+        &mut self.registry
+    }
     registry_handlers![OutputState];
 }
 smithay_client_toolkit::delegate_dispatch2!(Watcher);
