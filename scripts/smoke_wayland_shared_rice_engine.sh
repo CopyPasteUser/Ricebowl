@@ -232,17 +232,24 @@ while [ "$attempt" -lt 20 ]; do
     sleep 0.15
     grim "$runtime/luna-after-real-keyboard-escape.png"
     if /usr/bin/python3 - "$runtime/luna-before-real-pointer.png" \
-            "$runtime/luna-after-real-keyboard-escape.png" <<'PY'
+            "$runtime/luna-after-real-keyboard-escape.png" \
+            "$runtime/luna-after-real-keyboard-down.png" <<'PY'
 from PIL import Image, ImageChops
 import sys
-with Image.open(sys.argv[1]) as before, Image.open(sys.argv[2]) as after:
-    a, b = before.convert("RGB"), after.convert("RGB")
-    assert a.size == b.size
+with Image.open(sys.argv[1]) as before, Image.open(sys.argv[2]) as after, \
+        Image.open(sys.argv[3]) as opened:
+    a, b, c = (frame.convert("RGB") for frame in (before, after, opened))
+    assert a.size == b.size == c.size
     w, h = a.size
-    region = (0, max(0, h - 550), min(w, 640), h)
-    changed = sum(max(px) > 20 for px in
-                  ImageChops.difference(a.crop(region), b.crop(region)).getdata())
-    assert changed < 1200, f"Luna Escape left menu visible: {changed} pixels"
+    # The menu covers the left edge of the output. The desktop Lock icon's
+    # focus highlight starts farther right and changes on keyboard handoff.
+    region = (0, max(0, h - 550), min(w, 128), h - 40)
+    def changed(frame):
+        return sum(max(px) > 20 for px in
+                   ImageChops.difference(a.crop(region), frame.crop(region)).getdata())
+    assert changed(c) > 2000, "Luna menu was not visible in the dismissal witness region"
+    remaining = changed(b)
+    assert remaining < 1200, f"Luna Escape left menu visible: {remaining} pixels"
 PY
     then
         keyboard_closed=1
