@@ -9,7 +9,7 @@ Source-audit baseline: `main@fdbdf26a4a90cb31be8efa222e527609ad447751` (23 Novem
 | --- | --- | --- | --- | --- |
 | XP Run | luna_dialog::State(Kind::Run); compositor keyboard events through Super+R | complete grapheme carets, text selection, delete, preedit paint | wired via enter/preedit/delete/commit/done | transient TextInput and TextRun named Command; black-box client smoke added |
 | Desktop File Rename | luna_dialog::State(Kind::FileRename) | same editor, rename only after explicit confirmation | shared Luna adapter | transient TextInput and TextRun named File name; real Wayland pointer → Rename external AT-SPI client smoke PASSED at #551 head (Native 44673725266) |
-| Start Menu Search / All Programs | native_menu::MenuState::search; wl_keyboard | Unicode-batch insertion and UAX #29 backspace; append/delete-at-end, **not a full cursor editor** | **NOT wired**: compositor v3 Enter/Done still targets Run/Rename only | **Transient TextInput/TextRun already exposed** in `main.rs`; external keyboard/AT-SPI **Search** smoke is present; **Programs** needs its own live check, neither proves IME-v3 composition |
+| Start Menu Search / All Programs | native_menu::MenuState::search; wl_keyboard | Unicode-batch insertion and UAX #29 backspace with the caret at the end | **NOT wired**: compositor v3 Enter/Done still targets Run/Rename only | Transient TextInput/TextRun for both fields, verified by the external keyboard/AT-SPI smoke |
 | Context menus, tray, calendar, desktop icons, RicePop | navigation/selection handlers, no text editor | keyboard actions and labels only | n/a without actual editor | supported actions where implemented, not fully client-validated |
 | External search application | fuzzel and other Wayland applications | external application responsibility | external application responsibility | external application responsibility |
 
@@ -58,17 +58,19 @@ The existing private `scripts/smoke_luna_atspi.sh` now also includes
 a **separate real-pointer All Programs** flow: geometry is read from the
 native 1366×768 menu trace, the actual XP All Programs tile is clicked,
 and `Filter installed apps` is checked for keyboard input, backspace,
-AT-SPI focus/caret and Escape teardown. The fixture passed an isolated
-shell-syntax and geometry-coordinate check, **not a live labwc run**.
+AT-SPI focus/caret and Escape teardown. The complete script passed in a
+private labwc 0.8.3 session at `d4aba0d8`, including real pointer and
+keyboard input, public AT-SPI queries, dialog clipboard exchange and the
+Run IME protocol fixture. [Offline evidence for #597](https://github.com/CopyPasteUser/Ricebowl/pull/597#issuecomment-7156062454)
 
-This is **not** a live labwc/Orca/IME acceptance proof; run the actual
-external AT-SPI smoke on the final head before checking SG5.
+Repeat the external AT-SPI smoke on the final integration head. Menu IME
+composition, real Orca and hardware acceptance remain open.
 
 ## Remaining blockers before issue #417 SG5 can be checked
 
 - The external IME v2 -> compositor -> v3 **Run** protocol smoke passed #551 head (Native 44673725266). Still independently cover **Rename**, focus leave/re-enter and real candidate selection/RTL flows. One scripted Japanese transaction is not full IME parity.
 - Native Run/Rename clipboard shortcuts are already **merged in #557**, and the current source contains live `wl-copy` ↔ native editor ↔ `wl-paste` regression steps. Full cross-app selection transfer/focus/cleanup must still be confirmed on the exact final source in a private labwc session; the historical merge does not by itself certify the final SG5 matrix.
-- Start Menu Search / All Programs **already exposes an AT-SPI TextInput/TextRun** in current `main.rs` and has an external keyboard/AT-SPI **Search** smoke (Programs remains unverified). It still lacks a real **v3 text-input focus target, preedit/commit/deletion routing and composition painting**; follow [SG5 issue #595](https://github.com/CopyPasteUser/Ricebowl/issues/595). Accessibility exposure alone is not IME support.
+- Start Menu Search and All Programs both pass the external keyboard/AT-SPI editing smoke. The menu v3 focus target, preedit and commit handling, deletion and composition painting remain open. [SG5 issue #595](https://github.com/CopyPasteUser/Ricebowl/issues/595)
 - Real XDG Rename AT-SPI focus/text/caret/selection/cancel client PASSED #551 exact-head CI (Native 44673725266); still missing independent Rename IME protocol, AT-SPI action invocation and wider dialog transition coverage.
 - Positive Hindi/CJK installed-font coverage plus measured rendered glyph/caret positions; negative missing-font replacement tests do not prove script support.
 - After software gates, **physical** Mint/ThinkPad Fcitx/IBus, Orca, mixed-DPI/GPU rendering and keyboard-layout switching. Physical acceptance is not claimed by CI.
