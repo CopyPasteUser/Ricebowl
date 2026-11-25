@@ -5,6 +5,7 @@ perform writes; both direct and owner-verified readers use the same guard.
 """
 from __future__ import annotations
 
+import json
 import unittest
 from unittest import mock
 
@@ -68,6 +69,22 @@ class InboxIdentityTests(unittest.TestCase):
         self.assertEqual(snapshot["active"], current)
         self.assertTrue(snapshot["truncated"])
         self.assertFalse(snapshot["mutates_active_desktop"])
+
+    def test_active_wire_ids_remain_unique_past_the_display_limit(self):
+        rows = [{"id": {"type": "u", "data": identifier}}
+                for identifier in range(1, 66)]
+
+        def response():
+            return json.dumps({"type": "aa{sv}", "data": [rows]}).encode()
+
+        shown, truncated = notifications._busctl_records(response(), include_actions=True)
+        self.assertEqual([row["id"] for row in shown], list(range(1, 65)))
+        self.assertTrue(truncated)
+
+        rows[-1]["id"]["data"] = 1
+        with self.assertRaises(notifications.NotificationBridgeError) as captured:
+            notifications._busctl_records(response(), include_actions=True)
+        self.assertEqual(captured.exception.code, "ambiguous_notification_id")
 
 
 if __name__ == "__main__":
