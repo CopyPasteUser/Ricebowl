@@ -253,16 +253,19 @@ mod tests {
     #[test]
     fn a_closed_window_cannot_be_restored_after_reusing_its_old_group() {
         let mut desktop = ShowDesktop::<u64>::default();
-        assert_eq!(desktop.toggle([(10, true, false), (20, true, false)]),
-            [Action::Minimize(10), Action::Minimize(20)]);
+        assert_eq!(
+            desktop.toggle([(10, true, false), (20, true, false)]),
+            [Action::Minimize(10), Action::Minimize(20)]
+        );
         desktop.closed(&10);
         // The newly opened handle has a different identity, even if its
         // application title and group are the same.
-        assert_eq!(desktop.toggle([(20, true, true), (30, true, false)]),
-            [Action::Restore(20)]);
+        assert_eq!(
+            desktop.toggle([(20, true, true), (30, true, false)]),
+            [Action::Restore(20)]
+        );
         assert!(!desktop.active());
-        assert_eq!(desktop.toggle([(30, true, false)]),
-            [Action::Minimize(30)]);
+        assert_eq!(desktop.toggle([(30, true, false)]), [Action::Minimize(30)]);
     }
 
     #[test]

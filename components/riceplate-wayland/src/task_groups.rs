@@ -79,7 +79,9 @@ pub fn visible_label(group: &TaskGroup, cell_width: u32) -> String {
     let capacity = (cell_width.saturating_sub(16) / 8) as usize;
     let suffix = if group.members.len() > 1 {
         format!(" ({})", group.members.len())
-    } else { String::new() };
+    } else {
+        String::new()
+    };
     if capacity < suffix.len() {
         // A clipped "(12)" prefix such as "(" or "(1" is not a count.
         // Keep the exact count when it fits; otherwise signal multiplicity
@@ -88,7 +90,11 @@ pub fn visible_label(group: &TaskGroup, cell_width: u32) -> String {
             return String::new();
         }
         let count = group.members.len().to_string();
-        return if count.len() <= capacity { count } else { "+".to_owned() };
+        return if count.len() <= capacity {
+            count
+        } else {
+            "+".to_owned()
+        };
     }
     let mut label: String = group.label.chars().take(capacity - suffix.len()).collect();
     if label.is_empty() {

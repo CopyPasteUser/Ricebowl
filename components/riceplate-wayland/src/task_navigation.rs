@@ -199,7 +199,10 @@ mod tests {
     fn extreme_navigation_steps_do_not_overflow_or_select_stale_targets() {
         let style = crate::recipe::load("classic").unwrap();
         let targets = available(&style, 1200, 3, 0);
-        let start = targets.iter().position(|target| *target == Target::Task(1)).unwrap();
+        let start = targets
+            .iter()
+            .position(|target| *target == Target::Task(1))
+            .unwrap();
         for delta in [isize::MIN, isize::MAX, -1, 1] {
             let shift = delta.rem_euclid(targets.len() as isize) as usize;
             let expected = targets[(start + shift) % targets.len()];
