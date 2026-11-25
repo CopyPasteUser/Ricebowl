@@ -85,6 +85,8 @@ class InboxSignals:
                 ident = self._connection.signal_subscribe(
                     sender, interface, name, path, arg0,
                     Gio.DBusSignalFlags.NONE, self._received, None)
+                if type(ident) is not int or ident <= 0 or ident in self._ids:
+                    raise RuntimeError("RicePop D-Bus subscription was not established")
                 self._ids.append(ident)
             # Signal subscriptions may miss a same-ID replacement: Mako
             # changes an existing object without inserting/removing it.
@@ -95,6 +97,9 @@ class InboxSignals:
                 self._timer_api = timer_api
                 self._timer_id = timer_api.timeout_add_seconds(
                     _PRIVATE_INBOX_REFRESH_SECONDS, self._readback_tick)
+                if type(self._timer_id) is not int or self._timer_id <= 0:
+                    self._timer_id = 0
+                    raise RuntimeError("RicePop inbox refresh could not be scheduled")
         except Exception:
             self.close()
             raise

@@ -10,15 +10,29 @@ const ROW_HEIGHT: u32 = 29;
 pub const BACK_ROW: u32 = 191;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Item { Open, Explorer, Rename, Trash, Properties }
+pub enum Item {
+    Open,
+    Explorer,
+    Rename,
+    Trash,
+    Properties,
+}
 
 impl Item {
-    pub const ALL: [Self; 5] =
-        [Self::Open, Self::Explorer, Self::Rename, Self::Trash, Self::Properties];
+    pub const ALL: [Self; 5] = [
+        Self::Open,
+        Self::Explorer,
+        Self::Rename,
+        Self::Trash,
+        Self::Properties,
+    ];
     pub fn index(self) -> usize {
         match self {
-            Self::Open => 0, Self::Explorer => 1, Self::Rename => 2,
-            Self::Trash => 3, Self::Properties => 4,
+            Self::Open => 0,
+            Self::Explorer => 1,
+            Self::Rename => 2,
+            Self::Trash => 3,
+            Self::Properties => 4,
         }
     }
     pub fn label(self) -> &'static str {
@@ -45,11 +59,16 @@ impl Item {
     }
 }
 
-pub fn row(item: Item) -> u32 { FIRST + item.index() as u32 * ROW_HEIGHT }
+pub fn row(item: Item) -> u32 {
+    FIRST + item.index() as u32 * ROW_HEIGHT
+}
 
 pub fn hit(x: f64, y: f64, kind: Kind) -> Option<Item> {
-    if !x.is_finite() || !y.is_finite() || !(5.0..f64::from(WIDTH - 5)).contains(&x)
-        || !(f64::from(FIRST)..f64::from(FIRST + ROW_HEIGHT * 5)).contains(&y) {
+    if !x.is_finite()
+        || !y.is_finite()
+        || !(5.0..f64::from(WIDTH - 5)).contains(&x)
+        || !(f64::from(FIRST)..f64::from(FIRST + ROW_HEIGHT * 5)).contains(&y)
+    {
         return None;
     }
     let item = Item::ALL[((y as u32 - FIRST) / ROW_HEIGHT) as usize];
@@ -57,7 +76,9 @@ pub fn hit(x: f64, y: f64, kind: Kind) -> Option<Item> {
 }
 
 pub fn back_hit(x: f64, y: f64) -> bool {
-    x.is_finite() && y.is_finite() && (5.0..f64::from(WIDTH - 5)).contains(&x)
+    x.is_finite()
+        && y.is_finite()
+        && (5.0..f64::from(WIDTH - 5)).contains(&x)
         && (f64::from(BACK_ROW)..f64::from(BACK_ROW + ROW_HEIGHT)).contains(&y)
 }
 
@@ -68,16 +89,25 @@ pub fn navigate(current: Item, delta: i32, kind: Kind) -> Item {
     for _ in 0..Item::ALL.len() {
         index = (index + i64::from(delta)).rem_euclid(Item::ALL.len() as i64);
         let item = Item::ALL[index as usize];
-        if item.enabled(kind) { return item; }
+        if item.enabled(kind) {
+            return item;
+        }
     }
     current
 }
 
-pub fn placement(icon: (u32, u32), pointer: (f64, f64), output: (u32, u32),
-                 panel: u32, top: bool) -> Option<(u32, u32)> {
-    if !pointer.0.is_finite() || !pointer.1.is_finite()
+pub fn placement(
+    icon: (u32, u32),
+    pointer: (f64, f64),
+    output: (u32, u32),
+    panel: u32,
+    top: bool,
+) -> Option<(u32, u32)> {
+    if !pointer.0.is_finite()
+        || !pointer.1.is_finite()
         || !(0.0..f64::from(crate::recipe::ICON_WIDTH)).contains(&pointer.0)
-        || !(0.0..f64::from(crate::recipe::ICON_HEIGHT)).contains(&pointer.1) {
+        || !(0.0..f64::from(crate::recipe::ICON_HEIGHT)).contains(&pointer.1)
+    {
         return None;
     }
     let upper = if top { panel } else { 0 };
@@ -87,9 +117,14 @@ pub fn placement(icon: (u32, u32), pointer: (f64, f64), output: (u32, u32),
     if output.0 < WIDTH || output.1 < HEIGHT.saturating_add(upper).saturating_add(bottom) {
         return None;
     }
-    Some((icon.0.saturating_add(pointer.0.round() as u32).min(output.0 - WIDTH),
-          icon.1.saturating_add(pointer.1.round() as u32)
-              .clamp(upper, output.1 - HEIGHT - bottom)))
+    Some((
+        icon.0
+            .saturating_add(pointer.0.round() as u32)
+            .min(output.0 - WIDTH),
+        icon.1
+            .saturating_add(pointer.1.round() as u32)
+            .clamp(upper, output.1 - HEIGHT - bottom),
+    ))
 }
 
 #[cfg(test)]
@@ -113,8 +148,13 @@ mod tests {
             assert_eq!(navigate(Item::Properties, 1, kind), Item::Properties);
             assert_eq!(hit(20.0, f64::from(row(Item::Trash) + 12), kind), None);
         }
-        for (x, y) in [(f64::NAN, 50.0), (0.0, 50.0),
-                       (20.0, -1.0), (20.0, 190.0), (246.0, 66.0)] {
+        for (x, y) in [
+            (f64::NAN, 50.0),
+            (0.0, 50.0),
+            (20.0, -1.0),
+            (20.0, 190.0),
+            (246.0, 66.0),
+        ] {
             assert_eq!(hit(x, y, Kind::File), None);
         }
         assert!(back_hit(32.0, f64::from(BACK_ROW + 10)));
@@ -123,17 +163,26 @@ mod tests {
 
     #[test]
     fn popup_clamps_on_all_edges_and_never_overlaps_panel() {
-        assert_eq!(placement((32, 100), (42.0, 16.0),
-            (1366, 768), 40, false), Some((74, 116)));
-        assert_eq!(placement((1200, 730), (80.0, 42.0),
-            (1366, 768), 40, false), Some((1120, 494)));
-        assert_eq!(placement((0, 0), (1.0, 1.0),
-            (246, 274), 40, true), Some((0, 40)));
-        assert_eq!(placement((0, 0), (1.0, 1.0),
-            (245, 768), 40, false), None);
-        assert_eq!(placement((0, 0), (1.0, 1.0),
-            (1366, 768), u32::MAX, false), None);
-        assert_eq!(placement((0, 0), (1.0, 1.0),
-            (1366, 768), u32::MAX, true), None);
+        assert_eq!(
+            placement((32, 100), (42.0, 16.0), (1366, 768), 40, false),
+            Some((74, 116))
+        );
+        assert_eq!(
+            placement((1200, 730), (80.0, 42.0), (1366, 768), 40, false),
+            Some((1120, 494))
+        );
+        assert_eq!(
+            placement((0, 0), (1.0, 1.0), (246, 274), 40, true),
+            Some((0, 40))
+        );
+        assert_eq!(placement((0, 0), (1.0, 1.0), (245, 768), 40, false), None);
+        assert_eq!(
+            placement((0, 0), (1.0, 1.0), (1366, 768), u32::MAX, false),
+            None
+        );
+        assert_eq!(
+            placement((0, 0), (1.0, 1.0), (1366, 768), u32::MAX, true),
+            None
+        );
     }
 }

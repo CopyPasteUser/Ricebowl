@@ -26,7 +26,9 @@ impl PowerStatus {
     }
 
     fn read(root: &Path) -> Self {
-        let Ok(entries) = fs::read_dir(root) else { return Self::Unknown; };
+        let Ok(entries) = fs::read_dir(root) else {
+            return Self::Unknown;
+        };
         let mut count = 0_u64;
         let mut total = 0_u64;
         let mut charging = false;
@@ -34,20 +36,26 @@ impl PowerStatus {
         for entry in entries.flatten() {
             let path = entry.path();
             if read_trimmed(&path.join("type")).as_deref() != Some("Battery")
-                || read_trimmed(&path.join("present")).as_deref() == Some("0") {
+                || read_trimmed(&path.join("present")).as_deref() == Some("0")
+            {
                 continue;
             }
             count += 1;
-            charging |= matches!(read_trimmed(&path.join("status")).as_deref(),
-                                 Some("Charging"));
-            match read_trimmed(&path.join("capacity"))
-                .and_then(|data| data.parse::<u8>().ok()) {
+            charging |= matches!(
+                read_trimmed(&path.join("status")).as_deref(),
+                Some("Charging")
+            );
+            match read_trimmed(&path.join("capacity")).and_then(|data| data.parse::<u8>().ok()) {
                 Some(value) if value <= 100 => total += u64::from(value),
                 _ => invalid = true,
             }
         }
-        if count == 0 { return Self::NotPresent; }
-        if invalid { return Self::Unknown; }
+        if count == 0 {
+            return Self::NotPresent;
+        }
+        if invalid {
+            return Self::Unknown;
+        }
         Self::Battery {
             percent: ((total + count / 2) / count) as u8,
             charging,
@@ -67,9 +75,13 @@ mod tests {
 
     fn temp_supply() -> PathBuf {
         let root = std::env::temp_dir().join(format!(
-            "riceplate-power-{}-{}", std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
-                .unwrap().as_nanos()));
+            "riceplate-power-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         fs::create_dir(&root).unwrap();
         root
     }

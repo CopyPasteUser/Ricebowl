@@ -67,7 +67,7 @@ class NetworkEnrollmentTests(unittest.TestCase):
             def runner(*args, **_kwargs):
                 return values[args[1]] if args[0] == "-g" else ""
 
-            def create():
+            def create(certificate=str(chosen)):
                 with (
                     mock.patch.object(enrollment.uuidlib, "uuid4", return_value=UUID),
                     mock.patch.object(backend, "connection_profiles",
@@ -77,7 +77,7 @@ class NetworkEnrollmentTests(unittest.TestCase):
                     result = enrollment.create_enterprise_wifi(
                         ssid="Campus", identity="student",
                         domain="radius.campus.example", eap="peap",
-                        inner="mschapv2", ca_certificate=str(chosen))
+                        inner="mschapv2", ca_certificate=certificate)
                     return result, run.call_args_list
 
             result, calls = create()
@@ -85,6 +85,12 @@ class NetworkEnrollmentTests(unittest.TestCase):
             arguments = calls[0].args
             self.assertEqual(arguments[arguments.index("802-1x.system-ca-certs") + 1], "no")
             self.assertEqual(arguments[arguments.index("802-1x.ca-cert") + 1], str(chosen))
+
+            # A valid local CA is still the wrong trust policy when the user
+            # requested the system trust store and did not select that file.
+            with self.assertRaisesRegex(
+                    backend.SettingsError, "profile was added, but its safety"):
+                create("")
 
             # NetworkManager may report certificate paths with a file:// scheme.
             values["802-1x.ca-cert"] = "file://" + str(chosen)
@@ -131,7 +137,7 @@ class NetworkEnrollmentTests(unittest.TestCase):
         run.assert_not_called()
 
     def test_enterprise_connection_passes_password_only_by_stdin(self):
-        before = {"uuid": UUID, "kind": "wifi", "active": False}
+        before = {"uuid": UUID, "kind": "wifi", "name": "Campus profile", "active": False}
         after = {**before, "active": True}
 
         def runner(*args, **kwargs):
@@ -144,19 +150,25 @@ class NetworkEnrollmentTests(unittest.TestCase):
                     "802-1x.domain-suffix-match": "radius.school.edu",
                     "802-1x.system-ca-certs": "yes",
                     "802-1x.ca-cert": "",
+                    "802-11-wireless.ssid": "Campus",
+                    "802-1x.identity": "student",
                 }[args[1]]
             return ""
 
         with mock.patch.object(backend, "connection_profiles", side_effect=[[before], [after]]), \
                 mock.patch.object(enrollment, "_run", side_effect=runner) as run:
             self.assertTrue(enrollment.connect_enterprise_wifi(UUID, "private-password"))
-        self.assertEqual(run.call_args.kwargs["secret"],
+        activations = [call for call in run.call_args_list
+                       if call.args[:2] == ("con", "up")]
+        self.assertEqual(len(activations), 1)
+        self.assertEqual(activations[0].kwargs["secret"],
                          "802-1x.password:private-password\n")
-        self.assertIn("/dev/stdin", run.call_args.args)
-        self.assertNotIn("private-password", str(run.call_args.args))
+        self.assertIn("/dev/stdin", activations[0].args)
+        self.assertNotIn("private-password", str(activations[0].args))
 
     def test_enterprise_connection_refuses_non_eap_and_untrusted_profiles(self):
-        existing = {"uuid": UUID, "kind": "802-11-wireless", "active": False}
+        existing = {"uuid": UUID, "kind": "802-11-wireless", "name": "Campus profile",
+                    "active": False}
         with mock.patch.object(backend, "connection_profiles", return_value=[existing]), \
                 mock.patch.object(enrollment, "_run", return_value="wpa-psk") as run:
             with self.assertRaisesRegex(backend.SettingsError, "not an enterprise"):

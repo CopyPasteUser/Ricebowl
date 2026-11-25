@@ -2,7 +2,10 @@
 //! A rice may invoke only the fixed fuzzel action; no recipe command reaches here.
 //! This avoids duplicate popups and reaps completed children without a resident poller.
 
-use std::{io, process::{Child, Command, Stdio}};
+use std::{
+    io,
+    process::{Child, Command, Stdio},
+};
 
 #[derive(Default)]
 pub(crate) struct ExternalLauncher {
@@ -21,8 +24,12 @@ impl ExternalLauncher {
         if self.child.is_some() {
             return Ok(false);
         }
-        self.child = Some(Command::new(program).args(args)
-            .stdin(Stdio::null()).spawn()?);
+        self.child = Some(
+            Command::new(program)
+                .args(args)
+                .stdin(Stdio::null())
+                .spawn()?,
+        );
         Ok(true)
     }
 
@@ -74,7 +81,9 @@ mod tests {
     #[test]
     fn failed_spawn_never_creates_false_busy_state() {
         let mut launcher = ExternalLauncher::default();
-        assert!(launcher.start("/nonexistent/ricebowl-ci-fuzzel", &[]).is_err());
+        assert!(launcher
+            .start("/nonexistent/ricebowl-ci-fuzzel", &[])
+            .is_err());
         assert!(launcher.child.is_none());
         assert!(launcher.start("true", &[]).unwrap());
         launcher.child.as_mut().unwrap().wait().unwrap();

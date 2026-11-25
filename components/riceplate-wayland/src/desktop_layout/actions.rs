@@ -29,7 +29,9 @@ pub enum ActionError {
     Io(io::Error),
 }
 impl From<io::Error> for ActionError {
-    fn from(e: io::Error) -> Self { Self::Io(e) }
+    fn from(e: io::Error) -> Self {
+        Self::Io(e)
+    }
 }
 impl std::fmt::Display for ActionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -43,7 +45,10 @@ impl std::fmt::Display for ActionError {
 }
 impl std::error::Error for ActionError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self { Self::Io(error) => Some(error), _ => None }
+        match self {
+            Self::Io(error) => Some(error),
+            _ => None,
+        }
     }
 }
 impl ActionError {
@@ -61,7 +66,10 @@ impl ActionError {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Backend { RiceField, Gio }
+pub enum Backend {
+    RiceField,
+    Gio,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LaunchCommand {
@@ -88,10 +96,15 @@ impl LaunchPlan {
     pub fn spawn(&self) -> io::Result<(Backend, Child)> {
         match self.preferred.command().spawn() {
             Ok(child) => Ok((self.preferred.backend, child)),
-            Err(error) if error.kind() == io::ErrorKind::NotFound
-                && self.preferred.backend == Backend::RiceField => {
+            Err(error)
+                if error.kind() == io::ErrorKind::NotFound
+                    && self.preferred.backend == Backend::RiceField =>
+            {
                 let fallback = self.fallback.as_ref().ok_or(error)?;
-                fallback.command().spawn().map(|child| (fallback.backend, child))
+                fallback
+                    .command()
+                    .spawn()
+                    .map(|child| (fallback.backend, child))
             }
             Err(error) => Err(error),
         }
@@ -99,22 +112,36 @@ impl LaunchPlan {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OpenMode { Default, Explorer }
+pub enum OpenMode {
+    Default,
+    Explorer,
+}
 
-fn command(backend: Backend, program: &'static str, arguments: Vec<OsString>)
-           -> LaunchCommand {
-    LaunchCommand { backend, program, arguments }
+fn command(backend: Backend, program: &'static str, arguments: Vec<OsString>) -> LaunchCommand {
+    LaunchCommand {
+        backend,
+        program,
+        arguments,
+    }
 }
 fn gio_open(target: &Path) -> LaunchCommand {
-    command(Backend::Gio, "gio", vec![
-        OsString::from("open"), target.as_os_str().to_os_string(),
-    ])
+    command(
+        Backend::Gio,
+        "gio",
+        vec![OsString::from("open"), target.as_os_str().to_os_string()],
+    )
 }
 fn ricefield(target: &Path) -> LaunchCommand {
-    command(Backend::RiceField, "ricefield", vec![
-        OsString::from("--theme"), OsString::from("xp-luna"),
-        OsString::from("--separate-window"), target.as_os_str().to_os_string(),
-    ])
+    command(
+        Backend::RiceField,
+        "ricefield",
+        vec![
+            OsString::from("--theme"),
+            OsString::from("xp-luna"),
+            OsString::from("--separate-window"),
+            target.as_os_str().to_os_string(),
+        ],
+    )
 }
 
 /// Resolve the current user's XDG Desktop again at gesture time. Integration
@@ -123,16 +150,22 @@ fn ricefield(target: &Path) -> LaunchCommand {
 pub fn current_desktop_for_action() -> Result<PathBuf, ActionError> {
     match inventory::current_location()? {
         inventory::DesktopLocation::Path(path) => Ok(path),
-        inventory::DesktopLocation::Disabled =>
-            Err(ActionError::Disabled("XDG Desktop is disabled for this user")),
+        inventory::DesktopLocation::Disabled => Err(ActionError::Disabled(
+            "XDG Desktop is disabled for this user",
+        )),
     }
 }
 
 fn valid_name(name: &OsStr) -> Result<CString, ActionError> {
     let raw = name.as_bytes();
-    if raw.is_empty() || raw.len() > 255 || raw == b"." || raw == b".."
-        || raw.contains(&b'/') || raw.contains(&0)
-        || raw.iter().any(|byte| *byte < 0x20 || *byte == 0x7f) {
+    if raw.is_empty()
+        || raw.len() > 255
+        || raw == b"."
+        || raw == b".."
+        || raw.contains(&b'/')
+        || raw.contains(&0)
+        || raw.iter().any(|byte| *byte < 0x20 || *byte == 0x7f)
+    {
         return Err(ActionError::InvalidName);
     }
     CString::new(raw).map_err(|_| ActionError::InvalidName)
@@ -142,12 +175,18 @@ fn birth_fd(file: &File) -> Option<Birth> {
     let empty = c"";
     let mut result = unsafe { std::mem::zeroed::<libc::statx>() };
     let code = unsafe {
-        libc::statx(file.as_raw_fd(), empty.as_ptr(),
+        libc::statx(
+            file.as_raw_fd(),
+            empty.as_ptr(),
             libc::AT_EMPTY_PATH | libc::AT_SYMLINK_NOFOLLOW,
-            libc::STATX_BTIME, &mut result)
+            libc::STATX_BTIME,
+            &mut result,
+        )
     };
-    (code == 0 && result.stx_mask & libc::STATX_BTIME != 0).then_some(
-        Birth { secs: result.stx_btime.tv_sec, nanos: result.stx_btime.tv_nsec })
+    (code == 0 && result.stx_mask & libc::STATX_BTIME != 0).then_some(Birth {
+        secs: result.stx_btime.tv_sec,
+        nanos: result.stx_btime.tv_nsec,
+    })
 }
 
 /// Opens source through the already checked XDG Desktop fd and captures the
@@ -157,13 +196,18 @@ struct Pinned {
     source: File,
     source_metadata: fs::Metadata,
 }
-fn pin(snapshot: &Snapshot, desktop: &Path, entry: &Entry)
-       -> Result<Pinned, ActionError> {
+fn pin(snapshot: &Snapshot, desktop: &Path, entry: &Entry) -> Result<Pinned, ActionError> {
     if snapshot.status != Status::Available
-        || !snapshot.entries.iter().any(|candidate|
-            candidate.key == entry.key && candidate.kind == entry.kind
-                && candidate.stamp == entry.stamp && candidate.birth == entry.birth) {
-        return Err(ActionError::Stale("Entry no longer belongs to this snapshot"));
+        || !snapshot.entries.iter().any(|candidate| {
+            candidate.key == entry.key
+                && candidate.kind == entry.kind
+                && candidate.stamp == entry.stamp
+                && candidate.birth == entry.birth
+        })
+    {
+        return Err(ActionError::Stale(
+            "Entry no longer belongs to this snapshot",
+        ));
     }
     valid_name(&entry.key.name)?;
     let root = inventory::open_owned_directory(desktop)?;
@@ -172,9 +216,16 @@ fn pin(snapshot: &Snapshot, desktop: &Path, entry: &Entry)
         return Err(ActionError::Stale("XDG Desktop directory changed"));
     }
     let basename = valid_name(&entry.key.name)?;
-    let raw = unsafe { libc::openat(root.as_raw_fd(), basename.as_ptr(),
-        libc::O_PATH | libc::O_NOFOLLOW | libc::O_CLOEXEC) };
-    if raw == -1 { return Err(ActionError::Io(io::Error::last_os_error())); }
+    let raw = unsafe {
+        libc::openat(
+            root.as_raw_fd(),
+            basename.as_ptr(),
+            libc::O_PATH | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if raw == -1 {
+        return Err(ActionError::Io(io::Error::last_os_error()));
+    }
     let source = unsafe { File::from_raw_fd(raw) };
     let info = source.metadata()?;
     let expected = match entry.kind {
@@ -182,15 +233,27 @@ fn pin(snapshot: &Snapshot, desktop: &Path, entry: &Entry)
         Kind::Directory => info.is_dir(),
         Kind::Symlink => info.file_type().is_symlink(),
     };
-    let birth_valid = entry.birth.is_none_or(|birth| birth_fd(&source) == Some(birth));
-    if !expected || !birth_valid || info.dev() != entry.key.device
-        || info.ino() != entry.key.inode || Stamp::of(&info) != entry.stamp {
-        return Err(ActionError::Stale("File replaced or modified since inventory"));
+    let birth_valid = entry
+        .birth
+        .is_none_or(|birth| birth_fd(&source) == Some(birth));
+    if !expected
+        || !birth_valid
+        || info.dev() != entry.key.device
+        || info.ino() != entry.key.inode
+        || Stamp::of(&info) != entry.stamp
+    {
+        return Err(ActionError::Stale(
+            "File replaced or modified since inventory",
+        ));
     }
     // Confirm the root pathname still refers to the pinned descriptor. The
     // kernel renameat2 below always acts within this pinned directory.
     verify_root(&root, desktop)?;
-    Ok(Pinned { root, source, source_metadata: info })
+    Ok(Pinned {
+        root,
+        source,
+        source_metadata: info,
+    })
 }
 
 fn verify_root(root: &File, desktop: &Path) -> Result<(), ActionError> {
@@ -203,9 +266,15 @@ fn verify_root(root: &File, desktop: &Path) -> Result<(), ActionError> {
     Ok(())
 }
 
-fn verified_path(snapshot: &Snapshot, desktop: &Path, entry: &Entry,
-                 supported: bool) -> Result<PathBuf, ActionError> {
-    if !supported { return Err(ActionError::Disabled("Entry type cannot be opened")); }
+fn verified_path(
+    snapshot: &Snapshot,
+    desktop: &Path,
+    entry: &Entry,
+    supported: bool,
+) -> Result<PathBuf, ActionError> {
+    if !supported {
+        return Err(ActionError::Disabled("Entry type cannot be opened"));
+    }
     let pinned = pin(snapshot, desktop, entry)?;
     if pinned.source_metadata.uid() != unsafe { libc::geteuid() } {
         return Err(ActionError::Disabled("Entry belongs to another user"));
@@ -214,22 +283,39 @@ fn verified_path(snapshot: &Snapshot, desktop: &Path, entry: &Entry,
     // *effective* caller can actually read/open the file, instead of showing
     // a fake successful Open intent for owner-owned mode 000 data.
     let name = valid_name(&entry.key.name)?;
-    let access = libc::R_OK | if entry.kind == Kind::Directory { libc::X_OK } else { 0 };
+    let access = libc::R_OK
+        | if entry.kind == Kind::Directory {
+            libc::X_OK
+        } else {
+            0
+        };
     let allowed = unsafe {
-        libc::faccessat(pinned.root.as_raw_fd(), name.as_ptr(), access,
-                        libc::AT_EACCESS | libc::AT_SYMLINK_NOFOLLOW)
+        libc::faccessat(
+            pinned.root.as_raw_fd(),
+            name.as_ptr(),
+            access,
+            libc::AT_EACCESS | libc::AT_SYMLINK_NOFOLLOW,
+        )
     };
-    if allowed != 0 { return Err(ActionError::Io(io::Error::last_os_error())); }
+    if allowed != 0 {
+        return Err(ActionError::Io(io::Error::last_os_error()));
+    }
     Ok(desktop.join(&entry.key.name))
 }
 
 /// Construct a fixed-argv, inert execution plan. No process is created until
 /// the user invokes the action, and callers should re-create it immediately
 /// before dispatch, rather than caching a path over multiple refreshes.
-pub fn prepare_open(snapshot: &Snapshot, desktop: &Path, entry: &Entry,
-                    mode: OpenMode) -> Result<LaunchPlan, ActionError> {
+pub fn prepare_open(
+    snapshot: &Snapshot,
+    desktop: &Path,
+    entry: &Entry,
+    mode: OpenMode,
+) -> Result<LaunchPlan, ActionError> {
     if matches!(entry.kind, Kind::Symlink | Kind::DesktopFile) {
-        return Err(ActionError::Disabled("Symlink and .desktop execution is disabled"));
+        return Err(ActionError::Disabled(
+            "Symlink and .desktop execution is disabled",
+        ));
     }
     let path = verified_path(snapshot, desktop, entry, true)?;
     let directory = if entry.kind == Kind::Directory {
@@ -238,17 +324,26 @@ pub fn prepare_open(snapshot: &Snapshot, desktop: &Path, entry: &Entry,
         desktop.to_owned()
     };
     if mode == OpenMode::Explorer || entry.kind == Kind::Directory {
-        Ok(LaunchPlan { preferred: ricefield(&directory),
-                        fallback: Some(gio_open(&directory)) })
+        Ok(LaunchPlan {
+            preferred: ricefield(&directory),
+            fallback: Some(gio_open(&directory)),
+        })
     } else {
-        Ok(LaunchPlan { preferred: gio_open(&path), fallback: None })
+        Ok(LaunchPlan {
+            preferred: gio_open(&path),
+            fallback: None,
+        })
     }
 }
 
 /// Called by the integration event loop following an explicit user gesture.
 /// No shell is ever involved. Return the child for integration-owned reaping.
-pub fn open(snapshot: &Snapshot, desktop: &Path, entry: &Entry,
-            mode: OpenMode) -> Result<(Backend, Child), ActionError> {
+pub fn open(
+    snapshot: &Snapshot,
+    desktop: &Path,
+    entry: &Entry,
+    mode: OpenMode,
+) -> Result<(Backend, Child), ActionError> {
     let plan = prepare_open(snapshot, desktop, entry, mode)?;
     Ok(plan.spawn()?)
 }
@@ -258,24 +353,32 @@ pub fn open(snapshot: &Snapshot, desktop: &Path, entry: &Entry,
 /// Gio implements the platform trash semantics; no unlink/rm fallback exists.
 /// A concurrent same-UID rename after pinning cannot be prevented by an
 /// argv-based Gio API; this is not an atomic source-inode transaction.
-pub fn prepare_trash(snapshot: &Snapshot, desktop: &Path, entry: &Entry)
-                     -> Result<LaunchPlan, ActionError> {
+pub fn prepare_trash(
+    snapshot: &Snapshot,
+    desktop: &Path,
+    entry: &Entry,
+) -> Result<LaunchPlan, ActionError> {
     if !matches!(entry.kind, Kind::File | Kind::Directory) {
         return Err(ActionError::Disabled("Untrusted item cannot be trashed"));
     }
     let target = verified_path(snapshot, desktop, entry, true)?;
     Ok(LaunchPlan {
-        preferred: command(Backend::Gio, "gio", vec![
-            OsString::from("trash"), target.into_os_string(),
-        ]),
+        preferred: command(
+            Backend::Gio,
+            "gio",
+            vec![OsString::from("trash"), target.into_os_string()],
+        ),
         fallback: None,
     })
 }
 
 /// Called strictly after an explicit, separate user confirmation.
 /// Return the child so the compositor can reap it and report process failures.
-pub fn trash_confirmed(snapshot: &Snapshot, desktop: &Path, entry: &Entry)
-                       -> Result<Child, ActionError> {
+pub fn trash_confirmed(
+    snapshot: &Snapshot,
+    desktop: &Path,
+    entry: &Entry,
+) -> Result<Child, ActionError> {
     Ok(prepare_trash(snapshot, desktop, entry)?.spawn()?.1)
 }
 
@@ -293,14 +396,22 @@ pub struct Properties {
 
 /// Read-only, descriptor-bound, NOFOLLOW properties. Symlinks and untrusted
 /// .desktop files may be inspected but never implicitly executed.
-pub fn properties(snapshot: &Snapshot, desktop: &Path, entry: &Entry)
-                  -> Result<Properties, ActionError> {
+pub fn properties(
+    snapshot: &Snapshot,
+    desktop: &Path,
+    entry: &Entry,
+) -> Result<Properties, ActionError> {
     let pinned = pin(snapshot, desktop, entry)?;
     let meta = &pinned.source_metadata;
     Ok(Properties {
-        name: entry.key.name.clone(), kind: entry.kind, size: meta.size(),
-        owner_uid: meta.uid(), mode: meta.mode(), hard_links: meta.nlink(),
-        device: meta.dev(), inode: meta.ino(),
+        name: entry.key.name.clone(),
+        kind: entry.kind,
+        size: meta.size(),
+        owner_uid: meta.uid(),
+        mode: meta.mode(),
+        hard_links: meta.nlink(),
+        device: meta.dev(),
+        inode: meta.ino(),
     })
 }
 
@@ -320,10 +431,16 @@ pub struct RenameReceipt {
 /// an inode: another same-UID process may replace the source between the last
 /// validation and renameat2. The destination is checked after the syscall;
 /// ambiguous outcomes require a full rescan rather than blind retry.
-pub fn rename(snapshot: &Snapshot, desktop: &Path, entry: &Entry,
-              new_name: &OsStr) -> Result<RenameReceipt, ActionError> {
+pub fn rename(
+    snapshot: &Snapshot,
+    desktop: &Path,
+    entry: &Entry,
+    new_name: &OsStr,
+) -> Result<RenameReceipt, ActionError> {
     if !matches!(entry.kind, Kind::File | Kind::Directory) {
-        return Err(ActionError::Disabled("Launcher and symlink rename is disabled"));
+        return Err(ActionError::Disabled(
+            "Launcher and symlink rename is disabled",
+        ));
     }
     let target = valid_name(new_name)?;
     if entry.key.name.as_os_str() == new_name {
@@ -338,9 +455,13 @@ pub fn rename(snapshot: &Snapshot, desktop: &Path, entry: &Entry,
     // protection even when another application creates the destination.
     verify_root(&pinned.root, desktop)?;
     let outcome = unsafe {
-        libc::renameat2(pinned.root.as_raw_fd(), source.as_ptr(),
-                        pinned.root.as_raw_fd(), target.as_ptr(),
-                        libc::RENAME_NOREPLACE)
+        libc::renameat2(
+            pinned.root.as_raw_fd(),
+            source.as_ptr(),
+            pinned.root.as_raw_fd(),
+            target.as_ptr(),
+            libc::RENAME_NOREPLACE,
+        )
     };
     if outcome == -1 {
         let error = io::Error::last_os_error();
@@ -355,27 +476,38 @@ pub fn rename(snapshot: &Snapshot, desktop: &Path, entry: &Entry,
     // Do not return a normal success for an unexpected source replacement.
     // The operation is already committed; the UI must rescan without retry.
     let source_after = unsafe {
-        libc::openat(pinned.root.as_raw_fd(), target.as_ptr(),
-            libc::O_PATH | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        libc::openat(
+            pinned.root.as_raw_fd(),
+            target.as_ptr(),
+            libc::O_PATH | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
     };
     if source_after == -1 {
-        return Err(ActionError::Stale("Rename committed but destination disappeared; rescan"));
+        return Err(ActionError::Stale(
+            "Rename committed but destination disappeared; rescan",
+        ));
     }
     let moved = unsafe { File::from_raw_fd(source_after) };
     let result = moved.metadata()?;
-    if result.dev() != pinned.source_metadata.dev()
-        || result.ino() != pinned.source_metadata.ino() {
-        return Err(ActionError::Stale("Rename committed on a replaced source; rescan"));
+    if result.dev() != pinned.source_metadata.dev() || result.ino() != pinned.source_metadata.ino()
+    {
+        return Err(ActionError::Stale(
+            "Rename committed on a replaced source; rescan",
+        ));
     }
     verify_root(&pinned.root, desktop)?;
-    Ok(RenameReceipt { old_name: entry.key.name.clone(),
-                       new_name: new_name.to_owned(), refresh_required: true })
+    Ok(RenameReceipt {
+        old_name: entry.key.name.clone(),
+        new_name: new_name.to_owned(),
+        refresh_required: true,
+    })
 }
 
 /// Refresh after any external edit or committed rename. Failure leaves the
 /// caller's old selection/positions untouched, so it may retry explicitly.
 pub fn refresh_after_change(
-    before: &Snapshot, desktop: &Path,
+    before: &Snapshot,
+    desktop: &Path,
     selected: &mut super::file_state::FileSelection,
     positions: &mut super::file_state::FilePositions,
 ) -> Result<Snapshot, ActionError> {
@@ -388,7 +520,11 @@ pub fn refresh_after_change(
 /// Complex transfers are deliberately performed *inside* RiceField after
 /// handoff. This is not a shell-executed or arbitrary file-operation API.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DelegatedOperation { Move, Copy, Trash }
+pub enum DelegatedOperation {
+    Move,
+    Copy,
+    Trash,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RiceFieldHandoff {
@@ -418,7 +554,9 @@ pub fn prepare_handoff(
     let mut names = Vec::with_capacity(selected.len());
     for entry in selected {
         if matches!(entry.kind, Kind::DesktopFile | Kind::Symlink) {
-            return Err(ActionError::Disabled("Untrusted entry cannot be transferred"));
+            return Err(ActionError::Disabled(
+                "Untrusted entry cannot be transferred",
+            ));
         }
         verified_path(snapshot, desktop, entry, true)?;
         if !seen.insert(entry.key.name.clone()) {
@@ -429,10 +567,13 @@ pub fn prepare_handoff(
     // Launching RiceField only opens the Desktop. The file manager, rather
     // than RicePlate, chooses sources/destinations and owns destructive dialogs.
     let launch = LaunchPlan {
-        preferred: ricefield(desktop), fallback: Some(gio_open(desktop)),
+        preferred: ricefield(desktop),
+        fallback: Some(gio_open(desktop)),
     };
     Ok(RiceFieldHandoff {
-        operation, selected_names: names, launch,
+        operation,
+        selected_names: names,
+        launch,
         manual_action_required: true,
     })
 }
@@ -449,17 +590,29 @@ mod tests {
     struct Fixture(PathBuf);
     impl Fixture {
         fn new() -> Self {
-            let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-            let root = env::temp_dir().join(format!("ricebowl-desktop-actions-{}-{nonce}", std::process::id()));
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let root = env::temp_dir().join(format!(
+                "ricebowl-desktop-actions-{}-{nonce}",
+                std::process::id()
+            ));
             fs::create_dir(&root).unwrap();
             Self(root)
         }
-        fn snap(&self) -> Snapshot { inventory::scan(&self.0).unwrap() }
+        fn snap(&self) -> Snapshot {
+            inventory::scan(&self.0).unwrap()
+        }
         fn entry<'a>(&self, snap: &'a Snapshot, name: &str) -> &'a Entry {
             snap.entries.iter().find(|e| e.key.name == name).unwrap()
         }
     }
-    impl Drop for Fixture { fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); } }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
 
     #[test]
     fn trash_requires_separate_confirmation_and_revalidates_source() {
@@ -471,9 +624,13 @@ mod tests {
         let file = f.entry(&before, "safe.txt");
         let plan = prepare_trash(&before, &f.0, file).unwrap();
         assert_eq!(plan.preferred.program, "gio");
-        assert_eq!(plan.preferred.arguments, vec![
-            OsString::from("trash"), f.0.join("safe.txt").into_os_string()
-        ]);
+        assert_eq!(
+            plan.preferred.arguments,
+            vec![
+                OsString::from("trash"),
+                f.0.join("safe.txt").into_os_string()
+            ]
+        );
         assert!(f.0.join("safe.txt").exists(), "preparation must not mutate");
         assert!(prepare_trash(&before, &f.0, f.entry(&before, "bad.desktop")).is_err());
         assert!(prepare_trash(&before, &f.0, f.entry(&before, "link")).is_err());
@@ -494,18 +651,25 @@ mod tests {
         let plan = prepare_open(&snap, &f.0, file, OpenMode::Default).unwrap();
         assert_eq!(plan.preferred.program, "gio");
         assert_eq!(plan.preferred.arguments[0], "open");
-        assert_eq!(plan.preferred.arguments[1], f.0.join("x;$(touch HACK).txt").as_os_str());
+        assert_eq!(
+            plan.preferred.arguments[1],
+            f.0.join("x;$(touch HACK).txt").as_os_str()
+        );
         assert!(plan.fallback.is_none());
         for mode in [OpenMode::Default, OpenMode::Explorer] {
             let plan = prepare_open(&snap, &f.0, folder, mode).unwrap();
             assert_eq!(plan.preferred.program, "ricefield");
-            assert_eq!(plan.preferred.arguments[..3],
-                       ["--theme", "xp-luna", "--separate-window"]);
+            assert_eq!(
+                plan.preferred.arguments[..3],
+                ["--theme", "xp-luna", "--separate-window"]
+            );
             assert_eq!(plan.fallback.as_ref().unwrap().program, "gio");
         }
         for name in ["bad.desktop", "link"] {
-            assert!(matches!(prepare_open(&snap, &f.0, f.entry(&snap, name),
-                OpenMode::Default), Err(ActionError::Disabled(_))));
+            assert!(matches!(
+                prepare_open(&snap, &f.0, f.entry(&snap, name), OpenMode::Default),
+                Err(ActionError::Disabled(_))
+            ));
             assert!(properties(&snap, &f.0, f.entry(&snap, name)).is_ok());
         }
         // Constructor has no effect; no command was started in this test.
@@ -541,7 +705,10 @@ mod tests {
         fs::create_dir(f.0.join("Folder")).unwrap();
         let snap = f.snap();
         let a = f.entry(&snap, "a");
-        assert!(matches!(rename(&snap, &f.0, a, OsStr::new("occupied")), Err(ActionError::Conflict)));
+        assert!(matches!(
+            rename(&snap, &f.0, a, OsStr::new("occupied")),
+            Err(ActionError::Conflict)
+        ));
         assert_eq!(fs::read(f.0.join("occupied")).unwrap(), b"KEEP");
         assert_eq!(fs::read(f.0.join("a")).unwrap(), b"original");
         let receipt = rename(&snap, &f.0, a, OsStr::new("geändert 🍚")).unwrap();
@@ -550,7 +717,13 @@ mod tests {
         assert!(!f.0.join("a").exists());
         assert_eq!(fs::read(f.0.join("geändert 🍚")).unwrap(), b"original");
         let newer = f.snap();
-        rename(&newer, &f.0, f.entry(&newer, "Folder"), OsStr::new("Ordner")).unwrap();
+        rename(
+            &newer,
+            &f.0,
+            f.entry(&newer, "Folder"),
+            OsStr::new("Ordner"),
+        )
+        .unwrap();
         assert!(f.0.join("Ordner").is_dir());
     }
 
@@ -561,12 +734,16 @@ mod tests {
         let snap = f.snap();
         let a = f.entry(&snap, "a");
         for name in ["", ".", "..", "../escape", "/tmp/no", "bad\nname", "a\0b"] {
-            assert!(matches!(rename(&snap, &f.0, a, OsStr::new(name)),
-                             Err(ActionError::InvalidName)));
+            assert!(matches!(
+                rename(&snap, &f.0, a, OsStr::new(name)),
+                Err(ActionError::InvalidName)
+            ));
         }
         let too_long = OsString::from("b".repeat(256));
-        assert!(matches!(rename(&snap, &f.0, a, &too_long),
-                         Err(ActionError::InvalidName)));
+        assert!(matches!(
+            rename(&snap, &f.0, a, &too_long),
+            Err(ActionError::InvalidName)
+        ));
         fs::remove_file(f.0.join("a")).unwrap();
         assert!(rename(&snap, &f.0, a, OsStr::new("renamed")).is_err());
         assert!(!f.0.join("renamed").exists());
@@ -598,16 +775,23 @@ mod tests {
         let mut selected = super::super::file_state::FileSelection::default();
         selected.select(&old.key, false);
         let mut positions = super::super::file_state::FilePositions::default();
-        positions.set(&old.key, "eDP-1",
-            crate::icon_positions::Coordinates { x: 100, y: 200 }).unwrap();
+        positions
+            .set(
+                &old.key,
+                "eDP-1",
+                crate::icon_positions::Coordinates { x: 100, y: 200 },
+            )
+            .unwrap();
         rename(&before, &f.0, old, OsStr::new("after")).unwrap();
         let after = refresh_after_change(&before, &f.0, &mut selected, &mut positions).unwrap();
         let key = &after.entries[0].key;
         let birth_stable = old.birth.is_some() && old.birth == after.entries[0].birth;
         assert_eq!(selected.contains(key), birth_stable);
         if birth_stable {
-            assert_eq!(positions.coordinates(key, "eDP-1"),
-                       Some(crate::icon_positions::Coordinates { x: 100, y: 200 }));
+            assert_eq!(
+                positions.coordinates(key, "eDP-1"),
+                Some(crate::icon_positions::Coordinates { x: 100, y: 200 })
+            );
         } else {
             assert!(positions.coordinates(key, "eDP-1").is_none());
         }
@@ -649,10 +833,16 @@ mod tests {
     #[test]
     fn multi_file_handoff_only_opens_the_folder_no_implicit_trash() {
         let f = Fixture::new();
-        for name in ["a", "b"] { fs::write(f.0.join(name), b"KEEP").unwrap(); }
+        for name in ["a", "b"] {
+            fs::write(f.0.join(name), b"KEEP").unwrap();
+        }
         let snap = f.snap();
         let chosen = [&snap.entries[0], &snap.entries[1]];
-        for operation in [DelegatedOperation::Move, DelegatedOperation::Copy, DelegatedOperation::Trash] {
+        for operation in [
+            DelegatedOperation::Move,
+            DelegatedOperation::Copy,
+            DelegatedOperation::Trash,
+        ] {
             let handoff = prepare_handoff(&snap, &f.0, &chosen, operation).unwrap();
             assert!(handoff.manual_action_required);
             assert_eq!(handoff.selected_names.len(), 2);
@@ -662,8 +852,13 @@ mod tests {
             assert_eq!(fs::read(f.0.join("b")).unwrap(), b"KEEP");
         }
         assert!(prepare_handoff(&snap, &f.0, &[], DelegatedOperation::Trash).is_err());
-        assert!(prepare_handoff(&snap, &f.0, &[chosen[0], chosen[0]],
-                                DelegatedOperation::Copy).is_err());
+        assert!(prepare_handoff(
+            &snap,
+            &f.0,
+            &[chosen[0], chosen[0]],
+            DelegatedOperation::Copy
+        )
+        .is_err());
         fs::remove_file(f.0.join("a")).unwrap();
         assert!(prepare_handoff(&snap, &f.0, &chosen, DelegatedOperation::Move).is_err());
     }
@@ -679,12 +874,14 @@ mod tests {
         assert!(properties(&snap, &f.0, item).is_err());
     }
 
-
     #[test]
     fn spawn_fallback_only_for_missing_ricefield_and_reap_is_caller_owned() {
         let plan = LaunchPlan {
-            preferred: command(Backend::RiceField, "/__ricebowl_nonexistent_binary__",
-                               vec![]),
+            preferred: command(
+                Backend::RiceField,
+                "/__ricebowl_nonexistent_binary__",
+                vec![],
+            ),
             fallback: Some(command(Backend::Gio, "/bin/true", vec![])),
         };
         let (backend, mut child) = plan.spawn().unwrap();
@@ -718,9 +915,17 @@ mod tests {
         symlink(&protected, f.0.join("destination")).unwrap();
         let snap = f.snap();
         let source = f.entry(&snap, "source");
-        assert!(matches!(rename(&snap, &f.0, source, OsStr::new("destination")),
-                         Err(ActionError::Conflict)));
-        assert!(f.0.join("destination").symlink_metadata().unwrap().file_type().is_symlink());
+        assert!(matches!(
+            rename(&snap, &f.0, source, OsStr::new("destination")),
+            Err(ActionError::Conflict)
+        ));
+        assert!(f
+            .0
+            .join("destination")
+            .symlink_metadata()
+            .unwrap()
+            .file_type()
+            .is_symlink());
         assert_eq!(fs::read(&protected).unwrap(), b"KEEP");
         assert_eq!(fs::read(f.0.join("source")).unwrap(), b"SOURCE");
     }
@@ -728,7 +933,9 @@ mod tests {
     #[test]
     fn unreadable_owner_file_is_not_reported_openable() {
         use std::os::unix::fs::PermissionsExt;
-        if unsafe { libc::geteuid() } == 0 { return; }
+        if unsafe { libc::geteuid() } == 0 {
+            return;
+        }
         let f = Fixture::new();
         let path = f.0.join("private");
         fs::write(&path, b"SECRET").unwrap();
@@ -737,15 +944,19 @@ mod tests {
         let item = f.entry(&snap, "private");
         let result = prepare_open(&snap, &f.0, item, OpenMode::Default);
         assert!(matches!(result, Err(ActionError::Io(_))));
-        assert!(properties(&snap, &f.0, item).is_ok(),
-                "no-follow stat should still allow viewing metadata");
+        assert!(
+            properties(&snap, &f.0, item).is_ok(),
+            "no-follow stat should still allow viewing metadata"
+        );
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
     }
 
     #[test]
     fn denied_directory_write_fails_without_touching_contents() {
         use std::os::unix::fs::PermissionsExt;
-        if unsafe { libc::geteuid() } == 0 { return; }
+        if unsafe { libc::geteuid() } == 0 {
+            return;
+        }
         let f = Fixture::new();
         fs::write(f.0.join("source"), b"data").unwrap();
         let snap = f.snap();
@@ -757,5 +968,4 @@ mod tests {
         assert_eq!(fs::read(f.0.join("source")).unwrap(), b"data");
         assert!(!f.0.join("destination").exists());
     }
-
 }

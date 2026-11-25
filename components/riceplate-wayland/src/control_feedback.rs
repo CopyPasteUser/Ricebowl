@@ -26,11 +26,17 @@ impl ControlFeedback {
         // Hardware can disappear while an operation is in flight. An old
         // pending request must not keep an unavailable control in "applying"
         // indefinitely after the backend/readback becomes unavailable.
-        if !action.available(status) || !worker_ready { Self::Unavailable }
-        else if pending == Some(action) { Self::Applying }
-        else if pending.is_some() { Self::Busy }
-        else if result == Some((action, false)) { Self::Failed }
-        else { Self::Ready }
+        if !action.available(status) || !worker_ready {
+            Self::Unavailable
+        } else if pending == Some(action) {
+            Self::Applying
+        } else if pending.is_some() {
+            Self::Busy
+        } else if result == Some((action, false)) {
+            Self::Failed
+        } else {
+            Self::Ready
+        }
     }
 
     /// Keep menu controls identical to panel/desktop action accessibility:
@@ -53,8 +59,14 @@ impl ControlFeedback {
             return (label.to_owned(), true);
         };
         let feedback = Self::snapshot(control, status, pending, result, worker_ready);
-        (format!("{label}, {}, {}", control.state_label(status),
-                 feedback.accessibility_label()), feedback.is_actionable())
+        (
+            format!(
+                "{label}, {}, {}",
+                control.state_label(status),
+                feedback.accessibility_label()
+            ),
+            feedback.is_actionable(),
+        )
     }
 
     /// Failure feedback is visible but does not permanently disable retries.
@@ -122,14 +134,13 @@ mod tests {
         assert_eq!(applying.desktop_hint(), "Applying...");
         assert_eq!(applying.panel_caption(action, &status), "Wait");
 
-        let busy = ControlFeedback::snapshot(action, &status,
-                                             Some(ControlAction::AudioDown), None, true);
+        let busy =
+            ControlFeedback::snapshot(action, &status, Some(ControlAction::AudioDown), None, true);
         assert!(!busy.is_actionable());
         assert_eq!(busy.accessibility_label(), "busy");
         assert_eq!(busy.panel_caption(action, &status), "Busy");
 
-        let failed = ControlFeedback::snapshot(action, &status,
-                                               None, Some((action, false)), true);
+        let failed = ControlFeedback::snapshot(action, &status, None, Some((action, false)), true);
         assert!(failed.is_actionable()); // retry is permitted
         assert_eq!(failed.accessibility_label(), "failed");
         assert_eq!(failed.desktop_hint(), "Action failed");
@@ -141,32 +152,68 @@ mod tests {
         let status = connected();
         let check = |action, pending, result, ready| {
             ControlFeedback::menu_accessibility(
-                action, "Bluetooth", &status, pending, result, ready, true)
+                action,
+                "Bluetooth",
+                &status,
+                pending,
+                result,
+                ready,
+                true,
+            )
         };
         let action = ControlAction::BluetoothToggle;
-        assert_eq!(check("bluetooth-toggle", None, None, true),
-                   ("Bluetooth, On, ready".into(), true));
-        assert_eq!(check("bluetooth-toggle", Some(action), None, true),
-                   ("Bluetooth, On, applying".into(), false));
-        assert_eq!(check("bluetooth-toggle", Some(ControlAction::AudioUp), None, true),
-                   ("Bluetooth, On, busy".into(), false));
-        assert_eq!(check("bluetooth-toggle", None, Some((action, false)), true),
-                   ("Bluetooth, On, failed".into(), true)); // explicit retry
-        assert_eq!(check("bluetooth-toggle", None, None, false),
-                   ("Bluetooth, On, unavailable".into(), false));
-        assert_eq!(ControlFeedback::menu_accessibility(
-                   "wifi-toggle", "Wi-Fi", &SystemStatus::default(),
-                   None, None, true, true),
-                   ("Wi-Fi, N/A, unavailable".into(), false));
-        assert_eq!(check("settings", None, None, false), ("Bluetooth".into(), true));
-        assert_eq!(check("desktop:demo.desktop", None, None, false),
-                   ("Bluetooth".into(), true));
-        assert_eq!(ControlFeedback::menu_accessibility(
-                   "logout", "Log out", &status, None, None, false, false),
-                   ("Log out, unavailable".into(), false));
-        assert_eq!(ControlFeedback::menu_accessibility(
-                   "logout", "Log out", &status, None, None, false, true),
-                   ("Log out".into(), true));
+        assert_eq!(
+            check("bluetooth-toggle", None, None, true),
+            ("Bluetooth, On, ready".into(), true)
+        );
+        assert_eq!(
+            check("bluetooth-toggle", Some(action), None, true),
+            ("Bluetooth, On, applying".into(), false)
+        );
+        assert_eq!(
+            check("bluetooth-toggle", Some(ControlAction::AudioUp), None, true),
+            ("Bluetooth, On, busy".into(), false)
+        );
+        assert_eq!(
+            check("bluetooth-toggle", None, Some((action, false)), true),
+            ("Bluetooth, On, failed".into(), true)
+        ); // explicit retry
+        assert_eq!(
+            check("bluetooth-toggle", None, None, false),
+            ("Bluetooth, On, unavailable".into(), false)
+        );
+        assert_eq!(
+            ControlFeedback::menu_accessibility(
+                "wifi-toggle",
+                "Wi-Fi",
+                &SystemStatus::default(),
+                None,
+                None,
+                true,
+                true
+            ),
+            ("Wi-Fi, N/A, unavailable".into(), false)
+        );
+        assert_eq!(
+            check("settings", None, None, false),
+            ("Bluetooth".into(), true)
+        );
+        assert_eq!(
+            check("desktop:demo.desktop", None, None, false),
+            ("Bluetooth".into(), true)
+        );
+        assert_eq!(
+            ControlFeedback::menu_accessibility(
+                "logout", "Log out", &status, None, None, false, false
+            ),
+            ("Log out, unavailable".into(), false)
+        );
+        assert_eq!(
+            ControlFeedback::menu_accessibility(
+                "logout", "Log out", &status, None, None, false, true
+            ),
+            ("Log out".into(), true)
+        );
     }
 
     #[test]
@@ -176,22 +223,40 @@ mod tests {
         let no_worker = ControlFeedback::snapshot(action, &status, None, None, false);
         assert_eq!(no_worker, ControlFeedback::Unavailable);
         assert!(!no_worker.is_actionable());
-        assert_eq!(ControlFeedback::snapshot(action, &status,
-            Some(action), None, false), ControlFeedback::Unavailable);
-        assert_eq!(ControlFeedback::snapshot(action, &SystemStatus::default(),
-            Some(action), None, true), ControlFeedback::Unavailable);
+        assert_eq!(
+            ControlFeedback::snapshot(action, &status, Some(action), None, false),
+            ControlFeedback::Unavailable
+        );
+        assert_eq!(
+            ControlFeedback::snapshot(action, &SystemStatus::default(), Some(action), None, true),
+            ControlFeedback::Unavailable
+        );
         assert_eq!(no_worker.desktop_hint(), "Unavailable");
 
         let no_hardware = ControlFeedback::snapshot(
-            action, &SystemStatus::default(), None, Some((action, false)), true);
+            action,
+            &SystemStatus::default(),
+            None,
+            Some((action, false)),
+            true,
+        );
         assert_eq!(no_hardware, ControlFeedback::Unavailable);
         assert!(!no_hardware.is_actionable());
 
         // Failure of a different control never contaminates this control.
-        assert_eq!(ControlFeedback::snapshot(action, &status, None,
-                   Some((ControlAction::WifiToggle, false)), true),
-                   ControlFeedback::Ready);
-        assert_eq!(ControlFeedback::snapshot(action, &status, None,
-                   Some((action, true)), true), ControlFeedback::Ready);
+        assert_eq!(
+            ControlFeedback::snapshot(
+                action,
+                &status,
+                None,
+                Some((ControlAction::WifiToggle, false)),
+                true
+            ),
+            ControlFeedback::Ready
+        );
+        assert_eq!(
+            ControlFeedback::snapshot(action, &status, None, Some((action, true)), true),
+            ControlFeedback::Ready
+        );
     }
 }

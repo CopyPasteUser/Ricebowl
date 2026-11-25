@@ -156,6 +156,50 @@ class InboxSignalTests(unittest.TestCase):
         self.assertEqual(bus.unsubscribed, [1])
         self.assertEqual(bus.handlers, {})
 
+    def test_broken_subscription_ids_revoke_earlier_watchers(self):
+        for invalid in (0, -1, True, None, "3"):
+            with self.subTest(invalid=invalid):
+                bus = FakeConnection()
+                real = bus.signal_subscribe
+                emitted = []
+
+                def subscribe(*args):
+                    if len(bus.handlers) == 2:
+                        return invalid  # No third lease has been installed.
+                    return real(*args)
+
+                bus.signal_subscribe = subscribe
+                with mock.patch.object(notification_watch, "_gtk_timeout_api",
+                                       return_value=None):
+                    with self.assertRaisesRegex(RuntimeError, "not established"):
+                        notification_watch.InboxSignals(gio(bus), emitted.append)
+                self.assertEqual(bus.unsubscribed, [1, 2])
+                self.assertEqual(bus.handlers, {})
+                bus.emit("org.freedesktop.Notifications",
+                         "NotificationClosed", (4, 2))
+                self.assertEqual(emitted, [])
+
+    def test_missing_refresh_timer_id_fails_closed_and_unsubscribes(self):
+        for invalid in (0, -1, True, None, "not a source id"):
+            with self.subTest(invalid=invalid):
+                bus = FakeConnection()
+                removed, emitted = [], []
+                timer = SimpleNamespace(
+                    timeout_add_seconds=lambda _seconds, _callback: invalid,
+                    source_remove=removed.append,
+                )
+                with mock.patch.object(notification_watch, "_gtk_timeout_api",
+                                       return_value=timer):
+                    with self.assertRaisesRegex(RuntimeError, "could not be scheduled"):
+                        notification_watch.InboxSignals(gio(bus), emitted.append)
+                self.assertEqual(bus.unsubscribed, [1, 2, 3, 4])
+                self.assertEqual(bus.handlers, {})
+                self.assertEqual(removed, [])
+                bus.emit("org.freedesktop.DBus",
+                         "NameOwnerChanged",
+                         ("org.freedesktop.Notifications", ":1.20", ":1.21"))
+                self.assertEqual(emitted, [])
+
     def test_unsubscribe_failure_revokes_callbacks_and_continues_cleanup(self):
         bus = FakeConnection()
         delivered = []

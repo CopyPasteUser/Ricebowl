@@ -77,8 +77,10 @@ def _run(*args: str, secret: str | None = None, wait: int = 12) -> str:
             input=secret, text=True, capture_output=True, check=False,
             timeout=wait + 5, env={**os.environ, "LC_ALL": "C"}, **stdin,
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise backend.SettingsError("NetworkManager request timed out; refresh saved profiles") from exc
+    except (OSError, subprocess.TimeoutExpired, UnicodeError) as exc:
+        raise backend.SettingsError(
+            "NetworkManager request unavailable or returned invalid text; refresh saved profiles"
+        ) from exc
     if result.returncode or len(result.stdout) > 32 * 1024:
         raise backend.SettingsError("NetworkManager rejected the profile operation; "
                                     "check permissions, credentials or server settings")
@@ -120,8 +122,20 @@ def create_enterprise_wifi(*, ssid: str, identity: str, domain: str,
         # A system CA trust bundle can override a custom CA in NetworkManager.
         # The selected certificate must be the one used to verify the server.
         args.extend(("802-1x.system-ca-certs", "no", "802-1x.ca-cert", cert))
-    _run(*args)
-    after = backend.connection_profiles()
+    try:
+        _run(*args)
+    except backend.SettingsError as exc:
+        # NetworkManager may commit the profile before its CLI reply is lost.
+        # Reissuing "con add" could create a second credential-bearing profile.
+        raise backend.SettingsError(
+            "Enterprise profile creation outcome unknown; refresh saved profiles "
+            "before retrying") from exc
+    try:
+        after = backend.connection_profiles()
+    except backend.SettingsError as exc:
+        raise backend.SettingsError(
+            "Enterprise profile may have been created; provider readback unavailable; "
+            "refresh saved profiles before retrying") from exc
     new = next((item for item in after if item["uuid"] == identifier), None)
     if (new is None or new["kind"] not in ("802-11-wireless", "wifi")
             or new["active"] or identifier in {item["uuid"] for item in before}):
@@ -134,19 +148,19 @@ def create_enterprise_wifi(*, ssid: str, identity: str, domain: str,
         if _profile_setting(identifier, "connection.autoconnect").lower() not in (
                 "no", "false", "0"):
             raise backend.SettingsError("Enterprise Wi-Fi autoconnect is not disabled")
-        enterprise_password_ready(identifier)
+        _, saved_eap, saved_inner, saved_domain, system_ca, stored_ca, _ = (
+            _enterprise_password_policy(identifier))
         if (_profile_setting(identifier, "802-11-wireless.ssid") != name
                 or _profile_setting(identifier, "802-1x.identity") != username
-                or _profile_setting(identifier, "802-1x.eap") != eap
-                or _profile_setting(identifier, "802-1x.phase2-auth") != inner
-                or _profile_setting(identifier, "802-1x.domain-suffix-match") != host):
+                or (saved_eap, saved_inner, saved_domain) != (eap, inner, host)):
             raise backend.SettingsError("Enterprise Wi-Fi identity or security settings changed")
-        if cert is not None:
-            if _profile_setting(identifier, "802-1x.system-ca-certs").lower() not in (
-                    "no", "false", "0"):
+        if cert is None:
+            if system_ca not in ("yes", "true", "1"):
+                raise backend.SettingsError("System enterprise CA trust was overridden")
+        else:
+            if system_ca not in ("no", "false", "0"):
                 raise backend.SettingsError("Custom enterprise CA trust was overridden")
-            stored = _stored_ca_path(_profile_setting(identifier, "802-1x.ca-cert"))
-            if stored != cert:
+            if stored_ca != cert:
                 raise backend.SettingsError("Custom enterprise CA certificate changed")
     except backend.SettingsError as exc:
         raise backend.SettingsError(
@@ -158,6 +172,8 @@ def create_enterprise_wifi(*, ssid: str, identity: str, domain: str,
 
 def connect_enterprise_wifi(uuid: str, password: str, *, expected_active: bool = False) -> bool:
     """Activate an EAP profile with an ephemeral stdin password, no secret persistence."""
+    if type(expected_active) is not bool:
+        raise backend.SettingsError("Expected enterprise Wi-Fi state must be explicit")
     if type(uuid) is not str or not _UUID.fullmatch(uuid):
         raise backend.SettingsError("Choose a saved enterprise Wi-Fi profile")
     if (type(password) is not str or not 1 <= len(password) <= 512
@@ -165,19 +181,49 @@ def connect_enterprise_wifi(uuid: str, password: str, *, expected_active: bool =
         raise backend.SettingsError("Enter a network password without line breaks")
     current = next((item for item in backend.connection_profiles() if item["uuid"] == uuid), None)
     if (current is None or current["kind"] not in ("802-11-wireless", "wifi")
-            or current["active"] != expected_active or expected_active):
+            or current["active"] != expected_active or expected_active
+            or type(current.get("name")) is not str or not current["name"]):
         raise backend.SettingsError("Enterprise Wi-Fi profile changed; refresh first")
-    enterprise_password_ready(uuid)
-    _run("con", "up", "uuid", uuid, "passwd-file", "/dev/stdin",
-         secret="802-1x.password:" + password + "\n", wait=45)
-    after = next((item for item in backend.connection_profiles() if item["uuid"] == uuid), None)
-    if after is None or not after["active"]:
-        raise backend.SettingsError("Wi-Fi activation may have changed; refresh to verify")
+    # Keep the reviewed SSID, account and EAP server trust bound to this
+    # exact profile. A reused UUID alone must not authorize a new provider
+    # object to receive the password during a disconnect/reconnect.
+    reviewed_policy = _enterprise_password_policy(uuid)
+    reviewed_identity = (_profile_setting(uuid, "802-11-wireless.ssid"),
+                         _profile_setting(uuid, "802-1x.identity"))
+    if not all(reviewed_identity):
+        raise backend.SettingsError("Enterprise Wi-Fi identity is unavailable; refresh first")
+    try:
+        _run("con", "up", "uuid", uuid, "passwd-file", "/dev/stdin",
+             secret="802-1x.password:" + password + "\n", wait=45)
+    except backend.SettingsError as exc:
+        # NetworkManager can apply the join before dropping its reply.
+        # Never retry a potentially completed secret-bearing operation.
+        raise backend.SettingsError(
+            "Wi-Fi activation outcome unknown; refresh before retrying") from exc
+    try:
+        after = next((item for item in backend.connection_profiles()
+                      if item["uuid"] == uuid), None)
+        if after is None:
+            raise backend.SettingsError("Enterprise Wi-Fi profile disappeared")
+        confirmed_policy = _enterprise_password_policy(uuid)
+        confirmed_identity = (_profile_setting(uuid, "802-11-wireless.ssid"),
+                              _profile_setting(uuid, "802-1x.identity"))
+    except backend.SettingsError as exc:
+        raise backend.SettingsError(
+            "Wi-Fi activation may have changed; identity readback unavailable; "
+            "refresh before retrying") from exc
+    if (not after["active"] or after["kind"] != current["kind"]
+            or after.get("name") != current["name"]
+            or confirmed_policy != reviewed_policy
+            or confirmed_identity != reviewed_identity):
+        raise backend.SettingsError(
+            "Wi-Fi activation identity or security changed; inspect NetworkManager "
+            "before retrying")
     return True
 
 
-def enterprise_password_ready(uuid: str) -> bool:
-    """Only accept trusted PEAP/TTLS profiles before requesting a secret."""
+def _enterprise_password_policy(uuid: str) -> tuple[str, ...]:
+    """Read the credential and CA policy for a specific NM profile identity."""
     if type(uuid) is not str or not _UUID.fullmatch(uuid):
         raise backend.SettingsError("Choose a saved enterprise Wi-Fi profile")
     method = _profile_setting(uuid, "802-11-wireless-security.key-mgmt")
@@ -203,9 +249,16 @@ def enterprise_password_ready(uuid: str) -> bool:
     # The native dialog promises that credentials are not stored. Do not
     # solicit a secret for existing agent-owned or saved-secret profiles:
     # those must be managed through NetworkManager's own credential editor.
-    if _profile_setting(uuid, "802-1x.password-flags") != "2":
+    flags = _profile_setting(uuid, "802-1x.password-flags")
+    if flags != "2":
         raise backend.SettingsError(
             "This profile may save passwords; use NetworkManager to manage its credentials")
+    return (method, eap, inner, domain, system_ca.lower(), cert, flags)
+
+
+def enterprise_password_ready(uuid: str) -> bool:
+    """Only accept trusted PEAP/TTLS profiles before requesting a secret."""
+    _enterprise_password_policy(uuid)
     return True
 
 
