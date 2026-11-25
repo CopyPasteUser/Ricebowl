@@ -19,7 +19,10 @@ pub(crate) struct ShowDesktop<H> {
 
 impl<H> Default for ShowDesktop<H> {
     fn default() -> Self {
-        Self { active: false, restore: Vec::new() }
+        Self {
+            active: false,
+            restore: Vec::new(),
+        }
     }
 }
 
@@ -31,7 +34,9 @@ impl<H: Clone + PartialEq> ShowDesktop<H> {
         if self.active {
             self.active = false;
             return std::mem::take(&mut self.restore)
-                .into_iter().map(ShowDesktopAction::Restore).collect();
+                .into_iter()
+                .map(ShowDesktopAction::Restore)
+                .collect();
         }
         self.active = true;
         self.restore.clear();
@@ -40,8 +45,11 @@ impl<H: Clone + PartialEq> ShowDesktop<H> {
                 self.restore.push(handle);
             }
         }
-        self.restore.iter().cloned()
-            .map(ShowDesktopAction::Minimize).collect()
+        self.restore
+            .iter()
+            .cloned()
+            .map(ShowDesktopAction::Minimize)
+            .collect()
     }
 
     pub(crate) fn closed(&mut self, handle: &H) {
@@ -54,7 +62,9 @@ impl<H: Clone + PartialEq> ShowDesktop<H> {
     }
 
     #[cfg(test)]
-    pub(crate) fn active(&self) -> bool { self.active }
+    pub(crate) fn active(&self) -> bool {
+        self.active
+    }
 }
 
 // Pending taskbar intent must not be confused with a compositor-confirmed
@@ -65,7 +75,11 @@ use std::time::{Duration, Instant};
 const TASKBAR_REQUEST_GRACE: Duration = Duration::from_millis(1200);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TaskbarAction { Minimize, Restore, Activate }
+pub(crate) enum TaskbarAction {
+    Minimize,
+    Restore,
+    Activate,
+}
 
 #[derive(Debug)]
 struct PendingTaskbarRequest<H> {
@@ -80,35 +94,58 @@ pub(crate) struct TaskbarWindowActions<H> {
 }
 
 impl<H> Default for TaskbarWindowActions<H> {
-    fn default() -> Self { Self { pending: Vec::new() } }
+    fn default() -> Self {
+        Self {
+            pending: Vec::new(),
+        }
+    }
 }
 
 impl<H: Clone + PartialEq> TaskbarWindowActions<H> {
     /// A second click reverses the outstanding request even when State/Done
     /// has not arrived yet. The caller invokes actual Wayland proxy methods.
     pub(crate) fn click(
-        &mut self, handle: &H, active_singleton: bool,
-        observed_minimized: bool, now: Instant,
+        &mut self,
+        handle: &H,
+        active_singleton: bool,
+        observed_minimized: bool,
+        now: Instant,
     ) -> TaskbarAction {
-        self.pending.retain(|request|
-            now.saturating_duration_since(request.issued_at) < TASKBAR_REQUEST_GRACE);
-        if let Some(request) = self.pending.iter_mut()
+        self.pending.retain(|request| {
+            now.saturating_duration_since(request.issued_at) < TASKBAR_REQUEST_GRACE
+        });
+        if let Some(request) = self
+            .pending
+            .iter_mut()
             .find(|request| request.handle == *handle)
         {
             request.minimized = !request.minimized;
             request.issued_at = now;
-            return if request.minimized { TaskbarAction::Minimize }
-                   else { TaskbarAction::Restore };
+            return if request.minimized {
+                TaskbarAction::Minimize
+            } else {
+                TaskbarAction::Restore
+            };
         }
-        let requested = if observed_minimized { Some(false) }
-            else if active_singleton { Some(true) }
-            else { None };
+        let requested = if observed_minimized {
+            Some(false)
+        } else if active_singleton {
+            Some(true)
+        } else {
+            None
+        };
         match requested {
             Some(minimized) => {
                 self.pending.push(PendingTaskbarRequest {
-                    handle: handle.clone(), minimized, issued_at: now,
+                    handle: handle.clone(),
+                    minimized,
+                    issued_at: now,
                 });
-                if minimized { TaskbarAction::Minimize } else { TaskbarAction::Restore }
+                if minimized {
+                    TaskbarAction::Minimize
+                } else {
+                    TaskbarAction::Restore
+                }
             }
             None => TaskbarAction::Activate,
         }
@@ -116,15 +153,17 @@ impl<H: Clone + PartialEq> TaskbarWindowActions<H> {
 
     /// Use the final State at Done, never an intermediate State notification.
     pub(crate) fn confirmed(&mut self, handle: &H, minimized: bool) {
-        self.pending.retain(|request|
-            request.handle != *handle || request.minimized != minimized);
+        self.pending
+            .retain(|request| request.handle != *handle || request.minimized != minimized);
     }
 
     pub(crate) fn closed(&mut self, handle: &H) {
         self.pending.retain(|request| request.handle != *handle);
     }
 
-    pub(crate) fn reset(&mut self) { self.pending.clear(); }
+    pub(crate) fn reset(&mut self) {
+        self.pending.clear();
+    }
 }
 
 #[cfg(test)]
@@ -198,7 +237,10 @@ mod taskbar_window_tests {
         let now = Instant::now();
         let mut actions = TaskbarWindowActions::<u32>::default();
         assert_eq!(actions.click(&9, true, false, now), Minimize);
-        assert_eq!(actions.click(&9, true, false, now + TASKBAR_REQUEST_GRACE), Minimize);
+        assert_eq!(
+            actions.click(&9, true, false, now + TASKBAR_REQUEST_GRACE),
+            Minimize
+        );
     }
 }
 
@@ -209,12 +251,20 @@ mod tests {
     #[test]
     fn restores_only_windows_minimized_by_this_transaction() {
         let mut desktop = ShowDesktop::<u32>::default();
-        assert_eq!(desktop.toggle([(1, true, false), (2, true, true),
-            (3, false, false), (4, true, false)]),
-            [Action::Minimize(1), Action::Minimize(4)]);
+        assert_eq!(
+            desktop.toggle([
+                (1, true, false),
+                (2, true, true),
+                (3, false, false),
+                (4, true, false)
+            ]),
+            [Action::Minimize(1), Action::Minimize(4)]
+        );
         // A rapid double-toggle occurs before any compositor State event.
-        assert_eq!(desktop.toggle([(1, true, false), (2, true, true)]),
-            [Action::Restore(1), Action::Restore(4)]);
+        assert_eq!(
+            desktop.toggle([(1, true, false), (2, true, true)]),
+            [Action::Restore(1), Action::Restore(4)]
+        );
         assert!(!desktop.active());
     }
 
@@ -224,20 +274,25 @@ mod tests {
         assert!(desktop.toggle([(1, true, true)]).is_empty());
         assert!(desktop.active());
         // Window 2 opened after Show Desktop: do not minimize/restore it.
-        assert!(desktop.toggle([(1, true, true), (2, true, false)]).is_empty());
+        assert!(desktop
+            .toggle([(1, true, true), (2, true, false)])
+            .is_empty());
         assert!(!desktop.active());
-        assert_eq!(desktop.toggle([(2, true, false)]),
-            [Action::Minimize(2)]);
+        assert_eq!(desktop.toggle([(2, true, false)]), [Action::Minimize(2)]);
     }
 
     #[test]
     fn closed_windows_are_excluded_even_if_a_new_proxy_arrives() {
         let mut desktop = ShowDesktop::<u64>::default();
-        assert_eq!(desktop.toggle([(101, true, false), (102, true, false)]),
-            [Action::Minimize(101), Action::Minimize(102)]);
+        assert_eq!(
+            desktop.toggle([(101, true, false), (102, true, false)]),
+            [Action::Minimize(101), Action::Minimize(102)]
+        );
         desktop.closed(&101);
-        assert_eq!(desktop.toggle([(102, true, true), (103, true, false)]),
-            [Action::Restore(102)]);
+        assert_eq!(
+            desktop.toggle([(102, true, true), (103, true, false)]),
+            [Action::Restore(102)]
+        );
     }
 
     #[test]
@@ -271,8 +326,10 @@ mod tests {
     #[test]
     fn duplicate_handles_never_generate_duplicate_minimize_requests() {
         let mut desktop = ShowDesktop::<u8>::default();
-        assert_eq!(desktop.toggle([(1, true, false), (1, true, false)]),
-            [Action::Minimize(1)]);
+        assert_eq!(
+            desktop.toggle([(1, true, false), (1, true, false)]),
+            [Action::Minimize(1)]
+        );
         assert_eq!(desktop.toggle([]), [Action::Restore(1)]);
     }
 }

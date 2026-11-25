@@ -24,8 +24,8 @@ use smithay_client_toolkit::{
     },
     shell::{
         wlr_layer::{
-            Anchor, KeyboardInteractivity, Layer, LayerShell, LayerShellHandler,
-            LayerSurface, LayerSurfaceConfigure,
+            Anchor, KeyboardInteractivity, Layer, LayerShell, LayerShellHandler, LayerSurface,
+            LayerSurfaceConfigure,
         },
         WaylandSurface,
     },
@@ -65,7 +65,11 @@ fn main() {
     let shell = LayerShell::bind(&globals, &qh).expect("wlr-layer-shell");
     let shm = Shm::bind(&globals, &qh).expect("wl_shm");
     let layer = shell.create_layer_surface(
-        &qh, compositor.create_surface(&qh), layer_kind, Some("riceplate-focus-probe"), None,
+        &qh,
+        compositor.create_surface(&qh),
+        layer_kind,
+        Some("riceplate-focus-probe"),
+        None,
     );
     layer.set_anchor(Anchor::TOP | Anchor::LEFT);
     layer.set_size(WIDTH as u32, HEIGHT as u32);
@@ -91,9 +95,13 @@ fn main() {
         presses: 0,
         exit: false,
     };
-    log(&format!("event=started layer={mode} interactivity=ondemand"));
+    log(&format!(
+        "event=started layer={mode} interactivity=ondemand"
+    ));
     while !state.exit {
-        queue.blocking_dispatch(&mut state).expect("Wayland event dispatch");
+        queue
+            .blocking_dispatch(&mut state)
+            .expect("Wayland event dispatch");
     }
     log("event=stopped");
 }
@@ -117,62 +125,90 @@ struct Probe {
 
 impl Probe {
     fn paint(&mut self) {
-        if !self.configured { return; }
-        let (buffer, canvas) = self.pool.create_buffer(
-            WIDTH, HEIGHT, STRIDE, wl_shm::Format::Argb8888,
-        ).expect("focus probe buffer");
+        if !self.configured {
+            return;
+        }
+        let (buffer, canvas) = self
+            .pool
+            .create_buffer(WIDTH, HEIGHT, STRIDE, wl_shm::Format::Argb8888)
+            .expect("focus probe buffer");
         // Little-endian ARGB8888: visible, nontransparent colors.
-        let base = if self.focused { 0xff22_aa55_u32 }
-                   else if self.clicked { 0xffee_a122_u32 }
-                   else { 0xff33_6699_u32 };
+        let base = if self.focused {
+            0xff22_aa55_u32
+        } else if self.clicked {
+            0xffee_a122_u32
+        } else {
+            0xff33_6699_u32
+        };
         for (i, pixel) in canvas.chunks_exact_mut(4).enumerate() {
             let x = (i % WIDTH as usize) as i32;
             let y = (i / WIDTH as usize) as i32;
             let color = if x < 3 || y < 3 || x >= WIDTH - 3 || y >= HEIGHT - 3 {
                 0xffee_eeee_u32
-            } else { base };
+            } else {
+                base
+            };
             pixel.copy_from_slice(&color.to_le_bytes());
         }
         self.layer.wl_surface().damage_buffer(0, 0, WIDTH, HEIGHT);
-        buffer.attach_to(self.layer.wl_surface()).expect("attach probe buffer");
+        buffer
+            .attach_to(self.layer.wl_surface())
+            .expect("attach probe buffer");
         self.layer.commit();
     }
 }
 
 impl CompositorHandler for Probe {
     fn scale_factor_changed(
-        &mut self, _: &Connection, _: &QueueHandle<Self>,
-        _: &wl_surface::WlSurface, _: i32,
-    ) {}
-    fn transform_changed(
-        &mut self, _: &Connection, _: &QueueHandle<Self>,
-        _: &wl_surface::WlSurface, _: wl_output::Transform,
-    ) {}
-    fn frame(
-        &mut self, _: &Connection, _: &QueueHandle<Self>,
-        _: &wl_surface::WlSurface, _: u32,
-    ) {}
-    fn surface_enter(
-        &mut self, _: &Connection, _: &QueueHandle<Self>,
-        surface: &wl_surface::WlSurface, _: &wl_output::WlOutput,
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_surface::WlSurface,
+        _: i32,
     ) {
-        if self.layer.wl_surface() == surface { log("event=output_enter"); }
+    }
+    fn transform_changed(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_surface::WlSurface,
+        _: wl_output::Transform,
+    ) {
+    }
+    fn frame(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: u32) {}
+    fn surface_enter(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        surface: &wl_surface::WlSurface,
+        _: &wl_output::WlOutput,
+    ) {
+        if self.layer.wl_surface() == surface {
+            log("event=output_enter");
+        }
     }
     fn surface_leave(
-        &mut self, _: &Connection, _: &QueueHandle<Self>,
-        surface: &wl_surface::WlSurface, _: &wl_output::WlOutput,
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        surface: &wl_surface::WlSurface,
+        _: &wl_output::WlOutput,
     ) {
-        if self.layer.wl_surface() == surface { log("event=output_leave"); }
+        if self.layer.wl_surface() == surface {
+            log("event=output_leave");
+        }
     }
 }
 
 impl OutputHandler for Probe {
-    fn output_state(&mut self) -> &mut OutputState { &mut self.outputs }
+    fn output_state(&mut self) -> &mut OutputState {
+        &mut self.outputs
+    }
     fn new_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {}
     fn update_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {}
-    fn output_destroyed(
-        &mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput,
-    ) { log("event=output_removed"); }
+    fn output_destroyed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {
+        log("event=output_removed");
+    }
 }
 
 impl LayerShellHandler for Probe {
@@ -182,8 +218,12 @@ impl LayerShellHandler for Probe {
         self.exit = true;
     }
     fn configure(
-        &mut self, _: &Connection, _: &QueueHandle<Self>,
-        _: &LayerSurface, _: LayerSurfaceConfigure, _: u32,
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &LayerSurface,
+        _: LayerSurfaceConfigure,
+        _: u32,
     ) {
         if !self.configured {
             self.configured = true;
@@ -194,16 +234,25 @@ impl LayerShellHandler for Probe {
 }
 
 impl SeatHandler for Probe {
-    fn seat_state(&mut self) -> &mut SeatState { &mut self.seats }
+    fn seat_state(&mut self) -> &mut SeatState {
+        &mut self.seats
+    }
     fn new_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, seat: wl_seat::WlSeat) {
-        if self.owner.is_none() { self.owner = Some(seat); }
+        if self.owner.is_none() {
+            self.owner = Some(seat);
+        }
         log("event=seat_announced");
     }
     fn new_capability(
-        &mut self, _: &Connection, qh: &QueueHandle<Self>,
-        seat: wl_seat::WlSeat, capability: Capability,
+        &mut self,
+        _: &Connection,
+        qh: &QueueHandle<Self>,
+        seat: wl_seat::WlSeat,
+        capability: Capability,
     ) {
-        if self.owner.as_ref() != Some(&seat) { return; }
+        if self.owner.as_ref() != Some(&seat) {
+            return;
+        }
         if capability == Capability::Keyboard && self.keyboard.is_none() {
             if let Ok(keyboard) = self.seats.get_keyboard(qh, &seat, None) {
                 self.keyboard = Some(keyboard);
@@ -218,25 +267,38 @@ impl SeatHandler for Probe {
         }
     }
     fn remove_capability(
-        &mut self, _: &Connection, _: &QueueHandle<Self>,
-        seat: wl_seat::WlSeat, capability: Capability,
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        seat: wl_seat::WlSeat,
+        capability: Capability,
     ) {
-        if self.owner.as_ref() != Some(&seat) { return; }
+        if self.owner.as_ref() != Some(&seat) {
+            return;
+        }
         if capability == Capability::Keyboard {
-            if let Some(keyboard) = self.keyboard.take() { keyboard.release(); }
+            if let Some(keyboard) = self.keyboard.take() {
+                keyboard.release();
+            }
             self.focused = false;
             self.paint();
             log("event=keyboard_removed");
         }
         if capability == Capability::Pointer {
-            if let Some(pointer) = self.pointer.take() { pointer.release(); }
+            if let Some(pointer) = self.pointer.take() {
+                pointer.release();
+            }
             log("event=pointer_removed");
         }
     }
     fn remove_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, seat: wl_seat::WlSeat) {
         if self.owner.as_ref() == Some(&seat) {
-            if let Some(keyboard) = self.keyboard.take() { keyboard.release(); }
-            if let Some(pointer) = self.pointer.take() { pointer.release(); }
+            if let Some(keyboard) = self.keyboard.take() {
+                keyboard.release();
+            }
+            if let Some(pointer) = self.pointer.take() {
+                pointer.release();
+            }
             self.owner = None;
             self.focused = false;
             self.paint();
@@ -247,9 +309,14 @@ impl SeatHandler for Probe {
 
 impl KeyboardHandler for Probe {
     fn enter(
-        &mut self, _: &Connection, _: &QueueHandle<Self>,
-        keyboard: &wl_keyboard::WlKeyboard, surface: &wl_surface::WlSurface,
-        _: u32, _: &[u32], _: &[Keysym],
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        keyboard: &wl_keyboard::WlKeyboard,
+        surface: &wl_surface::WlSurface,
+        _: u32,
+        _: &[u32],
+        _: &[Keysym],
     ) {
         if self.keyboard.as_ref() == Some(keyboard) && self.layer.wl_surface() == surface {
             self.focused = true;
@@ -258,8 +325,12 @@ impl KeyboardHandler for Probe {
         }
     }
     fn leave(
-        &mut self, _: &Connection, _: &QueueHandle<Self>,
-        keyboard: &wl_keyboard::WlKeyboard, surface: &wl_surface::WlSurface, _: u32,
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        keyboard: &wl_keyboard::WlKeyboard,
+        surface: &wl_surface::WlSurface,
+        _: u32,
     ) {
         if self.keyboard.as_ref() == Some(keyboard) && self.layer.wl_surface() == surface {
             self.focused = false;
@@ -268,8 +339,12 @@ impl KeyboardHandler for Probe {
         }
     }
     fn press_key(
-        &mut self, _: &Connection, _: &QueueHandle<Self>,
-        keyboard: &wl_keyboard::WlKeyboard, _: u32, _: KeyEvent,
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        keyboard: &wl_keyboard::WlKeyboard,
+        _: u32,
+        _: KeyEvent,
     ) {
         if self.keyboard.as_ref() == Some(keyboard) && self.focused {
             self.presses = self.presses.saturating_add(1);
@@ -277,27 +352,51 @@ impl KeyboardHandler for Probe {
         }
     }
     fn repeat_key(
-        &mut self, _: &Connection, _: &QueueHandle<Self>,
-        _: &wl_keyboard::WlKeyboard, _: u32, _: KeyEvent,
-    ) {}
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: u32,
+        _: KeyEvent,
+    ) {
+    }
     fn release_key(
-        &mut self, _: &Connection, _: &QueueHandle<Self>,
-        _: &wl_keyboard::WlKeyboard, _: u32, _: KeyEvent,
-    ) {}
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: u32,
+        _: KeyEvent,
+    ) {
+    }
     fn update_modifiers(
-        &mut self, _: &Connection, _: &QueueHandle<Self>,
-        _: &wl_keyboard::WlKeyboard, _: u32, _: Modifiers, _: RawModifiers, _: u32,
-    ) {}
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: u32,
+        _: Modifiers,
+        _: RawModifiers,
+        _: u32,
+    ) {
+    }
 }
 
 impl PointerHandler for Probe {
     fn pointer_frame(
-        &mut self, _: &Connection, _: &QueueHandle<Self>,
-        pointer: &wl_pointer::WlPointer, events: &[PointerEvent],
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        pointer: &wl_pointer::WlPointer,
+        events: &[PointerEvent],
     ) {
-        if self.pointer.as_ref() != Some(pointer) { return; }
+        if self.pointer.as_ref() != Some(pointer) {
+            return;
+        }
         for event in events {
-            if &event.surface != self.layer.wl_surface() { continue; }
+            if &event.surface != self.layer.wl_surface() {
+                continue;
+            }
             match event.kind {
                 PointerEventKind::Enter { .. } => log("event=pointer_enter"),
                 PointerEventKind::Press { button, .. } if button == BTN_LEFT => {
@@ -313,12 +412,16 @@ impl PointerHandler for Probe {
 }
 
 impl ShmHandler for Probe {
-    fn shm_state(&mut self) -> &mut Shm { &mut self.shm }
+    fn shm_state(&mut self) -> &mut Shm {
+        &mut self.shm
+    }
 }
 
 delegate_registry!(Probe);
 impl ProvidesRegistryState for Probe {
-    fn registry(&mut self) -> &mut RegistryState { &mut self.registry }
+    fn registry(&mut self) -> &mut RegistryState {
+        &mut self.registry
+    }
     registry_handlers![OutputState, SeatState];
 }
 smithay_client_toolkit::delegate_dispatch2!(Probe);

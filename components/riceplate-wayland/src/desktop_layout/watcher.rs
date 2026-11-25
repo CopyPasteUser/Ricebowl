@@ -5,10 +5,11 @@
 
 use std::{
     ffi::CString,
-    fs,
-    io,
-    mem,
-    os::{fd::{AsRawFd, FromRawFd, OwnedFd}, unix::{ffi::OsStrExt, fs::MetadataExt}},
+    fs, io, mem,
+    os::{
+        fd::{AsRawFd, FromRawFd, OwnedFd},
+        unix::{ffi::OsStrExt, fs::MetadataExt},
+    },
     path::Path,
     time::{Duration, Instant},
 };
@@ -18,13 +19,20 @@ use super::inventory::open_owned_directory;
 pub const COALESCE: Duration = Duration::from_millis(125);
 const BATCH_BYTES: usize = 16 * 1024;
 const MAX_READS_PER_WAKE: usize = 32;
-const ACTIVITY: u32 = libc::IN_CREATE | libc::IN_DELETE | libc::IN_MOVED_FROM
-    | libc::IN_MOVED_TO | libc::IN_CLOSE_WRITE | libc::IN_ATTRIB;
-const INVALIDATION: u32 = libc::IN_MOVE_SELF | libc::IN_DELETE_SELF
-    | libc::IN_UNMOUNT | libc::IN_IGNORED;
+const ACTIVITY: u32 = libc::IN_CREATE
+    | libc::IN_DELETE
+    | libc::IN_MOVED_FROM
+    | libc::IN_MOVED_TO
+    | libc::IN_CLOSE_WRITE
+    | libc::IN_ATTRIB;
+const INVALIDATION: u32 =
+    libc::IN_MOVE_SELF | libc::IN_DELETE_SELF | libc::IN_UNMOUNT | libc::IN_IGNORED;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Refresh { Rescan, RebuildWatch }
+pub enum Refresh {
+    Rescan,
+    RebuildWatch,
+}
 
 #[derive(Debug, Default)]
 struct State {
@@ -53,10 +61,15 @@ impl State {
     }
 
     fn due(&mut self, now: Instant) -> Option<Refresh> {
-        if !self.pending.is_some_and(|deadline| deadline <= now) { return None; }
+        if !self.pending.is_some_and(|deadline| deadline <= now) {
+            return None;
+        }
         self.pending = None;
-        if self.invalidated { Some(Refresh::RebuildWatch) }
-        else { Some(Refresh::Rescan) }
+        if self.invalidated {
+            Some(Refresh::RebuildWatch)
+        } else {
+            Some(Refresh::Rescan)
+        }
     }
 }
 
@@ -76,37 +89,61 @@ impl Watcher {
         let c_path = CString::new(directory.as_os_str().as_bytes())
             .map_err(|_| io::ErrorKind::InvalidInput)?;
         let raw = unsafe { libc::inotify_init1(libc::IN_NONBLOCK | libc::IN_CLOEXEC) };
-        if raw < 0 { return Err(io::Error::last_os_error()); }
-        let fd = unsafe { OwnedFd::from_raw_fd(raw) };
-        let mask = ACTIVITY | INVALIDATION | libc::IN_Q_OVERFLOW
-            | libc::IN_ONLYDIR | libc::IN_DONT_FOLLOW;
-        let wd = unsafe { libc::inotify_add_watch(fd.as_raw_fd(), c_path.as_ptr(), mask) };
-        if wd < 0 { return Err(io::Error::last_os_error()); }
-        let current = fs::symlink_metadata(directory)?;
-        if !current.is_dir() || current.dev() != original.dev()
-            || current.ino() != original.ino() {
-            return Err(io::Error::new(io::ErrorKind::WouldBlock, "Desktop changed while installing watch"));
+        if raw < 0 {
+            return Err(io::Error::last_os_error());
         }
-        Ok(Self { fd, watch: wd, state: State::default() })
+        let fd = unsafe { OwnedFd::from_raw_fd(raw) };
+        let mask =
+            ACTIVITY | INVALIDATION | libc::IN_Q_OVERFLOW | libc::IN_ONLYDIR | libc::IN_DONT_FOLLOW;
+        let wd = unsafe { libc::inotify_add_watch(fd.as_raw_fd(), c_path.as_ptr(), mask) };
+        if wd < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let current = fs::symlink_metadata(directory)?;
+        if !current.is_dir() || current.dev() != original.dev() || current.ino() != original.ino() {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "Desktop changed while installing watch",
+            ));
+        }
+        Ok(Self {
+            fd,
+            watch: wd,
+            state: State::default(),
+        })
     }
 
     /// fd ownership remains with Watcher. Do not transfer it to an event loop.
-    pub fn fd(&self) -> i32 { self.fd.as_raw_fd() }
+    pub fn fd(&self) -> i32 {
+        self.fd.as_raw_fd()
+    }
 
-    pub fn watch_descriptor(&self) -> i32 { self.watch }
+    pub fn watch_descriptor(&self) -> i32 {
+        self.watch
+    }
 
-    pub fn next_deadline(&self) -> Option<Instant> { self.state.pending }
+    pub fn next_deadline(&self) -> Option<Instant> {
+        self.state.pending
+    }
 
-    pub fn invalidated(&self) -> bool { self.state.invalidated }
+    pub fn invalidated(&self) -> bool {
+        self.state.invalidated
+    }
 
     /// Clears the overflow diagnostic, not the requested full rescan.
-    pub fn take_overflow(&mut self) -> bool { mem::take(&mut self.state.overflow) }
+    pub fn take_overflow(&mut self) -> bool {
+        mem::take(&mut self.state.overflow)
+    }
 
     /// Explicit Refresh is available when inotify is unavailable or the
     /// directory appears later. A caller can request a full inventory rebuild.
-    pub fn request_refresh(&mut self, now: Instant) { self.state.schedule(now, true); }
+    pub fn request_refresh(&mut self, now: Instant) {
+        self.state.schedule(now, true);
+    }
 
-    pub fn take_due(&mut self, now: Instant) -> Option<Refresh> { self.state.due(now) }
+    pub fn take_due(&mut self, now: Instant) -> Option<Refresh> {
+        self.state.due(now)
+    }
 
     /// Atomically replace the fd/watch only if installing the new one works.
     /// If the XDG root disappeared, retain the invalidated state for explicit
@@ -119,11 +156,18 @@ impl Watcher {
     pub fn read_ready(&mut self, now: Instant) -> io::Result<()> {
         let mut buffer = [0_u8; BATCH_BYTES];
         for _ in 0..MAX_READS_PER_WAKE {
-            let count = unsafe { libc::read(self.fd.as_raw_fd(),
-                buffer.as_mut_ptr().cast(), buffer.len()) };
+            let count = unsafe {
+                libc::read(
+                    self.fd.as_raw_fd(),
+                    buffer.as_mut_ptr().cast(),
+                    buffer.len(),
+                )
+            };
             if count < 0 {
                 let error = io::Error::last_os_error();
-                if error.kind() == io::ErrorKind::WouldBlock { return Ok(()); }
+                if error.kind() == io::ErrorKind::WouldBlock {
+                    return Ok(());
+                }
                 self.state.invalidated = true;
                 self.state.schedule(now, true);
                 return Err(error);
@@ -139,18 +183,24 @@ impl Watcher {
                 if size - offset < mem::size_of::<libc::inotify_event>() {
                     self.state.invalidated = true;
                     self.state.schedule(now, true);
-                    return Err(io::Error::new(io::ErrorKind::InvalidData, "Truncated inotify event"));
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "Truncated inotify event",
+                    ));
                 }
                 // Buffer is byte-aligned. read_unaligned avoids undefined behavior.
-                let event: libc::inotify_event = unsafe {
-                    std::ptr::read_unaligned(buffer[offset..].as_ptr().cast())
-                };
+                let event: libc::inotify_event =
+                    unsafe { std::ptr::read_unaligned(buffer[offset..].as_ptr().cast()) };
                 let len = mem::size_of::<libc::inotify_event>()
-                    .checked_add(event.len as usize).ok_or(io::ErrorKind::InvalidData)?;
+                    .checked_add(event.len as usize)
+                    .ok_or(io::ErrorKind::InvalidData)?;
                 if len > size - offset {
                     self.state.invalidated = true;
                     self.state.schedule(now, true);
-                    return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid inotify event length"));
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "Invalid inotify event length",
+                    ));
                 }
                 if event.wd == self.watch || event.mask & libc::IN_Q_OVERFLOW != 0 {
                     self.state.observe(event.mask, now);
@@ -175,17 +225,28 @@ impl Drop for Watcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{env, fs, path::PathBuf, time::{SystemTime, UNIX_EPOCH}};
+    use std::{
+        env, fs,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
     struct Fixture(PathBuf);
     impl Fixture {
         fn new() -> Self {
-            let n = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+            let n = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
             let path = env::temp_dir().join(format!("ricebowl-inotify-{}-{n}", std::process::id()));
             fs::create_dir(&path).unwrap();
             Self(path)
         }
     }
-    impl Drop for Fixture { fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); } }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
 
     #[test]
     fn event_bursts_are_coalesced_without_extending_deadline() {
@@ -232,9 +293,8 @@ mod tests {
         let len = unsafe { libc::read(fd, notice.as_mut_ptr().cast(), notice.len()) };
         let _ = unsafe { libc::close(fd) };
         assert!(len >= mem::size_of::<libc::inotify_event>() as isize);
-        let event: libc::inotify_event = unsafe {
-            std::ptr::read_unaligned(notice.as_ptr().cast())
-        };
+        let event: libc::inotify_event =
+            unsafe { std::ptr::read_unaligned(notice.as_ptr().cast()) };
         assert_ne!(event.mask & libc::IN_IGNORED, 0);
     }
 

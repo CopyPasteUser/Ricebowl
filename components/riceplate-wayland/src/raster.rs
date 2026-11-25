@@ -6,20 +6,32 @@
 
 fn visible_rows(canvas: &[u8], width: u32, height: u32) -> Option<(usize, u32)> {
     let stride = (width as usize).checked_mul(4)?;
-    if stride == 0 { return None; }
+    if stride == 0 {
+        return None;
+    }
     let rows = (canvas.len() / stride).min(height as usize);
     Some((stride, rows as u32))
 }
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn fill_rect(
-    canvas: &mut [u8], width: u32, height: u32,
-    x: u32, y: u32, w: u32, h: u32, color: u32,
+    canvas: &mut [u8],
+    width: u32,
+    height: u32,
+    x: u32,
+    y: u32,
+    w: u32,
+    h: u32,
+    color: u32,
 ) {
-    let Some((stride, rows)) = visible_rows(canvas, width, height) else { return; };
+    let Some((stride, rows)) = visible_rows(canvas, width, height) else {
+        return;
+    };
     let right = x.saturating_add(w).min(width);
     let bottom = y.saturating_add(h).min(rows);
-    if x >= right || y >= bottom { return; }
+    if x >= right || y >= bottom {
+        return;
+    }
 
     let rgba = color.to_le_bytes();
     for row in y as usize..bottom as usize {
@@ -33,18 +45,29 @@ pub(crate) fn fill_rect(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn fill_rounded_rect(
-    canvas: &mut [u8], width: u32, height: u32,
-    x: u32, y: u32, w: u32, h: u32, radius: u32, color: u32,
+    canvas: &mut [u8],
+    width: u32,
+    height: u32,
+    x: u32,
+    y: u32,
+    w: u32,
+    h: u32,
+    radius: u32,
+    color: u32,
 ) {
     let r = radius.min(w / 2).min(h / 2);
     if r == 0 {
         fill_rect(canvas, width, height, x, y, w, h, color);
         return;
     }
-    let Some((stride, rows)) = visible_rows(canvas, width, height) else { return; };
+    let Some((stride, rows)) = visible_rows(canvas, width, height) else {
+        return;
+    };
     let max_x = w.min(width.saturating_sub(x));
     let max_y = h.min(rows.saturating_sub(y));
-    if max_x == 0 || max_y == 0 { return; }
+    if max_x == 0 || max_y == 0 {
+        return;
+    }
 
     // Preserve the original integer-circle mask; changing antialiasing here
     // would alter every recipe's screenshot and keyboard focus outlines.
@@ -53,8 +76,16 @@ pub(crate) fn fill_rounded_rect(
     for py in 0..max_y {
         let base = (y + py) as usize * stride + x as usize * 4;
         for px in 0..max_x {
-            let dx = if px < r { r - 1 - px } else { px.saturating_sub(w - r) };
-            let dy = if py < r { r - 1 - py } else { py.saturating_sub(h - r) };
+            let dx = if px < r {
+                r - 1 - px
+            } else {
+                px.saturating_sub(w - r)
+            };
+            let dy = if py < r {
+                r - 1 - py
+            } else {
+                py.saturating_sub(h - r)
+            };
             if i64::from(dx).pow(2) + i64::from(dy).pow(2) <= corner {
                 let index = base + px as usize * 4;
                 canvas[index..index + 4].copy_from_slice(&rgba);
@@ -69,7 +100,8 @@ mod tests {
 
     fn pixel(frame: &[u8], width: usize, x: usize, y: usize) -> [u8; 4] {
         frame[(y * width + x) * 4..(y * width + x + 1) * 4]
-            .try_into().unwrap()
+            .try_into()
+            .unwrap()
     }
 
     #[test]
@@ -110,7 +142,10 @@ mod tests {
     fn partial_last_row_remains_untouched() {
         let mut frame = vec![0_u8; 2 * 4 + 3];
         fill_rect(&mut frame, 2, 2, 0, 0, 2, 2, 0xffaa_bbcc);
-        assert_eq!(&frame[..8], &[0xcc, 0xbb, 0xaa, 0xff, 0xcc, 0xbb, 0xaa, 0xff]);
+        assert_eq!(
+            &frame[..8],
+            &[0xcc, 0xbb, 0xaa, 0xff, 0xcc, 0xbb, 0xaa, 0xff]
+        );
         assert_eq!(&frame[8..], &[0, 0, 0]);
     }
 }

@@ -4,19 +4,35 @@
 //! Optional native fonts are supplied by validated recipes; no global font
 //! changes or text worker are needed.
 
-use font8x8::{UnicodeFonts, BASIC_FONTS, LATIN_FONTS, GREEK_FONTS, HIRAGANA_FONTS, MISC_FONTS};
-use unicode_segmentation::UnicodeSegmentation;
 use crate::{raster::fill_rect, recipe::PanelStyle};
+use font8x8::{UnicodeFonts, BASIC_FONTS, GREEK_FONTS, HIRAGANA_FONTS, LATIN_FONTS, MISC_FONTS};
+use unicode_segmentation::UnicodeSegmentation;
 
-pub(crate) fn draw_text(canvas: &mut [u8], width: u32, height: u32, x: u32, y: u32, text: &str, color: u32) {
+pub(crate) fn draw_text(
+    canvas: &mut [u8],
+    width: u32,
+    height: u32,
+    x: u32,
+    y: u32,
+    text: &str,
+    color: u32,
+) {
     draw_bitmap_text(canvas, width, height, x, y, text, color, 1, false);
 }
 
 /// Small auxiliary surfaces historically use fixed 8-pixel bitmap text. Keep
 /// that default byte-for-byte for all existing rices while honoring an
 /// explicitly imported native face on the calendar and OSD.
-pub(crate) fn draw_auxiliary_text(canvas: &mut [u8], width: u32, height: u32, x: u32, y: u32,
-                       text: &str, color: u32, style: &PanelStyle) {
+pub(crate) fn draw_auxiliary_text(
+    canvas: &mut [u8],
+    width: u32,
+    height: u32,
+    x: u32,
+    y: u32,
+    text: &str,
+    color: u32,
+    style: &PanelStyle,
+) {
     if let Some(font) = style.native_art.as_ref().and_then(|art| art.font.as_ref()) {
         font.draw(canvas, width, height, x, y, text, color, style.font_bold);
     } else {
@@ -29,10 +45,10 @@ pub(crate) fn text_pixel_width(text: &str, scale: u32) -> u32 {
     // combining sequence or ZWJ emoji must never consume several painted
     // replacement cells while the visual hit region assumes one character.
     // This is fallback cell layout, not OpenType shaping or BiDi support.
-    u32::try_from(text.graphemes(true).count()).unwrap_or(u32::MAX)
+    u32::try_from(text.graphemes(true).count())
+        .unwrap_or(u32::MAX)
         .saturating_mul(8_u32.saturating_mul(scale))
 }
-
 
 /// Use measured glyph advances for native Luna rather than assumed 8px cells.
 /// Other rices deliberately retain their historical bitmap layout.
@@ -84,18 +100,44 @@ pub(crate) fn fit_rice_text(label: &str, available: u32, style: &PanelStyle) -> 
     clipped
 }
 
-pub(crate) fn draw_rice_text(canvas: &mut [u8], width: u32, height: u32, x: u32, y: u32,
-                  text: &str, color: u32, style: &PanelStyle) {
+pub(crate) fn draw_rice_text(
+    canvas: &mut [u8],
+    width: u32,
+    height: u32,
+    x: u32,
+    y: u32,
+    text: &str,
+    color: u32,
+    style: &PanelStyle,
+) {
     if let Some(font) = style.native_art.as_ref().and_then(|art| art.font.as_ref()) {
         font.draw(canvas, width, height, x, y, text, color, style.font_bold);
         return;
     }
-    draw_bitmap_text(canvas, width, height, x, y, text, color,
-                     style.font_scale, style.font_bold);
+    draw_bitmap_text(
+        canvas,
+        width,
+        height,
+        x,
+        y,
+        text,
+        color,
+        style.font_scale,
+        style.font_bold,
+    );
 }
 
-pub(crate) fn draw_bitmap_text(canvas: &mut [u8], width: u32, height: u32, x: u32, y: u32,
-                    text: &str, color: u32, scale: u32, bold: bool) {
+pub(crate) fn draw_bitmap_text(
+    canvas: &mut [u8],
+    width: u32,
+    height: u32,
+    x: u32,
+    y: u32,
+    text: &str,
+    color: u32,
+    scale: u32,
+    bold: bool,
+) {
     let visual = crate::bidi_layout::visual_order(text);
     for (offset, cluster) in visual.graphemes(true).enumerate() {
         // The 8x8 table has no combining/ligature shaping. Never paint one
@@ -104,20 +146,26 @@ pub(crate) fn draw_bitmap_text(canvas: &mut [u8], width: u32, height: u32, x: u3
         // single scalar Latin/Greek/Hiragana retain byte-identical sprites.
         // CRLF is one UAX #29 cluster, but remains control text. It must
         // never accidentally become a visible '?' after grapheme grouping.
-        if cluster.chars().any(char::is_control) { continue; }
+        if cluster.chars().any(char::is_control) {
+            continue;
+        }
         let mut letters = cluster.chars();
         let first = letters.next();
         let single = first.filter(|_| letters.next().is_none());
-        let bitmap = single.and_then(|letter|
-            BASIC_FONTS.get(letter)
-            .or_else(|| LATIN_FONTS.get(letter))
-            .or_else(|| GREEK_FONTS.get(letter))
-            .or_else(|| HIRAGANA_FONTS.get(letter))
-            .or_else(|| MISC_FONTS.get(letter)))
+        let bitmap = single
+            .and_then(|letter| {
+                BASIC_FONTS
+                    .get(letter)
+                    .or_else(|| LATIN_FONTS.get(letter))
+                    .or_else(|| GREEK_FONTS.get(letter))
+                    .or_else(|| HIRAGANA_FONTS.get(letter))
+                    .or_else(|| MISC_FONTS.get(letter))
+            })
             .or_else(|| BASIC_FONTS.get('?'));
-        let Some(bitmap) = bitmap else { continue; };
-        let origin = x.saturating_add((offset as u32)
-            .saturating_mul(8_u32.saturating_mul(scale)));
+        let Some(bitmap) = bitmap else {
+            continue;
+        };
+        let origin = x.saturating_add((offset as u32).saturating_mul(8_u32.saturating_mul(scale)));
         for (row, bits) in bitmap.iter().enumerate() {
             for column in 0..8_u32 {
                 if *bits & (1_u8 << column) != 0 {
@@ -136,8 +184,6 @@ pub(crate) fn draw_bitmap_text(canvas: &mut [u8], width: u32, height: u32, x: u3
         }
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -206,10 +252,11 @@ mod tests {
         // Fitting a base character while cutting away its combining mark
         // would produce visibly incomplete user-facing text.
         assert_eq!(fit_rice_text("a\u{301}bc", cell, &classic), "…");
-        assert_eq!(fit_rice_text("a\u{301}bc", cell * 2, &classic),
-                   "a\u{301}…");
-        assert_eq!(fit_rice_text("a\u{301}bc", cell * 3, &classic),
-                   "a\u{301}bc");
+        assert_eq!(fit_rice_text("a\u{301}bc", cell * 2, &classic), "a\u{301}…");
+        assert_eq!(
+            fit_rice_text("a\u{301}bc", cell * 3, &classic),
+            "a\u{301}bc"
+        );
         // One fallback glyph = one measured cell, without splitting or
         // spraying question marks across the neighboring control.
         assert_eq!(fit_rice_text("👩‍💻 task", cell * 2, &classic), "👩‍💻…");
@@ -224,12 +271,18 @@ mod tests {
         let mut luna = crate::recipe::parse(
             include_str!("../../../examples/wayland/xp-luna-columns.json"),
             Some("xp-luna-columns"),
-        ).unwrap();
-        luna.native_art = Some(crate::style_art::load(
-            luna.artwork.as_ref().unwrap(), luna.font_scale,
-        ).unwrap());
-        for label in ["AVATAR Tomorrow", "To AVA", "a\u{301} and AV", "🇩🇪 Done",
-                      "👩‍💻 Workspace", "WWW iii"] {
+        )
+        .unwrap();
+        luna.native_art =
+            Some(crate::style_art::load(luna.artwork.as_ref().unwrap(), luna.font_scale).unwrap());
+        for label in [
+            "AVATAR Tomorrow",
+            "To AVA",
+            "a\u{301} and AV",
+            "🇩🇪 Done",
+            "👩‍💻 Workspace",
+            "WWW iii",
+        ] {
             for available in 0..=rice_text_width(label, &luna) {
                 let actual = fit_rice_text(label, available, &luna);
                 // Independent brute-force oracle: fit the *entire* painted

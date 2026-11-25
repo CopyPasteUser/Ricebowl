@@ -13,9 +13,18 @@ use unicode_segmentation::UnicodeSegmentation;
 
 /// Do not run a paragraph analysis for ordinary LTR system labels.
 pub(crate) fn has_rtl(text: &str) -> bool {
-    !text.is_ascii() && text.chars().any(|letter| matches!(bidi_class(letter),
-        BidiClass::R | BidiClass::AL | BidiClass::RLI |
-        BidiClass::RLE | BidiClass::RLO | BidiClass::FSI))
+    !text.is_ascii()
+        && text.chars().any(|letter| {
+            matches!(
+                bidi_class(letter),
+                BidiClass::R
+                    | BidiClass::AL
+                    | BidiClass::RLI
+                    | BidiClass::RLE
+                    | BidiClass::RLO
+                    | BidiClass::FSI
+            )
+        })
 }
 
 /// Return the visual-order grapheme sequence for a *single-line* label.
@@ -43,11 +52,17 @@ impl VisualClusterMap {
     /// prefer the leading edge of the following logical grapheme.
     pub(crate) fn caret_edge(&self, cursor: usize) -> usize {
         let len = self.visual_to_logical.len();
-        if len == 0 { return 0; }
+        if len == 0 {
+            return 0;
+        }
         let at_end = cursor >= len;
         let logical = if at_end { len - 1 } else { cursor };
         let visual = self.logical_to_visual[logical];
-        if self.rtl_by_logical[logical] == at_end { visual } else { visual + 1 }
+        if self.rtl_by_logical[logical] == at_end {
+            visual
+        } else {
+            visual + 1
+        }
     }
 }
 
@@ -57,7 +72,9 @@ pub(crate) fn visual_cluster_map(text: &str) -> Option<VisualClusterMap> {
     }
     let info = BidiInfo::new(text, None);
     let para = (info.paragraphs.len() == 1).then(|| &info.paragraphs[0])?;
-    if !info.has_rtl() { return None; }
+    if !info.has_rtl() {
+        return None;
+    }
     let per_char = info.reordered_levels_per_char(para, para.range.clone());
     let clusters: Vec<&str> = text.graphemes(true).collect();
     let mut levels = Vec::with_capacity(clusters.len());
@@ -66,7 +83,9 @@ pub(crate) fn visual_cluster_map(text: &str) -> Option<VisualClusterMap> {
         levels.push(*per_char.get(offset)?);
         offset += cluster.chars().count();
     }
-    if offset != per_char.len() { return None; }
+    if offset != per_char.len() {
+        return None;
+    }
     let rtl_by_logical = levels.iter().map(|level| level.is_rtl()).collect();
     let visual_to_logical = BidiInfo::reorder_visual(&levels);
     // UAX #9 returns a permutation of grapheme indices. Build its inverse
@@ -88,9 +107,7 @@ pub(crate) fn visual_cluster_map(text: &str) -> Option<VisualClusterMap> {
 /// LTR text does not allocate or enter this path. At run boundaries with
 /// multiple equivalent visual positions, prefer the nearest logical caret
 /// deterministically instead of jumping unpredictably.
-pub(crate) fn visual_arrow_target(
-    text: &str, cursor: usize, toward_right: bool,
-) -> Option<usize> {
+pub(crate) fn visual_arrow_target(text: &str, cursor: usize, toward_right: bool) -> Option<usize> {
     let map = visual_cluster_map(text)?;
     let count = map.visual_to_logical.len();
     let current = cursor.min(count);
@@ -98,20 +115,24 @@ pub(crate) fn visual_arrow_target(
     let mut best: Option<(usize, usize)> = None;
     for candidate in 0..=count {
         let edge = map.caret_edge(candidate);
-        if (toward_right && edge <= current_edge)
-            || (!toward_right && edge >= current_edge) {
+        if (toward_right && edge <= current_edge) || (!toward_right && edge >= current_edge) {
             continue;
         }
         let better = match best {
             None => true,
             Some((other, other_edge)) => {
-                let closer = if toward_right { edge < other_edge }
-                    else { edge > other_edge };
-                closer || (edge == other_edge
-                    && candidate.abs_diff(current) < other.abs_diff(current))
+                let closer = if toward_right {
+                    edge < other_edge
+                } else {
+                    edge > other_edge
+                };
+                closer
+                    || (edge == other_edge && candidate.abs_diff(current) < other.abs_diff(current))
             }
         };
-        if better { best = Some((candidate, edge)); }
+        if better {
+            best = Some((candidate, edge));
+        }
     }
     Some(best.map(|(candidate, _)| candidate).unwrap_or(current))
 }
@@ -172,9 +193,17 @@ mod tests {
 
     #[test]
     fn unicode_l4_brackets_mirror_only_in_rtl_visual_runs() {
-        for (a, b) in [('(', ')'), ('[', ']'), ('{', '}'),
-                       ('<', '>'), ('«', '»'), ('‹', '›'),
-                       ('⟨', '⟩'), ('〈', '〉'), ('（', '）')] {
+        for (a, b) in [
+            ('(', ')'),
+            ('[', ']'),
+            ('{', '}'),
+            ('<', '>'),
+            ('«', '»'),
+            ('‹', '›'),
+            ('⟨', '⟩'),
+            ('〈', '〉'),
+            ('（', '）'),
+        ] {
             assert_eq!(mirrored_punctuation(a), b);
             assert_eq!(mirrored_punctuation(b), a);
         }
@@ -195,7 +224,9 @@ mod tests {
         // Previously unsupported Tibetans, bracket families and a
         // supplementary-plane mathematical symbol must be mirrored in RTL.
         for (left, right) in [
-            ('⟦', '⟧'), ('⟪', '⟫'), ('\u{0F3A}', '\u{0F3B}'),
+            ('⟦', '⟧'),
+            ('⟪', '⟫'),
+            ('\u{0F3A}', '\u{0F3B}'),
             ('\u{221D}', '\u{1DB10}'),
         ] {
             assert_eq!(mirrored_punctuation(left), right);
@@ -203,8 +234,10 @@ mod tests {
         }
         let logical = "אבג⟦";
         assert_eq!(visual_order(logical), "⟧גבא");
-        assert_eq!(visual_cluster_map(logical).unwrap().visual_to_logical,
-                   [3, 2, 1, 0]);
+        assert_eq!(
+            visual_cluster_map(logical).unwrap().visual_to_logical,
+            [3, 2, 1, 0]
+        );
         assert_eq!(visual_order("plain ⟦LTR⟧"), "plain ⟦LTR⟧");
         assert_eq!(visual_order("שלום 👩‍💻"), "👩‍💻 םולש");
         // Ornate parentheses have Bidi_Mirrored=Yes but NO alternate
@@ -215,7 +248,8 @@ mod tests {
 
     #[test]
     fn visual_map_preserves_grapheme_inventory_and_utf8() {
-        for input in ["שלום 123 test", "A\u{301} שלום 👩‍💻 🇩🇪", "עברית ABC 42"] {
+        for input in ["שלום 123 test", "A\u{301} שלום 👩‍💻 🇩🇪", "עברית ABC 42"]
+        {
             let output = visual_order(input);
             let mut before: Vec<_> = input.graphemes(true).collect();
             let mut after: Vec<_> = output.graphemes(true).collect();
@@ -248,8 +282,10 @@ mod tests {
     fn pure_rtl_caret_edges_follow_painted_visual_clusters() {
         let map = visual_cluster_map("אבג").unwrap();
         assert_eq!(map.visual_to_logical, [2, 1, 0]);
-        assert_eq!((0..=3).map(|i| map.caret_edge(i)).collect::<Vec<_>>(),
-                   [3, 2, 1, 0]);
+        assert_eq!(
+            (0..=3).map(|i| map.caret_edge(i)).collect::<Vec<_>>(),
+            [3, 2, 1, 0]
+        );
     }
 
     #[test]
@@ -258,26 +294,37 @@ mod tests {
         // independent oracle for the exact legacy caret semantics, including
         // run boundaries, combined accents and joined Unicode emoji.
         let long = "abc אבג مرحبا 👩‍💻 🇩🇪 ".repeat(8);
-        for text in ["אבג", "abc אבג", "مرحبا 👩‍💻 🇩🇪 A\u{301} עברית", &long] {
+        for text in ["אבג", "abc אבג", "مرحبا 👩‍💻 🇩🇪 A\u{301} עברית", &long]
+        {
             let map = visual_cluster_map(text).expect("contains an RTL run");
             let len = map.visual_to_logical.len();
             assert_eq!(map.logical_to_visual.len(), len);
             for logical in 0..len {
-                let reference = map.visual_to_logical.iter()
-                    .position(|&value| value == logical).unwrap();
+                let reference = map
+                    .visual_to_logical
+                    .iter()
+                    .position(|&value| value == logical)
+                    .unwrap();
                 assert_eq!(map.logical_to_visual[logical], reference);
             }
             for cursor in 0..=len {
                 let at_end = cursor == len;
                 let logical = if at_end { len - 1 } else { cursor };
-                let reference = map.visual_to_logical.iter()
-                    .position(|&value| value == logical).unwrap();
+                let reference = map
+                    .visual_to_logical
+                    .iter()
+                    .position(|&value| value == logical)
+                    .unwrap();
                 let expected = if map.rtl_by_logical[logical] == at_end {
                     reference
                 } else {
                     reference + 1
                 };
-                assert_eq!(map.caret_edge(cursor), expected, "cursor={cursor} text={text:?}");
+                assert_eq!(
+                    map.caret_edge(cursor),
+                    expected,
+                    "cursor={cursor} text={text:?}"
+                );
             }
             // Calling visual-order painting must never rewrite logical input.
             assert_eq!(text.graphemes(true).count(), len);
@@ -288,10 +335,11 @@ mod tests {
     fn mixed_bidi_run_boundaries_preserve_logical_storage() {
         let map = visual_cluster_map("abc אבג").unwrap();
         assert_eq!(map.visual_to_logical, [0, 1, 2, 3, 6, 5, 4]);
-        assert_eq!((0..=7).map(|i| map.caret_edge(i)).collect::<Vec<_>>(),
-                   [0, 1, 2, 3, 7, 6, 5, 4]);
+        assert_eq!(
+            (0..=7).map(|i| map.caret_edge(i)).collect::<Vec<_>>(),
+            [0, 1, 2, 3, 7, 6, 5, 4]
+        );
         assert!(visual_cluster_map("regular ASCII").is_none());
         assert!(visual_cluster_map("אבג\nabc").is_none());
     }
-
 }

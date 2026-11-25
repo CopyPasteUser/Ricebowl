@@ -35,8 +35,9 @@ impl ControlAction {
     pub fn apply(self) -> bool {
         let command = match self {
             Self::WifiToggle => {
-                let Some(state) = command_output("nmcli", &["--wait", "1", "radio", "wifi"])
-                else { return false; };
+                let Some(state) = command_output("nmcli", &["--wait", "1", "radio", "wifi"]) else {
+                    return false;
+                };
                 match state.trim() {
                     "enabled" => ("nmcli", vec!["--wait", "3", "radio", "wifi", "off"]),
                     "disabled" => ("nmcli", vec!["--wait", "3", "radio", "wifi", "on"]),
@@ -54,8 +55,16 @@ impl ControlAction {
                 }
             }
             Self::AudioMute => ("wpctl", vec!["set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"]),
-            Self::AudioUp => ("wpctl", vec!["set-volume", "@DEFAULT_AUDIO_SINK@", "5%+",
-                                             "--limit", "1.0"]),
+            Self::AudioUp => (
+                "wpctl",
+                vec![
+                    "set-volume",
+                    "@DEFAULT_AUDIO_SINK@",
+                    "5%+",
+                    "--limit",
+                    "1.0",
+                ],
+            ),
             Self::AudioDown => ("wpctl", vec!["set-volume", "@DEFAULT_AUDIO_SINK@", "5%-"]),
         };
         command_status(command.0, &command.1)
@@ -66,8 +75,7 @@ impl ControlAction {
         match self {
             Self::WifiToggle => status.wifi != WifiRadio::Unavailable,
             Self::BluetoothToggle => status.bluetooth != BluetoothRadio::Unavailable,
-            Self::AudioMute | Self::AudioUp | Self::AudioDown =>
-                status.audio != Audio::Unavailable,
+            Self::AudioMute | Self::AudioUp | Self::AudioDown => status.audio != Audio::Unavailable,
         }
     }
 
@@ -86,7 +94,9 @@ impl ControlAction {
 
     /// A successful subprocess exit alone is not proof of a state transition.
     pub fn verified(self, before: &SystemStatus, after: &SystemStatus, exit_ok: bool) -> bool {
-        if !exit_ok || !self.available(before) || !self.available(after) { return false; }
+        if !exit_ok || !self.available(before) || !self.available(after) {
+            return false;
+        }
         match self {
             Self::WifiToggle => before.wifi != after.wifi,
             Self::BluetoothToggle => before.bluetooth != after.bluetooth,
@@ -98,8 +108,13 @@ impl ControlAction {
                 (Audio::Muted, Audio::Volume(_)) | (Audio::Volume(_), Audio::Muted)
             ),
             Self::AudioUp | Self::AudioDown => match (&before.audio, &after.audio) {
-                (Audio::Volume(first), Audio::Volume(second)) =>
-                    if self == Self::AudioUp { second > first } else { second < first },
+                (Audio::Volume(first), Audio::Volume(second)) => {
+                    if self == Self::AudioUp {
+                        second > first
+                    } else {
+                        second < first
+                    }
+                }
                 _ => false,
             },
         }
@@ -107,7 +122,11 @@ impl ControlAction {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WifiRadio { Enabled, Disabled, Unavailable }
+pub enum WifiRadio {
+    Enabled,
+    Disabled,
+    Unavailable,
+}
 
 impl WifiRadio {
     fn parse(value: &str) -> Self {
@@ -129,19 +148,27 @@ impl WifiRadio {
 
 /// Default controller radio power, never the state of a paired device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BluetoothRadio { Enabled, Disabled, Unavailable }
+pub enum BluetoothRadio {
+    Enabled,
+    Disabled,
+    Unavailable,
+}
 
 impl BluetoothRadio {
     fn parse(output: &str) -> Self {
         let mut observed = None;
         for line in output.lines().take(64) {
-            let Some(value) = line.trim().strip_prefix("Powered:") else { continue; };
+            let Some(value) = line.trim().strip_prefix("Powered:") else {
+                continue;
+            };
             let state = match value.trim() {
                 "yes" => Self::Enabled,
                 "no" => Self::Disabled,
                 _ => return Self::Unavailable,
             };
-            if observed.replace(state).is_some() { return Self::Unavailable; }
+            if observed.replace(state).is_some() {
+                return Self::Unavailable;
+            }
         }
         observed.unwrap_or(Self::Unavailable)
     }
@@ -207,14 +234,19 @@ impl Audio {
         let Some(value) = output.trim().strip_prefix("Volume: ") else {
             return Self::Unavailable;
         };
-        let Some(number) = value.split_whitespace().next()
-            .and_then(|value| value.parse::<f64>().ok()) else {
+        let Some(number) = value
+            .split_whitespace()
+            .next()
+            .and_then(|value| value.parse::<f64>().ok())
+        else {
             return Self::Unavailable;
         };
         if !number.is_finite() || !(0.0..=1.5).contains(&number) {
             return Self::Unavailable;
         }
-        if value.contains("[MUTED]") { return Self::Muted; }
+        if value.contains("[MUTED]") {
+            return Self::Muted;
+        }
         Self::Volume((number * 100.0).round() as u16)
     }
 }
@@ -229,8 +261,12 @@ pub struct SystemStatus {
 
 impl Default for SystemStatus {
     fn default() -> Self {
-        Self { network: Network::Unavailable, audio: Audio::Unavailable,
-               wifi: WifiRadio::Unavailable, bluetooth: BluetoothRadio::Unavailable }
+        Self {
+            network: Network::Unavailable,
+            audio: Audio::Unavailable,
+            wifi: WifiRadio::Unavailable,
+            bluetooth: BluetoothRadio::Unavailable,
+        }
     }
 }
 
@@ -239,21 +275,32 @@ impl SystemStatus {
         Self {
             network: if include_network {
                 command_output("nmcli", &["--wait", "1", "-t", "-f", "STATE", "general"])
-                    .map(|output| Network::parse(&output)).unwrap_or(Network::Unavailable)
-            } else { Network::Unavailable },
+                    .map(|output| Network::parse(&output))
+                    .unwrap_or(Network::Unavailable)
+            } else {
+                Network::Unavailable
+            },
             audio: if include_audio {
                 command_output("wpctl", &["get-volume", "@DEFAULT_AUDIO_SINK@"])
-                    .map(|output| Audio::parse(&output)).unwrap_or(Audio::Unavailable)
-            } else { Audio::Unavailable },
+                    .map(|output| Audio::parse(&output))
+                    .unwrap_or(Audio::Unavailable)
+            } else {
+                Audio::Unavailable
+            },
             wifi: if include_network {
                 command_output("nmcli", &["--wait", "1", "radio", "wifi"])
-                    .map(|output| WifiRadio::parse(&output)).unwrap_or(WifiRadio::Unavailable)
-            } else { WifiRadio::Unavailable },
+                    .map(|output| WifiRadio::parse(&output))
+                    .unwrap_or(WifiRadio::Unavailable)
+            } else {
+                WifiRadio::Unavailable
+            },
             bluetooth: if include_bluetooth {
                 command_output("bluetoothctl", &["show"])
                     .map(|output| BluetoothRadio::parse(&output))
                     .unwrap_or(BluetoothRadio::Unavailable)
-            } else { BluetoothRadio::Unavailable },
+            } else {
+                BluetoothRadio::Unavailable
+            },
         }
     }
 }
@@ -262,9 +309,14 @@ impl SystemStatus {
 /// sink-input/player chatter, microphone changes and unrelated D-Bus traffic.
 fn is_audio_event(line: &str) -> bool {
     let event = line.trim();
-    ["Event 'change' on sink #", "Event 'new' on sink #",
-     "Event 'remove' on sink #", "Event 'change' on server #"]
-        .iter().any(|prefix| event.starts_with(prefix))
+    [
+        "Event 'change' on sink #",
+        "Event 'new' on sink #",
+        "Event 'remove' on sink #",
+        "Event 'change' on server #",
+    ]
+    .iter()
+    .any(|prefix| event.starts_with(prefix))
 }
 
 /// One event-driven PulseAudio-compatibility observer for the native session.
@@ -282,9 +334,14 @@ impl AudioWatcher {
     }
 
     pub fn start(callback: impl Fn(Audio) -> bool + Send + 'static) -> Option<Self> {
-        let mut child = Command::new("pactl").arg("subscribe").env("LC_ALL", "C")
-            .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null())
-            .spawn().ok()?;
+        let mut child = Command::new("pactl")
+            .arg("subscribe")
+            .env("LC_ALL", "C")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .ok()?;
         let output = child.stdout.take()?;
         let (events, pending) = mpsc::sync_channel::<()>(1);
         thread::spawn(move || {
@@ -297,8 +354,12 @@ impl AudioWatcher {
         });
         thread::spawn(move || {
             for line in BufReader::new(output).lines() {
-                let Ok(line) = line else { break; };
-                if !is_audio_event(&line) { continue; }
+                let Ok(line) = line else {
+                    break;
+                };
+                if !is_audio_event(&line) {
+                    continue;
+                }
                 match events.try_send(()) {
                     Ok(()) | Err(TrySendError::Full(())) => {}
                     Err(TrySendError::Disconnected(())) => break,
@@ -317,11 +378,18 @@ impl Drop for AudioWatcher {
 }
 
 fn spawn_bounded(program: &str, args: &[&str], output: bool) -> Option<(bool, String)> {
-    let mut child = Command::new(program).args(args).env("LC_ALL", "C")
+    let mut child = Command::new(program)
+        .args(args)
+        .env("LC_ALL", "C")
         .stdin(Stdio::null())
-        .stdout(if output { Stdio::piped() } else { Stdio::null() })
+        .stdout(if output {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stderr(Stdio::null())
-        .spawn().ok()?;
+        .spawn()
+        .ok()?;
     // Use an O_NONBLOCK pipe rather than a joined reader thread. A command
     // may exit while a descendant still holds its stdout FD; waiting for
     // EOF in a reader.join() can then hang forever despite killing/reaping
@@ -336,9 +404,10 @@ fn spawn_bounded(program: &str, args: &[&str], output: bool) -> Option<(bool, St
         // SAFETY: the descriptor is owned by ChildStdout and stays open
         // until pipe is dropped. F_GETFL/F_SETFL change only its file flags.
         let flags = unsafe { libc::fcntl(stdout.as_raw_fd(), libc::F_GETFL) };
-        if flags < 0 || unsafe {
-            libc::fcntl(stdout.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK)
-        } < 0 {
+        if flags < 0
+            || unsafe { libc::fcntl(stdout.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) }
+                < 0
+        {
             let _ = child.kill();
             let _ = child.wait();
             return None;
@@ -402,8 +471,7 @@ fn spawn_bounded(program: &str, args: &[&str], output: bool) -> Option<(bool, St
 }
 
 fn command_output(program: &str, args: &[&str]) -> Option<String> {
-    spawn_bounded(program, args, true)
-        .and_then(|(success, value)| success.then_some(value))
+    spawn_bounded(program, args, true).and_then(|(success, value)| success.then_some(value))
 }
 
 fn command_status(program: &str, args: &[&str]) -> bool {
@@ -436,12 +504,33 @@ mod tests {
 
     #[test]
     fn quick_actions_are_fixed_allowlisted_ids() {
-        assert_eq!(ControlAction::from_id("wifi-toggle"), Some(ControlAction::WifiToggle));
-        assert_eq!(ControlAction::from_id("bluetooth-toggle"), Some(ControlAction::BluetoothToggle));
-        assert_eq!(ControlAction::from_id("audio-mute"), Some(ControlAction::AudioMute));
-        assert_eq!(ControlAction::from_id("audio-up"), Some(ControlAction::AudioUp));
-        assert_eq!(ControlAction::from_id("audio-down"), Some(ControlAction::AudioDown));
-        for invalid in ["", "terminal", "wifi off", "../../nmcli", "audio-volume 100"] {
+        assert_eq!(
+            ControlAction::from_id("wifi-toggle"),
+            Some(ControlAction::WifiToggle)
+        );
+        assert_eq!(
+            ControlAction::from_id("bluetooth-toggle"),
+            Some(ControlAction::BluetoothToggle)
+        );
+        assert_eq!(
+            ControlAction::from_id("audio-mute"),
+            Some(ControlAction::AudioMute)
+        );
+        assert_eq!(
+            ControlAction::from_id("audio-up"),
+            Some(ControlAction::AudioUp)
+        );
+        assert_eq!(
+            ControlAction::from_id("audio-down"),
+            Some(ControlAction::AudioDown)
+        );
+        for invalid in [
+            "",
+            "terminal",
+            "wifi off",
+            "../../nmcli",
+            "audio-volume 100",
+        ] {
             assert_eq!(ControlAction::from_id(invalid), None);
         }
     }
@@ -450,7 +539,10 @@ mod tests {
     fn radio_capability_is_independent_from_connectivity_and_readback_is_verified() {
         assert_eq!(WifiRadio::parse("enabled\n"), WifiRadio::Enabled);
         assert_eq!(WifiRadio::parse("disabled\n"), WifiRadio::Disabled);
-        assert_eq!(WifiRadio::parse("permission denied"), WifiRadio::Unavailable);
+        assert_eq!(
+            WifiRadio::parse("permission denied"),
+            WifiRadio::Unavailable
+        );
         let mut before = SystemStatus::default();
         before.network = Network::Offline;
         before.wifi = WifiRadio::Enabled;
@@ -469,29 +561,78 @@ mod tests {
         assert!(ControlAction::AudioMute.verified(&before, &after, true));
         assert!(!ControlAction::AudioUp.verified(&before, &after, true));
         assert_eq!(ControlAction::AudioMute.state_label(&after), "Muted");
+        assert!(
+            !ControlAction::AudioMute.verified(
+                &SystemStatus {
+                    audio: Audio::Volume(40),
+                    ..before.clone()
+                },
+                &SystemStatus {
+                    audio: Audio::Volume(55),
+                    ..after.clone()
+                },
+                true
+            ),
+            "a concurrent volume-only change must never confirm a mute"
+        );
         assert!(!ControlAction::AudioMute.verified(
-            &SystemStatus { audio: Audio::Volume(40), ..before.clone() },
-            &SystemStatus { audio: Audio::Volume(55), ..after.clone() }, true),
-            "a concurrent volume-only change must never confirm a mute");
-        assert!(!ControlAction::AudioMute.verified(
-            &SystemStatus { audio: Audio::Volume(40), ..before.clone() },
-            &SystemStatus { audio: Audio::Volume(40), ..after.clone() }, true));
-        assert!(ControlAction::AudioMute.verified(
-            &SystemStatus { audio: Audio::Muted, ..before.clone() },
-            &SystemStatus { audio: Audio::Volume(40), ..after.clone() }, true),
-            "unmute must be accepted when a real sink becomes audible");
-        assert!(!ControlAction::AudioMute.verified(
-            &SystemStatus { audio: Audio::Muted, ..before.clone() },
-            &SystemStatus { audio: Audio::Muted, ..after.clone() }, true),
-            "two muted readings must not confirm a change");
+            &SystemStatus {
+                audio: Audio::Volume(40),
+                ..before.clone()
+            },
+            &SystemStatus {
+                audio: Audio::Volume(40),
+                ..after.clone()
+            },
+            true
+        ));
+        assert!(
+            ControlAction::AudioMute.verified(
+                &SystemStatus {
+                    audio: Audio::Muted,
+                    ..before.clone()
+                },
+                &SystemStatus {
+                    audio: Audio::Volume(40),
+                    ..after.clone()
+                },
+                true
+            ),
+            "unmute must be accepted when a real sink becomes audible"
+        );
+        assert!(
+            !ControlAction::AudioMute.verified(
+                &SystemStatus {
+                    audio: Audio::Muted,
+                    ..before.clone()
+                },
+                &SystemStatus {
+                    audio: Audio::Muted,
+                    ..after.clone()
+                },
+                true
+            ),
+            "two muted readings must not confirm a change"
+        );
     }
 
     #[test]
     fn bluetooth_requires_explicit_controller_readback_and_verified_transition() {
-        assert_eq!(BluetoothRadio::parse("Controller AB:CD\n\tPowered: yes\n"), BluetoothRadio::Enabled);
-        assert_eq!(BluetoothRadio::parse("Controller AB:CD\n\tPowered: no\n"), BluetoothRadio::Disabled);
-        for value in ["", "No default controller available", "Powered: maybe",
-                      "Powered: yes\nPowered: no", "Powered: yes extra"] {
+        assert_eq!(
+            BluetoothRadio::parse("Controller AB:CD\n\tPowered: yes\n"),
+            BluetoothRadio::Enabled
+        );
+        assert_eq!(
+            BluetoothRadio::parse("Controller AB:CD\n\tPowered: no\n"),
+            BluetoothRadio::Disabled
+        );
+        for value in [
+            "",
+            "No default controller available",
+            "Powered: maybe",
+            "Powered: yes\nPowered: no",
+            "Powered: yes extra",
+        ] {
             assert_eq!(BluetoothRadio::parse(value), BluetoothRadio::Unavailable);
         }
         let mut before = SystemStatus::default();
@@ -512,13 +653,19 @@ mod tests {
         // Coreutils seq is available on supported Ubuntu/Mint systems. The
         // 10,000-line process writes far more than the pipe and 1 KiB limit:
         // neither partial successful output nor a four-second deadlock is OK.
-        assert_eq!(spawn_bounded("seq", &["1", "3"], true),
-                   Some((true, "1\n2\n3\n".into())));
+        assert_eq!(
+            spawn_bounded("seq", &["1", "3"], true),
+            Some((true, "1\n2\n3\n".into()))
+        );
         assert_eq!(spawn_bounded("seq", &["1", "10000"], true), None);
-        assert_eq!(spawn_bounded("nonexistent-ricebowl-qa-provider",
-                                 &[], true), None);
-        assert_eq!(spawn_bounded("true", &[], false),
-                   Some((true, String::new())));
+        assert_eq!(
+            spawn_bounded("nonexistent-ricebowl-qa-provider", &[], true),
+            None
+        );
+        assert_eq!(
+            spawn_bounded("true", &[], false),
+            Some((true, String::new()))
+        );
     }
 
     #[test]
@@ -528,11 +675,12 @@ mod tests {
         // close stdout AFTER the original command had exited.
         // This test-only shell never enters a production command allowlist.
         let started = Instant::now();
-        let result = spawn_bounded("sh", &["-c",
-            "printf 'enabled\\n'; sleep 6 & exit 0"], true);
+        let result = spawn_bounded("sh", &["-c", "printf 'enabled\\n'; sleep 6 & exit 0"], true);
         assert_eq!(result, None, "unclosed inherited stdout must fail closed");
-        assert!(started.elapsed() < Duration::from_secs(6),
-                "an inherited pipe must never bypass the four-second bound");
+        assert!(
+            started.elapsed() < Duration::from_secs(6),
+            "an inherited pipe must never bypass the four-second bound"
+        );
     }
 
     #[test]

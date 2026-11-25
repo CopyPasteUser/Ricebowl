@@ -1,28 +1,34 @@
 //! Deterministic icon placement in the logical dimensions of one Wayland output.
 //! No file access, timers or per-frame work: recompute only on output changes.
 
-use crate::recipe::{DesktopComposition, DesktopIcon, WindowRegion,
-                    DESKTOP_WIDGET_HEIGHT, DESKTOP_WIDGET_WIDTH, ICON_HEIGHT, ICON_WIDTH};
+use crate::recipe::{
+    DesktopComposition, DesktopIcon, WindowRegion, DESKTOP_WIDGET_HEIGHT, DESKTOP_WIDGET_WIDTH,
+    ICON_HEIGHT, ICON_WIDTH,
+};
 
 const GAP: u32 = 8;
 
 // Independent filesystem model, watch lifecycle and file-icon state. The
 // compositor/seat glue is intentionally owned by the integration lane.
+pub mod actions;
+pub mod file_state;
 pub mod inventory;
 pub mod watcher;
-pub mod file_state;
-pub mod actions;
 
 pub const MAX_SAVED_POSITION: u32 = 16_384;
 
 /// Cycle a keyboard selection through visible icon surfaces only. A hidden
 /// icon must never receive Enter or keyboard-movement actions.
 pub fn navigate(visible: &[bool], current: usize, delta: isize) -> Option<usize> {
-    if visible.is_empty() || !visible.iter().any(|&item| item) { return None; }
+    if visible.is_empty() || !visible.iter().any(|&item| item) {
+        return None;
+    }
     let mut next = current % visible.len();
     for _ in 0..visible.len() {
         next = (next as isize + delta).rem_euclid(visible.len() as isize) as usize;
-        if visible[next] { return Some(next); }
+        if visible[next] {
+            return Some(next);
+        }
     }
     None
 }
@@ -31,41 +37,66 @@ pub fn navigate(visible: &[bool], current: usize, delta: isize) -> Option<usize>
 /// Use the current surface placement to prevent jumps as its margin moves.
 pub fn dragged_to(current: (u32, u32), anchor: (f64, f64), pointer: (f64, f64)) -> (u32, u32) {
     let delta = (pointer.0 - anchor.0, pointer.1 - anchor.1);
-    let next = (f64::from(current.0) + delta.0, f64::from(current.1) + delta.1);
+    let next = (
+        f64::from(current.0) + delta.0,
+        f64::from(current.1) + delta.1,
+    );
     // Treat the whole pointer motion atomically: one malformed axis must
     // not partially move an icon or turn a cancelled gesture into a jump.
-    if ![anchor.0, anchor.1, pointer.0, pointer.1,
-          delta.0, delta.1, next.0, next.1].iter().all(|v| v.is_finite()) {
+    if ![
+        anchor.0, anchor.1, pointer.0, pointer.1, delta.0, delta.1, next.0, next.1,
+    ]
+    .iter()
+    .all(|v| v.is_finite())
+    {
         return current;
     }
-    (next.0.round().clamp(0.0, f64::from(MAX_SAVED_POSITION)) as u32,
-     next.1.round().clamp(0.0, f64::from(MAX_SAVED_POSITION)) as u32)
+    (
+        next.0.round().clamp(0.0, f64::from(MAX_SAVED_POSITION)) as u32,
+        next.1.round().clamp(0.0, f64::from(MAX_SAVED_POSITION)) as u32,
+    )
 }
 
 /// Resolve a drop on a different logical output from the grabbed icon surface.
 /// The implicit Wayland pointer grab continues delivering surface-relative
 /// motion even after the cursor crosses the source output boundary.
 pub fn cross_output_drop(
-    source_origin: (i32, i32), current: (u32, u32),
-    pointer: (f64, f64), anchor: (f64, f64),
-    target_origin: (i32, i32), target_size: (u32, u32),
+    source_origin: (i32, i32),
+    current: (u32, u32),
+    pointer: (f64, f64),
+    anchor: (f64, f64),
+    target_origin: (i32, i32),
+    target_size: (u32, u32),
 ) -> Option<(u32, u32)> {
-    if ![pointer.0, pointer.1, anchor.0, anchor.1].iter().all(|v| v.is_finite())
-        || target_size.0 < ICON_WIDTH || target_size.1 < ICON_HEIGHT
+    if ![pointer.0, pointer.1, anchor.0, anchor.1]
+        .iter()
+        .all(|v| v.is_finite())
+        || target_size.0 < ICON_WIDTH
+        || target_size.1 < ICON_HEIGHT
     {
         return None;
     }
-    let global = (f64::from(source_origin.0) + f64::from(current.0) + pointer.0,
-                  f64::from(source_origin.1) + f64::from(current.1) + pointer.1);
-    let local = (global.0 - f64::from(target_origin.0),
-                 global.1 - f64::from(target_origin.1));
+    let global = (
+        f64::from(source_origin.0) + f64::from(current.0) + pointer.0,
+        f64::from(source_origin.1) + f64::from(current.1) + pointer.1,
+    );
+    let local = (
+        global.0 - f64::from(target_origin.0),
+        global.1 - f64::from(target_origin.1),
+    );
     if !(0.0..f64::from(target_size.0)).contains(&local.0)
         || !(0.0..f64::from(target_size.1)).contains(&local.1)
     {
         return None;
     }
-    Some(((local.0 - anchor.0).round().clamp(0.0, f64::from(MAX_SAVED_POSITION)) as u32,
-          (local.1 - anchor.1).round().clamp(0.0, f64::from(MAX_SAVED_POSITION)) as u32))
+    Some((
+        (local.0 - anchor.0)
+            .round()
+            .clamp(0.0, f64::from(MAX_SAVED_POSITION)) as u32,
+        (local.1 - anchor.1)
+            .round()
+            .clamp(0.0, f64::from(MAX_SAVED_POSITION)) as u32,
+    ))
 }
 
 #[cfg(test)]
@@ -83,39 +114,70 @@ struct Rect {
 
 impl Rect {
     fn intersects(self, other: Rect) -> bool {
-        self.x < other.x + other.w && other.x < self.x + self.w
-            && self.y < other.y + other.h && other.y < self.y + self.h
+        self.x < other.x + other.w
+            && other.x < self.x + self.w
+            && self.y < other.y + other.h
+            && other.y < self.y + self.h
     }
 }
 
 fn reserved_region(region: WindowRegion, width: u32, height: u32) -> Rect {
-    Rect { x: width * region.x / 100, y: height * region.y / 100,
-           w: width * region.width / 100, h: height * region.height / 100 }
+    Rect {
+        x: width * region.x / 100,
+        y: height * region.y / 100,
+        w: width * region.width / 100,
+        h: height * region.height / 100,
+    }
 }
 
 fn place_rects(
-    requested: &[(u32, u32)], item_w: u32, item_h: u32,
-    width: u32, height: u32, panel_top: bool, panel_height: u32,
+    requested: &[(u32, u32)],
+    item_w: u32,
+    item_h: u32,
+    width: u32,
+    height: u32,
+    panel_top: bool,
+    panel_height: u32,
     reserved: &[Rect],
 ) -> Vec<Option<(u32, u32)>> {
-    let upper = if panel_top { panel_height.saturating_add(GAP) } else { GAP };
-    let lower = if panel_top { GAP } else { panel_height.saturating_add(GAP) };
+    let upper = if panel_top {
+        panel_height.saturating_add(GAP)
+    } else {
+        GAP
+    };
+    let lower = if panel_top {
+        GAP
+    } else {
+        panel_height.saturating_add(GAP)
+    };
     let Some(max_y) = height.checked_sub(lower.saturating_add(item_h)) else {
         return vec![None; requested.len()];
     };
     let Some(max_x) = width.checked_sub(item_w) else {
         return vec![None; requested.len()];
     };
-    if max_y < upper { return vec![None; requested.len()]; }
+    if max_y < upper {
+        return vec![None; requested.len()];
+    }
     let mut placed = Vec::new();
     let mut result = Vec::with_capacity(requested.len());
     for &(x, y) in requested {
         let desired = (x.min(max_x), y.clamp(upper, max_y));
         let free = |(x, y): (u32, u32)| {
-            let candidate = Rect { x, y, w: item_w, h: item_h };
-            reserved.iter().chain(placed.iter()).all(|other| !candidate.intersects(*other))
+            let candidate = Rect {
+                x,
+                y,
+                w: item_w,
+                h: item_h,
+            };
+            reserved
+                .iter()
+                .chain(placed.iter())
+                .all(|other| !candidate.intersects(*other))
         };
-        let selected = if free(desired) { Some(desired) } else {
+        let selected = if free(desired) {
+            Some(desired)
+        } else {
             // Search the full supported logical coordinate range, not just
             // the first N columns. On wide displays a reserved window region
             // can occupy that prefix, hiding icons despite free space on the
@@ -130,11 +192,21 @@ fn place_rects(
             let rows = (search_max_y - upper) / step_y;
             let mut best: Option<((u32, u32, u32), (u32, u32))> = None;
             for row in 0..=rows.saturating_add(1) {
-                let y = if row > rows { search_max_y } else { upper + row * step_y };
+                let y = if row > rows {
+                    search_max_y
+                } else {
+                    upper + row * step_y
+                };
                 for col in 0..=cols.saturating_add(1) {
-                    let x = if col > cols { search_max_x } else { col * step_x };
+                    let x = if col > cols {
+                        search_max_x
+                    } else {
+                        col * step_x
+                    };
                     let candidate = (x, y);
-                    if !free(candidate) { continue; }
+                    if !free(candidate) {
+                        continue;
+                    }
                     let key = (x.abs_diff(desired.0) + y.abs_diff(desired.1), y, x);
                     if best.as_ref().is_none_or(|(current, _)| key < *current) {
                         best = Some((key, candidate));
@@ -144,7 +216,12 @@ fn place_rects(
             best.map(|(_, candidate)| candidate)
         };
         if let Some((x, y)) = selected {
-            placed.push(Rect { x, y, w: item_w, h: item_h });
+            placed.push(Rect {
+                x,
+                y,
+                w: item_w,
+                h: item_h,
+            });
         }
         result.push(selected);
     }
@@ -154,23 +231,49 @@ fn place_rects(
 /// Preserve each requested position if possible. Displaced icons use the
 /// nearest free bounded grid cell; None means there is no safe hit area.
 pub fn place(
-    icons: &[DesktopIcon], width: u32, height: u32, panel_top: bool, panel_height: u32,
+    icons: &[DesktopIcon],
+    width: u32,
+    height: u32,
+    panel_top: bool,
+    panel_height: u32,
 ) -> Vec<Option<(u32, u32)>> {
-    place_visible(icons, &vec![true; icons.len()], width, height, panel_top, panel_height)
+    place_visible(
+        icons,
+        &vec![true; icons.len()],
+        width,
+        height,
+        panel_top,
+        panel_height,
+    )
 }
 
 /// Hidden shortcuts must not occupy layout cells or prevent widgets from
 /// using the freed space. Keep the returned indices aligned with the recipe.
 pub fn place_visible(
-    icons: &[DesktopIcon], visible: &[bool], width: u32, height: u32,
-    panel_top: bool, panel_height: u32,
+    icons: &[DesktopIcon],
+    visible: &[bool],
+    width: u32,
+    height: u32,
+    panel_top: bool,
+    panel_height: u32,
 ) -> Vec<Option<(u32, u32)>> {
-    let active: Vec<_> = icons.iter().enumerate()
+    let active: Vec<_> = icons
+        .iter()
+        .enumerate()
         .filter(|(index, _)| visible.get(*index).copied().unwrap_or(false))
-        .map(|(index, icon)| (index, (icon.x, icon.y))).collect();
+        .map(|(index, icon)| (index, (icon.x, icon.y)))
+        .collect();
     let requests: Vec<_> = active.iter().map(|(_, pos)| *pos).collect();
-    let placed = place_rects(&requests, ICON_WIDTH, ICON_HEIGHT,
-                             width, height, panel_top, panel_height, &[]);
+    let placed = place_rects(
+        &requests,
+        ICON_WIDTH,
+        ICON_HEIGHT,
+        width,
+        height,
+        panel_top,
+        panel_height,
+        &[],
+    );
     let mut result = vec![None; icons.len()];
     for ((index, _), position) in active.into_iter().zip(placed) {
         result[index] = position;
@@ -181,22 +284,43 @@ pub fn place_visible(
 /// One deterministic cross-region plan. Client windows are not moved; the
 /// declared region stays free of desktop items so labwc can place them there.
 pub fn compose(
-    icons: &[DesktopIcon], composition: &DesktopComposition, width: u32, height: u32,
-    panel_top: bool, panel_height: u32, compact_max_width: u32,
+    icons: &[DesktopIcon],
+    composition: &DesktopComposition,
+    width: u32,
+    height: u32,
+    panel_top: bool,
+    panel_height: u32,
+    compact_max_width: u32,
 ) -> (Vec<Option<(u32, u32)>>, Vec<Option<(u32, u32)>>) {
-    compose_visible(icons, &vec![true; icons.len()], composition, width, height,
-                    panel_top, panel_height, compact_max_width)
+    compose_visible(
+        icons,
+        &vec![true; icons.len()],
+        composition,
+        width,
+        height,
+        panel_top,
+        panel_height,
+        compact_max_width,
+    )
 }
 
 pub fn compose_visible(
-    icons: &[DesktopIcon], visible: &[bool], composition: &DesktopComposition,
-    width: u32, height: u32, panel_top: bool, panel_height: u32,
+    icons: &[DesktopIcon],
+    visible: &[bool],
+    composition: &DesktopComposition,
+    width: u32,
+    height: u32,
+    panel_top: bool,
+    panel_height: u32,
     compact_max_width: u32,
 ) -> (Vec<Option<(u32, u32)>>, Vec<Option<(u32, u32)>>) {
     let region = reserved_region(composition.window_region, width, height);
-    let active_icons: Vec<_> = icons.iter().enumerate()
+    let active_icons: Vec<_> = icons
+        .iter()
+        .enumerate()
         .filter(|(index, _)| visible.get(*index).copied().unwrap_or(false))
-        .map(|(index, icon)| (index, (icon.x, icon.y))).collect();
+        .map(|(index, icon)| (index, (icon.x, icon.y)))
+        .collect();
     let icon_requests: Vec<_> = active_icons.iter().map(|(_, pos)| *pos).collect();
     // A widget-free XP desktop is not a static dashboard. The historical
     // window_region is advisory layout metadata, not a forbidden area for
@@ -208,23 +332,49 @@ pub fn compose_visible(
     } else {
         &region_storage
     };
-    let placed_icons = place_rects(&icon_requests, ICON_WIDTH, ICON_HEIGHT,
-                                   width, height, panel_top, panel_height, icon_exclusions);
+    let placed_icons = place_rects(
+        &icon_requests,
+        ICON_WIDTH,
+        ICON_HEIGHT,
+        width,
+        height,
+        panel_top,
+        panel_height,
+        icon_exclusions,
+    );
     let mut icon_positions = vec![None; icons.len()];
     for ((index, _), position) in active_icons.into_iter().zip(placed_icons) {
         icon_positions[index] = position;
     }
     let mut reserved = vec![region];
     for &(x, y) in icon_positions.iter().flatten() {
-        reserved.push(Rect { x, y, w: ICON_WIDTH, h: ICON_HEIGHT });
+        reserved.push(Rect {
+            x,
+            y,
+            w: ICON_WIDTH,
+            h: ICON_HEIGHT,
+        });
     }
-    let active: Vec<_> = composition.widgets.iter().enumerate()
-        .filter(|(_, widget)| width > compact_max_width
-            || !composition.compact_hide_widgets.contains(&widget.id))
-        .map(|(index, widget)| (index, (widget.x, widget.y))).collect();
+    let active: Vec<_> = composition
+        .widgets
+        .iter()
+        .enumerate()
+        .filter(|(_, widget)| {
+            width > compact_max_width || !composition.compact_hide_widgets.contains(&widget.id)
+        })
+        .map(|(index, widget)| (index, (widget.x, widget.y)))
+        .collect();
     let requests: Vec<_> = active.iter().map(|(_, position)| *position).collect();
-    let placed = place_rects(&requests, DESKTOP_WIDGET_WIDTH, DESKTOP_WIDGET_HEIGHT,
-                             width, height, panel_top, panel_height, &reserved);
+    let placed = place_rects(
+        &requests,
+        DESKTOP_WIDGET_WIDTH,
+        DESKTOP_WIDGET_HEIGHT,
+        width,
+        height,
+        panel_top,
+        panel_height,
+        &reserved,
+    );
     let mut widgets = vec![None; composition.widgets.len()];
     for ((index, _), position) in active.into_iter().zip(placed) {
         widgets[index] = position;
@@ -238,18 +388,38 @@ mod tests {
     use crate::recipe::{DesktopWidget, DesktopWidgetKind};
 
     fn icon(x: u32, y: u32) -> DesktopIcon {
-        DesktopIcon { label: "Apps".into(), action: "applications".into(), x, y }
+        DesktopIcon {
+            label: "Apps".into(),
+            action: "applications".into(),
+            x,
+            y,
+        }
     }
 
     fn composition() -> DesktopComposition {
         DesktopComposition {
             widgets: vec![
-                DesktopWidget { id: "desk-clock".into(), kind: DesktopWidgetKind::Clock,
-                                x: 32, y: 320, title: None },
-                DesktopWidget { id: "desk-system".into(), kind: DesktopWidgetKind::System,
-                                x: 32, y: 432, title: None },
+                DesktopWidget {
+                    id: "desk-clock".into(),
+                    kind: DesktopWidgetKind::Clock,
+                    x: 32,
+                    y: 320,
+                    title: None,
+                },
+                DesktopWidget {
+                    id: "desk-system".into(),
+                    kind: DesktopWidgetKind::System,
+                    x: 32,
+                    y: 432,
+                    title: None,
+                },
             ],
-            window_region: WindowRegion { x: 30, y: 8, width: 66, height: 84 },
+            window_region: WindowRegion {
+                x: 30,
+                y: 8,
+                width: 66,
+                height: 84,
+            },
             compact_hide_widgets: vec!["desk-system".into()],
         }
     }
@@ -258,27 +428,40 @@ mod tests {
     fn v8_avoids_window_workarea_and_cross_region_widget_collisions() {
         let icons = [icon(32, 96), icon(32, 208)];
         for (width, height) in [(1920, 1080), (1366, 768), (1093, 614), (640, 480)] {
-            let (icon_placements, widget_placements) = compose(
-                &icons, &composition(), width, height, true, 44, 840);
+            let (icon_placements, widget_placements) =
+                compose(&icons, &composition(), width, height, true, 44, 840);
             assert_eq!(icon_placements.len(), icons.len());
             assert_eq!(widget_placements.len(), 2);
             let window = reserved_region(composition().window_region, width, height);
             let mut covered = Vec::new();
             for (x, y) in icon_placements.iter().flatten() {
-                covered.push(Rect { x: *x, y: *y, w: ICON_WIDTH, h: ICON_HEIGHT });
+                covered.push(Rect {
+                    x: *x,
+                    y: *y,
+                    w: ICON_WIDTH,
+                    h: ICON_HEIGHT,
+                });
             }
             for (x, y) in widget_placements.iter().flatten() {
-                covered.push(Rect { x: *x, y: *y,
-                                    w: DESKTOP_WIDGET_WIDTH, h: DESKTOP_WIDGET_HEIGHT });
+                covered.push(Rect {
+                    x: *x,
+                    y: *y,
+                    w: DESKTOP_WIDGET_WIDTH,
+                    h: DESKTOP_WIDGET_HEIGHT,
+                });
             }
             for (index, region) in covered.iter().enumerate() {
                 assert!(!region.intersects(window));
                 assert!(region.x + region.w <= width);
                 assert!(region.y + region.h <= height);
-                assert!(covered.iter().skip(index + 1).all(|other|
-                    !region.intersects(*other)));
+                assert!(covered
+                    .iter()
+                    .skip(index + 1)
+                    .all(|other| !region.intersects(*other)));
             }
-            if width <= 840 { assert!(widget_placements[1].is_none()); }
+            if width <= 840 {
+                assert!(widget_placements[1].is_none());
+            }
         }
     }
 
@@ -290,9 +473,11 @@ mod tests {
         let icons = [icon(24, 88), icon(1000, 336), icon(1540, 720)];
         let (placed, widgets) = compose(&icons, &shell, 1920, 1080, false, 40, 1024);
         assert!(widgets.is_empty());
-        assert_eq!(placed, vec![
-            Some((24, 88)), Some((1000, 336)), Some((1540, 720))
-        ], "the historical window reservation may not move freely dragged Luna icons");
+        assert_eq!(
+            placed,
+            vec![Some((24, 88)), Some((1000, 336)), Some((1540, 720))],
+            "the historical window reservation may not move freely dragged Luna icons"
+        );
         for (i, &p) in placed.iter().enumerate() {
             let (x, y) = p.expect("full Luna desktop has enough space");
             assert!(x + ICON_WIDTH <= 1920 && y + ICON_HEIGHT <= 1080 - 40 - GAP);
@@ -301,8 +486,15 @@ mod tests {
             }
         }
         // The legacy dashboard contract still preserves its window-safe region.
-        let (reserved, _) = compose(&[icon(1000, 336)], &composition(),
-                                     1920, 1080, false, 40, 1024);
+        let (reserved, _) = compose(
+            &[icon(1000, 336)],
+            &composition(),
+            1920,
+            1080,
+            false,
+            40,
+            1024,
+        );
         assert_ne!(reserved[0], Some((1000, 336)));
     }
 
@@ -311,13 +503,27 @@ mod tests {
         let icons = [icon(32, 96), icon(32, 96)];
         let standalone = place_visible(&icons, &[false, true], 800, 600, true, 44);
         assert_eq!(standalone, vec![None, Some((32, 96))]);
-        let with_widgets = compose_visible(&icons, &[false, true], &composition(),
-                                           800, 600, true, 44, 640);
+        let with_widgets = compose_visible(
+            &icons,
+            &[false, true],
+            &composition(),
+            800,
+            600,
+            true,
+            44,
+            640,
+        );
         assert_eq!(with_widgets.0[0], None);
         assert_eq!(with_widgets.0[1], Some((32, 96)));
-        assert!(with_widgets.1.iter().flatten().all(|(x, y)|
-            !overlaps(*x, *y, 32, 96)));
-        assert_eq!(place_visible(&icons, &[], 800, 600, true, 44), vec![None, None]);
+        assert!(with_widgets
+            .1
+            .iter()
+            .flatten()
+            .all(|(x, y)| !overlaps(*x, *y, 32, 96)));
+        assert_eq!(
+            place_visible(&icons, &[], 800, 600, true, 44),
+            vec![None, None]
+        );
     }
 
     #[test]
@@ -333,8 +539,10 @@ mod tests {
     #[test]
     fn preserves_positions_on_large_output_without_hidden_overlaps() {
         let originals = [icon(32, 96), icon(32, 208), icon(152, 96)];
-        assert_eq!(place(&originals, 1920, 1080, true, 40),
-                   vec![Some((32, 96)), Some((32, 208)), Some((152, 96))]);
+        assert_eq!(
+            place(&originals, 1920, 1080, true, 40),
+            vec![Some((32, 96)), Some((32, 208)), Some((152, 96))]
+        );
     }
 
     #[test]
@@ -375,45 +583,108 @@ mod tests {
         assert!(placed.iter().any(Option::is_none));
         let visible: Vec<_> = placed.into_iter().flatten().collect();
         for (index, &(x, y)) in visible.iter().enumerate() {
-            assert!(visible.iter().skip(index + 1).all(|&(ox, oy)|
-                    !overlaps(x, y, ox, oy)));
+            assert!(visible
+                .iter()
+                .skip(index + 1)
+                .all(|&(ox, oy)| !overlaps(x, y, ox, oy)));
         }
     }
 
     #[test]
     fn wide_output_reaches_free_cells_beyond_the_first_icon_columns() {
         let icons = [(64, 96), (64, 96)];
-        let region = Rect { x: 0, y: 0, w: 3000, h: 2160 };
-        let result = place_rects(&icons, ICON_WIDTH, ICON_HEIGHT, 3840, 2160,
-                                 true, 44, &[region]);
+        let region = Rect {
+            x: 0,
+            y: 0,
+            w: 3000,
+            h: 2160,
+        };
+        let result = place_rects(
+            &icons,
+            ICON_WIDTH,
+            ICON_HEIGHT,
+            3840,
+            2160,
+            true,
+            44,
+            &[region],
+        );
         let first = result[0].expect("free right-hand output area must stay reachable");
         let second = result[1].expect("second icon must also be placeable");
         assert!(first.0 >= 3000 && second.0 >= 3000);
         assert!(!overlaps(first.0, first.1, second.0, second.1));
-        assert_eq!(result, place_rects(&icons, ICON_WIDTH, ICON_HEIGHT, 3840, 2160,
-                                       true, 44, &[region]), "reflow must be deterministic");
+        assert_eq!(
+            result,
+            place_rects(
+                &icons,
+                ICON_WIDTH,
+                ICON_HEIGHT,
+                3840,
+                2160,
+                true,
+                44,
+                &[region]
+            ),
+            "reflow must be deterministic"
+        );
     }
 
     #[test]
     fn layout_reflow_recovers_after_output_mode_changes() {
         let icons = [(32, 96), (32, 96), (32, 96)];
-        let region = Rect { x: 0, y: 0, w: 1500, h: 900 };
-        let wide = place_rects(&icons, ICON_WIDTH, ICON_HEIGHT, 1920, 900,
-                               false, 40, &[region]);
+        let region = Rect {
+            x: 0,
+            y: 0,
+            w: 1500,
+            h: 900,
+        };
+        let wide = place_rects(
+            &icons,
+            ICON_WIDTH,
+            ICON_HEIGHT,
+            1920,
+            900,
+            false,
+            40,
+            &[region],
+        );
         assert!(wide.iter().all(Option::is_some));
-        let small = place_rects(&icons, ICON_WIDTH, ICON_HEIGHT, 640, 480,
-                                false, 40, &[]);
+        let small = place_rects(&icons, ICON_WIDTH, ICON_HEIGHT, 640, 480, false, 40, &[]);
         assert!(small.iter().all(Option::is_some));
-        assert_eq!(wide, place_rects(&icons, ICON_WIDTH, ICON_HEIGHT, 1920, 900,
-                                      false, 40, &[region]));
+        assert_eq!(
+            wide,
+            place_rects(
+                &icons,
+                ICON_WIDTH,
+                ICON_HEIGHT,
+                1920,
+                900,
+                false,
+                40,
+                &[region]
+            )
+        );
     }
 
     #[test]
     fn malformed_giant_output_does_not_expand_the_collision_search() {
-        let region = Rect { x: 0, y: 0, w: 2048, h: 2048 };
+        let region = Rect {
+            x: 0,
+            y: 0,
+            w: 2048,
+            h: 2048,
+        };
         let icon = [(32, 96)];
-        let result = place_rects(&icon, ICON_WIDTH, ICON_HEIGHT, 1_000_000, 1_000_000,
-                                 true, 44, &[region]);
+        let result = place_rects(
+            &icon,
+            ICON_WIDTH,
+            ICON_HEIGHT,
+            1_000_000,
+            1_000_000,
+            true,
+            44,
+            &[region],
+        );
         let (x, y) = result[0].expect("bounded coordinates still offer free space");
         assert!(x <= MAX_SAVED_POSITION && y <= MAX_SAVED_POSITION + 52);
         assert!(x >= 2048 || y >= 2048);
@@ -424,8 +695,10 @@ mod tests {
         assert_eq!(dragged_to((32, 96), (20.0, 10.0), (60.0, 30.0)), (72, 116));
         assert_eq!(dragged_to((72, 116), (20.0, 10.0), (20.0, 10.0)), (72, 116));
         assert_eq!(dragged_to((32, 96), (20.0, 10.0), (-200.0, -200.0)), (0, 0));
-        assert_eq!(dragged_to((16_380, 16_380), (0.0, 0.0), (100.0, 100.0)),
-                   (MAX_SAVED_POSITION, MAX_SAVED_POSITION));
+        assert_eq!(
+            dragged_to((16_380, 16_380), (0.0, 0.0), (100.0, 100.0)),
+            (MAX_SAVED_POSITION, MAX_SAVED_POSITION)
+        );
     }
 
     #[test]
@@ -437,30 +710,80 @@ mod tests {
             assert_eq!(dragged_to(current, (value, 20.0), (10.0, 20.0)), current);
             assert_eq!(dragged_to(current, (10.0, value), (10.0, 20.0)), current);
         }
-        assert_eq!(dragged_to(current, (-f64::MAX, 0.0), (f64::MAX, 0.0)), current);
-        assert_eq!(dragged_to(current, (0.0, 0.0), (f64::NAN, 50.0)), current,
-                   "one invalid axis cannot partly commit the other");
+        assert_eq!(
+            dragged_to(current, (-f64::MAX, 0.0), (f64::MAX, 0.0)),
+            current
+        );
+        assert_eq!(
+            dragged_to(current, (0.0, 0.0), (f64::NAN, 50.0)),
+            current,
+            "one invalid axis cannot partly commit the other"
+        );
         // Normal movement still respects the bounded saved-coordinate range.
         assert_eq!(dragged_to(current, (10.0, 20.0), (20.0, 50.0)), (260, 430));
     }
 
     #[test]
     fn cross_monitor_drop_uses_logical_geometry_and_pointer_grab() {
-        assert_eq!(cross_output_drop((0, 0), (1880, 220), (190.0, 20.0),
-                                     (20.0, 10.0), (1920, 0), (1280, 1024)), Some((130, 230)));
+        assert_eq!(
+            cross_output_drop(
+                (0, 0),
+                (1880, 220),
+                (190.0, 20.0),
+                (20.0, 10.0),
+                (1920, 0),
+                (1280, 1024)
+            ),
+            Some((130, 230))
+        );
         // A monitor left of the primary has a negative global origin.
-        assert_eq!(cross_output_drop((0, 0), (10, 30), (-40.0, 15.0),
-                                     (15.0, 10.0), (-1280, 0), (1280, 800)), Some((1235, 35)));
+        assert_eq!(
+            cross_output_drop(
+                (0, 0),
+                (10, 30),
+                (-40.0, 15.0),
+                (15.0, 10.0),
+                (-1280, 0),
+                (1280, 800)
+            ),
+            Some((1235, 35))
+        );
         // A cursor in the output gap is not a drop on either display.
-        assert_eq!(cross_output_drop((0, 0), (1880, 220), (190.0, 20.0),
-                                     (20.0, 10.0), (2200, 0), (1280, 1024)), None);
-        assert_eq!(cross_output_drop((0, 0), (1800, 220), (f64::NAN, 10.0),
-                                     (20.0, 10.0), (1920, 0), (1280, 1024)), None);
-        assert_eq!(cross_output_drop((0, 0), (1800, 220), (200.0, 10.0),
-                                     (20.0, 10.0), (1920, 0), (40, 30)), None);
+        assert_eq!(
+            cross_output_drop(
+                (0, 0),
+                (1880, 220),
+                (190.0, 20.0),
+                (20.0, 10.0),
+                (2200, 0),
+                (1280, 1024)
+            ),
+            None
+        );
+        assert_eq!(
+            cross_output_drop(
+                (0, 0),
+                (1800, 220),
+                (f64::NAN, 10.0),
+                (20.0, 10.0),
+                (1920, 0),
+                (1280, 1024)
+            ),
+            None
+        );
+        assert_eq!(
+            cross_output_drop(
+                (0, 0),
+                (1800, 220),
+                (200.0, 10.0),
+                (20.0, 10.0),
+                (1920, 0),
+                (40, 30)
+            ),
+            None
+        );
     }
 }
-
 
 /// File-backed Desktop icon placement. The static recipe surfaces remain
 /// independent; their occupied cells are passed in as reserved rectangles.
@@ -471,31 +794,67 @@ mod tests {
 /// Wayland frame on small or very large logical outputs.
 #[allow(dead_code)]
 pub fn place_files(
-    entries: &[inventory::Entry], saved: &file_state::FilePositions,
-    output_name: &str, is_primary: bool, connected: &[String],
+    entries: &[inventory::Entry],
+    saved: &file_state::FilePositions,
+    output_name: &str,
+    is_primary: bool,
+    connected: &[String],
     static_positions: &[Option<(u32, u32)>],
-    width: u32, height: u32, panel_top: bool, panel_height: u32,
+    width: u32,
+    height: u32,
+    panel_top: bool,
+    panel_height: u32,
 ) -> Vec<Option<(u32, u32)>> {
     let mut result = vec![None; entries.len()];
-    let upper = if panel_top { panel_height.saturating_add(GAP) } else { GAP };
-    let lower = if panel_top { GAP } else { panel_height.saturating_add(GAP) };
-    let Some(max_x) = width.checked_sub(ICON_WIDTH.saturating_add(GAP)) else { return result };
-    let Some(max_y) = height.checked_sub(ICON_HEIGHT.saturating_add(lower)) else { return result };
-    if upper > max_y { return result; }
+    let upper = if panel_top {
+        panel_height.saturating_add(GAP)
+    } else {
+        GAP
+    };
+    let lower = if panel_top {
+        GAP
+    } else {
+        panel_height.saturating_add(GAP)
+    };
+    let Some(max_x) = width.checked_sub(ICON_WIDTH.saturating_add(GAP)) else {
+        return result;
+    };
+    let Some(max_y) = height.checked_sub(ICON_HEIGHT.saturating_add(lower)) else {
+        return result;
+    };
+    if upper > max_y {
+        return result;
+    }
     let step_x = ICON_WIDTH.saturating_add(GAP);
     let step_y = ICON_HEIGHT.saturating_add(GAP);
-    let mut occupied: Vec<Rect> = static_positions.iter().flatten()
-        .map(|&(x, y)| Rect { x, y, w: ICON_WIDTH, h: ICON_HEIGHT }).collect();
+    let mut occupied: Vec<Rect> = static_positions
+        .iter()
+        .flatten()
+        .map(|&(x, y)| Rect {
+            x,
+            y,
+            w: ICON_WIDTH,
+            h: ICON_HEIGHT,
+        })
+        .collect();
     // Cap both dimensions even if the compositor reports absurd geometry.
     let max_x = max_x.min(MAX_SAVED_POSITION);
     let max_y = max_y.min(MAX_SAVED_POSITION);
     for (index, entry) in entries.iter().take(inventory::MAX_VISIBLE).enumerate() {
-        if !saved.visible_on(&entry.key, output_name, is_primary, connected) { continue; }
+        if !saved.visible_on(&entry.key, output_name, is_primary, connected) {
+            continue;
+        }
         let is_free = |x: u32, y: u32, occupied: &[Rect]| {
-            let rect = Rect { x, y, w: ICON_WIDTH, h: ICON_HEIGHT };
+            let rect = Rect {
+                x,
+                y,
+                w: ICON_WIDTH,
+                h: ICON_HEIGHT,
+            };
             occupied.iter().all(|other| !rect.intersects(*other))
         };
-        let remembered = saved.coordinates(&entry.key, output_name)
+        let remembered = saved
+            .coordinates(&entry.key, output_name)
             .map(|p| (p.x.min(max_x), p.y.clamp(upper, max_y)))
             .filter(|&(x, y)| is_free(x, y, &occupied));
         let mut chosen = remembered;
@@ -509,17 +868,26 @@ pub fn place_files(
                         break 'columns;
                     }
                     let next = y.saturating_add(step_y);
-                    if next <= y { break; }
+                    if next <= y {
+                        break;
+                    }
                     y = next;
                 }
                 let next = x.saturating_add(step_x);
-                if next <= x { break; }
+                if next <= x {
+                    break;
+                }
                 x = next;
             }
         }
         if let Some((x, y)) = chosen {
             result[index] = Some((x, y));
-            occupied.push(Rect { x, y, w: ICON_WIDTH, h: ICON_HEIGHT });
+            occupied.push(Rect {
+                x,
+                y,
+                w: ICON_WIDTH,
+                h: ICON_HEIGHT,
+            });
         }
     }
     result
@@ -531,15 +899,19 @@ mod desktop_file_layout_tests {
     use std::ffi::OsString;
 
     fn files(count: usize) -> Vec<inventory::Entry> {
-        (0..count).map(|n| inventory::Entry {
-            key: inventory::Key {
-                device: 1, inode: n as u64 + 1000, name: OsString::from(format!("file-{n}")),
-            },
-            kind: inventory::Kind::File,
-            label: format!("File {n}"),
-            stamp: inventory::Stamp::default(),
-            birth: None,
-        }).collect()
+        (0..count)
+            .map(|n| inventory::Entry {
+                key: inventory::Key {
+                    device: 1,
+                    inode: n as u64 + 1000,
+                    name: OsString::from(format!("file-{n}")),
+                },
+                kind: inventory::Kind::File,
+                label: format!("File {n}"),
+                stamp: inventory::Stamp::default(),
+                birth: None,
+            })
+            .collect()
     }
 
     #[test]
@@ -547,17 +919,31 @@ mod desktop_file_layout_tests {
         let outputs = ["eDP-1".to_string()];
         for count in [0, 1, 100, 1000] {
             let entries = files(count);
-            let placed = place_files(&entries, &file_state::FilePositions::default(),
-                                     "eDP-1", true, &outputs, &[],
-                                     1024, 768, true, 40);
+            let placed = place_files(
+                &entries,
+                &file_state::FilePositions::default(),
+                "eDP-1",
+                true,
+                &outputs,
+                &[],
+                1024,
+                768,
+                true,
+                40,
+            );
             assert_eq!(placed.len(), count);
-            assert!(placed.iter().skip(inventory::MAX_VISIBLE).all(Option::is_none));
+            assert!(placed
+                .iter()
+                .skip(inventory::MAX_VISIBLE)
+                .all(Option::is_none));
             let positions: Vec<_> = placed.iter().flatten().collect();
-            assert!(positions.iter().all(|&&(x, y)|
-                x + ICON_WIDTH <= 1024 && y >= 48 && y + ICON_HEIGHT <= 760));
+            assert!(positions
+                .iter()
+                .all(|&&(x, y)| x + ICON_WIDTH <= 1024 && y >= 48 && y + ICON_HEIGHT <= 760));
             for (i, &&(x, y)) in positions.iter().enumerate() {
-                assert!(positions.iter().skip(i + 1).all(|&&(ox, oy)|
-                    x.abs_diff(ox) >= ICON_WIDTH || y.abs_diff(oy) >= ICON_HEIGHT));
+                assert!(positions.iter().skip(i + 1).all(|&&(ox, oy)| x.abs_diff(ox)
+                    >= ICON_WIDTH
+                    || y.abs_diff(oy) >= ICON_HEIGHT));
             }
         }
     }
@@ -566,19 +952,54 @@ mod desktop_file_layout_tests {
     fn saved_coordinates_static_icons_and_output_hotplug_are_respected() {
         let entries = files(2);
         let mut saved = file_state::FilePositions::default();
-        saved.set(&entries[0].key, "HDMI-A-1",
-                  crate::icon_positions::Coordinates { x: 250, y: 300 }).unwrap();
+        saved
+            .set(
+                &entries[0].key,
+                "HDMI-A-1",
+                crate::icon_positions::Coordinates { x: 250, y: 300 },
+            )
+            .unwrap();
         let both = ["eDP-1".into(), "HDMI-A-1".into()];
-        let primary = place_files(&entries, &saved, "eDP-1", true, &both,
-                                  &[Some((8, 48))], 1280, 800, true, 40);
+        let primary = place_files(
+            &entries,
+            &saved,
+            "eDP-1",
+            true,
+            &both,
+            &[Some((8, 48))],
+            1280,
+            800,
+            true,
+            40,
+        );
         assert_eq!(primary[0], None);
         assert!(primary[1].is_some_and(|pos| pos != (8, 48)));
-        let external = place_files(&entries, &saved, "HDMI-A-1", false, &both,
-                                   &[], 1280, 800, true, 40);
+        let external = place_files(
+            &entries,
+            &saved,
+            "HDMI-A-1",
+            false,
+            &both,
+            &[],
+            1280,
+            800,
+            true,
+            40,
+        );
         assert_eq!(external[0], Some((250, 300)));
         assert_eq!(external[1], None);
-        let disconnected = place_files(&entries, &saved, "eDP-1", true,
-                                       &["eDP-1".into()], &[], 1280, 800, true, 40);
+        let disconnected = place_files(
+            &entries,
+            &saved,
+            "eDP-1",
+            true,
+            &["eDP-1".into()],
+            &[],
+            1280,
+            800,
+            true,
+            40,
+        );
         assert!(disconnected[0].is_some());
     }
 }
