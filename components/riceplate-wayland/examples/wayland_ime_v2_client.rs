@@ -1,10 +1,11 @@
 //! CI-only genuine input-method-v2 producer for RicePlate text-input-v3.
 //! A separate client, communicating *only through labwc*, confirms that
-//! compositor-mediated preedit, commit and UTF-8 byte deletion reach Run.
+//! compositor-mediated preedit, commit and UTF-8 byte deletion reach a native editor.
 //! No test-only backdoors in RicePlate or input-method background services.
 
 use std::{
     error::Error,
+    path::PathBuf,
     time::{Duration, Instant},
 };
 
@@ -92,6 +93,7 @@ enum Phase {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    let preedit_observed = std::env::args_os().nth(1).map(PathBuf::from);
     let conn = Connection::connect_to_env()?;
     let (globals, mut queue) = registry_queue_init(&conn)?;
     let qh = queue.handle();
@@ -131,7 +133,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                     }
                 }
                 Phase::Preediting { serial, since }
-                    if probe.serial > serial && since.elapsed() >= Duration::from_millis(250) =>
+                    if probe.serial > serial
+                        && since.elapsed() >= Duration::from_millis(250)
+                        && preedit_observed.as_ref().is_none_or(|file| file.is_file()) =>
                 {
                     // A second compositor-confirmed transaction ends preedit
                     // and commits native CJK Unicode; keyboard events alone

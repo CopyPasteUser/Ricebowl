@@ -51,7 +51,10 @@ pub struct State {
 /// Pixel position of each *logical* caret in the visible, painted run.
 /// The visual measurement callback must not apply Unicode BiDi a second
 /// time. Text and the permutation are bounded by MAX_INPUT scalars.
-fn bidi_caret_pixels<F: Fn(&str) -> u32>(display: &str, measure_visual: &F) -> Option<Vec<u32>> {
+pub(crate) fn bidi_caret_pixels<F: Fn(&str) -> u32>(
+    display: &str,
+    measure_visual: &F,
+) -> Option<Vec<u32>> {
     let map = crate::bidi_layout::visual_cluster_map(display)?;
     let clusters: Vec<&str> = display.graphemes(true).collect();
     let mut visual_text = String::with_capacity(display.len());
