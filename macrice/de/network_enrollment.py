@@ -148,19 +148,19 @@ def create_enterprise_wifi(*, ssid: str, identity: str, domain: str,
         if _profile_setting(identifier, "connection.autoconnect").lower() not in (
                 "no", "false", "0"):
             raise backend.SettingsError("Enterprise Wi-Fi autoconnect is not disabled")
-        enterprise_password_ready(identifier)
+        _, saved_eap, saved_inner, saved_domain, system_ca, stored_ca, _ = (
+            _enterprise_password_policy(identifier))
         if (_profile_setting(identifier, "802-11-wireless.ssid") != name
                 or _profile_setting(identifier, "802-1x.identity") != username
-                or _profile_setting(identifier, "802-1x.eap") != eap
-                or _profile_setting(identifier, "802-1x.phase2-auth") != inner
-                or _profile_setting(identifier, "802-1x.domain-suffix-match") != host):
+                or (saved_eap, saved_inner, saved_domain) != (eap, inner, host)):
             raise backend.SettingsError("Enterprise Wi-Fi identity or security settings changed")
-        if cert is not None:
-            if _profile_setting(identifier, "802-1x.system-ca-certs").lower() not in (
-                    "no", "false", "0"):
+        if cert is None:
+            if system_ca not in ("yes", "true", "1"):
+                raise backend.SettingsError("System enterprise CA trust was overridden")
+        else:
+            if system_ca not in ("no", "false", "0"):
                 raise backend.SettingsError("Custom enterprise CA trust was overridden")
-            stored = _stored_ca_path(_profile_setting(identifier, "802-1x.ca-cert"))
-            if stored != cert:
+            if stored_ca != cert:
                 raise backend.SettingsError("Custom enterprise CA certificate changed")
     except backend.SettingsError as exc:
         raise backend.SettingsError(

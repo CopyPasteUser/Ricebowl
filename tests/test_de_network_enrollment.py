@@ -67,7 +67,7 @@ class NetworkEnrollmentTests(unittest.TestCase):
             def runner(*args, **_kwargs):
                 return values[args[1]] if args[0] == "-g" else ""
 
-            def create():
+            def create(certificate=str(chosen)):
                 with (
                     mock.patch.object(enrollment.uuidlib, "uuid4", return_value=UUID),
                     mock.patch.object(backend, "connection_profiles",
@@ -77,7 +77,7 @@ class NetworkEnrollmentTests(unittest.TestCase):
                     result = enrollment.create_enterprise_wifi(
                         ssid="Campus", identity="student",
                         domain="radius.campus.example", eap="peap",
-                        inner="mschapv2", ca_certificate=str(chosen))
+                        inner="mschapv2", ca_certificate=certificate)
                     return result, run.call_args_list
 
             result, calls = create()
@@ -85,6 +85,12 @@ class NetworkEnrollmentTests(unittest.TestCase):
             arguments = calls[0].args
             self.assertEqual(arguments[arguments.index("802-1x.system-ca-certs") + 1], "no")
             self.assertEqual(arguments[arguments.index("802-1x.ca-cert") + 1], str(chosen))
+
+            # A valid local CA is still the wrong trust policy when the user
+            # requested the system trust store and did not select that file.
+            with self.assertRaisesRegex(
+                    backend.SettingsError, "profile was added, but its safety"):
+                create("")
 
             # NetworkManager may report certificate paths with a file:// scheme.
             values["802-1x.ca-cert"] = "file://" + str(chosen)
