@@ -71,7 +71,12 @@ pub fn advance(
     let previous = current.and_then(|selected| targets.iter().position(|t| *t == selected));
     let index = previous.map_or_else(
         || if delta >= 0 { 0 } else { targets.len() - 1 },
-        |index| (index as isize + delta).rem_euclid(targets.len() as isize) as usize,
+        |index| {
+            // Never add an arbitrary signed step to an index: isize::MIN
+            // and isize::MAX can overflow before rem_euclid runs.
+            let shift = delta.rem_euclid(targets.len() as isize) as usize;
+            (index + shift) % targets.len()
+        },
     );
     Some(targets[index])
 }
@@ -234,6 +239,28 @@ mod tests {
             );
             assert!(recipe::task_view(style, width, 2, 0).is_some());
         }
+    }
+
+    #[test]
+    fn extreme_navigation_steps_do_not_overflow_or_select_stale_targets() {
+        let style = crate::recipe::load("classic").unwrap();
+        let targets = available(&style, 1200, 3, 0);
+        let start = targets
+            .iter()
+            .position(|target| *target == Target::Task(1))
+            .unwrap();
+        for delta in [isize::MIN, isize::MAX, -1, 1] {
+            let shift = delta.rem_euclid(targets.len() as isize) as usize;
+            let expected = targets[(start + shift) % targets.len()];
+            assert_eq!(
+                advance(&style, 1200, 3, Some(Target::Task(1)), delta, 0),
+                Some(expected)
+            );
+        }
+        assert_eq!(
+            advance(&style, 1200, 3, Some(Target::Task(99)), isize::MIN, 0),
+            targets.last().copied()
+        );
     }
 
     #[test]
