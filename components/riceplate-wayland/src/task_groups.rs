@@ -91,6 +91,9 @@ pub fn visible_label(group: &TaskGroup, cell_width: u32) -> String {
         return if count.len() <= capacity { count } else { "+".to_owned() };
     }
     let mut label: String = group.label.chars().take(capacity - suffix.len()).collect();
+    if label.is_empty() {
+        return suffix.trim_start().to_owned();
+    }
     label.push_str(&suffix);
     label
 }
