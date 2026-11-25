@@ -27,6 +27,7 @@ _DND_MODE = "ricebowl-do-not-disturb"
 _NOTIFICATION_BUS = "org.freedesktop.Notifications"
 _MAKO_PATH = "/fr/emersion/Mako"
 _MAKO_INTERFACE = "fr.emersion.Mako"
+_INBOX_ROW_LIMIT = 64
 
 
 def _expected_mako_config(candidate: bytes) -> bytes:
@@ -154,8 +155,12 @@ def set_dnd(enabled: bool, *, expected: bool | None = None) -> dict[str, Any]:
                 "Do Not Disturb may have changed; outcome unknown; refresh before retrying",
                 "dnd_outcome_unknown") from exc
         if result.returncode:
+            # A negative process exit does not prove that the mode write was
+            # not applied before the reply or client-side verification failed.
+            # Re-read current owner/state explicitly; never auto-replay.
             raise NotificationBridgeError(
-                "Notification host rejected Do Not Disturb", "dnd_rejected")
+                "Do Not Disturb may have changed; outcome unknown; refresh before retrying",
+                "dnd_outcome_unknown")
     try:
         verified_owner = _owned_mako()
         if verified_owner != (command, pid):
@@ -225,10 +230,20 @@ def _validate_records(records: object, *, include_actions: bool = False
         raise NotificationBridgeError("Notification list must be an array",
                                       "invalid_notification_response")
     result = []
-    for record in records[:64]:
+    seen_ids: set[int] = set()
+    candidates = records if include_actions else records[:_INBOX_ROW_LIMIT]
+    for record in candidates:
         if type(record) is not dict or type(record.get("id")) is not int or not 0 < record["id"] <= 2**32 - 1:
             raise NotificationBridgeError("Notification entry is invalid",
                                           "invalid_notification_response")
+        if include_actions:
+            # An active row beyond the display cap can still share a visible ID.
+            if record["id"] in seen_ids:
+                raise NotificationBridgeError("Active notification inventory is ambiguous",
+                                              "ambiguous_notification_id")
+            seen_ids.add(record["id"])
+        if len(result) == _INBOX_ROW_LIMIT:
+            continue
         for key in ("summary", "body", "app_name", "urgency"):
             if record.get(key) is not None and type(record[key]) is not str:
                 raise NotificationBridgeError("Notification text is invalid",
@@ -253,7 +268,7 @@ def _validate_records(records: object, *, include_actions: bool = False
                 actions.append({"key": key, "label": label})
             entry["actions"] = actions
         result.append(entry)
-    return result, len(records) > 64
+    return result, len(records) > _INBOX_ROW_LIMIT
 
 
 def _busctl_records(raw: bytes, *, include_actions: bool = False
@@ -281,8 +296,10 @@ def _busctl_records(raw: bytes, *, include_actions: bool = False
 
     fields = {"id": "u", "summary": "s", "body": "s", "app-name": "s",
               "urgency": "y", "actions": "a{ss}"}
+    entries = reply["data"][0]
+    candidates = entries if include_actions else entries[:_INBOX_ROW_LIMIT]
     result = []
-    for entry in reply["data"][0][:64]:
+    for entry in candidates:
         if type(entry) is not dict:
             raise NotificationBridgeError("Invalid Mako notification entry",
                                           "invalid_notification_response")
@@ -319,7 +336,7 @@ def _busctl_records(raw: bytes, *, include_actions: bool = False
             normalized["app_name" if key == "app-name" else key] = value
         result.append(normalized)
     validated, _ = _validate_records(result, include_actions=include_actions)
-    return validated, len(reply["data"][0]) > 64
+    return validated, len(entries) > _INBOX_ROW_LIMIT
 
 
 def _read_mako(action: str, *, include_actions: bool = False
@@ -349,6 +366,12 @@ def inspect() -> dict[str, Any]:
     truncated = False
     for source, action in (("active", "ListNotifications"), ("history", "ListHistory")):
         snapshots[source], limited = _read_mako(action, include_actions=source == "active")
+        if source == "active" and len({record["id"] for record in snapshots[source]}) != len(snapshots[source]):
+            # Two current rows with the same numeric ID cannot have distinct
+            # safe dismiss/action targets. Never render ambiguous private
+            # actions even when the host's JSON is otherwise well-formed.
+            raise NotificationBridgeError("Active notification inventory is ambiguous",
+                                          "ambiguous_notification_id")
         truncated |= limited
     return {"ok": True, "backend": "mako", "active": snapshots["active"],
             "history": snapshots["history"], "truncated": truncated,
