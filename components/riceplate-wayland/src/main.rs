@@ -11842,10 +11842,13 @@ impl KeyboardHandler for RicePlate {
                 // OnDemand immediately. Retaining Exclusive here can prevent
                 // ordinary XDG toplevels from obtaining keyboard focus even
                 // after they map and receive a real pointer gesture.
-                // Ownership still requires the exact compositor-confirmed
-                // wl_keyboard.enter, and Leave always revokes the lease.
+                // labwc deliberately clears focus when switching to OnDemand.
+                // Keep the explicit panel-navigation gesture on the bounded
+                // overlay until Escape, activation, Leave or its deadline.
                 if let Some(focus) = self.desktop_keyboard_focus_layer.as_ref() {
-                    if focus.surface.wl_surface() == surface {
+                    if focus.surface.wl_surface() == surface
+                        && !matches!(focus.target, DesktopFocusTarget::Panel(_))
+                    {
                         focus
                             .surface
                             .set_keyboard_interactivity(KeyboardInteractivity::OnDemand);
