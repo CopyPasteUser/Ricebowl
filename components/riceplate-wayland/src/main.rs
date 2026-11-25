@@ -14181,6 +14181,12 @@ impl Dispatch<ZwpTextInputV3, ()> for RicePlate {
                         .set_content_type(ContentHint::PreeditShown, ContentPurpose::Normal);
                     state.refresh_ime_state(ChangeCause::Other);
                 } else {
+                    // Some compositors retain the old enabled state when
+                    // Leave overtakes our close. Reset it on this fresh Enter
+                    // before allowing a different editor on the same surface.
+                    ime.input.disable();
+                    ime.input.commit();
+                    ime.committed_serial = ime.committed_serial.wrapping_add(1);
                     state.sync_menu_ime(ChangeCause::Other);
                 }
             }
