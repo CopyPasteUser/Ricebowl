@@ -1490,18 +1490,34 @@ struct LunaDialogLayer {
     state: luna_dialog::State,
 }
 
-/// The keyboard seat owns one text-input-v3 proxy; only a compositor Enter
-/// for the exact live editable Luna surface enables it. Commands, filenames,
-/// preedit and surrounding text remain private and are never logged.
+/// The keyboard seat owns one text-input-v3 proxy for the exact focused
+/// editable dialog or menu surface. Its associated text stays in memory.
 struct NativeIme {
     seat: wl_seat::WlSeat,
     input: ZwpTextInputV3,
     focused_surface: Option<wl_surface::WlSurface>,
     enabled_surface: Option<wl_surface::WlSurface>,
+    menu_view: Option<native_menu::View>,
+    menu_query: String,
+    menu_size: (u32, u32),
     committed_serial: u32,
     pending: native_ime::Pending,
     composing: bool,
     recent_commit: Option<native_ime::RecentCommit>,
+}
+
+impl NativeIme {
+    fn accept_done(&mut self, pending: &native_ime::Pending, composing: bool) {
+        self.composing = composing;
+        if let Some(text) = pending.commit.as_ref().filter(|text| !text.is_empty()) {
+            self.recent_commit = Some(native_ime::RecentCommit {
+                at: Instant::now(),
+                text: text.clone(),
+            });
+        } else if pending.preedit.is_some() {
+            self.recent_commit = None;
+        }
+    }
 }
 
 struct FileContextLayer {
@@ -3333,9 +3349,108 @@ impl RicePlate {
             ime.input.commit();
             ime.committed_serial = ime.committed_serial.wrapping_add(1);
         }
+        ime.menu_view = None;
+        ime.menu_query.clear();
         ime.pending.reset();
         ime.composing = false;
         ime.recent_commit = None;
+        self.menu_state.preedit = None;
+    }
+
+    fn editable_menu_view(&self) -> Option<native_menu::View> {
+        let view = self.menu_state.view;
+        (self.menu_focused
+            && self.menu_state.visible
+            && !self.notification_state.open
+            && matches!(
+                view,
+                native_menu::View::Search | native_menu::View::Programs
+            ))
+        .then_some(view)
+    }
+
+    /// Enter can precede keyboard focus, and Search and Programs share a
+    /// surface with the noneditable menu. Reconcile both view and focus.
+    fn sync_menu_ime(&mut self, cause: ChangeCause) {
+        let Some(ime) = self.native_ime.as_ref() else {
+            return;
+        };
+        let target = self
+            .editable_menu_view()
+            .zip(self.active_menu.as_ref())
+            .filter(|(_, surface)| ime.focused_surface.as_ref() == Some(*surface));
+        let Some((view, surface)) = target else {
+            if ime.menu_view.is_some() {
+                self.deactivate_ime();
+            }
+            return;
+        };
+        let enable = ime.menu_view != Some(view)
+            || ime.enabled_surface.as_ref() != Some(surface)
+            || (ime.composing && self.menu_state.preedit.is_none());
+        let size = self.active_menu_size();
+        if !enable
+            && ime.menu_query == self.menu_state.search
+            && ime.menu_size == size
+            && cause == ChangeCause::Other
+        {
+            return;
+        }
+        let surface = surface.clone();
+        if enable {
+            self.deactivate_ime();
+        }
+        let (paint_size, origin) = if native_menu::compact_layout(size) {
+            (
+                size,
+                (
+                    8,
+                    size.1.saturating_sub(native_menu::COMPACT_FOOTER_HEIGHT) + 8,
+                ),
+            )
+        } else {
+            let sidebar = self
+                .recipe
+                .menu
+                .as_ref()
+                .is_some_and(|menu| menu.presentation == recipe::MenuPresentation::Sidebar);
+            let x = if sidebar {
+                native_menu::SIDEBAR_WIDTH + 8
+            } else {
+                12
+            };
+            ((native_menu::WIDTH, native_menu::HEIGHT), (x, 91))
+        };
+        let width = paint_size.0.saturating_sub(origin.0 + 4);
+        let caret = menu_preedit_line(&self.menu_state, width, &self.recipe)
+            .and_then(|line| line.caret)
+            .unwrap_or_else(|| {
+                rice_text_width(
+                    &format!("{}{}", menu_query_prefix(view), self.menu_state.search),
+                    &self.recipe,
+                )
+            });
+        let x = (origin.0 + caret.min(width)) * size.0 / paint_size.0.max(1);
+        let y = origin.1 * size.1 / paint_size.1.max(1);
+        let caret_height = 8 * self.recipe.font_scale * size.1 / paint_size.1.max(1);
+        let ime = self.native_ime.as_mut().expect("checked above");
+        if enable {
+            ime.enabled_surface = Some(surface);
+            ime.menu_view = Some(view);
+            ime.input.enable();
+            ime.input
+                .set_content_type(ContentHint::PreeditShown, ContentPurpose::Normal);
+        }
+        let query = &self.menu_state.search;
+        let end = query.len() as i32;
+        ime.menu_query.clone_from(query);
+        ime.menu_size = size;
+        ime.input.set_surrounding_text(query.clone(), end, end);
+        ime.input.set_text_change_cause(cause);
+        ime.input
+            .set_cursor_rectangle(x as i32, y as i32, 2, caret_height.max(1) as i32);
+        ime.input.commit();
+        ime.committed_serial = ime.committed_serial.wrapping_add(1);
     }
 
     /// Synchronize at the same logical edit/caret boundary used by the
@@ -4448,9 +4563,9 @@ impl RicePlate {
                         20_950,
                         20_000,
                         label,
-                        &self.menu_state.search,
+                        &self.menu_state.displayed_query(),
                         self.menu_state.search_caret(),
-                        None,
+                        self.menu_state.search_anchor(),
                     );
                 }
                 model.add(
@@ -5448,6 +5563,7 @@ impl RicePlate {
             self.active_menu = None;
             self.menu_state.close();
             self.menu_focused = false;
+            self.sync_menu_ime(ChangeCause::Other);
         }
         if self.preview_secondary_menu {
             if let Some(surface) = self
@@ -5724,6 +5840,7 @@ impl RicePlate {
         self.notification_state.close();
         self.menu_focused = false;
         self.active_menu = None;
+        self.sync_menu_ime(ChangeCause::Other);
         for layer in self.menu_layer.iter().chain(self.menu_mirrors.iter()) {
             layer
                 .surface
@@ -6035,6 +6152,7 @@ impl RicePlate {
     }
 
     fn redraw_menu(&mut self, _qh: &QueueHandle<Self>) {
+        self.sync_menu_ime(ChangeCause::Other);
         let Some(active) = self.active_menu.as_ref() else {
             return;
         };
@@ -9080,6 +9198,105 @@ fn paint_compact_menu(
     paint_compact_menu_state(canvas, menu, style, state, size, None);
 }
 
+fn menu_query_prefix(view: native_menu::View) -> &'static str {
+    if view == native_menu::View::Programs {
+        "Filter: "
+    } else {
+        "Find: "
+    }
+}
+
+struct MenuPreeditLine {
+    text: String,
+    underline: (u32, u32),
+    caret: Option<u32>,
+}
+
+fn menu_preedit_line(
+    state: &MenuState,
+    available: u32,
+    style: &PanelStyle,
+) -> Option<MenuPreeditLine> {
+    use unicode_segmentation::UnicodeSegmentation;
+
+    let preedit = state.preedit.as_ref()?;
+    let prefix = menu_query_prefix(state.view);
+    let remaining = available.saturating_sub(rice_text_width(prefix, style));
+    let candidate = fit_rice_text(&preedit.text, remaining, style);
+    let committed = fit_rice_text(
+        &state.search,
+        remaining.saturating_sub(rice_text_width(&candidate, style)),
+        style,
+    );
+    let end_of_committed = prefix.len() + committed.len();
+    let text = fit_rice_text(&format!("{prefix}{committed}{candidate}"), available, style);
+    let points = text
+        .grapheme_indices(true)
+        .map(|(index, _)| index)
+        .chain(std::iter::once(text.len()))
+        .collect::<Vec<_>>();
+    let bidi = luna_dialog::bidi_caret_pixels(&text, &|part| luna_dialog_visual_width(style, part));
+    let position = |cluster: usize| {
+        bidi.as_ref()
+            .map_or_else(
+                || rice_text_width(&text[..points[cluster]], style),
+                |edges| edges[cluster],
+            )
+            .min(available.saturating_sub(1))
+    };
+    let start = position(
+        points
+            .partition_point(|&byte| byte <= end_of_committed)
+            .saturating_sub(1),
+    );
+    let end = position(points.len() - 1);
+    let caret = preedit.cursor.map(|cursor| {
+        let offset = end_of_committed + cursor;
+        position(
+            points
+                .partition_point(|&byte| byte < offset)
+                .min(points.len() - 1),
+        )
+    });
+    Some(MenuPreeditLine {
+        text,
+        underline: (start.min(end), start.max(end)),
+        caret,
+    })
+}
+
+fn paint_menu_preedit(
+    canvas: &mut [u8],
+    size: (u32, u32),
+    origin: (u32, u32),
+    color: u32,
+    style: &PanelStyle,
+    state: &MenuState,
+) -> bool {
+    let Some(line) = menu_preedit_line(state, size.0.saturating_sub(origin.0 + 4), style) else {
+        return false;
+    };
+    let (x, y) = origin;
+    let (width, height) = size;
+    let glyph_height = 8 * style.font_scale;
+    draw_rice_text(canvas, width, height, x, y, &line.text, color, style);
+    let (from, to) = line.underline;
+    fill_rect(
+        canvas,
+        width,
+        height,
+        x + from,
+        y + glyph_height + 1,
+        to - from,
+        1,
+        color,
+    );
+    if let Some(caret) = line.caret {
+        fill_rect(canvas, width, height, x + caret, y, 1, glyph_height, color);
+    }
+    true
+}
+
 fn paint_compact_menu_state(
     canvas: &mut [u8],
     menu: &recipe::NativeMenu,
@@ -9254,19 +9471,21 @@ fn paint_compact_menu_state(
             actions.len()
         )
     };
-    draw_rice_text(
-        canvas,
-        width,
-        height,
-        8,
-        footer_y + 8,
-        &footnote
-            .chars()
-            .take((width.saturating_sub(12) / (8 * style.font_scale)) as usize)
-            .collect::<String>(),
-        fg,
-        style,
-    );
+    if !paint_menu_preedit(canvas, (width, height), (8, footer_y + 8), fg, style, state) {
+        draw_rice_text(
+            canvas,
+            width,
+            height,
+            8,
+            footer_y + 8,
+            &footnote
+                .chars()
+                .take((width.saturating_sub(12) / (8 * style.font_scale)) as usize)
+                .collect::<String>(),
+            fg,
+            style,
+        );
+    }
 }
 
 /// A single persistence boundary for F2 and menu pointer pin/unpin. Never
@@ -9469,7 +9688,9 @@ fn paint_menu_state(
     } else {
         12
     };
-    if state.view == native_menu::View::Search {
+    let query_painted =
+        paint_menu_preedit(canvas, (width, height), (content_x, 91), fg, style, state);
+    if !query_painted && state.view == native_menu::View::Search {
         draw_rice_text(
             canvas,
             width,
@@ -9480,7 +9701,7 @@ fn paint_menu_state(
             fg,
             style,
         );
-    } else if state.view == native_menu::View::Programs {
+    } else if !query_painted && state.view == native_menu::View::Programs {
         draw_rice_text(
             canvas,
             width,
@@ -11468,6 +11689,9 @@ impl SeatHandler for RicePlate {
                             input,
                             focused_surface: None,
                             enabled_surface: None,
+                            menu_view: None,
+                            menu_query: String::new(),
+                            menu_size: (0, 0),
                             committed_serial: 0,
                             pending: native_ime::Pending::default(),
                             composing: false,
@@ -11520,6 +11744,9 @@ impl SeatHandler for RicePlate {
                 keyboard.release();
             }
             self.menu_focused = false;
+            if self.menu_state.preedit.take().is_some() {
+                self.redraw_menu(qh);
+            }
             self.calendar_focused = false;
             self.luna_dialog_focused = false;
             self.keyboard_icon_surface = None;
@@ -11665,6 +11892,7 @@ impl KeyboardHandler for RicePlate {
             .as_ref()
             .is_some_and(|menu| menu.surface.wl_surface() == surface);
         self.menu_focused = self.menu_state.visible && self.active_menu.as_ref() == Some(surface);
+        self.sync_menu_ime(ChangeCause::Other);
         self.calendar_focused =
             self.calendar_state.visible && self.active_calendar.as_ref() == Some(surface);
         self.tray_popup_focused =
@@ -12469,6 +12697,26 @@ impl KeyboardHandler for RicePlate {
         let Some(menu) = self.recipe.menu.as_ref() else {
             return;
         };
+        if let Some(ime) = self
+            .native_ime
+            .as_mut()
+            .filter(|ime| ime.menu_view.is_some())
+        {
+            // Candidate navigation, text and the accepting Return belong to
+            // the IME while it composes. Escape still dismisses the menu view.
+            if event.keysym != Keysym::Escape
+                && (ime.composing
+                    || native_ime::suppress_keyboard_echo(
+                        false,
+                        &mut ime.recent_commit,
+                        Instant::now(),
+                        event.utf8.as_deref(),
+                        matches!(event.keysym, Keysym::Return | Keysym::KP_Enter),
+                    ))
+            {
+                return;
+            }
+        }
         let active_compact = self
             .active_menu
             .as_ref()
@@ -13899,7 +14147,7 @@ impl Dispatch<ZwpTextInputV3, ()> for RicePlate {
         event: zwp_text_input_v3::Event,
         _: &(),
         _: &Connection,
-        _: &QueueHandle<Self>,
+        qh: &QueueHandle<Self>,
     ) {
         if state
             .native_ime
@@ -13919,9 +14167,13 @@ impl Dispatch<ZwpTextInputV3, ()> for RicePlate {
                 });
                 let ime = state.native_ime.as_mut().expect("checked above");
                 ime.focused_surface = Some(surface.clone());
+                ime.enabled_surface = None;
+                ime.menu_view = None;
+                ime.menu_query.clear();
                 ime.pending.reset();
                 ime.composing = false;
                 ime.recent_commit = None;
+                state.menu_state.preedit = None;
                 if editable {
                     ime.enabled_surface = Some(surface);
                     ime.input.enable();
@@ -13929,7 +14181,13 @@ impl Dispatch<ZwpTextInputV3, ()> for RicePlate {
                         .set_content_type(ContentHint::PreeditShown, ContentPurpose::Normal);
                     state.refresh_ime_state(ChangeCause::Other);
                 } else {
-                    state.deactivate_ime();
+                    // Some compositors retain the old enabled state when
+                    // Leave overtakes our close. Reset it on this fresh Enter
+                    // before allowing a different editor on the same surface.
+                    ime.input.disable();
+                    ime.input.commit();
+                    ime.committed_serial = ime.committed_serial.wrapping_add(1);
+                    state.sync_menu_ime(ChangeCause::Other);
                 }
             }
             zwp_text_input_v3::Event::Leave { surface } => {
@@ -13941,9 +14199,14 @@ impl Dispatch<ZwpTextInputV3, ()> for RicePlate {
                 // After Leave the protocol rejects requests until Enter:
                 // do not issue a late disable/commit on the old surface.
                 ime.enabled_surface = None;
+                ime.menu_view = None;
+                ime.menu_query.clear();
                 ime.pending.reset();
                 ime.composing = false;
                 ime.recent_commit = None;
+                if state.menu_state.preedit.take().is_some() {
+                    state.redraw_menu(qh);
+                }
                 if let Some(dialog) = state.luna_dialog.as_mut() {
                     if dialog.surface.wl_surface() == &surface {
                         dialog.state.preedit = None;
@@ -13974,14 +14237,32 @@ impl Dispatch<ZwpTextInputV3, ()> for RicePlate {
                 }
             }
             zwp_text_input_v3::Event::Done { serial } => {
-                let (pending, owned, matches_serial) = {
+                let (pending, owned, matches_serial, menu_view) = {
                     let ime = state.native_ime.as_mut().expect("checked above");
                     (
                         std::mem::take(&mut ime.pending),
                         ime.enabled_surface.clone(),
                         ime.committed_serial == serial,
+                        ime.menu_view,
                     )
                 };
+                if menu_view.is_some() {
+                    if matches_serial
+                        && state.editable_menu_view() == menu_view
+                        && owned.is_some()
+                        && owned.as_ref() == state.active_menu.as_ref()
+                        && state.menu_state.apply_ime(&pending)
+                    {
+                        state
+                            .native_ime
+                            .as_mut()
+                            .expect("checked above")
+                            .accept_done(&pending, state.menu_state.preedit.is_some());
+                        state.sync_menu_ime(ChangeCause::InputMethod);
+                        state.redraw_menu(qh);
+                    }
+                    return;
+                }
                 let matching = owned.as_ref().is_some_and(|surface| {
                     state
                         .luna_dialog
@@ -13997,23 +14278,11 @@ impl Dispatch<ZwpTextInputV3, ()> for RicePlate {
                     .is_some_and(|dialog| dialog.state.apply_ime(&pending));
                 if updated {
                     if let Some(ime) = state.native_ime.as_mut() {
-                        ime.composing = state
+                        let composing = state
                             .luna_dialog
                             .as_ref()
                             .is_some_and(|dialog| dialog.state.preedit.is_some());
-                        if let Some(text) = pending.commit.as_ref().filter(|text| !text.is_empty())
-                        {
-                            // Retain only a short-lived, in-memory identity
-                            // of the accepted commit for exact echo matching.
-                            // A different immediate key remains responsive.
-                            ime.recent_commit = Some(native_ime::RecentCommit {
-                                at: Instant::now(),
-                                text: text.clone(),
-                            });
-                        } else if pending.preedit.is_some() {
-                            // A fresh composition invalidates any old echo.
-                            ime.recent_commit = None;
-                        }
+                        ime.accept_done(&pending, composing);
                     }
                     state.redraw_luna_dialog();
                     // A mismatched Done is still an edit per protocol, but
@@ -16176,6 +16445,56 @@ mod tests {
             rice_text_width("WWW", &legacy),
             rice_text_width("iii", &legacy)
         );
+    }
+
+    #[test]
+    fn menu_preedit_is_painted_with_a_bounded_caret_and_underline() {
+        let classic = recipe::load("classic").unwrap();
+        let mut luna = recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns"),
+        )
+        .unwrap();
+        luna.native_art = Some(
+            style_art::load(luna.artwork.as_ref().unwrap(), luna.font_scale)
+                .expect("embedded Luna artwork"),
+        );
+        for (style, width) in [(&classic, 140_u32), (&luna, 320_u32)] {
+            let mut state = native_menu::MenuState::default();
+            state.open();
+            state.start_search();
+            assert!(state.search_input("already typed filter"));
+            let mut pending = native_ime::Pending::default();
+            pending.preedit(Some("にほんご".into()), 6, 6);
+            assert!(state.apply_ime(&pending));
+            let line = menu_preedit_line(&state, width - 12, style).unwrap();
+            assert!(line.text.ends_with("にほんご"));
+            assert!(line.underline.0 < line.caret.unwrap());
+            assert!(line.caret.unwrap() < line.underline.1);
+            assert!(line.underline.1 < width - 12);
+            let color = 0xff12_3456_u32;
+            let mut pixels = vec![0; (width * 40 * 4) as usize];
+            assert!(paint_menu_preedit(
+                &mut pixels,
+                (width, 40),
+                (8, 4),
+                color,
+                style,
+                &state
+            ));
+            let underline =
+                ((5 + 8 * style.font_scale) * width + 8 + line.underline.0) as usize * 4;
+            assert_eq!(&pixels[underline..underline + 4], &color.to_le_bytes());
+            state.close();
+            assert!(!paint_menu_preedit(
+                &mut pixels,
+                (width, 40),
+                (8, 4),
+                color,
+                style,
+                &state
+            ));
+        }
     }
 
     #[test]

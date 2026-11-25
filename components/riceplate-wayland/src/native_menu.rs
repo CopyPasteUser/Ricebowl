@@ -2,6 +2,7 @@
 //! Every row maps to a validated recipe action; labels never become commands.
 
 use std::{
+    borrow::Cow,
     collections::HashSet,
     time::{Duration, Instant},
 };
@@ -9,6 +10,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
     installed_apps::{self, App},
+    native_ime::{Pending, Preedit},
     recipe::{MenuContentKind, MenuPresentation, NativeMenu},
 };
 
@@ -182,6 +184,18 @@ pub enum View {
     Saved,
 }
 
+fn query_append_fits(prefix: &str, suffix: &str) -> bool {
+    prefix.len().saturating_add(suffix.len()) <= 96
+        && prefix
+            .chars()
+            .count()
+            .saturating_add(suffix.chars().count())
+            <= 32
+        && !suffix.chars().any(|c| {
+            c.is_control() || matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+        })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Hit {
     Group(usize),
@@ -251,6 +265,7 @@ pub struct MenuState {
     pub footer_hover: Option<Hit>,
     pub view: View,
     pub search: String,
+    pub(crate) preedit: Option<Preedit>,
     pub pins: Vec<String>,
     pub apps: Vec<App>,
     /// Only discovered XDG apps are displayed; the opt-in XP Luna rice may
@@ -465,11 +480,14 @@ impl MenuState {
         self.footer_hover = None;
         self.view = View::Groups;
         self.search.clear();
+        self.preedit = None;
         self.wheel_remainder = 0.0;
     }
 
     pub fn close(&mut self) {
         self.visible = false;
+        self.search.clear();
+        self.preedit = None;
         self.footer_hover = None;
         self.wheel_remainder = 0.0;
     }
@@ -983,10 +1001,7 @@ impl MenuState {
 
     pub fn start_search(&mut self) {
         self.view = View::Search;
-        self.search.clear();
-        self.notice = None;
-        self.selected = 0;
-        self.wheel_remainder = 0.0;
+        self.clear_search();
     }
 
     /// A genuine in-menu installed-app browser for Luna columns. The index is
@@ -994,10 +1009,7 @@ impl MenuState {
     /// desktop-entry path and never interpret desktop Exec strings here.
     pub fn show_programs(&mut self) {
         self.view = View::Programs;
-        self.search.clear();
-        self.selected = 0;
-        self.notice = None;
-        self.wheel_remainder = 0.0;
+        self.clear_search();
     }
 
     /// A visible mouse/AT equivalent of the existing slash/Backspace/Escape
@@ -1020,6 +1032,11 @@ impl MenuState {
 
     fn clear_search(&mut self) {
         self.search.clear();
+        self.preedit = None;
+        self.query_changed();
+    }
+
+    fn query_changed(&mut self) {
         self.selected = 0;
         self.notice = None;
         self.wheel_remainder = 0.0;
@@ -1052,24 +1069,66 @@ impl MenuState {
     /// executable action; control and BiDi override/isolate controls are
     /// rejected before rendering. Bounds apply to the final string.
     pub fn search_input(&mut self, text: &str) -> bool {
-        let incoming = text.chars().count();
-        if incoming == 0
-            || self.search.chars().count().saturating_add(incoming) > 32
-            || self.search.len().saturating_add(text.len()) > 96
-            || text.chars().any(|c| {
-                c.is_control() || matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
-            })
-        {
+        if text.is_empty() || !query_append_fits(&self.search, text) {
             return false;
         }
         if !matches!(self.view, View::Search | View::Programs) {
             self.start_search();
         }
         self.search.push_str(text);
-        self.selected = 0;
-        self.notice = None;
-        self.wheel_remainder = 0.0;
+        self.preedit = None;
+        self.query_changed();
         true
+    }
+
+    pub(crate) fn apply_ime(&mut self, pending: &Pending) -> bool {
+        if !self.visible
+            || !matches!(self.view, View::Search | View::Programs)
+            || pending.invalid_commit
+            || (pending.preedit.is_none() && pending.commit.is_none() && pending.delete.is_none())
+        {
+            return false;
+        }
+        let (before, after) = pending.delete.unwrap_or_default();
+        let Some(end) = self.search.len().checked_sub(before as usize) else {
+            return false;
+        };
+        if after != 0
+            || (before != 0
+                && !self
+                    .search
+                    .grapheme_indices(true)
+                    .any(|(start, _)| start == end))
+        {
+            return false;
+        }
+        let prefix = &self.search[..end];
+        let commit = pending.commit.as_deref().unwrap_or_default();
+        if !query_append_fits(prefix, commit) {
+            return false;
+        }
+        let mut query = String::from(prefix);
+        query.push_str(commit);
+        let preedit = match &pending.preedit {
+            Some(Ok(preedit)) if query_append_fits(&query, &preedit.text) => {
+                (!preedit.text.is_empty()).then(|| preedit.clone())
+            }
+            Some(_) => return false,
+            None => None,
+        };
+        if query != self.search {
+            self.search = query;
+            self.query_changed();
+        }
+        self.preedit = preedit;
+        true
+    }
+
+    pub(crate) fn displayed_query(&self) -> Cow<'_, str> {
+        self.preedit.as_ref().map_or_else(
+            || Cow::Borrowed(self.search.as_str()),
+            |preedit| Cow::Owned(format!("{}{}", self.search, preedit.text)),
+        )
     }
 
     /// Route one compositor keyboard text event into the search field.
@@ -1092,7 +1151,24 @@ impl MenuState {
     /// Publish the same extended-grapheme index to AT-SPI as the editor uses
     /// for backspace; Unicode scalars, bytes and ZWJ emoji are not caret steps.
     pub fn search_caret(&self) -> usize {
-        self.search.graphemes(true).count()
+        let Some(preedit) = self.preedit.as_ref() else {
+            return self.search.graphemes(true).count();
+        };
+        self.query_grapheme(self.search.len() + preedit.cursor.unwrap_or(preedit.text.len()))
+    }
+
+    pub(crate) fn search_anchor(&self) -> Option<usize> {
+        let preedit = self.preedit.as_ref()?;
+        let anchor = self.query_grapheme(self.search.len() + preedit.anchor?);
+        let caret = self.search_caret();
+        (anchor != caret).then_some(anchor)
+    }
+
+    fn query_grapheme(&self, cursor: usize) -> usize {
+        self.displayed_query()
+            .grapheme_indices(true)
+            .take_while(|(start, _)| *start < cursor)
+            .count()
     }
 
     /// Delete exactly one UAX #29 cluster, never one Unicode scalar. Search
@@ -1105,9 +1181,8 @@ impl MenuState {
             return false;
         };
         self.search.truncate(start);
-        self.selected = 0;
-        self.notice = None;
-        self.wheel_remainder = 0.0;
+        self.preedit = None;
+        self.query_changed();
         true
     }
 
@@ -1117,10 +1192,7 @@ impl MenuState {
         } else {
             View::Saved
         };
-        self.search.clear();
-        self.notice = None;
-        self.selected = 0;
-        self.wheel_remainder = 0.0;
+        self.clear_search();
     }
 
     pub fn back(&mut self) -> bool {
@@ -1128,10 +1200,7 @@ impl MenuState {
             return false;
         }
         self.view = View::Groups;
-        self.search.clear();
-        self.notice = None;
-        self.selected = 0;
-        self.wheel_remainder = 0.0;
+        self.clear_search();
         true
     }
 
@@ -2622,6 +2691,76 @@ mod tests {
         }
         assert_eq!(state.search, "");
         assert!(!state.backspace(), "empty search has no text to delete");
+    }
+
+    #[test]
+    fn menu_composition_filters_only_on_commit_and_clears_on_close() {
+        for view in [View::Search, View::Programs] {
+            let mut state = MenuState::default();
+            state.open();
+            match view {
+                View::Search => state.start_search(),
+                View::Programs => state.show_programs(),
+                _ => unreachable!(),
+            }
+            assert!(state.search_input("e\u{301}"));
+            state.selected = 3;
+            let mut pending = Pending::default();
+            pending.preedit(Some("にほん".into()), 3, 9);
+            assert!(state.apply_ime(&pending));
+            assert_eq!(state.search, "e\u{301}");
+            assert_eq!(state.selected, 3);
+            assert_eq!(state.displayed_query(), "e\u{301}にほん");
+            assert_eq!(state.search_caret(), 2);
+            assert_eq!(state.search_anchor(), Some(4));
+            assert!(!state.apply_ime(&Pending::default()));
+            assert_eq!(state.displayed_query(), "e\u{301}にほん");
+
+            pending.reset();
+            pending.commit(Some("日本".into()));
+            assert!(state.apply_ime(&pending));
+            assert_eq!(state.search, "e\u{301}日本");
+            assert_eq!(state.selected, 0);
+            assert_eq!(state.search_anchor(), None);
+            state.close();
+            assert!(!state.apply_ime(&pending));
+            assert!(state.displayed_query().is_empty());
+        }
+    }
+
+    #[test]
+    fn menu_ime_rejects_invalid_deletion_and_commit_as_one_transaction() {
+        let mut state = MenuState::default();
+        state.open();
+        state.start_search();
+        assert!(state.search_input("日本e\u{301}"));
+        for (before, after, text) in [
+            (1, 0, "界"),
+            (2, 0, "界"),
+            (3, 1, "界"),
+            (99, 0, "界"),
+            (3, 0, "\n"),
+            (3, 0, "\u{202e}"),
+            (3, 0, &"日".repeat(33)),
+        ] {
+            let mut pending = Pending::default();
+            pending.delete(before, after);
+            pending.commit(Some(text.to_owned()));
+            assert!(!state.apply_ime(&pending));
+            assert_eq!(state.search, "日本e\u{301}");
+        }
+        let mut pending = Pending::default();
+        pending.delete(3, 0);
+        pending.commit(Some("界".into()));
+        pending.preedit(Some("仮".into()), 1, 3);
+        assert!(!state.apply_ime(&pending));
+        assert_eq!(state.search, "日本e\u{301}");
+        pending.preedit = None;
+        assert!(state.apply_ime(&pending));
+        assert_eq!(state.search, "日本界");
+        assert!(state.back());
+        assert!(!state.apply_ime(&pending));
+        assert!(state.displayed_query().is_empty());
     }
 
     #[test]

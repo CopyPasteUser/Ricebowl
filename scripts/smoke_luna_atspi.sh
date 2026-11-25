@@ -130,6 +130,32 @@ dbus-run-session -- sh -eu -c '
         return 1
     }
 
+    start_menu_ime() {
+        name=$1
+        timeout -k 2s 18s "$ime" "$runtime/$name-preedit-observed" >"$runtime/$name-ime.log" 2>&1 &
+        imepid=$!
+    }
+
+    check_menu_ime() {
+        name=$1
+        label=$2
+        if ! probe --name "$label" --text "にほんご" --caret 4; then
+            cat "$runtime/$name-ime.log" >&2
+            if [ "${RICEBOWL_SG5_PROTOCOL_TRACE:-0}" = 1 ]; then
+                grep -E "text_input_v3|input_method_v2" "$runtime/native.log" | tail -n 80 >&2
+            fi
+            return 1
+        fi
+        : >"$runtime/$name-preedit-observed"
+        wait "$imepid" || { cat "$runtime/$name-ime.log" >&2; exit 1; }
+        imepid=
+        grep -Fq "PASS: real IME v2 -> labwc -> text-input-v3 preedit/commit/delete" "$runtime/$name-ime.log"
+        probe --name "$label" --text "日本界" --caret 3
+        wtype -k Escape
+        probe --name "$label" --absent
+        echo "SG5: real menu IME preedit/commit/delete and AT-SPI teardown for $name PASS"
+    }
+
     # SG5: Wayland Start menu text really reaches AccessKit/AT-SPI.
     # Groups have no editable query; Escape must revoke the transient run.
     "$clicker" 35 748 1366 768
@@ -144,6 +170,9 @@ dbus-run-session -- sh -eu -c '
     probe --name "Search applications and actions" --text "lib/ab" --caret 6
     wtype -k Escape
     probe --name "Search applications and actions" --absent
+    start_menu_ime search
+    wtype -k slash
+    check_menu_ime search "Search applications and actions"
     wtype -k Escape
     kill -0 "$plate"
     echo "SG5: real Start search keyboard/AT-SPI focus/text/teardown PASS"
@@ -177,6 +206,10 @@ dbus-run-session -- sh -eu -c '
     probe --name "Filter installed apps" --text "ab" --caret 2
     wtype -k Escape
     probe --name "Filter installed apps" --absent
+    start_menu_ime programs
+    "$clicker" "$((60 * menu_w / 320))" \
+        "$((768 - 40 - menu_h + 256 * menu_h / 304))" 1366 768
+    check_menu_ime programs "Filter installed apps"
     wtype -k Escape
     kill -0 "$plate"
     echo "SG5: real All Programs filter keyboard/AT-SPI focus/text/teardown PASS"
