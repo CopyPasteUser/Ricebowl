@@ -23,7 +23,7 @@ use wayland_protocols_misc::zwp_input_method_v2::client::{
 struct Probe {
     active: bool,
     serial: u32,
-    surrounding: String,
+    surrounding: Option<String>,
     unavailable: bool,
 }
 
@@ -65,13 +65,13 @@ impl Dispatch<ZwpInputMethodV2, ()> for Probe {
         match event {
             zwp_input_method_v2::Event::Activate => {
                 state.active = true;
-                state.surrounding.clear();
+                state.surrounding = None;
             }
             zwp_input_method_v2::Event::Deactivate => {
                 state.active = false;
             }
             zwp_input_method_v2::Event::SurroundingText { text, .. } => {
-                state.surrounding = text;
+                state.surrounding = Some(text);
             }
             zwp_input_method_v2::Event::Done => {
                 state.serial = state.serial.wrapping_add(1);
@@ -116,7 +116,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         } else {
             phase = match phase {
-                Phase::Waiting if probe.serial > 0 => {
+                Phase::Waiting if probe.serial > 0 && probe.surrounding.is_some() => {
                     // Real IME-visible, uncommitted Japanese candidate. The
                     // full UTF-8 cursor is supplied in bytes, not scalars.
                     let preedit = "にほんご";
@@ -149,7 +149,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     }
                 }
                 Phase::Committed { serial }
-                    if probe.serial > serial && probe.surrounding == "日本語" =>
+                    if probe.serial > serial && probe.surrounding.as_deref() == Some("日本語") =>
                 {
                     // Delete one complete 3-byte CJK grapheme before caret,
                     // replace with another, then require real surrounding
@@ -163,7 +163,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     }
                 }
                 Phase::Replaced { serial }
-                    if probe.serial > serial && probe.surrounding == "日本界" =>
+                    if probe.serial > serial && probe.surrounding.as_deref() == Some("日本界") =>
                 {
                     println!("PASS: real IME v2 -> labwc -> text-input-v3 preedit/commit/delete");
                     input.destroy();

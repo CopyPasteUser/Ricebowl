@@ -206,10 +206,9 @@ dbus-run-session -- sh -eu -c '
     probe --name "Filter installed apps" --text "ab" --caret 2
     wtype -k Escape
     probe --name "Filter installed apps" --absent
+    start_menu_ime programs
     "$clicker" "$((60 * menu_w / 320))" \
         "$((768 - 40 - menu_h + 256 * menu_h / 304))" 1366 768
-    probe --name "Filter installed apps" --text "" --caret 0
-    start_menu_ime programs
     check_menu_ime programs "Filter installed apps"
     wtype -k Escape
     kill -0 "$plate"
