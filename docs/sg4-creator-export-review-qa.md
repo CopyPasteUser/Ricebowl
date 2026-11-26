@@ -71,6 +71,48 @@ pixels. Tests that patch the native renderer use synthetic images **only for
 the test contract**, never as archived compositor proof. Actual rendered
 captures cannot be asserted until the native job completes at the PR head.
 
+## Apply/restore robustness evidence (WP4.2, local, 26 Nov 2026)
+
+`tests/test_sg4_apply_restore_robustness.py` (16 tests, private HOME/XDG,
+sentinel XFCE/login files asserted byte-identical) runs the real Creator
+client code (`creator_activation`), a real supervisor process (control socket,
+`_LiveSwitch`, journal, selection store) and real SIGKILLs injected at the
+actual write boundaries:
+
+- **Killed Creator:** SIGKILL the instant the confirmed apply (or restore) is
+  written to the socket. The supervisor completes it exactly once, stays up,
+  selection/journal/menu agree, and a new Creator process restores the
+  original rice; a stale restore token is refused.
+- **Interrupted journal:** kill before the journal is linked (only an unused
+  temp file remains), after a complete journal but before the selection commit
+  (rolled back to `unchanged`), and after the selection commit (restored to the
+  exact prior pinned state). A torn/empty journal is never applied or guessed
+  at: the login falls back to classic, the saved selection is left untouched,
+  further live switching is refused (`recovery_required`) and the operator hint
+  names the file to inspect and remove. The same crash points exist for RicePack
+  import (pending archive, receipt, recipe): no partial rice is loadable or
+  stageable until `pack-recover` rolls the exact archive forward; a torn or
+  tampered pending archive stays blocked.
+- **Malformed configuration:** truncated/empty/garbage/oversize/wrong-ID/
+  group-readable/symlinked installed recipes, corrupt selection state
+  (truncated, duplicate keys, unknown version, path IDs, mode, symlink), unsafe
+  or symlinked recipe directory, corrupt provenance receipts. Each fails closed
+  with no spawned component, menu/selection/journal untouched; the running rice
+  stays active and restorable. A FIFO planted over the selection, selection
+  lock or an installed recipe previously **hung** the reader in `open()`
+  (login/supervisor); the opens are now `O_NONBLOCK` and refuse non-regular
+  files. A corrupt receipt blocks export but not applying the local rice.
+- **Next login:** a staged selection, a confirmed live apply and a killed
+  supervisor are read back by a new process exactly as confirmed (ID and
+  semantic SHA-256); a rolled-back stage, a stale-review stage and a failed
+  live apply never reappear.
+
+Limits: compositor children are in-process stand-ins and no real labwc was
+started, so this does not replace the real-compositor Creator apply/restore
+smoke or hardware checks. A damaged journal requires a manual removal (no
+automated clearing, by design). Results: three passes of the new module, full
+suite 2000 tests OK (4 skipped).
+
 ## Remaining blocking SG4 sign-offs
 
 - Exact-head native CI success and archived, decoded labwc captures for both

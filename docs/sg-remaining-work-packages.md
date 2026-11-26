@@ -95,7 +95,7 @@ in `/home/rbdev/Ricebowl/components/riceplate-wayland`, then `chown`).
 | WP | Task | Done when | Where | Model |
 | --- | --- | --- | --- | --- |
 | 4.1 | **DONE locally (26 Nov, `main@8f1398c`):** `scripts.verify_wayland_creator_handoff` produced 8 real labwc captures (Heritage/Orbit × 640×480, 1366×768 @1.0/@1.25, 1920×1080) and a manifest with `capture_is_interactive: false`, `visual_tolerances_approved: false`. Needs `target/release` on PATH, as in CI. Still requires CI archive (4.6) | Done (local) | L | S |
-| 4.2 | GUI export→import, Creator exit→supervisor apply/restore, including killed Creator, interrupted journal, malformed config, relogin | Disposable-session tests for each case | L | O |
+| 4.2 | **PARTIAL (26 Nov, local):** killed Creator, interrupted journal (incl. torn journal, RicePack import crashes), malformed config and next-login/restart are proven with real Creator/supervisor processes and SIGKILLs at the real write boundaries (`tests/test_sg4_apply_restore_robustness.py`, 16 tests, 3 passes; full suite 2000 OK). Found/fixed: FIFO over selection/lock/recipe hung `open()`. **Open:** real-labwc Creator apply/restore smoke and real GUI export→import run | Disposable-session tests for each case | L | O |
 | 4.3 | Interactive pointer/keyboard/error/popup/AT checks on both imported rices | Real input receipts | L | S |
 | 4.4 | Approved reference captures and geometry/clip/text/hit-target tolerances | Owner approves tolerances; then tests enforce them | OWNER + L | S |
 | 4.5 | Rights audit of every asset (`rights_independently_verified` stays false until then) | Owner sign-off | OWNER | – |

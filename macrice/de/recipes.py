@@ -762,7 +762,7 @@ def load(token: str) -> PanelRecipe:
     if not path.is_absolute():
         raise RecipeError("Use a bundled recipe name or an absolute JSON file path")
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
         with os.fdopen(fd, "rb") as file:
             meta = os.fstat(file.fileno())
             if (not stat.S_ISREG(meta.st_mode) or meta.st_uid != os.geteuid()
@@ -793,7 +793,7 @@ def _read_import_source(source: Path) -> bytes:
     if not source.is_absolute() or source.suffix != ".json":
         raise RecipeError("Import requires an absolute .json file path")
     try:
-        fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
         with os.fdopen(fd, "rb") as file:
             meta = os.fstat(file.fileno())
             if (not stat.S_ISREG(meta.st_mode) or meta.st_uid != os.geteuid()
@@ -923,7 +923,7 @@ def native_token(token: str) -> str:
 def _read_selection(directory: Path) -> dict[str, Any] | None:
     path = directory / ".active-recipe"
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
     except FileNotFoundError:
         return None
     except OSError as exc:
@@ -990,7 +990,7 @@ def _restore_failed_live_selection(token: str, digest: str,
     """
     directory = _private_recipe_dir(create=True)
     lock = directory / ".active-recipe.lock"
-    descriptor = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    descriptor = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, 0o600)
     with os.fdopen(descriptor, "wb") as locked:
         meta = os.fstat(locked.fileno())
         if not stat.S_ISREG(meta.st_mode) or meta.st_uid != os.geteuid() or meta.st_mode & 0o077:
@@ -1071,7 +1071,7 @@ def change_selection(token: str | None = None, *, restore: bool = False,
         raise RecipeError("Expected recipe fingerprint must be a lowercase SHA-256")
     directory = _private_recipe_dir(create=True)
     lock = directory / ".active-recipe.lock"
-    descriptor = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    descriptor = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, 0o600)
     with os.fdopen(descriptor, "wb") as locked:
         meta = os.fstat(locked.fileno())
         if (not stat.S_ISREG(meta.st_mode) or meta.st_uid != os.geteuid()

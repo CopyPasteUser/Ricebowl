@@ -234,6 +234,10 @@ def start(
         recovered = live_recovery.reconcile()
         if recovered["status"] != "clean":
             print(f"RiceBowl: Wayland switch recovery: {recovered['status']}", file=sys.stderr)
+        if recovered["status"] == "unsafe":
+            print("RiceBowl: classic is used until the damaged or inaccessible "
+                  f"{live_recovery.FILE_NAME} journal in the private recipe directory "
+                  "(~/.config/ricebowl/recipes) is inspected and removed.", file=sys.stderr)
         use_saved_selection = recovered["use_saved_selection"]
     if recipe is None and not use_saved_selection:
         # Do not honor a possibly half-committed selection on a fresh login.

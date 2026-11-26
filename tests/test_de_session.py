@@ -147,10 +147,13 @@ class WaylandSessionTests(unittest.TestCase):
     @mock.patch("macrice.de.session.os.geteuid", return_value=1000)
     @mock.patch("macrice.de.session._check_runtime_dir")
     def test_unsafe_interrupted_switch_uses_classic_for_next_login(self, _runtime, _uid):
+        warnings = io.StringIO()
         with mock.patch("macrice.de.live_recovery.reconcile", return_value={
-                "status": "unsafe", "use_saved_selection": False}):
+                "status": "unsafe", "use_saved_selection": False}), \
+                mock.patch("sys.stderr", warnings):
             with self.assertRaises(_ExecCalled) as caught:
                 session.start(environment=self.env, which=self.which, execute=_record_exec)
+        self.assertIn(".live-switch.pending", warnings.getvalue())  # operator hint
         self.assertEqual(caught.exception.env["RICEBOWL_DE_RECIPE"], "classic")
         self.assertEqual(caught.exception.program, "/usr/bin/labwc")
 

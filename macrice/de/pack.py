@@ -229,7 +229,7 @@ def _read_owned_file(path: Path, *, suffix: str, limit: int,
     if not path.is_absolute() or path.suffix != suffix:
         raise PackError(f"Input must be an absolute {suffix} file", code="invalid_input")
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
         with os.fdopen(fd, "rb") as stream:
             meta = os.fstat(stream.fileno())
             if (not stat.S_ISREG(meta.st_mode) or meta.st_uid != os.geteuid()
