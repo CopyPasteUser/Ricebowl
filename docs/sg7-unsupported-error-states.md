@@ -45,7 +45,7 @@ under `components/riceplate-wayland/src/` (need `cargo`, run in the native CI jo
 | Malformed `.desktop` localization | Falls back without rendering control characters | rs: `malformed_localization_falls_back_without_rendering_controls` (`installed_apps.rs`) |
 | Hidden/missing default apps in the Luna menu | Not shown; no dead entries | rs: `luna_preview_never_uses_hidden_or_missing_default_app_ids` (`native_menu.rs`) |
 | Run dialog input too large/invalid paste | Rejected, selection unchanged; arguments passed literally (no shell) | rs: `paste_rejects_invalid_or_oversize_transfers_without_changing_selection`, `quoted_args_are_passed_literally_without_shell` (`luna_dialog.rs`) |
-| Calling the launcher with a typed system action the host cannot do | Not offered / unverified | unverified (no state-specific test found for e.g. lock/suspend entries when providers are absent) |
+| Typed system action the host cannot do (`lock`: `swaylock` absent, or a nested preview) | The menu/panel entry is always offered; it runs `ricebowl de lock`, which refuses with a reason on stderr and exits non-zero, and RicePlate then shows the generic "Command: Could not run" notice (see the helper row above). No lock is ever claimed. `logout` is `labwc --exit`, absent only outside labwc. There is no suspend entry in the launcher (suspend is RiceSpice only, see below) | `tests/test_de_sg7_surfaced_states.py::LockActionProviderAbsentTests`; `tests/test_de_lock.py::test_missing_locker_and_nested_preview_fail_before_side_effects`; rs: `failed_watched_helper_is_reported_once_and_successful_or_running_ones_are_not` (`main.rs`) |
 
 ## RicePlate desktop (icons, file menu)
 
@@ -95,8 +95,8 @@ with test ids; the user-visible wording is the part reviewed here.
 | Do Not Disturb write unconfirmed | "may have changed; verification unavailable; refresh"; no retry | `tests/test_de_ricepop_dnd_uncertainty.py` |
 | Read failure (CLI or list) | "Notification host unavailable" / "Notification list unavailable" | rs: `cli_transport_loss_…` (above); `selection_and_stale_response_are_bounded`, `active_only_malformed_or_ambiguous_data_fails_closed` (`ricepop.rs`) |
 | History row | Read-only: stale/history actions non-invokable | rs: `details_keep_history_read_only_and_stale_actions_non_invokable` |
-| Mako older than 1.11 | `ActionInvoked` is never emitted for `makoctl invoke`; native action smoke needs 1.11 | `scripts/smoke_real_mako_111.sh`; WP3.4/3.5 (CI run pending); no in-app notice of the Mako version: unverified |
-| Chrome rice | No native Notifications entry | documented in WP3.1 "still open"; unverified by test |
+| Mako older than 1.11 | `ActionInvoked` is never emitted for `makoctl invoke`; native action smoke needs 1.11 | `scripts/smoke_real_mako_111.sh`; WP3.4/3.5 (CI run pending); RiceBowl does not detect the Mako version and shows no notice: a zero `makoctl invoke` exit is the only success signal, and a non-zero exit or timeout is the "unconfirmed" text above | `tests/test_de_sg7_surfaced_states.py::MakoVersionHasNoInAppNoticeTests` (no version probe, exactly one `makoctl invoke`) |
+| Chrome rice | No native Notifications entry in the panel or a menu (the bundled recipe has no menu and no notifications token); the inbox stays reachable through RiceSpice | `tests/test_de_sg7_surfaced_states.py::ChromeRiceHasNoNativeNotificationsEntryTests`; WP3.1 "still open" |
 
 ## Creator / RicePack
 
@@ -110,7 +110,7 @@ with test ids; the user-visible wording is the part reviewed here.
 | Apply needs a live RiceBowl session | Refused outside it; conflicts/uncertain completion are not shown as success | `tests/test_creator_activation.py::test_apply_requires_prior_install_and_live_supervisor`, `test_live_conflict_and_uncertain_completion_are_not_reported_success` |
 | Damaged draft versions | Recovery only to the last verified ancestor; unsafe receipts reported, not followed | `tests/test_creator_recovery.py` |
 | Interactive test preview without display/dependencies or with a stale draft | Fails before spawning anything | `tests/test_creator_interactive.py::test_missing_display_and_dependencies_fail_before_spawn`, `test_stale_draft_and_unsafe_runtime_never_start` |
-| GUI wording ("Live change unavailable: …", "Interactive test unavailable: …", "Native preview unavailable. Draft editing still works.", "Reference unavailable: …") | Status line / caption in the Creator window | `macrice/creator_gui.py`; GUI text itself **unverified** (only the backend errors above are tested) |
+| GUI wording ("Live change unavailable: …", "Interactive test unavailable: …", "Native preview unavailable. Draft editing still works.", "Reference unavailable: …") | Status line / caption in the Creator window | `macrice/creator_gui.py`; `tests/test_de_creator_gui_wording.py` builds the real `CreatorWindow` (real Gtk, only `Gtk.Application.run` replaced) and asserts each of the four strings, the error style class, cleared busy state and that no session/preview is started |
 | One-click conversion of an arbitrary image to a rice | Not implemented; must not be claimed | AGENTS.md mockup-to-rice contract |
 
 ## Session / supervisor
@@ -131,10 +131,11 @@ with test ids; the user-visible wording is the part reviewed here.
 
 ## Known gaps in this list
 
-- Launcher entries for system actions when their providers are absent: no
-  state-specific test found.
-- Mako-version warning, Chrome notification entry and Creator GUI wording have no
-  test; their entries above are marked unverified.
 - Real polkit/NM/BlueZ/logind refusal text is classified by markers only.
 - Rust rows were checked by grepping the test names, not by running `cargo test`
-  in this session (no Rust toolchain was used).
+  in this session (no Rust toolchain was used). No row remains `unverified`;
+  the previous `unverified` Rust-only candidates turned out to be Python-side
+  behavior and are now tested above. Nothing here needs a compositor beyond the
+  local smoke receipts already cited.
+- There is still no in-app Mako-version notice (not implemented, by design of
+  the current code).

@@ -214,3 +214,8 @@ def pair_device(address: str, *, expected_adapter: str | None = None) -> None:
     Gio, bus = _connection()
     bus.call_sync("org.bluez", path, "org.bluez.Device1",
                   "Pair", None, None, Gio.DBusCallFlags.NONE, 25000, None)
+    # A returned Pair call is not by itself proof of the end state: re-read
+    # the same device object and never report an unpaired device as paired.
+    after = _value(_objects().get(path, {}).get("org.bluez.Device1", {}).get("Paired"))
+    if after is not True:
+        raise ValueError("Bluetooth pairing could not be verified; rescan before retrying")

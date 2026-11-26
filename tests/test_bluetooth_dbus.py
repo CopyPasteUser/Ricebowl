@@ -153,6 +153,9 @@ class BluetoothDbusTests(unittest.TestCase):
             "/org/bluez/hci0/dev_AA": {"org.bluez.Device1": {
                 "Address": "AA:BB:CC:DD:EE:FF", "Paired": False}},
         }
+        device = objects.return_value["/org/bluez/hci0/dev_AA"]["org.bluez.Device1"]
+        connection.return_value[1].call_sync.side_effect = (
+            lambda *_a: device.update(Paired=True))
         bluetooth_dbus.pair_device("AA:BB:CC:DD:EE:FF")
         args = connection.return_value[1].call_sync.call_args.args
         self.assertEqual(args[1:4], ("/org/bluez/hci0/dev_AA", "org.bluez.Device1", "Pair"))
@@ -179,6 +182,9 @@ class BluetoothDbusTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "ambiguous"):
             bluetooth_dbus.pair_device(address.lower())
         connection.assert_not_called()
+        unpaired = objects.return_value["/org/bluez/hci1/dev_AA"]["org.bluez.Device1"]
+        connection.return_value[1].call_sync.side_effect = (
+            lambda *_a: unpaired.update(Paired=True))
         bluetooth_dbus.pair_device(address, expected_adapter="/org/bluez/hci1")
         self.assertEqual(connection.return_value[1].call_sync.call_args.args[1:4],
                          ("/org/bluez/hci1/dev_AA", "org.bluez.Device1", "Pair"))
@@ -230,8 +236,10 @@ class BluetoothDbusTests(unittest.TestCase):
         from gi.repository import Gio
 
         address = "AA:BB:CC:DD:EE:FF"
-        connection.return_value = (Gio, Mock())
+        bus = Mock()
+        connection.return_value = (Gio, bus)
         props = {"Address": address, "Paired": False}
+        bus.call_sync.side_effect = lambda *_a: props.update(Paired=True)
         objects.return_value = {
             "/org/bluez/hci0/dev_AA": {"org.bluez.Device1": props},
         }

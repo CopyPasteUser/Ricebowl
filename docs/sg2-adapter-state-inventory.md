@@ -13,44 +13,44 @@ Note: `_timedatectl`/`nmcli` refusals whose stderr carries a recognized polkit/N
 (`macrice/authorization.py`) now raise the typed `SettingsDenied` (one fixed message, no raw stderr) from the
 first mutating call only; every other non-zero exit, and any denial text seen on a read-back after a write,
 stays a generic fail-closed `SettingsError`. AUTH is `ok` only where a denial is exercised (DN/DT below).
-Still `gap`: N5 enterprise create (`con add` is classified but untested) and the enterprise-connect denial
-with real polkit text (SP1 exits 4 with no stderr, so it remains the generic "outcome unknown" path).
+N5 `con add` denial (GF1) and the enterprise-connect denial with polkit text (PC3) are tested; SP1 exits 4 with
+no stderr, so that fixture stays the generic "outcome unknown" path.
 
 ## Matrix
 
 | Action | RB | AUTH | PROV | BUSY | RBK | GUI |
 |---|---|---|---|---|---|---|
-| N1 Wi-Fi radio on/off | ok S1 | ok DN1 | ~ U1 | ok S1,BZ1 | n/a no replay (U1) | ok GC1 |
+| N1 Wi-Fi radio on/off | ok S1 | ok DN1 | ok U1,PC1 | ok S1,BZ1 | n/a no replay (U1) | ok GC1 |
 | N2 Join visible open Wi-Fi | ok S2 | ok DN3 | ok W6 | ok W4,BZ1 | n/a no undo | ok G5 |
 | N3 Join secured Wi-Fi (passphrase) | ok S2,S3 | ok DN3 | ok W6 | ok W4 | n/a no undo | ok G5 |
 | N4 Saved profile activate/deactivate | ok NR1,NI1 | ok DN2 | ok NR2,NI2 | ok NR4 | n/a no replay (NR4) | ok GC2 |
-| N5 Enterprise Wi-Fi create | ok EI2 | ok GF1 | ok EI5,EI6 | ~ EI2 | n/a single write | ok GG1 |
-| N6 Enterprise connect (password) | ok EI1 | ~ SP1 (generic exit 4, not typed) | ok EI4 | ok EI2,EI3 | n/a single shot | ok GG2 |
-| N7 VPN import (OpenVPN/WireGuard) | ok NE1 | ok DN4 | ok NE2 | ok NE3 | ~ NE4 (report only) | ok GG3 |
+| N5 Enterprise Wi-Fi create | ok EI2 | ok GF1 | ok EI5,EI6 | ok EI2,PC2,PG4 | n/a single write | ok GG1 |
+| N6 Enterprise connect (password) | ok EI1 | ok PC3 (real polkit text typed; SP1 stays the no-stderr unknown path) | ok EI4 | ok EI2,EI3 | n/a single shot | ok GG2 |
+| N7 VPN import (OpenVPN/WireGuard) | ok NE1 | ok DN4 | ok NE2 | ok NE3 | n/a no rollback by design: never deletes/downs, enforced PC4,NE4 | ok GG3 |
 | N8 Wi-Fi scan/refresh (read) | n/a read-only | n/a read-only | ok S14,S19 | ok W7 | n/a read-only | ok GC3 |
 | A1 Default sink/source | ok AD1,AI1 | n/a user-level pactl | ok AD2 | ok AD3,AJ3 | n/a reports (AD4) | ok GG4 |
-| A2 Move app stream to output | ok AD5 | n/a user-level pactl | ok AD6,AD9 | ok AD7,AI3 | n/a no replay (AJ2) | ~ AD8 |
-| A3 Per-app volume | ok AD5 | n/a user-level pactl | ok AD9 | ok AD7,AJ2 | n/a no replay (AJ2) | ~ AD8 |
-| A4 Per-app mute | ok AD5 | n/a user-level pactl | ok AD9 | ok AD7 | n/a no replay (AJ2) | ~ AD8 |
+| A2 Move app stream to output | ok AD5 | n/a user-level pactl | ok AD6,AD9 | ok AD7,AI3 | n/a no replay (AJ2) | ok PG1,AD8 |
+| A3 Per-app volume | ok AD5 | n/a user-level pactl | ok AD9 | ok AD7,AJ2 | n/a no replay (AJ2) | ok PG1,AD8 |
+| A4 Per-app mute | ok AD5 | n/a user-level pactl | ok AD9 | ok AD7 | n/a no replay (AJ2) | ok PG1,AD8 |
 | A5 MPRIS player control | ok MR1,GF5 | n/a user session | ok G4 | n/a stateless command | n/a no state | ok G4 |
 | B1 Bluetooth power | ok S5,BS1 | ok BZ1,BZ2,BZ3 (typed denial; rfkill block never success) | ok BD1,U2 | ok S5,S23,BS3 | n/a no undo (U2) | ok GC4 |
 | B2 Bluetooth connect/disconnect | ok S6,BS4 | ok BZ1 (typed denial, no replay) | ok S7,U3 | ok S17,S21 | n/a no undo (U3) | ok GC4 |
 | B3 Bluetooth scan (backend only) | n/a bounded session | n/a no RiceSpice caller; refusal propagates, lock released GF3 | ok BD3 | ok BD4 | ok BD2 | n/a no GUI |
-| B4 Bluetooth pair (backend only) | ~ BD6 | n/a no RiceSpice caller; refusal propagates, never retried GF4 | ok BD5 | ok BD5 | n/a no undo | n/a no GUI |
-| P1 Power profile | ok S8,G3 | ok GF2 (typed; product fix) | ok S9,S10 | ok S8 | n/a no replay (U4) | ~ G3 |
-| P2 Lock screen | ~ S15 | n/a user session | ok S16 | ok PW3 (denial text, no replay) | n/a no state | ok PW5 |
+| B4 Bluetooth pair (backend only) | ok PC5,BD6 (product fix: readback) | n/a no RiceSpice caller; refusal propagates, never retried GF4 | ok BD5 | ok BD5 | n/a no undo | n/a no GUI |
+| P1 Power profile | ok S8,G3 | ok GF2 (typed; product fix) | ok S9,S10 | ok S8 | n/a no replay (U4) | ok PG2,G3 |
+| P2 Lock screen | n/a no independent readback exists: `swaylock -f` exit is the acquisition proof (S15,PW4); GUI says only "launched" (PG3) | n/a user session | ok S16 | ok PW3 (denial text, no replay) | n/a no state | ok PW5 |
 | P3 Suspend | n/a no readback | ok PW1,PW2 (logind refusal typed; no suspend claimed) | ok S16,S20 | ok PW3,PW4,PW5 (cancel/denial/busy) | n/a no undo | ok PW5 |
 | T1 Timezone | ok S11,TD3 | ok DT1 | ok TD3 | ok S11 | n/a no replay (TD3) | ok G6 |
 | T2 NTP toggle | ok S12,TD2 | ok DT1 | ok TD2 | ok TD7 | n/a no replay (TD1) | ok GC5 |
 | T3 Manual clock | ok S13,TD5 | ok DT1 | ok TD6 | ok TD5 | n/a no replay (TD4) | ok GC6 |
-| D1 Display mode/scale/position trial | ok WM3 | n/a compositor-owned | ok WM1,WM6 | ok WM4,DG5 | ok WM2,WM5,DG2 | ~ G2 |
+| D1 Display mode/scale/position trial | ok WM3 | n/a compositor-owned | ok WM1,WM6 | ok WM4,DG5 | ok WM2,WM5,DG2 | ok PG5,G2 |
 | D2 Keep / confirm display change | ok DJ1,WM3 | n/a compositor-owned | ok DG3 | ok DG4 | ok DG2,DG3 | ok G2 |
 | D3 Save/forget monitor preset | ok RP6,MP1 | n/a user file | ok MP1 | ok RP6 | ok MP1 | ok GC7 |
-| D4 Try saved full layout | ok DR3 | n/a compositor-owned | ok DR5 | ok DR4 | ok DR1,DR2 | ~ G2 |
+| D4 Try saved full layout | ok DR3 | n/a compositor-owned | ok DR5 | ok DR4 | ok DR1,DR2 | ok PG5,G2 |
 | D5 Next-login monitor trial toggle | ok DR6 | n/a user file | ok DR7 | ok DR6 | n/a opt-in flag | ok GG5 |
 | I1 Input prefs (pointer/keyboard, next login) | ok RP1,RP3 | n/a user file | ok RP2 | ok RP1 | ok PD2,PD3 | ok GG6 |
 | I2 Accessibility prefs (cursor/GTK/contrast) | ok RP4 | n/a user file | ok RP2 | ok RP1 | ok PD2,PD3 | ok GG6 |
-| I3 Orca on login | ~ RP5 | n/a user file | ok GF6,GG7 | ok RP1 | n/a next login only | ok GG7 |
+| I3 Orca on login | ok PC6,RP5 | n/a user file | ok GF6,GG7 | ok RP1 | n/a next login only | ok GG7 |
 
 ## Evidence index
 
@@ -86,11 +86,13 @@ Paths are `tests/<file>::<Class>::<test>`; abbreviations below expand `<file>::<
 - **MP1** `test_de_display_preset_durability.py::MonitorPresetDurabilityTests::test_failed_rename_keeps_existing_private_preset_and_cleans_temp`
 - **GF** `test_de_sg2_gap_fill.py::` (WP2.2; private fake `nmcli`/`powerprofilesctl`, fake Gio bus) GF1 `EnterpriseCreateDenialTests::test_n5_denied_con_add_is_typed_not_replayed_and_leaks_nothing` (+ `test_n5_generic_failure_is_unknown_outcome_never_denial`), GF2 `PowerProfileDenialTests::test_p1_denied_profile_change_is_typed_and_not_replayed` (+ generic-failure and verified-success controls; **product fix**: a polkit/AccessDenied refusal from `powerprofilesctl set` was reported as "may have changed; outcome unknown", now typed `SettingsDenied`), GF3 `BluetoothBackendOnlyDenialTests::test_b3_denied_start_discovery_propagates_and_releases_the_lock`, GF4 `...::test_b4_denied_pair_propagates_once_and_is_not_reported_as_paired`, GF5 `MprisVanishedPlayerTests::test_a5_vanished_player_reports_error_and_never_dispatches`, GF6 `OrcaProviderMissingTests::test_i3_requested_orca_not_installed_spawns_nothing_and_reports`
 - **GG** `test_de_sg2_gap_gui.py::` (WP2.2; real Gtk, fake adapters at the module boundary; skips without typelib/display) GG1 `EnrollmentDialogTests::test_n5_enterprise_create_shows_denial_error_and_success_once` (+ `test_n5_unknown_outcome_text_is_shown_and_never_replayed`), GG2 `...::test_n6_enterprise_connect_shows_denial_error_and_success_once`, GG3 `...::test_n7_vpn_import_shows_denial_error_and_success_once` (+ `test_n7_cancelled_chooser_never_reaches_backend`), GG4 `AudioDefaultControlTests::` (outcomes, provider-error page), GG5 `NextLoginMonitorTrialTests::` (toggle, stale/write failure, absent without layout), GG6 `PreferencePageTests::` (save + next-login state, error not replayed, unreadable store offers no save), GG7 `PreferencePageTests::test_i3_missing_orca_is_stated_not_hidden`
+- **PC** `test_de_sg2_partial_close.py::` (WP2.3; private fake `nmcli`, fake BlueZ bus, real preference store in a temp XDG dir) PC1 `RadioProviderMissingTests` (nmcli absent, NetworkManager not running fails before any write, provider lost during write is single-shot unknown outcome), PC2 `EnterpriseCreateConcurrencyTests` (concurrently added foreign profile never adopted; overlapping creates each one `con add` with distinct UUID), PC3 `EnterpriseConnectPolkitDenialTests` (polkit text on `con up` is typed `SettingsDenied`, no password leak, one call), PC4 `VpnImportNeverRollsBackTests` (no `con delete`/`con down`/second import in any post-import failure path), PC5 `BluetoothPairReadbackTests` (**product fix**: `pair_device` previously returned success after an accepted `Pair` without reading `Paired` back; it now raises "could not be verified" and never re-pairs), PC6 `OrcaPreferenceReadbackTests` (saved Orca flag re-read from the private 0600 store; stale second save refused)
+- **PG** `test_de_sg2_partial_gui.py::` (WP2.3; real Gtk, fake adapters at the module boundary) PG1 `StreamControlTests` (per-application output/volume/mute: denial, error, stale client, busy, rendered result, no client = no controls, provider error), PG2 `PowerPageTests::test_p1_*` (energy profile all outcomes, rendered readback, missing service, provider error), PG3 `PowerPageTests::test_p2_*` (lock screen outcomes; never says locked/suspended), PG4 `EnterpriseCreateBusyTests` (second click refused, one call), PG5 `DisplayTrialTests` (trial start, kept, reverted, guard unavailable, keep failure, stale/start failures never offer Keep, busy)
 - **MR1** `test_riceware_media.py::...::test_play_pause_requires_capability_and_rechecks_actual_state`, `test_unresponsive_playback_never_claims_success`
 
-## WP2.2 status (this branch)
+## WP2.2 / WP2.3 status (this branch)
 
-Every `gap` cell above is now covered by a cited test or marked `n/a` with a reason; no `gap` remains in the matrix. Still `~` (partial, unchanged): N1 PROV (U1), N5 BUSY (EI2), N6 AUTH (SP1: a real polkit denial text on `nmcli con up` for an enterprise profile is still unverified), N7 RBK (NE4), A2/A3/A4 GUI (AD8), B4 RB (BD6), P1 GUI (G3), P2 RB (S15), D1/D4 GUI (G2), I3 AUTH. All results are fake-provider/private-subprocess evidence, not real polkit/NetworkManager/BlueZ/logind on hardware.
+WP2.2: every `gap` cell is covered by a cited test or marked `n/a` with a reason. WP2.3: no `gap` and no `~` remain in the matrix: each former partial cell is `ok` with a cited test or `n/a` with a stated reason. All results are fake-provider/private-subprocess/headless-GTK evidence, not real polkit/NetworkManager/BlueZ/logind on hardware.
 
 ## Top gaps (ranked by user impact/safety)
 
