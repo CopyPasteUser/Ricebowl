@@ -22,8 +22,8 @@ Do not count menu-search keyboard navigation as full native IME and AT-SPI parit
 | UTF-8 / UAX #29 | e + combining U+0301, German flag, woman-technologist ZWJ, thumbs-up with modifier | no split graphemes under caret, selection, delete, clipping | Rust tests in luna_dialog, native_menu, text_render |
 | Clipboard | selected multi-grapheme Run / Rename text | Ctrl+C/Ctrl+X/Ctrl+V must preserve UTF-8, selection and focus without shell execution | **Merged #557** implements seat-scoped `wl_data_device` ownership/receive and atomic validation; `scripts/smoke_luna_atspi.sh` includes real external `wl-copy`/`wl-paste` round trips and negative invalid-text coverage. Revalidate on final exact-main source; do not infer physical acceptance |
 | BiDi | abc + Hebrew, mixed Arabic ABC 42 | logical storage; visual caret and arrow movement via same visible substring | Rust bidi_layout/luna_dialog tests; real RTL client review open |
-| Arabic/Indic | Arabic salaam, Hindi हिन्दी | OpenType GSUB/GPOS and nonzero bounded glyph positions only if real font covers glyphs | style_art/native_shaping Rust tests; **positive Hindi GSUB/GPOS + grapheme caret tests pass locally with installed `fonts-lohit-deva`** (see 27 November section); native compositor rendering of a shaped Indic face is **not possible yet** (product limit, below) |
-| CJK | 日本語, 中文, 한국어 | UTF-8 commits and clearly rendered fallback where coverage unavailable; never label '?' as CJK success | existing missing-cmap tests; **positive CJK advance/caret/pixel tests pass locally with installed `fonts-wqy-microhei`**; native compositor positive CJK rendering open (same product limit) |
+| Arabic/Indic | Arabic salaam, Hindi हिन्दी | OpenType GSUB/GPOS and nonzero bounded glyph positions only if real font covers glyphs | style_art/native_shaping Rust tests; **positive Hindi GSUB/GPOS + grapheme caret tests pass locally with installed `fonts-lohit-deva`** (see 27 November section); native compositor rendering of shaped Indic text now works through the trusted system font fallback (28 November section) |
+| CJK | 日本語, 中文, 한국어 | UTF-8 commits and clearly rendered fallback where coverage unavailable; never label '?' as CJK success | existing missing-cmap tests; **positive CJK advance/caret/pixel tests pass locally with installed `fonts-wqy-microhei`**; native compositor positive CJK/Hangul rendering through the system font fallback passes locally (28 November section) |
 | Missing fonts/glyphs | U+10FFFF and missing joined emoji | visible replacement metrics and pixels; no false font-coverage success | existing negative style_art tests plus the 27 November Hindi/CJK/Hangul replacement-pixel Rust and real-labwc (AT-SPI + `grim`) matrix |
 | Live compositor editing | empty, AB, Left, Backspace, select-all, replacement, Escape, reopen | external wtype wl_keyboard delivery and public AT-SPI text/focus/selection queries | Run and separate XDG Rename AT-SPI smoke passed at #551 head (Native 44673725266) |
 | Sanitized accessibility text | e + newline + combining mark + Z | resegment final exposed text, caret and selection never refer to phantom cluster | added positive and negative AccessKit Rust tests |
@@ -139,14 +139,11 @@ input field is pixel-identical to the same dialog showing `??`/`???`/`???`
 (`scripts/sg5_png_compare.py`) and different from the empty field. This proves
 visible replacement with real accessible text and never a coverage claim.
 
-**Product limit found (keeps WP5.4 compositor-positive open).** The native
-Run/Rename face is the bundled Latin Liberation Sans (the only proportional,
-OpenType-shaped face) or a private recipe font, which is loaded as
-non-proportional (cell metrics, no GSUB/GPOS) and capped at 1 MiB (the WQY
-collection is 5 MB). There is thus no product path that renders shaped
-Devanagari or CJK in the compositor yet; the Rust tests prove the shaper and
-caret math with real fonts, not an end-to-end positive screenshot. Do not
-claim positive native Hindi/CJK until a shaping-capable face is selectable.
+**Product limit found, then removed (see the 28 November section).** The native
+Run/Rename face is the bundled Latin Liberation Sans or a private recipe font
+(non-proportional, no GSUB/GPOS, 1 MiB cap), so on 27 November there was no
+product path that rendered shaped Devanagari or CJK; the 27 November
+compositor matrix therefore proved the visible `?` replacement only.
 
 **AT-SPI actions and dialog transitions (WP5.5, product change).** The native
 dialog and the XDG file context menu were not action-capable in AT-SPI. Added
@@ -172,13 +169,88 @@ for: menu-surface focus leave/re-enter, real candidate selection, RTL
 composition, and painted composition (underline) pixels, none covered by the
 smoke.
 
+## Trusted system font fallback (local evidence, 28 November 2026)
+
+**Design as implemented.** `system_fallback.rs` holds a compile-time, ordered
+table of absolute candidates under `/usr/share/fonts` only: Devanagari
+(`Lohit-Devanagari.ttf`, `NotoSansDevanagari-Regular.ttf`), Han/Kana and Hangul
+(`wqy-microhei.ttc`, `NotoSansCJK-Regular.ttc`, face 0) and Arabic/Hebrew
+(`DejaVuSans.ttf`). No fontconfig, no new crate, no user/recipe/pack path; pack
+fonts keep their 1 MiB cap and rules and never use the fallback (only the
+shaped proportional Luna face does). A candidate loads lazily on the first
+grapheme cluster that the bundled faces lack and whose script maps to a group,
+once per process; the result, including failure, is cached (no retry, no
+polling). Open is `O_NOFOLLOW|O_NONBLOCK`, `fstat` must say a regular file of
+at most 32 MiB, and rustybuzz must parse it; anything else is "unavailable".
+Text layout splits a line into per-face runs at cluster granularity (primary
+face, then the first candidate whose cmap covers the whole cluster), shapes
+each run with rustybuzz and paints by glyph index. Caret, selection and
+click-to-caret use the shaped advances through the existing `measure_text`;
+logical text, AT-SPI text/caret and IME are unchanged and the BiDi path is
+reused (RTL visual-prefix measurement shapes system runs too). A cluster no
+candidate covers keeps the existing single visible `?` (never claimed as
+coverage). ASCII text returns before any of this runs; Latin/Greek/Cyrillic/
+emoji clusters have no script group, so they never consult or load a font
+(unit-tested with a per-thread consult counter).
+
+**Deviation from the first design: no fontdue for system fonts.** The first
+implementation rasterized with fontdue (`rasterize_indexed`). Measured in the
+real plate, fontdue's eager per-glyph geometry made the 5 MB WenQuanYi
+collection cost **+182 MB RSS** (212 MB after typing 日本語 vs 27 MB) and a
+347 ms load. System fonts are therefore parsed with rustybuzz only
+(`ttf_parser` outlines) and rasterized by a small signed-area coverage
+rasterizer (`system_fallback::rasterize`), cross-checked against fontdue
+coverage/bounds in a unit test and visually (matra reorder and conjunct in हिन्दी
+are correct). Bundled and recipe faces still use fontdue unchanged. Font bytes
+are intentionally leaked into the process-lifetime cache. Unhinted grayscale
+only; no kerning outside shaping.
+
+**Kill switch.** `RICEBOWL_SYSTEM_FONT_FALLBACK=0` disables the fallback (it can
+never add a path); it exists for rollback and for the negative compositor
+test.
+
+**Memory (fresh `riceplate-native`, `/proc/<pid>/status` VmRSS, three
+`scripts/smoke_luna_atspi.sh` runs, Run editor, nothing non-ASCII shown before).**
+Fallback enabled: ASCII `abc` 25.7/27.1/25.9 MB; after typing हिन्दी +0.54 to
++0.62 MB (Lohit); after 日本語 a further +5.1 MB (the 5 MB wqy file); 한국어 adds
+nothing more. Fallback disabled: no change (27.5 MB flat). No startup or
+interaction-latency measurement beyond the above was taken for the final
+design.
+
+**Tests.** Rust (525 total, clippy/fmt clean): candidate table is absolute
+`/usr/share/fonts` only; missing, symlink, directory, FIFO, oversized (sparse
+32 MiB + 1) and non-font files are `unavailable`; script-group mapping and
+Latin never consulting a font; run segmentation (`ab हिन्दी cd 日本語 \u{10FFFF}` ->
+primary / system / primary / system / one primary `?`); shaped carets for
+हिन्दी/日本語/한국어 (distinct step per grapheme, end caret = painted width, ink
+inside the measured width, pixels differ from the `?` run and are non-blank,
+matra reordering, no `.notdef`) with explicit `FONT UNAVAILABLE` failures when
+`fonts-lohit-deva`/`fonts-wqy-microhei` are absent; private recipe faces never
+use the fallback; the earlier replacement-pixel tests now disable the fallback
+explicitly. Compositor (`scripts/smoke_luna_atspi.sh`, labwc 0.7.2, 11/11
+consecutive passes after the final change, about 43 s, CI budget 140 s):
+`wtype` types हिन्दी, 日本語 and 한국어 into Run; the public AT-SPI probe reads
+the real text and caret (6/3/3); the `grim` crop is non-blank and **not** equal
+to the `??`/`???` crop. A second plate started with the kill switch shows the
+crops equal to the `?` crops again (one visible replacement per grapheme) and
+different from the fallback-on crops.
+
+**Regression runs.** `scripts/smoke_riceplate_native.sh` and
+`scripts/smoke_wayland_shared_rice_engine.sh` both fail in this environment
+**identically on the unmodified base commit** (Luna Recycle Bin Gio open
+assertion; "Luna Escape left menu visible: 2740 pixels"), before and after this
+change; no text-rendering assertion regressed, but those smokes cannot confirm
+the rendering paths after those points. Python `unittest discover`: 2003 OK
+(4 skipped). Not claimed: SG5 closure, exact-head CI, physical Fcitx/IBus/Orca,
+RTL Arabic/Hebrew compositor review, non-Luna (cell-metric) faces.
+
 ## Remaining blockers before issue #417 SG5 can be checked
 
 - The external IME v2 -> compositor -> v3 **Run** protocol smoke passed #551 head (Native 44673725266). **Rename** and its dialog focus leave/re-enter now pass locally (labwc 0.7.2, 26 November 2026, see above; not yet on exact-head CI). Still open: menu-surface focus leave/re-enter and real candidate selection/RTL flows. One scripted Japanese transaction is not full IME parity.
 - Native Run/Rename clipboard shortcuts are already **merged in #557**, and the current source contains live `wl-copy` ↔ native editor ↔ `wl-paste` regression steps. Full cross-app selection transfer/focus/cleanup must still be confirmed on the exact final source in a private labwc session; the historical merge does not by itself certify the final SG5 matrix.
 - Start Menu Search and All Programs both pass the external keyboard/AT-SPI editing smoke. The menu v3 focus target, preedit and commit handling, deletion and composition painting remain open. [SG5 issue #595](https://github.com/CopyPasteUser/Ricebowl/issues/595)
 - Real XDG Rename AT-SPI focus/text/caret/selection/cancel client PASSED #551 exact-head CI (Native 44673725266); Rename IME protocol and focus cycle covered locally; AT-SPI action invocation for the Rename menu item and OK/Rename/Cancel dialog buttons, plus refused/cancelled/confirmed transitions, now pass locally (27 November, not yet on exact-head CI). Trash and Properties actions are not driven by the smoke.
-- Positive Hindi/CJK: shaping, advance and caret metrics are proven with installed fonts in Rust (27 November). Still open: an end-to-end compositor rendering with a shaping-capable face, which needs a product path (private recipe fonts are unshaped and 1 MiB-capped); RTL Arabic/Hebrew client review also open.
+- Positive Hindi/CJK/Hangul: shaping, caret metrics and real compositor glyphs are proven locally with the trusted system font fallback (28 November); private recipe fonts remain unshaped and 1 MiB-capped by design and do not use it. Still open: RTL Arabic/Hebrew client review (the DejaVu candidate exists but has no compositor evidence), exact-head CI, and physical-device review.
 - After software gates, **physical** Mint/ThinkPad Fcitx/IBus, Orca, mixed-DPI/GPU rendering and keyboard-layout switching. Physical acceptance is not claimed by CI.
 
 No proprietary fonts, resident polling service, unsafe recipe execution or modification of XFCE/X11 defaults are introduced.

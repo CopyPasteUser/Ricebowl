@@ -28,6 +28,22 @@ pub(crate) fn shape_segment(
         return None;
     }
     let face = rustybuzz::Face::from_slice(bytes, 0)?;
+    shape_with_face(&face, size, text, rtl)
+}
+
+/// Same as [`shape_segment`] for an already parsed face (cached system fonts).
+pub(crate) fn shape_with_face(
+    face: &rustybuzz::Face<'_>,
+    size: f32,
+    text: &str,
+    rtl: bool,
+) -> Option<Vec<ShapedGlyph>> {
+    if text.is_empty() {
+        return Some(Vec::new());
+    }
+    if text.len() > 2048 || !size.is_finite() || size <= 0.0 {
+        return None;
+    }
     let units = face.units_per_em();
     if units <= 0 {
         return None;
@@ -40,7 +56,7 @@ pub(crate) fn shape_segment(
     } else {
         rustybuzz::Direction::LeftToRight
     });
-    let shaped = rustybuzz::shape(&face, &[], buffer);
+    let shaped = rustybuzz::shape(face, &[], buffer);
     if shaped.len() > 1024 {
         return None;
     }

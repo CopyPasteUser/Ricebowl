@@ -3002,7 +3002,10 @@ CJK advances, and fail loudly with `FONT UNAVAILABLE` when a font is absent.
 A real-labwc matrix shows Hindi/CJK/Hangul missing glyphs as visible
 replacements while AT-SPI keeps the real text. New AT-SPI dialog-button and
 XDG file-menu actions are driven by `doAction` with file-system receipts, and
-menu IME (#600) is re-confirmed. Not claimed: end-to-end positive Hindi/CJK
-rendering in the compositor (private recipe fonts are unshaped), #595 menu
+menu IME (#600) is re-confirmed. On 28 November a trusted `/usr/share/fonts`
+system font fallback (lazy, cached, no fontconfig/new crate/pack paths) lets the
+real Run editor paint shaped Hindi/CJK/Hangul in labwc (AT-SPI text unchanged,
+RSS +0.6/+5.1 MB, `RICEBOWL_SYSTEM_FONT_FALLBACK=0` keeps the `?` replacement).
+Not claimed: exact-head CI, private recipe (cell-metric) faces, #595 menu
 focus cycle/candidates/composition pixels, physical IME/Orca. SG5 remains open;
 details in `docs/sg5-text-input-atspi-acceptance.md`.

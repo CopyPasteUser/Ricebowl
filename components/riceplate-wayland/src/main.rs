@@ -52,6 +52,7 @@ mod seat_routing;
 mod shortcut_focus;
 mod sni_recovery;
 mod style_art;
+mod system_fallback;
 mod system_status;
 mod task_groups;
 mod task_navigation;

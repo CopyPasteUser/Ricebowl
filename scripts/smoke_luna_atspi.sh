@@ -280,50 +280,82 @@ dbus-run-session -- sh -eu -c '
     wtype -k Escape
     probe --absent
     echo "SG5: real wl-copy -> Run paste, Run copy/cut -> wl-paste, Unicode and invalid text PASS"
-    # SG5 missing-font matrix with a real compositor and accessible client.
-    # The Run editor face (bundled Latin Liberation Sans) has no Devanagari,
-    # CJK or Hangul glyphs. The editor must (a) keep the real text in the
-    # public AT-SPI tree and (b) paint exactly one visible replacement per
-    # grapheme: its pixels must equal a run of literal "?" and differ from the
-    # empty field. This proves visible replacement, NOT script coverage.
+    # SG5 script-font matrix with a real compositor and accessible client.
+    # The Run editor face is the bundled Latin Liberation Sans, which has no
+    # Devanagari, CJK or Hangul glyphs. Trusted system font fallback (fixed
+    # /usr/share/fonts candidates) must (a) keep the real text in the public
+    # AT-SPI tree and (b) paint REAL glyphs: the crop is non-blank and NOT equal
+    # to the same dialog showing literal "?" replacements. The final section of
+    # this script restarts the plate with the fallback kill switch to prove the
+    # visible replacement is still painted when no font can be used.
     command -v grim >/dev/null
     shot() { sleep 0.4; grim -g "577,359 306x32" "$runtime/$1.png"; }
     pixels() { /usr/bin/python3 "$root/scripts/sg5_png_compare.py" "$1" "$2" "$3"; }
+    rss_kib() { awk "/^VmRSS:/ {print \$2}" "/proc/$1/status"; }
+    # Resident memory of the plate as Hindi, CJK and Hangul are typed into Run.
+    # Meaningful only on a plate that has not yet shown any non-ASCII text.
+    rss_matrix() {
+        label=$1
+        wtype -M logo -k r -m logo
+        probe --text "" --caret 0
+        wtype "abc"
+        probe --text "abc" --caret 3
+        sleep 0.4; r0=$(rss_kib "$plate")
+        wtype -M ctrl -k a -m ctrl; wtype "हिन्दी"
+        probe --text "हिन्दी" --caret 6
+        sleep 0.4; r1=$(rss_kib "$plate")
+        wtype -M ctrl -k a -m ctrl; wtype "日本語"
+        probe --text "日本語" --caret 3
+        sleep 0.4; r2=$(rss_kib "$plate")
+        wtype -M ctrl -k a -m ctrl; wtype "한국어"
+        probe --text "한국어" --caret 3
+        sleep 0.4; r3=$(rss_kib "$plate")
+        wtype -k Escape
+        probe --absent
+        echo "SG5: RSS KiB riceplate-native ($label): ascii=$r0 +hindi=$r1 +cjk=$r2 +hangul=$r3"
+    }
     wtype -M logo -k r -m logo
     probe --text "" --caret 0
     shot empty
     wtype -k Escape
     probe --absent
-    check_missing_font() {
-        tag=$1; text=$2; chars=$3; replacement=$4
+    check_script() {
+        mode=$1; tag=$2; text=$3; chars=$4; replacement=$5
         wtype -M logo -k r -m logo
         probe --text "" --caret 0
         wtype "$text"
         probe --text "$text" --caret "$chars"
-        shot "$tag-script"
+        shot "$mode-$tag-script"
         wtype -k Escape
         probe --absent
         wtype -M logo -k r -m logo
         probe --text "" --caret 0
         wtype "$replacement"
         probe --text "$replacement" --caret "${#replacement}"
-        shot "$tag-question"
+        shot "$mode-$tag-question"
         wtype -k Escape
         probe --absent
-        pixels "$runtime/$tag-script.png" "$runtime/$tag-question.png" same || {
-            echo "SG5: $tag missing glyphs were not painted as one replacement per grapheme" >&2
-            exit 1
-        }
-        pixels "$runtime/$tag-script.png" "$runtime/empty.png" different || {
-            echo "SG5: $tag missing glyphs painted nothing (invisible text)" >&2
+        if [ "$mode" = positive ]; then
+            pixels "$runtime/$mode-$tag-script.png" "$runtime/$mode-$tag-question.png" different || {
+                echo "SG5: $tag system-font fallback painted the ? replacement, not real glyphs" >&2
+                exit 1
+            }
+        else
+            pixels "$runtime/$mode-$tag-script.png" "$runtime/$mode-$tag-question.png" same || {
+                echo "SG5: $tag without fallback was not painted as one replacement per grapheme" >&2
+                exit 1
+            }
+        fi
+        pixels "$runtime/$mode-$tag-script.png" "$runtime/empty.png" different || {
+            echo "SG5: $tag painted nothing (blank field)" >&2
             exit 1
         }
     }
-    check_missing_font hindi "हिन्दी" 6 "??"
-    check_missing_font cjk "日本語" 3 "???"
-    check_missing_font hangul "한국어" 3 "???"
+    check_script positive hindi "हिन्दी" 6 "??"
+    check_script positive cjk "日本語" 3 "???"
+    check_script positive hangul "한국어" 3 "???"
     kill -0 "$plate"
-    echo "SG5: missing-font Hindi/CJK/Hangul: AT-SPI keeps real text, replacement pixels visible, no coverage claimed PASS"
+    echo "SG5: Hindi/CJK/Hangul: AT-SPI keeps real text, trusted system-font glyphs painted (non-blank, not the ? replacement) PASS"
     # Register a separate input-method-v2 producer *before* re-focusing Run.
     # Its preedit, commit and byte deletion must traverse labwc to the
     # unmodified text-input-v3 application and return as surrounding text.
@@ -493,7 +525,7 @@ dbus-run-session -- sh -eu -c '
     wtype -M ctrl -k c -m ctrl
     received=$(timeout 4s wl-paste --no-newline --type "text/plain;charset=utf-8")
     test "$received" = "00-sg5.txt" || {
-        echo "SG5: Rename selection not published through Wayland" >&2; exit 1;
+        echo "SG5: Rename selection not published through Wayland (got: $received)" >&2; exit 1;
     }
     wtype -M ctrl -k x -m ctrl
     probe --name "File name" --text "" --caret 0
@@ -558,5 +590,49 @@ dbus-run-session -- sh -eu -c '
     test "$(cat "$desk/renamed.txt")" = "SG5 isolated fixture"
     kill -0 "$plate"
     echo "SG5: AT-SPI doAction Rename menu item, Rename/Cancel/OK buttons, refused/cancelled/confirmed transitions PASS"
+    # Negative half: hide the system fonts (kill switch only; it can never add
+    # a path) and prove the visible one-"?"-per-grapheme replacement remains.
+    kill "$plate" 2>/dev/null || :
+    wait "$plate" 2>/dev/null || :
+    RICEBOWL_SYSTEM_FONT_FALLBACK=0 "$native" --recipe "$runtime/luna.json" \
+        >"$runtime/native-nofallback.log" 2>&1 &
+    plate=$!
+    count=0
+    while [ "$count" -lt 50 ]; do
+        kill -0 "$plate" 2>/dev/null || {
+            sed -n "1,100p" "$runtime/native-nofallback.log" >&2; exit 1;
+        }
+        count=$((count + 1)); sleep 0.2
+        [ "$count" -ge 10 ] && [ -S "$runtime/riceplate-luna-desktop.sock" ] && break
+    done
+    test -S "$runtime/riceplate-luna-desktop.sock"
+    wtype -M logo -k r -m logo
+    probe --text "" --caret 0
+    shot empty
+    wtype -k Escape
+    probe --absent
+    check_script negative hindi "हिन्दी" 6 "??"
+    check_script negative cjk "日本語" 3 "???"
+    check_script negative hangul "한국어" 3 "???"
+    for tag in hindi cjk hangul; do
+        pixels "$runtime/positive-$tag-script.png" "$runtime/negative-$tag-script.png" different || {
+            echo "SG5: $tag glyphs identical with and without system fonts" >&2
+            exit 1
+        }
+    done
+    rss_matrix "fallback hidden, fresh plate"
+    kill -0 "$plate"
+    echo "SG5: fallback hidden (RICEBOWL_SYSTEM_FONT_FALLBACK=0): Hindi/CJK/Hangul still show one visible replacement per grapheme PASS"
+    # Memory cost of the lazy fallback: a fresh plate, fallback enabled, no
+    # non-ASCII text shown yet.
+    kill "$plate" 2>/dev/null || :
+    wait "$plate" 2>/dev/null || :
+    "$native" --recipe "$runtime/luna.json" >"$runtime/native-fresh.log" 2>&1 &
+    plate=$!
+    sleep 2
+    kill -0 "$plate"
+    test -S "$runtime/riceplate-luna-desktop.sock"
+    rss_matrix "fallback enabled, fresh plate"
+    kill -0 "$plate"
     echo "SG5: real labwc keyboard, external input-method-v2 and AT-SPI lifecycle PASS"
 ' sh "$root" "$runtime" "$native" "$ime" "$clicker" "$probe_bin"

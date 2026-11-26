@@ -50,6 +50,8 @@ static BUNDLED_FALLBACK: OnceLock<fontdue::Font> = OnceLock::new();
 enum FontFace {
     Primary,
     Fallback,
+    /// Trusted installed font (`system_fallback` slot); shaped runs only.
+    System(u8),
 }
 type GlyphKey = (FontFace, char);
 
@@ -61,6 +63,8 @@ pub struct FontSprites {
     cell: u32,
     size: f32,
     proportional: bool,
+    /// Consult trusted system fonts for clusters neither bundled face covers.
+    system_fallback: bool,
 }
 
 struct GlyphCache {
@@ -257,6 +261,9 @@ fn font_glyphs(
         cell,
         size,
         proportional,
+        // Only the shaped, proportional face may use system fonts; private
+        // recipe faces keep their cell metrics and visible replacement.
+        system_fallback: proportional,
     })
 }
 
@@ -450,7 +457,49 @@ impl FontSprites {
         match face {
             FontFace::Primary => &self.font,
             FontFace::Fallback => self.fallback.unwrap_or(&self.font),
+            // System faces exist only in shaped layouts and are rasterized
+            // from their own outlines (`paint_shaped`); no per-letter path
+            // (unshaped measure/draw) ever selects one.
+            FontFace::System(_) => &self.font,
         }
+    }
+
+    /// `select_face` plus the trusted system fallback. Only consulted for
+    /// clusters the bundled faces lack AND whose script has a candidate group,
+    /// so Latin/Greek/Cyrillic/emoji never load a system font.
+    fn select_shaped_face(&self, cluster: &str) -> Option<FontFace> {
+        self.select_face(cluster).or_else(|| {
+            self.system_fallback
+                .then(|| crate::system_fallback::select(cluster))
+                .flatten()
+                .map(FontFace::System)
+        })
+    }
+
+    /// Logical-order runs of one face each (adjacent clusters merged); a
+    /// cluster no face covers becomes one visible `?` in the best face.
+    fn segment_clusters(&self, text: &str) -> Vec<(FontFace, String)> {
+        use unicode_segmentation::UnicodeSegmentation;
+        let mut segments: Vec<(FontFace, String)> = Vec::new();
+        for cluster in text.graphemes(true) {
+            let (face, chars) = match self.select_shaped_face(cluster) {
+                Some(face) => (face, cluster),
+                None => {
+                    // Missing entire grapheme: render one explicit fallback
+                    // glyph, not broken codepoints or detached joiners.
+                    let fallback = self.select_face("?").unwrap_or(FontFace::Primary);
+                    (fallback, "?")
+                }
+            };
+            if let Some(last) = segments.last_mut() {
+                if last.0 == face {
+                    last.1.push_str(chars);
+                    continue;
+                }
+            }
+            segments.push((face, chars.to_owned()));
+        }
+        segments
     }
 
     fn select_face(&self, cluster: &str) -> Option<FontFace> {
@@ -503,12 +552,43 @@ impl FontSprites {
         self.resolved_letters(text).map(|(_, letter)| letter)
     }
 
+    fn shape_face(
+        &self,
+        face: FontFace,
+        text: &str,
+        rtl: bool,
+    ) -> Option<Vec<crate::native_shaping::ShapedGlyph>> {
+        match face {
+            FontFace::System(slot) => crate::native_shaping::shape_with_face(
+                &crate::system_fallback::font(slot)?.face,
+                self.size,
+                text,
+                rtl,
+            ),
+            _ => crate::native_shaping::shape_segment(self.font_source(face), self.size, text, rtl),
+        }
+    }
+
+    /// Exclusive upper bound of valid glyph IDs and the `?` glyph for `face`.
+    fn glyph_limits(&self, face: FontFace) -> (u16, u16) {
+        match face {
+            FontFace::System(slot) => crate::system_fallback::font(slot)
+                .map_or((0, 0), |s| (s.glyph_count(), s.glyph_index('?'))),
+            _ => {
+                let font = self.font_for(face);
+                (font.glyph_count(), font.lookup_glyph_index('?'))
+            }
+        }
+    }
+
     fn font_source(&self, face: FontFace) -> &[u8] {
         match face {
             FontFace::Primary => &self.source,
             FontFace::Fallback => {
                 include_bytes!("../../../assets/fonts/LiberationSans-Regular.ttf")
             }
+            // Shaped through the cached parsed face, see `shape_face`.
+            FontFace::System(_) => &self.source,
         }
     }
 
@@ -516,7 +596,6 @@ impl FontSprites {
     /// ASCII fast path and bitmap profiles, but shape non-ASCII native text
     /// by logical script/direction runs *before* glyph rasterization.
     fn shape_layout(&self, text: &str) -> Option<Vec<PositionedGlyph>> {
-        use unicode_segmentation::UnicodeSegmentation;
         if !self.proportional
             || text.is_ascii()
             || text.len() > 2048
@@ -540,40 +619,17 @@ impl FontSprites {
                 return None;
             }
             let rtl = levels.get(run.start).is_some_and(|l| l.is_rtl());
-            let mut segments: Vec<(FontFace, String)> = Vec::new();
-            for cluster in text[run].graphemes(true) {
-                let face = self.select_face(cluster);
-                let (face, chars) = match face {
-                    Some(face) => (face, cluster),
-                    None => {
-                        // Missing entire grapheme: render one explicit fallback
-                        // glyph, not broken codepoints or detached joiners.
-                        let fallback = self.select_face("?").unwrap_or(FontFace::Primary);
-                        (fallback, "?")
-                    }
-                };
-                if let Some(last) = segments.last_mut() {
-                    if last.0 == face {
-                        last.1.push_str(chars);
-                        continue;
-                    }
-                }
-                segments.push((face, chars.to_owned()));
-            }
+            let mut segments = self.segment_clusters(&text[run]);
             if rtl {
                 segments.reverse();
             }
             for (face, segment) in segments {
-                let shaped = crate::native_shaping::shape_segment(
-                    self.font_source(face),
-                    self.size,
-                    &segment,
-                    rtl,
-                )?;
+                let shaped = self.shape_face(face, &segment, rtl)?;
+                let (glyph_count, question) = self.glyph_limits(face);
                 for g in shaped {
-                    // A fontdue metrics index must never exceed its cmap.
-                    let id = if g.id == 0 || g.id >= self.font_for(face).glyph_count() {
-                        self.font_for(face).lookup_glyph_index('?')
+                    // A metrics index must never exceed the face's glyph count.
+                    let id = if g.id == 0 || g.id >= glyph_count {
+                        question
                     } else {
                         g.id
                     };
@@ -612,21 +668,40 @@ impl FontSprites {
         for item in layout {
             let key = (item.face, item.index);
             if !cache.shaped.contains_key(&key) {
-                let font = self.font_for(item.face);
-                let bounds = font.metrics_indexed(item.index, self.size);
-                if bounds.width <= 48 && bounds.height <= 48 {
-                    let (metrics, pixels) = font.rasterize_indexed(item.index, self.size);
-                    cache.insert_shaped(
-                        key,
-                        Glyph {
-                            width: metrics.width as u32,
-                            height: metrics.height as u32,
-                            xmin: metrics.xmin,
-                            ymin: metrics.ymin,
-                            advance: metrics.advance_width,
-                            pixels,
-                        },
-                    );
+                if let FontFace::System(slot) = item.face {
+                    let raster = crate::system_fallback::font(slot).and_then(|system| {
+                        crate::system_fallback::rasterize(system, item.index, self.size, 48)
+                    });
+                    if let Some(raster) = raster {
+                        cache.insert_shaped(
+                            key,
+                            Glyph {
+                                width: raster.width,
+                                height: raster.height,
+                                xmin: raster.xmin,
+                                ymin: raster.ymin,
+                                advance: item.advance,
+                                pixels: raster.pixels,
+                            },
+                        );
+                    }
+                } else {
+                    let font = self.font_for(item.face);
+                    let bounds = font.metrics_indexed(item.index, self.size);
+                    if bounds.width <= 48 && bounds.height <= 48 {
+                        let (metrics, pixels) = font.rasterize_indexed(item.index, self.size);
+                        cache.insert_shaped(
+                            key,
+                            Glyph {
+                                width: metrics.width as u32,
+                                height: metrics.height as u32,
+                                xmin: metrics.xmin,
+                                ymin: metrics.ymin,
+                                advance: metrics.advance_width,
+                                pixels,
+                            },
+                        );
+                    }
                 }
             }
             if let Some(glyph) = cache.shaped.get(&key) {
@@ -679,6 +754,62 @@ impl FontSprites {
     }
 
     fn proportional_advance_visual(&self, visual: &str) -> f32 {
+        if self.system_fallback && !visual.is_ascii() {
+            if let Some(width) = self.advance_with_system_runs(visual) {
+                return width;
+            }
+        }
+        self.plain_advance_visual(visual)
+    }
+
+    /// Already-reordered (painted order) text whose clusters include system
+    /// fallback runs: sum shaped advances for those runs and the exact
+    /// per-letter model for the rest. `None` when no cluster needs a system
+    /// face, so every existing label keeps its previous measurement.
+    fn advance_with_system_runs(&self, visual: &str) -> Option<f32> {
+        use unicode_segmentation::UnicodeSegmentation;
+        let mut runs: Vec<(Option<FontFace>, String)> = Vec::new();
+        let mut any_system = false;
+        for cluster in visual.graphemes(true) {
+            let face = match self.select_face(cluster) {
+                Some(_) => None,
+                None => self.select_shaped_face(cluster),
+            };
+            any_system |= face.is_some();
+            match runs.last_mut() {
+                Some(last) if last.0 == face => last.1.push_str(cluster),
+                _ => runs.push((face, cluster.to_owned())),
+            }
+        }
+        if !any_system {
+            return None;
+        }
+        let mut width = 0.0_f32;
+        for (face, run) in runs {
+            let Some(face) = face else {
+                width += self.plain_advance_visual(&run);
+                continue;
+            };
+            // A visual RTL run is stored reversed; restore logical order so
+            // contextual forms shape identically to the painted layout.
+            let rtl = run.chars().any(|letter| {
+                matches!(
+                    unicode_bidi::bidi_class(letter),
+                    unicode_bidi::BidiClass::R | unicode_bidi::BidiClass::AL
+                )
+            });
+            let logical: String = if rtl {
+                run.graphemes(true).rev().collect()
+            } else {
+                run
+            };
+            let shaped = self.shape_face(face, &logical, rtl)?;
+            width += shaped.iter().map(|g| g.advance.max(0.0)).sum::<f32>();
+        }
+        Some(width)
+    }
+
+    fn plain_advance_visual(&self, visual: &str) -> f32 {
         // Width and rasterization must consume the same already-reordered
         // clusters, including cross-cluster kerning in the selected face.
         let mut width = 0.0_f32;
@@ -1068,12 +1199,13 @@ mod tests {
         );
         let font = font_glyphs(bytes, 1, true).unwrap();
         let mut replaced = vec![0_u8; 120 * 32 * 4];
-        let builtin = font_glyphs(
+        let mut builtin = font_glyphs(
             include_bytes!("../../../assets/fonts/LiberationSans-Regular.ttf").to_vec(),
             1,
             true,
         )
         .unwrap();
+        builtin.system_fallback = false;
         builtin.draw(&mut replaced, 120, 32, 0, 2, "日本語", 0xffff_ffff, false);
         for label in ["日本語", "中文", "한국어"] {
             let clusters = label.graphemes(true).count();
@@ -1110,12 +1242,15 @@ mod tests {
         // must paint exactly one visible '?' and must never be reported (or
         // measured) as script coverage.
         use unicode_segmentation::UnicodeSegmentation;
-        let font = font_glyphs(
+        let mut font = font_glyphs(
             include_bytes!("../../../assets/fonts/LiberationSans-Regular.ttf").to_vec(),
             1,
             true,
         )
         .unwrap();
+        // The fixture proves the *replacement* contract, so hide the trusted
+        // system fonts that would otherwise (correctly) cover these scripts.
+        font.system_fallback = false;
         for label in ["हिन्दी", "日本語", "中文", "한국어"] {
             assert!(
                 label
@@ -1154,6 +1289,140 @@ mod tests {
                 "{label}: {edges:?}"
             );
         }
+    }
+
+    fn latin_with_system_fallback() -> FontSprites {
+        font_glyphs(
+            include_bytes!("../../../assets/fonts/LiberationSans-Regular.ttf").to_vec(),
+            1,
+            true,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn run_segmentation_splits_where_the_primary_face_lacks_coverage() {
+        crate::native_shaping::script_fonts::require(
+            crate::native_shaping::script_fonts::DEVANAGARI,
+            "हिन्दी",
+            "fonts-lohit-deva",
+        );
+        crate::native_shaping::script_fonts::require(
+            crate::native_shaping::script_fonts::CJK,
+            "日本語한국어",
+            "fonts-wqy-microhei",
+        );
+        let font = latin_with_system_fallback();
+        let segments = font.segment_clusters("ab हिन्दी cd 日本語 \u{10FFFF}");
+        let shown: Vec<(bool, &str)> = segments
+            .iter()
+            .map(|(face, text)| (matches!(face, FontFace::System(_)), text.as_str()))
+            .collect();
+        assert_eq!(
+            shown,
+            vec![
+                (false, "ab "),
+                (true, "हिन्दी"),
+                (false, " cd "),
+                (true, "日本語"),
+                (false, " ?"),
+            ],
+            "Latin stays on the primary face; scripts become one run each; an \
+             uncovered cluster is one primary '?'"
+        );
+        let (face, _) = &segments[1];
+        assert_eq!(
+            *face,
+            FontFace::System(0),
+            "Lohit is first Devanagari candidate"
+        );
+        assert_eq!(
+            segments[3].0,
+            FontFace::System(2),
+            "wqy is first CJK candidate"
+        );
+    }
+
+    #[test]
+    fn system_fallback_shapes_hindi_cjk_hangul_with_grapheme_carets_and_real_ink() {
+        use unicode_segmentation::UnicodeSegmentation;
+        crate::native_shaping::script_fonts::require(
+            crate::native_shaping::script_fonts::DEVANAGARI,
+            "हिन्दी",
+            "fonts-lohit-deva",
+        );
+        crate::native_shaping::script_fonts::require(
+            crate::native_shaping::script_fonts::CJK,
+            "日本語한국어",
+            "fonts-wqy-microhei",
+        );
+        let font = latin_with_system_fallback();
+        let mut off = latin_with_system_fallback();
+        off.system_fallback = false;
+        for label in ["हिन्दी", "日本語", "한국어"] {
+            let clusters = label.graphemes(true).count();
+            let layout = font.shape_layout(label).expect("shaped system run");
+            assert!(layout.iter().all(|g| g.index != 0), "{label}: no .notdef");
+            assert!(layout.iter().all(|g| matches!(g.face, FontFace::System(_))));
+            let edges = editor_caret_edges(&font, label);
+            assert_eq!(edges.len(), clusters + 1, "{label}");
+            assert_eq!(edges[0], 0);
+            assert!(
+                edges.windows(2).all(|pair| pair[1] > pair[0]),
+                "{label}: distinct caret per grapheme {edges:?}"
+            );
+            assert_eq!(*edges.last().unwrap(), font.measure_text(label), "{label}");
+            let (_, right) = ink_columns(&font, label, 120).expect("real glyph ink");
+            assert!(
+                right <= font.measure_text(label) + 2,
+                "{label}: ink overrun"
+            );
+            let mut shown = vec![0_u8; 120 * 32 * 4];
+            let mut replaced = shown.clone();
+            font.draw(&mut shown, 120, 32, 0, 2, label, 0xffff_ffff, false);
+            off.draw(&mut replaced, 120, 32, 0, 2, label, 0xffff_ffff, false);
+            assert!(shown.iter().any(|&b| b != 0), "{label}: non-blank");
+            assert_ne!(shown, replaced, "{label}: not the '?' replacement run");
+        }
+        // Devanagari really shaped: matra reorder + conjunct, not cmap order.
+        let layout = font.shape_layout("हिन्दी").unwrap();
+        let naive: Vec<u16> = "हिन्दी"
+            .chars()
+            .map(|ch| crate::system_fallback::font(0).unwrap().glyph_index(ch))
+            .collect();
+        assert_ne!(layout.iter().map(|g| g.index).collect::<Vec<_>>(), naive);
+        // Mixed text keeps Latin on the primary face; logical text unchanged.
+        let mixed = "Run हिन्दी 日本語";
+        assert!(font.measure_text(mixed) > font.measure_text("Run  "));
+    }
+
+    #[test]
+    fn latin_text_never_consults_the_system_fallback() {
+        crate::system_fallback::CONSULTED.with(|count| count.set(0));
+        let font = latin_with_system_fallback();
+        for label in ["Run notepad", "Résumé ünï", "Привет", "αβγ", "emoji 😀"] {
+            let _ = font.shape_layout(label);
+            let _ = font.measure_text(label);
+            let mut canvas = vec![0_u8; 160 * 32 * 4];
+            font.draw(&mut canvas, 160, 32, 0, 2, label, 0xffff_ffff, false);
+        }
+        assert_eq!(
+            crate::system_fallback::CONSULTED.with(std::cell::Cell::get),
+            0,
+            "no candidate font was consulted or loaded"
+        );
+    }
+
+    #[test]
+    fn private_recipe_faces_do_not_use_system_fonts() {
+        let font = font_glyphs(
+            include_bytes!("../../../assets/fonts/LiberationSans-Regular.ttf").to_vec(),
+            1,
+            false,
+        )
+        .unwrap();
+        assert!(!font.system_fallback);
+        assert!(font.shape_layout("日本語").is_none());
     }
 
     #[test]
