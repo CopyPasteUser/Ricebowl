@@ -23,8 +23,24 @@ the prerequisite, not the acceptance.
 | Result | Checks |
 | --- | --- |
 | PASS | Python suite (1,949 passed via pytest; CI uses `unittest discover -s tests`), Rust `cargo test` (503), `smoke_sg1_sni_labwc`, `smoke_sg1_window_recovery_labwc`, `smoke_riceplate_windows --luna`, `smoke_riceplate_luna_autohide`, `smoke_riceplate_multioutput`, `smoke_luna_hotkeys`, `smoke_wayland_shared_rice_engine`, `smoke_luna_settings_labwc`, `smoke_creator_gui_labwc`, `smoke_wayland_session` |
-| FAIL (to triage) | `smoke_luna_atspi`, `smoke_riceplate_desktop_focus` |
-| Fixed since snapshot | `smoke_riceplate_native` (WP0.1, 3/3 local passes), `smoke_riceplate_windows --xwayland`, `smoke_wayland_clipboard`, `smoke_luna_window_chrome` (WP0.2) |
+| Not a gate (deferred) | `smoke_riceplate_desktop_focus` (opt-in diagnostic, not run by any workflow; WP0.4) |
+| Fixed since snapshot | `smoke_riceplate_native` (WP0.1, 3/3 local passes), `smoke_riceplate_windows --xwayland`, `smoke_wayland_clipboard`, `smoke_luna_window_chrome` (WP0.2), `smoke_luna_atspi` with the CI-pinned labwc 0.7.2 (WP0.3) |
+
+### Running checks locally (ricebowl environment)
+
+```sh
+rb-sync                                    # copy checkout to /home/rbdev (keeps target/)
+rb-run env XDG_RUNTIME_DIR= dbus-run-session -- xvfb-run -a \
+  python -m unittest discover -s tests     # CI-equivalent Python suite
+rb-run sh -c 'cd components/riceplate-wayland && cargo test --locked'
+rb-run env XDG_RUNTIME_DIR= dbus-run-session -- sh scripts/<smoke>.sh
+RB_PATH_PREFIX=/opt/labwc-sg5 rb-run env XDG_RUNTIME_DIR= \
+  dbus-run-session -- sh scripts/smoke_luna_atspi.sh   # SG5 IME needs labwc 0.7.2
+```
+
+Run compositor smokes one at a time: several use `pgrep -u` and timing
+budgets. Release binaries must exist in the synced `target/` (build as root
+in `/home/rbdev/Ricebowl/components/riceplate-wayland`, then `chown`).
 | Environment limit | `smoke_wayland_portals`, `smoke_real_mako_111` (Mako 1.11 builds; no FUSE for the document portal, no running PipeWire) |
 
 ## WP0 — make the local baseline trustworthy (do first)
@@ -33,8 +49,8 @@ the prerequisite, not the acceptance.
 | --- | --- | --- | --- | --- |
 | 0.1 | **DONE (harness):** after the active `wtype` keyboard disconnects, labwc 0.7.1 sends a new client `wl_keyboard.enter/modifiers` without a keymap and Fuzzel 1.9.2 segfaults in `xkb_state_update_mask`. The smoke now attaches a fresh self-expiring virtual keyboard before each re-open. No RicePlate change; 3/3 local full passes | Done | L | O |
 | 0.2 | **DONE (environment):** the session had no locale (POSIX); xterm under XWayland exits immediately without one. CI runners use `C.UTF-8`; `rb-run` now sets it. All three XWayland smokes pass | Done | L | O |
-| 0.3 | `smoke_luna_atspi`: "Native editor AT-SPI mismatch chars=0/4" (reported passing on labwc 0.8.3 at `d4aba0d8`) | Shown whether this depends on labwc 0.7.1 vs 0.8.3; green on the CI version | L | O |
-| 0.4 | `smoke_riceplate_desktop_focus`: `FOCUS_PROBE_FAIL bottom-pointer-event-missing`; relate to PR #601 | Green, or #601 resolves it with an exact-head local run | L | S |
+| 0.3 | **DONE (environment):** the menu IME step needs input-method-v2, which stock labwc 0.7.1 lacks; CI builds a pinned private labwc 0.7.2 (`b41af54a`) for this step only. With that build the full smoke passes locally | Done | L | O |
+| 0.4 | **Deferred:** `smoke_riceplate_desktop_focus` fails with `FOCUS_PROBE_FAIL bottom-pointer-event-missing`, but it is an opt-in diagnostic no workflow runs. Revisit with SG1.8 (focus/hotplug) | Green or retired with reason | L | S |
 | 0.5 | Portal/Mako 1.11 without FUSE/PipeWire | Either an isolated opt-in variant without the document portal, or explicitly left to CI | L/CI | S |
 
 ## SG1 — shared shell (3/4): every advertised control × every state
