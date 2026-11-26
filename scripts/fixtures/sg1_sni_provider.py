@@ -60,7 +60,7 @@ XML = """
   </interface>
 </node>
 """
-MODES = {"normal", "disabled", "removed", "empty", "denied", "slow"}
+MODES = {"normal", "disabled", "removed", "empty", "denied", "slow", "relabeled"}
 
 
 def node(item_id, properties, children=()):
@@ -140,7 +140,10 @@ class Fixture:
         return values.get(name)
 
     def layout(self, parent_id):
-        action = node(10, props("Provider action"))
+        # "relabeled" keeps ID 10 but repurposes it, the worst case for a
+        # stale keyboard highlight (same ID, different meaning).
+        action = node(10, props("Repurposed action" if self.mode == "relabeled"
+                                else "Provider action"))
         denied = node(11, props("Disabled action", enabled=self.mode != "disabled"))
         child = node(21, props("Nested action"))
         submenu = node(20, props("Submenu", submenu=True), [child])

@@ -112,6 +112,12 @@ with tempfile.TemporaryDirectory(prefix="sg1-sni-bus-") as dirname:
         assert "Provider action" not in layout.print_(True)
         assert_dbus_rejected(10, "RevokedMenuId")
         call(service, "/Control", control, "SetMode",
+             GLib.Variant("(s)", ("relabeled",)), "()")
+        layout = call(service, "/Menu", menu, "GetLayout",
+                      GLib.Variant("(iias)", (0, -1, [])), "(u(ia{sv}av))")
+        assert "Repurposed action" in layout.print_(True), layout.print_(True)
+        assert "Provider action" not in layout.print_(True)
+        call(service, "/Control", control, "SetMode",
              GLib.Variant("(s)", ("slow",)), "()")
         began = time.monotonic()
         call(service, "/Menu", menu, "GetLayout",
@@ -203,6 +209,18 @@ class SniIntegrationFixtureTests(unittest.TestCase):
         # A successful SetMode reply alone is not a valid menu-readback
         # barrier; require a new GetLayout from the same provider generation.
         self.assertIn("did not refetch SNI layout after SetMode", embedded)
+        # Provider update mid-input and external focus theft, both rices.
+        for needle in (
+                "set_fixture_mode relabeled",
+                "stale highlighted ID dispatched after provider relabel",
+                "stale highlighted ID dispatched after provider removal",
+                'assert_action_mode_once "$rice-new" clicked 10 relabeled',
+                'assert_action_mode_once "$rice-new" clicked 11 removed',
+                '"$probe" overlay exclusive',
+                "tray popup kept its grab after keyboard focus loss",
+                "keys typed into the focus thief reached the provider menu",
+                "tray did not reopen and dispatch exactly once after focus theft"):
+            self.assertIn(needle, embedded)
         self.assertIn("GLib.timeout_add(390,", PROVIDER.read_text(encoding="utf-8"))
         self.assertIn("Private fixture last events:", embedded)
         syntax = subprocess.run(["sh", "-n", str(SMOKE)],

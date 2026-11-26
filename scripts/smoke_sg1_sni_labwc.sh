@@ -5,12 +5,13 @@ set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 native="$root/components/riceplate-wayland/target/release/riceplate-native"
 clicker="$root/components/riceplate-wayland/target/release/examples/wayland_pointer_click"
+probe="$root/components/riceplate-wayland/target/release/riceplate_focus_probe"
 provider="$root/scripts/fixtures/sg1_sni_provider.py"
 for command in dbus-run-session labwc wlr-randr wtype gdbus; do
     command -v "$command" >/dev/null || { echo "Missing $command" >&2; exit 77; }
 done
-test -x "$native" && test -x "$clicker" || {
-    echo "Build native release binary and wayland_pointer_click example first" >&2
+test -x "$native" && test -x "$clicker" && test -x "$probe" || {
+    echo "Build native release binary, riceplate_focus_probe and wayland_pointer_click example first" >&2
     exit 77
 }
 /usr/bin/python3 -c 'import gi; from gi.repository import Gio, GLib' || exit 77
@@ -72,12 +73,13 @@ export WLR_RENDERER=pixman
 export RICEBOWL_DE_NESTED=1
 
 dbus-run-session -- sh -eu -c '
-    root=$1 runtime=$2 native=$3 clicker=$4 provider=$5
+    root=$1 runtime=$2 native=$3 clicker=$4 provider=$5 probe=$6
     labwc --config-dir "$root/macrice/de/resources/labwc" --startup true \
         >"$runtime/labwc.log" 2>&1 &
     compositor=$!
-    plate= provider_pid= keyboard_keeper=
+    plate= provider_pid= keyboard_keeper= thief=
     cleanup() {
+        [ -z "$thief" ] || { kill "$thief" 2>/dev/null || :; wait "$thief" 2>/dev/null || :; }
         [ -z "$provider_pid" ] || { kill "$provider_pid" 2>/dev/null || :; wait "$provider_pid" 2>/dev/null || :; }
         [ -z "$plate" ] || { kill "$plate" 2>/dev/null || :; wait "$plate" 2>/dev/null || :; }
         [ -z "$keyboard_keeper" ] || { kill "$keyboard_keeper" 2>/dev/null || :; wait "$keyboard_keeper" 2>/dev/null || :; }
@@ -222,6 +224,35 @@ hits = [e for e in entries if e["generation"] == sys.argv[2]
         and e["event"] == "menu-event" and e.get("action") == "clicked"]
 assert not hits, f"New SNI owner inherited stale input: {hits}"
 PY
+    }
+    count_clicked_any() {
+        /usr/bin/python3 - "$runtime/receipts.jsonl" "$1" <<PY
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as stream:
+    rows = [json.loads(line) for line in stream]
+print(sum(1 for r in rows if r["generation"] == sys.argv[2]
+          and r["event"] == "menu-event" and r.get("action") == "clicked"))
+PY
+    }
+    count_closed_any() {
+        /usr/bin/python3 - "$runtime/receipts.jsonl" "$1" <<PY
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as stream:
+    rows = [json.loads(line) for line in stream]
+print(sum(1 for r in rows if r["generation"] == sys.argv[2]
+          and r["event"] == "menu-event" and r.get("action") == "closed"))
+PY
+    }
+    wait_popup_focus() {
+        # $1 = number of "confirmed" lines already seen
+        n=0
+        while [ "$n" -lt 30 ] && [ "$(grep -c "compositor confirmed tray popup keyboard focus" \
+            "$runtime/plate-$rice.log" || :)" -le "$1" ]; do
+            n=$((n + 1))
+            sleep .1
+        done
+        [ "$n" -lt 30 ] || { echo "$rice tray popup did not gain keyboard focus" >&2
+            tail -n 40 "$runtime/plate-$rice.log" >&2 || :; return 1; }
     }
     ready_menu_snapshot() {
         previous=$1
@@ -557,6 +588,119 @@ PY
         kill -0 "$plate"
         echo "SG1 real disabled/denied/empty/Escape/slow/recovery receipts PASS: $rice"
 
+        # Focus theft (Top gap 3): an external exclusive Wayland client takes
+        # keyboard focus while the native popup is open. Policy: wl_keyboard.leave
+        # closes the popup (SNI "closed" event); keys typed into the thief must
+        # never reach the provider; after the thief exits a fresh open dispatches
+        # exactly once.
+        # A stale, disconnected wtype keyboard stops layer-shell clients from
+        # receiving wl_keyboard.enter (WP0.1); attach a fresh one first.
+        renew_keyboard_seat
+        focus_seen=$(grep -c "compositor confirmed tray popup keyboard focus" \
+            "$runtime/plate-$rice.log" || :)
+        open_fixture_menu
+        wait_popup_focus "$focus_seen" || exit 1
+        theft_clicks=$(count_clicked_any "$rice-new")
+        theft_closed=$(count_closed_any "$rice-new")
+        WAYLAND_DISPLAY=wayland-0 "$probe" overlay exclusive >"$runtime/thief-$rice.log" 2>&1 &
+        thief=$!
+        count=0
+        while [ "$count" -lt 40 ] && ! grep -Fq "event=keyboard_enter" "$runtime/thief-$rice.log"; do
+            count=$((count + 1))
+            sleep .1
+        done
+        [ "$count" -lt 40 ] || {
+            echo "$rice external client never took keyboard focus from the tray popup" >&2
+            cat "$runtime/thief-$rice.log" >&2 || :
+            tail -n 40 "$runtime/plate-$rice.log" >&2 || :; exit 1; }
+        sleep .3
+        [ "$(count_closed_any "$rice-new")" -gt "$theft_closed" ] || {
+            echo "$rice tray popup kept its grab after keyboard focus loss" >&2
+            tail -n 40 "$runtime/plate-$rice.log" >&2 || :; exit 1; }
+        WAYLAND_DISPLAY=wayland-0 wtype -k Down -s 120 -k Return -s 120 -k Return
+        sleep .3
+        grep -Fq "event=keyboard_press" "$runtime/thief-$rice.log" || {
+            echo "$rice keys typed after focus theft did not reach the new focus owner" >&2
+            cat "$runtime/thief-$rice.log" >&2 || :; exit 1; }
+        [ "$(count_clicked_any "$rice-new")" -eq "$theft_clicks" ] || {
+            echo "$rice keys typed into the focus thief reached the provider menu" >&2; exit 1; }
+        kill -0 "$plate"
+        WAYLAND_DISPLAY=wayland-0 wtype -k Escape
+        count=0
+        while [ "$count" -lt 30 ] && kill -0 "$thief" 2>/dev/null; do
+            count=$((count + 1))
+            sleep .1
+        done
+        kill -0 "$thief" 2>/dev/null && { echo "$rice focus thief ignored Escape" >&2; exit 1; }
+        wait "$thief" 2>/dev/null || :
+        thief=
+        sleep .3
+        [ "$(count_clicked_any "$rice-new")" -eq "$theft_clicks" ] || {
+            echo "$rice Escape/exit of the focus thief dispatched a menu action" >&2; exit 1; }
+        theft_nested=$(count_receipt "$rice-new" clicked 21)
+        renew_keyboard_seat
+        open_fixture_menu
+        sleep .4
+        WAYLAND_DISPLAY=wayland-0 wtype -k Return -s 350 -k Return
+        sleep .4
+        [ "$(count_receipt "$rice-new" clicked 21)" -eq "$((theft_nested + 1))" ] &&
+        [ "$(count_clicked_any "$rice-new")" -eq "$((theft_clicks + 1))" ] || {
+            echo "$rice tray did not reopen and dispatch exactly once after focus theft" >&2
+            tail -n 50 "$runtime/plate-$rice.log" >&2 || :; exit 1; }
+        WAYLAND_DISPLAY=wayland-0 wtype -k Escape
+        sleep .2
+        kill -0 "$plate"
+        echo "SG1 real focus-theft/popup-close/no-leak/reopen receipts PASS: $rice"
+
+        # Provider update mid-input (Top gap 4): a keyboard highlight is an
+        # action identity. Highlight ID 10, let the real provider emit
+        # LayoutUpdated that repurposes (same ID, new label) or removes it,
+        # then press Return. The stale highlight must dispatch nothing, the
+        # refreshed rows must be navigable, and a fresh valid action fires once.
+        stale_total=$(count_clicked_any "$rice-new")
+        open_fixture_menu
+        sleep .3
+        WAYLAND_DISPLAY=wayland-0 wtype -k Down
+        sleep .2
+        set_fixture_mode relabeled
+        WAYLAND_DISPLAY=wayland-0 wtype -k Return
+        sleep .4
+        [ "$(count_clicked_any "$rice-new")" -eq "$stale_total" ] || {
+            echo "$rice stale highlighted ID dispatched after provider relabel" >&2
+            tail -n 40 "$runtime/plate-$rice.log" >&2 || :; exit 1; }
+        kill -0 "$plate"
+        WAYLAND_DISPLAY=wayland-0 wtype -k Down -s 150 -k Down -s 150 -k Return
+        sleep .4
+        assert_action_mode_once "$rice-new" clicked 10 relabeled
+        [ "$(count_clicked_any "$rice-new")" -eq "$((stale_total + 1))" ] || {
+            echo "$rice refreshed menu did not dispatch exactly one action" >&2; exit 1; }
+        WAYLAND_DISPLAY=wayland-0 wtype -k Escape
+        sleep .2
+        # Removal variant: highlighted ID 10 disappears.
+        set_fixture_mode normal
+        stale_total=$(count_clicked_any "$rice-new")
+        open_fixture_menu
+        sleep .3
+        WAYLAND_DISPLAY=wayland-0 wtype -k Down
+        sleep .2
+        set_fixture_mode removed
+        WAYLAND_DISPLAY=wayland-0 wtype -k Return
+        sleep .4
+        [ "$(count_clicked_any "$rice-new")" -eq "$stale_total" ] || {
+            echo "$rice stale highlighted ID dispatched after provider removal" >&2
+            tail -n 40 "$runtime/plate-$rice.log" >&2 || :; exit 1; }
+        WAYLAND_DISPLAY=wayland-0 wtype -k Down -s 150 -k Down -s 150 -k Return
+        sleep .4
+        assert_action_mode_once "$rice-new" clicked 11 removed
+        [ "$(count_clicked_any "$rice-new")" -eq "$((stale_total + 1))" ] || {
+            echo "$rice post-removal navigation did not dispatch exactly once" >&2; exit 1; }
+        WAYLAND_DISPLAY=wayland-0 wtype -k Escape
+        sleep .2
+        set_fixture_mode normal
+        kill -0 "$plate"
+        echo "SG1 real provider-update-mid-input (relabel/remove) receipts PASS: $rice"
+
+
         # Removing a live remote node must revoke the old keyboard selection.
         gdbus call --session --dest org.ricebowl.SNIFixture \
             --object-path /Control \
@@ -573,4 +717,4 @@ PY
         rm -f "$runtime/ready-old" "$runtime/ready-new"
         echo "SG1 real DBus/labwc SNI lifecycle receipts PASS: $rice"
     done
-' sh "$root" "$runtime" "$native" "$clicker" "$provider"
+' sh "$root" "$runtime" "$native" "$clicker" "$provider" "$probe"
