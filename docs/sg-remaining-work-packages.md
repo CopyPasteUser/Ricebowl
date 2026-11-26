@@ -61,7 +61,7 @@ in `/home/rbdev/Ricebowl/components/riceplate-wayland`, then `chown`).
 | 1.2 | Taskbar/window: two-rice minimize/maximize/close, transient loss/restart | Real labwc receipts in both rices | L! (0.2) | S |
 | 1.3 | Desktop/files: multi-select, drag, permission denied, focus lost, both rices | Negative + recovery receipts | L | S |
 | 1.4 | Launcher empty/error/busy in both rices | Real input; no stale action after empty/error | L! (0.1) | S |
-| 1.5 | System controls and notifications: provider unavailable/denied/restart under labwc | Shared with SG2/SG3 fixtures; both rices | L | S |
+| 1.5 | System controls and notifications: provider unavailable/denied/restart under labwc | Shared with SG2/SG3 fixtures; both rices. **Status controls DONE locally:** `scripts/smoke_sg1_status_labwc.sh` (Luna tray menus + schema-v7 panel controls with private `nmcli`/`wpctl` shims; Chrome asserted read-only; not yet in a workflow). Notifications and provider restart still open | L | S |
 | 1.6 | Luna clock tray: denied/unavailable provider, focus loss | End-to-end smoke | L | S |
 | 1.7 | Remote SNI invalid secondary click on Chrome, end to end | Smoke receipt | L | S |
 | 1.8 | Hotplug and scale change while menus are open; provider update during input | Deterministic smoke, no stale surfaces | L | O |
