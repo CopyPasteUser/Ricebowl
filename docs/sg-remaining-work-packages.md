@@ -91,7 +91,7 @@ in `/home/rbdev/Ricebowl/components/riceplate-wayland`, then `chown`).
 
 | WP | Task | Done when | Where | Model |
 | --- | --- | --- | --- | --- |
-| 4.1 | `scripts.verify_wayland_creator_handoff` locally: 8 real captures (Heritage/Orbit × 4 geometries) | Manifest + decoded captures from a local run | L | S |
+| 4.1 | **DONE locally (26 Nov, `main@8f1398c`):** `scripts.verify_wayland_creator_handoff` produced 8 real labwc captures (Heritage/Orbit × 640×480, 1366×768 @1.0/@1.25, 1920×1080) and a manifest with `capture_is_interactive: false`, `visual_tolerances_approved: false`. Needs `target/release` on PATH, as in CI. Still requires CI archive (4.6) | Done (local) | L | S |
 | 4.2 | GUI export→import, Creator exit→supervisor apply/restore, including killed Creator, interrupted journal, malformed config, relogin | Disposable-session tests for each case | L | O |
 | 4.3 | Interactive pointer/keyboard/error/popup/AT checks on both imported rices | Real input receipts | L | S |
 | 4.4 | Approved reference captures and geometry/clip/text/hit-target tolerances | Owner approves tolerances; then tests enforce them | OWNER + L | S |
