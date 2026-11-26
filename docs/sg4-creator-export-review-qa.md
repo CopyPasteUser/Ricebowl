@@ -113,6 +113,68 @@ smoke or hardware checks. A damaged journal requires a manual removal (no
 automated clearing, by design). Results: three passes of the new module, full
 suite 2000 tests OK (4 skipped).
 
+## Interactive evidence for both imported rices (WP4.3, local, 26 Nov 2026)
+
+"The two imported rices" are the **Heritage Composer** (bottom taskbar, tabbed
+menu) and **Orbit Composer** (top panel, sidebar menu) Creator templates, the
+same pair the native handoff captures (see above). `scripts/smoke_sg4_imported_rices_labwc.sh`
+(about 80 s, wired into the native workflow from December) drives both with
+real input on a disposable headless labwc 0.7.1 and the real `riceplate-native`
+release binary. Every rice goes through the real Creator backend first
+(`scripts/sg4_imported_rices_setup.py`: draft + saved revision, verified RicePack
+export under an *author* profile, read-only preflight and locked import into a
+different, fresh profile; the import changes no selection). Only the imported
+IDs are used afterwards. Private HOME/XDG/runtime and D-Bus session, a PATH with
+logging shims only (no real `foot`/`fuzzel`/`nmcli`/`wpctl`).
+
+**Stage `apply`** (supervised `launcher.py de start --nested --panel native`):
+Creator live apply classic -> imported rice (`creator-live-apply` with the
+reviewed SHA-256, compositor-frame acknowledged), exactly one native shell for
+that recipe file, panel pixels differ from the classic panel, the real pointer
+opens the rice's own launcher menu, Down/Escape close it, a pointer click on a
+menu row runs the exact helper once, `creator-live-restore` returns to classic
+(imported shell gone, classic panel pixels restored). After `labwc --exit`: no
+process, no changed file anywhere in the private HOME/XDG profile (content
+digest before/after), no runtime-dir leftovers, saved selection still classic.
+
+**Stage `input`** (per rice, directly started native shell with the AT-SPI
+bridge; see limits):
+
+| Area | Receipt (both rices unless noted) |
+| --- | --- |
+| Primary launcher/menu | pointer click opens it (pixels + AT-SPI `menu`); Down moves AT-SPI focus Applications -> Terminal; Return runs `foot` once and closes; keys afterwards reach nothing; pointer click on the Terminal row; AT-SPI `doAction` on Terminal; Escape closes without a call; Return on Applications reaches the external launcher once |
+| Group switch | Right moves to the Session group; **Log out is exposed as "..., unavailable" with no AT-SPI action** (outside a labwc-managed session) |
+| Popup | clock click opens the calendar dialog; AT-SPI "Next month" changes the month; Escape dismisses |
+| Desktop shortcut | pointer click and AT-SPI `doAction` each run the bound action once |
+| Unsupported capability | with no `nmcli`/`wpctl`: "Wi-Fi, N/A, unavailable" (Heritage also "Mute, N/A, unavailable") expose no action; clicks reach no provider; no failure notice |
+| Error path (helper) | `ricebowl de lock` exits 3: one attempt, a painted "Command / Could not run" notice and exactly one AT-SPI alert, self-clearing after about 4 s, no replay; the next lock works |
+| Error path (provider) | a failing `nmcli` toggle: exactly one attempt, state unchanged, "Wi-Fi, On, failed" (and a differently painted caption), retry works ("Off"), AT-SPI `doAction` toggles back; Heritage Mute likewise |
+| Smaller screen | at 640x480 each recipe's compact layout applies (Heritage keeps the clock; Orbit drops it for the audio status; Wi-Fi/Mute hidden), the launcher menu opens fully inside the output, Down+Return runs Terminal |
+
+Gate: two consecutive full local passes; `tests/test_sg4_imported_rices_smoke.py`
+runs the real author/export/import helper without a compositor.
+
+Platform limits and findings (nothing here is fixed by the smoke):
+
+- A nested supervised session never enables the AT-SPI bridge (by design:
+  previews do not own accessibility), so the AT-SPI receipts use a directly
+  started shell (`RICEBOWL_DE_NESTED=0`, `RICEBOWL_DE_SCREEN_READER=1`) on the
+  same imported recipe files; the compositor + supervisor apply is covered by
+  stage `apply` with pixels, the process table and real input only.
+- The harness renews its virtual keyboard after each supervisor-driven shell
+  replacement (labwc 0.7.1 + `wtype`, WP0.1); a physical keyboard is unaffected.
+- The native menu has no click-away dismissal (a click on the desktop leaves it
+  open); dismissal is Escape, the close button or the launcher.
+- The desktop shortcut context menu (right click) is a Luna-only feature; these
+  rices do not offer it, so none is claimed.
+- **Open visual finding (belongs to WP4.4 tolerances):** Orbit's template uses
+  `font_scale` 2 in the fixed 320 px menu, so labels are cut without a marker
+  ("Applicatio", "Explo", "Sessi", the Find/Saved buttons show "F"/"S"); the
+  accessible names stay complete. The same bounded truncation exists in the
+  drawing code for every recipe.
+- Not covered: pointer drag of shortcuts, IME in these menus (SG5), multi-output
+  and physical-device behaviour, the Creator GUI click-through: the GTK Creator exists, but a real export->import run through its file choosers under labwc is still open (the smoke calls the same `creator_workspace`/`pack` functions the GUI buttons call).
+
 ## Remaining blocking SG4 sign-offs
 
 - Exact-head native CI success and archived, decoded labwc captures for both
