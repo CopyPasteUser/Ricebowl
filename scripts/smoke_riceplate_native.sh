@@ -217,6 +217,17 @@ dbus-run-session -- sh -eu -s -- "$source_root" "$runtime" "$native" "$clicker" 
     wallpaper=
     keyboard_keeper=
     focus_typer=
+    # The inert keeper below keeps seat capabilities stable, but once the
+    # *active* wtype keyboard disconnects labwc 0.7.1 has no active keymap and
+    # still sends a new client wl_keyboard.enter/modifiers without a keymap.
+    # Fuzzel 1.9.2 then crashes (SIGSEGV in xkb_state_update_mask) before its
+    # first frame. Before re-opening a launcher, attach a fresh self-expiring
+    # virtual keyboard (becomes the active keymap, sends no key), as a
+    # physical keyboard would be. No RicePlate behavior is changed.
+    attach_seat_keyboard() {
+        WAYLAND_DISPLAY=wayland-0 wtype -s 2500 >/dev/null 2>&1 &
+        sleep .15
+    }
     cleanup() {
         if [ -s "$runtime/clip-action-gui.pid" ]; then
             clip_pid=$(cat "$runtime/clip-action-gui.pid" 2>/dev/null || :)
@@ -506,6 +517,7 @@ dbus-run-session -- sh -eu -s -- "$source_root" "$runtime" "$native" "$clicker" 
             # its former position does not necessarily receive a fresh
             # compositor enter. Model a real user returning the pointer
             # to the shelf, NOT a blind second activation click.
+            attach_seat_keyboard
             WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 500 500 1366 768
             sleep .12
             WAYLAND_DISPLAY=wayland-0 "$clicker" 28 746 1366 768
@@ -546,6 +558,7 @@ dbus-run-session -- sh -eu -s -- "$source_root" "$runtime" "$native" "$clicker" 
                 ""|*Z*) : ;;
                 *) echo "Chrome empty-result Escape left launcher active" >&2; exit 1 ;;
             esac
+            attach_seat_keyboard
             WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 500 500 1366 768
             sleep .12
             WAYLAND_DISPLAY=wayland-0 "$clicker" 28 746 1366 768
