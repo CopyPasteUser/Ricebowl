@@ -74,7 +74,7 @@ in `/home/rbdev/Ricebowl/components/riceplate-wayland`, then `chown`).
 | --- | --- | --- | --- | --- |
 | 2.1 | **DONE:** [inventory](sg2-adapter-state-inventory.md) (186 cells: 93 covered, 14 partial, 35 gaps). Matrix per adapter (display, input, network, audio, Bluetooth, accessibility, power, time/NTP) × {verified readback, authorization denied, provider disconnected/unavailable, rollback}. A rough grep suggests input, Bluetooth, accessibility and NTP have the fewest co-located negative tests; verify | Table with test links and gaps | L | S |
 | 2.2 | **DONE locally (26 Nov):** `tests/test_de_sg2_gap_fill.py` (9 adapter tests: N5 `con add` denial, P1 power-profile denial, B3/B4 backend-only refusals, A5 vanished player, I3 Orca missing) and `tests/test_de_sg2_gap_gui.py` (14 real-Gtk tests: N5/N6/N7 dialogs, A1 audio defaults, D5 trial toggle, I1/I2/I3 pages); every inventory `gap` cell is now covered or `n/a` with a reason ([inventory](sg2-adapter-state-inventory.md)). **Product bug found and fixed:** a polkit/AccessDenied refusal of `powerprofilesctl set` surfaced as "outcome unknown"; it is now the typed denial. Fake-provider evidence only; no real polkit/D-Bus acceptance | Every cell covered or explicitly unsupported in the UI | L | S |
-| 2.3 | Check status of candidates #552 (NM post-write uncertainty) | Merged with evidence, or reworked | L | S |
+| 2.3 | **DONE:** #552 (NM post-write uncertainty) merged 20 Nov 2026; its tests run in the local suite | Merged with evidence, or reworked | L | S |
 | 2.4 | GUI pass per page in headless labwc showing denied/unavailable/busy visibly | Real GTK GUI under labwc, not CLI only | L | S |
 | 2.5 | Whole matrix at one final `main` SHA | Exact-main run | CI | – |
 
@@ -84,7 +84,7 @@ in `/home/rbdev/Ricebowl/components/riceplate-wayland`, then `chown`).
 | --- | --- | --- | --- | --- |
 | 3.1 | Inbox/OSD live updates, keyboard and AT-SPI action semantics in both rices | Real Mako + labwc + AT-SPI receipts | L | S |
 | 3.2 | Privacy (no unexpected persistence, bodies cleared), restart, localization and rendered-text matrix | Matrix with negative tests | L | S |
-| 3.3 | Check status of candidate #553 (`ActionInvoked`) | Merged with evidence, or reworked | L | S |
+| 3.3 | **DONE:** #553 (`ActionInvoked`) merged 20 Nov 2026; real-Mako action receipt in `smoke_sg3_ricepop_native_labwc.sh` | Merged with evidence, or reworked | L | S |
 | 3.4 | Real Mako 1.11 matrix | Local after 0.5, otherwise CI | L (0.5 done) | S |
 | 3.5 | **DONE (workflow step exists; CI run pending):** `riceplate-native.yml` now path-filters the SG3 script, driver and `smoke_real_mako_111.sh`, runs `sh -n`/`py_compile`, builds Mako v1.11.0 from the same source-locked commit (`91c6b799`) and meson options as `smoke_real_mako_111.sh` into `$RUNNER_TEMP` (PATH for the SG3 step only), then runs the smoke under `timeout 150s`. Not yet run on a hosted runner | Workflow step exists | L (edit) / CI | S |
 
