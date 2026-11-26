@@ -118,7 +118,7 @@ in `/home/rbdev/Ricebowl/components/riceplate-wayland`, then `chown`).
 | --- | --- | --- | --- | --- |
 | 7.1 | Finish PR #596 (live-PR pinning, receipt IO) | Local tests + guarded merge | L | S |
 | 7.2 | Longer headless resource/leak soak (idle PSS/CPU over time) | Documented local measurement; not a hardware benchmark | L | S |
-| 7.3 | Unsupported/error states documented across components | Reviewed list | L | S |
+| 7.3 | **DONE (doc, 26 Nov):** [sg7-unsupported-error-states.md](sg7-unsupported-error-states.md) lists unsupported/denied/unavailable/error states per component (RicePlate panels/launcher/desktop, RiceSpice, RicePop, Creator/RicePack, session/supervisor), each with source and test citations; entries without a test are marked `unverified` and Rust rows were grep-checked, not run | Reviewed list | L | S |
 | 7.4 | Exact final `main`: all workflows, strict portal, SG7 dossier | Only after SG1–SG5 merges | CI | – |
 
 ## Suggested order

@@ -141,6 +141,7 @@ Optional RiceClip/RiceShot P1 features remain outside the core release block.
   and spoofed strict-portal results. Path-filter parity tests require the
   strict portal source set on both push and PR. This **hardens** SG7 without
   claiming full software matrix, GPU/wlr or physical acceptance.
+- Unsupported, denied, unavailable and error states per component, with proof citations: [docs/sg7-unsupported-error-states.md](docs/sg7-unsupported-error-states.md) (WP7.3; review list, not acceptance).
 
 ### SG3 RicePop verified Mako crash/restart and fail-closed GUI recovery (17 November 2026; CI candidate)
 
