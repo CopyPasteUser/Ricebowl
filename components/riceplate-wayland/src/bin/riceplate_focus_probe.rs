@@ -5,7 +5,10 @@
 //! keysyms, keyboard text, or any user input contents.
 //!
 //! Build: cargo build --manifest-path components/riceplate-wayland/Cargo.toml
-//! Run:   riceplate_focus_probe bottom|top|overlay
+//! Run:   riceplate_focus_probe bottom|top|overlay [exclusive]
+//! `exclusive` (SG5 Rename focus-cycle smoke) requests Exclusive keyboard
+//! interactivity and exits on Escape, so a real second layer client can take
+//! and later return compositor keyboard focus from another exclusive dialog.
 //! The Bottom/OnDemand comparison is intentionally not treated as acceptance
 //! that the real RicePlate desktop acquired focus.
 
@@ -54,7 +57,15 @@ fn main() {
         "top" => Layer::Top,
         "overlay" => Layer::Overlay,
         _ => {
-            eprintln!("Usage: riceplate_focus_probe bottom|top|overlay");
+            eprintln!("Usage: riceplate_focus_probe bottom|top|overlay [exclusive]");
+            std::process::exit(2);
+        }
+    };
+    let exclusive = match std::env::args().nth(2).as_deref() {
+        None => false,
+        Some("exclusive") => true,
+        Some(_) => {
+            eprintln!("Usage: riceplate_focus_probe bottom|top|overlay [exclusive]");
             std::process::exit(2);
         }
     };
@@ -75,7 +86,11 @@ fn main() {
     layer.set_size(WIDTH as u32, HEIGHT as u32);
     layer.set_margin(220, 0, 0, 220);
     layer.set_exclusive_zone(-1);
-    layer.set_keyboard_interactivity(KeyboardInteractivity::OnDemand);
+    layer.set_keyboard_interactivity(if exclusive {
+        KeyboardInteractivity::Exclusive
+    } else {
+        KeyboardInteractivity::OnDemand
+    });
     layer.commit();
 
     let pool = SlotPool::new(POOL_BYTES, &shm).expect("private wl_shm pool");
@@ -93,10 +108,12 @@ fn main() {
         focused: false,
         clicked: false,
         presses: 0,
+        exit_on_escape: exclusive,
         exit: false,
     };
     log(&format!(
-        "event=started layer={mode} interactivity=ondemand"
+        "event=started layer={mode} interactivity={}",
+        if exclusive { "exclusive" } else { "ondemand" }
     ));
     while !state.exit {
         queue
@@ -120,6 +137,7 @@ struct Probe {
     focused: bool,
     clicked: bool,
     presses: u32,
+    exit_on_escape: bool,
     exit: bool,
 }
 
@@ -250,6 +268,11 @@ impl SeatHandler for Probe {
         seat: wl_seat::WlSeat,
         capability: Capability,
     ) {
+        // smithay-client-toolkit binds the seats that already exist at
+        // startup inside SeatState::new and does not call new_seat for them.
+        if self.owner.is_none() {
+            self.owner = Some(seat.clone());
+        }
         if self.owner.as_ref() != Some(&seat) {
             return;
         }
@@ -344,11 +367,14 @@ impl KeyboardHandler for Probe {
         _: &QueueHandle<Self>,
         keyboard: &wl_keyboard::WlKeyboard,
         _: u32,
-        _: KeyEvent,
+        event: KeyEvent,
     ) {
         if self.keyboard.as_ref() == Some(keyboard) && self.focused {
             self.presses = self.presses.saturating_add(1);
             log(&format!("event=keyboard_press count={}", self.presses));
+            if self.exit_on_escape && event.keysym == Keysym::Escape {
+                self.exit = true;
+            }
         }
     }
     fn repeat_key(

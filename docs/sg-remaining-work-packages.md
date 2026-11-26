@@ -103,7 +103,7 @@ in `/home/rbdev/Ricebowl/components/riceplate-wayland`, then `chown`).
 
 | WP | Task | Done when | Where | Model |
 | --- | --- | --- | --- | --- |
-| 5.1 | IME v2→v3 for Rename; focus leave/re-enter; candidate selection; RTL flows | Protocol smoke per surface | L! (0.3) | O |
+| 5.1 | **Rename IME + dialog focus leave/re-enter DONE locally** (labwc 0.7.2, 3/3, `smoke_luna_atspi.sh`; see SG5 ledger). Open: menu focus cycle, candidate selection, RTL flows. IME v2→v3 for Rename; focus leave/re-enter; candidate selection; RTL flows | Protocol smoke per surface | L! (0.3) | O |
 | 5.2 | Confirm menu IME (#600) and issue #595 in the final matrix | Ledger updated with local evidence | L | S |
 | 5.3 | Cross-app clipboard on final source | `wl-copy`/`wl-paste` smoke green | L! (0.2) | S |
 | 5.4 | Positive Hindi/CJK font coverage with measured glyph/caret positions (installable Noto fonts) | Rust + compositor pixel/metric tests | L | O |

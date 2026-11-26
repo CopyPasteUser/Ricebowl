@@ -7,6 +7,8 @@ root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 native="$root/components/riceplate-wayland/target/release/riceplate-native"
 ime="$root/components/riceplate-wayland/target/release/examples/wayland_ime_v2_client"
 clicker="$root/components/riceplate-wayland/target/release/examples/wayland_pointer_click"
+probe_bin="$root/components/riceplate-wayland/target/release/riceplate_focus_probe"
+test -x "$probe_bin" || { echo "Build the focus probe fixture first" >&2; exit 1; }
 test -x "$clicker" || { echo "Build Wayland pointer fixture first" >&2; exit 1; }
 test -x "$ime" || { echo "Build the external v2 IME fixture first" >&2; exit 1; }
 test -x "$native" || { echo 'Build native RicePlate first' >&2; exit 1; }
@@ -45,16 +47,16 @@ assert luna_hotkeys.commands((config / "rc.xml").read_text())["W-r"] == \
 PY
 
 dbus-run-session -- sh -eu -c '
-    root=$1; runtime=$2; native=$3; ime=$4; clicker=$5
+    root=$1; runtime=$2; native=$3; ime=$4; clicker=$5; probe_bin=$6
     export WAYLAND_DISPLAY=wayland-0
     labwc --config-dir "$(cat "$runtime/config-path")" >"$runtime/labwc.log" 2>&1 &
     compositor=$!
-    plate=; imepid=; keyboard_keeper=; copy_owner=; invalid_owner=
+    plate=; imepid=; keyboard_keeper=; copy_owner=; invalid_owner=; launcher=
     cleanup() {
-        for pid in "$invalid_owner" "$copy_owner" "$imepid" "$keyboard_keeper" "$plate" "$compositor"; do
+        for pid in "$launcher" "$invalid_owner" "$copy_owner" "$imepid" "$keyboard_keeper" "$plate" "$compositor"; do
             if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || :; fi
         done
-        for pid in "$invalid_owner" "$copy_owner" "$imepid" "$keyboard_keeper" "$plate" "$compositor"; do
+        for pid in "$launcher" "$invalid_owner" "$copy_owner" "$imepid" "$keyboard_keeper" "$plate" "$compositor"; do
             if [ -n "$pid" ]; then wait "$pid" 2>/dev/null || :; fi
         done
     }
@@ -316,21 +318,118 @@ dbus-run-session -- sh -eu -c '
     set -- $position
     file_x=$(($1 + 52))
     file_y=$(($2 + 43))
-    "$clicker" --right-click "$file_x" "$file_y" 1366 768
-    count=0
-    origin=
-    while [ "$count" -lt 30 ]; do
-        origin=$(sed -n "s/.*XDG context opened kind=File x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p" \
-            "$runtime/native.log" | tail -n 1)
-        [ -n "$origin" ] && break
-        count=$((count + 1)); sleep 0.2
-    done
-    test -n "$origin" || {
-        echo "SG5: Wayland secondary click did not open XDG file context" >&2
+    open_rename() {
+        # Real secondary click, then the real Rename item. Count log lines so
+        # a second open never reuses the first openings context receipt.
+        before=$(grep -c "XDG context opened kind=File" "$runtime/native.log" || :)
+        "$clicker" --right-click "$file_x" "$file_y" 1366 768
+        count=0
+        origin=
+        while [ "$count" -lt 30 ]; do
+            now=$(grep -c "XDG context opened kind=File" "$runtime/native.log" || :)
+            if [ "$now" -gt "$before" ]; then
+                origin=$(sed -n "s/.*XDG context opened kind=File x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p" \
+                    "$runtime/native.log" | tail -n 1)
+                [ -n "$origin" ] && break
+            fi
+            count=$((count + 1)); sleep 0.2
+        done
+        test -n "$origin" || {
+            echo "SG5: Wayland secondary click did not open XDG file context" >&2
+            exit 1
+        }
+        set -- $origin
+        "$clicker" "$(($1 + 24))" "$(($2 + 111))" 1366 768
+    }
+    wait_marker() {
+        count=0
+        while [ "$count" -lt 150 ] && [ ! -e "$runtime/rename-cycle/$1" ]; do
+            kill -0 "$imepid" 2>/dev/null || {
+                echo "SG5: Rename IME client ended before marker $1" >&2
+                cat "$runtime/rename-ime.log" >&2
+                exit 1
+            }
+            count=$((count + 1)); sleep 0.1
+        done
+        test -e "$runtime/rename-cycle/$1" || {
+            echo "SG5: Rename IME marker $1 missing" >&2
+            cat "$runtime/rename-ime.log" "$runtime/rename-focus-probe.log" >&2 2>/dev/null || :
+            kill -0 "$launcher" 2>/dev/null && echo "launcher still running" >&2
+            tail -n 20 "$runtime/labwc.log" >&2
+            exit 1
+        }
+    }
+    wait_log() {
+        count=0
+        while [ "$count" -lt 100 ] && ! grep -Fq "$2" "$runtime/$1"; do
+            count=$((count + 1)); sleep 0.1
+        done
+        grep -Fq "$2" "$runtime/$1" || fail_rename_ime "receipt missing in $1: $2"
+    }
+    wait_trace() { wait_log native.log "$1"; }
+    fail_rename_ime() {
+        echo "SG5: Rename IME focus cycle failed: $1" >&2
+        cat "$runtime/rename-ime.log" "$runtime/rename-focus-probe.log" >&2 2>/dev/null || :
+        grep -E "text_input_v3|input_method_v2|Luna Run/Help|Luna dialog IME" "$runtime/native.log" | tail -n 40 >&2 || :
         exit 1
     }
-    set -- $origin
-    "$clicker" "$(($1 + 24))" "$(($2 + 111))" 1366 768
+
+    # SG5 Rename IME: the external input-method-v2 producer is registered
+    # before the dialog exists, exactly like the Run fixture. Preedit, commit
+    # and a 3-byte UTF-8 deletion must traverse labwc into the unmodified
+    # text-input-v3 Rename consumer; then a real compositor focus change
+    # (a second exclusive layer client, fuzzel) must leave and re-enter it.
+    mkdir -m 0700 "$runtime/rename-cycle"
+    timeout -k 2s 40s "$ime" --base "00-sg5.txt" --focus-cycle "$runtime/rename-cycle" \
+        "$runtime/rename-cycle/preedit-observed" >"$runtime/rename-ime.log" 2>&1 &
+    imepid=$!
+    sleep 0.3
+    open_rename
+    probe --name "File name" --text "00-sg5.txt" --caret 10 || fail_rename_ime "initial text"
+    # The accessible text is the committed text only; the compositor-relayed
+    # preedit is proven by the native receipt (sizes only, never the text).
+    wait_trace "Luna dialog IME done preedit_chars=4 chars=10 caret=10"
+    probe --name "File name" --text "00-sg5.txt" --caret 10 || fail_rename_ime "preedit leaked into text"
+    : >"$runtime/rename-cycle/preedit-observed"
+    wait_marker preedit-active
+    wait_trace "Luna dialog IME done preedit_chars=3 chars=13 caret=13"
+    probe --name "File name" --text "00-sg5.txt日本界" --caret 13 || fail_rename_ime "commit/delete/second preedit"
+    # Leave: the focus probe is a second, separate Wayland client holding an
+    # Exclusive-keyboard Overlay layer surface. labwc must move keyboard (and
+    # therefore text-input) focus to it; the Rename dialog is retained but
+    # unfocused and the IME must see a real deactivate.
+    "$probe_bin" overlay exclusive >"$runtime/rename-focus-probe.log" 2>&1 &
+    launcher=$!
+    wait_marker left
+    wait_log rename-focus-probe.log "event=keyboard_enter"
+    kill -0 "$launcher" 2>/dev/null || fail_rename_ime "focus-taking launcher died"
+    kill -0 "$plate"
+    wait_trace "Luna dialog IME leave dropped_preedit=true"
+    wait_trace "Luna Run/Help keyboard leave, dialog retained"
+    # Re-enter: the probe exits on Escape (delivered by labwc to it, not to
+    # Rename); labwc then returns exclusive focus to the Rename dialog.
+    wtype -k Escape
+    wait "$launcher" || fail_rename_ime "focus probe did not exit cleanly"
+    launcher=
+    wait_log rename-focus-probe.log "event=keyboard_press count=1"
+    wait_marker reentered
+    probe --name "File name" --text "00-sg5.txt日本界" --caret 13 || fail_rename_ime "text after re-enter"
+    : >"$runtime/rename-cycle/verified"
+    if ! wait "$imepid"; then
+        fail_rename_ime "IME client failed"
+    fi
+    imepid=
+    grep -Fq "PASS: real IME v2 -> labwc -> text-input-v3 preedit/commit/delete" "$runtime/rename-ime.log"
+    grep -Fq "PASS: real IME v2 focus leave/re-enter" "$runtime/rename-ime.log"
+    probe --name "File name" --text "00-sg5.txt日本界文" --caret 14
+    wtype -k Escape
+    probe --name "File name" --absent
+    test -f "$runtime/file-home/Desktop/00-sg5.txt"
+    test "$(ls -A "$runtime/file-home/Desktop")" = "00-sg5.txt"
+    kill -0 "$plate"
+    echo "SG5: real Rename IME preedit/commit/delete, focus leave/re-enter and cancel PASS"
+
+    open_rename
     probe --name "File name" --text "00-sg5.txt" --caret 10
     wtype -k Home
     probe --name "File name" --text "00-sg5.txt" --caret 0
@@ -356,4 +455,4 @@ dbus-run-session -- sh -eu -c '
     kill -0 "$plate"
     echo "SG5: real Wayland pointer -> XDG Rename AT-SPI edit/selection/cancel PASS"
     echo "SG5: real labwc keyboard, external input-method-v2 and AT-SPI lifecycle PASS"
-' sh "$root" "$runtime" "$native" "$ime" "$clicker"
+' sh "$root" "$runtime" "$native" "$ime" "$clicker" "$probe_bin"

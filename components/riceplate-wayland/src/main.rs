@@ -14411,6 +14411,12 @@ impl Dispatch<ZwpTextInputV3, ()> for RicePlate {
                 }
                 if let Some(dialog) = state.luna_dialog.as_mut() {
                     if dialog.surface.wl_surface() == &surface {
+                        if std::env::var_os("RICEBOWL_DE_TRACE_MENU").is_some() {
+                            eprintln!(
+                                "RicePlate: Luna dialog IME leave dropped_preedit={}",
+                                dialog.state.preedit.is_some()
+                            );
+                        }
                         dialog.state.preedit = None;
                         state.redraw_luna_dialog();
                     }
@@ -14484,6 +14490,20 @@ impl Dispatch<ZwpTextInputV3, ()> for RicePlate {
                             .luna_dialog
                             .as_ref()
                             .is_some_and(|dialog| dialog.state.preedit.is_some());
+                        if std::env::var_os("RICEBOWL_DE_TRACE_MENU").is_some() {
+                            // Sizes only: never log editor or composition text.
+                            let dialog = state.luna_dialog.as_ref().expect("matched above");
+                            eprintln!(
+                                "RicePlate: Luna dialog IME done preedit_chars={} chars={} caret={}",
+                                dialog
+                                    .state
+                                    .preedit
+                                    .as_ref()
+                                    .map_or(0, |preedit| preedit.text.chars().count()),
+                                dialog.state.input.chars().count(),
+                                dialog.state.cursor,
+                            );
+                        }
                         ime.accept_done(&pending, composing);
                     }
                     state.redraw_luna_dialog();
