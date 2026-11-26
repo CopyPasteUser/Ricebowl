@@ -137,7 +137,11 @@ class CrossRunnerTests(unittest.TestCase):
                 else:
                     a[field] = old
                 self.save('host-a', a)
-        alias = self.root.parent / 'comparison-symlink'
+        # A private sibling directory: a fixed name directly in /tmp would
+        # outlive this test and make every later run fail with EEXIST.
+        alias_parent = tempfile.TemporaryDirectory()
+        self.addCleanup(alias_parent.cleanup)
+        alias = Path(alias_parent.name) / 'comparison-symlink'
         alias.symlink_to(self.root, target_is_directory=True)
         with self.assertRaisesRegex(verifier.ProvenanceError, 'symlinked'):
             verifier.compare(alias, SHA, expected_lock_sha='f' * 64,
