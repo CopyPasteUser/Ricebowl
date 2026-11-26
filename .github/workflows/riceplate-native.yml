@@ -40,6 +40,9 @@ on:
       - 'scripts/smoke_sg1_sni_labwc.sh'
       - 'scripts/smoke_sg1_window_recovery_labwc.sh'
       - 'scripts/smoke_sg1_status_labwc.sh'
+      - 'scripts/smoke_sg3_ricepop_native_labwc.sh'
+      - 'scripts/smoke_sg3_ricepop_native_driver.py'
+      - 'scripts/smoke_real_mako_111.sh'
       - 'scripts/fixtures/sg1_sni_provider.py'
       - 'tests/test_sg1_sni_fixture.py'
       - 'scripts/smoke_luna_window_chrome.sh'
@@ -142,6 +145,9 @@ on:
       - 'scripts/smoke_sg1_sni_labwc.sh'
       - 'scripts/smoke_sg1_window_recovery_labwc.sh'
       - 'scripts/smoke_sg1_status_labwc.sh'
+      - 'scripts/smoke_sg3_ricepop_native_labwc.sh'
+      - 'scripts/smoke_sg3_ricepop_native_driver.py'
+      - 'scripts/smoke_real_mako_111.sh'
       - 'scripts/fixtures/sg1_sni_provider.py'
       - 'tests/test_sg1_sni_fixture.py'
       - 'scripts/smoke_luna_window_chrome.sh'
@@ -279,6 +285,8 @@ jobs:
           sh -n scripts/smoke_sg1_sni_labwc.sh
           sh -n scripts/smoke_sg1_window_recovery_labwc.sh
           sh -n scripts/smoke_sg1_status_labwc.sh
+          sh -n scripts/smoke_sg3_ricepop_native_labwc.sh
+          /usr/bin/python3 -m py_compile scripts/smoke_sg3_ricepop_native_driver.py
           /usr/bin/python3 -m py_compile scripts/fixtures/sg1_sni_provider.py
           sh -n scripts/smoke_luna_window_chrome.sh
           sh -n scripts/smoke_luna_hotkeys.sh
@@ -300,6 +308,34 @@ jobs:
         run: timeout -k 5s 90s sh scripts/smoke_sg1_window_recovery_labwc.sh
       - name: Prove honest native status controls (Wi-Fi/volume/mute) under labwc
         run: timeout -k 5s 240s sh scripts/smoke_sg1_status_labwc.sh
+      # SG3: the native RicePop inbox needs a real Mako 1.11 (Ubuntu's 1.8
+      # never emits ActionInvoked for makoctl invoke). Same source-locked
+      # v1.11.0 commit and meson options as scripts/smoke_real_mako_111.sh,
+      # built in a disposable runner directory and put on PATH for this step
+      # only; the host notification daemon is never installed or replaced.
+      - name: Build source-locked real Mako 1.11 for SG3 only
+        timeout-minutes: 8
+        run: |
+          set -eu
+          sudo apt-get -o Acquire::Retries=2 install -y --no-install-recommends \
+            meson ninja-build pkg-config libwayland-dev wayland-protocols \
+            libpango1.0-dev libcairo2-dev libglib2.0-dev libsystemd-dev \
+            libnotify-bin
+          src="$RUNNER_TEMP/ricebowl-sg3-mako-src"
+          build="$RUNNER_TEMP/ricebowl-sg3-mako-build"
+          expected=91c6b799855762ad1eb8b4498967c270a339be0c
+          GIT_TERMINAL_PROMPT=0 git clone --quiet --depth 1 --single-branch \
+            --branch v1.11.0 https://github.com/emersion/mako.git "$src"
+          test "$(git -C "$src" rev-parse HEAD)" = "$expected"
+          meson setup "$build" "$src" \
+            -Dsd-bus-provider=libsystemd -Dman-pages=disabled -Dicons=disabled \
+            -Dbuildtype=release
+          ninja -C "$build" mako makoctl
+          test -x "$build/mako" && test -x "$build/makoctl"
+      - name: Prove native RicePop inbox against real Mako 1.11 under labwc
+        run: |
+          export PATH="$RUNNER_TEMP/ricebowl-sg3-mako-build:$PATH"
+          timeout -k 5s 150s sh scripts/smoke_sg3_ricepop_native_labwc.sh
       # Ubuntu 24.04 packages labwc 0.7.1, which predates upstream's
       # input-method-v2/text-input-v3 implementation (introduced in 0.7.2).
       # Build the exact upstream commit in a disposable runner directory;
