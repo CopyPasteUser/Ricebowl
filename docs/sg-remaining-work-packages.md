@@ -57,7 +57,7 @@ in `/home/rbdev/Ricebowl/components/riceplate-wayland`, then `chown`).
 
 | WP | Task | Done when | Where | Model |
 | --- | --- | --- | --- | --- |
-| 1.1 | Inventory every advertised shared control in both rices (XP Luna, Chrome) × {loading, empty, busy, unavailable/denied, error, focus loss, recovery} in the SG1 matrix | Complete table, each cell linked to a test or marked gap | L | S |
+| 1.1 | **DONE:** [inventory](sg1-control-state-inventory.md) (154 cells: 39 compositor, 40 unit-only, 36 gaps). Inventory every advertised shared control in both rices (XP Luna, Chrome) × {loading, empty, busy, unavailable/denied, error, focus loss, recovery} in the SG1 matrix | Complete table, each cell linked to a test or marked gap | L | S |
 | 1.2 | Taskbar/window: two-rice minimize/maximize/close, transient loss/restart | Real labwc receipts in both rices | L! (0.2) | S |
 | 1.3 | Desktop/files: multi-select, drag, permission denied, focus lost, both rices | Negative + recovery receipts | L | S |
 | 1.4 | Launcher empty/error/busy in both rices | Real input; no stale action after empty/error | L! (0.1) | S |
@@ -66,13 +66,14 @@ in `/home/rbdev/Ricebowl/components/riceplate-wayland`, then `chown`).
 | 1.7 | Remote SNI invalid secondary click on Chrome, end to end | Smoke receipt | L | S |
 | 1.8 | Hotplug and scale change while menus are open; provider update during input | Deterministic smoke, no stale surfaces | L | O |
 | 1.9 | Finish PR #601 | Local exact-head run, guarded self-merge per governance | L | S |
-| 1.10 | Formal evidence | Exact-head + exact-main runs | CI | – |
+| 1.10 | Wire `smoke_sg1_window_recovery_labwc.sh` and `smoke_riceplate_windows.sh --chrome` into the native workflow (found unreferenced by WP1.1); integration-lane file | Workflow step exists | L (edit) / CI | S |
+| 1.11 | Formal evidence | Exact-head + exact-main runs | CI | – |
 
 ## SG2 — RiceSpice (2/4)
 
 | WP | Task | Done when | Where | Model |
 | --- | --- | --- | --- | --- |
-| 2.1 | Matrix per adapter (display, input, network, audio, Bluetooth, accessibility, power, time/NTP) × {verified readback, authorization denied, provider disconnected/unavailable, rollback}. A rough grep suggests input, Bluetooth, accessibility and NTP have the fewest co-located negative tests; verify | Table with test links and gaps | L | S |
+| 2.1 | **DONE:** [inventory](sg2-adapter-state-inventory.md) (186 cells: 93 covered, 14 partial, 35 gaps). Matrix per adapter (display, input, network, audio, Bluetooth, accessibility, power, time/NTP) × {verified readback, authorization denied, provider disconnected/unavailable, rollback}. A rough grep suggests input, Bluetooth, accessibility and NTP have the fewest co-located negative tests; verify | Table with test links and gaps | L | S |
 | 2.2 | Fill the gaps with fake-provider unit tests plus disposable D-Bus tests | Every cell covered or explicitly unsupported in the UI | L | S |
 | 2.3 | Check status of candidates #552 (NM post-write uncertainty) | Merged with evidence, or reworked | L | S |
 | 2.4 | GUI pass per page in headless labwc showing denied/unavailable/busy visibly | Real GTK GUI under labwc, not CLI only | L | S |
