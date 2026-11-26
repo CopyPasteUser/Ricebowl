@@ -23,15 +23,16 @@ the prerequisite, not the acceptance.
 | Result | Checks |
 | --- | --- |
 | PASS | Python suite (1,949 passed via pytest; CI uses `unittest discover -s tests`), Rust `cargo test` (503), `smoke_sg1_sni_labwc`, `smoke_sg1_window_recovery_labwc`, `smoke_riceplate_windows --luna`, `smoke_riceplate_luna_autohide`, `smoke_riceplate_multioutput`, `smoke_luna_hotkeys`, `smoke_wayland_shared_rice_engine`, `smoke_luna_settings_labwc`, `smoke_creator_gui_labwc`, `smoke_wayland_session` |
-| FAIL (to triage) | `smoke_riceplate_native` (Chrome Fuzzel second launch, 3/3), `smoke_riceplate_windows --xwayland`, `smoke_wayland_clipboard`, `smoke_luna_window_chrome`, `smoke_luna_atspi`, `smoke_riceplate_desktop_focus` |
+| FAIL (to triage) | `smoke_luna_atspi`, `smoke_riceplate_desktop_focus` |
+| Fixed since snapshot | `smoke_riceplate_native` (WP0.1, 3/3 local passes), `smoke_riceplate_windows --xwayland`, `smoke_wayland_clipboard`, `smoke_luna_window_chrome` (WP0.2) |
 | Environment limit | `smoke_wayland_portals`, `smoke_real_mako_111` (Mako 1.11 builds; no FUSE for the document portal, no running PipeWire) |
 
 ## WP0 — make the local baseline trustworthy (do first)
 
 | WP | Task | Done when | Where | Model |
 | --- | --- | --- | --- | --- |
-| 0.1 | `smoke_riceplate_native`: "Chrome Fuzzel failed to open a fresh process for empty-result test" | Root cause known; real fix or a documented environment cause; smoke green | L | O |
-| 0.2 | XWayland cluster: `--xwayland` "No real Wayland taskbar state: minimized=true", clipboard "XWayland test window exited early", window chrome "A required preview process exited" | Container cause (glamor/xkb/X socket) separated from regression; affected smokes green or justified | L | O |
+| 0.1 | **DONE (harness):** after the active `wtype` keyboard disconnects, labwc 0.7.1 sends a new client `wl_keyboard.enter/modifiers` without a keymap and Fuzzel 1.9.2 segfaults in `xkb_state_update_mask`. The smoke now attaches a fresh self-expiring virtual keyboard before each re-open. No RicePlate change; 3/3 local full passes | Done | L | O |
+| 0.2 | **DONE (environment):** the session had no locale (POSIX); xterm under XWayland exits immediately without one. CI runners use `C.UTF-8`; `rb-run` now sets it. All three XWayland smokes pass | Done | L | O |
 | 0.3 | `smoke_luna_atspi`: "Native editor AT-SPI mismatch chars=0/4" (reported passing on labwc 0.8.3 at `d4aba0d8`) | Shown whether this depends on labwc 0.7.1 vs 0.8.3; green on the CI version | L | O |
 | 0.4 | `smoke_riceplate_desktop_focus`: `FOCUS_PROBE_FAIL bottom-pointer-event-missing`; relate to PR #601 | Green, or #601 resolves it with an exact-head local run | L | S |
 | 0.5 | Portal/Mako 1.11 without FUSE/PipeWire | Either an isolated opt-in variant without the document portal, or explicitly left to CI | L/CI | S |
