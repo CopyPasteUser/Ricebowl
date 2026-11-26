@@ -48,16 +48,29 @@ pub(crate) fn draw_notification_text(
         return;
     }
     let length = label.chars().count();
-    if length <= available as usize {
-        draw_auxiliary_text(canvas, width, height, x, y, label, color, style);
+    let mut shown: String = if length <= available as usize {
+        label.to_owned()
     } else {
         let mut clipped: String = label
             .chars()
             .take(available.saturating_sub(1) as usize)
             .collect();
         clipped.push('…');
-        draw_auxiliary_text(canvas, width, height, x, y, &clipped, color, style);
+        clipped
+    };
+    // The character budget above assumes one 8px cell per scalar. Wide
+    // scripts (CJK) have far larger measured advances and would run off the
+    // popup, hiding their tail without any marker, so fit the real painted
+    // advance with the same font that draws the text.
+    if let Some(font) = style.native_art.as_ref().and_then(|art| art.font.as_ref()) {
+        let pixels = width.saturating_sub(x).saturating_sub(8);
+        if font.measure_text(&shown) > pixels {
+            let source = label.trim_end_matches('…');
+            let end = font.fitting_prefix_end(source, pixels, '…');
+            shown = format!("{}…", &source[..end]);
+        }
     }
+    draw_auxiliary_text(canvas, width, height, x, y, &shown, color, style);
 }
 
 pub(crate) fn paint_compact_notifications(
@@ -834,6 +847,46 @@ pub(crate) fn paint_calendar(canvas: &mut [u8], style: &PanelStyle, state: &Cale
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wide_script_labels_are_fitted_to_the_popup_not_cut_by_its_edge() {
+        // Real XP Luna face (embedded Liberation Sans; CJK through the
+        // trusted system fallback when installed, else visible '?' cells).
+        let mut style = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns"),
+        )
+        .unwrap();
+        let art = crate::style_art::load(style.artwork.as_ref().unwrap(), style.font_scale)
+            .expect("embedded Luna artwork");
+        style.native_art = Some(art);
+        let (width, height) = (320_u32, 40_u32);
+        let mut canvas = vec![0_u8; (width * height * 4) as usize];
+        // 30 scalars fit the character budget, but their measured advance
+        // (system CJK fallback) is far wider than the popup.
+        let label = "日本語のテキストです。".repeat(3);
+        draw_notification_text(
+            &mut canvas,
+            width,
+            height,
+            14,
+            8,
+            &label,
+            0xffff_ffff,
+            &style,
+        );
+        let painted = |from: u32| {
+            canvas
+                .chunks_exact(4)
+                .enumerate()
+                .any(|(index, pixel)| index as u32 % width >= from && pixel != [0, 0, 0, 0])
+        };
+        assert!(painted(14), "label must be visible");
+        assert!(
+            !painted(width - 8),
+            "wide text painted into the right margin: it overflowed and was cut"
+        );
+    }
 
     #[test]
     fn notification_labels_replace_controls_and_limit_unicode_scalars() {

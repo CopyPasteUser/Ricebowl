@@ -90,6 +90,33 @@ pub fn body_lines(body: &str) -> Vec<String> {
     body_lines_with_width(body, BODY_WIDTH)
 }
 
+/// Logical glyph cells one grapheme needs. East Asian wide and fullwidth
+/// characters (Han, kana, Hangul, fullwidth forms, emoji planes) are about
+/// twice as wide as a Latin glyph, so they take two cells. A cell count that
+/// treated them as one let a full CJK line run past the popup edge and
+/// silently hide its last characters.
+fn grapheme_cells(grapheme: &str) -> usize {
+    match grapheme.chars().next().map(u32::from) {
+        Some(
+            0x1100..=0x115F
+            | 0x2E80..=0x303E
+            | 0x3041..=0x33FF
+            | 0x3400..=0x4DBF
+            | 0x4E00..=0xA4CF
+            | 0xA960..=0xA97F
+            | 0xAC00..=0xD7A3
+            | 0xF900..=0xFAFF
+            | 0xFE30..=0xFE6F
+            | 0xFF00..=0xFF60
+            | 0xFFE0..=0xFFE6
+            | 0x1F300..=0x1F64F
+            | 0x1F900..=0x1F9FF
+            | 0x20000..=0x3FFFD,
+        ) => 2,
+        _ => 1,
+    }
+}
+
 pub fn body_lines_with_width(body: &str, width: usize) -> Vec<String> {
     let width = width.clamp(1, BODY_WIDTH);
     let mut lines = Vec::new();
@@ -100,7 +127,7 @@ pub fn body_lines_with_width(body: &str, width: usize) -> Vec<String> {
             // A width is a bounded, logical glyph-cell count, NOT UTF-8 bytes
             // or Unicode scalars. A joined emoji, flag or base+combining-mark
             // sequence must never be split across notification pages.
-            let word_cells = word.graphemes(true).count();
+            let word_cells: usize = word.graphemes(true).map(grapheme_cells).sum();
             if cells > 0 && cells.saturating_add(1).saturating_add(word_cells) > width {
                 lines.push(std::mem::take(&mut line));
                 cells = 0;
@@ -109,12 +136,13 @@ pub fn body_lines_with_width(body: &str, width: usize) -> Vec<String> {
                 cells += 1;
             }
             for grapheme in word.graphemes(true) {
-                if cells == width {
+                let needed = grapheme_cells(grapheme);
+                if cells > 0 && cells + needed > width {
                     lines.push(std::mem::take(&mut line));
                     cells = 0;
                 }
                 line.push_str(grapheme);
-                cells += 1;
+                cells += needed;
             }
         }
         lines.push(line);
@@ -1603,6 +1631,30 @@ mod tests {
         assert_eq!(state.body_page, 0);
         state.close();
         assert_eq!(state.body_page_count(), 1);
+    }
+
+    #[test]
+    fn wide_cjk_graphemes_take_two_cells_so_no_line_runs_past_the_popup() {
+        let body = "日本語のテキストです。".repeat(6);
+        let lines = body_lines(&body);
+        // 37 cells hold 18 wide characters, never 37 (which overflowed).
+        assert!(lines
+            .iter()
+            .all(|line| line.chars().count() <= BODY_WIDTH / 2));
+        assert!(lines.len() > 3);
+        assert_eq!(lines.concat(), body, "wrapping must not lose characters");
+        // Latin keeps one cell per grapheme; mixed text counts each cell.
+        let latin = "a".repeat(BODY_WIDTH);
+        assert_eq!(body_lines(&latin), vec![latin.clone()]);
+        let mixed = body_lines(&format!("{} 日本語", "a".repeat(BODY_WIDTH - 5)));
+        assert_eq!(mixed.len(), 2, "wide word must wrap: {mixed:?}");
+        // A wide grapheme can never loop forever in a one-cell column.
+        assert_eq!(body_lines_with_width("日本", 1), vec!["日", "本"]);
+        // Combining-mark clusters stay whole.
+        assert_eq!(
+            body_lines_with_width("e\u{301}e\u{301}", 1),
+            vec!["e\u{301}", "e\u{301}"]
+        );
     }
 
     #[test]
