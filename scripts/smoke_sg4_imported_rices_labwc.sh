@@ -472,6 +472,17 @@ stage_input() {
         || fail "launcher click did not paint the menu"
     at_must has "push button" "Applications"
     at_must focused "push button" "Applications"
+    if [ "$template" = orbit-composer ]; then
+        # font_scale 2 in the fixed 320 px menu cannot hold these names: the
+        # painted labels must end in the shared ellipsis while the accessible
+        # names stay complete (WP4.4 finding: they used to be cut silently).
+        /usr/bin/python3 "$root/scripts/sg4_menu_ellipsis_check.py" \
+            "$shots/$rice-base.png" "$shots/$rice-menu.png" "$MY" >"$runtime/ellipsis.log" 2>&1 \
+            || fail "Orbit overflowing menu labels carry no ellipsis: $(cat "$runtime/ellipsis.log")"
+        at_must has "push button" "Applications"
+        at_must has "push button" "Terminal"
+        pass "Orbit menu at font_scale 2: truncated labels end in an ellipsis (pixels), accessible names stay full"
+    fi
     wtype -k Down
     at_must focused "push button" "Terminal" 4
     wtype -k Return

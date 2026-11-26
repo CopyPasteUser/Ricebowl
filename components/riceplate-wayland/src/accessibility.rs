@@ -9,8 +9,8 @@ use std::sync::{Arc, Mutex};
 
 use crate::desktop_context::Action as ShortcutAction;
 use accesskit::{
-    Action, ActionHandler, ActionRequest, ActivationHandler, DeactivationHandler, Node, NodeId,
-    Role, TextPosition, TextSelection, TreeId, TreeInfo, TreeUpdate,
+    Action, ActionHandler, ActionRequest, ActivationHandler, DeactivationHandler, Live, Node,
+    NodeId, Role, TextPosition, TextSelection, TreeId, TreeInfo, TreeUpdate,
 };
 use accesskit_unix::Adapter;
 use chrono::NaiveDate;
@@ -169,6 +169,9 @@ pub struct Element {
     pub caret: Option<usize>,
     /// Logical selection anchor, separate from the focused caret.
     pub selection_anchor: Option<usize>,
+    /// Live-region politeness: a screen reader announces the node's text when
+    /// it appears (AT-SPI `object:announcement`). Transient notices only.
+    pub live: Option<Live>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -211,7 +214,24 @@ impl Model {
             value: None,
             caret: None,
             selection_anchor: None,
+            live: None,
         });
+    }
+
+    /// A transient notice that assistive technology must announce when it
+    /// appears: polite for a confirmation, assertive for a failure.
+    pub fn add_live(
+        &mut self,
+        id: u64,
+        parent: u64,
+        role: Role,
+        label: impl Into<String>,
+        live: Live,
+    ) {
+        self.add(id, parent, role, label, None);
+        if let Some(element) = self.elements.iter_mut().find(|item| item.id == id) {
+            element.live = Some(live);
+        }
     }
 
     /// One real accessible text editor plus a TextRun child. AccessKit
@@ -327,6 +347,9 @@ impl Model {
                     });
                 }
             }
+            if let Some(live) = element.live {
+                node.set_live(live);
+            }
             if let Some(description) = &element.description {
                 node.set_description(description.clone());
             }
@@ -424,6 +447,30 @@ impl Bridge {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transient_notice_is_a_live_node_polite_for_status_assertive_for_alert() {
+        let mut model = Model::new();
+        model.add_live(70_000, ROOT, Role::Status, "Volume: 55%", Live::Polite);
+        model.add_live(
+            70_001,
+            ROOT,
+            Role::Alert,
+            "Command: Could not run",
+            Live::Assertive,
+        );
+        model.add(1_000, ROOT, Role::Button, "Plain", None);
+        let tree = model.tree();
+        let live_of = |id: u64| {
+            tree.nodes
+                .iter()
+                .find(|(node_id, _)| node_id.0 == id)
+                .and_then(|(_, node)| node.live())
+        };
+        assert_eq!(live_of(70_000), Some(Live::Polite));
+        assert_eq!(live_of(70_001), Some(Live::Assertive));
+        assert_eq!(live_of(1_000), None, "ordinary controls are not live");
+    }
 
     #[test]
     fn native_menu_search_has_transient_text_run_with_exact_unicode_caret() {

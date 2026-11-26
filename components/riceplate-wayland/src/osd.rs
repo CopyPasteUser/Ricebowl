@@ -199,6 +199,9 @@ pub struct State {
     pub current: Option<Notice>,
     deadline: Option<Instant>,
     language: Language,
+    /// Bumped every time a notice is presented (even with identical text), so
+    /// the accessibility tree can announce each one as a NEW live node.
+    generation: u64,
 }
 
 impl Default for State {
@@ -207,19 +210,31 @@ impl Default for State {
             current: None,
             deadline: None,
             language: Language::from_env(),
+            generation: 0,
         }
     }
 }
 
 impl State {
+    fn present(&mut self, notice: Notice, lifetime: Duration, now: Instant) {
+        self.current = Some(notice);
+        self.deadline = Some(now + lifetime);
+        self.generation = self.generation.wrapping_add(1);
+    }
+
+    /// Identity of the notice being shown; changes with every new one.
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
     pub fn show_brightness(&mut self, percent: u16, now: Instant) {
-        self.current = Some(Notice {
+        let notice = Notice {
             title: self.language.label("Brightness", "Helligkeit"),
             value: format!("{percent}%"),
             fill: Some(percent.min(100)),
             alert: false,
-        });
-        self.deadline = Some(now + LIFETIME);
+        };
+        self.present(notice, LIFETIME, now);
     }
     pub fn show_external(&mut self, previous: &Audio, current: &Audio, now: Instant) -> bool {
         // Never display a spurious OSD at startup, after missing services or
@@ -230,8 +245,8 @@ impl State {
         {
             return false;
         }
-        self.current = Some(Notice::from_audio(current, self.language));
-        self.deadline = Some(now + LIFETIME);
+        let notice = Notice::from_audio(current, self.language);
+        self.present(notice, LIFETIME, now);
         true
     }
 
@@ -245,16 +260,15 @@ impl State {
         let Some(notice) = Notice::from_result(action, success, status, self.language) else {
             return false;
         };
-        self.current = Some(notice);
-        self.deadline = Some(now + LIFETIME);
+        self.present(notice, LIFETIME, now);
         true
     }
 
     /// Show a generic failure. A newer notice replaces the current one and
     /// restarts the bounded lifetime; nothing is queued or replayed.
     pub fn show_failure(&mut self, failure: Failure, now: Instant) {
-        self.current = Some(failure.notice(self.language));
-        self.deadline = Some(now + FAILURE_LIFETIME);
+        let notice = failure.notice(self.language);
+        self.present(notice, FAILURE_LIFETIME, now);
     }
 
     /// Explicit dismissal (Escape on the focused panel). Returns whether a
@@ -456,6 +470,19 @@ mod tests {
             state.current.as_ref().unwrap().accessible_label(),
             "Brightness: 40%"
         );
+    }
+
+    #[test]
+    fn every_presented_notice_gets_a_new_generation_for_live_announcement() {
+        let now = Instant::now();
+        let mut state = english_state();
+        let start = state.generation();
+        state.show_brightness(40, now);
+        let first = state.generation();
+        state.show_brightness(40, now);
+        let second = state.generation();
+        state.show_failure(Failure::Trash, now);
+        assert!(first != start && second != first && state.generation() != second);
     }
 
     #[test]

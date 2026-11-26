@@ -1584,6 +1584,10 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   with a five-second liveness bound; offer real sysfs-backed brightness OSD
   with optional private labwc hardware keys. No second notification owner,
   persistent private message store or unnecessary resident daemon is added.
+  Local compositor evidence (27 Nov 2026): the OSD is a polite AT-SPI live
+  region, passes pointer clicks through, and the brightness OSD follows a
+  fixture backlight (`RICEBOWL_BACKLIGHT_DIR`); see
+  `docs/sg-remaining-work-packages.md` rows 3.1/3.2.
   **Remaining release gate:** actual Mako/app-action, keyboard/Orca, brightness,
   audio-server restart and RAM/CPU acceptance on physical hardware. Mako is a
   supported **1.0 provider**; optional native D-Bus ownership and wider script

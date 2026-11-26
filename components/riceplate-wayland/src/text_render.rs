@@ -8,6 +8,11 @@ use crate::{raster::fill_rect, recipe::PanelStyle};
 use font8x8::{UnicodeFonts, BASIC_FONTS, GREEK_FONTS, HIRAGANA_FONTS, LATIN_FONTS, MISC_FONTS};
 use unicode_segmentation::UnicodeSegmentation;
 
+/// The 8x8 tables have no U+2026. Fitting appends it as the truncation
+/// marker, so it must paint as three dots rather than the '?' replacement.
+const ELLIPSIS: char = '…';
+const ELLIPSIS_SPRITE: [u8; 8] = [0x00, 0x00, 0x00, 0x00, 0x00, 0x49, 0x49, 0x00];
+
 pub(crate) fn draw_text(
     canvas: &mut [u8],
     width: u32,
@@ -100,6 +105,22 @@ pub(crate) fn fit_rice_text(label: &str, available: u32, style: &PanelStyle) -> 
     clipped
 }
 
+/// Fit a label into a historical menu budget of `cells` bitmap cells (8 px x
+/// font scale each). Every menu/popup/desktop surface that used to hard-cut
+/// with `.chars().take(n)` goes through this ONE helper so overflow always
+/// ends in an ellipsis instead of silently losing the tail. A label that
+/// already fits is returned byte-for-byte unchanged, so existing rices keep
+/// their pixels. Accessible names never pass through here.
+pub(crate) fn fit_cells(label: &str, cells: u32, style: &PanelStyle) -> String {
+    fit_rice_text(
+        label,
+        cells
+            .saturating_mul(8)
+            .saturating_mul(style.font_scale.max(1)),
+        style,
+    )
+}
+
 pub(crate) fn draw_rice_text(
     canvas: &mut [u8],
     width: u32,
@@ -152,16 +173,20 @@ pub(crate) fn draw_bitmap_text(
         let mut letters = cluster.chars();
         let first = letters.next();
         let single = first.filter(|_| letters.next().is_none());
-        let bitmap = single
-            .and_then(|letter| {
-                BASIC_FONTS
-                    .get(letter)
-                    .or_else(|| LATIN_FONTS.get(letter))
-                    .or_else(|| GREEK_FONTS.get(letter))
-                    .or_else(|| HIRAGANA_FONTS.get(letter))
-                    .or_else(|| MISC_FONTS.get(letter))
-            })
-            .or_else(|| BASIC_FONTS.get('?'));
+        let bitmap = if single == Some(ELLIPSIS) {
+            Some(ELLIPSIS_SPRITE)
+        } else {
+            single
+                .and_then(|letter| {
+                    BASIC_FONTS
+                        .get(letter)
+                        .or_else(|| LATIN_FONTS.get(letter))
+                        .or_else(|| GREEK_FONTS.get(letter))
+                        .or_else(|| HIRAGANA_FONTS.get(letter))
+                        .or_else(|| MISC_FONTS.get(letter))
+                })
+                .or_else(|| BASIC_FONTS.get('?'))
+        };
         let Some(bitmap) = bitmap else {
             continue;
         };
@@ -264,6 +289,37 @@ mod tests {
         assert_eq!(fit_rice_text("👍🏽 done", cell * 2, &classic), "👍🏽…");
         assert_eq!(fit_rice_text("ABC", cell * 3, &classic), "ABC");
         assert_eq!(fit_rice_text("A長い", cell * 2, &classic), "A…");
+    }
+
+    #[test]
+    fn bitmap_cell_budget_ends_in_one_ellipsis_cell_and_keeps_fitting_labels() {
+        let mut style = crate::recipe::load("classic").unwrap();
+        for scale in [1, 2] {
+            style.font_scale = scale;
+            assert_eq!(fit_cells("Terminal", 8, &style), "Terminal");
+            assert_eq!(fit_cells("Terminals", 8, &style), "Termina…");
+            assert_eq!(fit_cells("Terminals", 1, &style), "…");
+            assert_eq!(fit_cells("Terminals", 0, &style), "");
+            // Graphemes, not scalars: a flag is one cell and is never split.
+            assert_eq!(fit_cells("🇩🇪🇩🇪🇩🇪", 2, &style), "🇩🇪…");
+            assert!(
+                text_pixel_width(&fit_cells("Network settings", 6, &style), scale) <= 6 * 8 * scale
+            );
+        }
+    }
+
+    #[test]
+    fn ellipsis_paints_three_dots_in_the_bitmap_face_not_a_question_mark() {
+        let mut dots = vec![0_u8; 8 * 8 * 4];
+        let mut question = dots.clone();
+        draw_bitmap_text(&mut dots, 8, 8, 0, 0, "…", 0xffff_ffff, 1, false);
+        draw_bitmap_text(&mut question, 8, 8, 0, 0, "?", 0xffff_ffff, 1, false);
+        assert_ne!(dots, question);
+        let lit = |row: usize, column: usize| dots[(row * 8 + column) * 4..][..4] != [0; 4];
+        for column in [0, 3, 6] {
+            assert!(lit(5, column) && lit(6, column));
+        }
+        assert_eq!(dots.chunks_exact(4).filter(|p| **p != [0; 4]).count(), 6);
     }
 
     #[test]

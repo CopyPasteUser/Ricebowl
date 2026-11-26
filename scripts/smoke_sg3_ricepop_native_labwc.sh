@@ -13,15 +13,20 @@
 #
 # Usage: smoke_sg3_ricepop_native_labwc.sh [luna|chrome|luna-de|luna-nofonts]
 #   luna    XP Luna: native inbox (live updates, keyboard, AT-SPI, restart,
-#           privacy), volume OSD, rendered-text/localization matrix.
-#   luna-de       fresh Luna panel started with LC_ALL=de_DE.UTF-8: German OSD labels.
+#           privacy), volume OSD, OSD AT-SPI announcement (node + bus
+#           `Announcement`), brightness OSD (fixture backlight, real XF86 keys ->
+#           `brightnessctl` shim), OSD pointer pass-through (real clicks reach a
+#           fullscreen GTK window beneath), rendered-text/localization matrix.
+#   luna-de       fresh Luna panel started with LC_ALL=de_DE.UTF-8: German OSD labels
+#                 (volume and brightness).
 #   luna-nofonts  fresh Luna panel with RICEBOWL_SYSTEM_FONT_FALLBACK=0: the
 #                 visible '?' replacement for scripts without a system font.
 #   (A panel restart inside one compositor session stops receiving keyboard
 #   focus after the first replacement, hence one compositor per variant.)
 #   chrome  Centered minimal shelf: no native inbox by design; volume OSD and
 #           the RiceSpice GTK RicePop inbox (its only inbox) on the same real
-#           Mako, plus the German accessible names.
+#           Mako, plus the German accessible names, and the same OSD
+#           announcement / brightness / pointer pass-through receipts as luna.
 set -eu
 mode=${1:-luna}
 case "$mode" in
@@ -81,8 +86,36 @@ PATH=/usr/bin:/bin
 test "$*" = subscribe || exit 64
 exec tail -n 0 -F "$SG3_AUDIO_DIR/events"
 SG3_PACTL
-chmod 0755 "$runtime/bin/wpctl" "$runtime/bin/pactl"
+# `brightnessctl` is what the shipped labwc XF86MonBrightness* keybindings run;
+# this shim performs the same relative change on the fixture backlight (as the
+# kernel would clamp it) and logs each call. No real backlight is touched.
+cat >"$runtime/bin/brightnessctl" <<'SG3_BRIGHTNESSCTL'
+#!/bin/sh
+PATH=/usr/bin:/bin
+dir=$SG3_BACKLIGHT_DIR/panel
+echo "brightnessctl $*" >>"$SG3_BACKLIGHT_DIR/calls.log"
+case "$*" in
+    "--class=backlight set 5%+"|"--class=backlight set 5%-") ;;
+    *) exit 64 ;;
+esac
+max=$(cat "$dir/max_brightness"); cur=$(cat "$dir/brightness")
+step=$((max * 5 / 100))
+case "$*" in
+    *"5%+") new=$((cur + step)); [ "$new" -le "$max" ] || new=$max ;;
+    *) new=$((cur - step)); [ "$new" -ge 0 ] || new=0 ;;
+esac
+printf '%s\n' "$new" >"$dir/brightness.tmp" && mv "$dir/brightness.tmp" "$dir/brightness"
+SG3_BRIGHTNESSCTL
+chmod 0755 "$runtime/bin/wpctl" "$runtime/bin/pactl" "$runtime/bin/brightnessctl"
 export SG3_AUDIO_DIR="$runtime/audio"
+# Brightness OSD: this host has no panel backlight, so the (read-only) sysfs
+# class directory the native panel watches is a private fixture tree with one
+# device: panel/{max_brightness,brightness}. RICEBOWL_BACKLIGHT_DIR is read by
+# riceplate-native only; the driver rewrites `brightness` like a kernel would.
+mkdir -m 0700 "$runtime/backlight" "$runtime/backlight/panel"
+printf '1000\n' >"$runtime/backlight/panel/max_brightness"
+printf '500\n' >"$runtime/backlight/panel/brightness"
+export RICEBOWL_BACKLIGHT_DIR="$runtime/backlight" SG3_BACKLIGHT_DIR="$runtime/backlight"
 export PATH="$runtime/bin:$root/components/riceplate-wayland/target/release:$PATH"
 
 cp "$root/examples/wayland/xp-luna-columns.json" "$runtime/luna.json"

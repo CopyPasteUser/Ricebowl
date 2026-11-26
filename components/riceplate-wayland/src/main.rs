@@ -74,7 +74,7 @@ use ricepop::{
 use seat_routing::ActivationSource;
 use system_status::{Audio, ControlAction, SystemStatus};
 use text_render::{
-    draw_auxiliary_text, draw_rice_text, draw_text, fit_rice_text, rice_text_width,
+    draw_auxiliary_text, draw_rice_text, draw_text, fit_cells, fit_rice_text, rice_text_width,
     text_pixel_width,
 };
 use tray::{MenuChoice as TrayMenuChoice, MenuHit as TrayMenuHit, PopupHit as TrayHit};
@@ -4440,8 +4440,11 @@ impl RicePlate {
         // same text, as an alert for a failure and a passive status otherwise.
         if self.osd_layer.is_some() {
             if let Some(notice) = self.osd_state.current.as_ref() {
-                model.add(
-                    70_000,
+                // A fresh node ID per presented notice: AccessKit announces a
+                // live node when it is ADDED, so a level change while the OSD
+                // is up must replace the node rather than edit it in place.
+                model.add_live(
+                    70_000 + self.osd_state.generation() % 2,
                     ROOT,
                     if notice.alert {
                         AccessibleRole::Alert
@@ -4449,7 +4452,11 @@ impl RicePlate {
                         AccessibleRole::Status
                     },
                     notice.accessible_label(),
-                    None,
+                    if notice.alert {
+                        accesskit::Live::Assertive
+                    } else {
+                        accesskit::Live::Polite
+                    },
                 );
             }
         }
@@ -9192,7 +9199,7 @@ fn paint_tray_popup(
                 style,
             );
         }
-        let title: String = entry.title.chars().take(26).collect();
+        let title: String = fit_cells(&entry.title, 26, style);
         paint_popup_label(
             canvas,
             width,
@@ -9474,7 +9481,7 @@ fn paint_tray_menu(canvas: &mut [u8], style: &PanelStyle, popup: &tray::MenuPopu
             if luna && selected { header_fg } else { fg },
             style,
         );
-        let label: String = row.label.chars().take(25).collect();
+        let label: String = fit_cells(&row.label, 25, style);
         let color = if !row.enabled && luna {
             0xff91_9191
         } else if row.enabled && luna && selected {
@@ -9723,14 +9730,21 @@ fn paint_menu_header_controls(
             );
         }
         let characters = width.saturating_sub(12) / (8 * style.font_scale);
-        let caption = if characters < 4 { &text[..1] } else { text };
+        // Too narrow for the whole word: the shared fitter keeps what fits
+        // and marks the cut. With room for a single cell only, the initial
+        // is the least misleading caption (the accessible name stays full).
+        let caption = if characters >= 2 {
+            fit_cells(text, characters, style)
+        } else {
+            text.chars().next().map(String::from).unwrap_or_default()
+        };
         draw_rice_text(
             canvas,
             size.0,
             size.1,
             x + 6,
             y + height.saturating_sub(8 * style.font_scale) / 2,
-            caption,
+            &caption,
             if luna_columns {
                 0xffff_ffff
             } else {
@@ -9928,10 +9942,7 @@ fn paint_compact_menu_state(
         height,
         8,
         9,
-        &heading
-            .chars()
-            .take(heading_limit as usize)
-            .collect::<String>(),
+        &fit_cells(heading, heading_limit, style),
         header_fg,
         style,
     );
@@ -9960,7 +9971,7 @@ fn paint_compact_menu_state(
             height,
             x + 6,
             native_menu::COMPACT_TABS_TOP + 10,
-            &group.title.chars().take(limit as usize).collect::<String>(),
+            &fit_cells(&group.title, limit, style),
             fg,
             style,
         );
@@ -10028,7 +10039,7 @@ fn paint_compact_menu_state(
             height,
             12,
             y + (native_menu::COMPACT_ACTION_HEIGHT - 8 * style.font_scale) / 2,
-            &text.chars().take(limit as usize).collect::<String>(),
+            &fit_cells(&text, limit, style),
             color,
             style,
         );
@@ -10069,10 +10080,11 @@ fn paint_compact_menu_state(
             height,
             8,
             footer_y + 8,
-            &footnote
-                .chars()
-                .take((width.saturating_sub(12) / (8 * style.font_scale)) as usize)
-                .collect::<String>(),
+            &fit_cells(
+                &footnote,
+                width.saturating_sub(12) / (8 * style.font_scale),
+                style,
+            ),
             fg,
             style,
         );
@@ -10165,14 +10177,13 @@ fn paint_menu_state(
         height,
         if luna_columns { 43 } else { 16 },
         if style.font_scale == 1 { 15 } else { 11 },
-        &heading
-            .chars()
-            .take(
-                (width.saturating_sub(
-                    native_menu::HEADER_ACTIONS_WIDTH + if luna_columns { 43 } else { 16 },
-                ) / (8 * style.font_scale)) as usize,
-            )
-            .collect::<String>(),
+        &fit_cells(
+            &heading,
+            width.saturating_sub(
+                native_menu::HEADER_ACTIONS_WIDTH + if luna_columns { 43 } else { 16 },
+            ) / (8 * style.font_scale),
+            style,
+        ),
         header_fg,
         style,
     );
@@ -10261,7 +10272,7 @@ fn paint_menu_state(
                 );
             }
             let available = section_width.saturating_sub(16) / (8 * style.font_scale);
-            let label: String = group.title.chars().take(available as usize).collect();
+            let label: String = fit_cells(&group.title, available, style);
             draw_rice_text(
                 canvas,
                 width,
@@ -10439,7 +10450,7 @@ fn paint_menu_state(
                         tile_fg,
                         style,
                     );
-                    let short: String = label.chars().take(9).collect();
+                    let short: String = fit_cells(&label, 9, style);
                     draw_rice_text(
                         canvas,
                         width,
@@ -10464,10 +10475,7 @@ fn paint_menu_state(
                     } else {
                         format!(
                             "{prefix}{}",
-                            label
-                                .chars()
-                                .take(cap.saturating_sub(prefix.len()))
-                                .collect::<String>()
+                            fit_cells(&label, cap.saturating_sub(prefix.len()) as u32, style)
                         )
                     };
                     let text_y = if luna_columns
@@ -10565,7 +10573,7 @@ fn paint_menu_state(
                 } else {
                     35
                 }) / style.font_scale as usize;
-                let short_label: String = label.chars().take(max_chars).collect();
+                let short_label: String = fit_cells(&label, max_chars as u32, style);
                 draw_rice_text(
                     canvas,
                     width,
@@ -10635,7 +10643,7 @@ fn paint_menu_state(
                 height,
                 12,
                 47,
-                &status.chars().take(available_chars).collect::<String>(),
+                &fit_cells(status, available_chars as u32, style),
                 fg,
                 style,
             );
@@ -10675,7 +10683,7 @@ fn paint_menu_state(
         height,
         12,
         height - 16,
-        &hint.chars().take(hint_limit as usize).collect::<String>(),
+        &fit_cells(hint, hint_limit, style),
         if columns { header_fg } else { fg },
         style,
     );
@@ -11433,7 +11441,7 @@ fn paint_file_icon(
     } else {
         fill_rounded_rect(canvas, w, h, 1, 59, 102, 26, 4, 0x9b20_2b42);
     }
-    let label = entry.label.chars().take(16).collect::<String>();
+    let label = fit_cells(&entry.label, 16, style);
     let x = w.saturating_sub(rice_text_width(&label, style)) / 2;
     draw_rice_text(canvas, w, h, x, 67, &label, 0xffff_ffff, style);
 }
@@ -15325,6 +15333,75 @@ mod tests {
         );
         assert_eq!(pixel(&sidebar_frame, 2, 50), &sidebar.active.to_le_bytes());
         assert_ne!(tabs_frame, sidebar_frame);
+    }
+
+    #[test]
+    fn sidebar_menu_labels_that_overflow_at_font_scale_two_end_in_an_ellipsis() {
+        // The Orbit Composer case: a 320 px sidebar menu at font_scale 2 has
+        // room for ten cells; a longer label used to be cut with no marker.
+        let source = include_str!("../../../tests/fixtures/riceplate-desktop-v5.json");
+        let mut data: serde_json::Value = serde_json::from_str(source).unwrap();
+        data["schema_version"] = serde_json::json!(6);
+        data["menu"]["presentation"] = serde_json::json!("sidebar");
+        let mut style = recipe::parse(&data.to_string(), Some("mockup-desktop")).unwrap();
+        style.font_scale = 2;
+        let menu = style.menu.as_ref().unwrap();
+        let mut state = native_menu::MenuState::default();
+        state.open();
+        let actions = state.actions(menu);
+        // Row 0 ("Applications") is selected and overflows ten cells.
+        let label = state.label(actions[0]).to_owned();
+        assert!(
+            label.chars().count() > 10,
+            "fixture label must overflow: {label}"
+        );
+        let shown = fit_cells(&label, 21 / 2, &style);
+        assert!(shown.ends_with('…'), "{shown}");
+        assert_eq!(shown.chars().count(), 10);
+        assert_eq!(
+            fit_cells(state.label(actions[1]), 21 / 2, &style),
+            state.label(actions[1]),
+            "labels that fit are untouched"
+        );
+
+        let width = native_menu::WIDTH;
+        let height = native_menu::HEIGHT;
+        let mut frame = vec![0; (width * height * 4) as usize];
+        paint_menu(&mut frame, menu, &style, &state);
+        // Reference: the same text alone on the selection colour.
+        let x = native_menu::SIDEBAR_WIDTH + 4 + 12;
+        let top = native_menu::ACTION_TOP;
+        let y = top + native_menu::ACTION_HEIGHT.saturating_sub(16) / 2;
+        let mut reference = vec![0; (width * height * 4) as usize];
+        for pixel in reference.chunks_exact_mut(4) {
+            pixel.copy_from_slice(&style.active.to_le_bytes());
+        }
+        draw_rice_text(
+            &mut reference,
+            width,
+            height,
+            x,
+            y,
+            &shown,
+            style.foreground,
+            &style,
+        );
+        let region = |buffer: &[u8]| -> Vec<u8> {
+            let mut out = Vec::new();
+            for row in y..y + 16 {
+                let start = ((row * width + x) * 4) as usize;
+                out.extend_from_slice(&buffer[start..start + 10 * 16 * 4]);
+            }
+            out
+        };
+        assert_eq!(region(&frame), region(&reference));
+        // The marker is three real dots, not the '?' replacement cell.
+        let mut question = vec![0; 16 * 16 * 4];
+        let mut dots = question.clone();
+        draw_rice_text(&mut question, 16, 16, 0, 0, "?", 0xffff_ffff, &style);
+        draw_rice_text(&mut dots, 16, 16, 0, 0, "…", 0xffff_ffff, &style);
+        assert_ne!(question, dots);
+        assert!(dots.iter().any(|&byte| byte != 0));
     }
 
     #[test]

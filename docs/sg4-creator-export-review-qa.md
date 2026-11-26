@@ -167,13 +167,50 @@ Platform limits and findings (nothing here is fixed by the smoke):
   open); dismissal is Escape, the close button or the launcher.
 - The desktop shortcut context menu (right click) is a Luna-only feature; these
   rices do not offer it, so none is claimed.
-- **Open visual finding (belongs to WP4.4 tolerances):** Orbit's template uses
-  `font_scale` 2 in the fixed 320 px menu, so labels are cut without a marker
-  ("Applicatio", "Explo", "Sessi", the Find/Saved buttons show "F"/"S"); the
-  accessible names stay complete. The same bounded truncation exists in the
-  drawing code for every recipe.
+- **Visual finding fixed (27 Nov):** Orbit's template uses `font_scale` 2 in the
+  fixed 320 px menu, and labels used to be cut with `.chars().take(n)` without a
+  marker ("Applicatio", "Explo", "Sessi", Find/Saved shown as "F"/"S"). All native
+  menu, popup and desktop-widget label cuts now go through one shared helper
+  (`text_render::fit_cells`, a grapheme-safe wrapper over `fit_rice_text`), so an
+  overflowing label ends in an ellipsis ("Applicati…", "Expl…", "Sess…", "F…");
+  labels that already fit are byte-identical, and the bitmap face gained the
+  missing U+2026 sprite (it used to fall back to `?`). Rust unit tests cover the
+  helper and a painted Orbit-style sidebar row; the Orbit stage of
+  `smoke_sg4_imported_rices_labwc.sh` asserts it on real `grim` pixels
+  (`sg4_menu_ellipsis_check.py`: last cell = the three-dot sprite, the cell before
+  it = a letter) while the AT-SPI names stay `Applications`/`Terminal` in full.
+  What is still WP4.4: approved per-output tolerances.
 - Not covered: pointer drag of shortcuts, IME in these menus (SG5), multi-output
-  and physical-device behaviour, the Creator GUI click-through: the GTK Creator exists, but a real export->import run through its file choosers under labwc is still open (the smoke calls the same `creator_workspace`/`pack` functions the GUI buttons call).
+  and physical-device behaviour. This smoke imports through the same backend
+  functions the GUI calls; the GTK Creator's real file-chooser click-through is the
+  next section.
+
+## Creator GUI export -> import round trip (WP4.2, 27 Nov)
+
+`scripts/smoke_sg4_creator_gui_roundtrip_labwc.sh` (about 30 s, local only, not in
+any workflow) starts the real `launcher.py creator` window on a headless labwc
+(`GDK_BACKEND=wayland`, 1920x1080 so the grown window fits, every window placed at
+0,0 without server decoration by a `windowRule` so AT-SPI window coordinates map to
+output pixels) and drives it through `sg4_creator_gui_roundtrip_driver.py`:
+
+| Step | Receipt |
+| --- | --- |
+| Author profile | *Heritage Composer* creates a private v11 draft; the real *Export RicePack…* chooser takes the destination path in its name field; the *Review portable RicePack* dialog keeps *Export reviewed bytes* disabled until the acknowledgement is ticked; the pack carries the draft's ID and semantic SHA-256; selection stays `classic`; the status line says it is not installed or applied |
+| Malformed packs (fresh importing profile) | a garbage file and a truncated archive, chosen through the real *Import RicePack…* chooser, each give `RicePack invalid_archive: Corrupt or invalid RicePack archive. No session was changed.`; no confirmation dialog; the profile's config/state tree is byte-identical, no installed rice, no draft, nothing RiceBowl-owned under HOME |
+| Valid pack | the confirmation names the ID and SHA-256 prefix and says neither desktop is changed; *Import and edit* installs exactly one rice, opens one editable copy with a new ID, selection stays `classic` |
+| Identity | the installed recipe and the authored draft are equal after the product's strict validation (21 fields); the stored JSON differs only by the omitted default `menu.presentation: tabs`; the installed ID/semantic hash equal the authored ones |
+| Preview | *Render preview* shows the real native capture of the imported rice (caption `Native RicePlate · 1366 × 768 · scale 1.0`, its Classic Teal desktop on screen), not the schematic |
+
+Platform notes (honest limits): `wtype` key events do not reach GTK3 toplevels in
+this harness, so no GTK keyboard traversal is claimed. The buttons that open a
+modal chooser/dialog are pressed with **real compositor pointer events**, because an
+AT-SPI `doAction` that opens `Gtk.Dialog.run()` makes the application's AT-SPI
+service unresponsive while the dialog is open (reproduced with a plain
+`MessageDialog`); inside the dialogs the driver uses AT-SPI actions, EditableText
+and pointer clicks on the places sidebar and file rows. The Creator window is
+taller/wider than a 1366x768 output once a draft is loaded (the default 1280 px
+window grows past 1488 px), which is why this smoke runs at 1920x1080; that layout
+limit is not fixed here.
 
 ## Remaining blocking SG4 sign-offs
 

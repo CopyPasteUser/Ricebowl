@@ -34,7 +34,7 @@ The native menu IME landed in [#600](https://github.com/CopyPasteUser/Ricebowl/p
 - [ ] Inbox/OSD, live updates, keyboard and AT-SPI action semantics accepted across structurally distinct rices.
 - [ ] Privacy, restart, persistence, localization and rendered text accepted as a complete real-Mako/labwc matrix.
 
-**SG3 local progress (27 Nov 2026; checkboxes unchanged, formal acceptance open):** `scripts/smoke_sg3_ricepop_native_labwc.sh [luna|luna-de|luna-nofonts|chrome]` adds local real-Mako-1.11/labwc/AT-SPI receipts for the volume OSD, the Luna native inbox, the Chrome RiceSpice GTK inbox, privacy/restart and a Hindi/CJK/Arabic/Hangul rendered-text matrix. Open: GTK keyboard traversal, brightness OSD, hosted-CI/exact-head runs. See `docs/sg-remaining-work-packages.md` rows 3.1/3.2.
+**SG3 local progress (27 Nov 2026; checkboxes unchanged, formal acceptance open):** `scripts/smoke_sg3_ricepop_native_labwc.sh [luna|luna-de|luna-nofonts|chrome]` adds local real-Mako-1.11/labwc/AT-SPI receipts for the volume OSD, the Luna native inbox, the Chrome RiceSpice GTK inbox, privacy/restart and a Hindi/CJK/Arabic/Hangul rendered-text matrix. Also local (27 Nov): brightness OSD readback (fixture backlight), OSD pointer pass-through and OSD AT-SPI announcement. Open: GTK keyboard traversal, a real backlight/Orca, hosted-CI/exact-head runs. See `docs/sg-remaining-work-packages.md` rows 3.1/3.2.
 
 ### SG2/SG3 focused candidates (20 November 2026; **not yet accepted**)
 
