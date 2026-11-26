@@ -7,6 +7,7 @@ workflow wiring and the plain-item/`item-error` modes of the SNI fixture on a
 private D-Bus session.
 """
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import unittest
@@ -98,9 +99,10 @@ class InteractionSmokeContractTests(unittest.TestCase):
         syntax = subprocess.run(["sh", "-n", str(SMOKE)], capture_output=True,
                                 text=True, check=False)
         self.assertEqual(syntax.returncode, 0, syntax.stderr)
-        for stage in ("windows", "launcher", "clock", "sni", "files", "outputs"):
+        for stage in ("windows", "launcher", "clock", "sni", "notices", "files", "outputs"):
             self.assertIn(f"stage_{stage}() {{", self.source)
-        self.assertIn("for s in windows launcher clock sni files outputs; do run_stage", self.source)
+        self.assertIn("for s in windows launcher clock sni notices files outputs; do run_stage",
+                      self.source)
         self.assertNotIn("sudo ", self.source)
 
     def test_negative_paths_stay_genuine(self):
@@ -121,8 +123,45 @@ class InteractionSmokeContractTests(unittest.TestCase):
                 "WLR_HEADLESS_OUTPUTS=2 labwc",
                 'wlr-randr --output "$o1" --off',
                 'wlr-randr --output "$o1" --scale 1.5',
+                'echo slow >"$SG1I_GIO_MODE"',       # trash helper still running
+                "--desktop-command new-folder &",     # back-to-back requests
+                'hold_modifier ctrl',                  # pointer + Ctrl via the lease
                 "--plain"):
             self.assertIn(needle, self.source, needle)
+
+    def test_failure_notices_are_routed_exposed_and_asserted(self):
+        # Every generic failure category of the shared notice surface must be
+        # raised by native code outside its own definition and, except the
+        # terminal/lock helpers, asserted by real pixels + AT-SPI in this smoke.
+        src = ROOT / "components/riceplate-wayland/src"
+        osd = (src / "osd.rs").read_text(encoding="utf-8")
+        main = (src / "main.rs").read_text(encoding="utf-8")
+        variants = re.findall(r"^\s+(\w+),$", osd[osd.index("pub enum Failure {"):
+                                                  osd.index("impl Failure {")], re.M)
+        self.assertEqual(len(variants), 8, variants)
+        for variant in variants:
+            self.assertIn(f"osd::Failure::{variant}", main, variant)
+        english = {
+            m[0]: f"{m[1]}: {m[2]}" for m in re.findall(
+                r'Self::(\w+) => \(\s*lang\.label\("([^"]+)", "[^"]+"\),\s*'
+                r'lang\.label\("([^"]+)", "[^"]+"\),', osd)}
+        self.assertEqual(set(english), set(variants))
+        for variant, text in english.items():
+            if variant != "Command":
+                self.assertIn(f"'{text}'", self.source, f"{variant}: {text}")
+        # The surface is the AT-SPI alert the probe looks for, never a log line.
+        self.assertIn("AccessibleRole::Alert", main)
+        self.assertIn("pyatspi.ROLE_NOTIFICATION",
+                      (ROOT / "scripts/sg1_notice_probe.py").read_text(encoding="utf-8"))
+        # Failures stay generic: no private detail is ever interpolated.
+        self.assertNotIn("format!", osd[osd.index("fn notice(self"):osd.index("pub struct Notice")])
+
+    def test_trash_in_flight_refuses_a_second_confirmed_operation(self):
+        main = (ROOT / "components/riceplate-wayland/src/main.rs").read_text(encoding="utf-8")
+        self.assertIn("fn trash_in_flight(&self) -> bool", main)
+        body = main[main.index("fn execute_luna_dialog("):]
+        self.assertLess(body.index("self.trash_in_flight()"), body.index("trash_confirmed"))
+        self.assertIn("Another file operation is running", body)
 
     def test_workflow_filters_syntax_check_and_runs_it(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")

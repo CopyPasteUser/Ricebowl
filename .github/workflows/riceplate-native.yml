@@ -44,6 +44,7 @@ on:
       - 'scripts/smoke_sg3_ricepop_native_driver.py'
       - 'scripts/smoke_real_mako_111.sh'
       - 'scripts/smoke_sg1_interaction_labwc.sh'
+      - 'scripts/sg1_notice_probe.py'
       - 'scripts/fixtures/sg1_sni_provider.py'
       - 'tests/test_sg1_sni_fixture.py'
       - 'tests/test_sg1_interaction_smoke.py'
@@ -151,6 +152,7 @@ on:
       - 'scripts/smoke_sg3_ricepop_native_driver.py'
       - 'scripts/smoke_real_mako_111.sh'
       - 'scripts/smoke_sg1_interaction_labwc.sh'
+      - 'scripts/sg1_notice_probe.py'
       - 'scripts/fixtures/sg1_sni_provider.py'
       - 'tests/test_sg1_sni_fixture.py'
       - 'tests/test_sg1_interaction_smoke.py'
@@ -292,7 +294,7 @@ jobs:
           sh -n scripts/smoke_sg3_ricepop_native_labwc.sh
           /usr/bin/python3 -m py_compile scripts/smoke_sg3_ricepop_native_driver.py
           sh -n scripts/smoke_sg1_interaction_labwc.sh
-          /usr/bin/python3 -m py_compile scripts/fixtures/sg1_sni_provider.py
+          /usr/bin/python3 -m py_compile scripts/fixtures/sg1_sni_provider.py scripts/sg1_notice_probe.py
           sh -n scripts/smoke_luna_window_chrome.sh
           sh -n scripts/smoke_luna_hotkeys.sh
           sh -n scripts/smoke_luna_atspi.sh
@@ -343,8 +345,8 @@ jobs:
           for mode in luna luna-de luna-nofonts chrome; do
             timeout -k 5s 200s sh scripts/smoke_sg3_ricepop_native_labwc.sh "$mode"
           done
-      - name: Prove SG1 window/launcher/clock/SNI/desktop-file/output interaction negatives under labwc
-        run: timeout -k 5s 300s sh scripts/smoke_sg1_interaction_labwc.sh
+      - name: Prove SG1 window/launcher/clock/SNI/failure-notice/desktop-file/output interaction negatives under labwc
+        run: timeout -k 5s 600s sh scripts/smoke_sg1_interaction_labwc.sh
       # Ubuntu 24.04 packages labwc 0.7.1, which predates upstream's
       # input-method-v2/text-input-v3 implementation (introduced in 0.7.2).
       # Build the exact upstream commit in a disposable runner directory;

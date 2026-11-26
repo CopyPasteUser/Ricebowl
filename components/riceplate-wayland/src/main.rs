@@ -801,6 +801,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         file_last_click: None,
         file_launches: Vec::new(),
         app_launches: Vec::new(),
+        helper_launches: Vec::new(),
         file_last_reap: Instant::now(),
         external_launcher: external_launcher::ExternalLauncher::default(),
         desktop_keyboard_focus_layer: None,
@@ -1001,6 +1002,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             title: "Volume",
             value: "68%".into(),
             fill: Some(68),
+            alert: false,
         });
         app.redraw_osd();
     }
@@ -1243,7 +1245,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             app.notification_state.refresh_timeout(Instant::now()),
             // Only while a Start-menu launch helper is pending: wake briefly
             // to learn whether it failed. Idle shells keep no poll.
-            (!app.app_launches.is_empty()).then_some(Duration::from_millis(250)),
+            (!app.app_launches.is_empty() || !app.helper_launches.is_empty())
+                .then_some(Duration::from_millis(250)),
             app.clipboard
                 .paste_pending()
                 .then_some(Duration::from_millis(16)),
@@ -1262,6 +1265,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         app.reap_file_launches_if_due();
         app.reap_app_launches(&qh);
+        app.reap_helper_launches();
         if let Err(error) = app.external_launcher.reap() {
             eprintln!("RicePlate: external launcher reap failed: {error}");
         }
@@ -1376,14 +1380,16 @@ fn main() -> Result<(), Box<dyn Error>> {
                     .update(revision, Err("RicePop worker busy"));
             }
         }
+        // Expire first so the accessibility tree never announces a notice
+        // that is no longer painted (no later event would resync it).
+        if app.osd_state.expire(Instant::now()) {
+            app.hide_osd();
+        }
         if app.accessibility.is_some() {
             let model = app.accessibility_model();
             if let Some(bridge) = app.accessibility.as_mut() {
                 bridge.sync(model);
             }
-        }
-        if app.osd_state.expire(Instant::now()) {
-            app.hide_osd();
         }
         let current = clock_now(clock_format);
         if app.clock != current {
@@ -1645,6 +1651,9 @@ struct RicePlate {
     /// `gio launch` helpers for Start-menu applications, keyed by action ID so
     /// a failed start can be reported and removed from optimistic recents.
     app_launches: Vec<(String, std::process::Child)>,
+    /// Fixed-argv helpers whose failure is shown to the user through the
+    /// transient notice surface (see `WatchedLaunch`).
+    helper_launches: Vec<WatchedLaunch>,
     file_last_reap: Instant,
     external_launcher: external_launcher::ExternalLauncher,
     desktop_keyboard_focus_layer: Option<DesktopKeyboardFocusLayer>,
@@ -1784,20 +1793,6 @@ fn reap_finished_file_openers(children: &mut Vec<std::process::Child>) {
     });
 }
 
-/// A fixed-argv helper that started is tracked so the bounded reaper collects
-/// it. Dropping the `Child` would leave a zombie per settings window, terminal
-/// or Run command until RicePlate exits. A failed spawn is logged only.
-fn keep_spawned_child(
-    children: &mut Vec<std::process::Child>,
-    spawned: std::io::Result<std::process::Child>,
-    what: &str,
-) {
-    match spawned {
-        Ok(child) => children.push(child),
-        Err(error) => eprintln!("RicePlate: cannot {what}: {error}"),
-    }
-}
-
 /// Reaps finished launch helpers and returns `(action, reason)` for every one
 /// that did not exit successfully. Still-running helpers stay in the list.
 fn reap_finished_app_launches(
@@ -1816,6 +1811,61 @@ fn reap_finished_app_launches(
             false
         }
     });
+    failed
+}
+
+/// A fixed-argv helper started for a user gesture whose failure must reach the
+/// user (the control that started it has usually closed by then). The child is
+/// still reaped by the same bounded, event-loop-driven check as every other
+/// helper; there is no thread and no timer while none is pending.
+struct WatchedLaunch {
+    failure: osd::Failure,
+    started: Instant,
+    /// `None`: a finite operation (trash) that is watched until it exits.
+    /// `Some(window)`: only an exit inside the window is a failure; a helper
+    /// that is still running afterwards (a settings window) is handed to the
+    /// silent reaper so a long-lived window never keeps the loop waking.
+    window: Option<Duration>,
+    child: std::process::Child,
+}
+
+/// How long an early exit of a long-lived helper (settings, terminal) counts
+/// as a failed start.
+const HELPER_START_WINDOW: Duration = Duration::from_secs(5);
+
+/// Reap finished watched helpers. Returns the failure of every one that did
+/// not exit successfully. A helper that outlived its watch window moves to
+/// `background` (silent reaping); a still-running one stays watched.
+fn reap_watched_launches(
+    launches: &mut Vec<WatchedLaunch>,
+    now: Instant,
+    background: &mut Vec<std::process::Child>,
+) -> Vec<osd::Failure> {
+    let mut failed = Vec::new();
+    for mut launch in std::mem::take(launches) {
+        match launch.child.try_wait() {
+            Ok(Some(status)) if status.success() => {}
+            Ok(Some(status)) => {
+                eprintln!(
+                    "RicePlate: helper for {:?} exited unsuccessfully: {status}",
+                    launch.failure
+                );
+                failed.push(launch.failure);
+            }
+            Ok(None)
+                if launch.window.is_some_and(|window| {
+                    now.saturating_duration_since(launch.started) >= window
+                }) =>
+            {
+                background.push(launch.child);
+            }
+            Ok(None) => launches.push(launch),
+            Err(error) => {
+                eprintln!("RicePlate: could not reap helper: {error}");
+                failed.push(launch.failure);
+            }
+        }
+    }
     failed
 }
 
@@ -1856,24 +1906,84 @@ mod file_opener_lifecycle_tests {
         child.wait().unwrap();
     }
 
+    fn watched(
+        failure: osd::Failure,
+        window: Option<Duration>,
+        mut command: Command,
+        started: Instant,
+    ) -> WatchedLaunch {
+        WatchedLaunch {
+            failure,
+            started,
+            window,
+            child: command.spawn().expect("spawn helper"),
+        }
+    }
+
     #[test]
-    fn spawned_settings_and_run_helpers_are_tracked_and_failed_spawns_are_not() {
-        let mut children = Vec::new();
-        keep_spawned_child(&mut children, Command::new("true").spawn(), "run test");
-        keep_spawned_child(
-            &mut children,
-            Command::new("/nonexistent/ricebowl-sg1-helper").spawn(),
-            "run missing",
-        );
-        assert_eq!(children.len(), 1, "only the started helper is tracked");
+    fn failed_watched_helper_is_reported_once_and_successful_or_running_ones_are_not() {
+        let now = Instant::now();
+        let mut slow = Command::new("sleep");
+        slow.arg("5");
+        let mut launches = vec![
+            watched(
+                osd::Failure::Settings,
+                Some(HELPER_START_WINDOW),
+                Command::new("true"),
+                now,
+            ),
+            watched(osd::Failure::Trash, None, Command::new("false"), now),
+            watched(osd::Failure::Command, Some(HELPER_START_WINDOW), slow, now),
+        ];
+        let mut background = Vec::new();
+        let mut failed = Vec::new();
         for _ in 0..200 {
-            reap_finished_file_openers(&mut children);
-            if children.is_empty() {
+            failed.extend(reap_watched_launches(
+                &mut launches,
+                Instant::now(),
+                &mut background,
+            ));
+            if launches.len() == 1 {
                 break;
             }
             std::thread::sleep(Duration::from_millis(5));
         }
-        assert!(children.is_empty(), "a tracked helper is reaped, no zombie");
+        assert_eq!(
+            failed,
+            vec![osd::Failure::Trash],
+            "only the failed helper is reported"
+        );
+        assert_eq!(launches.len(), 1, "a running helper stays watched");
+        // A later pass must not report the same failure again.
+        assert!(reap_watched_launches(&mut launches, Instant::now(), &mut background).is_empty());
+        // Past its window a still-running helper goes to the silent reaper
+        // and no longer keeps the event loop waking.
+        let later = now + HELPER_START_WINDOW;
+        assert!(reap_watched_launches(&mut launches, later, &mut background).is_empty());
+        assert!(launches.is_empty());
+        assert_eq!(background.len(), 1);
+        let mut child = background.remove(0);
+        child.kill().unwrap();
+        child.wait().unwrap();
+    }
+
+    #[test]
+    fn a_finite_watched_operation_stays_watched_however_long_it_runs() {
+        let now = Instant::now();
+        let mut slow = Command::new("sleep");
+        slow.arg("5");
+        let mut launches = vec![watched(osd::Failure::Trash, None, slow, now)];
+        let mut background = Vec::new();
+        let far = now + Duration::from_secs(3600);
+        assert!(reap_watched_launches(&mut launches, far, &mut background).is_empty());
+        assert_eq!(
+            launches.len(),
+            1,
+            "a trash in flight must keep refusing a second one"
+        );
+        assert!(background.is_empty());
+        launches[0].child.kill().unwrap();
+        launches[0].child.wait().unwrap();
     }
 
     #[test]
@@ -2285,6 +2395,12 @@ impl RicePlate {
                 // Only the compositor-confirmed temporary layer owns these
                 // keys. A Tab starting from no selection chooses Launcher,
                 // even if a different window was active before the gesture.
+                // Escape on the panel also dismisses a visible failure notice.
+                // The notice itself never takes keyboard focus away from where
+                // the failure happened.
+                if event.keysym == Keysym::Escape && self.osd_state.dismiss_failure() {
+                    self.hide_osd();
+                }
                 let previous = self.focused_panel.replace(panel.clone());
                 self.handle_panel_key(event.keysym, qh);
                 if self.focused_panel.as_ref() == Some(&panel) {
@@ -2968,6 +3084,9 @@ impl RicePlate {
             eprintln!("RicePlate: desktop application launch failed ({action}): {detail}");
             changed |= self.menu_state.forget_app_launch(&action);
         }
+        // The Start menu closed when the entry was activated; without this the
+        // failure would be visible only in the log.
+        self.show_failure(osd::Failure::AppStart);
         if changed && self.recipe.id == "xp-luna-columns" {
             if let Err(error) = menu_recents::save(&self.recipe.id, self.menu_state.recent_apps()) {
                 eprintln!("RicePlate: cannot save XP Luna recents: {error}");
@@ -2975,6 +3094,58 @@ impl RicePlate {
         }
         if changed && self.menu_state.visible {
             self.redraw_menu(qh);
+        }
+    }
+
+    /// Show a generic failure on the shared transient notice surface (the same
+    /// input-transparent overlay as the volume OSD) and in the accessibility
+    /// tree. No-op without that surface (nested design previews).
+    fn show_failure(&mut self, failure: osd::Failure) {
+        self.osd_state.show_failure(failure, Instant::now());
+        self.redraw_osd();
+    }
+
+    /// Start a fixed-argv helper whose failure is reported. A spawn error is
+    /// reported at once; a started helper is watched until it exits (or for
+    /// `window`, see `WatchedLaunch`).
+    fn watch_helper(
+        &mut self,
+        failure: osd::Failure,
+        window: Option<Duration>,
+        spawned: std::io::Result<std::process::Child>,
+        what: &str,
+    ) {
+        match spawned {
+            Ok(child) => self.helper_launches.push(WatchedLaunch {
+                failure,
+                started: Instant::now(),
+                window,
+                child,
+            }),
+            Err(error) => {
+                eprintln!("RicePlate: cannot {what}: {error}");
+                self.show_failure(failure);
+            }
+        }
+    }
+
+    fn trash_in_flight(&self) -> bool {
+        self.helper_launches
+            .iter()
+            .any(|launch| launch.failure == osd::Failure::Trash)
+    }
+
+    fn reap_helper_launches(&mut self) {
+        if self.helper_launches.is_empty() {
+            return;
+        }
+        let failed = reap_watched_launches(
+            &mut self.helper_launches,
+            Instant::now(),
+            &mut self.file_launches,
+        );
+        if let Some(failure) = failed.last() {
+            self.show_failure(*failure);
         }
     }
 
@@ -2997,7 +3168,10 @@ impl RicePlate {
             desktop_layout::actions::OpenMode::Default,
         ) {
             Ok((_backend, child)) => self.file_launches.push(child),
-            Err(error) => eprintln!("RicePlate: desktop file activation refused: {error}"),
+            Err(error) => {
+                eprintln!("RicePlate: desktop file activation refused: {error}");
+                self.show_failure(osd::Failure::OpenFile);
+            }
         }
     }
 
@@ -3016,7 +3190,10 @@ impl RicePlate {
         };
         match desktop_layout::actions::open(snapshot, directory, entry, mode) {
             Ok((_backend, child)) => self.file_launches.push(child),
-            Err(error) => eprintln!("RicePlate: XDG file operation refused: {error}"),
+            Err(error) => {
+                eprintln!("RicePlate: XDG file operation refused: {error}");
+                self.show_failure(osd::Failure::OpenFile);
+            }
         }
     }
 
@@ -3394,7 +3571,10 @@ impl RicePlate {
                     // the new folder is visible.
                     luna_places::open_created_folder(&path);
                 }
-                Err(error) => eprintln!("RicePlate: cannot create Desktop folder: {error}"),
+                Err(error) => {
+                    eprintln!("RicePlate: cannot create Desktop folder: {error}");
+                    self.show_failure(osd::Failure::NewFolder);
+                }
             },
             Request::Refresh => {
                 self.menu_state.refresh_apps();
@@ -3712,6 +3892,16 @@ impl RicePlate {
             kind,
             luna_dialog::Kind::FileRename | luna_dialog::Kind::FileTrash
         ) {
+            // A trash helper is still running: a second confirmed operation
+            // is refused (never queued or duplicated) and the dialog stays
+            // open with a visible reason, so the user can retry afterwards.
+            if self.trash_in_flight() {
+                if let Some(dialog) = self.luna_dialog.as_mut() {
+                    dialog.state.notice = Some("Another file operation is running");
+                }
+                self.redraw_luna_dialog();
+                return;
+            }
             let result = (|| {
                 let key = self.file_dialog_target.as_ref().ok_or(
                     desktop_layout::actions::ActionError::Stale("No selected file"),
@@ -3749,7 +3939,14 @@ impl RicePlate {
             match result {
                 Ok(child) => {
                     if let Some(child) = child {
-                        self.file_launches.push(child);
+                        // Watched until it exits: the dialog closes now, so a
+                        // failing `gio trash` would otherwise be silent.
+                        self.helper_launches.push(WatchedLaunch {
+                            failure: osd::Failure::Trash,
+                            started: Instant::now(),
+                            window: None,
+                            child,
+                        });
                     }
                     self.close_luna_dialog();
                     if kind == luna_dialog::Kind::FileRename {
@@ -4237,6 +4434,23 @@ impl RicePlate {
                     }
                     Widget::Gap(_) | Widget::Divider(_) => {}
                 }
+            }
+        }
+        // The transient notice/OSD is exposed exactly while it is painted: the
+        // same text, as an alert for a failure and a passive status otherwise.
+        if self.osd_layer.is_some() {
+            if let Some(notice) = self.osd_state.current.as_ref() {
+                model.add(
+                    70_000,
+                    ROOT,
+                    if notice.alert {
+                        AccessibleRole::Alert
+                    } else {
+                        AccessibleRole::Status
+                    },
+                    notice.accessible_label(),
+                    None,
+                );
             }
         }
         if self.icon_layers.iter().any(|layer| layer.placed.is_some()) {
@@ -6268,6 +6482,7 @@ impl RicePlate {
                     }
                     Err(error) => {
                         eprintln!("RicePlate: cannot launch desktop application: {error}");
+                        self.show_failure(osd::Failure::AppStart);
                     }
                 }
             }
@@ -6279,7 +6494,10 @@ impl RicePlate {
             match self.external_launcher.activate() {
                 Ok(true) => {}
                 Ok(false) => eprintln!("RicePlate: external launcher already active"),
-                Err(error) => eprintln!("RicePlate: cannot open application launcher: {error}"),
+                Err(error) => {
+                    eprintln!("RicePlate: cannot open application launcher: {error}");
+                    self.show_failure(osd::Failure::Launcher);
+                }
             }
             return;
         }
@@ -6292,8 +6510,14 @@ impl RicePlate {
             "logout" => ("labwc", &["--exit"]),
             _ => return, // Validated recipe contract disallows other IDs.
         };
-        keep_spawned_child(
-            &mut self.file_launches,
+        let failure = if action == "settings" {
+            osd::Failure::Settings
+        } else {
+            osd::Failure::Command
+        };
+        self.watch_helper(
+            failure,
+            Some(HELPER_START_WINDOW),
             Command::new(program).args(args).spawn(),
             &format!("run {action}"),
         );
@@ -7411,21 +7635,43 @@ impl RicePlate {
         .then(|| self.tray_menu_state.bus_name.clone());
         let mut provider_replaced = false;
         let mut menu_refreshed = false;
+        let mut action_failed = false;
+        let processed = {
+            let Some(host) = self.tray_host.as_mut() else {
+                return false;
+            };
+            host.process_events(
+                |name, _, event| {
+                    if tray::revokes_remote_menu(remote_bus_name.as_deref(), &name, event) {
+                        provider_replaced = true;
+                    }
+                    if matches!(event, status_notifier::Event::UpdatedMenu) {
+                        menu_refreshed = true;
+                    }
+                },
+                |error| {
+                    eprintln!("RicePlate: SNI item error: {error}");
+                    // Only a provider failing an action the user just asked for
+                    // (Activate/ContextMenu or a menu click) is user-visible;
+                    // background property or layout errors stay in the log.
+                    if matches!(
+                        error.operation,
+                        status_notifier::Operation::ItemMethod
+                            | status_notifier::Operation::MenuEvent
+                    ) {
+                        action_failed = true;
+                    }
+                },
+                Some(Duration::ZERO),
+            )
+        };
+        if action_failed {
+            self.show_failure(osd::Failure::TrayProvider);
+        }
         let Some(host) = self.tray_host.as_mut() else {
             return false;
         };
-        if let Err(error) = host.process_events(
-            |name, _, event| {
-                if tray::revokes_remote_menu(remote_bus_name.as_deref(), &name, event) {
-                    provider_replaced = true;
-                }
-                if matches!(event, status_notifier::Event::UpdatedMenu) {
-                    menu_refreshed = true;
-                }
-            },
-            |error| eprintln!("RicePlate: SNI item error: {error}"),
-            Some(Duration::ZERO),
-        ) {
+        if let Err(error) = processed {
             eprintln!("RicePlate: SNI host disconnected: {error}");
             self.tray_host = None;
             self.tray_state = tray::State::default();
@@ -7641,8 +7887,9 @@ impl RicePlate {
         }
         // Keep the Child: dropping it without wait leaves a zombie for every
         // settings window until RicePlate exits.
-        keep_spawned_child(
-            &mut self.file_launches,
+        self.watch_helper(
+            osd::Failure::Settings,
+            Some(HELPER_START_WINDOW),
             command.spawn(),
             &format!("open Luna settings page {page}"),
         );
@@ -7749,6 +7996,7 @@ impl RicePlate {
                             host.menu_opened(&entry.bus_name, self.tray_menu_state.root_id)
                         {
                             eprintln!("RicePlate: SNI menu opening failed: {error}");
+                            self.show_failure(osd::Failure::TrayProvider);
                         }
                     }
                     return;
@@ -7777,6 +8025,7 @@ impl RicePlate {
         };
         if let Err(error) = result {
             eprintln!("RicePlate: SNI item action failed: {error}");
+            self.show_failure(osd::Failure::TrayProvider);
         }
     }
 
@@ -7958,6 +8207,7 @@ impl RicePlate {
                     if let Err(error) = host.menu_opened(&self.tray_menu_state.bus_name, id) {
                         eprintln!("RicePlate: SNI submenu opening failed: {error}");
                         self.set_tray_popup_visible(false, qh);
+                        self.show_failure(osd::Failure::TrayProvider);
                         return;
                     }
                 }
@@ -7967,6 +8217,7 @@ impl RicePlate {
                 if let Some(host) = self.tray_host.as_mut() {
                     if let Err(error) = host.menu_clicked(&self.tray_menu_state.bus_name, id) {
                         eprintln!("RicePlate: SNI menu activation failed: {error}");
+                        self.show_failure(osd::Failure::TrayProvider);
                     }
                 }
                 self.set_tray_popup_visible(false, qh);
@@ -8768,6 +9019,8 @@ fn paint_panel_pointer(
     }
 }
 
+const OSD_ALERT_ACCENT: u32 = 0xffb2_302e;
+
 fn paint_osd(canvas: &mut [u8], style: &PanelStyle, notice: &osd::Notice) {
     let width = osd::WIDTH;
     let height = osd::HEIGHT;
@@ -8775,7 +9028,13 @@ fn paint_osd(canvas: &mut [u8], style: &PanelStyle, notice: &osd::Notice) {
     for pixel in canvas.chunks_exact_mut(4) {
         pixel.copy_from_slice(&style.background.to_le_bytes());
     }
-    fill_rect(canvas, width, height, 0, 0, 4, height, style.active);
+    // A failure carries the same error accent as the Start-menu footer notice.
+    let accent = if notice.alert {
+        OSD_ALERT_ACCENT
+    } else {
+        style.active
+    };
+    fill_rect(canvas, width, height, 0, 0, 4, height, accent);
     draw_auxiliary_text(
         canvas,
         width,
@@ -8786,13 +9045,29 @@ fn paint_osd(canvas: &mut [u8], style: &PanelStyle, notice: &osd::Notice) {
         style.foreground,
         style,
     );
+    // Fixed generic text is fitted to the surface for any font or language.
+    let native_face = style.id == "xp-luna-columns"
+        && style
+            .native_art
+            .as_ref()
+            .is_some_and(|art| art.font.is_some());
+    let value: String = if notice.alert && native_face {
+        fit_rice_text(&notice.value, width - 32, style)
+    } else {
+        // The bitmap face is one 8px cell per character on this surface.
+        notice
+            .value
+            .chars()
+            .take(((width - 32) / 8) as usize)
+            .collect()
+    };
     draw_auxiliary_text(
         canvas,
         width,
         height,
         16,
         29,
-        &notice.value,
+        &value,
         style.foreground,
         style,
     );
@@ -15244,6 +15519,7 @@ mod tests {
                 title: "Volume",
                 value: "58%".into(),
                 fill: Some(58),
+                alert: false,
             },
         );
         paint_osd(
@@ -15253,6 +15529,7 @@ mod tests {
                 title: "Volume",
                 value: "Change failed".into(),
                 fill: None,
+                alert: false,
             },
         );
         assert_ne!(filled, error);
@@ -15263,6 +15540,40 @@ mod tests {
         assert_eq!(bar_pixel(&filled, 18), style.foreground);
         assert_eq!(bar_pixel(&filled, 220), style.active);
         assert_eq!(bar_pixel(&error, 18), style.background);
+    }
+
+    #[test]
+    fn failure_notice_paints_the_error_accent_and_generic_text_in_both_rices() {
+        let mut state = osd::State::default();
+        for id in ["classic", "chrome"] {
+            let style = recipe::load(id).unwrap();
+            let mut plain = vec![0; (osd::WIDTH * osd::HEIGHT * 4) as usize];
+            let mut alert = plain.clone();
+            let accent = |canvas: &[u8]| {
+                let offset = ((30 * osd::WIDTH + 1) * 4) as usize;
+                u32::from_le_bytes(canvas[offset..offset + 4].try_into().unwrap())
+            };
+            state.show_failure(osd::Failure::NewFolder, Instant::now());
+            let failure = state.current.clone().expect("failure notice");
+            let mut passive = failure.clone();
+            passive.alert = false;
+            paint_osd(&mut plain, &style, &passive);
+            paint_osd(&mut alert, &style, &failure);
+            assert_eq!(accent(&plain), style.active, "{id}");
+            assert_eq!(accent(&alert), OSD_ALERT_ACCENT, "{id}");
+            assert_ne!(plain, alert, "{id}");
+            // Even the longest English text stays inside the 248px surface:
+            // the right-hand margin column carries only background.
+            let edge = |canvas: &[u8]| {
+                (0..osd::HEIGHT)
+                    .map(|y| {
+                        let offset = ((y * osd::WIDTH + osd::WIDTH - 8) * 4) as usize;
+                        u32::from_le_bytes(canvas[offset..offset + 4].try_into().unwrap())
+                    })
+                    .all(|pixel| pixel == style.background)
+            };
+            assert!(edge(&alert), "{id}: notice text overflowed the surface");
+        }
     }
 
     #[test]

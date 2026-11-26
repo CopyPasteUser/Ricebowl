@@ -8,6 +8,10 @@ use crate::system_status::{Audio, ControlAction, SystemStatus};
 pub const WIDTH: u32 = 248;
 pub const HEIGHT: u32 = 70;
 pub const LIFETIME: Duration = Duration::from_millis(1800);
+/// A failure is something the user must be able to read and an assistive
+/// technology must be able to announce, so it stays up longer than a volume
+/// confirmation. It is still bounded and never takes keyboard focus.
+pub const FAILURE_LIFETIME: Duration = Duration::from_millis(4000);
 
 /// Only UI-owned OSD labels are translated. Status values still come from
 /// verified Linux service readback, never from a fabricated locale backend.
@@ -51,30 +55,115 @@ impl Language {
     }
 }
 
+/// Generic, fixed-text failure categories for operations the user started
+/// and that failed after the control had already closed (a launcher, a
+/// provider, a file helper). The text never carries an application name, a
+/// path, an argv or a provider error: those stay in the process log.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Failure {
+    AppStart,
+    Launcher,
+    Settings,
+    Command,
+    TrayProvider,
+    Trash,
+    OpenFile,
+    NewFolder,
+}
+
+impl Failure {
+    #[cfg(test)]
+    pub const ALL: [Self; 8] = [
+        Self::AppStart,
+        Self::Launcher,
+        Self::Settings,
+        Self::Command,
+        Self::TrayProvider,
+        Self::Trash,
+        Self::OpenFile,
+        Self::NewFolder,
+    ];
+
+    fn notice(self, lang: Language) -> Notice {
+        let (title, value) = match self {
+            Self::AppStart => (
+                lang.label("Application", "Anwendung"),
+                lang.label("Could not start", "Start fehlgeschlagen"),
+            ),
+            Self::Launcher => (
+                lang.label("Launcher", "Starter"),
+                lang.label("Not available", "Nicht verfügbar"),
+            ),
+            Self::Settings => (
+                lang.label("Settings", "Einstellungen"),
+                lang.label("Could not open", "Öffnen fehlgeschlagen"),
+            ),
+            Self::Command => (
+                lang.label("Command", "Befehl"),
+                lang.label("Could not run", "Ausführen fehlgeschlagen"),
+            ),
+            Self::TrayProvider => (
+                lang.label("Tray", "Infobereich"),
+                lang.label("App did not respond", "App antwortet nicht"),
+            ),
+            Self::Trash => (
+                lang.label("Recycle Bin", "Papierkorb"),
+                lang.label("Could not move item", "Verschieben fehlgeschlagen"),
+            ),
+            Self::OpenFile => (
+                lang.label("Desktop", "Desktop"),
+                lang.label("Could not open item", "Öffnen fehlgeschlagen"),
+            ),
+            Self::NewFolder => (
+                lang.label("Desktop", "Desktop"),
+                lang.label("Could not create folder", "Ordner nicht erstellt"),
+            ),
+        };
+        Notice {
+            title,
+            value: value.into(),
+            fill: None,
+            alert: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Notice {
     pub title: &'static str,
     pub value: String,
     pub fill: Option<u16>,
+    /// A failure notice: painted with the error accent and exposed to
+    /// assistive technology as an alert instead of a passive status.
+    pub alert: bool,
 }
 
 impl Notice {
+    /// The one text an assistive technology receives for this surface. It is
+    /// the same title and value that are painted, never a separate string.
+    pub fn accessible_label(&self) -> String {
+        format!("{}: {}", self.title, self.value)
+    }
+
     fn from_audio(audio: &Audio, lang: Language) -> Self {
         match audio {
             Audio::Volume(volume) => Self {
                 title: lang.label("Volume", "Lautstärke"),
                 value: format!("{volume}%"),
                 fill: Some((*volume).min(100)),
+                alert: false,
             },
             Audio::Muted => Self {
                 title: lang.label("Volume", "Lautstärke"),
                 value: lang.label("Muted", "Stumm").into(),
                 fill: Some(0),
+                alert: false,
             },
             Audio::Unavailable => Self {
                 title: lang.label("Volume", "Lautstärke"),
                 value: lang.label("Unavailable", "Nicht verfügbar").into(),
                 fill: None,
+                alert: false,
             },
         }
     }
@@ -98,6 +187,7 @@ impl Notice {
                     .label("Change failed", "Änderung fehlgeschlagen")
                     .into(),
                 fill: None,
+                alert: false,
             });
         }
         Some(Self::from_audio(&status.audio, lang))
@@ -127,6 +217,7 @@ impl State {
             title: self.language.label("Brightness", "Helligkeit"),
             value: format!("{percent}%"),
             fill: Some(percent.min(100)),
+            alert: false,
         });
         self.deadline = Some(now + LIFETIME);
     }
@@ -157,6 +248,26 @@ impl State {
         self.current = Some(notice);
         self.deadline = Some(now + LIFETIME);
         true
+    }
+
+    /// Show a generic failure. A newer notice replaces the current one and
+    /// restarts the bounded lifetime; nothing is queued or replayed.
+    pub fn show_failure(&mut self, failure: Failure, now: Instant) {
+        self.current = Some(failure.notice(self.language));
+        self.deadline = Some(now + FAILURE_LIFETIME);
+    }
+
+    /// Explicit dismissal (Escape on the focused panel). Returns whether a
+    /// failure notice was actually removed; a volume confirmation is left to
+    /// its own short timer.
+    pub fn dismiss_failure(&mut self) -> bool {
+        if self.current.as_ref().is_some_and(|notice| notice.alert) {
+            self.current = None;
+            self.deadline = None;
+            true
+        } else {
+            false
+        }
     }
 
     pub fn timeout(&self, now: Instant) -> Option<Duration> {
@@ -302,5 +413,84 @@ mod tests {
         assert_eq!(state.current.as_ref().unwrap().title, "Brightness");
         assert_eq!(state.current.as_ref().unwrap().fill, Some(37));
         assert!(state.expire(now + LIFETIME));
+    }
+    #[test]
+    fn failure_notices_are_generic_alerts_with_a_bounded_lifetime() {
+        let now = Instant::now();
+        let mut state = english_state();
+        for failure in Failure::ALL {
+            state.show_failure(failure, now);
+            let notice = state.current.as_ref().unwrap();
+            assert!(notice.alert && notice.fill.is_none(), "{failure:?}");
+            // Fixed, short, generic text: no path, argv, bus name or error.
+            let text = notice.accessible_label();
+            assert!(text.chars().count() <= 34, "{text}");
+            assert!(
+                text.chars()
+                    .all(|c| c.is_ascii_alphabetic() || c == ' ' || c == ':'),
+                "{text}"
+            );
+            assert_eq!(state.timeout(now), Some(FAILURE_LIFETIME));
+        }
+        assert!(FAILURE_LIFETIME > LIFETIME);
+        assert!(!state.expire(now + Duration::from_millis(3999)));
+        assert!(state.expire(now + FAILURE_LIFETIME));
+        assert!(state.current.is_none());
+    }
+
+    #[test]
+    fn a_newer_notice_replaces_and_a_volume_value_is_not_an_alert() {
+        let now = Instant::now();
+        let mut state = english_state();
+        state.show_failure(Failure::AppStart, now);
+        let later = now + Duration::from_millis(1500);
+        state.show_failure(Failure::Settings, later);
+        assert_eq!(state.current.as_ref().unwrap().title, "Settings");
+        assert_eq!(state.timeout(later), Some(FAILURE_LIFETIME));
+        // Not queued: when the second expires nothing remains behind it.
+        assert!(state.expire(later + FAILURE_LIFETIME));
+        assert!(state.current.is_none());
+        state.show_brightness(40, later);
+        assert!(!state.current.as_ref().unwrap().alert);
+        assert_eq!(
+            state.current.as_ref().unwrap().accessible_label(),
+            "Brightness: 40%"
+        );
+    }
+
+    #[test]
+    fn escape_dismisses_only_a_failure_notice() {
+        let now = Instant::now();
+        let mut state = english_state();
+        assert!(!state.dismiss_failure());
+        state.show_brightness(40, now);
+        assert!(
+            !state.dismiss_failure(),
+            "a volume/brightness OSD keeps its timer"
+        );
+        assert!(state.current.is_some());
+        state.show_failure(Failure::Trash, now);
+        assert!(state.dismiss_failure());
+        assert!(state.current.is_none());
+        assert_eq!(state.timeout(now), None);
+        assert!(
+            !state.dismiss_failure(),
+            "a second Escape finds nothing to dismiss"
+        );
+    }
+
+    #[test]
+    fn german_failure_notices_are_translated_and_still_generic() {
+        let now = Instant::now();
+        let mut state = State {
+            language: Language::German,
+            ..State::default()
+        };
+        state.show_failure(Failure::Trash, now);
+        assert_eq!(state.current.as_ref().unwrap().title, "Papierkorb");
+        assert_eq!(
+            state.current.as_ref().unwrap().value,
+            "Verschieben fehlgeschlagen"
+        );
     }
 }

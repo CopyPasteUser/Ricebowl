@@ -12,8 +12,12 @@
 #   sni     : secondary click on a Chrome (and Luna) tray item
 #   files   : Luna Desktop files multi-select, permission denied, drag,
 #             focus loss
-#   outputs : output scale change and hot-unplug/re-plug while the Luna Start
-#             menu and a tray popup are open (own two-output compositor; last)
+#   notices : failures that happen after their control closed (launcher, Settings
+#             provider, tray provider) reach the user as a visible, AT-SPI-
+#             exposed, self-clearing notice (both rices)
+#   outputs : output scale change, hot-unplug/re-plug and hot-add while the Luna
+#             Start menu, a tray popup, the calendar, the Run dialog and a
+#             desktop context menu are open (own two-output compositor; last)
 # SG1I_STAGES selects a subset for development (default: all, `outputs` last).
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
@@ -28,7 +32,7 @@ test -x "$native" && test -x "$clicker" && test -x "$probe" || {
     echo "Build riceplate-native, riceplate_focus_probe and wayland_pointer_click first" >&2
     exit 77
 }
-/usr/bin/python3 -c 'import gi; from gi.repository import Gio, GLib; from PIL import Image' || exit 77
+/usr/bin/python3 -c 'import gi; from gi.repository import Gio, GLib; from PIL import Image; import pyatspi' || exit 77
 
 if [ "${1:-}" != --inner ]; then
     runtime=$(mktemp -d)
@@ -43,7 +47,7 @@ if [ "${1:-}" != --inner ]; then
 fi
 
 runtime=$SG1I_RUNTIME
-stages=${SG1I_STAGES:-windows launcher clock sni files outputs}
+stages=${SG1I_STAGES:-windows launcher clock sni notices files outputs}
 cp "$root/examples/wayland/xp-luna-columns.json" "$runtime/luna.json"
 chmod 0600 "$runtime/luna.json"
 export XDG_CONFIG_HOME="$runtime/config"
@@ -77,6 +81,13 @@ while [ ! -S "$runtime/wayland-0" ] && [ "$n" -lt 60 ]; do
 done
 [ -S "$runtime/wayland-0" ] || fail "no Wayland socket"
 export WAYLAND_DISPLAY=wayland-0
+# The AT-SPI bridge of a shell started with RICEBOWL_DE_SCREEN_READER=1 waits
+# for org.a11y.Status.IsEnabled; this disposable private bus emulates a screen
+# reader turning accessibility on (never touches a host session bus).
+/usr/bin/python3 -c 'import pyatspi; pyatspi.Registry.getDesktop(0).childCount' >/dev/null
+dbus-send --session --print-reply --reply-timeout=5000 --dest=org.a11y.Bus /org/a11y/bus \
+    org.freedesktop.DBus.Properties.Set string:org.a11y.Status string:IsEnabled \
+    variant:boolean:true >/dev/null || { echo "could not enable accessibility" >&2; exit 1; }
 output=$(wlr-randr | sed -n '1s/[[:space:]].*//p')
 test -n "$output"
 set_mode() { wlr-randr --output "$output" --custom-mode "$1@60Hz" --scale 1; sleep .3; }
@@ -621,6 +632,263 @@ PY
 }
 
 # =========================================================================
+# Failure notices: an operation that fails AFTER its control closed (a launcher,
+# a provider helper, a tray provider) is shown on the shared transient notice
+# surface (top-right overlay) and exposed as an AT-SPI alert, then clears on
+# its own (or on Escape from the focused panel). Generic text only; nothing
+# is replayed. Shells run as a full session (RICEBOWL_DE_NESTED=0) on an
+# isolated HOME with an empty Desktop so no host file is ever inspected.
+# =========================================================================
+notice_probe() { timeout -k 2s 25s /usr/bin/python3 "$root/scripts/sg1_notice_probe.py" "$@"; }
+# The notice is the 248x70 overlay at the top right of a 1366-wide output.
+notice_changed() { region_changed "$1" "$2" 1102 16 248 70; }
+notice_accent() {
+    /usr/bin/python3 - "$1" <<'PY'
+from PIL import Image
+import sys
+with Image.open(sys.argv[1]) as im:
+    bar = im.convert("RGB").crop((1102, 16, 1106, 86))
+    print(sum(1 for p in bar.getdata() if p == (178, 48, 46)))
+PY
+}
+# expect_notice "Exact text" BASELINE.png: painted (error accent) AND exposed
+# to AT-SPI as exactly one alert with that accessible name.
+expect_notice() {
+    tries=0
+    while :; do
+        grim "$runtime/notice-now.png"
+        [ "$(notice_changed "$2" "$runtime/notice-now.png")" -gt 400 ] && break
+        tries=$((tries + 1)); [ "$tries" -lt 25 ] || fail "notice '$1' was never painted"
+        sleep .2
+    done
+    [ "$(notice_accent "$runtime/notice-now.png")" -ge 200 ] || fail "notice '$1' lacks the error accent"
+    notice_probe present "$1" 6 >/dev/null || fail "notice '$1' is not exposed to AT-SPI"
+}
+# expect_notice_clears BASELINE.png: pixels back to the baseline AND no alert.
+expect_notice_clears() {
+    tries=0
+    while :; do
+        grim "$runtime/notice-gone.png"
+        [ "$(notice_changed "$1" "$runtime/notice-gone.png")" -lt 30 ] && break
+        tries=$((tries + 1)); [ "$tries" -lt 40 ] || fail "failure notice did not clear"
+        sleep .25
+    done
+    notice_probe absent 6 >/dev/null || fail "an AT-SPI alert outlived the painted notice"
+}
+# expect_no_notice BASELINE.png [SECONDS]: nothing painted and no alert
+# (positive control for a successful operation).
+expect_no_notice() {
+    sleep "${2:-1.6}"
+    grim "$runtime/notice-none.png"
+    [ "$(notice_changed "$1" "$runtime/notice-none.png")" -lt 30 ] || fail "a notice was painted for a successful operation"
+    notice_probe absent 4 >/dev/null || fail "an alert was exposed for a successful operation"
+}
+notice_home() {
+    nh=$runtime/notice-home nc=$runtime/notice-config
+    [ -d "$nh" ] || {
+        mkdir -m 0700 "$nh" "$nh/Desktop" "$nc" "$nc/ricebowl"
+        printf '%s\n' 'XDG_DESKTOP_DIR="$HOME/Desktop"' >"$nc/user-dirs.dirs"
+    }
+}
+# start_full RECIPE LOG [VAR=value...]: full session + AT-SPI bridge on an
+# isolated HOME (an empty Desktop).
+start_full() {
+    notice_home
+    recipe=$1; flog=$2; shift 2
+    start_plate "$recipe" "$flog" "HOME=$nh" "XDG_CONFIG_HOME=$nc" \
+        RICEBOWL_DE_NESTED=0 RICEBOWL_DE_SCREEN_READER=1 "$@"
+    sleep 1.5   # the AT-SPI tree registers a moment after the first frame
+}
+start_search() {
+    "$clicker" 35 748 1366 768 >/dev/null; sleep .3
+    wtype -k slash -d 50 "$1" -s 350 -k Return
+}
+stage_notices() {
+    set_mode 1366x768
+    notice_home
+    mkdir -m 0700 "$runtime/data-n" "$runtime/data-n/applications" "$runtime/emptybin"
+    cat >"$runtime/data-n/applications/ricebowl-sg1-notice.desktop" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=RiceBowl SG1 Notice
+Keywords=sg1notice;
+Exec=$runtime/never-run-notice
+Terminal=false
+DESKTOP
+    chmod 0600 "$runtime/data-n/applications/ricebowl-sg1-notice.desktop"
+    export XDG_DATA_HOME="$runtime/data-n"
+    export SG1I_GIO_LOG="$runtime/notice-gio.log" SG1I_GIO_MODE="$runtime/notice-gio.mode"
+    export SG1I_RICEBOWL_LOG="$runtime/notice-ricebowl.log" SG1I_RICEBOWL_FAIL="$runtime/ricebowl.fail"
+    rm -f "$SG1I_GIO_LOG" "$SG1I_RICEBOWL_LOG" "$SG1I_RICEBOWL_FAIL"
+    echo ok >"$SG1I_GIO_MODE"
+    cat >"$runtime/shims/gio" <<'SHIM'
+#!/bin/sh
+printf 'gio %s\n' "$*" >>"$SG1I_GIO_LOG"
+case $(cat "$SG1I_GIO_MODE") in
+    fail) echo 'gio: injected failure' >&2; exit 1;;
+esac
+exit 0
+SHIM
+    chmod 0700 "$runtime/shims/gio"
+    settings_shim ok
+    gio_calls() { count_lines "$SG1I_GIO_LOG" 'sg1-notice.desktop'; }
+
+    # ---- Luna with working-but-failing helpers on a private PATH -----------
+    log=$runtime/plate-notice-luna.log
+    renew_keyboard_seat
+    start_full "$runtime/luna.json" "$log" "PATH=$runtime/shims:$PATH"
+    grim "$runtime/notice-base-luna.png"
+    notice_probe absent 4 >/dev/null || fail "luna: an alert is exposed before any failure"
+    # 1. App launch failure: the Start menu already closed; the helper exits 1.
+    echo ok >"$SG1I_GIO_MODE"
+    start_search sg1notice
+    wait_count "$SG1I_GIO_LOG" 'sg1-notice.desktop' 1 30 || fail "luna: working launch never reached gio"
+    expect_no_notice "$runtime/notice-base-luna.png"
+    echo fail >"$SG1I_GIO_MODE"
+    start_search sg1notice
+    wait_count "$log" 'desktop application launch failed (desktop:ricebowl-sg1-notice.desktop)' 1 40 \
+        || fail "luna: failing launch was not reported in the log"
+    expect_notice 'Application: Could not start' "$runtime/notice-base-luna.png"
+    # No stale action: keys after the failure replay nothing.
+    wtype -k Return; sleep .5
+    [ "$(gio_calls)" = 2 ] || fail "luna: a launch was replayed after the failure ($(gio_calls))"
+    expect_notice_clears "$runtime/notice-base-luna.png"
+    echo ok >"$SG1I_GIO_MODE"
+    # 2. Settings provider (clock menu) fails after the menu closed (exit 3).
+    settings_shim fail
+    luna_clock_menu_open
+    wtype -k Return
+    wait_count "$SG1I_RICEBOWL_LOG" 'call de settings --luna --page timezone' 1 30 || fail "luna: failing settings provider not invoked"
+    expect_notice 'Settings: Could not open' "$runtime/notice-base-luna.png"
+    [ "$(count_lines "$SG1I_RICEBOWL_LOG" 'call ')" = 1 ] || fail "luna: failing settings provider was replayed"
+    # Escape on the focused panel dismisses the notice at once (no replay).
+    seen=$(count_lines "$log" 'compositor confirmed panel keyboard focus')
+    "$clicker" 700 748 1366 768 >/dev/null
+    wait_count "$log" 'compositor confirmed panel keyboard focus' $((seen + 1)) 30 \
+        || fail "luna: the panel did not take keyboard focus"
+    wtype -k Escape; sleep .6
+    grim "$runtime/notice-esc.png"
+    [ "$(notice_changed "$runtime/notice-base-luna.png" "$runtime/notice-esc.png")" -lt 30 ] \
+        || fail "luna: Escape did not dismiss the failure notice"
+    notice_probe absent 3 >/dev/null || fail "luna: the dismissed notice is still an AT-SPI alert"
+    [ "$(count_lines "$SG1I_RICEBOWL_LOG" 'call ')" = 1 ] || fail "luna: Escape replayed the failed provider"
+    # Recovery: a working provider shows no notice and runs once.
+    settings_shim ok
+    renew_keyboard_seat
+    luna_clock_menu_open
+    wtype -k Return
+    wait_count "$SG1I_RICEBOWL_LOG" 'call de settings --luna --page timezone' 2 30 || fail "luna: settings did not recover"
+    expect_no_notice "$runtime/notice-base-luna.png"
+    # 3. Run dialog: a missing or non-executable program keeps the dialog open
+    # with a visible notice and starts nothing; a valid one runs exactly once.
+    cat >"$runtime/run-ok" <<WITNESS
+#!/bin/sh
+echo ran >>"$runtime/run-ok.log"
+WITNESS
+    chmod 0700 "$runtime/run-ok"
+    printf '#!/bin/sh\necho ran >>"%s/run-denied.log"\n' "$runtime" >"$runtime/run-denied"
+    chmod 0600 "$runtime/run-denied"
+    rm -f "$runtime/run-ok.log" "$runtime/run-denied.log"
+    renew_keyboard_seat
+    "$clicker" 35 748 1366 768 >/dev/null; sleep .7
+    "$clicker" 316 580 1366 768 >/dev/null; sleep .8
+    grim "$runtime/notice-run-open.png"
+    [ "$(region_changed "$runtime/notice-base-luna.png" "$runtime/notice-run-open.png" 459 268 448 232)" -gt 800 ] \
+        || fail "luna: the Run dialog did not open"
+    for target in "$runtime/no-such-ricebowl-program" "$runtime/run-denied"; do
+        wtype -M ctrl -k a -m ctrl -s 120 -d 30 "$target"; sleep .4
+        grim "$runtime/notice-run-typed.png"
+        wtype -k Return; sleep .6
+        grim "$runtime/notice-run-refused.png"
+        [ "$(region_changed "$runtime/notice-run-typed.png" "$runtime/notice-run-refused.png" 459 268 448 232)" -gt 40 ] \
+            || fail "luna: a missing/non-executable Run program left no visible notice"
+        [ "$(region_changed "$runtime/notice-base-luna.png" "$runtime/notice-run-refused.png" 459 268 448 232)" -gt 800 ] \
+            || fail "luna: the Run dialog closed although the program could not start"
+    done
+    [ ! -e "$runtime/run-denied.log" ] || fail "luna: a non-executable program ran"
+    wtype -M ctrl -k a -m ctrl -s 120 -d 30 "$runtime/run-ok" -s 150 -k Return
+    tries=0; while [ ! -s "$runtime/run-ok.log" ] && [ "$tries" -lt 30 ]; do tries=$((tries + 1)); sleep .1; done
+    sleep .6
+    [ "$(wc -l <"$runtime/run-ok.log" 2>/dev/null || echo 0)" = 1 ] || fail "luna: Run did not recover (exactly one run expected)"
+    grim "$runtime/notice-run-done.png"
+    [ "$(region_changed "$runtime/notice-base-luna.png" "$runtime/notice-run-done.png" 459 268 448 232)" -lt 100 ] \
+        || fail "luna: the Run dialog stayed open after a successful run"
+    kill -0 "$plate" || fail "luna: RicePlate died"
+    stop_plate
+    echo "SG1 luna: failed app launch and failed Settings provider show a generic pixel + AT-SPI alert notice, Escape dismisses, no replay; Run keeps its dialog with a visible notice for a missing/denied program and runs a valid one once PASS"
+
+    # ---- Luna with providers absent (spawn error): same notice -------------
+    log=$runtime/plate-notice-luna-absent.log
+    renew_keyboard_seat
+    start_full "$runtime/luna.json" "$log" "PATH=$runtime/emptybin"
+    grim "$runtime/notice-base-luna2.png"
+    luna_clock_menu_open
+    wtype -k Return
+    wait_count "$log" 'cannot open Luna settings page timezone: No such file' 1 30 || fail "luna: absent provider not logged"
+    expect_notice 'Settings: Could not open' "$runtime/notice-base-luna2.png"
+    expect_notice_clears "$runtime/notice-base-luna2.png"
+    start_search sg1notice
+    wait_count "$log" 'cannot launch desktop application: No such file' 1 30 || fail "luna: absent gio not logged"
+    expect_notice 'Application: Could not start' "$runtime/notice-base-luna2.png"
+    expect_notice_clears "$runtime/notice-base-luna2.png"
+    kill -0 "$plate" || fail "luna: RicePlate died"
+    stop_plate
+    echo "SG1 luna: absent Settings provider and absent gio show the notice and clear PASS"
+
+    # ---- Chrome: external launcher absent ---------------------------------
+    log=$runtime/plate-notice-chrome.log
+    renew_keyboard_seat
+    start_full chrome "$log" "PATH=$runtime/emptybin"
+    grim "$runtime/notice-base-chrome.png"
+    "$clicker" 28 746 1366 768 >/dev/null
+    wait_count "$log" 'cannot open application launcher: No such file' 1 30 || fail "chrome: absent launcher not logged"
+    expect_notice 'Launcher: Not available' "$runtime/notice-base-chrome.png"
+    expect_notice_clears "$runtime/notice-base-chrome.png"
+    # Repeat click: a fresh attempt and a fresh notice (never "busy").
+    "$clicker" 28 746 1366 768 >/dev/null
+    expect_notice 'Launcher: Not available' "$runtime/notice-base-chrome.png"
+    expect_notice_clears "$runtime/notice-base-chrome.png"
+    kill -0 "$plate" || fail "chrome: RicePlate died"
+    stop_plate
+    echo "SG1 chrome: absent external launcher shows the notice, clears, repeat click retries PASS"
+
+    # ---- Tray provider error (both rices) -----------------------------------
+    rm -f "$runtime/receipts.jsonl"
+    for rice in luna chrome; do
+        recipe=chrome tray_x=1270
+        if [ "$rice" = luna ]; then recipe=$runtime/luna.json tray_x=1185; fi
+        log=$runtime/plate-notice-tray-$rice.log
+        renew_keyboard_seat
+        start_full "$recipe" "$log"
+        gen=$rice-notice
+        start_provider "$gen" --plain
+        sleep .8
+        grim "$runtime/notice-base-tray-$rice.png"
+        fixture_mode item-error
+        sleep .3
+        errors=$(count_lines "$log" 'RicePlate: SNI item error: error while calling an item method')
+        "$clicker" --right-click "$tray_x" 746 1366 768 >/dev/null
+        wait_count "$log" 'RicePlate: SNI item error: error while calling an item method' $((errors + 1)) 40 \
+            || fail "$rice: provider ContextMenu error was not logged"
+        expect_notice 'Tray: App did not respond' "$runtime/notice-base-tray-$rice.png"
+        [ "$(rcount "$gen" item method ContextMenu)" = 1 ] || fail "$rice: failing ContextMenu was replayed"
+        expect_notice_clears "$runtime/notice-base-tray-$rice.png"
+        fixture_mode normal
+        sleep .3
+        "$clicker" --right-click "$tray_x" 746 1366 768 >/dev/null
+        tries=0
+        while [ "$(rcount "$gen" item method ContextMenu)" -lt 2 ] && [ "$tries" -lt 40 ]; do tries=$((tries + 1)); sleep .1; done
+        [ "$(rcount "$gen" item method ContextMenu)" = 2 ] || fail "$rice: tray did not recover after the provider error"
+        expect_no_notice "$runtime/notice-base-tray-$rice.png"
+        stop_provider
+        kill -0 "$plate" || fail "$rice: RicePlate died on a provider error"
+        stop_plate
+        echo "SG1 $rice: tray provider error shows the notice, clears, next click recovers with no new notice PASS"
+    done
+    rm -f "$runtime/shims/gio" "$runtime/shims/ricebowl"
+}
+
+# =========================================================================
 # WP1.3  Luna Desktop files (Chrome has no desktop block): keyboard
 # multi-select, permission-denied open / rename / drag-persist / new folder,
 # keyboard focus loss and recovery, all on real native file-icon layers.
@@ -649,16 +917,24 @@ stage_files() {
     chmod 0000 "$fh/Desktop/03-secret.txt"
     export SG1I_GIO_LOG="$runtime/files-gio.log" SG1I_GIO_MODE="$runtime/files-gio.mode"
     rm -f "$SG1I_GIO_LOG"; echo ok >"$SG1I_GIO_MODE"
+    # `gio trash` is recorded only (the Desktop stays unchanged); modes: ok,
+    # fail (exit 1) and slow (a helper that is still running for 2.5 s).
     cat >"$runtime/shims/gio" <<'SHIM'
 #!/bin/sh
 printf 'gio %s\n' "$*" >>"$SG1I_GIO_LOG"
+if [ "$1" = trash ]; then
+    case $(cat "$SG1I_GIO_MODE") in
+        fail) echo 'gio: injected failure' >&2; exit 1;;
+        slow) sleep 2.5;;
+    esac
+fi
 exit 0
 SHIM
     chmod 0700 "$runtime/shims/gio"
     log=$runtime/plate-files.log
     renew_keyboard_seat
     start_plate "$runtime/luna.json" "$log" "HOME=$fh" "XDG_CONFIG_HOME=$fc" \
-        RICEBOWL_DE_NESTED=0 RICEBOWL_DE_TRACE_FILES=1 "PATH=$runtime/shims:$PATH"
+        RICEBOWL_DE_NESTED=0 RICEBOWL_DE_SCREEN_READER=1 RICEBOWL_DE_TRACE_FILES=1 "PATH=$runtime/shims:$PATH"
     wait_count "$log" 'RicePlate: XDG mapped' 4 50 || fail "four Desktop file layers were not mapped"
     # Icon i is the i-th mapped file layer (inventory order is by name).
     pos() { sed -n 's/.*XDG mapped x=\([0-9]*\) y=\([0-9]*\) kind=File.*/\1 \2/p' "$log" | sed -n "$(($1 + 1))p"; }
@@ -670,6 +946,7 @@ SHIM
     wait_focus() { wait_count "$log" 'compositor confirmed XDG file keyboard focus' "$1" 30; }
     focus_n() { count_lines "$log" 'compositor confirmed XDG file keyboard focus'; }
     away; grim "$runtime/files-base.png"
+    ix0=$(icon_x 0) iy0=$(icon_y 0)
 
     # ---- 1. multi-select: pointer picks the anchor, Shift+Down extends it.
     n=$(focus_n)
@@ -687,12 +964,56 @@ SHIM
     wtype -k Escape; sleep .3
     echo "SG1 luna files: real click + Shift+Down multi-select paints exactly the 3-icon range"
 
+    # ---- 1b. pointer + Ctrl/Shift. A pointer press carries no modifier state
+    # in Wayland: the shell learns Ctrl/Shift only as wl_keyboard.modifiers
+    # while the keyboard focus lease taken by the PRECEDING click is held. So a
+    # modified click works once a first click has taken the lease, and only one
+    # modified click per lease (a press closes it, the next lease starts clean).
+    hold_modifier() { wtype -M "$1" -s 2200 -m "$1" >/dev/null 2>&1 & modifier_pid=$!; sleep .7; }
+    sel() { [ "$(icon_diff "$runtime/files-base.png" "$1" "$2")" -gt 150 ]; }
+    unsel() { [ "$(icon_diff "$runtime/files-base.png" "$1" "$2")" -lt 60 ]; }
+    away; renew_keyboard_seat
+    n=$(focus_n); center_click 1
+    wait_focus $((n + 1)) || fail "no focus lease for the Ctrl+click check"
+    hold_modifier ctrl
+    center_click 0; sleep .5
+    wait "$modifier_pid" 2>/dev/null || :; away; grim "$runtime/files-ctrl-a.png"
+    sel "$runtime/files-ctrl-a.png" 0 && sel "$runtime/files-ctrl-a.png" 1 \
+        && unsel "$runtime/files-ctrl-a.png" 2 && unsel "$runtime/files-ctrl-a.png" 3 \
+        || fail "pointer Ctrl+click did not add a second icon to the selection"
+    # Ctrl+click on a selected icon removes it: the first (plain) click selects
+    # and takes the lease, the modified click comes after the double-click window.
+    renew_keyboard_seat
+    n=$(focus_n); center_click 1
+    wait_focus $((n + 1)) || fail "no focus lease for the toggle-off check"
+    grim "$runtime/files-ctrl-b0.png"
+    sel "$runtime/files-ctrl-b0.png" 1 || fail "the plain click did not select icon 1"
+    sleep 1.2
+    hold_modifier ctrl
+    center_click 1; sleep .5
+    wait "$modifier_pid" 2>/dev/null || :; away; grim "$runtime/files-ctrl-b.png"
+    unsel "$runtime/files-ctrl-b.png" 1 \
+        || fail "pointer Ctrl+click on a selected icon did not remove it"
+    renew_keyboard_seat
+    n=$(focus_n); center_click 0
+    wait_focus $((n + 1)) || fail "no focus lease for the Shift+click check"
+    hold_modifier shift
+    center_click 2; sleep .5
+    wait "$modifier_pid" 2>/dev/null || :; away; grim "$runtime/files-shift.png"
+    sel "$runtime/files-shift.png" 0 && sel "$runtime/files-shift.png" 1 && sel "$runtime/files-shift.png" 2 \
+        && unsel "$runtime/files-shift.png" 3 \
+        || fail "pointer Shift+click did not select the 0..2 range"
+    wtype -k Escape; sleep .3
+    echo "SG1 luna files: pointer Ctrl+click adds/removes and Shift+click selects a range (modifiers via the lease's wl_keyboard.modifiers) PASS"
+
     # ---- 2. permission denied on open: an unreadable file never reaches Gio.
     away
     center_click 3; sleep .15; center_click 3
     wait_count "$log" 'desktop file activation refused' 1 30 || fail "unreadable file open was not refused"
-    sleep .3
+    # The refusal is visible and announced, not only a log line.
+    expect_notice 'Desktop: Could not open item' "$runtime/files-base.png"
     [ ! -e "$SG1I_GIO_LOG" ] || fail "unreadable file reached the opener"
+    expect_notice_clears "$runtime/files-base.png"
     # positive control: a readable file double-click opens exactly once.
     center_click 0; sleep .15; center_click 0
     tries=0; while [ ! -s "$SG1I_GIO_LOG" ] && [ "$tries" -lt 30 ]; do tries=$((tries + 1)); sleep .1; done
@@ -758,6 +1079,55 @@ SHIM
     wtype -k Escape; sleep .4
     echo "SG1 luna files: focus theft revokes the lease, no stale F2/Delete, fresh click recovers"
 
+    # ---- 4b. `gio trash` after the confirmation dialog closed. A failing
+    # helper is a visible, announced notice (the dialog is gone), a second
+    # confirmed operation while one is in flight is refused (never queued or
+    # duplicated) and the retry works afterwards.
+    trash_calls() { count_lines "$SG1I_GIO_LOG" 'gio trash'; }
+    trash_dialog_open() {
+        away; renew_keyboard_seat
+        n=$(focus_n)
+        center_click "$1"
+        wait_focus $((n + 1)) || fail "no focus lease for the Trash dialog"
+        wtype -k Delete; sleep .6
+        grim "$runtime/files-trash-dialog.png"
+        [ "$(region_changed "$runtime/files-idle.png" "$runtime/files-trash-dialog.png" 500 360 380 130)" -gt 800 ] \
+            || fail "the Move to Recycle Bin confirmation did not open"
+    }
+    echo fail >"$SG1I_GIO_MODE"
+    trash_dialog_open 0
+    wtype -k Return
+    wait_count "$SG1I_GIO_LOG" 'gio trash' 1 30 || fail "confirmed Trash never reached the helper"
+    expect_notice 'Recycle Bin: Could not move item' "$runtime/files-base.png"
+    [ -f "$fh/Desktop/00-alpha.txt" ] || fail "failed Trash lost the file"
+    [ "$(region_changed "$runtime/files-idle.png" "$runtime/notice-now.png" 500 360 380 130)" -lt 100 ] \
+        || fail "the confirmation dialog was still open after the helper failed"
+    wtype -k Return; sleep .5
+    [ "$(trash_calls)" = 1 ] || fail "a stale Return replayed the failed Trash ($(trash_calls))"
+    expect_notice_clears "$runtime/files-base.png"
+    echo slow >"$SG1I_GIO_MODE"
+    trash_dialog_open 0
+    wtype -k Return
+    wait_count "$SG1I_GIO_LOG" 'gio trash' 2 30 || fail "slow Trash never reached the helper"
+    trash_dialog_open 1
+    wtype -k Return; sleep .7
+    [ "$(trash_calls)" = 2 ] || fail "a second Trash while one was in flight reached the helper ($(trash_calls))"
+    grim "$runtime/files-trash-busy.png"
+    [ "$(region_changed "$runtime/files-trash-dialog.png" "$runtime/files-trash-busy.png" 459 268 448 232)" -gt 40 ] \
+        || fail "the refused second Trash left no visible busy notice in its dialog"
+    wtype -k Escape; sleep .4
+    sleep 3
+    [ "$(trash_calls)" = 2 ] || fail "the refused Trash was queued and replayed ($(trash_calls))"
+    expect_no_notice "$runtime/files-base.png" .3
+    echo ok >"$SG1I_GIO_MODE"
+    trash_dialog_open 1
+    wtype -k Return
+    wait_count "$SG1I_GIO_LOG" 'gio trash' 3 30 || fail "Trash did not recover once the first helper finished"
+    sleep .6
+    [ "$(trash_calls)" = 3 ] || fail "recovered Trash dispatched more than once ($(trash_calls))"
+    expect_no_notice "$runtime/files-base.png" .3
+    echo "SG1 luna files: failed gio trash shows a generic alert notice after the dialog closed; a second Trash while one is in flight is refused (no duplicate), retry works PASS"
+
     # ---- 5. rename inside a read-only Desktop: refused, visible, no change.
     away
     chmod 0500 "$fh/Desktop"
@@ -798,15 +1168,69 @@ SHIM
     chmod 0500 "$fh/Desktop"
     HOME=$fh XDG_CONFIG_HOME=$fc RICEBOWL_DE_NESTED=0 "$native" --desktop-command new-folder
     wait_count "$log" 'RicePlate: cannot create Desktop folder:' 1 30 || fail "denied New Folder was not reported"
+    expect_notice 'Desktop: Could not create folder' "$runtime/files-base.png"
     [ ! -e "$fh/Desktop/New Folder" ] || fail "denied New Folder created a directory"
+    expect_notice_clears "$runtime/files-base.png"
     chmod 0700 "$fh/Desktop"
     HOME=$fh XDG_CONFIG_HOME=$fc RICEBOWL_DE_NESTED=0 "$native" --desktop-command new-folder
     wait_count "$log" 'RicePlate: XDG created folder selected on native desktop' 1 40 || fail "New Folder did not recover"
     [ -d "$fh/Desktop/New Folder" ] || fail "recovered New Folder is missing"
+    echo "SG1 luna files: New Folder denied in a read-only Desktop (visible notice), then recovers PASS"
+
+    # ---- 6b. busy: two New Folder requests back to back. They are served one
+    # after the other on the event loop: exactly one folder per request, none
+    # overwritten and none created twice.
+    sleep .8
+    folders() { find "$fh/Desktop" -maxdepth 1 -type d -name 'New Folder*' | wc -l; }
+    [ "$(folders)" = 1 ] || fail "unexpected folders before the back-to-back requests"
+    HOME=$fh XDG_CONFIG_HOME=$fc RICEBOWL_DE_NESTED=0 "$native" --desktop-command new-folder &
+    first=$!
+    HOME=$fh XDG_CONFIG_HOME=$fc RICEBOWL_DE_NESTED=0 "$native" --desktop-command new-folder &
+    second=$!
+    wait "$first" "$second" 2>/dev/null || :
+    tries=0; while [ "$(folders)" -lt 3 ] && [ "$tries" -lt 40 ]; do tries=$((tries + 1)); sleep .1; done
+    sleep .8
+    [ "$(folders)" = 3 ] || fail "two back-to-back New Folder requests made $(( $(folders) - 1 )) folders, expected exactly 2"
+    [ -d "$fh/Desktop/New Folder (2)" ] && [ -d "$fh/Desktop/New Folder (3)" ] \
+        || fail "back-to-back New Folder requests did not get distinct names"
     kill -0 "$plate" || fail "RicePlate died"
+    echo "SG1 luna files: two back-to-back New Folder requests make exactly two distinct folders (queued, never duplicated) PASS"
+
+    # ---- 7. empty Desktop: renders with no file icon, the keyboard does
+    # nothing (no phantom Rename/Trash/open) and a file that appears later is
+    # picked up.
+    stop_plate
+    eh=$runtime/empty-home ec=$runtime/empty-config
+    mkdir -m 0700 "$eh" "$eh/Desktop" "$ec" "$ec/ricebowl"
+    printf '%s\n' 'XDG_DESKTOP_DIR="$HOME/Desktop"' >"$ec/user-dirs.dirs"
+    : >"$SG1I_GIO_LOG"
+    elog=$runtime/plate-files-empty.log
+    renew_keyboard_seat
+    start_plate "$runtime/luna.json" "$elog" "HOME=$eh" "XDG_CONFIG_HOME=$ec" \
+        RICEBOWL_DE_NESTED=0 RICEBOWL_DE_SCREEN_READER=1 RICEBOWL_DE_TRACE_FILES=1 "PATH=$runtime/shims:$PATH"
+    sleep 1.5
+    [ "$(count_lines "$elog" 'XDG mapped')" = 0 ] || fail "an empty Desktop mapped a file icon"
+    away; grim "$runtime/files-empty.png"
+    [ "$(region_changed "$runtime/files-base.png" "$runtime/files-empty.png" "$ix0" "$iy0" 104 88)" -gt 150 ] \
+        || fail "the empty Desktop still shows the first file icon"
+    # With a keyboard lease on a recipe shortcut (the only icon left to
+    # select) the file keys have no file to act on: no Rename/Trash dialog and
+    # no opener or trash helper call.
+    "$clicker" 75 120 1366 768 >/dev/null; sleep .8
+    wtype -k F2 -s 150 -k Delete -s 150 -M ctrl -k a -m ctrl -s 150 -k Escape; sleep .6
+    away; grim "$runtime/files-empty-keys.png"
+    [ "$(region_changed "$runtime/files-empty.png" "$runtime/files-empty-keys.png" 440 250 500 280)" -lt 100 ] \
+        || fail "keys on an empty Desktop opened a phantom dialog"
+    [ ! -s "$SG1I_GIO_LOG" ] || fail "keys on an empty Desktop reached an opener or the trash helper"
+    kill -0 "$plate" || fail "RicePlate died on an empty Desktop"
+    printf '%s\n' late >"$eh/Desktop/10-late.txt"
+    wait_count "$elog" 'XDG mapped' 1 50 || fail "a file added to an empty Desktop never appeared"
+    away; grim "$runtime/files-empty-late.png"
+    [ "$(region_changed "$runtime/files-empty.png" "$runtime/files-empty-late.png" 0 0 1366 705)" -gt 150 ] \
+        || fail "the late file icon was not painted"
     stop_plate
     rm -f "$runtime/shims/gio"
-    echo "SG1 luna files: New Folder denied in a read-only Desktop, then recovers PASS"
+    echo "SG1 luna files: empty Desktop renders no file icon, keys do nothing, a later file appears PASS"
 }
 
 # =========================================================================
@@ -943,5 +1367,5 @@ SHIM
 run_stage() {
     case " $stages " in *" $1 "*) "stage_$1";; esac
 }
-for s in windows launcher clock sni files outputs; do run_stage "$s"; done
+for s in windows launcher clock sni notices files outputs; do run_stage "$s"; done
 echo "PASS smoke_sg1_interaction_labwc ($stages)"
