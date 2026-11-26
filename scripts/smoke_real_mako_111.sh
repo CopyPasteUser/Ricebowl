@@ -3,6 +3,16 @@
 # modify the host notification daemon, login selection or system D-Bus config.
 set -eu
 
+# Fail early and legibly when a tool the arrival smoke drives is absent. An
+# unreadable directory in PATH (e.g. a root-only ~/.cargo/bin) turns a missing
+# binary into a misleading "PermissionError: notify-send" deep in the run.
+for tool in notify-send git meson ninja labwc grim; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "Required tool missing from PATH: $tool (CI installs libnotify-bin, meson, ninja-build, grim)" >&2
+        exit 2
+    fi
+done
+
 project_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 workspace=$(mktemp -d)
 trap 'rm -rf -- "$workspace"' EXIT
@@ -32,7 +42,10 @@ echo "Real Mako 1.11.0 source checked: $actual"
 # normal supervisor, but from this per-run PATH. The script creates a new
 # labwc and private D-Bus and tears both down; it never accesses the login
 # session, the XFCE notification owner, persistent files or system binaries.
-PATH="$workspace/bin:$PATH" RICEBOWL_SMOKE_RICEPOP=1 \
+# RICEBOWL_SMOKE_NO_PORTALS keeps xdg-desktop-portal/xdg-document-portal off
+# the private bus: nothing here tests portals, and the document portal's FUSE
+# mount fails (noisily, harmlessly) wherever /dev/fuse is unavailable.
+PATH="$workspace/bin:$PATH" RICEBOWL_SMOKE_NO_PORTALS="${RICEBOWL_SMOKE_NO_PORTALS:-1}" RICEBOWL_SMOKE_RICEPOP=1 \
     RICEBOWL_SMOKE_MAKO_MODERN=1 RICEBOWL_SMOKE_RECOVERY=1 \
     RICEBOWL_SMOKE_LIVE=1 \
     timeout -k 5s 115s sh "$project_root/scripts/smoke_wayland_session.sh"

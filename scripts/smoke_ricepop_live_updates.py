@@ -78,19 +78,40 @@ def observed_row(pid: int, summary: str):
     return rows[0]
 
 
+def service_while_running(GLib, client, seconds: float) -> None:
+    """Serve this process's own AT-SPI/D-Bus requests until the client exits.
+
+    The AT-SPI client walks the tree with one blocking D-Bus round trip per
+    node, and this process owns the mapped window: every request is answered
+    only when this main context runs. Sleeping 15-20 ms between non-blocking
+    iterations added that latency to *every* node, so a walk over Waybar plus
+    this window could outlast the client's own budget (about 1 run in 6
+    reported "inspection timed out"). Block in the main loop instead and wake
+    every 50 ms only to poll the client.
+    """
+    context = GLib.MainContext.default()
+    tick = GLib.timeout_add(50, lambda: True)
+    deadline = time.monotonic() + seconds
+    try:
+        while client.poll() is None and time.monotonic() < deadline:
+            context.iteration(True)
+    finally:
+        GLib.source_remove(tick)
+
+
 def atspi_buttons(GLib, names: list[str]) -> None:
     if len(names) != 2 or len(set(names)) != 2 or any(not name for name in names):
         raise RuntimeError("Real GTK buttons lack distinct accessible names")
     client = subprocess.Popen(
         [sys.executable, str(ROOT / "scripts/smoke_ricepop_atspi_client.py"), *names],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    deadline = time.monotonic() + 9
     try:
-        while client.poll() is None and time.monotonic() < deadline:
-            pump(GLib)
-            time.sleep(0.02)
+        service_while_running(GLib, client, 14)
         if client.poll() is None:
-            raise RuntimeError("External real RicePop AT-SPI inspection timed out")
+            client.kill()
+            _, diag = client.communicate(timeout=2)
+            raise RuntimeError("External real RicePop AT-SPI inspection timed out: "
+                               + diag[-600:].replace("\n", " | "))
         stdout, stderr = client.communicate(timeout=1)
         if client.returncode:
             raise RuntimeError("External AT-SPI did not find mapped RiceSpice controls: "
@@ -258,5 +279,5 @@ if __name__ == "__main__":
         # Only synthetic fixture labels may be printed, never arbitrary Mako
         # bodies or owner-supplied private notification payloads.
         print("SG3 private real Mako live smoke failed: "
-              + type(exc).__name__ + ": " + str(exc)[:200], file=sys.stderr)
+              + type(exc).__name__ + ": " + str(exc)[:900], file=sys.stderr)
         raise SystemExit(1)

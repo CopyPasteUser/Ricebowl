@@ -98,12 +98,16 @@ def main() -> int:
             [sys.executable, str(ROOT / "scripts/smoke_ricepop_atspi_client.py"),
              first_name, second_name],
             text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # Blocking main-loop service: each AT-SPI node lookup by the client
+        # is answered by this process at once, not after a 15 ms sleep.
         context = GLib.MainContext.default()
-        limit = time.monotonic() + 12
-        while candidate.poll() is None and time.monotonic() < limit:
-            while context.pending():
-                context.iteration(False)
-            time.sleep(0.015)
+        tick = GLib.timeout_add(50, lambda: True)
+        limit = time.monotonic() + 14
+        try:
+            while candidate.poll() is None and time.monotonic() < limit:
+                context.iteration(True)
+        finally:
+            GLib.source_remove(tick)
         if candidate.poll() is None:
             candidate.kill()
             candidate.communicate(timeout=2)

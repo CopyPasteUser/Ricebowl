@@ -40,7 +40,7 @@ RB_PATH_PREFIX=/opt/labwc-sg5 rb-run env XDG_RUNTIME_DIR= \
 Run compositor smokes one at a time: several use `pgrep -u` and timing
 budgets. Release binaries must exist in the synced `target/` (build as root
 in `/home/rbdev/Ricebowl/components/riceplate-wayland`, then `chown`).
-| Environment limit | `smoke_wayland_portals`, `smoke_real_mako_111` (Mako 1.11 builds; no FUSE for the document portal, no running PipeWire) |
+| Environment limit | `smoke_wayland_portals` (no FUSE for the document portal, no running PipeWire). `smoke_real_mako_111` runs locally once `libnotify-bin` is installed (WP0.5) |
 
 ## WP0 — make the local baseline trustworthy (do first)
 
@@ -50,7 +50,7 @@ in `/home/rbdev/Ricebowl/components/riceplate-wayland`, then `chown`).
 | 0.2 | **DONE (environment):** the session had no locale (POSIX); xterm under XWayland exits immediately without one. CI runners use `C.UTF-8`; `rb-run` now sets it. All three XWayland smokes pass | Done | L | O |
 | 0.3 | **DONE (environment):** the menu IME step needs input-method-v2, which stock labwc 0.7.1 lacks; CI builds a pinned private labwc 0.7.2 (`b41af54a`) for this step only. With that build the full smoke passes locally | Done | L | O |
 | 0.4 | **DONE:** the opt-in `smoke_riceplate_desktop_focus` failed because `riceplate_focus_probe` never bound the already-announced seat; fixed with the SG5 Rename IME work (`8f20bc4`), smoke passes locally. Still not run by any workflow | Done | L | S |
-| 0.5 | Portal/Mako 1.11 without FUSE/PipeWire | Either an isolated opt-in variant without the document portal, or explicitly left to CI | L/CI | S |
+| 0.5 | **DONE locally (26 Nov):** `smoke_real_mako_111.sh` was not failing on FUSE or the document portal (both only log noise). Failing assertion: `PermissionError: notify-send` because `libnotify-bin` was not installed in the container (CI installs it); the root-only directories in `rb-run`'s `PATH` turned ENOENT into EACCES. With it installed the real Mako 1.11 arrival, inbox, live-update, `ActionInvoked` and crash-restart smoke passes. Fixed: the script now checks its tools up front, and runs on a private bus that cannot activate the portal family (`RICEBOWL_SMOKE_NO_PORTALS`, default for this script only; no portal log lines). Also found and fixed a 1-in-6 flake in the external AT-SPI step (parent serviced each AT-SPI round trip only every 15-20 ms; now blocks in the main loop). 20/20 local passes afterwards | Done | L | S |
 
 ## SG1 — shared shell (3/4): every advertised control × every state
 
@@ -85,7 +85,7 @@ in `/home/rbdev/Ricebowl/components/riceplate-wayland`, then `chown`).
 | 3.1 | Inbox/OSD live updates, keyboard and AT-SPI action semantics in both rices | Real Mako + labwc + AT-SPI receipts | L | S |
 | 3.2 | Privacy (no unexpected persistence, bodies cleared), restart, localization and rendered-text matrix | Matrix with negative tests | L | S |
 | 3.3 | Check status of candidate #553 (`ActionInvoked`) | Merged with evidence, or reworked | L | S |
-| 3.4 | Real Mako 1.11 matrix | Local after 0.5, otherwise CI | L!/CI | S |
+| 3.4 | Real Mako 1.11 matrix | Local after 0.5, otherwise CI | L (0.5 done) | S |
 
 ## SG4 — Creator/RicePack (2/4)
 

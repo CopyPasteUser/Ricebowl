@@ -33,7 +33,45 @@ esac
 export WLR_RENDERER=pixman
 export XDG_SESSION_TYPE=wayland
 
-dbus-run-session -- sh -eu -c '
+# Opt-in (set by smoke_real_mako_111.sh): a private session bus whose
+# activation directory holds only the AT-SPI launcher and dconf, never the
+# xdg-desktop-portal family. These smokes do not test portals (see
+# smoke_wayland_portals.sh); Waybar/GTK would otherwise auto-activate
+# xdg-desktop-portal -> xdg-document-portal (FUSE mount) -> wlr portal
+# (PipeWire), which fails noisily wherever FUSE/PipeWire are absent and is a
+# needless extra daemon set. The bus is still a brand-new private one.
+bus_config=
+if [ "${RICEBOWL_SMOKE_NO_PORTALS:-0}" = 1 ]; then
+    mkdir -p "$runtime/bus/services"
+    for service in org.a11y.Bus ca.desrt.dconf; do
+        if [ -r "/usr/share/dbus-1/services/$service.service" ]; then
+            ln -s "/usr/share/dbus-1/services/$service.service" \
+                "$runtime/bus/services/$service.service"
+        fi
+    done
+    cat >"$runtime/bus/session.conf" <<EOF_BUS
+<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<busconfig>
+  <type>session</type>
+  <keep_umask/>
+  <listen>unix:tmpdir=/tmp</listen>
+  <auth>EXTERNAL</auth>
+  <servicedir>$runtime/bus/services</servicedir>
+  <policy context="default">
+    <allow send_destination="*" eavesdrop="true"/>
+    <allow eavesdrop="true"/>
+    <allow own="*"/>
+  </policy>
+  <limit name="max_message_size">1000000000</limit>
+  <limit name="service_start_timeout">120000</limit>
+  <limit name="auth_timeout">240000</limit>
+</busconfig>
+EOF_BUS
+    bus_config="--config-file=$runtime/bus/session.conf"
+fi
+
+dbus-run-session ${bus_config:+"$bus_config"} -- sh -eu -c '
     # This marker is set *inside* a brand-new dbus-run-session, not copied
     # from the test runner or an existing XFCE login session.
     RICEBOWL_DE_PRIVATE_BUS=1
