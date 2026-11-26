@@ -60,7 +60,8 @@ XML = """
   </interface>
 </node>
 """
-MODES = {"normal", "disabled", "removed", "empty", "denied", "slow", "relabeled"}
+MODES = {"normal", "disabled", "removed", "empty", "denied", "slow", "relabeled",
+         "item-error"}
 
 
 def node(item_id, properties, children=()):
@@ -125,9 +126,13 @@ class Fixture:
                 "Status": GLib.Variant("s", "Active"),
                 "IconName": GLib.Variant("s", "dialog-information"),
                 "IconPixmap": GLib.Variant("a(iiay)", []),
-                "ItemIsMenu": GLib.Variant("b", True),
+                "ItemIsMenu": GLib.Variant("b", not self.args.plain),
                 "Menu": GLib.Variant("o", "/Menu"),
             }
+            if self.args.plain:
+                # A plain (non-menu) item has no DBusMenu: a secondary click
+                # can only reach the provider's own ContextMenu method.
+                del values["Menu"]
         elif interface == MENU:
             values = {
                 "Version": GLib.Variant("u", 3),
@@ -174,7 +179,12 @@ class Fixture:
             return
 
         if interface == ITEM:
-            self.receipt("item", method=name, coords=list(params.unpack()))
+            self.receipt("item", method=name, coords=list(params.unpack()),
+                         mode=self.mode)
+            if self.mode == "item-error":
+                invocation.return_dbus_error("org.ricebowl.AccessDenied",
+                                             "Injected item method failure")
+                return
             invocation.return_value(GLib.Variant("()", ()))
             return
 
@@ -252,6 +262,8 @@ def main():
     parser.add_argument("--receipts", required=True)
     parser.add_argument("--generation", required=True)
     parser.add_argument("--mode", choices=sorted(MODES), default="normal")
+    parser.add_argument("--plain", action="store_true",
+                        help="ItemIsMenu=false and no DBusMenu (ContextMenu only)")
     parser.add_argument("--no-register", action="store_true",
                         help="Only for direct protocol tests without a watcher")
     args = parser.parse_args()

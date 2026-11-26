@@ -1784,6 +1784,20 @@ fn reap_finished_file_openers(children: &mut Vec<std::process::Child>) {
     });
 }
 
+/// A fixed-argv helper that started is tracked so the bounded reaper collects
+/// it. Dropping the `Child` would leave a zombie per settings window, terminal
+/// or Run command until RicePlate exits. A failed spawn is logged only.
+fn keep_spawned_child(
+    children: &mut Vec<std::process::Child>,
+    spawned: std::io::Result<std::process::Child>,
+    what: &str,
+) {
+    match spawned {
+        Ok(child) => children.push(child),
+        Err(error) => eprintln!("RicePlate: cannot {what}: {error}"),
+    }
+}
+
 /// Reaps finished launch helpers and returns `(action, reason)` for every one
 /// that did not exit successfully. Still-running helpers stay in the list.
 fn reap_finished_app_launches(
@@ -1840,6 +1854,26 @@ mod file_opener_lifecycle_tests {
         let (_, mut child) = launches.remove(0);
         child.kill().unwrap();
         child.wait().unwrap();
+    }
+
+    #[test]
+    fn spawned_settings_and_run_helpers_are_tracked_and_failed_spawns_are_not() {
+        let mut children = Vec::new();
+        keep_spawned_child(&mut children, Command::new("true").spawn(), "run test");
+        keep_spawned_child(
+            &mut children,
+            Command::new("/nonexistent/ricebowl-sg1-helper").spawn(),
+            "run missing",
+        );
+        assert_eq!(children.len(), 1, "only the started helper is tracked");
+        for _ in 0..200 {
+            reap_finished_file_openers(&mut children);
+            if children.is_empty() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(children.is_empty(), "a tracked helper is reaped, no zombie");
     }
 
     #[test]
@@ -3762,7 +3796,10 @@ impl RicePlate {
         // wildcard expansion, or potentially injected shell fragments.
         let program = &argv[0];
         match Command::new(program).args(argv.iter().skip(1)).spawn() {
-            Ok(_) => self.close_luna_dialog(),
+            Ok(child) => {
+                self.file_launches.push(child);
+                self.close_luna_dialog();
+            }
             Err(error) => {
                 eprintln!("RicePlate: Run could not start the requested program: {error}");
                 if let Some(dialog) = self.luna_dialog.as_mut() {
@@ -6255,9 +6292,11 @@ impl RicePlate {
             "logout" => ("labwc", &["--exit"]),
             _ => return, // Validated recipe contract disallows other IDs.
         };
-        if let Err(error) = Command::new(program).args(args).spawn() {
-            eprintln!("RicePlate: cannot run {action}: {error}");
-        }
+        keep_spawned_child(
+            &mut self.file_launches,
+            Command::new(program).args(args).spawn(),
+            &format!("run {action}"),
+        );
     }
 
     fn activate_menu_action(&mut self, action: &str, qh: &QueueHandle<Self>) {
@@ -7592,7 +7631,7 @@ impl RicePlate {
         }
     }
 
-    fn launch_luna_settings(&self, page: &str) {
+    fn launch_luna_settings(&mut self, page: &str) {
         // Only hard-coded menu actions reach this path. The overview has no
         // --page argument; notification-area shortcuts keep their deep links.
         let mut command = Command::new("ricebowl");
@@ -7600,9 +7639,13 @@ impl RicePlate {
         if page != "home" {
             command.args(["--page", page]);
         }
-        if let Err(error) = command.spawn() {
-            eprintln!("RicePlate: cannot open Luna settings page {page}: {error}");
-        }
+        // Keep the Child: dropping it without wait leaves a zombie for every
+        // settings window until RicePlate exits.
+        keep_spawned_child(
+            &mut self.file_launches,
+            command.spawn(),
+            &format!("open Luna settings page {page}"),
+        );
     }
 
     fn activate_luna_status_action(&mut self, id: i32, qh: &QueueHandle<Self>) {
