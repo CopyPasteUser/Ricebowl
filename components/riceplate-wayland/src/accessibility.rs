@@ -285,7 +285,14 @@ impl Model {
         for element in &self.elements {
             let mut node = Node::new(element.role);
             node.set_label(element.label.clone());
-            if let Some(value) = &element.value {
+            // AccessKit's AT-SPI adapter derives a static Label's accessible
+            // name from its *value*, never its label: a Label that only
+            // carries a label reaches screen readers as an empty name. Mirror
+            // the text unless the element provides an explicit value.
+            let value = element.value.as_ref().or_else(|| {
+                (element.role == Role::Label && !element.label.is_empty()).then_some(&element.label)
+            });
+            if let Some(value) = value {
                 node.set_value(value.clone());
                 if element.role == Role::TextRun {
                     // AccessKit character lengths are UTF-8 byte lengths in
@@ -788,6 +795,22 @@ mod tests {
         let tree = model.tree();
         assert_eq!(tree.focus, NodeId(ROOT));
         assert_eq!(tree.nodes[1].1.label(), Some("LineOne"));
+    }
+
+    #[test]
+    fn static_label_text_is_exposed_as_the_value_atspi_reads() {
+        // AccessKit's AT-SPI adapter names a Label from its value. A label
+        // given only a label (the RicePop detail summary/body) was an empty
+        // accessible name for screen readers.
+        let mut model = Model::new();
+        model.add(2, ROOT, Role::Label, "Subject", None);
+        model.add(3, ROOT, Role::Button, "Dismiss", Some(Target::Clock));
+        let tree = model.tree();
+        let (label, button) = (&tree.nodes[1].1, &tree.nodes[2].1);
+        assert_eq!(label.label(), Some("Subject"));
+        assert_eq!(label.value(), Some("Subject"));
+        // Only static text mirrors its label; controls keep their own name.
+        assert_eq!(button.value(), None);
     }
 
     #[test]

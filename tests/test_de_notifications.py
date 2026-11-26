@@ -534,7 +534,7 @@ class WaylandRicePopReadTests(unittest.TestCase):
     def test_nested_private_bus_smoke_keeps_literal_shell_payload(self):
         path = Path(__file__).resolve().parents[1] / "scripts/smoke_wayland_session.sh"
         content = path.read_text(encoding="utf-8")
-        embedded = content.split("dbus-run-session -- sh -eu -c '", 1)[1].split(
+        embedded = content.split("-- sh -eu -c '", 1)[1].split(
             "' sh \"$project_root\"", 1)[0]
         # A literal apostrophe terminates the enclosing shell argument,
         # even inside a comment; real Wayland smoke must remain executable.
