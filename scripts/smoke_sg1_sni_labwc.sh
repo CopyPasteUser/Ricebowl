@@ -43,6 +43,29 @@ Exec=$runtime/luna-app-witness
 Terminal=false
 EOF
 chmod 0600 "$XDG_DATA_HOME/applications/ricebowl-sg1-witness.desktop"
+# Negative launcher fixtures: an Exec that cannot start (gio launch fails
+# asynchronously) and an entry whose TryExec is missing, which the installed
+# application index must hide (XDG Desktop Entry spec). Both would otherwise
+# execute the witness if the product claimed success or kept stale selection.
+cat >"$XDG_DATA_HOME/applications/ricebowl-sg1-badexec.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=RiceBowl SG1 Bad Exec
+Keywords=sg1badexec;
+Exec=$runtime/ricebowl-sg1-no-such-binary
+Terminal=false
+EOF
+cat >"$XDG_DATA_HOME/applications/ricebowl-sg1-trymissing.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=RiceBowl SG1 TryExec Missing
+Keywords=sg1trymissing;
+TryExec=$runtime/ricebowl-sg1-no-such-tryexec
+Exec=$runtime/luna-app-witness
+Terminal=false
+EOF
+chmod 0600 "$XDG_DATA_HOME/applications/ricebowl-sg1-badexec.desktop" \
+    "$XDG_DATA_HOME/applications/ricebowl-sg1-trymissing.desktop"
 export WLR_BACKENDS=headless
 export WLR_HEADLESS_OUTPUTS=1
 export WLR_RENDERER=pixman
@@ -289,6 +312,70 @@ PY
             sleep .2
             kill -0 "$plate"
             echo "SG1 XP Luna pointer -> installed-app search -> compositor keyboard Return -> Gio Exec PASS"
+
+            # Unavailable/error launcher states (Top gap 2). Each attempt is a
+            # real pointer + keyboard gesture through Gio, not a unit call.
+            luna_search_launch() {
+                WAYLAND_DISPLAY=wayland-0 "$clicker" 35 748 1366 768
+                sleep .3
+                WAYLAND_DISPLAY=wayland-0 wtype -k slash -d 50 "$1" -s 350 -k Return
+            }
+            # 1. Exec that cannot start: GLib refuses the entry. RicePlate must
+            # surface the failure (gio stderr + its own log line once the
+            # helper exits non-zero), never run anything, and stay alive.
+            rm -f "$RICEBOWL_CI_SG1_LAUNCH_RECEIPT"
+            luna_search_launch sg1badexec
+            count=0
+            while [ "$count" -lt 40 ] && ! grep -Fq \
+                "desktop application launch failed (desktop:ricebowl-sg1-badexec.desktop)" \
+                "$runtime/plate-$rice.log"; do
+                count=$((count + 1))
+                sleep .1
+            done
+            if [ "$count" -ge 40 ]; then
+                echo "XP Luna failing Exec was not reported as a failed launch" >&2
+                tail -n 40 "$runtime/plate-$rice.log" >&2 || :
+                exit 1
+            fi
+            grep -Fq "ricebowl-sg1-badexec.desktop" "$runtime/plate-$rice.log" || exit 1
+            grep -Eq "^gio: .*ricebowl-sg1-badexec.desktop" "$runtime/plate-$rice.log" || {
+                echo "Failing Exec did not reach Gio" >&2; exit 1; }
+            test ! -e "$RICEBOWL_CI_SG1_LAUNCH_RECEIPT" || {
+                echo "XP Luna failing Exec produced a success receipt" >&2; exit 1; }
+            kill -0 "$plate"
+            WAYLAND_DISPLAY=wayland-0 wtype -k Escape -k Escape
+            sleep .2
+            # 2. Missing TryExec: the index hides the entry, so Return on the
+            # (empty) search result neither reaches Gio nor runs the Exec.
+            failed_before=$(grep -c "desktop application launch failed" "$runtime/plate-$rice.log" || :)
+            luna_search_launch sg1trymissing
+            sleep 1
+            if grep -Fq "ricebowl-sg1-trymissing" "$runtime/plate-$rice.log" \
+                || [ -e "$RICEBOWL_CI_SG1_LAUNCH_RECEIPT" ] \
+                || [ "$(grep -c "desktop application launch failed" "$runtime/plate-$rice.log" || :)" != "$failed_before" ]; then
+                echo "XP Luna launched or listed an entry with a missing TryExec" >&2
+                tail -n 30 "$runtime/plate-$rice.log" >&2 || :
+                exit 1
+            fi
+            kill -0 "$plate"
+            WAYLAND_DISPLAY=wayland-0 wtype -k Escape -k Escape
+            sleep .2
+            # 3. Recovery: no stuck state; a valid entry launches again.
+            luna_search_launch sg1witness
+            count=0
+            while [ ! -s "$RICEBOWL_CI_SG1_LAUNCH_RECEIPT" ] && [ "$count" -lt 40 ]; do
+                count=$((count + 1))
+                sleep .1
+            done
+            [ "$(cat "$RICEBOWL_CI_SG1_LAUNCH_RECEIPT" 2>/dev/null || :)" = luna-keyboard-launch-received ] || {
+                echo "XP Luna valid launch did not recover after failing/hidden entries" >&2
+                tail -n 40 "$runtime/plate-$rice.log" >&2 || :
+                exit 1
+            }
+            kill -0 "$plate"
+            WAYLAND_DISPLAY=wayland-0 wtype -k Escape -k Escape
+            sleep .2
+            echo "SG1 XP Luna failing-Exec/missing-TryExec/recovery launcher receipts PASS"
         fi
 
         # The real SNI host exports the Watcher; provider retries registration

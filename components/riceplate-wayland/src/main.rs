@@ -799,6 +799,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         file_drag: None,
         file_last_click: None,
         file_launches: Vec::new(),
+        app_launches: Vec::new(),
         file_last_reap: Instant::now(),
         external_launcher: external_launcher::ExternalLauncher::default(),
         desktop_keyboard_focus_layer: None,
@@ -1239,6 +1240,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .and_then(|w| w.next_deadline())
                 .map(|at| at.saturating_duration_since(Instant::now())),
             app.notification_state.refresh_timeout(Instant::now()),
+            // Only while a Start-menu launch helper is pending: wake briefly
+            // to learn whether it failed. Idle shells keep no poll.
+            (!app.app_launches.is_empty()).then_some(Duration::from_millis(250)),
             app.clipboard
                 .paste_pending()
                 .then_some(Duration::from_millis(16)),
@@ -1256,6 +1260,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             app.sync_mirrors(&qh);
         }
         app.reap_file_launches_if_due();
+        app.reap_app_launches(&qh);
         if let Err(error) = app.external_launcher.reap() {
             eprintln!("RicePlate: external launcher reap failed: {error}");
         }
@@ -1636,6 +1641,9 @@ struct RicePlate {
     file_drag: Option<FileIconDrag>,
     file_last_click: Option<(desktop_layout::inventory::Key, Instant, (f64, f64))>,
     file_launches: Vec<std::process::Child>,
+    /// `gio launch` helpers for Start-menu applications, keyed by action ID so
+    /// a failed start can be reported and removed from optimistic recents.
+    app_launches: Vec<(String, std::process::Child)>,
     file_last_reap: Instant,
     external_launcher: external_launcher::ExternalLauncher,
     desktop_keyboard_focus_layer: Option<DesktopKeyboardFocusLayer>,
@@ -1775,9 +1783,63 @@ fn reap_finished_file_openers(children: &mut Vec<std::process::Child>) {
     });
 }
 
+/// Reaps finished launch helpers and returns `(action, reason)` for every one
+/// that did not exit successfully. Still-running helpers stay in the list.
+fn reap_finished_app_launches(
+    launches: &mut Vec<(String, std::process::Child)>,
+) -> Vec<(String, String)> {
+    let mut failed = Vec::new();
+    launches.retain_mut(|(action, child)| match child.try_wait() {
+        Ok(Some(status)) if status.success() => false,
+        Ok(Some(status)) => {
+            failed.push((action.clone(), status.to_string()));
+            false
+        }
+        Ok(None) => true,
+        Err(error) => {
+            failed.push((action.clone(), format!("could not reap helper: {error}")));
+            false
+        }
+    });
+    failed
+}
+
 #[cfg(test)]
 mod file_opener_lifecycle_tests {
     use super::*;
+
+    #[test]
+    fn failed_app_launch_helper_is_reported_and_successful_one_is_not() {
+        let mut launches = vec![
+            (
+                "desktop:ok.desktop".to_owned(),
+                Command::new("true").spawn().expect("true"),
+            ),
+            (
+                "desktop:bad.desktop".to_owned(),
+                Command::new("false").spawn().expect("false"),
+            ),
+            (
+                "desktop:slow.desktop".to_owned(),
+                Command::new("sleep").arg("5").spawn().expect("sleep"),
+            ),
+        ];
+        let mut failed = Vec::new();
+        for _ in 0..200 {
+            failed.extend(reap_finished_app_launches(&mut launches));
+            if launches.len() == 1 {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(failed.len(), 1, "{failed:?}");
+        assert_eq!(failed[0].0, "desktop:bad.desktop");
+        assert_eq!(launches.len(), 1, "a still-running helper stays pending");
+        assert_eq!(launches[0].0, "desktop:slow.desktop");
+        let (_, mut child) = launches.remove(0);
+        child.kill().unwrap();
+        child.wait().unwrap();
+    }
 
     #[test]
     fn finished_gio_style_launchers_do_not_accumulate_zombies() {
@@ -2851,6 +2913,34 @@ impl RicePlate {
         }
         self.file_last_reap = Instant::now();
         reap_finished_file_openers(&mut self.file_launches);
+    }
+
+    /// Non-blocking check of Start-menu launch helpers on ordinary event-loop
+    /// wakes. A helper that exits unsuccessfully (for example `gio launch` for
+    /// an entry whose program cannot start) is reported and withdrawn from the
+    /// optimistic recent-programs list so a failed start is never shown as a
+    /// successful launch.
+    fn reap_app_launches(&mut self, qh: &QueueHandle<Self>) {
+        if self.app_launches.is_empty() {
+            return;
+        }
+        let failed = reap_finished_app_launches(&mut self.app_launches);
+        if failed.is_empty() {
+            return;
+        }
+        let mut changed = false;
+        for (action, detail) in failed {
+            eprintln!("RicePlate: desktop application launch failed ({action}): {detail}");
+            changed |= self.menu_state.forget_app_launch(&action);
+        }
+        if changed && self.recipe.id == "xp-luna-columns" {
+            if let Err(error) = menu_recents::save(&self.recipe.id, self.menu_state.recent_apps()) {
+                eprintln!("RicePlate: cannot save XP Luna recents: {error}");
+            }
+        }
+        if changed && self.menu_state.visible {
+            self.redraw_menu(qh);
+        }
     }
 
     fn activate_file_icon(&mut self, key: &desktop_layout::inventory::Key) {
@@ -6057,7 +6147,7 @@ impl RicePlate {
                         // Dropping Child without wait would leak a zombie until
                         // RicePlate itself exits. Reuse the existing bounded
                         // desktop opener reaper instead of adding a new thread.
-                        self.file_launches.push(child);
+                        self.app_launches.push((action.to_owned(), child));
                         if self.menu_state.record_app_launch(action)
                             && self.recipe.id == "xp-luna-columns"
                         {

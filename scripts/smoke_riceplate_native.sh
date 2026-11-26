@@ -609,6 +609,139 @@ dbus-run-session -- sh -eu -s -- "$source_root" "$runtime" "$native" "$clicker" 
             kill -0 "$plate"
             echo "SG1 Chrome real busy/empty/Escape/recovery launcher receipts PASS"
             echo "Verified Chrome Fuzzel pointer, real keyboard search, Enter, and private Exec under labwc"
+            # Launcher unavailable/error (SG1 Top gap 2). A process's PATH is
+            # fixed at start, so run a second Chrome shell whose private PATH
+            # holds only $runtime/fz-bin; fuzzel is genuinely absent from it
+            # (ENOENT), then replaced by a crashing stub, then the real
+            # binary, all without restarting RicePlate.
+            kill "$plate"
+            wait "$plate" 2>/dev/null || :
+            plate=
+            fz_log="$runtime/plate-chrome-fz.log"
+            mkdir -m 0700 "$runtime/fz-bin"
+            RICEBOWL_DE_SHELL_CHILD=1 RICEBOWL_DE_READY_FD=3 \
+                PATH="$runtime/fz-bin" WAYLAND_DISPLAY=wayland-0 "$native" --recipe "$recipe" \
+                3>"$runtime/frame-chrome-fz.ready" >"$fz_log" 2>&1 &
+            plate=$!
+            count=0
+            until [ "$(cat "$runtime/frame-chrome-fz.ready" 2>/dev/null || :)" = RICEPLATE_READY_V1 ] \
+                || [ "$count" -ge 50 ]; do
+                kill -0 "$plate" || break
+                count=$((count + 1))
+                sleep .1
+            done
+            [ "$(cat "$runtime/frame-chrome-fz.ready" 2>/dev/null || :)" = RICEPLATE_READY_V1 ] || {
+                echo "Chrome (no-fuzzel PATH) shell did not become ready" >&2
+                tail -n 40 "$fz_log" >&2 || :
+                exit 1
+            }
+            chrome_click() {
+                WAYLAND_DISPLAY=wayland-0 "$clicker" --move-only 500 500 1366 768
+                sleep .12
+                WAYLAND_DISPLAY=wayland-0 "$clicker" 28 746 1366 768
+            }
+            fz_count() {
+                n=$(grep -c "$1" "$fz_log" || :)
+                echo "${n:-0}"
+            }
+            crash_count() {
+                n=$(grep -c started "$runtime/fz-crash.log" 2>/dev/null || :)
+                echo "${n:-0}"
+            }
+            # 1. Fuzzel binary absent: each click reports ENOENT, nothing is
+            # started, no launcher is ever considered busy, shell stays up.
+            for attempt in 1 2; do
+                chrome_click
+                count=0
+                while [ "$count" -lt 30 ] \
+                    && [ "$(fz_count "cannot open application launcher: No such file")" -lt "$attempt" ]; do
+                    count=$((count + 1))
+                    sleep .1
+                done
+                [ "$(fz_count "cannot open application launcher: No such file")" -eq "$attempt" ] || {
+                    echo "Chrome click $attempt with fuzzel absent was not reported as unavailable" >&2
+                    tail -n 30 "$fz_log" >&2 || :
+                    exit 1
+                }
+                test -z "$(pgrep -u "$(id -u)" -x fuzzel || :)" || {
+                    echo "Chrome started a launcher although fuzzel is absent" >&2; exit 1; }
+                kill -0 "$plate"
+            done
+            [ "$(fz_count "external launcher already active")" -eq 0 ] || {
+                echo "Chrome failed spawn left the launcher falsely busy" >&2; exit 1; }
+            # 2. Fuzzel starts but dies at once (non-zero exit, then SIGSEGV
+            # like the labwc 0.7.1 keymap crash). Every click must start a new
+            # attempt: a dead child must be reaped, never held as busy.
+            cat >"$runtime/fz-bin/fuzzel" <<EOF
+#!/bin/sh
+echo started >>"$runtime/fz-crash.log"
+if [ -e "$runtime/fz-crash.mark" ]; then
+    ulimit -c 0
+    kill -SEGV \$\$
+fi
+: >"$runtime/fz-crash.mark"
+exit 70
+EOF
+            chmod 0700 "$runtime/fz-bin/fuzzel"
+            for attempt in 1 2; do
+                chrome_click
+                count=0
+                while [ "$count" -lt 30 ] \
+                    && [ "$(crash_count)" -lt "$attempt" ]; do
+                    count=$((count + 1))
+                    sleep .1
+                done
+                [ "$(crash_count)" -eq "$attempt" ] || {
+                    echo "Chrome click $attempt after a crashed launcher did not start a fresh one" >&2
+                    tail -n 30 "$fz_log" >&2 || :
+                    exit 1
+                }
+                sleep .4
+                kill -0 "$plate"
+            done
+            [ "$(fz_count "external launcher already active")" -eq 0 ] || {
+                echo "Chrome crashed launcher left the launcher falsely busy" >&2; exit 1; }
+            test -z "$(pgrep -u "$(id -u)" -x fuzzel || :)"
+            # 3. Real Fuzzel restored: the same running shell opens it.
+            rm -f "$runtime/fz-bin/fuzzel"
+            printf '#!/bin/sh\nexec "%s" "$@"\n' "$RICEBOWL_CI_FUZZEL_BIN" >"$runtime/fz-bin/fuzzel"
+            chmod 0700 "$runtime/fz-bin/fuzzel"
+            attach_seat_keyboard
+            chrome_click
+            count=0
+            restored=
+            while [ "$count" -lt 30 ]; do
+                for candidate in $(pgrep -u "$(id -u)" -x fuzzel || :); do
+                    state=$(ps -o stat= -p "$candidate" 2>/dev/null || :)
+                    case "$state" in ""|*Z*) continue ;; esac
+                    restored=$candidate
+                    break
+                done
+                [ -n "$restored" ] && break
+                count=$((count + 1))
+                sleep .1
+            done
+            [ -n "$restored" ] || {
+                echo "Chrome did not open Fuzzel after it was restored" >&2
+                tail -n 40 "$fz_log" >&2 || :
+                exit 1
+            }
+            sleep .65
+            WAYLAND_DISPLAY=wayland-0 wtype -k Escape
+            count=0
+            while [ "$count" -lt 30 ]; do
+                state=$(ps -o stat= -p "$restored" 2>/dev/null || :)
+                case "$state" in ""|*Z*) break ;; esac
+                count=$((count + 1))
+                sleep .1
+            done
+            state=$(ps -o stat= -p "$restored" 2>/dev/null || :)
+            case "$state" in
+                ""|*Z*) : ;;
+                *) echo "Restored Chrome Fuzzel ignored Escape" >&2; exit 1 ;;
+            esac
+            kill -0 "$plate"
+            echo "SG1 Chrome launcher absent/crashing/restored receipts PASS"
         fi
         if [ "$label" = riceclip-actions ]; then
             # A real Wayland virtual-pointer click crosses the native panel,

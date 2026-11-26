@@ -414,6 +414,14 @@ impl MenuState {
         true
     }
 
+    /// A launcher helper that reported failure must not leave the app in the
+    /// recent-programs shelf as if it had started. Returns true when removed.
+    pub fn forget_app_launch(&mut self, action: &str) -> bool {
+        let before = self.recent_apps.len();
+        self.recent_apps.retain(|previous| previous != action);
+        self.recent_apps.len() != before
+    }
+
     /// Only actual discovered XDG desktop files can populate XP's quick
     /// program shelf. Prefer familiar real browser/mail applications on a
     /// fresh login, *after* previously launched apps. Never synthesize app
@@ -1929,6 +1937,20 @@ mod tests {
         assert!(state.luna_preview_apps(0).is_empty());
         state.apps.clear();
         assert!(state.luna_preview_apps(2).is_empty());
+    }
+
+    #[test]
+    fn failed_launch_is_withdrawn_from_recent_apps_only() {
+        let mut state = MenuState::default();
+        state.apps = demo_apps(4);
+        assert!(state.record_app_launch("desktop:demo-1.desktop"));
+        assert!(state.record_app_launch("desktop:demo-2.desktop"));
+        assert!(state.forget_app_launch("desktop:demo-2.desktop"));
+        assert_eq!(state.recent_apps(), &["desktop:demo-1.desktop"]);
+        // Unknown or never-recorded actions are a harmless no-op.
+        assert!(!state.forget_app_launch("desktop:demo-2.desktop"));
+        assert!(!state.forget_app_launch("terminal"));
+        assert_eq!(state.recent_apps(), &["desktop:demo-1.desktop"]);
     }
 
     #[test]
