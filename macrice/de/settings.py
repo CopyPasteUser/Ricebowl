@@ -1945,7 +1945,10 @@ class RiceSpiceWindow:
 
         def present(snapshot):
             current, zones = snapshot["current"], snapshot["zones"]
-            self._state("System timezone: " + current)
+            # One-shot notice carrying a backend-verified result across the re-render.
+            notice = getattr(self, "_timezone_notice", None)
+            self._timezone_notice = None
+            self._state((notice + " · " if notice else "") + "System timezone: " + current)
             self._text("Automatic clock synchronization", css="ricespice-section")
             ntp = snapshot["ntp"]
             if ntp is None:
@@ -2001,8 +2004,12 @@ class RiceSpiceWindow:
                     approved = dialog.run() == self.Gtk.ResponseType.YES
                     dialog.destroy()
                     if approved:
+                        def clock_set(verified):
+                            self._timezone_notice = f"System clock set and verified: {verified}"
+                            self.show_page("timezone")
+
                         self._background(lambda: backend.set_system_clock(value, expected_ntp=False),
-                                         lambda _result: self.show_page("timezone"))
+                                         clock_set)
 
                 self._button("Set system date/time…", apply_clock)
             self._text("Search for a timezone", css="ricespice-section")

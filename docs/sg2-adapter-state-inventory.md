@@ -20,32 +20,32 @@ with real polkit text (SP1 exits 4 with no stderr, so it remains the generic "ou
 
 | Action | RB | AUTH | PROV | BUSY | RBK | GUI |
 |---|---|---|---|---|---|---|
-| N1 Wi-Fi radio on/off | ok S1 | ok DN1 | ~ U1 | ok S1,BZ1 | n/a no replay (U1) | gap |
+| N1 Wi-Fi radio on/off | ok S1 | ok DN1 | ~ U1 | ok S1,BZ1 | n/a no replay (U1) | ok GC1 |
 | N2 Join visible open Wi-Fi | ok S2 | ok DN3 | ok W6 | ok W4,BZ1 | n/a no undo | ok G5 |
 | N3 Join secured Wi-Fi (passphrase) | ok S2,S3 | ok DN3 | ok W6 | ok W4 | n/a no undo | ok G5 |
-| N4 Saved profile activate/deactivate | ok NR1,NI1 | ok DN2 | ok NR2,NI2 | ok NR4 | n/a no replay (NR4) | gap |
+| N4 Saved profile activate/deactivate | ok NR1,NI1 | ok DN2 | ok NR2,NI2 | ok NR4 | n/a no replay (NR4) | ok GC2 |
 | N5 Enterprise Wi-Fi create | ok EI2 | gap | ok EI5,EI6 | ~ EI2 | n/a single write | gap |
 | N6 Enterprise connect (password) | ok EI1 | ~ SP1 (generic exit 4, not typed) | ok EI4 | ok EI2,EI3 | n/a single shot | gap |
 | N7 VPN import (OpenVPN/WireGuard) | ok NE1 | ok DN4 | ok NE2 | ok NE3 | ~ NE4 (report only) | gap |
-| N8 Wi-Fi scan/refresh (read) | n/a read-only | n/a read-only | ok S14,S19 | ok W7 | n/a read-only | gap |
+| N8 Wi-Fi scan/refresh (read) | n/a read-only | n/a read-only | ok S14,S19 | ok W7 | n/a read-only | ok GC3 |
 | A1 Default sink/source | ok AD1,AI1 | n/a user-level pactl | ok AD2 | ok AD3,AJ3 | n/a reports (AD4) | gap |
 | A2 Move app stream to output | ok AD5 | n/a user-level pactl | ok AD6,AD9 | ok AD7,AI3 | n/a no replay (AJ2) | ~ AD8 |
 | A3 Per-app volume | ok AD5 | n/a user-level pactl | ok AD9 | ok AD7,AJ2 | n/a no replay (AJ2) | ~ AD8 |
 | A4 Per-app mute | ok AD5 | n/a user-level pactl | ok AD9 | ok AD7 | n/a no replay (AJ2) | ~ AD8 |
 | A5 MPRIS player control | gap | n/a user session | ok G4 | n/a stateless command | n/a no state | ok G4 |
-| B1 Bluetooth power | ok S5,BS1 | gap | ok BD1,U2 | ok S5,S23,BS3 | n/a no undo (U2) | ~ S18 |
-| B2 Bluetooth connect/disconnect | ok S6,BS4 | gap | ok S7,U3 | ok S17,S21 | n/a no undo (U3) | ~ S18 |
+| B1 Bluetooth power | ok S5,BS1 | gap | ok BD1,U2 | ok S5,S23,BS3 | n/a no undo (U2) | ok GC4 |
+| B2 Bluetooth connect/disconnect | ok S6,BS4 | gap | ok S7,U3 | ok S17,S21 | n/a no undo (U3) | ok GC4 |
 | B3 Bluetooth scan (backend only) | n/a bounded session | gap | ok BD3 | ok BD4 | ok BD2 | n/a no GUI |
 | B4 Bluetooth pair (backend only) | ~ BD6 | gap | ok BD5 | ok BD5 | n/a no undo | n/a no GUI |
 | P1 Power profile | ok S8,G3 | gap | ok S9,S10 | ok S8 | n/a no replay (U4) | ~ G3 |
 | P2 Lock screen | ~ S15 | n/a user session | ok S16 | gap | n/a no state | gap |
 | P3 Suspend | n/a no readback | gap | ok S16,S20 | gap | n/a no undo | gap |
 | T1 Timezone | ok S11,TD3 | ok DT1 | ok TD3 | ok S11 | n/a no replay (TD3) | ok G6 |
-| T2 NTP toggle | ok S12,TD2 | ok DT1 | ok TD2 | ok TD7 | n/a no replay (TD1) | gap |
-| T3 Manual clock | ok S13,TD5 | ok DT1 | ok TD6 | ok TD5 | n/a no replay (TD4) | gap |
+| T2 NTP toggle | ok S12,TD2 | ok DT1 | ok TD2 | ok TD7 | n/a no replay (TD1) | ok GC5 |
+| T3 Manual clock | ok S13,TD5 | ok DT1 | ok TD6 | ok TD5 | n/a no replay (TD4) | ok GC6 |
 | D1 Display mode/scale/position trial | ok WM3 | n/a compositor-owned | ok WM1,WM6 | ok WM4,DG5 | ok WM2,WM5,DG2 | ~ G2 |
 | D2 Keep / confirm display change | ok DJ1,WM3 | n/a compositor-owned | ok DG3 | ok DG4 | ok DG2,DG3 | ok G2 |
-| D3 Save/forget monitor preset | ok RP6,MP1 | n/a user file | ok MP1 | ok RP6 | ok MP1 | gap |
+| D3 Save/forget monitor preset | ok RP6,MP1 | n/a user file | ok MP1 | ok RP6 | ok MP1 | ok GC7 |
 | D4 Try saved full layout | ok DR3 | n/a compositor-owned | ok DR5 | ok DR4 | ok DR1,DR2 | ~ G2 |
 | D5 Next-login monitor trial toggle | ok DR6 | n/a user file | ok DR7 | ok DR6 | n/a opt-in flag | gap |
 | I1 Input prefs (pointer/keyboard, next login) | ok RP1,RP3 | n/a user file | ok RP2 | ok RP1 | ok PD2,PD3 | gap |
@@ -73,6 +73,7 @@ Paths are `tests/<file>::<Class>::<test>`; abbreviations below expand `<file>::<
 - **BD** `test_bluetooth_dbus.py::BluetoothDbusTests::` BD1 `test_no_adapter_is_not_powered_off`, BD2 `test_scan_is_explicit_bounded_and_always_stopped`, BD3 `test_scan_never_starts_without_power`, BD4 `test_only_one_discovery_session_per_process`, BD5 `test_pair_rejects_missing_adapter_and_duplicate_same_adapter`, BD6 `test_pair_legacy_unique_device_and_idempotent_paired_state`
 - **BS** `test_bluetooth_single_mutation.py::BluetoothSingleMutationTests::` BS1 `test_successful_cli_power_with_stale_cli_readback_uses_dbus_read_only`, BS3 `test_timeout_must_not_fall_back_to_second_mutation`, BS4 `test_successful_cli_connection_with_stale_cli_readback_is_read_only`
 - **G** `test_de_settings_gui.py::SettingsGuiTests::` G2 `test_login_monitor_confirmation_is_visible_and_explicit`, G3 `test_power_page_offers_only_actual_profiles_and_applies_explicit_selection`, G4 `test_audio_page_controls_real_mpris_players_and_degrades_independently`, G5 `test_network_page_connects_selected_visible_wifi_without_password_leaks`, G6 `test_timezone_search_uses_supported_system_list_and_explicit_apply` (GTK tests skip without typelib/display)
+- **GC** `test_de_settings_gui_controls.py::` (real Gtk, real worker/idle path, fake `settings_backend`; no skips) GC1 `NetworkControlTests::test_wifi_radio_toggle_all_outcomes`, `test_wifi_radio_enable_shows_enabled_readback`, GC2 `NetworkControlTests::test_saved_profile_activation_all_outcomes`, `test_saved_profile_declined_confirmation_never_calls_backend`, GC3 `NetworkControlTests::test_wifi_scan_provider_error_is_not_an_empty_list`, `test_wifi_scan_empty_result_says_so_and_offers_refresh`, GC4 `BluetoothControlTests::test_bluetooth_power_all_outcomes`, `test_bluetooth_device_connect_all_outcomes`, `test_bluetooth_disconnect_shows_disconnected_readback`, GC5 `TimeControlTests::test_ntp_toggle_disable_all_outcomes`, `test_ntp_enable_busy_and_success_readback`, `test_ntp_disable_declined_never_calls_backend`, GC6 `TimeControlTests::test_manual_clock_all_outcomes`, `test_manual_clock_incomplete_value_is_rejected_before_backend`, `test_manual_clock_declined_confirmation_never_calls_backend`, GC7 `DisplayPresetControlTests::` save/forget success, stale/write-failure, busy and unreadable-store tests
 - **BZ1** `test_de_settings_busy.py::RiceSpiceBusyActionTests::test_busy_click_explains_retry_without_delayed_unsafe_replay` (generic, all actions)
 - **DG** `test_display_guard.py::GuardTests::` DG2 `test_unconfirmed_monitor_change_reverts_old_mode_and_position`, DG3 `test_rollback_failure_is_reported_not_claimed_successful`, DG4 `test_confirmation_arriving_after_deadline_does_not_skip_rollback`, DG5 `test_validation_refuses_disconnected_outputs_unlisted_modes_and_bad_coordinates`
 - **DR** `test_de_display_restore.py::DisplayRestoreTests::` DR1 `test_independent_guard_rolls_back_both_outputs_at_timeout`, DR2 `test_guard_rolls_back_after_partial_second_output_failure`, DR3 `test_confirmed_full_layout_is_kept_and_sends_one_refresh`, DR4 `test_worker_rejects_stale_output_before_any_mutation`, DR5 `test_begin_never_starts_without_full_session_or_fresh_saved_data`, DR6 `test_explicit_login_trial_opt_in_migrates_v1_and_resets_on_layout_changes`, DR7 `test_session_autotrial_is_full_session_only_and_requires_gui`
@@ -85,12 +86,12 @@ Paths are `tests/<file>::<Class>::<test>`; abbreviations below expand `<file>::<
 ## Top gaps (ranked by user impact/safety)
 
 1. ~~**Polkit/NotAuthorized denial for timezone, NTP, clock** (T1-T3)~~ **Closed at the adapter level (DT1)**: typed `SettingsDenied`, shown by the GUI as the same wording as NetworkManager. Remaining: GUI widget state after denial and a disposable system-bus polkit denial. Original gap: `_timedatectl` returned one generic "denied" error for any non-zero exit. Add a fake-`timedatectl` subprocess test (pattern of SP1) exiting 1 with an "Access denied" stderr, asserting a typed, non-retrying message and an untouched GUI state; then a disposable system-bus polkit denial.
-2. **GUI never driven for NTP/clock/saved-profile/Bluetooth/Wi-Fi radio** (N1, N4, B1, B2, T2, T3): only callback or backend tests exist. Add headless GTK tests (pattern of G3/G6) that click the button and assert the label/sensitivity after success, indeterminate and unavailable outcomes.
+2. ~~**GUI never driven for NTP/clock/saved-profile/Bluetooth/Wi-Fi radio** (N1, N4, B1, B2, T2, T3)~~ **Closed (GC1-GC6)**: real Gtk widgets and the real `_background` worker path are clicked against a fake adapter at the `settings_backend` boundary, asserting visible text for verified success, typed denial, generic error, busy (second click refused, one backend call) and an indeterminate outcome (shown once, never replayed). Product fix: the manual clock previously re-rendered without showing the verified value; it now shows `System clock set and verified: <value>`. Known by design: controls stay clickable while busy (the second click is refused with a message, not disabled) and a failed write leaves the old page, so the shown `Current state` is the pre-write readback beside the error text.
 3. ~~**NetworkManager authorization denial on Wi-Fi radio, join, saved profile and VPN import** (N1-N4, N7)~~ **Closed at the adapter level (DN1-DN4)** with the private-`nmcli` harness; real-polkit denial text from a live NetworkManager is still unverified. Original gap: only the enterprise-connect denial (SP1) existed. Extend the private-`nmcli` subprocess harness with `deny` for `radio wifi`, `connection up` and `connection import`, asserting error class, no replay and no credential leak.
 4. **Bluetooth power/connect denial and radio-rfkill block** (B1, B2): add fake-BlueZ D-Bus tests (disposable bus) returning `org.bluez.Error.NotAuthorized` and `Failed` rfkill-blocked, asserting typed errors and no fallback second mutation (BS3 pattern).
 5. **Suspend/lock GUI and logind denial** (P2, P3): no GUI test for the confirm dialog or the busy path; add a fake-`loginctl`/logind refusal unit test plus a headless GUI test that the dialog cancels cleanly and failure text is visible.
-6. **Display preset forget/save and next-login trial toggle GUI** (D3, D5): add headless GUI tests for these buttons asserting visible state after stale-preset and write-failure paths (G2 pattern).
+6. **Display preset forget/save and next-login trial toggle GUI** (D3, D5): save/forget are **closed (GC7)** (success, stale `ValueError`, `OSError`, busy, unreadable store). Remaining: the next-login monitor trial toggle (D5) is still not driven.
 7. **Input/accessibility GUI, Orca provider missing** (I1-I3): add a headless GTK test that saves preferences, shows the next-login-only notice and surfaces `PreferenceError`; add a unit test that `orca` absent yields an honest "not installed/unavailable" status instead of a silent enable.
-8. **Wi-Fi scan error/empty rendering** (N8): add a headless GUI test with `wifi_snapshot` raising `SettingsError` asserting an error label (not an empty list), mirroring the audio unavailable test in G4.
+8. ~~**Wi-Fi scan error/empty rendering** (N8)~~ **Closed (GC3)**: a `SettingsError` renders `Wi-Fi radio/scan unavailable: ...` with no radio toggle and no false empty list; a genuine empty scan renders the empty-list note.
 9. **VPN import and enterprise Wi-Fi dialogs in GUI** (N5-N7): add a headless GUI test driving `_import_vpn`/`_new_enterprise_wifi` with fake file chooser and adapter outcomes (verified, indeterminate, concurrent addition) asserting visible messages.
 10. **MPRIS readback and Bluetooth pair surface** (A5, B4): add a fake-bus test that a `PlayPause` to a vanished player reports unavailable; decide whether pair gets a GUI action, otherwise record it as intentionally backend-only.
