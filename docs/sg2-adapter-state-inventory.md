@@ -24,22 +24,22 @@ with real polkit text (SP1 exits 4 with no stderr, so it remains the generic "ou
 | N2 Join visible open Wi-Fi | ok S2 | ok DN3 | ok W6 | ok W4,BZ1 | n/a no undo | ok G5 |
 | N3 Join secured Wi-Fi (passphrase) | ok S2,S3 | ok DN3 | ok W6 | ok W4 | n/a no undo | ok G5 |
 | N4 Saved profile activate/deactivate | ok NR1,NI1 | ok DN2 | ok NR2,NI2 | ok NR4 | n/a no replay (NR4) | ok GC2 |
-| N5 Enterprise Wi-Fi create | ok EI2 | gap | ok EI5,EI6 | ~ EI2 | n/a single write | gap |
-| N6 Enterprise connect (password) | ok EI1 | ~ SP1 (generic exit 4, not typed) | ok EI4 | ok EI2,EI3 | n/a single shot | gap |
-| N7 VPN import (OpenVPN/WireGuard) | ok NE1 | ok DN4 | ok NE2 | ok NE3 | ~ NE4 (report only) | gap |
+| N5 Enterprise Wi-Fi create | ok EI2 | ok GF1 | ok EI5,EI6 | ~ EI2 | n/a single write | ok GG1 |
+| N6 Enterprise connect (password) | ok EI1 | ~ SP1 (generic exit 4, not typed) | ok EI4 | ok EI2,EI3 | n/a single shot | ok GG2 |
+| N7 VPN import (OpenVPN/WireGuard) | ok NE1 | ok DN4 | ok NE2 | ok NE3 | ~ NE4 (report only) | ok GG3 |
 | N8 Wi-Fi scan/refresh (read) | n/a read-only | n/a read-only | ok S14,S19 | ok W7 | n/a read-only | ok GC3 |
-| A1 Default sink/source | ok AD1,AI1 | n/a user-level pactl | ok AD2 | ok AD3,AJ3 | n/a reports (AD4) | gap |
+| A1 Default sink/source | ok AD1,AI1 | n/a user-level pactl | ok AD2 | ok AD3,AJ3 | n/a reports (AD4) | ok GG4 |
 | A2 Move app stream to output | ok AD5 | n/a user-level pactl | ok AD6,AD9 | ok AD7,AI3 | n/a no replay (AJ2) | ~ AD8 |
 | A3 Per-app volume | ok AD5 | n/a user-level pactl | ok AD9 | ok AD7,AJ2 | n/a no replay (AJ2) | ~ AD8 |
 | A4 Per-app mute | ok AD5 | n/a user-level pactl | ok AD9 | ok AD7 | n/a no replay (AJ2) | ~ AD8 |
-| A5 MPRIS player control | gap | n/a user session | ok G4 | n/a stateless command | n/a no state | ok G4 |
+| A5 MPRIS player control | ok MR1,GF5 | n/a user session | ok G4 | n/a stateless command | n/a no state | ok G4 |
 | B1 Bluetooth power | ok S5,BS1 | ok BZ1,BZ2,BZ3 (typed denial; rfkill block never success) | ok BD1,U2 | ok S5,S23,BS3 | n/a no undo (U2) | ok GC4 |
 | B2 Bluetooth connect/disconnect | ok S6,BS4 | ok BZ1 (typed denial, no replay) | ok S7,U3 | ok S17,S21 | n/a no undo (U3) | ok GC4 |
-| B3 Bluetooth scan (backend only) | n/a bounded session | gap | ok BD3 | ok BD4 | ok BD2 | n/a no GUI |
-| B4 Bluetooth pair (backend only) | ~ BD6 | gap | ok BD5 | ok BD5 | n/a no undo | n/a no GUI |
-| P1 Power profile | ok S8,G3 | gap | ok S9,S10 | ok S8 | n/a no replay (U4) | ~ G3 |
-| P2 Lock screen | ~ S15 | n/a user session | ok S16 | ok PW3 (denial text, no replay) | n/a no state | gap |
-| P3 Suspend | n/a no readback | ok PW1,PW2 (logind refusal typed; no suspend claimed) | ok S16,S20 | ok PW3,PW4,PW5 (cancel/denial/busy) | n/a no undo | gap |
+| B3 Bluetooth scan (backend only) | n/a bounded session | n/a no RiceSpice caller; refusal propagates, lock released GF3 | ok BD3 | ok BD4 | ok BD2 | n/a no GUI |
+| B4 Bluetooth pair (backend only) | ~ BD6 | n/a no RiceSpice caller; refusal propagates, never retried GF4 | ok BD5 | ok BD5 | n/a no undo | n/a no GUI |
+| P1 Power profile | ok S8,G3 | ok GF2 (typed; product fix) | ok S9,S10 | ok S8 | n/a no replay (U4) | ~ G3 |
+| P2 Lock screen | ~ S15 | n/a user session | ok S16 | ok PW3 (denial text, no replay) | n/a no state | ok PW5 |
+| P3 Suspend | n/a no readback | ok PW1,PW2 (logind refusal typed; no suspend claimed) | ok S16,S20 | ok PW3,PW4,PW5 (cancel/denial/busy) | n/a no undo | ok PW5 |
 | T1 Timezone | ok S11,TD3 | ok DT1 | ok TD3 | ok S11 | n/a no replay (TD3) | ok G6 |
 | T2 NTP toggle | ok S12,TD2 | ok DT1 | ok TD2 | ok TD7 | n/a no replay (TD1) | ok GC5 |
 | T3 Manual clock | ok S13,TD5 | ok DT1 | ok TD6 | ok TD5 | n/a no replay (TD4) | ok GC6 |
@@ -47,10 +47,10 @@ with real polkit text (SP1 exits 4 with no stderr, so it remains the generic "ou
 | D2 Keep / confirm display change | ok DJ1,WM3 | n/a compositor-owned | ok DG3 | ok DG4 | ok DG2,DG3 | ok G2 |
 | D3 Save/forget monitor preset | ok RP6,MP1 | n/a user file | ok MP1 | ok RP6 | ok MP1 | ok GC7 |
 | D4 Try saved full layout | ok DR3 | n/a compositor-owned | ok DR5 | ok DR4 | ok DR1,DR2 | ~ G2 |
-| D5 Next-login monitor trial toggle | ok DR6 | n/a user file | ok DR7 | ok DR6 | n/a opt-in flag | gap |
-| I1 Input prefs (pointer/keyboard, next login) | ok RP1,RP3 | n/a user file | ok RP2 | ok RP1 | ok PD2,PD3 | gap |
-| I2 Accessibility prefs (cursor/GTK/contrast) | ok RP4 | n/a user file | ok RP2 | ok RP1 | ok PD2,PD3 | gap |
-| I3 Orca on login | ~ RP5 | n/a user file | gap | ok RP1 | n/a next login only | gap |
+| D5 Next-login monitor trial toggle | ok DR6 | n/a user file | ok DR7 | ok DR6 | n/a opt-in flag | ok GG5 |
+| I1 Input prefs (pointer/keyboard, next login) | ok RP1,RP3 | n/a user file | ok RP2 | ok RP1 | ok PD2,PD3 | ok GG6 |
+| I2 Accessibility prefs (cursor/GTK/contrast) | ok RP4 | n/a user file | ok RP2 | ok RP1 | ok PD2,PD3 | ok GG6 |
+| I3 Orca on login | ~ RP5 | n/a user file | ok GF6,GG7 | ok RP1 | n/a next login only | ok GG7 |
 
 ## Evidence index
 
@@ -84,6 +84,13 @@ Paths are `tests/<file>::<Class>::<test>`; abbreviations below expand `<file>::<
 - **RP** `test_de_ricespice_native.py::RiceSpicePreferenceTests::` RP1 `test_private_save_roundtrip_and_stale_write`, RP2 `test_malformed_and_unsafe_file_never_changes_session`, RP3 `test_private_labwc_xml_and_session_environment`, RP4 `test_accessibility_only_does_not_change_keyboard_or_pointer`, RP5 `test_orca_preference_only_enters_full_session_environment`, RP6 `test_monitor_presets_are_private_and_stale_safe`
 - **PD** `test_de_preferences_durability.py::RiceSpicePreferencesDurabilityTests::` PD2 `test_rename_failure_keeps_old_value_without_staging_files`, PD3 `test_failed_directory_sync_is_not_success_or_implicit_rollback`
 - **MP1** `test_de_display_preset_durability.py::MonitorPresetDurabilityTests::test_failed_rename_keeps_existing_private_preset_and_cleans_temp`
+- **GF** `test_de_sg2_gap_fill.py::` (WP2.2; private fake `nmcli`/`powerprofilesctl`, fake Gio bus) GF1 `EnterpriseCreateDenialTests::test_n5_denied_con_add_is_typed_not_replayed_and_leaks_nothing` (+ `test_n5_generic_failure_is_unknown_outcome_never_denial`), GF2 `PowerProfileDenialTests::test_p1_denied_profile_change_is_typed_and_not_replayed` (+ generic-failure and verified-success controls; **product fix**: a polkit/AccessDenied refusal from `powerprofilesctl set` was reported as "may have changed; outcome unknown", now typed `SettingsDenied`), GF3 `BluetoothBackendOnlyDenialTests::test_b3_denied_start_discovery_propagates_and_releases_the_lock`, GF4 `...::test_b4_denied_pair_propagates_once_and_is_not_reported_as_paired`, GF5 `MprisVanishedPlayerTests::test_a5_vanished_player_reports_error_and_never_dispatches`, GF6 `OrcaProviderMissingTests::test_i3_requested_orca_not_installed_spawns_nothing_and_reports`
+- **GG** `test_de_sg2_gap_gui.py::` (WP2.2; real Gtk, fake adapters at the module boundary; skips without typelib/display) GG1 `EnrollmentDialogTests::test_n5_enterprise_create_shows_denial_error_and_success_once` (+ `test_n5_unknown_outcome_text_is_shown_and_never_replayed`), GG2 `...::test_n6_enterprise_connect_shows_denial_error_and_success_once`, GG3 `...::test_n7_vpn_import_shows_denial_error_and_success_once` (+ `test_n7_cancelled_chooser_never_reaches_backend`), GG4 `AudioDefaultControlTests::` (outcomes, provider-error page), GG5 `NextLoginMonitorTrialTests::` (toggle, stale/write failure, absent without layout), GG6 `PreferencePageTests::` (save + next-login state, error not replayed, unreadable store offers no save), GG7 `PreferencePageTests::test_i3_missing_orca_is_stated_not_hidden`
+- **MR1** `test_riceware_media.py::...::test_play_pause_requires_capability_and_rechecks_actual_state`, `test_unresponsive_playback_never_claims_success`
+
+## WP2.2 status (this branch)
+
+Every `gap` cell above is now covered by a cited test or marked `n/a` with a reason; no `gap` remains in the matrix. Still `~` (partial, unchanged): N1 PROV (U1), N5 BUSY (EI2), N6 AUTH (SP1: a real polkit denial text on `nmcli con up` for an enterprise profile is still unverified), N7 RBK (NE4), A2/A3/A4 GUI (AD8), B4 RB (BD6), P1 GUI (G3), P2 RB (S15), D1/D4 GUI (G2), I3 AUTH. All results are fake-provider/private-subprocess evidence, not real polkit/NetworkManager/BlueZ/logind on hardware.
 
 ## Top gaps (ranked by user impact/safety)
 
@@ -92,8 +99,8 @@ Paths are `tests/<file>::<Class>::<test>`; abbreviations below expand `<file>::<
 3. ~~**NetworkManager authorization denial on Wi-Fi radio, join, saved profile and VPN import** (N1-N4, N7)~~ **Closed at the adapter level (DN1-DN4)** with the private-`nmcli` harness; real-polkit denial text from a live NetworkManager is still unverified. Original gap: only the enterprise-connect denial (SP1) existed. Extend the private-`nmcli` subprocess harness with `deny` for `radio wifi`, `connection up` and `connection import`, asserting error class, no replay and no credential leak.
 4. ~~**Bluetooth power/connect denial and radio-rfkill block** (B1, B2)~~ **Closed (BZ1-BZ3, tests/test_de_sg2_bluetooth_power_denial.py)**: fake Gio bus raises `org.bluez.Error.NotAuthorized`/`AccessDenied` -> typed `SettingsDenied`; `Failed: Blocked through rfkill` -> explicit blocked/not-turned-on error; accepted-but-still-off is never success. Product fix: `settings_backend` classifies BlueZ denial/rfkill (new `org.bluez.error.notauthorized` marker). Real BlueZ/polkit text on hardware is still unverified.
 5. ~~**Suspend/lock GUI and logind denial** (P2, P3)~~ **Closed (PW1-PW5)**: fake `loginctl` refusal -> `SettingsDenied` (generic failure: "nothing was suspended", never denial); headless GTK `PowerControlTests` cover confirm-cancel (backend never called), denial text, and busy second request refused. Product fix: `power_action` classifies logind refusal. Real logind/polkit on hardware remains open.
-6. **Display preset forget/save and next-login trial toggle GUI** (D3, D5): save/forget are **closed (GC7)** (success, stale `ValueError`, `OSError`, busy, unreadable store). Remaining: the next-login monitor trial toggle (D5) is still not driven.
-7. **Input/accessibility GUI, Orca provider missing** (I1-I3): add a headless GTK test that saves preferences, shows the next-login-only notice and surfaces `PreferenceError`; add a unit test that `orca` absent yields an honest "not installed/unavailable" status instead of a silent enable.
+6. **Display preset forget/save and next-login trial toggle GUI** (D3, D5): save/forget are **closed (GC7)** (success, stale `ValueError`, `OSError`, busy, unreadable store). The next-login monitor trial toggle (D5) is now driven too (GG5).
+7. ~~**Input/accessibility GUI, Orca provider missing** (I1-I3)~~ **Closed (GG6, GG7, GF6)**. Original gap: add a headless GTK test that saves preferences, shows the next-login-only notice and surfaces `PreferenceError`; add a unit test that `orca` absent yields an honest "not installed/unavailable" status instead of a silent enable.
 8. ~~**Wi-Fi scan error/empty rendering** (N8)~~ **Closed (GC3)**: a `SettingsError` renders `Wi-Fi radio/scan unavailable: ...` with no radio toggle and no false empty list; a genuine empty scan renders the empty-list note.
-9. **VPN import and enterprise Wi-Fi dialogs in GUI** (N5-N7): add a headless GUI test driving `_import_vpn`/`_new_enterprise_wifi` with fake file chooser and adapter outcomes (verified, indeterminate, concurrent addition) asserting visible messages.
-10. **MPRIS readback and Bluetooth pair surface** (A5, B4): add a fake-bus test that a `PlayPause` to a vanished player reports unavailable; decide whether pair gets a GUI action, otherwise record it as intentionally backend-only.
+9. ~~**VPN import and enterprise Wi-Fi dialogs in GUI** (N5-N7)~~ **Closed (GG1-GG3)**. Original gap: add a headless GUI test driving `_import_vpn`/`_new_enterprise_wifi` with fake file chooser and adapter outcomes (verified, indeterminate, concurrent addition) asserting visible messages.
+10. ~~**MPRIS readback and Bluetooth pair surface** (A5, B4)~~ **Closed (MR1, GF5, GF3, GF4)**; pair/scan are recorded as intentionally backend-only. Original gap: add a fake-bus test that a `PlayPause` to a vanished player reports unavailable; decide whether pair gets a GUI action, otherwise record it as intentionally backend-only.

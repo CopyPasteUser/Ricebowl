@@ -458,6 +458,9 @@ def set_power_profile(name: str) -> str:
                                 capture_output=True, text=True, timeout=4, check=False)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise RuntimeError("Power profile change failed") from exc
+    if result.returncode and authorization.is_authorization_denial(result.stderr):
+        # A refused write changed nothing; do not report "outcome unknown".
+        raise AuthorizationDenied()
     actual, _supported = read_power_profiles()
     if result.returncode or actual != name:
         raise RuntimeError("Power profile change could not be verified")

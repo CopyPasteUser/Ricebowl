@@ -685,6 +685,8 @@ def set_power_profile(name: str, *, expected: str) -> str:
         return name
     try:
         hardware_status.set_power_profile(name)
+    except authorization.AuthorizationDenied as exc:
+        raise SettingsDenied() from exc
     except (OSError, RuntimeError, ValueError) as exc:
         # A failed service reply is not a transaction rollback guarantee.
         raise SettingsError(

@@ -73,7 +73,7 @@ in `/home/rbdev/Ricebowl/components/riceplate-wayland`, then `chown`).
 | WP | Task | Done when | Where | Model |
 | --- | --- | --- | --- | --- |
 | 2.1 | **DONE:** [inventory](sg2-adapter-state-inventory.md) (186 cells: 93 covered, 14 partial, 35 gaps). Matrix per adapter (display, input, network, audio, Bluetooth, accessibility, power, time/NTP) × {verified readback, authorization denied, provider disconnected/unavailable, rollback}. A rough grep suggests input, Bluetooth, accessibility and NTP have the fewest co-located negative tests; verify | Table with test links and gaps | L | S |
-| 2.2 | Fill the gaps with fake-provider unit tests plus disposable D-Bus tests | Every cell covered or explicitly unsupported in the UI | L | S |
+| 2.2 | **DONE locally (26 Nov):** `tests/test_de_sg2_gap_fill.py` (9 adapter tests: N5 `con add` denial, P1 power-profile denial, B3/B4 backend-only refusals, A5 vanished player, I3 Orca missing) and `tests/test_de_sg2_gap_gui.py` (14 real-Gtk tests: N5/N6/N7 dialogs, A1 audio defaults, D5 trial toggle, I1/I2/I3 pages); every inventory `gap` cell is now covered or `n/a` with a reason ([inventory](sg2-adapter-state-inventory.md)). **Product bug found and fixed:** a polkit/AccessDenied refusal of `powerprofilesctl set` surfaced as "outcome unknown"; it is now the typed denial. Fake-provider evidence only; no real polkit/D-Bus acceptance | Every cell covered or explicitly unsupported in the UI | L | S |
 | 2.3 | Check status of candidates #552 (NM post-write uncertainty) | Merged with evidence, or reworked | L | S |
 | 2.4 | GUI pass per page in headless labwc showing denied/unavailable/busy visibly | Real GTK GUI under labwc, not CLI only | L | S |
 | 2.5 | Whole matrix at one final `main` SHA | Exact-main run | CI | – |
