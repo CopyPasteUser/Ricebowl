@@ -3010,3 +3010,22 @@ RSS +0.6/+5.1 MB, `RICEBOWL_SYSTEM_FONT_FALLBACK=0` keeps the `?` replacement).
 Not claimed: exact-head CI, private recipe (cell-metric) faces, #595 menu
 focus cycle/candidates/composition pixels, physical IME/Orca. SG5 remains open;
 details in `docs/sg5-text-input-atspi-acceptance.md`.
+
+
+### SG1 visible failure notices, busy file operations and output hotplug (26 November 2026; local evidence)
+
+A failure that happens after its control closed (failed Start launch, absent
+external launcher, failing Settings/terminal helper, a tray provider rejecting
+an action, a refused Desktop open, a denied New Folder, a failed `gio trash`)
+is no longer a log line only: the volume OSD's input-transparent overlay is now
+the one shared notice surface (fixed generic EN/DE text, error accent, about
+4 s, AT-SPI Alert while painted, Escape from the focused panel dismisses). A
+second confirmed Trash/Rename while a trash helper runs is refused in the dialog
+(never duplicated), and removing an output now closes only the Start menu, tray
+popup or calendar hosted on it. Local compositor evidence: stages `notices`,
+`files` and `outputs` of `scripts/smoke_sg1_interaction_labwc.sh` (about 5.5
+min, 2 consecutive passes) with `scripts/sg1_notice_probe.py`; inventory and
+platform limits (pointer modifiers, no runtime output creation in headless
+labwc) in `docs/sg1-control-state-inventory.md`. Not claimed: exact-head CI,
+physical-device checks, a visible loading indicator for running helpers. SG1
+remains open.
