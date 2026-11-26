@@ -535,6 +535,32 @@ dbus-run-session -- sh -eu -c '
     probe --name "File name" --text "00-sg5.txt" --caret 10 --selection 0 10
     wtype "Z"
     probe --name "File name" --text "Z" --caret 1
+    # WP5.3 cross-app clipboard on the Rename field, both directions with a
+    # separate Wayland client: an external wl-copy selection owner is pasted
+    # INTO the field (replacing the selection), then text typed in the field
+    # is copied OUT and read back by an external wl-paste. Rename is cancelled
+    # below, so the file itself is never touched.
+    external="ext-clip-sg5"
+    wl-copy --foreground --type "text/plain;charset=utf-8" "$external" \
+        >"$runtime/rename-clipboard-owner.log" 2>&1 &
+    rename_copy_owner=$!
+    sleep 0.3
+    kill -0 "$rename_copy_owner" || { echo "External Wayland clipboard source died" >&2; exit 1; }
+    wtype -M ctrl -k a -m ctrl
+    wtype -M ctrl -k v -m ctrl
+    probe --name "File name" --text "$external" --caret "${#external}"
+    wtype -M ctrl -k a -m ctrl
+    wtype "out-sg5"
+    probe --name "File name" --text "out-sg5" --caret 7
+    wtype -M ctrl -k a -m ctrl
+    wtype -M ctrl -k c -m ctrl
+    received=$(timeout 4s wl-paste --no-newline --type "text/plain;charset=utf-8")
+    test "$received" = "out-sg5" || {
+        echo "SG5: Rename copy-out not read by external wl-paste (got: $received)" >&2; exit 1;
+    }
+    kill "$rename_copy_owner" 2>/dev/null || :
+    wait "$rename_copy_owner" 2>/dev/null || :
+    echo "SG5: real wl-copy -> Rename paste, Rename copy -> wl-paste PASS"
     wtype -k Escape
     probe --name "File name" --absent
     test -f "$runtime/file-home/Desktop/00-sg5.txt"
