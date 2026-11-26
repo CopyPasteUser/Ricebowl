@@ -120,6 +120,16 @@ pub enum Target {
         generation: u64,
     },
     DesktopWidget(usize),
+    /// XDG Desktop file context menu entry. Bound to the exact file identity
+    /// so a stale AT-SPI snapshot can never act on a different file.
+    FileContextAction {
+        entry: crate::desktop_layout::inventory::Key,
+        item: crate::desktop_file_menu::Item,
+    },
+    /// Native Run/Rename/Trash/Help dialog buttons; the kind prevents a stale
+    /// snapshot of one dialog from confirming a different one.
+    DialogAccept(crate::luna_dialog::Kind),
+    DialogCancel(crate::luna_dialog::Kind),
     MenuGroup(usize),
     MenuAction(String),
     MenuSearch,
@@ -785,6 +795,77 @@ mod tests {
         let closed = Model::new();
         assert_eq!(closed.action_for(&request), None);
         assert!(!format!("{:?}", closed.tree()).contains("sensitive"));
+    }
+
+    #[test]
+    fn dialog_and_file_menu_actions_are_kind_and_file_bound_and_never_stale() {
+        use crate::desktop_file_menu::Item;
+        use crate::luna_dialog::Kind;
+        let key = |inode| crate::desktop_layout::inventory::Key {
+            device: 1,
+            inode,
+            name: "a.txt".into(),
+        };
+        let click = |id| ActionRequest {
+            action: Action::Click,
+            target_tree: TreeId::ROOT,
+            target_node: NodeId(id),
+            data: None,
+        };
+        let mut model = Model::new();
+        model.add(
+            60_200,
+            ROOT,
+            Role::Button,
+            "Rename",
+            Some(Target::DialogAccept(Kind::FileRename)),
+        );
+        model.add(
+            60_201,
+            ROOT,
+            Role::Button,
+            "Cancel",
+            Some(Target::DialogCancel(Kind::FileRename)),
+        );
+        model.add(
+            33_102,
+            ROOT,
+            Role::MenuItem,
+            "Rename  (F2)",
+            Some(Target::FileContextAction {
+                entry: key(7),
+                item: Item::Rename,
+            }),
+        );
+        // A disabled item has no action and is not invokable.
+        model.add(33_103, ROOT, Role::MenuItem, "Move to Trash  (Del)", None);
+        assert_eq!(
+            model.action_for(&click(60_200)),
+            Some(Target::DialogAccept(Kind::FileRename))
+        );
+        assert_ne!(
+            model.action_for(&click(60_200)),
+            Some(Target::DialogAccept(Kind::Run))
+        );
+        assert_eq!(
+            model.action_for(&click(33_102)),
+            Some(Target::FileContextAction {
+                entry: key(7),
+                item: Item::Rename
+            })
+        );
+        assert_ne!(
+            model.action_for(&click(33_102)),
+            Some(Target::FileContextAction {
+                entry: key(8),
+                item: Item::Rename
+            }),
+            "a replaced file must invalidate an old AT-SPI snapshot"
+        );
+        assert_eq!(model.action_for(&click(33_103)), None);
+        let tree = model.tree();
+        assert!(tree.nodes[1].1.supports_action(Action::Click));
+        assert!(!tree.nodes[4].1.supports_action(Action::Click));
     }
 
     #[test]

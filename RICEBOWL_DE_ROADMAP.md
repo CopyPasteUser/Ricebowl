@@ -2993,3 +2993,16 @@ affinity; full dual-affinity selection, text highlighting, mirrored glyphs,
 complex shaping, external IME protocol and device/Orca acceptance remain open.
 The software-wide SG5 gate must **not** be marked complete by this slice.
 
+
+### SG5 script fonts, missing-font matrix and AT-SPI actions (27 November 2026; local evidence)
+
+Installed-font Rust tests (`fonts-lohit-deva`, `fonts-wqy-microhei`; none
+bundled) prove Devanagari GSUB/GPOS shaping and grapheme caret positions and
+CJK advances, and fail loudly with `FONT UNAVAILABLE` when a font is absent.
+A real-labwc matrix shows Hindi/CJK/Hangul missing glyphs as visible
+replacements while AT-SPI keeps the real text. New AT-SPI dialog-button and
+XDG file-menu actions are driven by `doAction` with file-system receipts, and
+menu IME (#600) is re-confirmed. Not claimed: end-to-end positive Hindi/CJK
+rendering in the compositor (private recipe fonts are unshaped), #595 menu
+focus cycle/candidates/composition pixels, physical IME/Orca. SG5 remains open;
+details in `docs/sg5-text-input-atspi-acceptance.md`.

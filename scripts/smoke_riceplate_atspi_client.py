@@ -30,6 +30,11 @@ def _desktop_root():
 
 def run_entry(name: str):
     """Find the actual transient editor, bounded against broken providers."""
+    return find_node(pyatspi.ROLE_ENTRY, name)
+
+
+def find_node(role, name: str):
+    """Find one accessible node by role and exact name, bounded and strict."""
     root, _ = _desktop_root()
     stack = [(root, 0)]
     visited = 0
@@ -38,7 +43,7 @@ def run_entry(name: str):
         node, depth = stack.pop()
         visited += 1
         try:
-            if node.getRole() == pyatspi.ROLE_ENTRY and node.name == name:
+            if node.getRole() == role and node.name == name:
                 return node
             count = node.childCount
             if type(count) is not int or count < 0:
@@ -113,16 +118,52 @@ def sample(name: str):
     }
 
 
+def do_action(label: str, role_name: str) -> int:
+    """Invoke the first public AT-SPI action of a real accessible control.
+
+    Like the text probe this only uses the public accessibility bus. A control
+    that is missing, has no action, or whose doAction is refused is a FAIL;
+    the probe never falls back to input injection.
+    """
+    role = {"button": pyatspi.ROLE_PUSH_BUTTON, "menu-item": pyatspi.ROLE_MENU_ITEM}[role_name]
+    deadline = time.monotonic() + 10
+    last = f"no accessible {role_name} named {label!r}"
+    while time.monotonic() < deadline:
+        try:
+            node = find_node(role, label)
+            if node is not None:
+                action = node.queryAction()
+                if action.nActions < 1:
+                    # A disabled control must expose no action; never invoke.
+                    print(f"FAIL: {role_name} {label!r} exposes no AT-SPI action",
+                          file=sys.stderr)
+                    return 1
+                if action.doAction(0):
+                    print(f"PASS: AT-SPI doAction invoked on {role_name} {label!r}")
+                    return 0
+                last = f"doAction refused for {role_name} {label!r}"
+        except (LookupError, RuntimeError, NotImplementedError) as error:
+            last = "transient AT-SPI provider error: " + type(error).__name__
+        time.sleep(0.15)
+    print("FAIL: " + last, file=sys.stderr)
+    return 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--name", choices=("Command", "File name",
                                            "Search applications and actions",
                                            "Filter installed apps"), default="Command")
+    parser.add_argument("--do-action", metavar="LABEL",
+                        help="invoke the first AT-SPI action of this control")
+    parser.add_argument("--role", choices=("button", "menu-item"), default="button")
     parser.add_argument("--text", default="")
     parser.add_argument("--caret", type=int, default=0)
     parser.add_argument("--selection", nargs=2, type=int)
     parser.add_argument("--absent", action="store_true")
     args = parser.parse_args()
+    if args.do_action is not None:
+        return do_action(args.do_action, args.role)
     deadline = time.monotonic() + 10
     last = "no accessible native editor entry"
     # A single missing AT-SPI sample can be an intermittent provider error,

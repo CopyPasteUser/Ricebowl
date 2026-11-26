@@ -280,6 +280,50 @@ dbus-run-session -- sh -eu -c '
     wtype -k Escape
     probe --absent
     echo "SG5: real wl-copy -> Run paste, Run copy/cut -> wl-paste, Unicode and invalid text PASS"
+    # SG5 missing-font matrix with a real compositor and accessible client.
+    # The Run editor face (bundled Latin Liberation Sans) has no Devanagari,
+    # CJK or Hangul glyphs. The editor must (a) keep the real text in the
+    # public AT-SPI tree and (b) paint exactly one visible replacement per
+    # grapheme: its pixels must equal a run of literal "?" and differ from the
+    # empty field. This proves visible replacement, NOT script coverage.
+    command -v grim >/dev/null
+    shot() { sleep 0.4; grim -g "577,359 306x32" "$runtime/$1.png"; }
+    pixels() { /usr/bin/python3 "$root/scripts/sg5_png_compare.py" "$1" "$2" "$3"; }
+    wtype -M logo -k r -m logo
+    probe --text "" --caret 0
+    shot empty
+    wtype -k Escape
+    probe --absent
+    check_missing_font() {
+        tag=$1; text=$2; chars=$3; replacement=$4
+        wtype -M logo -k r -m logo
+        probe --text "" --caret 0
+        wtype "$text"
+        probe --text "$text" --caret "$chars"
+        shot "$tag-script"
+        wtype -k Escape
+        probe --absent
+        wtype -M logo -k r -m logo
+        probe --text "" --caret 0
+        wtype "$replacement"
+        probe --text "$replacement" --caret "${#replacement}"
+        shot "$tag-question"
+        wtype -k Escape
+        probe --absent
+        pixels "$runtime/$tag-script.png" "$runtime/$tag-question.png" same || {
+            echo "SG5: $tag missing glyphs were not painted as one replacement per grapheme" >&2
+            exit 1
+        }
+        pixels "$runtime/$tag-script.png" "$runtime/empty.png" different || {
+            echo "SG5: $tag missing glyphs painted nothing (invisible text)" >&2
+            exit 1
+        }
+    }
+    check_missing_font hindi "हिन्दी" 6 "??"
+    check_missing_font cjk "日本語" 3 "???"
+    check_missing_font hangul "한국어" 3 "???"
+    kill -0 "$plate"
+    echo "SG5: missing-font Hindi/CJK/Hangul: AT-SPI keeps real text, replacement pixels visible, no coverage claimed PASS"
     # Register a separate input-method-v2 producer *before* re-focusing Run.
     # Its preedit, commit and byte deletion must traverse labwc to the
     # unmodified text-input-v3 application and return as surrounding text.
@@ -318,9 +362,9 @@ dbus-run-session -- sh -eu -c '
     set -- $position
     file_x=$(($1 + 52))
     file_y=$(($2 + 43))
-    open_rename() {
-        # Real secondary click, then the real Rename item. Count log lines so
-        # a second open never reuses the first openings context receipt.
+    open_file_context() {
+        # Real secondary click on the Desktop file. Count log lines so a second
+        # open never reuses the first openings context receipt.
         before=$(grep -c "XDG context opened kind=File" "$runtime/native.log" || :)
         "$clicker" --right-click "$file_x" "$file_y" 1366 768
         count=0
@@ -339,7 +383,18 @@ dbus-run-session -- sh -eu -c '
             exit 1
         }
         set -- $origin
-        "$clicker" "$(($1 + 24))" "$(($2 + 111))" 1366 768
+        menu_x=$1; menu_y=$2
+    }
+    open_rename() {
+        # Real secondary click, then the real pointer click on the Rename item.
+        open_file_context
+        "$clicker" "$((menu_x + 24))" "$((menu_y + 111))" 1366 768
+    }
+    open_rename_atspi() {
+        # Same context menu, but the Rename item is invoked through the public
+        # AT-SPI action interface (doAction) instead of a pointer click.
+        open_file_context
+        probe --do-action "Rename  (F2)" --role menu-item
     }
     wait_marker() {
         count=0
@@ -454,5 +509,54 @@ dbus-run-session -- sh -eu -c '
     test ! -e "$runtime/file-home/Desktop/Z"
     kill -0 "$plate"
     echo "SG5: real Wayland pointer -> XDG Rename AT-SPI edit/selection/cancel PASS"
+
+    # SG5 AT-SPI action invocation: every transition below is driven through
+    # the public accessibility action interface (doAction), never a pointer or
+    # keyboard shortcut. The filesystem is the receipt, not a UI claim.
+    desk="$runtime/file-home/Desktop"
+    # Rename -> unchanged name is refused: the dialog stays open, nothing moves.
+    open_rename_atspi
+    probe --name "File name" --text "00-sg5.txt" --caret 10
+    probe --do-action "Rename" --role button
+    probe --name "File name" --text "00-sg5.txt" --caret 10
+    test "$(ls -A "$desk")" = "00-sg5.txt"
+    # Rename -> Cancel via action: dialog closes, file NOT renamed.
+    wtype -M ctrl -k a -m ctrl
+    wtype "renamed.txt"
+    probe --name "File name" --text "renamed.txt" --caret 11
+    probe --do-action "Cancel" --role button
+    probe --name "File name" --absent
+    test "$(ls -A "$desk")" = "00-sg5.txt"
+    # Run dialog: Cancel via action does not execute, OK via action does.
+    wtype -M logo -k r -m logo
+    probe --text "" --caret 0
+    cancelled="touch $runtime/run-cancelled-marker"
+    wtype "$cancelled"
+    probe --text "$cancelled" --caret "${#cancelled}"
+    probe --do-action "Cancel" --role button
+    probe --absent
+    wtype -M logo -k r -m logo
+    probe --text "" --caret 0
+    wtype "touch $runtime/run-ok-marker"
+    probe --do-action "OK" --role button
+    probe --absent
+    count=0
+    while [ "$count" -lt 30 ] && [ ! -e "$runtime/run-ok-marker" ]; do
+        count=$((count + 1)); sleep 0.1
+    done
+    test -e "$runtime/run-ok-marker"
+    test ! -e "$runtime/run-cancelled-marker"
+    # Rename -> new name -> action confirm: the file is really renamed.
+    open_rename_atspi
+    probe --name "File name" --text "00-sg5.txt" --caret 10
+    wtype -M ctrl -k a -m ctrl
+    wtype "renamed.txt"
+    probe --name "File name" --text "renamed.txt" --caret 11
+    probe --do-action "Rename" --role button
+    probe --name "File name" --absent
+    test "$(ls -A "$desk")" = "renamed.txt"
+    test "$(cat "$desk/renamed.txt")" = "SG5 isolated fixture"
+    kill -0 "$plate"
+    echo "SG5: AT-SPI doAction Rename menu item, Rename/Cancel/OK buttons, refused/cancelled/confirmed transitions PASS"
     echo "SG5: real labwc keyboard, external input-method-v2 and AT-SPI lifecycle PASS"
 ' sh "$root" "$runtime" "$native" "$ime" "$clicker" "$probe_bin"

@@ -4240,6 +4240,30 @@ impl RicePlate {
                 }
             }
         }
+        if let Some(menu) = self
+            .file_context
+            .as_ref()
+            .filter(|menu| menu.properties.is_none())
+        {
+            // Same enabled set and effect as the painted XDG file menu. The
+            // entry key binds each action to the exact file.
+            model.add(33_000, ROOT, AccessibleRole::Menu, "File actions", None);
+            for item in desktop_file_menu::Item::ALL {
+                model.add(
+                    33_100 + item.index() as u64,
+                    33_000,
+                    AccessibleRole::MenuItem,
+                    item.label(),
+                    item.enabled(menu.kind).then(|| Target::FileContextAction {
+                        entry: menu.entry.clone(),
+                        item,
+                    }),
+                );
+            }
+            if self.file_context_focused {
+                model.focus = 33_100 + menu.selected.index() as u64;
+            }
+        }
         if let Some(menu) = self.desktop_context.as_ref() {
             if menu.properties {
                 model.add(
@@ -4763,6 +4787,25 @@ impl RicePlate {
                 luna_dialog::Kind::Help => ("Help and Support", None),
             };
             model.add(60_000, ROOT, AccessibleRole::Dialog, title, None);
+            // The visible OK/Rename/Trash/Close and Cancel buttons are real
+            // accessible controls with the same effect as the pointer.
+            let primary = luna_dialog_primary_label(dialog.state.kind);
+            model.add(
+                60_200,
+                60_000,
+                AccessibleRole::Button,
+                primary,
+                Some(Target::DialogAccept(dialog.state.kind)),
+            );
+            if dialog.state.kind != luna_dialog::Kind::Help {
+                model.add(
+                    60_201,
+                    60_000,
+                    AccessibleRole::Button,
+                    "Cancel",
+                    Some(Target::DialogCancel(dialog.state.kind)),
+                );
+            }
             if let Some(label) = label {
                 model.add_text_input(
                     60_100,
@@ -5015,6 +5058,33 @@ impl RicePlate {
                 });
                 if valid {
                     self.choose_desktop_context(action, qh);
+                }
+            }
+            Target::FileContextAction { entry, item } => {
+                let valid = self
+                    .file_context
+                    .as_ref()
+                    .is_some_and(|menu| menu.entry == entry && menu.properties.is_none());
+                if valid {
+                    self.choose_file_context(item, qh);
+                }
+            }
+            Target::DialogAccept(kind) => {
+                if self
+                    .luna_dialog
+                    .as_ref()
+                    .is_some_and(|dialog| dialog.configured && dialog.state.kind == kind)
+                {
+                    self.execute_luna_dialog(qh);
+                }
+            }
+            Target::DialogCancel(kind) => {
+                if self
+                    .luna_dialog
+                    .as_ref()
+                    .is_some_and(|dialog| dialog.configured && dialog.state.kind == kind)
+                {
+                    self.close_luna_dialog();
                 }
             }
             Target::DesktopContextBack { icon, generation } => {
@@ -10343,6 +10413,15 @@ fn luna_dialog_visual_width(style: &PanelStyle, visual: &str) -> u32 {
         )
 }
 
+fn luna_dialog_primary_label(kind: luna_dialog::Kind) -> &'static str {
+    match kind {
+        luna_dialog::Kind::Run => "OK",
+        luna_dialog::Kind::Help => "Close",
+        luna_dialog::Kind::FileRename => "Rename",
+        luna_dialog::Kind::FileTrash => "Trash",
+    }
+}
+
 fn paint_luna_dialog(canvas: &mut [u8], style: &PanelStyle, state: &luna_dialog::State) {
     let (w, h) = (luna_dialog::WIDTH, luna_dialog::HEIGHT);
     canvas.fill(0);
@@ -10522,12 +10601,7 @@ fn paint_luna_dialog(canvas: &mut [u8], style: &PanelStyle, state: &luna_dialog:
             }
         }
     }
-    let primary = match state.kind {
-        luna_dialog::Kind::Run => "OK",
-        luna_dialog::Kind::Help => "Close",
-        luna_dialog::Kind::FileRename => "Rename",
-        luna_dialog::Kind::FileTrash => "Trash",
-    };
+    let primary = luna_dialog_primary_label(state.kind);
     for (x, label, hit) in [
         (260, primary, luna_dialog::Hit::Accept),
         (346, "Cancel", luna_dialog::Hit::Cancel),

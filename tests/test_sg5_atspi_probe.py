@@ -13,6 +13,8 @@ SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "smoke_riceplate_atsp
 placeholder = types.ModuleType("pyatspi")
 placeholder.ROLE_ENTRY = 1
 placeholder.STATE_FOCUSED = 2
+placeholder.ROLE_PUSH_BUTTON = 3
+placeholder.ROLE_MENU_ITEM = 4
 placeholder.Registry = types.SimpleNamespace(getDesktop=lambda index: None)
 with patch.dict(sys.modules, {"pyatspi": placeholder}):
     spec = importlib.util.spec_from_file_location("sg5_atspi_probe", SCRIPT)
@@ -159,6 +161,64 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertIn("PASS", out)
         self.assertEqual(err, "")
+
+    def run_action(self, args, node, *, find_error=None):
+        tick = [0]
+
+        def monotonic():
+            tick[0] += 1
+            return float(tick[0])
+
+        def finder(role, label):
+            if find_error is not None:
+                raise find_error
+            return node
+
+        out, err = io.StringIO(), io.StringIO()
+        with (patch.object(probe, "find_node", side_effect=finder),
+              patch.object(probe.time, "monotonic", side_effect=monotonic),
+              patch.object(probe.time, "sleep", return_value=None),
+              patch.object(sys, "argv", ["probe.py", *args]),
+              patch.object(sys, "stdout", out), patch.object(sys, "stderr", err)):
+            result = probe.main()
+        return result, out.getvalue(), err.getvalue()
+
+    class Action:
+        def __init__(self, count=1, accepted=True):
+            self.nActions, self.accepted, self.calls = count, accepted, []
+
+        def doAction(self, index):
+            self.calls.append(index)
+            return self.accepted
+
+    def node(self, action):
+        return types.SimpleNamespace(queryAction=lambda: action)
+
+    def test_do_action_invokes_public_action_zero_exactly_once(self):
+        action = self.Action()
+        result, out, _ = self.run_action(["--do-action", "OK"], self.node(action))
+        self.assertEqual((result, action.calls), (0, [0]))
+        self.assertIn("PASS: AT-SPI doAction", out)
+
+    def test_do_action_fails_for_control_without_action_and_never_invokes(self):
+        action = self.Action(count=0)
+        result, out, err = self.run_action(
+            ["--do-action", "Rename", "--role", "menu-item"], self.node(action))
+        self.assertEqual((result, action.calls, out), (1, [], ""))
+        self.assertIn("no AT-SPI action", err)
+
+    def test_do_action_fails_when_action_refused_or_control_missing(self):
+        refused = self.Action(accepted=False)
+        result, out, err = self.run_action(["--do-action", "OK"], self.node(refused))
+        self.assertEqual((result, out), (1, ""))
+        self.assertIn("refused", err)
+        result, out, err = self.run_action(["--do-action", "OK"], None)
+        self.assertEqual((result, out), (1, ""))
+        self.assertIn("no accessible button", err)
+        result, _, err = self.run_action(["--do-action", "OK"], None,
+                                         find_error=RuntimeError("secret"))
+        self.assertEqual(result, 1)
+        self.assertNotIn("secret", err)
 
 
 if __name__ == "__main__":

@@ -62,9 +62,156 @@ pub(crate) fn shape_segment(
     Some(glyphs)
 }
 
+/// SG5 positive script-font fixtures. These are *installed* freely licensed
+/// fonts (Debian/Ubuntu `fonts-lohit-deva`, `fonts-wqy-microhei`); RicePlate
+/// bundles no script fonts. A missing or non-covering font is a loud, explicit
+/// failure of the positive tests, never a silent pass or a coverage claim.
+#[cfg(test)]
+pub(crate) mod script_fonts {
+    pub(crate) const DEVANAGARI: &[&str] =
+        &["/usr/share/fonts/truetype/lohit-devanagari/Lohit-Devanagari.ttf"];
+    pub(crate) const CJK: &[&str] = &["/usr/share/fonts/truetype/wqy/wqy-microhei.ttc"];
+
+    #[derive(Debug)]
+    pub(crate) enum Availability {
+        Covered(Vec<u8>),
+        /// No candidate file exists or none parses as a font.
+        Unavailable,
+        /// A font exists but its cmap lacks a scalar of the sample text.
+        LacksGlyphs(char),
+    }
+
+    pub(crate) fn probe(candidates: &[&str], sample: &str) -> Availability {
+        for path in candidates {
+            let Ok(bytes) = std::fs::read(path) else {
+                continue;
+            };
+            let Ok(face) = rustybuzz::Face::from_slice(&bytes, 0).ok_or(()) else {
+                continue;
+            };
+            if let Some(missing) = sample
+                .chars()
+                .find(|&ch| face.glyph_index(ch).is_none_or(|g| g.0 == 0))
+            {
+                return Availability::LacksGlyphs(missing);
+            }
+            return Availability::Covered(bytes);
+        }
+        Availability::Unavailable
+    }
+
+    /// The font bytes, or a panic that says plainly the font is unavailable.
+    pub(crate) fn require(candidates: &[&str], sample: &str, package: &str) -> Vec<u8> {
+        match probe(candidates, sample) {
+            Availability::Covered(bytes) => bytes,
+            Availability::Unavailable => panic!(
+                "FONT UNAVAILABLE: install `{package}` ({candidates:?}); script coverage for \
+                 {sample:?} is NOT verified"
+            ),
+            Availability::LacksGlyphs(ch) => panic!(
+                "FONT UNAVAILABLE: installed font lacks U+{:04X} for {sample:?}; script \
+                 coverage is NOT verified",
+                ch as u32
+            ),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::script_fonts::{self, Availability};
     use super::*;
+
+    #[test]
+    fn script_font_probe_never_reports_coverage_for_missing_or_noncovering_fonts() {
+        // Always runs, in CI and locally: the negative half of the SG5 matrix.
+        assert!(matches!(
+            script_fonts::probe(&["/nonexistent/ricebowl/NoSuchFont.ttf"], "हिन्दी"),
+            Availability::Unavailable
+        ));
+        let latin_only = include_bytes!("../../../assets/fonts/LiberationSans-Regular.ttf");
+        let dir = std::env::temp_dir().join(format!("rb-font-probe-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("latin.ttf");
+        std::fs::write(&path, latin_only).unwrap();
+        let path_text = path.to_str().unwrap();
+        for sample in ["हिन्दी", "日本語"] {
+            assert!(
+                matches!(
+                    script_fonts::probe(&[path_text], sample),
+                    Availability::LacksGlyphs(_)
+                ),
+                "a Latin-only font must not count as {sample} coverage"
+            );
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn devanagari_gsub_reorders_matra_and_forms_conjunct_unlike_cmap() {
+        let bytes = script_fonts::require(script_fonts::DEVANAGARI, "हिन्दी", "fonts-lohit-deva");
+        let face = rustybuzz::Face::from_slice(&bytes, 0).unwrap();
+        let cmap = |text: &str| -> Vec<u16> {
+            text.chars()
+                .map(|ch| face.glyph_index(ch).unwrap().0)
+                .collect()
+        };
+        let shaped =
+            |text: &str| -> Vec<ShapedGlyph> { shape_segment(&bytes, 16.0, text, false).unwrap() };
+        let ids = |glyphs: &[ShapedGlyph]| -> Vec<u16> { glyphs.iter().map(|g| g.id).collect() };
+
+        // 1. Pre-base I matra: logically after HA (U+0939 U+093F) but the
+        //    shaped run must lead with the matra glyph and end with HA.
+        let naive = cmap("हि");
+        let hi = shaped("हि");
+        assert_ne!(ids(&hi), naive, "GSUB/GPOS must not equal naive cmap order");
+        assert_eq!(hi.len(), 2);
+        assert_ne!(
+            hi[0].id, naive[0],
+            "matra is reordered before the consonant"
+        );
+        assert!(hi.iter().all(|g| g.id != 0));
+
+        // 2. Halant conjunct NA+VIRAMA+DA must collapse (ligature/half form).
+        let conjunct = shaped("न्द");
+        assert!(
+            conjunct.len() < 3 || ids(&conjunct) != cmap("न्द"),
+            "conjunct must be GSUB-substituted, not three cmap glyphs"
+        );
+
+        // 3. The whole word: different glyph IDs than naive cmap, nonzero
+        //    bounded advances, no .notdef.
+        let word = shaped("हिन्दी");
+        assert_ne!(ids(&word), cmap("हिन्दी"));
+        assert!(word.iter().all(|g| g.id != 0));
+        let total: f32 = word.iter().map(|g| g.advance).sum();
+        assert!(
+            total > 8.0 && total < 16.0 * 6.0,
+            "advance sum {total} not bounded"
+        );
+        assert!(word
+            .iter()
+            .all(|g| g.advance.is_finite() && g.advance >= 0.0 && g.x_offset.abs() < 32.0));
+        assert!(word.iter().any(|g| g.advance > 0.0));
+    }
+
+    #[test]
+    fn cjk_cmap_glyphs_have_nonzero_bounded_full_width_advances() {
+        let bytes =
+            script_fonts::require(script_fonts::CJK, "日本語中文한국어", "fonts-wqy-microhei");
+        for text in ["日本語", "中文"] {
+            let glyphs = shape_segment(&bytes, 16.0, text, false).unwrap();
+            assert_eq!(glyphs.len(), text.chars().count());
+            assert!(glyphs.iter().all(|g| g.id != 0));
+            for glyph in &glyphs {
+                assert!(
+                    glyph.advance > 8.0 && glyph.advance <= 20.0,
+                    "{text}: advance {} outside bounded full-width range",
+                    glyph.advance
+                );
+            }
+        }
+    }
 
     #[test]
     fn simple_latin_shaping_uses_same_advance_order_of_magnitude_as_fontdue() {

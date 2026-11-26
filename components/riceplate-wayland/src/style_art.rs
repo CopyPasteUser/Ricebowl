@@ -975,6 +975,187 @@ mod tests {
         }
     }
 
+    /// Caret x position for every logical grapheme boundary, obtained from the
+    /// real Run/Rename editor state (`input_view_bidi`) with the same measure
+    /// callbacks the native dialog passes (`measure_text`/`measure_visual_text`).
+    fn editor_caret_edges(font: &FontSprites, label: &str) -> Vec<u32> {
+        use unicode_segmentation::UnicodeSegmentation;
+        let mut state = crate::luna_dialog::State::new(crate::luna_dialog::Kind::Run);
+        assert!(state.commit_text(label));
+        (0..=label.graphemes(true).count())
+            .map(|cursor| {
+                state.cursor = cursor;
+                let (display, x) = state.input_view_bidi(
+                    400,
+                    |text| font.measure_text(text),
+                    |visual| font.measure_visual_text(visual),
+                );
+                assert_eq!(display, label, "no clipping at 400px");
+                x
+            })
+            .collect()
+    }
+
+    /// Leftmost/rightmost columns containing ink when `label` is drawn at x=0.
+    fn ink_columns(font: &FontSprites, label: &str, width: u32) -> Option<(u32, u32)> {
+        let mut canvas = vec![0_u8; (width * 32 * 4) as usize];
+        font.draw(&mut canvas, width, 32, 0, 2, label, 0xffff_ffff, false);
+        let columns: Vec<u32> = (0..width)
+            .filter(|&x| (0..32).any(|y| canvas[((y * width + x) * 4 + 3) as usize] != 0))
+            .collect();
+        Some((*columns.first()?, *columns.last()?))
+    }
+
+    #[test]
+    fn installed_devanagari_font_shapes_and_places_graphemebounded_carets() {
+        use unicode_segmentation::UnicodeSegmentation;
+        let bytes = crate::native_shaping::script_fonts::require(
+            crate::native_shaping::script_fonts::DEVANAGARI,
+            "हिन्दी",
+            "fonts-lohit-deva",
+        );
+        let font = font_glyphs(bytes, 1, true).unwrap();
+        let label = "हिन्दी";
+        let layout = font.shape_layout(label).expect("Devanagari is shaped");
+        let naive: Vec<u16> = label
+            .chars()
+            .map(|ch| font.font.lookup_glyph_index(ch))
+            .collect();
+        assert!(naive.iter().all(|&id| id != 0), "font covers every scalar");
+        let shaped: Vec<u16> = layout.iter().map(|g| g.index).collect();
+        assert_ne!(shaped, naive, "painted run is GSUB output, not cmap order");
+        let painted = font.measure_text(label);
+        assert!(
+            painted > 0 && painted < 11 * 6 * 2,
+            "bounded width {painted}"
+        );
+
+        let clusters = label.graphemes(true).count();
+        let edges = editor_caret_edges(&font, label);
+        assert!(
+            clusters < label.chars().count(),
+            "matra/conjunct scalars share a grapheme: carets never fall inside one"
+        );
+        assert!(
+            layout.len() < label.chars().count() + 3,
+            "shaped glyph count bounded"
+        );
+        assert_eq!(edges.len(), clusters + 1);
+        assert_eq!(edges[0], 0);
+        assert!(
+            edges.windows(2).all(|pair| pair[1] > pair[0]),
+            "every grapheme has a distinct nonzero caret step: {edges:?}"
+        );
+        assert_eq!(
+            *edges.last().unwrap(),
+            painted,
+            "end caret must sit at the painted shaped advance"
+        );
+        let (_, right) = ink_columns(&font, label, 120).expect("real glyph ink");
+        assert!(
+            right <= painted + 2,
+            "ink {right} overruns the measured/caret width {painted}"
+        );
+    }
+
+    #[test]
+    fn installed_cjk_font_places_one_caret_step_per_character_and_paints_real_glyphs() {
+        use unicode_segmentation::UnicodeSegmentation;
+        let bytes = crate::native_shaping::script_fonts::require(
+            crate::native_shaping::script_fonts::CJK,
+            "日本語中文한국어",
+            "fonts-wqy-microhei",
+        );
+        let font = font_glyphs(bytes, 1, true).unwrap();
+        let mut replaced = vec![0_u8; 120 * 32 * 4];
+        let builtin = font_glyphs(
+            include_bytes!("../../../assets/fonts/LiberationSans-Regular.ttf").to_vec(),
+            1,
+            true,
+        )
+        .unwrap();
+        builtin.draw(&mut replaced, 120, 32, 0, 2, "日本語", 0xffff_ffff, false);
+        for label in ["日本語", "中文", "한국어"] {
+            let clusters = label.graphemes(true).count();
+            let edges = editor_caret_edges(&font, label);
+            assert_eq!(edges.len(), clusters + 1, "{label}");
+            assert_eq!(edges[0], 0);
+            let step = edges[1];
+            assert!((8..=16).contains(&step), "{label}: full-width step {step}");
+            assert!(
+                edges.windows(2).all(|pair| pair[1] > pair[0]),
+                "{label}: {edges:?}"
+            );
+            assert_eq!(*edges.last().unwrap(), font.measure_text(label), "{label}");
+            let layout = font.shape_layout(label).unwrap();
+            assert_eq!(layout.len(), clusters);
+            assert!(layout.iter().all(|g| g.index != 0));
+            let (_, right) = ink_columns(&font, label, 120).expect("real glyph ink");
+            assert!(right <= font.measure_text(label) + 2, "{label}");
+        }
+        // Real glyphs, not the three '?' replacements the Latin face paints.
+        let mut actual = vec![0_u8; 120 * 32 * 4];
+        font.draw(&mut actual, 120, 32, 0, 2, "日本語", 0xffff_ffff, false);
+        assert!(actual.iter().any(|&b| b != 0));
+        assert_ne!(
+            actual, replaced,
+            "CJK face must not equal the missing-glyph run"
+        );
+    }
+
+    #[test]
+    fn missing_script_glyphs_paint_one_visible_replacement_per_grapheme() {
+        // No installed font needed: this is the *negative* half of the matrix.
+        // The bundled Latin face lacks Devanagari/CJK/Hangul, so every cluster
+        // must paint exactly one visible '?' and must never be reported (or
+        // measured) as script coverage.
+        use unicode_segmentation::UnicodeSegmentation;
+        let font = font_glyphs(
+            include_bytes!("../../../assets/fonts/LiberationSans-Regular.ttf").to_vec(),
+            1,
+            true,
+        )
+        .unwrap();
+        for label in ["हिन्दी", "日本語", "中文", "한국어"] {
+            assert!(
+                label
+                    .chars()
+                    .all(|ch| font.font.lookup_glyph_index(ch) == 0),
+                "{label}: fixture must be genuinely absent from the face"
+            );
+            let clusters = label.graphemes(true).count();
+            let expected = "?".repeat(clusters);
+            assert_eq!(font.displayed_letters(label).collect::<String>(), expected);
+            assert_eq!(
+                font.measure_text(label),
+                font.measure_text(&expected),
+                "{label}"
+            );
+            let mut actual = vec![0_u8; 160 * 32 * 4];
+            let mut reference = actual.clone();
+            font.draw(&mut actual, 160, 32, 2, 2, label, 0xffff_ffff, false);
+            font.draw(&mut reference, 160, 32, 2, 2, &expected, 0xffff_ffff, false);
+            assert!(
+                actual.iter().any(|&b| b != 0),
+                "{label}: replacement is visible"
+            );
+            assert_eq!(actual, reference, "{label}: pixels are the replacement run");
+            let layout = font.shape_layout(label).expect("bounded layout");
+            let question = font.font.lookup_glyph_index('?');
+            assert_eq!(layout.len(), clusters);
+            assert!(layout
+                .iter()
+                .all(|g| g.index == question && g.advance > 0.0));
+            // Replacement carets are still one distinct step per grapheme.
+            let edges = editor_caret_edges(&font, label);
+            assert_eq!(edges.len(), clusters + 1);
+            assert!(
+                edges.windows(2).all(|pair| pair[1] > pair[0]),
+                "{label}: {edges:?}"
+            );
+        }
+    }
+
     #[test]
     fn bidi_mixed_open_type_uses_bounded_face_cache_and_pixel_clipping() {
         let bytes = fs::read("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf").unwrap();

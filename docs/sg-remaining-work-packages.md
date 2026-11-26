@@ -106,11 +106,11 @@ in `/home/rbdev/Ricebowl/components/riceplate-wayland`, then `chown`).
 | WP | Task | Done when | Where | Model |
 | --- | --- | --- | --- | --- |
 | 5.1 | **Rename IME + dialog focus leave/re-enter DONE locally** (labwc 0.7.2, 3/3, `smoke_luna_atspi.sh`; see SG5 ledger). Open: menu focus cycle, candidate selection, RTL flows. IME v2→v3 for Rename; focus leave/re-enter; candidate selection; RTL flows | Protocol smoke per surface | L! (0.3) | O |
-| 5.2 | Confirm menu IME (#600) and issue #595 in the final matrix | Ledger updated with local evidence | L | S |
+| 5.2 | **DONE locally (27 Nov):** menu IME (#600) preedit/commit/delete passes for Start search and All Programs, 3/3 `smoke_luna_atspi.sh`; #595 stays open for menu focus cycle, candidate selection, RTL and composition pixels (see SG5 ledger). Confirm menu IME (#600) and issue #595 in the final matrix | Ledger updated with local evidence | L | S |
 | 5.3 | Cross-app clipboard on final source | `wl-copy`/`wl-paste` smoke green | L! (0.2) | S |
-| 5.4 | Positive Hindi/CJK font coverage with measured glyph/caret positions (installable Noto fonts) | Rust + compositor pixel/metric tests | L | O |
-| 5.5 | AT-SPI action invocation for Rename; dialog transitions | External AT-SPI client receipts | L | S |
-| 5.6 | Fallback/missing-font matrix with an accessible client | Matrix complete; missing glyph never reported as success | L | S |
+| 5.4 | **Rust DONE locally (27 Nov):** installed `fonts-lohit-deva` / `fonts-wqy-microhei`, real GSUB/GPOS and grapheme caret tests, explicit `FONT UNAVAILABLE` failure; CI apt line updated. **Compositor positive OPEN:** no product path renders a shaped Indic/CJK face (private recipe fonts unshaped, 1 MiB cap). Positive Hindi/CJK font coverage with measured glyph/caret positions (installable Noto fonts) | Rust + compositor pixel/metric tests | L | O |
+| 5.5 | **DONE locally (27 Nov, 3/3):** `doAction` on the Rename menu item and OK/Rename/Cancel buttons (new accessible controls), refused/cancelled/confirmed transitions with file-system receipts. AT-SPI action invocation for Rename; dialog transitions | External AT-SPI client receipts | L | S |
+| 5.6 | **DONE locally (27 Nov, 3/3):** Hindi/CJK/Hangul in the real Run editor: AT-SPI real text + caret, `grim` pixels equal one `?` per grapheme, never coverage; Rust matrix too. Fallback/missing-font matrix with an accessible client | Matrix complete; missing glyph never reported as success | L | S |
 
 ## SG7 — final software acceptance (1/4), last
 

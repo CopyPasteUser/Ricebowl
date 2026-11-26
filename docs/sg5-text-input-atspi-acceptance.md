@@ -22,9 +22,9 @@ Do not count menu-search keyboard navigation as full native IME and AT-SPI parit
 | UTF-8 / UAX #29 | e + combining U+0301, German flag, woman-technologist ZWJ, thumbs-up with modifier | no split graphemes under caret, selection, delete, clipping | Rust tests in luna_dialog, native_menu, text_render |
 | Clipboard | selected multi-grapheme Run / Rename text | Ctrl+C/Ctrl+X/Ctrl+V must preserve UTF-8, selection and focus without shell execution | **Merged #557** implements seat-scoped `wl_data_device` ownership/receive and atomic validation; `scripts/smoke_luna_atspi.sh` includes real external `wl-copy`/`wl-paste` round trips and negative invalid-text coverage. Revalidate on final exact-main source; do not infer physical acceptance |
 | BiDi | abc + Hebrew, mixed Arabic ABC 42 | logical storage; visual caret and arrow movement via same visible substring | Rust bidi_layout/luna_dialog tests; real RTL client review open |
-| Arabic/Indic | Arabic salaam, Hindi हिन्दी | OpenType GSUB/GPOS and nonzero bounded glyph positions only if real font covers glyphs | style_art/native_shaping Rust tests; positive Hindi font fixture acceptance open |
-| CJK | 日本語, 中文, 한국어 | UTF-8 commits and clearly rendered fallback where coverage unavailable; never label '?' as CJK success | existing missing-cmap tests; positive CJK font-specific acceptance open |
-| Missing fonts/glyphs | U+10FFFF and missing joined emoji | visible replacement metrics and pixels; no false font-coverage success | existing negative style_art tests |
+| Arabic/Indic | Arabic salaam, Hindi हिन्दी | OpenType GSUB/GPOS and nonzero bounded glyph positions only if real font covers glyphs | style_art/native_shaping Rust tests; **positive Hindi GSUB/GPOS + grapheme caret tests pass locally with installed `fonts-lohit-deva`** (see 27 November section); native compositor rendering of a shaped Indic face is **not possible yet** (product limit, below) |
+| CJK | 日本語, 中文, 한국어 | UTF-8 commits and clearly rendered fallback where coverage unavailable; never label '?' as CJK success | existing missing-cmap tests; **positive CJK advance/caret/pixel tests pass locally with installed `fonts-wqy-microhei`**; native compositor positive CJK rendering open (same product limit) |
+| Missing fonts/glyphs | U+10FFFF and missing joined emoji | visible replacement metrics and pixels; no false font-coverage success | existing negative style_art tests plus the 27 November Hindi/CJK/Hangul replacement-pixel Rust and real-labwc (AT-SPI + `grim`) matrix |
 | Live compositor editing | empty, AB, Left, Backspace, select-all, replacement, Escape, reopen | external wtype wl_keyboard delivery and public AT-SPI text/focus/selection queries | Run and separate XDG Rename AT-SPI smoke passed at #551 head (Native 44673725266) |
 | Sanitized accessibility text | e + newline + combining mark + Z | resegment final exposed text, caret and selection never refer to phantom cluster | added positive and negative AccessKit Rust tests |
 | Full IME transaction | Japanese preedit and commit, 3-byte CJK delete + replacement | actual input-method-v2 producer must traverse labwc into the native text-input-v3 consumer, then report public surrounding text | external Rust v2 IME producer -> native Run v3 path passed #551 exact-head Native 44673725266; same producer -> labwc -> native **Rename** v3 path (preedit, commit, 3-byte delete, replacement) passed locally 26 November 2026 (labwc 0.7.2, 3/3 consecutive `scripts/smoke_luna_atspi.sh` runs, about 14 s each) |
@@ -100,13 +100,85 @@ product change is trace-only (`RICEBOWL_DE_TRACE_MENU`): sizes of the dialog
 IME `done` and preedit dropped on text-input leave. Not covered: candidate
 selection, RTL composition, menu-surface focus cycles, real Fcitx/IBus.
 
+## Hindi/CJK fonts, missing-font matrix and AT-SPI actions (local evidence, 27 November 2026)
+
+Environment: private labwc 0.7.2 (`/opt/labwc-sg5`), `scripts/smoke_luna_atspi.sh`
+3/3 consecutive passes (about 26 s each, CI budget 140 s), Rust 515 tests,
+clippy (`-D clippy::correctness -D clippy::suspicious -D clippy::perf -D unused_must_use`)
+and `cargo fmt --check` clean, Python `unittest discover` 2003 OK (4 skipped).
+
+**Positive script fonts (WP5.4, Rust only).** No font binary is committed;
+tests read freely licensed packages installed by apt (`fonts-lohit-deva`,
+OFL; `fonts-wqy-microhei`, Apache-2.0/GPLv3 with font exception). CI's
+`native-layer-shell` apt line now installs both. The positive tests
+(`native_shaping::tests::devanagari_*`, `cjk_*`, `style_art::tests::installed_devanagari_*`,
+`installed_cjk_*`) call `script_fonts::require`, which **fails the test with an
+explicit `FONT UNAVAILABLE: install ...; script coverage ... NOT verified`**
+when the font is missing or lacks any scalar (verified by temporarily moving
+the file). They never skip and never pass as support. The always-run
+`script_font_probe_never_reports_coverage_for_missing_or_noncovering_fonts`
+proves a missing path or a Latin-only font is classified `Unavailable` /
+`LacksGlyphs`, never `Covered`. Asserted: हि (matra U+093F) shapes with the
+matra glyph first and different glyph IDs than the naive cmap order; न्द is
+GSUB-substituted; हिन्दी differs from cmap, has no `.notdef`, nonzero bounded
+advances; editor caret x (real `luna_dialog::State::input_view_bidi` with the
+native `measure_text`/`measure_visual_text` callbacks) is strictly increasing
+per UAX #29 grapheme (हिन्दी is 2 clusters, so no caret falls inside the
+matra/conjunct) and the end caret equals the painted shaped width; 日本語,
+中文 and 한국어 get one full-width (8-16 px) bounded step per character,
+real glyph IDs, ink within the measured width, and pixels different from the
+Latin-face replacement run.
+
+**Missing-font matrix (WP5.6).** Rust (`missing_script_glyphs_paint_one_visible_replacement_per_grapheme`,
+no installed font needed): with the bundled Latin face, हिन्दी, 日本語, 中文 and
+한국어 each paint exactly one `?` per grapheme, pixel-identical to a literal `?`
+run, never invisible, with one caret step per grapheme. Compositor: in the real
+Run editor under labwc, `wtype` types हिन्दी / 日本語 / 한국어; the public AT-SPI
+probe reads back the **real text and caret** (6/3/3), and a `grim` crop of the
+input field is pixel-identical to the same dialog showing `??`/`???`/`???`
+(`scripts/sg5_png_compare.py`) and different from the empty field. This proves
+visible replacement with real accessible text and never a coverage claim.
+
+**Product limit found (keeps WP5.4 compositor-positive open).** The native
+Run/Rename face is the bundled Latin Liberation Sans (the only proportional,
+OpenType-shaped face) or a private recipe font, which is loaded as
+non-proportional (cell metrics, no GSUB/GPOS) and capped at 1 MiB (the WQY
+collection is 5 MB). There is thus no product path that renders shaped
+Devanagari or CJK in the compositor yet; the Rust tests prove the shaper and
+caret math with real fonts, not an end-to-end positive screenshot. Do not
+claim positive native Hindi/CJK until a shaping-capable face is selectable.
+
+**AT-SPI actions and dialog transitions (WP5.5, product change).** The native
+dialog and the XDG file context menu were not action-capable in AT-SPI. Added
+accessible controls bound to the same handlers as the pointer: dialog buttons
+(`OK` / `Rename` / `Trash` / `Close` and `Cancel`, `Target::DialogAccept/Cancel(kind)`)
+and the XDG file menu (`Target::FileContextAction { key, item }`, disabled items
+expose no action). Stale snapshots are rejected by kind and file identity
+(Rust test). `scripts/smoke_riceplate_atspi_client.py --do-action LABEL --role
+button|menu-item` calls the public `doAction(0)`; three unit tests cover
+success, no-action, refused and missing control. Smoke receipts, all by
+action, with the file system as evidence: Rename menu item -> Rename with the
+unchanged name is refused (dialog stays open, Desktop unchanged); changed name
+-> Cancel (dialog gone, `00-sg5.txt` untouched); Run Cancel (marker file not
+created) and Run OK (marker created); Rename menu item -> new name -> Rename
+(dialog gone, Desktop is exactly `renamed.txt` with the original content).
+
+**Menu IME (#600) and #595 (WP5.2).** The same 3/3 runs print
+`real menu IME preedit/commit/delete and AT-SPI teardown for search PASS` and
+`... for programs PASS` (external input-method-v2 producer -> labwc ->
+text-input-v3 -> Start search and All Programs, AT-SPI text `日本界`, caret 3,
+Escape teardown). That covers #600's preedit/commit/delete. #595 stays **open**
+for: menu-surface focus leave/re-enter, real candidate selection, RTL
+composition, and painted composition (underline) pixels, none covered by the
+smoke.
+
 ## Remaining blockers before issue #417 SG5 can be checked
 
 - The external IME v2 -> compositor -> v3 **Run** protocol smoke passed #551 head (Native 44673725266). **Rename** and its dialog focus leave/re-enter now pass locally (labwc 0.7.2, 26 November 2026, see above; not yet on exact-head CI). Still open: menu-surface focus leave/re-enter and real candidate selection/RTL flows. One scripted Japanese transaction is not full IME parity.
 - Native Run/Rename clipboard shortcuts are already **merged in #557**, and the current source contains live `wl-copy` ↔ native editor ↔ `wl-paste` regression steps. Full cross-app selection transfer/focus/cleanup must still be confirmed on the exact final source in a private labwc session; the historical merge does not by itself certify the final SG5 matrix.
 - Start Menu Search and All Programs both pass the external keyboard/AT-SPI editing smoke. The menu v3 focus target, preedit and commit handling, deletion and composition painting remain open. [SG5 issue #595](https://github.com/CopyPasteUser/Ricebowl/issues/595)
-- Real XDG Rename AT-SPI focus/text/caret/selection/cancel client PASSED #551 exact-head CI (Native 44673725266); Rename IME protocol and focus cycle now covered locally; still missing AT-SPI action invocation and wider dialog transition coverage.
-- Positive Hindi/CJK installed-font coverage plus measured rendered glyph/caret positions; negative missing-font replacement tests do not prove script support.
+- Real XDG Rename AT-SPI focus/text/caret/selection/cancel client PASSED #551 exact-head CI (Native 44673725266); Rename IME protocol and focus cycle covered locally; AT-SPI action invocation for the Rename menu item and OK/Rename/Cancel dialog buttons, plus refused/cancelled/confirmed transitions, now pass locally (27 November, not yet on exact-head CI). Trash and Properties actions are not driven by the smoke.
+- Positive Hindi/CJK: shaping, advance and caret metrics are proven with installed fonts in Rust (27 November). Still open: an end-to-end compositor rendering with a shaping-capable face, which needs a product path (private recipe fonts are unshaped and 1 MiB-capped); RTL Arabic/Hebrew client review also open.
 - After software gates, **physical** Mint/ThinkPad Fcitx/IBus, Orca, mixed-DPI/GPU rendering and keyboard-layout switching. Physical acceptance is not claimed by CI.
 
 No proprietary fonts, resident polling service, unsafe recipe execution or modification of XFCE/X11 defaults are introduced.
