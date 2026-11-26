@@ -16,6 +16,8 @@ import subprocess
 import uuid as uuidlib
 from pathlib import Path
 
+from macrice import authorization
+
 from . import settings_backend as backend
 
 
@@ -81,6 +83,8 @@ def _run(*args: str, secret: str | None = None, wait: int = 12) -> str:
         raise backend.SettingsError(
             "NetworkManager request unavailable or returned invalid text; refresh saved profiles"
         ) from exc
+    if result.returncode and authorization.is_authorization_denial(result.stderr):
+        raise backend.SettingsDenied()
     if result.returncode or len(result.stdout) > 32 * 1024:
         raise backend.SettingsError("NetworkManager rejected the profile operation; "
                                     "check permissions, credentials or server settings")
@@ -124,6 +128,8 @@ def create_enterprise_wifi(*, ssid: str, identity: str, domain: str,
         args.extend(("802-1x.system-ca-certs", "no", "802-1x.ca-cert", cert))
     try:
         _run(*args)
+    except backend.SettingsDenied:
+        raise
     except backend.SettingsError as exc:
         # NetworkManager may commit the profile before its CLI reply is lost.
         # Reissuing "con add" could create a second credential-bearing profile.
@@ -195,6 +201,8 @@ def connect_enterprise_wifi(uuid: str, password: str, *, expected_active: bool =
     try:
         _run("con", "up", "uuid", uuid, "passwd-file", "/dev/stdin",
              secret="802-1x.password:" + password + "\n", wait=45)
+    except backend.SettingsDenied:
+        raise
     except backend.SettingsError as exc:
         # NetworkManager can apply the join before dropping its reply.
         # Never retry a potentially completed secret-bearing operation.
@@ -281,6 +289,8 @@ def import_vpn_profile(path: str) -> str:
     before = {entry["uuid"] for entry in backend.connection_profiles()}
     try:
         _run("con", "import", "type", kind, "file", str(source))
+    except backend.SettingsDenied:
+        raise
     except backend.SettingsError as exc:
         # Timeout/disconnect is not proof of an aborted import.
         raise backend.SettingsError(

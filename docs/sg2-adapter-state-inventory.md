@@ -9,20 +9,24 @@ Legend: `ok` covered by a cited test; `~` partial (see id); `gap` no test found;
 Columns: **RB** verified readback after write; **AUTH** polkit/NotAuthorized denial surfaced;
 **PROV** provider missing/disconnected/unavailable; **BUSY** stale/concurrent/busy request;
 **RBK** rollback, or explicit no-rollback-by-design; **GUI** rendered widget state (not backend only).
-Note: all `_timedatectl`/`nmcli` denials collapse into generic non-zero-exit errors; no test
-distinguishes polkit `NotAuthorized` from other failures, so AUTH is a `gap` unless a denial is exercised.
+Note: `_timedatectl`/`nmcli` refusals whose stderr carries a recognized polkit/NetworkManager marker
+(`macrice/authorization.py`) now raise the typed `SettingsDenied` (one fixed message, no raw stderr) from the
+first mutating call only; every other non-zero exit, and any denial text seen on a read-back after a write,
+stays a generic fail-closed `SettingsError`. AUTH is `ok` only where a denial is exercised (DN/DT below).
+Still `gap`: N5 enterprise create (`con add` is classified but untested) and the enterprise-connect denial
+with real polkit text (SP1 exits 4 with no stderr, so it remains the generic "outcome unknown" path).
 
 ## Matrix
 
 | Action | RB | AUTH | PROV | BUSY | RBK | GUI |
 |---|---|---|---|---|---|---|
-| N1 Wi-Fi radio on/off | ok S1 | gap | ~ U1 | ok S1,BZ1 | n/a no replay (U1) | gap |
-| N2 Join visible open Wi-Fi | ok S2 | gap | ok W6 | ok W4,BZ1 | n/a no undo | ok G5 |
-| N3 Join secured Wi-Fi (passphrase) | ok S2,S3 | gap | ok W6 | ok W4 | n/a no undo | ok G5 |
-| N4 Saved profile activate/deactivate | ok NR1,NI1 | gap | ok NR2,NI2 | ok NR4 | n/a no replay (NR4) | gap |
+| N1 Wi-Fi radio on/off | ok S1 | ok DN1 | ~ U1 | ok S1,BZ1 | n/a no replay (U1) | gap |
+| N2 Join visible open Wi-Fi | ok S2 | ok DN3 | ok W6 | ok W4,BZ1 | n/a no undo | ok G5 |
+| N3 Join secured Wi-Fi (passphrase) | ok S2,S3 | ok DN3 | ok W6 | ok W4 | n/a no undo | ok G5 |
+| N4 Saved profile activate/deactivate | ok NR1,NI1 | ok DN2 | ok NR2,NI2 | ok NR4 | n/a no replay (NR4) | gap |
 | N5 Enterprise Wi-Fi create | ok EI2 | gap | ok EI5,EI6 | ~ EI2 | n/a single write | gap |
-| N6 Enterprise connect (password) | ok EI1 | ok SP1 | ok EI4 | ok EI2,EI3 | n/a single shot | gap |
-| N7 VPN import (OpenVPN/WireGuard) | ok NE1 | gap | ok NE2 | ok NE3 | ~ NE4 (report only) | gap |
+| N6 Enterprise connect (password) | ok EI1 | ~ SP1 (generic exit 4, not typed) | ok EI4 | ok EI2,EI3 | n/a single shot | gap |
+| N7 VPN import (OpenVPN/WireGuard) | ok NE1 | ok DN4 | ok NE2 | ok NE3 | ~ NE4 (report only) | gap |
 | N8 Wi-Fi scan/refresh (read) | n/a read-only | n/a read-only | ok S14,S19 | ok W7 | n/a read-only | gap |
 | A1 Default sink/source | ok AD1,AI1 | n/a user-level pactl | ok AD2 | ok AD3,AJ3 | n/a reports (AD4) | gap |
 | A2 Move app stream to output | ok AD5 | n/a user-level pactl | ok AD6,AD9 | ok AD7,AI3 | n/a no replay (AJ2) | ~ AD8 |
@@ -36,9 +40,9 @@ distinguishes polkit `NotAuthorized` from other failures, so AUTH is a `gap` unl
 | P1 Power profile | ok S8,G3 | gap | ok S9,S10 | ok S8 | n/a no replay (U4) | ~ G3 |
 | P2 Lock screen | ~ S15 | n/a user session | ok S16 | gap | n/a no state | gap |
 | P3 Suspend | n/a no readback | gap | ok S16,S20 | gap | n/a no undo | gap |
-| T1 Timezone | ok S11,TD3 | gap | ok TD3 | ok S11 | n/a no replay (TD3) | ok G6 |
-| T2 NTP toggle | ok S12,TD2 | gap | ok TD2 | ok TD7 | n/a no replay (TD1) | gap |
-| T3 Manual clock | ok S13,TD5 | gap | ok TD6 | ok TD5 | n/a no replay (TD4) | gap |
+| T1 Timezone | ok S11,TD3 | ok DT1 | ok TD3 | ok S11 | n/a no replay (TD3) | ok G6 |
+| T2 NTP toggle | ok S12,TD2 | ok DT1 | ok TD2 | ok TD7 | n/a no replay (TD1) | gap |
+| T3 Manual clock | ok S13,TD5 | ok DT1 | ok TD6 | ok TD5 | n/a no replay (TD4) | gap |
 | D1 Display mode/scale/position trial | ok WM3 | n/a compositor-owned | ok WM1,WM6 | ok WM4,DG5 | ok WM2,WM5,DG2 | ~ G2 |
 | D2 Keep / confirm display change | ok DJ1,WM3 | n/a compositor-owned | ok DG3 | ok DG4 | ok DG2,DG3 | ok G2 |
 | D3 Save/forget monitor preset | ok RP6,MP1 | n/a user file | ok MP1 | ok RP6 | ok MP1 | gap |
@@ -59,6 +63,8 @@ Paths are `tests/<file>::<Class>::<test>`; abbreviations below expand `<file>::<
 - **NI** `test_de_sg2_provider_identity.py::NetworkProfileIdentityTests::` NI1 `test_same_uuid_same_type_but_new_label_never_certifies_activation`, NI2 `test_stale_profile_or_readback_loss_is_not_a_retry_authorization`
 - **EI** `test_de_sg2_provider_identity.py::EnterpriseEnrollmentIdentityTests::` EI1 `test_positive_requires_verified_profile_and_policy`, EI2 `test_post_write_stale_object_and_security_changes_fail_closed`, EI3 `test_timeout_after_write_is_unknown_and_single_shot`, EI4 `test_readback_provider_disconnect_is_indeterminate`, EI5 `test_enterprise_create_inventory_disappears_after_single_write`, EI6 `test_enterprise_create_lost_reply_never_suggests_safe_retry`
 - **AI** `test_de_sg2_provider_identity.py::AudioDefaultIdentityTests::` AI1 `test_same_device_index_readback_succeeds_for_both_kinds`, AI3 `test_stream_move_rejects_replaced_output_with_recycled_index`
+- **DT** `test_de_sg2_authorization_denial.py::TimedatedDenialTests::` DT1 `test_td_deny_ntp_timezone_and_clock_are_typed_and_not_replayed`, plus `test_td_generic_failures_stay_unknown_outcome_not_denial`, `test_td_exit_zero_with_refusal_text_is_never_success_or_denial`, `test_td_denial_during_post_write_readback_is_indeterminate_not_denied`, `test_td_unknown_or_empty_stderr_never_classifies_as_denial`, `test_td_success_still_verified_by_independent_readback` (fake private `timedatectl`)
+- **DN** `test_de_sg2_authorization_denial.py::NetworkManagerDenialTests::` DN1 `test_nm_deny_wifi_radio_toggle`, DN2 `test_nm_deny_saved_profile_activation`, DN3 `test_nm_deny_wifi_join_open_and_secured`, DN4 `test_nm_deny_vpn_import`, plus `test_nm_marker_variants_all_typed_denials`, `test_nm_generic_failures_stay_unknown_outcome_not_denial`, `test_nm_vpn_import_generic_failure_and_success_controls`, `test_nm_success_controls_claim_only_after_readback`, `test_nm_join_success_control_requires_connected_readback`, `test_nm_denial_text_on_readback_after_write_is_indeterminate`; wording: `DenialWordingTests` and `test_de_settings_busy.py::RiceSpiceBusyActionTests::test_polkit_denial_and_generic_failure_have_distinct_visible_wording`
 - **SP1** `test_de_sg2_provider_subprocess.py::EnterpriseSubprocessBoundaryTests::test_real_adapter_to_private_nmcli_success_and_denial` (fake private `nmcli` binary; only real denial case)
 - **NE** `test_de_network_enrollment.py::NetworkEnrollmentTests::` NE1 `test_vpn_import_verifies_single_new_profile_and_disables_autoconnect`, NE2 `test_vpn_import_transport_loss_is_never_treated_as_safe_retry`, NE3 `test_vpn_import_rejects_wrong_type_and_concurrent_addition`, NE4 `test_vpn_import_reports_indeterminate_post_import_mutations`
 - **W** `test_de_wifi_security_identity.py::WiFiIdentityGuardTests::` W4 `test_changed_or_disappeared_security_never_starts_join`, W6 `test_live_scan_provider_loss_remains_an_error_not_empty_or_safe`, W7 `test_ordinary_list_never_triggers_second_scan_or_mutation`
@@ -78,9 +84,9 @@ Paths are `tests/<file>::<Class>::<test>`; abbreviations below expand `<file>::<
 
 ## Top gaps (ranked by user impact/safety)
 
-1. **Polkit/NotAuthorized denial for timezone, NTP, clock** (T1-T3): `_timedatectl` returns one generic "denied" error for any non-zero exit. Add a fake-`timedatectl` subprocess test (pattern of SP1) exiting 1 with an "Access denied" stderr, asserting a typed, non-retrying message and an untouched GUI state; then a disposable system-bus polkit denial.
+1. ~~**Polkit/NotAuthorized denial for timezone, NTP, clock** (T1-T3)~~ **Closed at the adapter level (DT1)**: typed `SettingsDenied`, shown by the GUI as the same wording as NetworkManager. Remaining: GUI widget state after denial and a disposable system-bus polkit denial. Original gap: `_timedatectl` returned one generic "denied" error for any non-zero exit. Add a fake-`timedatectl` subprocess test (pattern of SP1) exiting 1 with an "Access denied" stderr, asserting a typed, non-retrying message and an untouched GUI state; then a disposable system-bus polkit denial.
 2. **GUI never driven for NTP/clock/saved-profile/Bluetooth/Wi-Fi radio** (N1, N4, B1, B2, T2, T3): only callback or backend tests exist. Add headless GTK tests (pattern of G3/G6) that click the button and assert the label/sensitivity after success, indeterminate and unavailable outcomes.
-3. **NetworkManager authorization denial on Wi-Fi radio, join, saved profile and VPN import** (N1-N4, N7): only the enterprise-connect denial (SP1) exists. Extend the private-`nmcli` subprocess harness with `deny` for `radio wifi`, `connection up` and `connection import`, asserting error class, no replay and no credential leak.
+3. ~~**NetworkManager authorization denial on Wi-Fi radio, join, saved profile and VPN import** (N1-N4, N7)~~ **Closed at the adapter level (DN1-DN4)** with the private-`nmcli` harness; real-polkit denial text from a live NetworkManager is still unverified. Original gap: only the enterprise-connect denial (SP1) existed. Extend the private-`nmcli` subprocess harness with `deny` for `radio wifi`, `connection up` and `connection import`, asserting error class, no replay and no credential leak.
 4. **Bluetooth power/connect denial and radio-rfkill block** (B1, B2): add fake-BlueZ D-Bus tests (disposable bus) returning `org.bluez.Error.NotAuthorized` and `Failed` rfkill-blocked, asserting typed errors and no fallback second mutation (BS3 pattern).
 5. **Suspend/lock GUI and logind denial** (P2, P3): no GUI test for the confirm dialog or the busy path; add a fake-`loginctl`/logind refusal unit test plus a headless GUI test that the dialog cancels cleanly and failure text is visible.
 6. **Display preset forget/save and next-login trial toggle GUI** (D3, D5): add headless GUI tests for these buttons asserting visible state after stale-preset and write-failure paths (G2 pattern).

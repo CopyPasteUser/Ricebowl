@@ -63,6 +63,24 @@ class RiceSpiceBusyActionTests(unittest.TestCase):
         self.assertIn("Another system request", states[-1])
         page.worker_slots.release()
 
+    def test_polkit_denial_and_generic_failure_have_distinct_visible_wording(self):
+        from macrice import authorization
+        from macrice.de import settings_backend as backend
+
+        for exc, expected in (
+                (backend.SettingsDenied(), authorization.DENIED_MESSAGE),
+                (backend.SettingsError("Timezone may have changed; outcome unknown"),
+                 "Unavailable or denied: Timezone may have changed; outcome unknown")):
+            with self.subTest(exc=type(exc).__name__):
+                page, pending, idle, states = self._page()
+                shown = []
+                RiceSpiceWindow._background(page, lambda: None,
+                                            lambda value: shown.append(value))
+                pending[0][1].set_exception(exc)
+                idle[0]()
+                self.assertEqual(shown, [])
+                self.assertEqual(states[-1], expected)
+
 
 if __name__ == "__main__":
     unittest.main()

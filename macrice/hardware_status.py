@@ -11,6 +11,9 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from macrice import authorization
+from macrice.authorization import AuthorizationDenied
+
 
 @dataclass(frozen=True)
 class BatteryState:
@@ -323,6 +326,8 @@ def connect_wifi(ssid: str) -> bool:
                                 capture_output=True, text=True, timeout=21, check=False)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise RuntimeError("Wi-Fi connection timed out") from exc
+    if result.returncode and authorization.is_authorization_denial(result.stderr):
+        raise AuthorizationDenied()
     if result.returncode:
         raise RuntimeError("Could not join this Wi-Fi network; saved credentials may be missing")
     return any(item.connected and item.ssid == ssid for item in read_wifi_networks())
@@ -354,6 +359,8 @@ def connect_wifi_secured(ssid: str, password: str) -> bool:
             check=False)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise RuntimeError("Wi-Fi password request timed out or failed") from exc
+    if result.returncode and authorization.is_authorization_denial(result.stderr):
+        raise AuthorizationDenied()
     if result.returncode:
         raise RuntimeError("Wi-Fi authentication failed; check the password or use the network editor")
     return any(item.connected and item.ssid == ssid for item in read_wifi_networks())

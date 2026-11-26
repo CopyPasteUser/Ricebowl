@@ -13,9 +13,23 @@ import subprocess
 from datetime import datetime, timedelta
 from typing import Any
 
+from macrice import authorization
+
 
 class SettingsError(ValueError):
     """A setting is unavailable, denied, stale, or cannot be verified."""
+
+
+class SettingsDenied(SettingsError):
+    """The OS (polkit/NetworkManager) refused authorization; no write happened.
+
+    Raised only from the first mutating call of an action. Read-back or
+    follow-up steps that hit the same refusal are re-wrapped as indeterminate
+    by their callers, because an earlier write may already have been applied.
+    """
+
+    def __init__(self, message: str = authorization.DENIED_MESSAGE):
+        super().__init__(message)
 
 
 EXTERNAL_PAGES = {
@@ -45,6 +59,8 @@ def _timedatectl(*args: str) -> str:
                                 env={**os.environ, "LC_ALL": "C"})
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise SettingsError("System time service is unavailable or timed out") from exc
+    if result.returncode and authorization.is_authorization_denial(result.stderr):
+        raise SettingsDenied()
     if result.returncode or len(result.stdout) > 96 * 1024:
         raise SettingsError("System time service denied the request or returned invalid data")
     try:
@@ -95,6 +111,8 @@ def set_ntp(enabled: bool, *, expected: bool) -> dict[str, bool]:
         return before
     try:
         _timedatectl("set-ntp", "true" if enabled else "false")
+    except SettingsDenied:
+        raise
     except SettingsError as exc:
         # A system-bus timeout can occur after timedated applied the write.
         # Never silently replay a potentially successful global mutation.
@@ -130,6 +148,8 @@ def set_system_clock(value: str, *, expected_ntp: bool = False) -> str:
         raise SettingsError("Automatic time is enabled; disable it and refresh first")
     try:
         _timedatectl("set-time", value)
+    except SettingsDenied:
+        raise
     except SettingsError as exc:
         raise SettingsError(
             "System time may have changed; outcome unknown; refresh before retrying") from exc
@@ -163,6 +183,8 @@ def set_timezone(name: str, *, expected: str) -> str:
         return name
     try:
         _timedatectl("set-timezone", name)
+    except SettingsDenied:
+        raise
     except SettingsError as exc:
         raise SettingsError(
             "Timezone may have changed; outcome unknown; refresh before retrying") from exc
@@ -208,6 +230,8 @@ def _nmcli(*args: str) -> str:
                                   timeout=5, check=False, env={**os.environ, "LC_ALL": "C"})
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise SettingsError("NetworkManager is unavailable or timed out") from exc
+    if response.returncode and authorization.is_authorization_denial(response.stderr):
+        raise SettingsDenied()
     if response.returncode or len(response.stdout) > 4096:
         raise SettingsError("NetworkManager denied the request or returned invalid data")
     try:
@@ -229,6 +253,8 @@ def _nmcli_profile(*args: str, mutate: bool = False) -> str:
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise SettingsError("NetworkManager profile request timed out or unavailable; "
                             "refresh before retrying") from exc
+    if reply.returncode and authorization.is_authorization_denial(reply.stderr):
+        raise SettingsDenied()
     if reply.returncode or len(reply.stdout) > 32 * 1024:
         raise SettingsError("NetworkManager rejected the profile request; "
                             "the connection may have changed, refresh before retrying")
@@ -307,6 +333,8 @@ def set_connection_profile(uuid: str, enabled: bool, *, expected: bool) -> dict[
         return before
     try:
         _nmcli_profile("con", "up" if enabled else "down", "uuid", uuid, mutate=True)
+    except SettingsDenied:
+        raise
     except SettingsError as exc:
         raise SettingsError("Network profile may have changed; refresh the current state") from exc
     try:
@@ -349,6 +377,8 @@ def set_wifi(enabled: bool, *, expected: bool) -> bool:
         return enabled
     try:
         _nmcli("radio", "wifi", "on" if enabled else "off")
+    except SettingsDenied:
+        raise
     except SettingsError as exc:
         # A CLI timeout/error does not prove NetworkManager rejected a write.
         # Do not report a definitive failure or automatically replay it.
@@ -450,6 +480,8 @@ def connect_visible_wifi(ssid: str) -> bool:
     _visible_wifi(ssid)
     try:
         verified = hardware_status.connect_wifi(ssid)
+    except authorization.AuthorizationDenied as exc:
+        raise SettingsDenied() from exc
     except (OSError, RuntimeError, ValueError) as exc:
         raise SettingsError("Wi-Fi connection failed; saved credentials may be missing") from exc
     if not verified:
@@ -475,6 +507,8 @@ def connect_secure_visible_wifi(ssid: str, password: str) -> bool:
         raise SettingsError("This network requires an external authentication editor")
     try:
         verified = hardware_status.connect_wifi_secured(ssid, password)
+    except authorization.AuthorizationDenied as exc:
+        raise SettingsDenied() from exc
     except (OSError, RuntimeError, ValueError) as exc:
         raise SettingsError("Wi-Fi authentication failed; check password or network settings") from exc
     if not verified:

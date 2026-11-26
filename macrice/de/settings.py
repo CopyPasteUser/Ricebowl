@@ -113,6 +113,13 @@ LUNA_CONTROL_CATEGORIES = (
 )
 
 
+def denial_or_error_text(exc: BaseException) -> str:
+    """One user-visible wording for every polkit/NetworkManager refusal."""
+    if isinstance(exc, backend.SettingsDenied):
+        return str(exc)
+    return f"Unavailable or denied: {exc}"
+
+
 def luna_category_pages(category: str) -> tuple[str, ...]:
     """Resolve only known native page IDs; a category cannot launch a command."""
     for key, _title, _icon, _help, pages in LUNA_CONTROL_CATEGORIES:
@@ -706,7 +713,7 @@ class RiceSpiceWindow:
                 try:
                     done(finished.result())
                 except Exception as exc:
-                    self._state(f"Unavailable or denied: {exc}")
+                    self._state(denial_or_error_text(exc))
                 if self._ricepop_open_pending:
                     self._open_ricepop_inbox()
                 if self._ricepop_dirty:
