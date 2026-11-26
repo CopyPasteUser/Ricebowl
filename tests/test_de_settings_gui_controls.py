@@ -554,5 +554,78 @@ class DisplayPresetControlTests(_GuiCase):
         self.assertIsNone(self.button("Forget saved monitor layout"))
 
 
+class PowerControlTests(_GuiCase):
+    """Suspend confirm cancel/denial/busy through the real dialog + worker path."""
+
+    def setUp(self):
+        super().setUp()
+        self.power_calls = []
+        self.power_gate = None
+        self.power_fail = None
+
+        def power_action(action, **_kw):
+            self.power_calls.append(action)
+            if self.power_gate is not None:
+                self.power_gate.wait(5)
+            if self.power_fail is not None:
+                raise self.power_fail
+
+        stack = ExitStack()
+        self.addCleanup(stack.close)
+        stack.enter_context(mock.patch.object(backend, "power_action", power_action))
+        stack.enter_context(mock.patch.object(
+            backend, "power_snapshot", return_value={"profile": None, "profiles": (),
+                                                     "battery": None}))
+        stack.enter_context(mock.patch.dict(settings.os.environ, {"RICEBOWL_DE_NESTED": "0"}))
+        self.addCleanup(lambda: self.power_gate and self.power_gate.set())
+
+    def test_suspend_cancel_never_reaches_backend(self):
+        self.open_page("power", "Suspend computer…")
+        self.answer = self.Gtk.ResponseType.NO
+        self.click("Suspend computer…")
+        self.pump(lambda: False, limit=10)
+        self.assertEqual(self.power_calls, [])
+        self.assertFalse(self.window.busy)
+        self.assertNotIn("Suspend requested", self.status())
+
+    def test_suspend_confirm_success_requests_once(self):
+        self.open_page("power", "Suspend computer…")
+        self.click("Suspend computer…")
+        self.assertTrue(self.pump(lambda: self.status() == "Suspend requested"))
+        self.assertEqual(self.power_calls, ["suspend"])
+
+    def test_suspend_and_lock_denial_show_typed_text_and_claim_nothing(self):
+        for label in ("Suspend computer…", "Lock screen"):
+            with self.subTest(label=label):
+                self.power_calls.clear()
+                self.power_fail = backend.SettingsDenied()
+                self.open_page("power", label)
+                self.click(label)
+                self.assertTrue(self.pump(
+                    lambda: self.status() == authorization.DENIED_MESSAGE),
+                    self.status())
+                self.settle()
+                self.pump(lambda: False, limit=10)
+                self.assertEqual(len(self.power_calls), 1, "no replay")
+                self.assertNotIn("requested", self.status())
+                self.assertNotIn("launched", self.status())
+                self.assertTrue(self.button(label).get_sensitive())
+
+    def test_suspend_busy_second_request_refused(self):
+        self.open_page("power", "Suspend computer…")
+        self.power_gate = threading.Event()
+        self.click("Suspend computer…")
+        self.assertTrue(self.window.busy)
+        self.assertTrue(self.pump(lambda: len(self.power_calls) == 1))
+        self.button("Suspend computer…").clicked()
+        self.assertIn("retry this action", self.status())
+        self.button("Lock screen").clicked()
+        self.pump(lambda: False, limit=10)
+        self.assertEqual(self.power_calls, ["suspend"], "busy click must not reach backend")
+        self.power_gate.set()
+        self.settle()
+        self.assertEqual(self.power_calls, ["suspend"])
+
+
 if __name__ == "__main__":
     unittest.main()

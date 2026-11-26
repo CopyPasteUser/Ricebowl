@@ -12,6 +12,7 @@ _DENIAL_MARKERS = (
     "interactive authentication required",
     "authentication is required",
     "org.freedesktop.dbus.error.accessdenied",
+    "org.bluez.error.notauthorized",
     "org.freedesktop.networkmanager.permissiondenied",
     "not authorized",
     "not authorised",

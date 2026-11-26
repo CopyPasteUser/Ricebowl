@@ -545,6 +545,12 @@ def set_bluetooth_power(enabled: bool, *, expected: bool,
         try:
             bluetooth_dbus.set_power(before["adapter"], enabled)
         except Exception as exc:
+            if authorization.is_authorization_denial(str(exc)):
+                raise SettingsDenied() from exc
+            if enabled and "rfkill" in str(exc).casefold():
+                raise SettingsError(
+                    "Bluetooth radio is blocked by rfkill; unblock it in system "
+                    "settings; Bluetooth was not turned on") from exc
             # D-Bus can lose its reply after BlueZ has applied the new state.
             # Never present a transport failure as proof of a failed write.
             raise SettingsError(
@@ -583,6 +589,8 @@ def set_bluetooth_connection(address: str, connected: bool, *, expected: bool,
             bluetooth_dbus.set_connection(
                 address, connected, expected_adapter=before["adapter"])
         except Exception as exc:
+            if authorization.is_authorization_denial(str(exc)):
+                raise SettingsDenied() from exc
             # A device operation may have succeeded before the bus reply was
             # lost. Require explicit refresh instead of encouraging a retry.
             raise SettingsError(
@@ -632,7 +640,9 @@ def power_action(action: str, *, nested: bool = False) -> None:
                 [loginctl, "suspend"], stdin=subprocess.DEVNULL,
                 capture_output=True, timeout=8, check=False)
             if result.returncode:
-                raise SettingsError("logind denied suspend; authorization may be required")
+                if authorization.is_authorization_denial(result.stderr):
+                    raise SettingsDenied()
+                raise SettingsError("logind refused suspend; nothing was suspended")
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise SettingsError("Power service could not complete the request") from exc
 
