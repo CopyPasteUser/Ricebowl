@@ -12231,19 +12231,62 @@ impl OutputHandler for RicePlate {
         if self.desktop_keyboard_focus_lease.output_removed(&output) {
             self.close_desktop_keyboard_focus();
         }
-        // Transient surfaces (Start menu, tray popup/menu, calendar) may have
-        // lived on the removed output. The compositor drops or strands them
-        // without a reliable `closed`, and a stranded menu keeps keyboard
-        // focus: an invisible Start menu would still launch its highlighted
-        // entry on Return. Output removal therefore closes them all; a fresh
-        // gesture reopens them on a live output.
-        if self.menu_state.visible {
+        // Transient surfaces (Start menu, tray popup/menu, calendar) that lived
+        // on the removed output are stranded by the compositor without a
+        // reliable `closed`, and a stranded menu keeps keyboard focus: an
+        // invisible Start menu would still launch its highlighted entry on
+        // Return. They are closed; a fresh gesture reopens them on a live
+        // output. One whose host output is a DIFFERENT, surviving output is
+        // healthy and stays open. A host that cannot be resolved is treated
+        // as the removed output (fail closed).
+        let hosted_here = |layer_output: Option<&wl_output::WlOutput>| {
+            layer_output
+                .or(self.primary_output.as_ref())
+                .is_none_or(|host| host == &output)
+        };
+        let host_of =
+            |active: Option<&wl_surface::WlSurface>,
+             layers: Vec<(&wl_surface::WlSurface, Option<&wl_output::WlOutput>)>| {
+                active.is_none_or(|active| {
+                    layers
+                        .into_iter()
+                        .find(|(surface, _)| *surface == active)
+                        .is_none_or(|(_, layer_output)| hosted_here(layer_output))
+                })
+            };
+        let close_menu = self.menu_state.visible
+            && host_of(
+                self.active_menu.as_ref(),
+                self.menu_layer
+                    .iter()
+                    .chain(self.menu_mirrors.iter())
+                    .map(|layer| (layer.surface.wl_surface(), layer.output.as_ref()))
+                    .collect(),
+            );
+        let close_tray = (self.tray_menu_state.visible || self.active_tray_popup.is_some())
+            && host_of(
+                self.active_tray_popup.as_ref(),
+                self.tray_popup_layer
+                    .iter()
+                    .map(|layer| (layer.surface.wl_surface(), layer.output.as_ref()))
+                    .collect(),
+            );
+        let close_calendar = self.calendar_state.visible
+            && host_of(
+                self.active_calendar.as_ref(),
+                self.calendar_layer
+                    .iter()
+                    .chain(self.calendar_mirrors.iter())
+                    .map(|layer| (layer.surface.wl_surface(), layer.output.as_ref()))
+                    .collect(),
+            );
+        if close_menu {
             self.set_menu_visible(false, qh);
         }
-        if self.tray_menu_state.visible || self.active_tray_popup.is_some() {
+        if close_tray {
             self.set_tray_popup_visible(false, qh);
         }
-        if self.calendar_state.visible {
+        if close_calendar {
             self.set_calendar_visible(false, qh);
         }
         if self.primary_output.as_ref() == Some(&output) {

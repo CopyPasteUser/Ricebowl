@@ -123,9 +123,12 @@ class InteractionSmokeContractTests(unittest.TestCase):
                 "WLR_HEADLESS_OUTPUTS=2 labwc",
                 'wlr-randr --output "$o1" --off',
                 'wlr-randr --output "$o1" --scale 1.5',
+                'wlr-randr --output "$o2" --off',     # a DIFFERENT output
+                "hot-added output",
                 'echo slow >"$SG1I_GIO_MODE"',       # trash helper still running
                 "--desktop-command new-folder &",     # back-to-back requests
                 'hold_modifier ctrl',                  # pointer + Ctrl via the lease
+                "--right-click 75 120 2732 768",      # desktop context menu
                 "--plain"):
             self.assertIn(needle, self.source, needle)
 
@@ -182,7 +185,10 @@ class InteractionSmokeContractTests(unittest.TestCase):
         body = native[begin:native.index("impl SeatHandler for RicePlate", begin)]
         for needle in ("self.set_menu_visible(false, qh);",
                        "self.set_tray_popup_visible(false, qh);",
-                       "self.set_calendar_visible(false, qh);"):
+                       "self.set_calendar_visible(false, qh);",
+                       # a surface on a DIFFERENT, surviving output stays open;
+                       # an unresolvable host fails closed
+                       ".is_none_or(|host| host == &output)"):
             self.assertIn(needle, body)
         self.assertLess(body.index("self.set_menu_visible(false, qh);"),
                         body.index("self.primary_output = None;"))

@@ -1361,6 +1361,159 @@ SHIM
         stop_plate
         echo "SG1 $rice: tray popup across scale change (one action) and unplug (closed, no leak) + re-plug PASS"
     done
+    # 4. Unplug an output the open Start menu is NOT on, re-plug it, and hot-add
+    # one the shell has never seen. The healthy menu keeps working, the panel
+    # follows the output, nothing ghosts.
+    o2_panel_painted() {
+        # o2_panel_painted FILE -> non-black pixels in the bottom 40 rows of o2
+        grim -o "$o2" "$1"
+        /usr/bin/python3 - "$1" 2>/dev/null <<'PY'
+from PIL import Image
+import sys
+im = Image.open(sys.argv[1]).convert("RGB")
+w, h = im.size
+print(sum(1 for p in im.crop((0, h - 40, w, h)).getdata() if max(p) > 24))
+PY
+    }
+    plug_o2() { wlr-randr --output "$o2" --on --custom-mode 1366x768@60Hz --scale 1 --pos 1366,0; sleep 2.2; }
+    plug_o1() { wlr-randr --output "$o1" --on --custom-mode 1366x768@60Hz --scale 1 --pos 0,0; sleep 2.2; }
+    log=$runtime/plate-outputs-other.log
+    renew_keyboard_seat
+    start_plate "$runtime/luna.json" "$log" "PATH=$runtime/shims:$PATH"
+    sleep 1
+    grim -o "$o1" "$runtime/o1-base-b.png"
+    [ "$(o2_panel_painted "$runtime/o2-base-b.png")" -gt 5000 ] || fail "no panel on the second output"
+    l0=$(launches)
+    start_click
+    grim -o "$o1" "$runtime/o1-menu-b.png"
+    [ "$(frame_diff "$runtime/o1-base-b.png" "$runtime/o1-menu-b.png")" -gt 20000 ] || fail "Start menu did not open on the first output"
+    wlr-randr --output "$o2" --off; sleep 1.6
+    grim -o "$o1" "$runtime/o1-menu-b2.png"
+    [ "$(frame_diff "$runtime/o1-menu-b.png" "$runtime/o1-menu-b2.png")" -lt 300 ] \
+        || fail "unplugging another output disturbed the open Start menu"
+    wtype -k Return; sleep .6
+    [ "$(launches)" = $((l0 + 1)) ] || fail "the open Start menu stopped working after another output was unplugged ($(launches) vs $l0)"
+    grim -o "$o1" "$runtime/o1-after-b.png"
+    [ "$(frame_diff "$runtime/o1-base-b.png" "$runtime/o1-after-b.png")" -lt 300 ] || fail "Start menu stayed painted after launching"
+    kill -0 "$plate" || fail "RicePlate died when an unrelated output was unplugged"
+    plug_o2
+    [ "$(o2_panel_painted "$runtime/o2-replug.png")" -gt 5000 ] || fail "no panel on the output that was plugged back"
+    "$clicker" 1401 748 2732 768 >/dev/null; sleep .7
+    grim -o "$o2" "$runtime/o2-menu.png"
+    [ "$(frame_diff "$runtime/o2-base-b.png" "$runtime/o2-menu.png")" -gt 20000 ] || fail "Start menu did not open on the re-plugged output"
+    wtype -k Return; sleep .6
+    [ "$(launches)" = $((l0 + 2)) ] || fail "Start menu on the re-plugged output launched $(( $(launches) - l0 - 1 )) times"
+    stop_plate
+    # Hot-add: the shell starts with only o1; o2 appears afterwards.
+    wlr-randr --output "$o2" --off; sleep 1.2
+    renew_keyboard_seat
+    start_plate "$runtime/luna.json" "$log" "PATH=$runtime/shims:$PATH"
+    sleep 1
+    plug_o2
+    [ "$(o2_panel_painted "$runtime/o2-added.png")" -gt 5000 ] || fail "no panel on a hot-added output"
+    grim -o "$o1" "$runtime/o1-after-add.png"
+    [ "$(frame_diff "$runtime/o1-base-b.png" "$runtime/o1-after-add.png")" -lt 400 ] || fail "adding an output disturbed the first output"
+    l0=$(launches)
+    "$clicker" 1401 748 2732 768 >/dev/null; sleep .7
+    grim -o "$o2" "$runtime/o2-added-menu.png"
+    [ "$(frame_diff "$runtime/o2-base-b.png" "$runtime/o2-added-menu.png")" -gt 20000 ] || fail "Start menu did not open on a hot-added output"
+    wtype -k Return; sleep .6
+    [ "$(launches)" = $((l0 + 1)) ] || fail "Start menu on a hot-added output launched $(( $(launches) - l0 )) times"
+    kill -0 "$plate" || fail "RicePlate died on output hot-add"
+    stop_plate
+    echo "SG1 luna: unplugging a different output leaves the open Start menu working; re-plug and hot-add get a panel and a working menu PASS"
+
+    # 5. Calendar, desktop context menu and Run dialog across removal of the
+    # output they are on: each is closed, takes no stale key and a fresh
+    # gesture works after the output is back.
+    cat >"$runtime/run-witness" <<WITNESS
+#!/bin/sh
+echo ran >>"$runtime/run-witness.log"
+WITNESS
+    chmod 0700 "$runtime/run-witness"
+    rm -f "$runtime/run-witness.log"
+    plug_o2
+    renew_keyboard_seat
+    start_plate "$runtime/luna.json" "$log" "PATH=$runtime/shims:$PATH"
+    sleep 1
+    grim -o "$o1" "$runtime/o1-base-c.png"
+    grim -o "$o2" "$runtime/o2-base-c.png"
+    ghost_free() { # ghost_free WHAT: the replugged output equals the idle frame
+        grim -o "$o1" "$runtime/o1-replug-c.png"
+        [ "$(frame_diff "$runtime/o1-base-c.png" "$runtime/o1-replug-c.png")" -lt 400 ] || fail "$1: a ghost surface or missing panel after re-plug"
+    }
+    # 5a. calendar
+    l0=$(launches)
+    "$clicker" 1320 748 2732 768 >/dev/null; sleep .8
+    grim -o "$o1" "$runtime/o1-cal.png"
+    [ "$(frame_diff "$runtime/o1-base-c.png" "$runtime/o1-cal.png")" -gt 5000 ] || fail "calendar did not open"
+    wlr-randr --output "$o1" --off; sleep 1.5
+    wtype -k Right -s 100 -k Down -s 100 -k Return; sleep .4
+    plug_o1
+    ghost_free calendar
+    [ "$(launches)" = "$l0" ] || fail "calendar: keys after output removal launched something"
+    "$clicker" 1320 748 2732 768 >/dev/null; sleep .8
+    grim -o "$o1" "$runtime/o1-cal2.png"
+    [ "$(frame_diff "$runtime/o1-base-c.png" "$runtime/o1-cal2.png")" -gt 5000 ] || fail "calendar did not open again after the output returned"
+    wtype -k Escape; sleep .5
+    ghost_free "calendar after Escape"
+    echo "SG1 luna: calendar across output removal closes, takes no stale key, reopens after re-plug PASS"
+    # 5b. desktop shortcut context menu
+    "$clicker" --right-click 75 120 2732 768 >/dev/null; sleep .7
+    grim -o "$o1" "$runtime/o1-ctx.png"
+    [ "$(frame_diff "$runtime/o1-base-c.png" "$runtime/o1-ctx.png")" -gt 3000 ] || fail "desktop context menu did not open"
+    g0=$(count_lines "$SG1I_GIO_LOG" 'gio ')
+    wlr-randr --output "$o1" --off; sleep 1.5
+    wtype -k Down -s 100 -k Return; sleep .5
+    plug_o1
+    ghost_free "desktop context menu"
+    [ "$(count_lines "$SG1I_GIO_LOG" 'gio ')" = "$g0" ] || fail "context menu: Return after output removal ran an action"
+    "$clicker" --right-click 75 120 2732 768 >/dev/null; sleep .7
+    grim -o "$o1" "$runtime/o1-ctx2.png"
+    [ "$(frame_diff "$runtime/o1-base-c.png" "$runtime/o1-ctx2.png")" -gt 3000 ] || fail "desktop context menu did not open after re-plug"
+    wtype -k Escape; sleep .5
+    # (right-click leaves the shortcut selected, so compare only the part of
+    # the menu that lies beside the icon)
+    grim -o "$o1" "$runtime/o1-ctx3.png"
+    [ "$(region_changed "$runtime/o1-base-c.png" "$runtime/o1-ctx3.png" 200 120 100 190)" -lt 100 ] \
+        || fail "desktop context menu stayed painted after Escape"
+    echo "SG1 luna: desktop context menu across output removal closes, runs nothing, reopens after re-plug PASS"
+    # 5c. Run dialog. labwc re-homes a layer surface that has no output of its
+    # own onto a surviving output, so the dialog must then be VISIBLE there
+    # (never an invisible surface that still owns the keyboard and runs what
+    # is typed); Escape closes it without running anything.
+    open_run() {
+        renew_keyboard_seat
+        start_click
+        grim -o "$o1" "$runtime/o1-run-menu.png"
+        [ "$(frame_diff "$runtime/o1-base-c.png" "$runtime/o1-run-menu.png")" -gt 20000 ] || fail "Start menu did not open for Run"
+        "$clicker" 316 580 2732 768 >/dev/null; sleep .8
+        grim -o "$o1" "$runtime/o1-run.png"
+        [ "$(region_changed "$runtime/o1-base-c.png" "$runtime/o1-run.png" 459 268 448 232)" -gt 800 ] || fail "Run dialog did not open"
+    }
+    open_run
+    wlr-randr --output "$o1" --off; sleep 1.5
+    grim -o "$o2" "$runtime/o2-run.png"
+    [ "$(region_changed "$runtime/o2-base-c.png" "$runtime/o2-run.png" 459 268 448 232)" -gt 800 ] \
+        || fail "the Run dialog vanished from view although it can still receive typed commands"
+    wtype -k Escape; sleep .6
+    grim -o "$o2" "$runtime/o2-run-esc.png"
+    [ "$(region_changed "$runtime/o2-base-c.png" "$runtime/o2-run-esc.png" 459 268 448 232)" -lt 100 ] \
+        || fail "Escape did not close the re-homed Run dialog"
+    wtype -d 30 "$runtime/run-witness" -s 150 -k Return; sleep .8
+    [ ! -e "$runtime/run-witness.log" ] || fail "a command typed after the Run dialog was dismissed ran"
+    plug_o1
+    ghost_free "Run dialog"
+    [ ! -e "$runtime/run-witness.log" ] || fail "a stale Run command ran after the re-plug"
+    # recovery: a fresh Run dialog runs the command exactly once
+    open_run
+    wtype -d 30 "$runtime/run-witness" -s 150 -k Return
+    tries=0; while [ ! -s "$runtime/run-witness.log" ] && [ "$tries" -lt 30 ]; do tries=$((tries + 1)); sleep .1; done
+    sleep .5
+    [ "$(wc -l <"$runtime/run-witness.log" 2>/dev/null || echo 0)" = 1 ] || fail "Run did not recover (exactly one run expected)"
+    kill -0 "$plate" || fail "RicePlate died"
+    stop_plate
+    echo "SG1 luna: Run dialog across output removal is re-homed visibly (never invisible), Escape closes it, nothing typed after dismissal runs, a fresh dialog runs once PASS"
     rm -f "$runtime/shims/gio"
 }
 
