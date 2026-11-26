@@ -85,7 +85,7 @@ enum StatusEvent {
         success: bool,
         state: SystemStatus,
     },
-    ObservedAudio(Audio),
+    ObservedAudio(SystemStatus),
     WorkerStopped,
 }
 
@@ -836,6 +836,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         active_tray_popup: None,
         tray_popup_state: tray::Popup::default(),
         tray_menu_state: tray::MenuPopup::default(),
+        luna_status_widget: None,
         tray_popup_focused: false,
         control_sender: None,
         pointer: None,
@@ -1069,16 +1070,17 @@ fn main() -> Result<(), Box<dyn Error>> {
                             revoke_status_owner(app, &redraw_qh);
                             return;
                         }
-                        StatusEvent::ObservedAudio(audio) => {
+                        StatusEvent::ObservedAudio(observed) => {
                             if app.osd_state.show_external(
                                 &app.system_status.audio,
-                                &audio,
+                                &observed.audio,
                                 Instant::now(),
                             ) {
                                 app.redraw_osd();
                             }
                             let mut updated = app.system_status.clone();
-                            updated.audio = audio;
+                            updated.audio = observed.audio;
+                            updated.muted_level = observed.muted_level;
                             updated
                         }
                         StatusEvent::Control {
@@ -1106,6 +1108,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                         app.system_status = status;
                         app.request_redraw(&redraw_qh);
                         app.redraw_widgets();
+                    }
+                    if status_changed || control_completed {
+                        app.refresh_luna_status_menu();
                     }
                     // Commit the verified readback before painting the live menu.
                     // External radio/audio status changes must also refresh visible
@@ -1669,6 +1674,7 @@ struct RicePlate {
     active_tray_popup: Option<wl_surface::WlSurface>,
     tray_popup_state: tray::Popup,
     tray_menu_state: tray::MenuPopup,
+    luna_status_widget: Option<Widget>,
     tray_popup_focused: bool,
     control_sender: Option<mpsc::SyncSender<ControlAction>>,
     pointer: Option<wl_pointer::WlPointer>,
@@ -4059,11 +4065,18 @@ impl RicePlate {
                         let (number, label) = match placed.widget {
                             Widget::Network => (
                                 5,
-                                format!("Network: {}", self.system_status.network.label()),
+                                format!("Network: {}", self.system_status.network.label())
+                                    + &self.failed_control_note(&[ControlAction::WifiToggle]),
                             ),
-                            Widget::Audio => {
-                                (6, format!("Audio: {}", self.system_status.audio.label()))
-                            }
+                            Widget::Audio => (
+                                6,
+                                format!("Audio: {}", self.system_status.audio.label())
+                                    + &self.failed_control_note(&[
+                                        ControlAction::AudioMute,
+                                        ControlAction::AudioDown,
+                                        ControlAction::AudioUp,
+                                    ]),
+                            ),
                             Widget::Bluetooth => (
                                 8,
                                 format!("Bluetooth: {}", self.system_status.bluetooth.label()),
@@ -7352,7 +7365,12 @@ impl RicePlate {
         let Some(target) = self.tray_popup_target(source) else {
             return;
         };
-        let Some((title, rows)) = luna_status_rows(widget, &self.system_status, &self.power) else {
+        let Some((title, rows)) = luna_status_rows(
+            widget,
+            &self.system_status,
+            &self.power,
+            |action| self.control_feedback(action),
+        ) else {
             return;
         };
         let mut popup = tray::MenuPopup::default();
@@ -7361,7 +7379,60 @@ impl RicePlate {
         }
         self.set_tray_popup_visible(false, qh);
         self.tray_menu_state = popup;
+        self.luna_status_widget = Some(widget);
         self.show_tray_surface_at(target, qh);
+    }
+
+    /// ", <state>" for the first listed control that is not ready, so the
+    /// Luna status icon announces a failed or unavailable action too.
+    fn failed_control_note(&self, actions: &[ControlAction]) -> String {
+        actions
+            .iter()
+            .map(|&action| (action, self.control_feedback(action)))
+            .find(|&(_, state)| state == ControlFeedback::Failed)
+            .map_or_else(String::new, |(action, state)| {
+                format!(
+                    ", {} {}",
+                    match action {
+                        ControlAction::WifiToggle => "Wi-Fi change",
+                        ControlAction::AudioMute => "mute",
+                        ControlAction::AudioDown | ControlAction::AudioUp => "volume change",
+                        ControlAction::BluetoothToggle => "Bluetooth change",
+                    },
+                    state.accessibility_label()
+                )
+            })
+    }
+
+    fn control_feedback(&self, action: ControlAction) -> ControlFeedback {
+        ControlFeedback::snapshot(
+            action,
+            &self.system_status,
+            self.control_pending,
+            self.control_result,
+            self.control_sender.is_some(),
+        )
+    }
+
+    /// A verified readback or control result must not leave an open native
+    /// status menu showing a stale "(applying)" or "(failed)" state.
+    fn refresh_luna_status_menu(&mut self) {
+        let Some(widget) = self.luna_status_widget else {
+            return;
+        };
+        if !self.tray_menu_state.is_local() {
+            return;
+        }
+        let rows = luna_status_rows(
+            widget,
+            &self.system_status,
+            &self.power,
+            |action| self.control_feedback(action),
+        )
+        .map(|(_, rows)| rows);
+        if rows.is_some_and(|rows| self.tray_menu_state.replace_local_rows(rows)) {
+            self.redraw_tray_popup();
+        }
     }
 
     fn launch_luna_settings(&self, page: &str) {
@@ -8706,10 +8777,38 @@ fn paint_tray_popup(
 
 /// XP notification-area menus use the same on-demand native popup as
 /// StatusNotifier items, but with strictly local and capability-gated actions.
+/// A native Luna status row uses the same shared control state as the v7
+/// panel buttons and AT-SPI nodes: the visible label and the accessible name
+/// are the same string and name any non-ready state ("(failed)"), and the row
+/// is only actionable when the shared feedback says so.
+fn luna_control_row(
+    id: i32,
+    label: &str,
+    action: ControlAction,
+    status: &SystemStatus,
+    checked: bool,
+    feedback: &impl Fn(ControlAction) -> ControlFeedback,
+) -> tray::MenuRow {
+    let state = feedback(action);
+    tray::MenuRow {
+        id,
+        label: match state {
+            ControlFeedback::Ready => label.to_owned(),
+            other => format!("{label} ({})", other.accessibility_label()),
+        },
+        enabled: action.available(status) && state.is_actionable(),
+        kind: tray::MenuKind::Action {
+            checked,
+            radio: false,
+        },
+    }
+}
+
 fn luna_status_rows(
     widget: Widget,
     status: &SystemStatus,
     power: &PowerStatus,
+    feedback: impl Fn(ControlAction) -> ControlFeedback,
 ) -> Option<(&'static str, Vec<tray::MenuRow>)> {
     let row = |id: i32, label: String, enabled: bool, checked: bool| tray::MenuRow {
         id,
@@ -8720,7 +8819,6 @@ fn luna_status_rows(
             radio: false,
         },
     };
-    let available_audio = status.audio != Audio::Unavailable;
     match widget {
         Widget::Network => Some((
             "Network Connections",
@@ -8731,9 +8829,9 @@ fn luna_status_rows(
                     false,
                     false,
                 ),
-                row(
+                luna_control_row(
                     101,
-                    format!(
+                    &format!(
                         "Turn Wi-Fi {}",
                         if status.wifi == system_status::WifiRadio::Enabled {
                             "off"
@@ -8741,8 +8839,10 @@ fn luna_status_rows(
                             "on"
                         }
                     ),
-                    ControlAction::WifiToggle.available(status),
+                    ControlAction::WifiToggle,
+                    status,
                     status.wifi == system_status::WifiRadio::Enabled,
+                    &feedback,
                 ),
                 row(100, "Network Connections...".into(), true, false),
             ],
@@ -8751,14 +8851,30 @@ fn luna_status_rows(
             "Volume Control",
             vec![
                 row(0, format!("Volume: {}", status.audio.label()), false, false),
-                row(
+                luna_control_row(
                     103,
-                    "Mute".into(),
-                    available_audio,
+                    "Mute",
+                    ControlAction::AudioMute,
+                    status,
                     status.audio == Audio::Muted,
+                    &feedback,
                 ),
-                row(104, "Volume Down".into(), available_audio, false),
-                row(105, "Volume Up".into(), available_audio, false),
+                luna_control_row(
+                    104,
+                    "Volume Down",
+                    ControlAction::AudioDown,
+                    status,
+                    false,
+                    &feedback,
+                ),
+                luna_control_row(
+                    105,
+                    "Volume Up",
+                    ControlAction::AudioUp,
+                    status,
+                    false,
+                    &feedback,
+                ),
                 row(102, "Audio Properties...".into(), true, false),
             ],
         )),
@@ -15126,6 +15242,7 @@ mod tests {
             Widget::Network,
             &SystemStatus::default(),
             &PowerStatus::NotPresent,
+            |_| ControlFeedback::Ready,
         )
         .unwrap();
         let mut status_popup = tray::MenuPopup::default();
@@ -15141,26 +15258,98 @@ mod tests {
     fn luna_native_status_menus_have_real_capability_gates() {
         let unavailable = SystemStatus::default();
         let (_, network) =
-            luna_status_rows(Widget::Network, &unavailable, &PowerStatus::NotPresent).unwrap();
+            luna_status_rows(Widget::Network, &unavailable, &PowerStatus::NotPresent, |_| ControlFeedback::Ready).unwrap();
         assert!(!network[1].enabled);
         assert!(network[2].enabled);
         let (_, audio) =
-            luna_status_rows(Widget::Audio, &unavailable, &PowerStatus::NotPresent).unwrap();
+            luna_status_rows(Widget::Audio, &unavailable, &PowerStatus::NotPresent, |_| ControlFeedback::Ready).unwrap();
         assert!(audio[1..4].iter().all(|row| !row.enabled));
         let active = SystemStatus {
             network: system_status::Network::Global,
             audio: Audio::Volume(65),
             wifi: system_status::WifiRadio::Enabled,
             bluetooth: system_status::BluetoothRadio::Unavailable,
+            muted_level: None,
         };
         let (_, network) =
-            luna_status_rows(Widget::Network, &active, &PowerStatus::NotPresent).unwrap();
+            luna_status_rows(Widget::Network, &active, &PowerStatus::NotPresent, |_| ControlFeedback::Ready).unwrap();
         assert!(network[1].enabled);
         let (_, volume) =
-            luna_status_rows(Widget::Audio, &active, &PowerStatus::NotPresent).unwrap();
+            luna_status_rows(Widget::Audio, &active, &PowerStatus::NotPresent, |_| ControlFeedback::Ready).unwrap();
         assert!(volume[1..4].iter().all(|row| row.enabled));
         assert_eq!(volume[4].id, 102);
-        assert!(luna_status_rows(Widget::Tray, &active, &PowerStatus::NotPresent).is_none());
+        assert!(luna_status_rows(Widget::Tray, &active, &PowerStatus::NotPresent, |_| ControlFeedback::Ready).is_none());
+    }
+
+    #[test]
+    fn luna_status_menu_shows_shared_failed_pending_and_unavailable_feedback() {
+        let status = SystemStatus {
+            network: system_status::Network::Global,
+            audio: Audio::Muted,
+            wifi: system_status::WifiRadio::Enabled,
+            bluetooth: system_status::BluetoothRadio::Unavailable,
+            muted_level: Some(40),
+        };
+        let rows = |widget, pending, result| {
+            luna_status_rows(widget, &status, &PowerStatus::NotPresent, |action| {
+                ControlFeedback::snapshot(action, &status, pending, result, true)
+            })
+            .unwrap()
+            .1
+        };
+        // Ready: plain labels, as before.
+        let ready = rows(Widget::Network, None, None);
+        assert_eq!(ready[1].label, "Turn Wi-Fi off");
+        assert!(ready[1].enabled);
+        // A failed Wi-Fi write is named by the same word the v7 button and
+        // AT-SPI use, and stays retryable (failure never disables a control).
+        let wifi = ControlAction::WifiToggle;
+        let failed = rows(Widget::Network, None, Some((wifi, false)));
+        assert_eq!(failed[1].label, "Turn Wi-Fi off (failed)");
+        assert!(failed[1].enabled);
+        assert_eq!(failed[0].label, ready[0].label);
+        // Pending: the row is named and not actionable; another control in
+        // flight makes it busy.
+        let applying = rows(Widget::Network, Some(wifi), None);
+        assert_eq!(applying[1].label, "Turn Wi-Fi off (applying)");
+        assert!(!applying[1].enabled);
+        let busy = rows(Widget::Network, Some(ControlAction::AudioUp), None);
+        assert_eq!(busy[1].label, "Turn Wi-Fi off (busy)");
+        assert!(!busy[1].enabled);
+        // The failure clears on the next successful action (of any control)
+        // and when the pending state is replaced.
+        for cleared in [
+            rows(Widget::Network, None, Some((wifi, true))),
+            rows(Widget::Network, None, Some((ControlAction::AudioUp, true))),
+            rows(Widget::Network, None, None),
+        ] {
+            assert_eq!(cleared[1].label, "Turn Wi-Fi off");
+        }
+        // Only the failed control carries the failure; the others stay ready.
+        let audio = rows(Widget::Audio, None, Some((ControlAction::AudioUp, false)));
+        assert_eq!(audio[1].label, "Mute");
+        assert_eq!(audio[3].label, "Volume Up (failed)");
+        assert!(audio[3].enabled);
+        // Unavailable hardware is named and not actionable.
+        let missing = SystemStatus::default();
+        let rows_missing = luna_status_rows(
+            Widget::Network,
+            &missing,
+            &PowerStatus::NotPresent,
+            |action| ControlFeedback::snapshot(action, &missing, None, None, true),
+        )
+        .unwrap()
+        .1;
+        assert_eq!(rows_missing[1].label, "Turn Wi-Fi on (unavailable)");
+        assert!(!rows_missing[1].enabled);
+        // Rows of an open native menu can be refreshed in place, but a
+        // provider-owned or closed menu is never replaced.
+        let mut popup = tray::MenuPopup::default();
+        assert!(popup.open_local("Network Connections", ready));
+        assert!(popup.replace_local_rows(failed));
+        assert_eq!(popup.rows()[1].label, "Turn Wi-Fi off (failed)");
+        let mut closed = tray::MenuPopup::default();
+        assert!(!closed.replace_local_rows(rows(Widget::Network, None, None)));
     }
 
     #[test]
@@ -15247,6 +15436,7 @@ mod tests {
             audio: system_status::Audio::Volume(58),
             wifi: system_status::WifiRadio::Enabled,
             bluetooth: system_status::BluetoothRadio::Unavailable,
+            muted_level: None,
         };
         paint_panel(
             &mut connected,
@@ -15307,6 +15497,7 @@ mod tests {
             audio: Audio::Volume(55),
             wifi: system_status::WifiRadio::Enabled,
             bluetooth: system_status::BluetoothRadio::Enabled,
+            muted_level: None,
         };
         assert_eq!(
             ControlFeedback::snapshot(
@@ -15338,6 +15529,7 @@ mod tests {
             audio: Audio::Volume(50),
             wifi: system_status::WifiRadio::Enabled,
             bluetooth: system_status::BluetoothRadio::Enabled,
+            muted_level: None,
         };
         let visual = |worker_ready, pending, result| MenuControlVisual {
             status: &status,
@@ -15464,6 +15656,7 @@ mod tests {
             network: system_status::Network::Offline,
             wifi: system_status::WifiRadio::Enabled,
             bluetooth: system_status::BluetoothRadio::Unavailable,
+            muted_level: None,
             audio: Audio::Volume(42),
         };
         let available = render(&working, None, None);
@@ -15500,6 +15693,7 @@ mod tests {
             audio: Audio::Volume(45),
             wifi: system_status::WifiRadio::Enabled,
             bluetooth: system_status::BluetoothRadio::Unavailable,
+            muted_level: None,
         };
         let render = |worker_ready| {
             let mut pixels = vec![0; (width * style.height * 4) as usize];

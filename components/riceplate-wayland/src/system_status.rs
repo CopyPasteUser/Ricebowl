@@ -107,16 +107,21 @@ impl ControlAction {
                 (&before.audio, &after.audio),
                 (Audio::Muted, Audio::Volume(_)) | (Audio::Volume(_), Audio::Muted)
             ),
-            Self::AudioUp | Self::AudioDown => match (&before.audio, &after.audio) {
-                (Audio::Volume(first), Audio::Volume(second)) => {
-                    if self == Self::AudioUp {
-                        second > first
-                    } else {
-                        second < first
+            // Compare the quantity the action changes: the volume level. A
+            // sink that stays muted is not a failed volume write, and a
+            // write that leaves the level unchanged (or clamps) still is.
+            Self::AudioUp | Self::AudioDown => {
+                match (before.volume_level(), after.volume_level()) {
+                    (Some(first), Some(second)) => {
+                        if self == Self::AudioUp {
+                            second > first
+                        } else {
+                            second < first
+                        }
                     }
+                    _ => false,
                 }
-                _ => false,
-            },
+            }
         }
     }
 }
@@ -231,23 +236,24 @@ impl Audio {
     }
 
     fn parse(output: &str) -> Self {
-        let Some(value) = output.trim().strip_prefix("Volume: ") else {
-            return Self::Unavailable;
-        };
-        let Some(number) = value
+        match Self::parse_parts(output) {
+            Some((_, true)) => Self::Muted,
+            Some((level, false)) => Self::Volume(level),
+            None => Self::Unavailable,
+        }
+    }
+
+    /// Volume level in percent and the mute flag, from one validated reading.
+    fn parse_parts(output: &str) -> Option<(u16, bool)> {
+        let value = output.trim().strip_prefix("Volume: ")?;
+        let number = value
             .split_whitespace()
             .next()
-            .and_then(|value| value.parse::<f64>().ok())
-        else {
-            return Self::Unavailable;
-        };
+            .and_then(|value| value.parse::<f64>().ok())?;
         if !number.is_finite() || !(0.0..=1.5).contains(&number) {
-            return Self::Unavailable;
+            return None;
         }
-        if value.contains("[MUTED]") {
-            return Self::Muted;
-        }
-        Self::Volume((number * 100.0).round() as u16)
+        Some(((number * 100.0).round() as u16, value.contains("[MUTED]")))
     }
 }
 
@@ -257,6 +263,9 @@ pub struct SystemStatus {
     pub audio: Audio,
     pub wifi: WifiRadio,
     pub bluetooth: BluetoothRadio,
+    /// The remembered level of a muted sink (`Audio::Muted` carries none), so
+    /// a volume change while muted can be verified without unmuting.
+    pub muted_level: Option<u16>,
 }
 
 impl Default for SystemStatus {
@@ -266,12 +275,28 @@ impl Default for SystemStatus {
             audio: Audio::Unavailable,
             wifi: WifiRadio::Unavailable,
             bluetooth: BluetoothRadio::Unavailable,
+            muted_level: None,
         }
     }
 }
 
 impl SystemStatus {
+    /// Volume level in percent, also while the sink is muted.
+    pub fn volume_level(&self) -> Option<u16> {
+        match self.audio {
+            Audio::Volume(level) => Some(level),
+            Audio::Muted => self.muted_level,
+            Audio::Unavailable => None,
+        }
+    }
+
     pub fn read(include_network: bool, include_audio: bool, include_bluetooth: bool) -> Self {
+        // One WirePlumber reading yields both the audio state and the level.
+        let output = if include_audio {
+            command_output("wpctl", &["get-volume", "@DEFAULT_AUDIO_SINK@"])
+        } else {
+            None
+        };
         Self {
             network: if include_network {
                 command_output("nmcli", &["--wait", "1", "-t", "-f", "STATE", "general"])
@@ -280,13 +305,9 @@ impl SystemStatus {
             } else {
                 Network::Unavailable
             },
-            audio: if include_audio {
-                command_output("wpctl", &["get-volume", "@DEFAULT_AUDIO_SINK@"])
-                    .map(|output| Audio::parse(&output))
-                    .unwrap_or(Audio::Unavailable)
-            } else {
-                Audio::Unavailable
-            },
+            audio: output
+                .as_deref()
+                .map_or(Audio::Unavailable, Audio::parse),
             wifi: if include_network {
                 command_output("nmcli", &["--wait", "1", "radio", "wifi"])
                     .map(|output| WifiRadio::parse(&output))
@@ -301,6 +322,10 @@ impl SystemStatus {
             } else {
                 BluetoothRadio::Unavailable
             },
+            muted_level: output
+                .as_deref()
+                .and_then(Audio::parse_parts)
+                .and_then(|(level, muted)| muted.then_some(level)),
         }
     }
 }
@@ -333,7 +358,7 @@ impl AudioWatcher {
         matches!(self.child.try_wait(), Ok(None))
     }
 
-    pub fn start(callback: impl Fn(Audio) -> bool + Send + 'static) -> Option<Self> {
+    pub fn start(callback: impl Fn(SystemStatus) -> bool + Send + 'static) -> Option<Self> {
         let mut child = Command::new("pactl")
             .arg("subscribe")
             .env("LC_ALL", "C")
@@ -347,7 +372,7 @@ impl AudioWatcher {
         thread::spawn(move || {
             while pending.recv().is_ok() {
                 thread::sleep(Duration::from_millis(80));
-                if !callback(SystemStatus::read(false, true, false).audio) {
+                if !callback(SystemStatus::read(false, true, false)) {
                     break;
                 }
             }
@@ -500,6 +525,44 @@ mod tests {
         for invalid in ["", "Volume: nan", "Volume: -2", "Volume: 12", "garbage"] {
             assert_eq!(Audio::parse(invalid), Audio::Unavailable);
         }
+    }
+
+    #[test]
+    fn volume_change_while_muted_is_verified_by_level_without_unmuting() {
+        assert_eq!(Audio::parse_parts("Volume: 0.55 [MUTED]\n"), Some((55, true)));
+        assert_eq!(Audio::parse_parts("Volume: 0.55\n"), Some((55, false)));
+        assert_eq!(Audio::parse_parts("Volume: nan"), None);
+        let muted = |level| SystemStatus {
+            audio: Audio::Muted,
+            muted_level: Some(level),
+            ..SystemStatus::default()
+        };
+        assert_eq!(muted(50).volume_level(), Some(50));
+        assert_eq!(SystemStatus::default().volume_level(), None);
+        // The sink stays muted, the level moved: the write took effect.
+        assert!(ControlAction::AudioUp.verified(&muted(50), &muted(55), true));
+        assert!(ControlAction::AudioDown.verified(&muted(50), &muted(45), true));
+        // Wrong direction, unchanged level (real no-op/clamp), an unknown
+        // level or a failed exit are still failures.
+        assert!(!ControlAction::AudioUp.verified(&muted(50), &muted(45), true));
+        assert!(!ControlAction::AudioDown.verified(&muted(50), &muted(55), true));
+        assert!(!ControlAction::AudioUp.verified(&muted(50), &muted(50), true));
+        assert!(!ControlAction::AudioUp.verified(&muted(50), &muted(55), false));
+        let unknown = SystemStatus {
+            audio: Audio::Muted,
+            ..SystemStatus::default()
+        };
+        assert!(!ControlAction::AudioUp.verified(&unknown, &muted(55), true));
+        // The same level change across a mute flip is judged by level too,
+        // while the mute action itself still needs the mute bit to toggle.
+        let audible = SystemStatus {
+            audio: Audio::Volume(55),
+            ..SystemStatus::default()
+        };
+        assert!(ControlAction::AudioUp.verified(&muted(50), &audible, true));
+        assert!(!ControlAction::AudioMute.verified(&muted(50), &muted(55), true));
+        // Implicit unmute is not required, and a muted state stays muted.
+        assert_eq!(ControlAction::AudioUp.state_label(&muted(55)), "Mute");
     }
 
     #[test]

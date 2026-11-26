@@ -17,8 +17,12 @@
 #   success       exact argv, exactly one mutation, visible state changes
 #                 (pointer on both rices; wtype keys on both for Wi-Fi and mute)
 #   error         non-zero exit: exactly one attempt, NO replay, state unchanged,
-#                 failure visible (v7 caption "Failed", Luna volume OSD)
+#                 failure visible (v7 caption "Failed", Luna volume OSD, Luna
+#                 Wi-Fi menu row "(failed)"), cleared by the next successful action
+#   muted volume  Vol +/- while muted: a good write is applied and the sink
+#                 stays muted (no implicit unmute); a failing write is Failed
 #   fake success  exit 0 without a state change is shown as failed, not applied
+#                 (also for a volume write while muted)
 #   slow/pending  repeat and cross-control clicks while pending are refused (no
 #                 second mutation); v7 shows the Wait caption while pending
 #   hung          (Wi-Fi) provider killed at the 4 s bound, no late mutation
@@ -407,9 +411,9 @@ ui() {
 }
 # After a failed or ineffective click:
 #   v7    the control's own caption shows "Failed" (differs from the prior one);
-#   luna  a failed volume change raises the volume OSD ("Change failed");
-#         a failed Wi-Fi change has no failure indicator because the status
-#         menu closes, so the honest evidence is "the visible state did not move".
+#   luna  a failed volume change raises the volume OSD ("Change failed"); a
+#         failed Wi-Fi change makes the status menu row say "(failed)" when the
+#         menu is opened again (same state word as the v7 caption / AT-SPI).
 # The first failure presentation of each control is remembered in fail_<control>.
 assert_failed_visible() {
     control=$1
@@ -417,7 +421,7 @@ assert_failed_visible() {
     prior=$3
     case "$rice:$control" in
         v7:*) now=$(vis "$control"); changed "$now" "$prior" "$tag (Failed caption expected)" ;;
-        luna:wifi) now=$(vis wifi); same "$now" "$prior" "$tag" ;;
+        luna:wifi) now=$(vis wifi); changed "$now" "$prior" "$tag (menu row must say failed)" ;;
         luna:*) now=$osd_now; changed "$now" "$base_osd" "$tag (OSD 'Change failed' expected)" ;;
     esac
     eval "fail_$control=\$now"
@@ -428,7 +432,10 @@ assert_same_failure() {
     tag=$2
     case "$rice:$control" in
         v7:*) now=$(vis "$control"); eval "expected=\$fail_$control" ;;
-        luna:wifi) now=$(vis wifi); expected=$3 ;;
+        luna:wifi)
+            now=$(vis wifi)
+            [ "$now" != "$3" ] || fail "$tag: Luna menu row does not say failed"
+            return 0 ;;
         luna:*) now=$osd_now; eval "expected=\$fail_$control" ;;
     esac
     [ "$now" = "$expected" ] || fail "$tag: failure presentation differs from the plain error"
@@ -468,43 +475,71 @@ error_phase() {
     expect_provider wifi=enabled
     assert_failed_visible wifi "error wifi" "$prior"
     no_replay "error wifi" 2
+    # The failure clears on the next successful action, of any control. The
+    # successful action here is a mute, which also leaves the sink muted for
+    # the volume checks below.
+    set_mode ok
+    attempt mute press "successful action after a failed Wi-Fi click"
+    expect_provider mute=1
+    same "$(vis wifi)" "$prior" "Wi-Fi failure must clear after the next successful action"
+    set_mode fail
+    attempt wifi press "error wifi again"
     set_mode ok
     attempt wifi press "recovery wifi"
     expect_provider wifi=disabled
     changed "$(vis wifi)" "$fail_wifi" "recovery wifi"
-    pass "Wi-Fi error: one attempt, no replay, state unchanged, failure shown; next click recovers"
+    pass "Wi-Fi error: one attempt, no replay, state unchanged, failure shown (v7 caption, Luna menu row); cleared by the next successful action; next click recovers"
 
+    # Volume while MUTED: a successful write changes the level and is reported
+    # as applied while the sink stays muted (no implicit unmute); a failing
+    # write is still a failure.
     for control in up down; do
         volume_before=$(cat "$state/volume")
         set_mode fail
         prior=$(ui "$control")
-        attempt "$control" press "error $control"
-        expect_provider "volume=$volume_before"
-        assert_failed_visible "$control" "error $control" "$prior"
+        attempt "$control" press "error $control (muted)"
+        expect_provider "volume=$volume_before" "mute=1"
+        assert_failed_visible "$control" "error $control (muted)" "$prior"
         set_mode ok
-        attempt "$control" press "recovery $control"
-        if [ "$control" = up ]; then expect_provider volume=55; else expect_provider volume=50; fi
-        pass "volume $control error: one attempt, volume unchanged, failure shown; next click recovers"
+        attempt "$control" press "recovery $control (muted)"
+        if [ "$control" = up ]; then expect_provider volume=55 mute=1; else expect_provider volume=50 mute=1; fi
+        case "$rice" in
+            v7)
+                applied=$(vis "$control")
+                changed "$applied" "$(eval echo \$fail_$control)" "$control while muted must not look failed"
+                same "$applied" "$prior" "$control while muted must stay visibly muted"
+                ;;
+            luna)
+                eval "failed_osd=\$fail_$control"
+                changed "$osd_now" "$failed_osd" "$control while muted must not show 'Change failed'"
+                changed "$osd_now" "$base_osd" "$control while muted must show the (muted) volume OSD"
+                ;;
+        esac
+        pass "volume $control while muted: error is one failed attempt; a good write is applied, the sink stays muted (no implicit unmute)"
     done
     prior=$(ui mute)
     set_mode fail
     attempt mute press "error mute"
-    expect_provider mute=0
+    expect_provider mute=1
     assert_failed_visible mute "error mute" "$prior"
     no_replay "error mute" 1.5
     set_mode ok
-    attempt mute press "recovery mute"
-    expect_provider mute=1
-    attempt mute press "unmute"
+    attempt mute press "recovery mute (unmute)"
     expect_provider mute=0
     pass "mute error: one attempt, no replay, mute unchanged, failure shown; next click recovers"
 }
 
 noop_phase() {
     # Fake success: exit status 0 but the provider did not change. RicePlate
-    # must read the state back and refuse to present that as applied.
+    # must read the state back and refuse to present that as applied. The
+    # volume no-op is run while muted: a real no-op write is still a failure.
     set_mode noop
     for control in wifi up; do
+        if [ "$control" = up ]; then
+            set_mode ok
+            attempt mute press "mute before the muted volume no-op"
+            set_mode noop
+        fi
         snapshot=$(cat "$state/wifi" "$state/mute" "$state/volume")
         prior=$(ui "$control")
         attempt "$control" press "no-op $control"
@@ -512,7 +547,9 @@ noop_phase() {
         assert_same_failure "$control" "no-op $control (exit 0, no state change)" "$prior"
     done
     set_mode ok
-    pass "exit 0 without a state change is shown as failed, never as applied"
+    attempt mute press "unmute after the no-op"
+    expect_provider mute=0
+    pass "exit 0 without a state change is shown as failed, never as applied (also for volume while muted)"
 }
 
 slow_phase() {

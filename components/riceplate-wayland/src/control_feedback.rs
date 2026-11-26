@@ -115,6 +115,7 @@ mod tests {
             audio: Audio::Volume(45),
             wifi: WifiRadio::Enabled,
             bluetooth: BluetoothRadio::Enabled,
+            muted_level: None,
         }
     }
 

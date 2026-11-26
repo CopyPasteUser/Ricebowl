@@ -231,7 +231,7 @@ mod tests {
             pins: vec![first.clone()],
         };
         assert!(parse(&serde_json::to_vec(&saved).unwrap(), TEST_ID, &data).is_err());
-        assert!(!valid("../classic", &data, &[first.clone()]));
+        assert!(!valid("../classic", &data, std::slice::from_ref(&first)));
         assert!(!valid(TEST_ID, &data, &[first.clone(), first]));
         assert!(!valid(TEST_ID, &data, &["not-a-recipe-action".into()]));
     }

@@ -353,6 +353,18 @@ impl MenuPopup {
         true
     }
 
+    /// Replace the rows of an open native status menu with a fresh readback
+    /// (control result, availability) while keeping the selected position.
+    /// Provider-owned DBusMenus are never touched.
+    pub fn replace_local_rows(&mut self, rows: Vec<MenuRow>) -> bool {
+        if !self.is_local() || rows.is_empty() {
+            return false;
+        }
+        self.rows = rows.into_iter().take(MAX_MENU_NODES).collect();
+        self.ensure_selection(1);
+        true
+    }
+
     pub fn is_local(&self) -> bool {
         self.visible && self.bus_name.is_empty()
     }
