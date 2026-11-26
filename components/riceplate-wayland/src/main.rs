@@ -7455,12 +7455,11 @@ impl RicePlate {
         let Some(target) = self.tray_popup_target(source) else {
             return;
         };
-        let Some((title, rows)) = luna_status_rows(
-            widget,
-            &self.system_status,
-            &self.power,
-            |action| self.control_feedback(action),
-        ) else {
+        let Some((title, rows)) =
+            luna_status_rows(widget, &self.system_status, &self.power, |action| {
+                self.control_feedback(action)
+            })
+        else {
             return;
         };
         let mut popup = tray::MenuPopup::default();
@@ -7513,12 +7512,9 @@ impl RicePlate {
         if !self.tray_menu_state.is_local() {
             return;
         }
-        let rows = luna_status_rows(
-            widget,
-            &self.system_status,
-            &self.power,
-            |action| self.control_feedback(action),
-        )
+        let rows = luna_status_rows(widget, &self.system_status, &self.power, |action| {
+            self.control_feedback(action)
+        })
         .map(|(_, rows)| rows);
         if rows.is_some_and(|rows| self.tray_menu_state.replace_local_rows(rows)) {
             self.redraw_tray_popup();
@@ -15347,12 +15343,22 @@ mod tests {
     #[test]
     fn luna_native_status_menus_have_real_capability_gates() {
         let unavailable = SystemStatus::default();
-        let (_, network) =
-            luna_status_rows(Widget::Network, &unavailable, &PowerStatus::NotPresent, |_| ControlFeedback::Ready).unwrap();
+        let (_, network) = luna_status_rows(
+            Widget::Network,
+            &unavailable,
+            &PowerStatus::NotPresent,
+            |_| ControlFeedback::Ready,
+        )
+        .unwrap();
         assert!(!network[1].enabled);
         assert!(network[2].enabled);
-        let (_, audio) =
-            luna_status_rows(Widget::Audio, &unavailable, &PowerStatus::NotPresent, |_| ControlFeedback::Ready).unwrap();
+        let (_, audio) = luna_status_rows(
+            Widget::Audio,
+            &unavailable,
+            &PowerStatus::NotPresent,
+            |_| ControlFeedback::Ready,
+        )
+        .unwrap();
         assert!(audio[1..4].iter().all(|row| !row.enabled));
         let active = SystemStatus {
             network: system_status::Network::Global,
@@ -15362,13 +15368,24 @@ mod tests {
             muted_level: None,
         };
         let (_, network) =
-            luna_status_rows(Widget::Network, &active, &PowerStatus::NotPresent, |_| ControlFeedback::Ready).unwrap();
+            luna_status_rows(Widget::Network, &active, &PowerStatus::NotPresent, |_| {
+                ControlFeedback::Ready
+            })
+            .unwrap();
         assert!(network[1].enabled);
         let (_, volume) =
-            luna_status_rows(Widget::Audio, &active, &PowerStatus::NotPresent, |_| ControlFeedback::Ready).unwrap();
+            luna_status_rows(Widget::Audio, &active, &PowerStatus::NotPresent, |_| {
+                ControlFeedback::Ready
+            })
+            .unwrap();
         assert!(volume[1..4].iter().all(|row| row.enabled));
         assert_eq!(volume[4].id, 102);
-        assert!(luna_status_rows(Widget::Tray, &active, &PowerStatus::NotPresent, |_| ControlFeedback::Ready).is_none());
+        assert!(
+            luna_status_rows(Widget::Tray, &active, &PowerStatus::NotPresent, |_| {
+                ControlFeedback::Ready
+            })
+            .is_none()
+        );
     }
 
     #[test]

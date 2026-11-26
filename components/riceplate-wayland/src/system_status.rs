@@ -305,9 +305,7 @@ impl SystemStatus {
             } else {
                 Network::Unavailable
             },
-            audio: output
-                .as_deref()
-                .map_or(Audio::Unavailable, Audio::parse),
+            audio: output.as_deref().map_or(Audio::Unavailable, Audio::parse),
             wifi: if include_network {
                 command_output("nmcli", &["--wait", "1", "radio", "wifi"])
                     .map(|output| WifiRadio::parse(&output))
@@ -529,7 +527,10 @@ mod tests {
 
     #[test]
     fn volume_change_while_muted_is_verified_by_level_without_unmuting() {
-        assert_eq!(Audio::parse_parts("Volume: 0.55 [MUTED]\n"), Some((55, true)));
+        assert_eq!(
+            Audio::parse_parts("Volume: 0.55 [MUTED]\n"),
+            Some((55, true))
+        );
         assert_eq!(Audio::parse_parts("Volume: 0.55\n"), Some((55, false)));
         assert_eq!(Audio::parse_parts("Volume: nan"), None);
         let muted = |level| SystemStatus {
