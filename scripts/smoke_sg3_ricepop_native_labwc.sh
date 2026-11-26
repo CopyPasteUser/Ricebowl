@@ -10,7 +10,27 @@
 #
 # Mako comes from PATH: the source-locked 1.11 build in smoke_real_mako_111.sh,
 # or the distribution Mako (1.8) when run directly.
+#
+# Usage: smoke_sg3_ricepop_native_labwc.sh [luna|chrome|luna-de|luna-nofonts]
+#   luna    XP Luna: native inbox (live updates, keyboard, AT-SPI, restart,
+#           privacy), volume OSD, rendered-text/localization matrix.
+#   luna-de       fresh Luna panel started with LC_ALL=de_DE.UTF-8: German OSD labels.
+#   luna-nofonts  fresh Luna panel with RICEBOWL_SYSTEM_FONT_FALLBACK=0: the
+#                 visible '?' replacement for scripts without a system font.
+#   (A panel restart inside one compositor session stops receiving keyboard
+#   focus after the first replacement, hence one compositor per variant.)
+#   chrome  Centered minimal shelf: no native inbox by design; volume OSD and
+#           the RiceSpice GTK RicePop inbox (its only inbox) on the same real
+#           Mako, plus the German accessible names.
 set -eu
+mode=${1:-luna}
+case "$mode" in
+    luna|chrome) rice=$mode; plate_env="" ;;
+    luna-de) rice=luna; plate_env="LC_ALL=de_DE.UTF-8" ;;
+    luna-nofonts) rice=luna; plate_env="RICEBOWL_SYSTEM_FONT_FALLBACK=0" ;;
+    *) echo "usage: $0 [luna|chrome|luna-de|luna-nofonts]" >&2; exit 2 ;;
+esac
+export SG3_MODE=$mode SG3_PLATE_ENV=$plate_env
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 native="$root/components/riceplate-wayland/target/release/riceplate-native"
 clicker="$root/components/riceplate-wayland/target/release/examples/wayland_pointer_click"
@@ -40,17 +60,49 @@ cat >"$runtime/bin/ricebowl" <<EOF
 exec /usr/bin/python3 "$root/launcher.py" "\$@"
 EOF
 chmod 0755 "$runtime/bin/ricebowl"
+# Private audio provider shims for the volume OSD (WP3.1): the native panel
+# reads the default sink with `wpctl get-volume` and wakes on `pactl subscribe`
+# events. The driver changes "audio" by writing $SG3_AUDIO_DIR/volume and
+# appending an event line; no real PipeWire/Pulse is ever touched.
+mkdir -m 0700 "$runtime/audio"
+printf 'Volume: 0.50\n' >"$runtime/audio/volume"
+: >"$runtime/audio/events"
+cat >"$runtime/bin/wpctl" <<'SG3_WPCTL'
+#!/bin/sh
+PATH=/usr/bin:/bin
+case "$*" in
+    "get-volume @DEFAULT_AUDIO_SINK@") exec cat "$SG3_AUDIO_DIR/volume" ;;
+    *) exit 64 ;;  # this smoke never mutates audio
+esac
+SG3_WPCTL
+cat >"$runtime/bin/pactl" <<'SG3_PACTL'
+#!/bin/sh
+PATH=/usr/bin:/bin
+test "$*" = subscribe || exit 64
+exec tail -n 0 -F "$SG3_AUDIO_DIR/events"
+SG3_PACTL
+chmod 0755 "$runtime/bin/wpctl" "$runtime/bin/pactl"
+export SG3_AUDIO_DIR="$runtime/audio"
 export PATH="$runtime/bin:$root/components/riceplate-wayland/target/release:$PATH"
 
 cp "$root/examples/wayland/xp-luna-columns.json" "$runtime/luna.json"
 chmod 0600 "$runtime/luna.json"
-/usr/bin/python3 - "$root" "$runtime" <<'PY'
+if [ "$rice" = luna ]; then
+    recipe_source="$root/examples/wayland/xp-luna-columns.json"
+    plate_args="--recipe $runtime/luna.json"
+else
+    recipe_source="$root/macrice/de/resources/recipes/chrome.json"
+    plate_args="--recipe chrome"
+fi
+export SG3_RICE=$rice SG3_PLATE_ARGS="$plate_args"
+/usr/bin/python3 - "$root" "$runtime" "$recipe_source" <<'PY'
 from pathlib import Path
 import sys
-root, runtime = map(Path, sys.argv[1:])
+root, runtime, source = map(Path, sys.argv[1:])
 sys.path.insert(0, str(root))
 from macrice.de import recipes, session
-rice = recipes.parse((root / "examples/wayland/xp-luna-columns.json").read_bytes())
+# Bundled legacy panel recipes (Chrome) have no custom compositor menu.
+rice = None if source.name == "chrome.json" else recipes.parse(source.read_bytes())
 config = session._custom_labwc_config(rice, str(runtime), native_luna_hotkeys=True)
 (runtime / "config-path").write_text(str(config))
 PY
@@ -89,14 +141,21 @@ dbus-run-session -- sh -eu -c '
         org.freedesktop.DBus.Properties.Set \
         string:org.a11y.Status string:IsEnabled variant:boolean:true >/dev/null
 
-    "$native" --recipe "$runtime/luna.json" >"$runtime/native.log" 2>&1 &
+    # shellcheck disable=SC2086
+    # shellcheck disable=SC2086
+    env $SG3_PLATE_ENV "$native" $SG3_PLATE_ARGS >"$runtime/native.log" 2>&1 &
     plate=$!
     count=0
-    while [ "$count" -lt 50 ] && [ ! -S "$runtime/riceplate-luna-desktop.sock" ]; do
+    if [ "$SG3_RICE" = luna ]; then
+        while [ "$count" -lt 50 ] && [ ! -S "$runtime/riceplate-luna-desktop.sock" ]; do
+            kill -0 "$plate" 2>/dev/null || { sed -n "1,100p" "$runtime/native.log" >&2; exit 1; }
+            count=$((count + 1)); sleep 0.2
+        done
+        test -S "$runtime/riceplate-luna-desktop.sock" || exit 1
+    else
+        sleep 2
         kill -0 "$plate" 2>/dev/null || { sed -n "1,100p" "$runtime/native.log" >&2; exit 1; }
-        count=$((count + 1)); sleep 0.2
-    done
-    test -S "$runtime/riceplate-luna-desktop.sock" || exit 1
+    fi
 
     # The driver owns the scenario; it gets the PIDs it may kill/restart.
     SG3_NATIVE_PID=$plate SG3_RUNTIME=$runtime SG3_ROOT=$root \

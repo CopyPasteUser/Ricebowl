@@ -340,7 +340,9 @@ jobs:
       - name: Prove native RicePop inbox against real Mako 1.11 under labwc
         run: |
           export PATH="$RUNNER_TEMP/ricebowl-sg3-mako-build:$PATH"
-          timeout -k 5s 150s sh scripts/smoke_sg3_ricepop_native_labwc.sh
+          for mode in luna luna-de luna-nofonts chrome; do
+            timeout -k 5s 200s sh scripts/smoke_sg3_ricepop_native_labwc.sh "$mode"
+          done
       - name: Prove SG1 window/launcher/clock/SNI/desktop-file/output interaction negatives under labwc
         run: timeout -k 5s 300s sh scripts/smoke_sg1_interaction_labwc.sh
       # Ubuntu 24.04 packages labwc 0.7.1, which predates upstream's
