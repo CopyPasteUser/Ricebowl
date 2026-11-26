@@ -98,9 +98,9 @@ class InteractionSmokeContractTests(unittest.TestCase):
         syntax = subprocess.run(["sh", "-n", str(SMOKE)], capture_output=True,
                                 text=True, check=False)
         self.assertEqual(syntax.returncode, 0, syntax.stderr)
-        for stage in ("windows", "launcher", "clock", "sni", "files"):
+        for stage in ("windows", "launcher", "clock", "sni", "files", "outputs"):
             self.assertIn(f"stage_{stage}() {{", self.source)
-        self.assertIn("for s in windows launcher clock sni files; do run_stage", self.source)
+        self.assertIn("for s in windows launcher clock sni files outputs; do run_stage", self.source)
         self.assertNotIn("sudo ", self.source)
 
     def test_negative_paths_stay_genuine(self):
@@ -118,6 +118,9 @@ class InteractionSmokeContractTests(unittest.TestCase):
                 "kill -9 \"$plate\"",               # RicePlate transient loss
                 "secondary click fell back to a provider item method",
                 "--right-click 1200",
+                "WLR_HEADLESS_OUTPUTS=2 labwc",
+                'wlr-randr --output "$o1" --off',
+                'wlr-randr --output "$o1" --scale 1.5',
                 "--plain"):
             self.assertIn(needle, self.source, needle)
 
@@ -128,6 +131,22 @@ class InteractionSmokeContractTests(unittest.TestCase):
         self.assertEqual(workflow.count(f"- '{name}'"), 2)
         self.assertIn(f"sh -n {name}", workflow)
         self.assertEqual(workflow.count(f"sh {name}"), 1)
+
+    def test_output_removal_closes_transient_surfaces(self):
+        # Structural guard for the product fix behind WP1.8: removing an
+        # output must close the Start menu (an invisible menu kept keyboard
+        # focus and launched its highlighted entry on Return), the tray
+        # popup and the calendar. Compositor proof: stage `outputs`.
+        native = (ROOT / "components/riceplate-wayland/src/main.rs").read_text(
+            encoding="utf-8")
+        begin = native.index("    fn output_destroyed(")
+        body = native[begin:native.index("impl SeatHandler for RicePlate", begin)]
+        for needle in ("self.set_menu_visible(false, qh);",
+                       "self.set_tray_popup_visible(false, qh);",
+                       "self.set_calendar_visible(false, qh);"):
+            self.assertIn(needle, body)
+        self.assertLess(body.index("self.set_menu_visible(false, qh);"),
+                        body.index("self.primary_output = None;"))
 
     @unittest.skipUnless(shutil.which("dbus-run-session") and
                          Path("/usr/bin/python3").exists(), "D-Bus runtime unavailable")

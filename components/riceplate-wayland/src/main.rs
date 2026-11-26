@@ -11956,6 +11956,21 @@ impl OutputHandler for RicePlate {
         if self.desktop_keyboard_focus_lease.output_removed(&output) {
             self.close_desktop_keyboard_focus();
         }
+        // Transient surfaces (Start menu, tray popup/menu, calendar) may have
+        // lived on the removed output. The compositor drops or strands them
+        // without a reliable `closed`, and a stranded menu keeps keyboard
+        // focus: an invisible Start menu would still launch its highlighted
+        // entry on Return. Output removal therefore closes them all; a fresh
+        // gesture reopens them on a live output.
+        if self.menu_state.visible {
+            self.set_menu_visible(false, qh);
+        }
+        if self.tray_menu_state.visible || self.active_tray_popup.is_some() {
+            self.set_tray_popup_visible(false, qh);
+        }
+        if self.calendar_state.visible {
+            self.set_calendar_visible(false, qh);
+        }
         if self.primary_output.as_ref() == Some(&output) {
             self.primary_output = None;
         }

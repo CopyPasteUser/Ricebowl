@@ -12,7 +12,9 @@
 #   sni     : secondary click on a Chrome (and Luna) tray item
 #   files   : Luna Desktop files multi-select, permission denied, drag,
 #             focus loss
-# SG1I_STAGES selects a subset for development (default: all).
+#   outputs : output scale change and hot-unplug/re-plug while the Luna Start
+#             menu and a tray popup are open (own two-output compositor; last)
+# SG1I_STAGES selects a subset for development (default: all, `outputs` last).
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 native="$root/components/riceplate-wayland/target/release/riceplate-native"
@@ -41,7 +43,7 @@ if [ "${1:-}" != --inner ]; then
 fi
 
 runtime=$SG1I_RUNTIME
-stages=${SG1I_STAGES:-windows launcher clock sni files}
+stages=${SG1I_STAGES:-windows launcher clock sni files outputs}
 cp "$root/examples/wayland/xp-luna-columns.json" "$runtime/luna.json"
 chmod 0600 "$runtime/luna.json"
 export XDG_CONFIG_HOME="$runtime/config"
@@ -807,8 +809,139 @@ SHIM
     echo "SG1 luna files: New Folder denied in a read-only Desktop, then recovers PASS"
 }
 
+# =========================================================================
+# WP1.8  output scale change and hotplug while menus are open
+# =========================================================================
+stage_outputs() {
+    # Own two-output compositor (the other stages use one output).
+    stop_plate
+    kill "$compositor" 2>/dev/null || :; wait "$compositor" 2>/dev/null || :
+    rm -f "$runtime/wayland-0" "$runtime/wayland-0.lock"
+    WLR_HEADLESS_OUTPUTS=2 labwc --config-dir "$root/macrice/de/resources/labwc" --startup true \
+        >"$runtime/labwc-2.log" 2>&1 &
+    compositor=$!
+    n=0; while [ ! -S "$runtime/wayland-0" ] && [ "$n" -lt 60 ]; do n=$((n + 1)); sleep .2; done
+    [ -S "$runtime/wayland-0" ] || fail "no Wayland socket for the two-output compositor"
+    set -- $(wlr-randr | sed -n 's/^\([^ ][^ ]*\) .*/\1/p')
+    [ "$#" = 2 ] || fail "expected two headless outputs, got $#"
+    o1=$1 o2=$2
+    wlr-randr --output "$o1" --custom-mode 1366x768@60Hz --scale 1 --pos 0,0 \
+              --output "$o2" --custom-mode 1366x768@60Hz --scale 1 --pos 1366,0
+    sleep .5
+    mkdir -m 0700 "$runtime/data-o" 2>/dev/null || :
+    export SG1I_GIO_LOG="$runtime/outputs-gio.log" SG1I_GIO_MODE="$runtime/outputs-gio.mode"
+    rm -f "$SG1I_GIO_LOG"; echo ok >"$SG1I_GIO_MODE"
+    cat >"$runtime/shims/gio" <<'SHIM'
+#!/bin/sh
+printf 'gio %s\n' "$*" >>"$SG1I_GIO_LOG"
+exit 0
+SHIM
+    chmod 0700 "$runtime/shims/gio"
+    log=$runtime/plate-outputs-luna.log
+    renew_keyboard_seat
+    start_plate "$runtime/luna.json" "$log" "PATH=$runtime/shims:$PATH"
+    sleep 1
+    launches() { count_lines "$SG1I_GIO_LOG" 'gio launch '; }
+    # The Start button (y>=705) legitimately shows hover while the pointer rests on it.
+    frame_diff() { region_changed "$1" "$2" 0 0 1366 705; }
+    start_click() { "$clicker" 35 748 2732 768 >/dev/null; sleep .6; }
+    # Baselines of the idle shell at both scales (menu closed).
+    grim -o "$o1" "$runtime/o1-1.0.png"
+    wlr-randr --output "$o1" --scale 1.5; sleep 1.2
+    grim -o "$o1" "$runtime/o1-1.5.png"
+    wlr-randr --output "$o1" --scale 1; sleep 1.2
+    [ "$(frame_diff "$runtime/o1-1.0.png" "$(grim -o "$o1" "$runtime/o1-1.0b.png"; echo "$runtime/o1-1.0b.png")")" -lt 300 ] \
+        || fail "idle shell did not return to its original frame after a scale round trip"
+    # 1. Start menu open while the output scale changes: it is re-laid out
+    # (never a stale-size ghost), its highlighted row keeps its meaning,
+    # Escape leaves no surface, and nothing launches by itself.
+    start_click
+    grim -o "$o1" "$runtime/o1-menu.png"
+    [ "$(frame_diff "$runtime/o1-1.0.png" "$runtime/o1-menu.png")" -gt 20000 ] || fail "Start menu did not open"
+    wlr-randr --output "$o1" --scale 1.5; sleep 1.5
+    grim -o "$o1" "$runtime/o1-menu-1.5.png"
+    [ "$(frame_diff "$runtime/o1-1.5.png" "$runtime/o1-menu-1.5.png")" -gt 20000 ] \
+        || fail "Start menu vanished or was left unpainted after the scale change"
+    [ "$(launches)" = 0 ] || fail "a scale change launched something"
+    wtype -k Return; sleep .6
+    [ "$(launches)" = 1 ] || fail "Return after the scale change did not launch the highlighted entry once ($(launches))"
+    grim -o "$o1" "$runtime/o1-after-launch.png"
+    [ "$(frame_diff "$runtime/o1-1.5.png" "$runtime/o1-after-launch.png")" -lt 300 ] \
+        || fail "Start menu stayed painted after its entry launched at the new scale"
+    start_click
+    wlr-randr --output "$o1" --scale 1; sleep 1.5
+    wtype -k Escape -k Escape; sleep .5
+    grim -o "$o1" "$runtime/o1-escaped.png"
+    [ "$(frame_diff "$runtime/o1-1.0.png" "$runtime/o1-escaped.png")" -lt 300 ] \
+        || fail "a stale Start surface remained after scale change + Escape"
+    wtype -k Return; sleep .5
+    [ "$(launches)" = 1 ] || fail "Return on a closed Start menu launched something"
+    echo "SG1 luna: Start menu across a scale change re-lays out, keeps its highlight, leaves no ghost PASS"
+    # 2. Output hot-unplug while the menu is open on it.
+    start_click
+    wlr-randr --output "$o1" --off; sleep 1.5
+    wtype -k Return; sleep .6
+    [ "$(launches)" = 1 ] || fail "Return dispatched on a menu whose output was unplugged"
+    kill -0 "$plate" || fail "RicePlate died on output removal with a menu open"
+    wlr-randr --output "$o1" --on --custom-mode 1366x768@60Hz --scale 1 --pos 0,0; sleep 2
+    grim -o "$o1" "$runtime/o1-replugged.png"
+    [ "$(frame_diff "$runtime/o1-1.0.png" "$runtime/o1-replugged.png")" -lt 400 ] \
+        || fail "a ghost menu or missing panel after output re-plug"
+    start_click
+    wtype -k Return; sleep .6
+    [ "$(launches)" = 2 ] || fail "Start menu did not recover after re-plug ($(launches))"
+    echo "SG1 luna: output unplug with Start open dispatches nothing, re-plug restores a clean shell PASS"
+    stop_plate
+    # 3. Tray popup (real SNI provider) across a scale change and an unplug.
+    for rice in luna chrome; do
+        recipe=chrome tray_x=1270
+        if [ "$rice" = luna ]; then recipe=$runtime/luna.json tray_x=1185; fi
+        log=$runtime/plate-outputs-$rice.log
+        renew_keyboard_seat
+        start_plate "$recipe" "$log"
+        gen=$rice-out
+        start_provider "$gen"
+        wait_count "$log" 'RicePlate: SNI DBusMenu snapshot ready' 1 80 || fail "$rice: no DBusMenu snapshot"
+        tray_open() {
+            seen=$(count_lines "$log" 'compositor confirmed tray popup keyboard focus')
+            "$clicker" --right-click "$tray_x" 746 2732 768 >/dev/null
+            wait_count "$log" 'compositor confirmed tray popup keyboard focus' $((seen + 1)) 40 \
+                || fail "$rice: tray popup did not open"
+        }
+        tray_clicked() { rcount "$gen" menu-event action clicked; }
+        tray_closed() { rcount "$gen" menu-event action closed; }
+        # Scale change: the popup is re-laid out, not stranded; its keyboard
+        # path still works and dispatches exactly one action per gesture.
+        tray_open
+        c0=$(tray_closed)
+        wlr-randr --output "$o1" --scale 1.5; sleep 1.5
+        [ "$(tray_closed)" = "$c0" ] || fail "$rice: a scale change closed a healthy popup"
+        wtype -k Return -s 300 -k Return; sleep .6
+        [ "$(tray_clicked)" = 1 ] || fail "$rice: popup after a scale change dispatched $(tray_clicked) actions, expected 1"
+        wlr-randr --output "$o1" --scale 1; sleep 1.5
+        # Unplug: the owner is told the menu closed and no key reaches it.
+        renew_keyboard_seat
+        tray_open
+        c0=$(tray_closed)
+        wlr-randr --output "$o1" --off; sleep 1.5
+        [ "$(tray_closed)" -gt "$c0" ] || fail "$rice: provider was not told the menu closed on output removal"
+        wtype -k Return -s 300 -k Return; sleep .6
+        [ "$(tray_clicked)" = 1 ] || fail "$rice: keys after output removal reached the provider menu"
+        kill -0 "$plate" || fail "$rice: RicePlate died on output removal with a popup open"
+        wlr-randr --output "$o1" --on --custom-mode 1366x768@60Hz --scale 1 --pos 0,0; sleep 2
+        renew_keyboard_seat
+        tray_open
+        wtype -k Return -s 300 -k Return; sleep .6
+        [ "$(tray_clicked)" = 2 ] || fail "$rice: tray popup did not recover after re-plug ($(tray_clicked))"
+        stop_provider
+        stop_plate
+        echo "SG1 $rice: tray popup across scale change (one action) and unplug (closed, no leak) + re-plug PASS"
+    done
+    rm -f "$runtime/shims/gio"
+}
+
 run_stage() {
     case " $stages " in *" $1 "*) "stage_$1";; esac
 }
-for s in windows launcher clock sni files; do run_stage "$s"; done
+for s in windows launcher clock sni files outputs; do run_stage "$s"; done
 echo "PASS smoke_sg1_interaction_labwc ($stages)"
