@@ -66,7 +66,7 @@ in `/home/rbdev/Ricebowl/components/riceplate-wayland`, then `chown`).
 | 1.7 | Remote SNI invalid secondary click on Chrome, end to end | Smoke receipt | L | S |
 | 1.8 | Hotplug and scale change while menus are open; provider update during input | Deterministic smoke, no stale surfaces | L | O |
 | 1.9 | Finish PR #601 | Local exact-head run, guarded self-merge per governance | L | S |
-| 1.10 | Wire `smoke_sg1_window_recovery_labwc.sh` and `smoke_riceplate_windows.sh --chrome` into the native workflow (found unreferenced by WP1.1); integration-lane file | Workflow step exists | L (edit) / CI | S |
+| 1.10 | **DONE (wired, runs from Dec):** wire `smoke_sg1_window_recovery_labwc.sh`, `smoke_sg1_status_labwc.sh` and `smoke_riceplate_windows.sh --chrome` into the native workflow (found unreferenced by WP1.1); integration-lane file | Workflow step exists | L (edit) / CI | S |
 | 1.11 | Formal evidence | Exact-head + exact-main runs | CI | – |
 
 ## SG2 — RiceSpice (2/4)

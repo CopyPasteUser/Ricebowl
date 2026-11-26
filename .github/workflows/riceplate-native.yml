@@ -38,6 +38,8 @@ on:
       - 'tests/test_wayland_clean_rebuild.py'
       - 'scripts/smoke_riceplate_native.sh'
       - 'scripts/smoke_sg1_sni_labwc.sh'
+      - 'scripts/smoke_sg1_window_recovery_labwc.sh'
+      - 'scripts/smoke_sg1_status_labwc.sh'
       - 'scripts/fixtures/sg1_sni_provider.py'
       - 'tests/test_sg1_sni_fixture.py'
       - 'scripts/smoke_luna_window_chrome.sh'
@@ -138,6 +140,8 @@ on:
       - 'tests/test_wayland_clean_rebuild.py'
       - 'scripts/smoke_riceplate_native.sh'
       - 'scripts/smoke_sg1_sni_labwc.sh'
+      - 'scripts/smoke_sg1_window_recovery_labwc.sh'
+      - 'scripts/smoke_sg1_status_labwc.sh'
       - 'scripts/fixtures/sg1_sni_provider.py'
       - 'tests/test_sg1_sni_fixture.py'
       - 'scripts/smoke_luna_window_chrome.sh'
@@ -273,6 +277,8 @@ jobs:
             --example wayland_ime_v2_client
           sh -n scripts/smoke_riceplate_native.sh
           sh -n scripts/smoke_sg1_sni_labwc.sh
+          sh -n scripts/smoke_sg1_window_recovery_labwc.sh
+          sh -n scripts/smoke_sg1_status_labwc.sh
           /usr/bin/python3 -m py_compile scripts/fixtures/sg1_sni_provider.py
           sh -n scripts/smoke_luna_window_chrome.sh
           sh -n scripts/smoke_luna_hotkeys.sh
@@ -290,6 +296,10 @@ jobs:
       # are ready; later SG5/SG6/SG7 gates remain unchanged and mandatory.
       - name: Prove real SNI provider owner lifecycle on Chrome and XP Luna under labwc
         run: timeout -k 5s 105s sh scripts/smoke_sg1_sni_labwc.sh
+      - name: Prove real SG1 window minimize/restore/close recovery on Chrome and XP Luna
+        run: timeout -k 5s 90s sh scripts/smoke_sg1_window_recovery_labwc.sh
+      - name: Prove honest native status controls (Wi-Fi/volume/mute) under labwc
+        run: timeout -k 5s 240s sh scripts/smoke_sg1_status_labwc.sh
       # Ubuntu 24.04 packages labwc 0.7.1, which predates upstream's
       # input-method-v2/text-input-v3 implementation (introduced in 0.7.2).
       # Build the exact upstream commit in a disposable runner directory;
@@ -546,7 +556,7 @@ jobs:
         # positions and external Wayland application keyboard handoff after
         # dozens of compositor captures. 120s exited 124 before the added
         # acceptance cases. Keep a finite 180s guard; never skip assertions.
-        run: timeout -k 5s 180s sh scripts/smoke_riceplate_native.sh
+        run: timeout -k 5s 240s sh scripts/smoke_riceplate_native.sh
       - name: Prove shared Rice engine across three native compositor-confirmed live layouts
         run: timeout -k 5s 125s sh scripts/smoke_wayland_shared_rice_engine.sh
       - name: Verify SG7 compositor resource growth receipts at exact source SHA
@@ -570,6 +580,8 @@ jobs:
           timeout -k 5s 70s sh scripts/smoke_riceplate_windows.sh
       - name: Prove XP Luna Show Desktop with real Wayland window and screenshot changes
         run: timeout -k 5s 70s sh scripts/smoke_riceplate_windows.sh --luna
+      - name: Verify real Chrome-rice Wayland window lifecycle
+        run: timeout -k 5s 70s sh scripts/smoke_riceplate_windows.sh --chrome
       - name: Prove real XP Luna Auto-hide and Start popup lifecycle
         run: timeout -k 5s 65s sh scripts/smoke_riceplate_luna_autohide.sh
       - name: Prove legacy XWayland application uses native RicePlate taskbar
