@@ -11,7 +11,17 @@ sh -n scripts/smoke_wayland_mint_compat.sh
 # Resolve the mutable Docker Hub tag once, record the immutable
 # digest, then execute ONLY that downloaded digest. Nothing is
 # installed on the Ubuntu runner or the user's desktop.
-docker pull linuxmintd/mint22.1-amd64:latest
+# Local adaptation: a registry refusal (e.g. Docker Hub 429 rate limit) falls
+# back to the already-pulled local image, whose digest is still pinned and
+# logged below; with no local image the step is BLOCKED, never faked.
+if ! docker pull linuxmintd/mint22.1-amd64:latest; then
+  if docker image inspect linuxmintd/mint22.1-amd64:latest >/dev/null 2>&1; then
+    echo "LOCAL_CI_NOTE: registry pull failed; using the cached local image"
+  else
+    echo "LOCAL_CI_BLOCKED: Mint 22.1 image unavailable (registry pull failed, no cached image)"
+    exit 77
+  fi
+fi
 image=$(docker image inspect --format '{{index .RepoDigests 0}}' linuxmintd/mint22.1-amd64:latest)
 case "$image" in
   linuxmintd/mint22.1-amd64@sha256:*|docker.io/linuxmintd/mint22.1-amd64@sha256:*) ;;
