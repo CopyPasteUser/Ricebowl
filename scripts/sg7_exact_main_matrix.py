@@ -19,6 +19,7 @@ from check_release_workflows import (
     REQUIRED, REQUIRED_JOBS, WorkflowGateError, fetch_evidence,
     fetch_job_evidence, validate_runs, validate_jobs,
 )
+from sg7_dossier_io import publish_dossier
 
 # Exact step names are deliberately strict: renamed/skipped/missing acceptance
 # steps must be reviewed and reflected in the dossier, never silently passed.
@@ -194,10 +195,8 @@ def main(argv: list[str] | None = None) -> int:
             jobs = {}
         report = evaluate(evidence, jobs, sha=sha, main_sha=main_sha,
                           repository=repo, open_prs=open_prs)
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        with args.output.open("x", encoding="utf-8") as stream:
-            json.dump(report, stream, sort_keys=True, indent=2)
-            stream.write("\n")
+        # Atomic, write-once, 0600 (ported from draft PR #596).
+        publish_dossier(args.output, report)
     except (OSError, ValueError, urllib.error.URLError, WorkflowGateError) as exc:
         print(f"SG7: evidence collection failed closed: {exc}", file=sys.stderr)
         return 2
