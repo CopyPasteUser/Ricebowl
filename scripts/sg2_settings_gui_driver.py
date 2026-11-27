@@ -23,7 +23,8 @@ With no sub-command it is the DRIVER. Per RiceSpice page it proves the baseline,
   * the fake provider's call log: no replayed write, no write behind a refused
     busy click.
 Buttons are pressed with real compositor pointer events; check boxes use AT-SPI
-actions (a ``wtype`` key does not reach GTK3 toplevels in this harness).
+actions (a ``wtype`` key sent alone or last does nothing in a GTK3 toplevel: GDK3 ignores the
+highest keycode of wtype's keymap; see GTK_PAD_KEY in smoke_sg3_ricepop_native_driver.py).
 
 Every receipt line is "PASS: <cell>".
 """

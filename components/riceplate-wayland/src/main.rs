@@ -48,6 +48,7 @@ mod power;
 mod raster;
 mod recipe;
 mod ricepop;
+mod ricepop_text;
 mod seat_routing;
 mod shortcut_focus;
 mod sni_recovery;
@@ -58,6 +59,7 @@ mod task_groups;
 mod task_navigation;
 mod text_render;
 mod tray;
+mod ui_language;
 mod window_lifecycle;
 use control_feedback::ControlFeedback;
 use frame_scheduler::FrameGate;
@@ -823,7 +825,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         active_calendar: None,
         preview_secondary_calendar,
         menu_state: MenuState::with_pins_and_recents(saved_menu_pins, saved_menu_recents),
-        notification_state: NotificationState::default(),
+        notification_state: NotificationState::with_language(ui_language::Language::from_env()),
         notification_sender: None,
         calendar_state: CalendarState::new(Local::now().date_naive()),
         calendar_focused: false,
@@ -4681,26 +4683,27 @@ impl RicePlate {
             if self.notification_state.open {
                 let popup_size = self.active_menu_size();
                 let compact = native_menu::compact_layout(popup_size);
-                model.add(22_000, ROOT, AccessibleRole::Dialog, "Notifications", None);
+                let lang = self.notification_state.language;
+                model.add(
+                    22_000,
+                    ROOT,
+                    AccessibleRole::Dialog,
+                    ricepop_text::dialog_name(lang),
+                    None,
+                );
                 if self.notification_state.detail_id.is_none() {
                     model.add(
                         22_100,
                         22_000,
                         AccessibleRole::Tab,
-                        format!(
-                            "Active notifications: {}",
-                            self.notification_state.notices.len()
-                        ),
+                        ricepop_text::tab_active_name(lang, self.notification_state.notices.len()),
                         Some(Target::NotificationTab(false)),
                     );
                     model.add(
                         22_101,
                         22_000,
                         AccessibleRole::Tab,
-                        format!(
-                            "Past notifications: {}",
-                            self.notification_state.history.len()
-                        ),
+                        ricepop_text::tab_past_name(lang, self.notification_state.history.len()),
                         Some(Target::NotificationTab(true)),
                     );
                 }
@@ -4709,7 +4712,7 @@ impl RicePlate {
                         22_151,
                         22_000,
                         AccessibleRole::Status,
-                        "Notification host unavailable; retrying",
+                        ricepop_text::host_unavailable_retrying(lang),
                         None,
                     );
                 }
@@ -4721,7 +4724,7 @@ impl RicePlate {
                         22_152,
                         22_000,
                         AccessibleRole::Status,
-                        format!("Showing notifications {first} to {last} of {total}"),
+                        ricepop_text::page_status(lang, first, last, total),
                         None,
                     );
                 }
@@ -4730,17 +4733,23 @@ impl RicePlate {
                         22_150,
                         22_000,
                         AccessibleRole::Status,
-                        "Loading notifications",
+                        ricepop_text::loading_name(lang),
                         None,
                     );
                 } else if let Some(error) = self.notification_state.error {
-                    model.add(22_150, 22_000, AccessibleRole::Alert, error, None);
+                    model.add(
+                        22_150,
+                        22_000,
+                        AccessibleRole::Alert,
+                        ricepop_text::error(lang, error),
+                        None,
+                    );
                 } else if let Some(detail) = self.notification_state.detail_notice() {
                     model.add(
                         22_160,
                         22_000,
                         AccessibleRole::Group,
-                        format!("Notification from {}", detail.app_name),
+                        ricepop_text::detail_group(lang, &detail.app_name),
                         None,
                     );
                     model.add(
@@ -4767,14 +4776,14 @@ impl RicePlate {
                             22_163,
                             22_160,
                             AccessibleRole::Button,
-                            "Previous message page",
+                            ricepop_text::previous_page(lang),
                             Some(Target::NotificationBodyPage(-1)),
                         );
                         model.add(
                             22_164,
                             22_160,
                             AccessibleRole::Button,
-                            "Next message page",
+                            ricepop_text::next_page(lang),
                             Some(Target::NotificationBodyPage(1)),
                         );
                     }
@@ -4824,10 +4833,7 @@ impl RicePlate {
                             22_200 + index as u64,
                             22_000,
                             AccessibleRole::Button,
-                            format!(
-                                "View notification from {}: {}",
-                                notice.app_name, notice.summary
-                            ),
+                            ricepop_text::view_row(lang, &notice.app_name, &notice.summary),
                             Some(Target::NotificationSelect(index)),
                         );
                         if let Some(node) = model.elements.last_mut() {
@@ -4846,18 +4852,14 @@ impl RicePlate {
                     22_900,
                     22_000,
                     AccessibleRole::Button,
-                    if self.notification_state.detail_id.is_some() {
-                        "Back to notification list"
-                    } else {
-                        "Back to menu"
-                    },
+                    ricepop_text::back_name(lang, self.notification_state.detail_id.is_some()),
                     Some(Target::NotificationBack),
                 );
                 model.add(
                     22_901,
                     22_000,
                     AccessibleRole::Button,
-                    "Refresh notifications",
+                    ricepop_text::refresh_name(lang),
                     Some(Target::NotificationRefresh),
                 );
                 if let Some(id) = self.notification_state.selected_id() {
@@ -4865,7 +4867,7 @@ impl RicePlate {
                         22_902,
                         22_000,
                         AccessibleRole::Button,
-                        "Dismiss selected notification",
+                        ricepop_text::dismiss_name(lang),
                         Some(Target::NotificationDismiss(id)),
                     );
                 }
@@ -16988,6 +16990,250 @@ mod tests {
         let mut fresh_loading = vec![0_u8; len];
         paint_compact_notifications(&mut fresh_loading, &style, &fresh, size);
         assert_eq!(reloading_detail, fresh_loading);
+    }
+
+    fn ricepop_snapshot() -> ricepop::Snapshot {
+        ricepop::Snapshot {
+            owner_pid: None,
+            active: vec![ricepop::Notice {
+                id: 1,
+                summary: "Hallo".into(),
+                app_name: "Mail".into(),
+                body: "Text".into(),
+                actions: vec![ricepop::Action {
+                    key: "open".into(),
+                    label: "Open".into(),
+                }],
+                ..ricepop::Notice::default()
+            }],
+            history: vec![],
+        }
+    }
+
+    /// True when `canvas` shows `text` drawn at (x, y) in the bitmap face:
+    /// blank exactly that run with the flat `fill`, redraw it, and the whole
+    /// canvas must be unchanged.
+    fn shows_text(canvas: &[u8], width: u32, x: u32, y: u32, text: &str, fill: u32) -> bool {
+        let height = (canvas.len() / 4) as u32 / width;
+        let mut redrawn = canvas.to_vec();
+        let cells = text.chars().count() as u32 * 8;
+        raster::fill_rect(&mut redrawn, width, height, x, y, cells, 8, fill);
+        text_render::draw_text(&mut redrawn, width, height, x, y, text, 0xffff_ffff);
+        redrawn == canvas
+    }
+
+    #[test]
+    fn german_ricepop_labels_come_from_the_shared_catalog_in_the_real_painters() {
+        let mut style = recipe::load("classic").unwrap();
+        style.foreground = 0xffff_ffff;
+        let (width, height) = (native_menu::WIDTH, native_menu::HEIGHT);
+        let paint = |language: ui_language::Language, detail: bool, tab_history: bool| {
+            let mut state = NotificationState::with_language(language);
+            state.show_preview(ricepop_snapshot());
+            if tab_history {
+                state.select_tab(true);
+            }
+            if detail {
+                assert!(state.open_detail(0));
+            }
+            let mut canvas = vec![0; (width * height * 4) as usize];
+            paint_notifications(&mut canvas, &style, &state);
+            canvas
+        };
+        let english = ui_language::Language::English;
+        let german = ui_language::Language::German;
+        // English is the default and is byte-for-byte the historic painter.
+        assert_eq!(paint(english, false, false), {
+            let mut state = NotificationState::default();
+            state.show_preview(ricepop_snapshot());
+            let mut canvas = vec![0; (width * height * 4) as usize];
+            paint_notifications(&mut canvas, &style, &state);
+            canvas
+        });
+        let (list_en, list_de) = (paint(english, false, false), paint(german, false, false));
+        assert_ne!(list_en, list_de);
+        let (bg, active) = (style.background, style.active);
+        for (language, canvas, title, tab, past, back, refresh, dismiss) in [
+            (
+                english,
+                &list_en,
+                "Notifications",
+                "Active (1)",
+                "Past (0)",
+                "Esc Back",
+                "R Refresh",
+                "Del Dismiss",
+            ),
+            (
+                german,
+                &list_de,
+                "Benachrichtigungen",
+                "Aktiv (1)",
+                "Früher (0)",
+                "Esc Zurück",
+                "R Neu laden",
+                "Entf Schließen",
+            ),
+        ] {
+            assert!(
+                shows_text(canvas, width, 14, 15, title, active),
+                "{language:?} title"
+            );
+            assert!(
+                shows_text(canvas, width, 14, 54, tab, active),
+                "{language:?} tab"
+            );
+            assert!(
+                shows_text(canvas, width, 174, 54, past, bg),
+                "{language:?} past"
+            );
+            assert!(
+                shows_text(canvas, width, 14, 279, back, bg),
+                "{language:?} back"
+            );
+            assert!(
+                shows_text(canvas, width, 98, 279, refresh, bg),
+                "{language:?} refresh"
+            );
+            assert!(
+                shows_text(canvas, width, 193, 279, dismiss, bg),
+                "{language:?} dismiss"
+            );
+        }
+        // Detail view, the empty tab and a failure: translated UI text only.
+        let detail_de = paint(german, true, false);
+        assert!(shows_text(
+            &detail_de,
+            width,
+            14,
+            138,
+            "Aktionen (1) - Enter zum Ausführen",
+            bg
+        ));
+        assert!(shows_text(&detail_de, width, 14, 279, "Esc Liste", bg));
+        let empty_de = paint(german, false, true);
+        assert!(shows_text(
+            &empty_de,
+            width,
+            14,
+            120,
+            "Keine früheren Meldungen",
+            bg
+        ));
+        let mut failed = NotificationState::with_language(german);
+        let revision = failed.begin();
+        failed.update(revision, Err("Notification host unavailable"));
+        let mut canvas = vec![0; (width * height * 4) as usize];
+        paint_notifications(&mut canvas, &style, &failed);
+        assert!(shows_text(
+            &canvas,
+            width,
+            14,
+            120,
+            "Benachrichtigungsdienst nicht verfügbar",
+            bg
+        ));
+        assert!(shows_text(
+            &canvas,
+            width,
+            14,
+            145,
+            "Zum Wiederholen aktualisieren",
+            bg
+        ));
+        // Notification content is data and is never translated.
+        assert!(shows_text(&list_de, width, 18, 100, "Hallo", active));
+    }
+
+    #[test]
+    fn german_ricepop_compact_popup_translates_and_keeps_narrow_footers_apart() {
+        let mut style = recipe::load("classic").unwrap();
+        style.foreground = 0xffff_ffff;
+        for (size, back) in [((168, 144), "Esc"), ((320, 200), "Esc Zurück")] {
+            let mut state = NotificationState::with_language(ui_language::Language::German);
+            state.show_preview(ricepop_snapshot());
+            let mut canvas = vec![0; (size.0 * size.1 * 4) as usize];
+            paint_compact_notifications(&mut canvas, &style, &state, size);
+            let footer = size.1 - ricepop::COMPACT_FOOTER_HEIGHT;
+            assert!(shows_text(
+                &canvas,
+                size.0,
+                8,
+                10,
+                "Benachrichtigungen",
+                style.active
+            ));
+            assert!(shows_text(&canvas, size.0, 8, 43, "Aktiv 1", style.active));
+            assert!(shows_text(
+                &canvas,
+                size.0,
+                size.0 / 2 + 8,
+                43,
+                "Früher 0",
+                style.background
+            ));
+            assert!(shows_text(
+                &canvas,
+                size.0,
+                8,
+                footer + 9,
+                back,
+                style.background
+            ));
+            assert!(shows_text(
+                &canvas,
+                size.0,
+                size.0 / 3 + 4,
+                footer + 9,
+                "R Neu",
+                style.background
+            ));
+        }
+    }
+
+    #[test]
+    fn rtl_ricepop_summary_follows_unicode_bidi_runs_in_the_real_painter() {
+        // The native inbox paints a notification summary through the shared
+        // single-line BiDi layout: whole grapheme clusters in visual order,
+        // independent of which strong character starts the logical string.
+        // A Hebrew letter has no sprite in the 8x8 face, so it draws as one
+        // '?' per cluster: the run order is what these canvases pin.
+        let mut style = recipe::load("classic").unwrap();
+        style.foreground = 0xffff_ffff;
+        let (width, height) = (native_menu::WIDTH, native_menu::HEIGHT);
+        let row = |summary: &str| {
+            let mut state = NotificationState::default();
+            state.show_preview(ricepop::Snapshot {
+                owner_pid: None,
+                active: vec![ricepop::Notice {
+                    id: 1,
+                    summary: summary.into(),
+                    ..ricepop::Notice::default()
+                }],
+                history: vec![],
+            });
+            let mut canvas = vec![0; (width * height * 4) as usize];
+            paint_notifications(&mut canvas, &style, &state);
+            canvas
+        };
+        let ltr_paragraph = row("Abc אבג");
+        let rtl_paragraph = row("אבג Abc");
+        // Paragraph direction does not change what is drawn left to right:
+        // "Abc", the space, then the Hebrew run reversed (three cells).
+        assert_eq!(ltr_paragraph, rtl_paragraph);
+        assert!(shows_text(
+            &ltr_paragraph,
+            width,
+            18,
+            100,
+            "Abc ???",
+            style.active
+        ));
+        // A pure RTL summary is also drawn in visual order, start-aligned
+        // (right alignment of RTL paragraphs is not implemented), and the
+        // logical order is only ever reordered for display.
+        assert_eq!(&*crate::bidi_layout::visual_order("אבג Abc"), "Abc גבא");
+        assert_ne!(row("Abc"), ltr_paragraph);
     }
 
     #[test]

@@ -334,6 +334,61 @@ class WaylandRicePopReadTests(unittest.TestCase):
                             for widget in container.children))
         self.assertEqual(len(page._ricepop_inbox_widgets), len(container.children))
 
+    def test_unchanged_inbox_snapshot_keeps_live_widgets_and_keyboard_focus(self):
+        # Found by the first real GTK keyboard traversal (SG3 chrome): the 3 s
+        # readback re-rendered an UNCHANGED inbox and destroyed whichever
+        # selectable row label held keyboard focus. A verified identical
+        # snapshot must keep the widgets; a changed one must still replace them.
+        class Widget:
+            def __init__(self, parent, text):
+                self.parent, self.text, self.destroyed = parent, text, False
+                parent.children.append(self)
+
+            def destroy(self):
+                self.destroyed = True
+                self.parent.children.remove(self)
+
+        container = SimpleNamespace(children=[])
+        container.get_children = lambda: list(container.children)
+        page = SimpleNamespace(content=container, _ricepop_signals=object(),
+                               _ricepop_rendered_digest=None)
+        page._text = lambda message, **_kw: Widget(container, message)
+        page._button = lambda label, callback, **_kw: Widget(container, label)
+        page._show_content = lambda: None
+        page.page = "notifications"
+        page._ricepop_focus_buttons = {}
+        page._ricepop_inbox_widgets = ()
+        page._open_ricepop_inbox = lambda: None
+        render = lambda value: settings.RiceSpiceWindow._render_notification_inbox(page, value)
+
+        def snap(body):
+            return {"active": [{"id": 5, "app_name": "Mail", "summary": "Hi", "body": body,
+                                "urgency": "normal", "actions": []}],
+                    "history": [], "owner_pid": 7, "truncated": False}
+
+        render(snap("private one"))
+        first = tuple(container.children)
+        self.assertTrue(first)
+        render(snap("private one"))      # identical readback: nothing replaced
+        self.assertEqual(tuple(container.children), first)
+        self.assertFalse(any(widget.destroyed for widget in first))
+        render(snap("private two"))      # changed content: replaced exactly once
+        self.assertTrue(all(widget.destroyed for widget in first))
+        self.assertTrue(any(widget.text == "private two" for widget in container.children))
+        self.assertFalse(any(widget.text == "private one" for widget in container.children))
+        # Without a live subscription (never started or failed) nothing is skipped:
+        # a manual refresh must be able to retry it.
+        page._ricepop_signals = None
+        before = tuple(container.children)
+        render(snap("private two"))
+        self.assertTrue(all(widget.destroyed for widget in before))
+        # Leaving the view drops the digest together with the signals.
+        page._ricepop_signals = SimpleNamespace(close=lambda: None)
+        render(snap("private two"))
+        self.assertIsNotNone(page._ricepop_rendered_digest)
+        settings.RiceSpiceWindow._stop_ricepop_signals(page)
+        self.assertIsNone(page._ricepop_rendered_digest)
+
     def test_inbox_refresh_preserves_only_verified_keyboard_focus(self):
         # A real GTK Button exposes is_focus/grab_focus. Model the complete
         # transient container lifecycle without a display server.

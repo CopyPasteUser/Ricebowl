@@ -38,6 +38,12 @@ APP = "SG3 Native"
 # Private-text canaries: they must be visible only while the owner-verified
 # inbox is open, and must never reach a file, an accessible name or a log.
 CANARY = "sg3-private-" + secrets.token_hex(6)
+# Accessible names of the native inbox are core UI text (ricepop_text.rs). Only the
+# luna-de mode (panel started with LC_ALL=de_DE.UTF-8) reads the German catalog.
+GERMAN = os.environ.get("SG3_MODE") == "luna-de"
+T_DIALOG = "Benachrichtigungen" if GERMAN else "Notifications"
+T_ROW = "Benachrichtigung von %s anzeigen: " if GERMAN else "View notification from %s: "
+T_TAB = "Aktive Benachrichtigungen" if GERMAN else "Active notifications"
 OPEN_REFRESH = 3.0  # ricepop.rs OPEN_REFRESH_INTERVAL
 RETRY_REFRESH = 12.0  # ricepop.rs RETRY_REFRESH_INTERVAL
 
@@ -85,6 +91,29 @@ def key(name: str, pause: float = 0.25) -> None:
     time.sleep(pause)
 
 
+# GTK3 keyboard input (WP3.1, closed 27 Nov). Root cause of the long-standing
+# "a real wtype Tab/Return is not delivered to GTK3 toplevels" note, measured
+# with a plain two-button Gtk.Window under both labwc 0.7.1 and 0.7.2: the key
+# IS delivered (wl_keyboard.enter, key-press-event with the right keyval) and
+# the window is Wayland-native, but wtype uploads a throw-away keymap holding
+# ONLY the keysyms of that invocation (<K1>=9, <K2>=10, ...) and GDK3's
+# Wayland keymap (`gdk_keymap_get_entries_for_keyval`) never reports the
+# HIGHEST keycode of a keymap. GTK3 key bindings (Tab -> move-focus, Return ->
+# activate-default, space -> activate) are matched through that lookup, so the
+# last key of every wtype keymap is delivered to the widget as a plain event
+# and then does nothing. A normal keyboard keymap has hundreds of keycodes, so
+# real hardware is unaffected. The fix is a real-input one, not a fake: every
+# GTK key is sent with a trailing, unbound pad key in the SAME wtype keymap, so
+# the key under test is never the highest keycode. The pad key goes to the same
+# real labwc virtual keyboard and is ignored by the page.
+GTK_PAD_KEY = "F35"
+
+
+def gtk_key(name: str, pause: float = 0.2) -> None:
+    wtype("-k", name, "-k", GTK_PAD_KEY)
+    time.sleep(pause)
+
+
 # --------------------------------------------------------------- AT-SPI ----
 def _children(node, limit=200):
     for index in range(min(node.childCount, limit)):
@@ -128,14 +157,15 @@ def snapshot(name: str = "riceplate-native", maximum: int = 7) -> list[dict]:
 
 def inbox():
     rows = snapshot()
-    if not any(r["role"] == "dialog" and r["name"] == "Notifications" for r in rows):
+    if not any(r["role"] == "dialog" and r["name"] == T_DIALOG for r in rows):
         return None
     return rows
 
 
 def row_names(rows) -> list[str]:
-    prefix = "View notification from " + APP + ": "
-    return [r["name"][len(prefix):] for r in rows
+    prefix = T_ROW % APP
+    suffix_at = len(prefix)
+    return [r["name"][suffix_at:] for r in rows
             if r["role"] == "push button" and r["name"].startswith(prefix)]
 
 
@@ -152,7 +182,7 @@ def rows_now() -> list[str]:
 def tab_label() -> str:
     rows = inbox() or []
     labels = [r["name"] for r in rows if r["role"] == "page tab"
-              and r["name"].startswith("Active notifications")]
+              and r["name"].startswith(T_TAB)]
     return labels[0] if labels else ""
 
 
@@ -178,8 +208,8 @@ def select_named(target: str) -> None:
 
 def detail_view():
     rows = inbox()
-    if rows and any(r["role"] in ("panel", "grouping") and r["name"] == "Notification from " + APP
-                    for r in rows):
+    group = ("Benachrichtigung von " if GERMAN else "Notification from ") + APP
+    if rows and any(r["role"] in ("panel", "grouping") and r["name"] == group for r in rows):
         return rows
     return None
 
@@ -298,7 +328,8 @@ def recycle_id(target: int) -> None:
             return
         stop_mako()
         start_mako()
-    raise Fail("could not recycle ID %d" % target)
+    raise Fail("could not recycle ID %d (last owner issued up to %d; rows %r)" % (
+        target, recycled, [(row["id"], row["summary"]) for row in mako_rows()]))
 
 
 # --------------------------------------------------------- inbox control ----
@@ -315,7 +346,7 @@ def open_inbox() -> None:
 
 
 def shell_popup_open() -> bool:
-    return any(r["role"] == "dialog" and r["name"] == "Notifications"
+    return any(r["role"] == "dialog" and r["name"] == T_DIALOG
                or r["role"] == "menu" for r in snapshot())
 
 
@@ -328,8 +359,8 @@ def close_inbox() -> None:
     wait_for(lambda: not shell_popup_open(), "native RicePop inbox and menu closed")
 
 
-def capture_popup(label: str) -> bytes:
-    """Pixels of the Start-menu popup column (clock/toasts are outside it)."""
+def popup_image(label: str):
+    """The Start-menu popup column (clock/toasts are outside it) as a PIL image."""
     from PIL import Image
     path = RUNTIME / ("popup-%s.png" % label)
     time.sleep(0.5)
@@ -338,8 +369,12 @@ def capture_popup(label: str) -> bytes:
     keep = os.environ.get("SG3_KEEP_DIR")
     if keep:
         image.save(Path(keep) / path.name)
-    # Only the first row card: the "Past (n)" counter legitimately differs.
-    return image.crop((0, 135, 480, 215)).tobytes()
+    return image
+
+
+def capture_popup(label: str) -> bytes:
+    """Pixels of the first row card only: the "Past (n)" counter legitimately differs."""
+    return popup_image(label).crop((0, 135, 480, 215)).tobytes()
 
 
 # ---------------------------------------------------------- privacy scan ----
@@ -1048,6 +1083,44 @@ def script_matrix_negative() -> None:
     close_inbox()
 
 
+def rtl_layout(fonts: bool) -> None:
+    """Mixed-direction summaries are laid out by the shared single-line BiDi
+    layout in REAL compositor pixels (UAX #9 runs, whole grapheme clusters), and
+    the accessibility text keeps the logical order. Native rows are start-aligned
+    (RTL paragraphs are not right-aligned: documented unsupported)."""
+    word = "مرحبا"
+    ltr_para = "Abc " + word            # first strong letter is Latin: LTR paragraph
+    rtl_para = word + " Abc"            # first strong letter is Arabic: RTL paragraph
+    wrong_order = "Abc " + word[::-1]   # the Arabic run in the opposite logical order
+    close_inbox()
+    notify(".", body="", actions=())
+    open_inbox()
+    shots = {}
+    for name, text in (("ltr", ltr_para), ("rtl", rtl_para), ("rev", wrong_order), ("latin", "Abc")):
+        show_only(text)
+        row = find_button(inbox(), T_ROW % APP + text)
+        require(row is not None, "accessible name of the %s row is not the logical text" % name)
+        shots[name] = capture_popup("bidi-" + name)
+    blank = (show_only("."), capture_popup("bidi-blank"))[1]
+    require(shots["ltr"] != blank and shots["latin"] != blank, "a bidi row rendered as nothing")
+    require(shots["ltr"] != shots["latin"], "the Arabic run was not drawn at all")
+    # Visually the Latin run is on the left in both paragraphs: the paragraph's
+    # base direction must not change the painted order of the runs.
+    require(shots["ltr"] == shots["rtl"],
+            "paragraph direction changed the painted order of the Latin and Arabic runs")
+    if fonts:
+        require(shots["ltr"] != shots["rev"],
+                "the Arabic run is not painted in its own (visual) order")
+        passed("inbox rows: a mixed Latin/Arabic summary is laid out by the BiDi algorithm in real pixels "
+               "(Latin first in LTR and RTL paragraphs alike, the Arabic run reversed for display, "
+               "AT-SPI text stays logical)")
+    else:
+        passed("negative (no system fonts): the same mixed-direction summaries still pair up in run "
+               "order with one '?' per Arabic grapheme; AT-SPI text stays logical")
+    makoctl("dismiss", "-a")
+    close_inbox()
+
+
 def detail_cjk_wrap() -> None:
     """A full CJK body wraps inside the popup (regression: the tail ran off the edge)."""
     from PIL import Image
@@ -1126,6 +1199,121 @@ def gtk_text() -> str:
     return "\n".join(r["name"] or "" for r in gsnap())
 
 
+def gfocus() -> list[str]:
+    """Accessible names holding keyboard focus (AT-SPI FOCUSED) in the GTK window."""
+    return [r["name"] for r in gsnap() if r["focused"]]
+
+
+GTK_BUSY = "System request in progress; retry this action when it finishes."
+
+
+def gtk_activate(name: str, done, message: str, attempts: int = 4) -> int:
+    """Real key on the focused control until `done()` holds. The one tolerated
+    miss is the product's own visible refusal: a window that is mid-readback
+    (the 3 s inbox refresh) answers a state-changing click with the status text
+    GTK_BUSY instead of acting, so the key is repeated once the request ended.
+    Any other silent miss fails. Returns the number of key presses."""
+    for attempt in range(1, attempts + 1):
+        gtk_key(name)
+        try:
+            wait_for(done, message, 2.5)
+            return attempt
+        except Fail:
+            require(any(r["role"] == "label" and r["name"] == GTK_BUSY for r in gsnap()),
+                    "%s: the key neither acted nor produced the busy refusal; tree: %s" % (
+                        message, gdump()))
+            time.sleep(0.6)
+    raise Fail("%s: still refused as busy after %d presses" % (message, attempts))
+
+
+def gdump() -> str:
+    """The inbox part of the GTK accessibility tree, for failure diagnostics."""
+    rows = gsnap()
+    start = next((i for i, r in enumerate(rows) if r["name"].startswith("RicePop inbox")), 0)
+    return "; ".join("%s:%r%s" % (r["role"], r["name"][:44], "*" if r["focused"] else "")
+                     for r in rows[start:start + 24])
+
+
+def gtk_tab_to(name: str, limit: int = 90) -> int:
+    """Real Tab key presses until `name` holds focus. Every press must change the
+    focused accessible; some stops (a combo box's inner widget) expose no
+    accessible of their own and read as empty focus, which is itself a change."""
+    trail: list[str] = []
+    for count in range(limit + 1):
+        focus = gfocus()
+        trail.append("/".join(focus))
+        if name in focus:
+            return count
+        gtk_key("Tab")
+        if focus:
+            # A live inbox update can rebuild the page under the focused row label
+            # (closed notifications move to the history section a moment later) and
+            # drop focus; one more real Tab then continues from the page start.
+            for retry in range(3):
+                try:
+                    wait_for(lambda: gfocus() != focus, "focus moved by Tab", 3.0)
+                    break
+                except Fail:
+                    if retry == 2:
+                        raise Fail("a real Tab did not move GTK focus from %r towards %r; tree: %s" % (
+                            focus, name, gdump())) from None
+                    gtk_key("Tab")
+        else:
+            time.sleep(0.3)
+    raise Fail("Tab never reached %r within %d presses; focus trail: %r" % (name, limit, trail[-40:]))
+
+
+def gtk_keyboard_open_inbox() -> None:
+    """Real keyboard only: Tab across the RiceSpice window to the inbox button,
+    Return opens it. Includes the negative control that pins the root cause."""
+    focus = wait_for(gfocus, "a GTK control holds keyboard focus after launch")
+    wtype("-k", "Tab")   # UNPADDED: the one key of this keymap is its highest keycode
+    time.sleep(0.8)
+    require(gfocus() == focus,
+            "an unpadded single-key wtype Tab moved GTK focus: GDK no longer drops the "
+            "highest keycode of a wtype keymap, so GTK_PAD_KEY can be retired")
+    gtk_key("Tab")
+    wait_for(lambda: gfocus() and gfocus() != focus, "padded Tab moves GTK focus", 4.0)
+    passed("chrome GTK keyboard: an unpadded one-key wtype Tab leaves focus unchanged "
+           "(GDK drops the highest keycode of wtype's keymap), the padded real Tab moves it")
+    presses = gtk_tab_to("Show RicePop inbox")
+    gtk_key("Return")
+    wait_for(lambda: any(r["role"] == "label" and r["name"].startswith("Active notifications")
+                         for r in gsnap()), "inbox opened by the real Return key", 10)
+    passed("chrome GTK keyboard: %d real Tab presses reach 'Show RicePop inbox' and a real "
+           "Return opens the inbox" % presses)
+
+
+def gtk_keyboard_rows(reply_id: int) -> None:
+    """Real keyboard on the open inbox: Return on an action button emits exactly
+    one real ActionInvoked, Space on Dismiss closes exactly that notification."""
+    prefix = "Dismiss notification from %s: " % APP
+    kilo = notify("Kilo")
+    wait_for(lambda: set(gnames(prefix)) == {"Bravo updated", "Kilo"}, "second row", 10)
+    reply = "Reply synthetic notification from %s: Bravo updated" % APP
+    gtk_tab_to(reply)
+    before = len(action_events())
+    wtype("-k", "Return")   # unpadded: ignored by GTK3 (same limit as above)
+    time.sleep(1.0)
+    require(len(action_events()) == before, "an unpadded Return activated the action")
+    presses = gtk_activate("Return", lambda: len(action_events()) == before + 1,
+                           "ActionInvoked from the real Return")
+    require(action_events()[-1] == (reply_id, "reply"), "wrong notification/action invoked")
+    time.sleep(1.0)
+    require(len(action_events()) == before + 1, "a second ActionInvoked appeared")
+    passed("chrome GTK keyboard: Tab to the labelled action + a real Return emits exactly one "
+           "real ActionInvoked (an unpadded Return does nothing; %d press%s)" % (
+               presses, "" if presses == 1 else "es, the earlier ones refused as busy"))
+    gtk_tab_to(prefix + "Kilo")
+    presses = gtk_activate("space", lambda: kilo not in active_ids() and gnames(prefix) == ["Bravo updated"],
+                           "Kilo dismissed by the real space key")
+    require(reply_id in active_ids(), "the keyboard dismissal closed another notification")
+    require(len(action_events()) == before + 1, "dismissal emitted an action")
+    passed("chrome GTK keyboard: Tab to Dismiss + a real space closes exactly that notification "
+           "(the other row stays, no extra action; %d press%s)" % (
+               presses, "" if presses == 1 else "es, the earlier ones refused as busy"))
+
+
 def scenario_chrome() -> None:
     start_monitor()
     owner = start_mako()
@@ -1149,7 +1337,7 @@ def scenario_chrome() -> None:
 
     first = notify("Alpha")
     launch_gtk()
-    gtk_do("Show RicePop inbox")
+    gtk_keyboard_open_inbox()
     prefix = "Dismiss notification from %s: " % APP
     wait_for(lambda: gnames(prefix) == ["Alpha"], "real Mako row in the GTK inbox", 10)
     require(any(r["role"] == "label" and r["name"] == "%s · Alpha" % APP for r in gsnap()),
@@ -1169,10 +1357,11 @@ def scenario_chrome() -> None:
     wait_for(lambda: gnames(prefix) == ["Bravo updated"], "live external close", 10)
     passed("chrome inbox: external close removes exactly that row")
 
+    # Real keyboard on the GTK inbox rows: Tab traversal, Return/space
+    # activation, exactly one real ActionInvoked, and a keyboard dismissal.
+    gtk_keyboard_rows(second)
     # AT-SPI doAction on the labelled action button (what a screen reader or
-    # switch device calls). Keyboard traversal of this GTK page is an OPEN
-    # item: a real `wtype -k Tab`/Return is not delivered to GTK3 toplevels in
-    # this harness (verified with a plain two-button Gtk.Window as well).
+    # switch device calls).
     reply = "Reply synthetic notification from %s: Bravo updated" % APP
     before = len(action_events())
     gtk_do(reply)
@@ -1265,10 +1454,87 @@ def scenario_luna() -> None:
     osd_brightness()
     detail_cjk_wrap()
     script_matrix_positive()
+    rtl_layout(True)
     osd_pointer_passthrough()
     leaked = files_containing(CANARY)
     require(not leaked, "private text persisted in %d file(s)" % len(leaked))
     passed("luna: no private text on disk after the OSD and localization phases either")
+
+
+# Real compositor ink widths (px) of the Luna face in the 480x456 popup capture,
+# measured on the shipped binary: (crop box, English width, German width).
+INBOX_INK = {
+    "title": ((10, 18, 330, 48), 90, 146),                 # Notifications / Benachrichtigungen
+    "active tab": ((10, 70, 225, 115), 69, 60),            # Active (1) / Aktiv (1)
+    "past tab": ((240, 70, 470, 115), 57, 72),             # Past (0) / Früher (0)
+    "back": ((10, 415, 140, 445), 69, 84),                 # Esc Back / Esc Zurück
+    "refresh": ((140, 415, 280, 445), 74, 92),             # R Refresh / R Neu laden
+    "dismiss": ((280, 415, 470, 445), 88, 106),            # Del Dismiss / Entf Schließen
+}
+
+
+def german_inbox() -> None:
+    """Panel started with LC_ALL=de_DE.UTF-8: the native inbox's own labels are
+    German in the accessibility tree and in real compositor pixels; the
+    notification's summary, body and its application's action labels are not."""
+    notify("Alpha", actions=("open", "Open synthetic", "reply", "Reply synthetic"))
+    open_inbox()
+    wait_for(lambda: rows_now() == ["Alpha"], "real Mako row in the German inbox", OPEN_REFRESH + 6)
+    rows = inbox()
+    named = {(r["role"], r["name"]) for r in rows}
+    for expected in (("dialog", "Benachrichtigungen"),
+                     ("page tab", "Aktive Benachrichtigungen: 1"),
+                     ("page tab", "Frühere Benachrichtigungen: 0"),
+                     ("push button", "Zurück zum Menü"),
+                     ("push button", "Benachrichtigungen aktualisieren"),
+                     ("push button", "Ausgewählte Benachrichtigung schließen")):
+        require(expected in named, "German accessible name missing: %r" % (expected,))
+    row = find_button(rows, T_ROW % APP + "Alpha")
+    require(row is not None and CANARY in (row["description"] or ""),
+            "German row name lost the body in its description")
+    english = ("View notification", "Active notifications", "Past notifications", "Back to ",
+               "Refresh notifications", "Dismiss selected", "Loading notifications")
+    leaked = [r["name"] for r in rows if r["name"].startswith(english) or r["name"] == "Notifications"]
+    require(not leaked, "English inbox UI names leaked into the German session: %r" % leaked)
+    passed("German locale: inbox dialog, tabs, row, back/refresh/dismiss accessible names are German")
+
+    image = popup_image("de-list")
+    for label, (box, english_width, german_width) in INBOX_INK.items():
+        width = ink_extent(image, box)
+        require(abs(width - german_width) <= 3,
+                "German inbox %s is %d px wide, expected %d" % (label, width, german_width))
+        require(abs(width - english_width) >= 6,
+                "German inbox %s (%d px) looks like the English label (%d px)" % (
+                    label, width, english_width))
+    passed("German locale: real popup pixels - title, both tabs and the three footer labels have the "
+           "German ink widths (and differ from the English ones)")
+
+    select_named(T_ROW % APP + "Alpha")
+    key("Return", 0.6)
+    detail = wait_for(detail_view, "German detail view")
+    labels = {(r["role"], r["name"]) for r in detail}
+    require(("push button", "Zurück zur Benachrichtigungsliste") in labels, "German back name")
+    # The app's own action labels and the message text are data, not UI.
+    require(("push button", "Reply synthetic") in labels and ("push button", "Open synthetic") in labels,
+            "an application action label was translated")
+    require(("label", "Alpha") in labels, "message summary changed")
+    hint = popup_image("de-detail")
+    width = ink_extent(hint, (10, 203, 470, 230))
+    require(abs(width - 258) <= 3 and abs(width - 183) >= 20,
+            "German 'Aktionen (2) - Enter zum Ausführen' is %d px wide" % width)
+    back = ink_extent(hint, (10, 415, 140, 445))
+    require(abs(back - 68) <= 3, "German detail footer 'Esc Liste' is %d px wide" % back)
+    passed("German locale: detail view - 'Zurück zur Benachrichtigungsliste', 'Aktionen (2) - Enter "
+           "zum Ausführen' and 'Esc Liste' in real pixels; summary, body and action labels untouched")
+    key("Escape", 0.5)
+    makoctl("dismiss", "-a")
+    wait_for(lambda: tab_label() == "Aktive Benachrichtigungen: 0", "German empty count", OPEN_REFRESH + 6)
+    empty = popup_image("de-empty")
+    width = ink_extent(empty, (10, 165, 470, 205))
+    require(abs(width - 185) <= 3 and abs(width - 114) >= 20,
+            "German 'Keine aktiven Meldungen' is %d px wide" % width)
+    passed("German locale: empty inbox says 'Keine aktiven Meldungen' (real pixels)")
+    close_inbox()
 
 
 def osd_brightness_german() -> None:
@@ -1290,12 +1556,14 @@ def scenario_luna_de() -> None:
     require_modern_mako()
     osd_german()
     osd_brightness_german()
+    german_inbox()
 
 
 def scenario_luna_nofonts() -> None:
     start_mako()
     require_modern_mako()
     script_matrix_negative()
+    rtl_layout(False)
 
 
 def require_modern_mako() -> None:

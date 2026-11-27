@@ -9,6 +9,7 @@ use crate::{
     raster::{fill_rect, fill_rounded_rect},
     recipe::PanelStyle,
     ricepop::{self, State as NotificationState},
+    ricepop_text as text,
     text_render::{draw_auxiliary_text, draw_text, text_pixel_width},
 };
 use chrono::Datelike;
@@ -80,6 +81,7 @@ pub(crate) fn paint_compact_notifications(
     size: (u32, u32),
 ) {
     let (width, height) = size;
+    let language = state.language;
     let text_width = state.compact_text_width(width);
     // All existing coordinates, colors and font pixels remain identical for
     // bundled rices. Only opted-in private fonts use the bounded glyph path.
@@ -103,11 +105,7 @@ pub(crate) fn paint_compact_notifications(
         height,
         8,
         10,
-        if large_font {
-            "Alerts"
-        } else {
-            "Notifications"
-        },
+        text::title(language, large_font),
         style.foreground,
     );
     if !state.sync_error {
@@ -124,11 +122,7 @@ pub(crate) fn paint_compact_notifications(
         }
     }
     if state.sync_error {
-        let status = if large_font || width < 232 {
-            "Off"
-        } else {
-            "Offline"
-        };
+        let status = text::offline(language, large_font || width < 232);
         let cell = if large_font { 8 * style.font_scale } else { 8 };
         draw_text(
             canvas,
@@ -148,7 +142,7 @@ pub(crate) fn paint_compact_notifications(
         height,
         8,
         footer + 9,
-        if large_font { "Esc" } else { "Esc Back" },
+        text::compact_footer_back(language, large_font, width),
         style.foreground,
     );
     draw_text(
@@ -157,7 +151,7 @@ pub(crate) fn paint_compact_notifications(
         height,
         width / 3 + 4,
         footer + 9,
-        if large_font { "R" } else { "R Retry" },
+        text::compact_footer_retry(language, large_font),
         style.foreground,
     );
     if state.selected_id().is_some() {
@@ -167,7 +161,7 @@ pub(crate) fn paint_compact_notifications(
             height,
             width * 2 / 3 + 4,
             footer + 9,
-            "Del",
+            text::compact_footer_dismiss(language),
             style.foreground,
         );
     }
@@ -178,7 +172,9 @@ pub(crate) fn paint_compact_notifications(
             height,
             8,
             76,
-            state.error.unwrap_or("Loading alerts..."),
+            state.error.map_or(text::loading(language), |error| {
+                text::error(language, error)
+            }),
             style.foreground,
         );
         return;
@@ -201,11 +197,7 @@ pub(crate) fn paint_compact_notifications(
             height,
             8,
             43,
-            &if large_font {
-                format!("A {}", state.notices.len())
-            } else {
-                format!("Active {}", state.notices.len())
-            },
+            &text::compact_tab_active(language, large_font, state.notices.len()),
             style.foreground,
         );
         draw_text(
@@ -214,11 +206,7 @@ pub(crate) fn paint_compact_notifications(
             height,
             width / 2 + 8,
             43,
-            &if large_font {
-                format!("P {}", state.history.len())
-            } else {
-                format!("Past {}", state.history.len())
-            },
+            &text::compact_tab_past(language, large_font, state.history.len()),
             style.foreground,
         );
         if state.visible_notices().is_empty() {
@@ -228,11 +216,7 @@ pub(crate) fn paint_compact_notifications(
                 height,
                 8,
                 76,
-                if state.show_history {
-                    "No past alerts"
-                } else {
-                    "No active alerts"
-                },
+                text::empty(language, state.show_history),
                 style.foreground,
             );
         } else {
@@ -259,7 +243,7 @@ pub(crate) fn paint_compact_notifications(
                     );
                 }
                 let summary = if notice.summary.is_empty() {
-                    "(No title)"
+                    text::untitled(language)
                 } else {
                     &notice.summary
                 };
@@ -390,6 +374,7 @@ pub(crate) fn paint_notifications(
 ) {
     let width = native_menu::WIDTH;
     let height = native_menu::HEIGHT;
+    let language = state.language;
     let draw_text =
         |canvas: &mut [u8], width: u32, height: u32, x: u32, y: u32, label: &str, color: u32| {
             draw_notification_text(canvas, width, height, x, y, label, color, style);
@@ -410,7 +395,7 @@ pub(crate) fn paint_notifications(
         height,
         14,
         15,
-        "Notifications",
+        text::title(language, false),
         style.foreground,
     );
     if !state.sync_error {
@@ -436,7 +421,7 @@ pub(crate) fn paint_notifications(
             height,
             if large_font { 264 } else { 250 },
             15,
-            if large_font { "Off" } else { "Offline" },
+            text::offline(language, large_font),
             style.foreground,
         );
     }
@@ -459,7 +444,7 @@ pub(crate) fn paint_notifications(
             height,
             14,
             54,
-            &format!("Active ({})", state.notices.len()),
+            &text::tab_active(language, state.notices.len()),
             style.foreground,
         );
         draw_text(
@@ -468,7 +453,7 @@ pub(crate) fn paint_notifications(
             height,
             174,
             54,
-            &format!("Past ({})", state.history.len()),
+            &text::tab_past(language, state.history.len()),
             style.foreground,
         );
     }
@@ -479,23 +464,31 @@ pub(crate) fn paint_notifications(
             height,
             14,
             120,
-            "Loading alerts...",
+            text::loading(language),
             style.foreground,
         );
     } else if let Some(error) = state.error {
-        draw_text(canvas, width, height, 14, 120, error, style.foreground);
+        draw_text(
+            canvas,
+            width,
+            height,
+            14,
+            120,
+            text::error(language, error),
+            style.foreground,
+        );
         draw_text(
             canvas,
             width,
             height,
             14,
             145,
-            "Refresh to try again",
+            text::retry_hint(language),
             style.foreground,
         );
     } else if let Some(notice) = state.detail_notice() {
         let source = if notice.app_name.is_empty() {
-            "Unknown app"
+            text::unknown_app(language)
         } else {
             &notice.app_name
         };
@@ -529,7 +522,7 @@ pub(crate) fn paint_notifications(
                 &if large_font {
                     format!("{}/{}", state.body_page + 1, pages)
                 } else {
-                    format!("Text {}/{} < >", state.body_page + 1, pages)
+                    text::text_pages(state.body_page + 1, pages)
                 },
                 style.foreground,
             );
@@ -557,7 +550,7 @@ pub(crate) fn paint_notifications(
                 height,
                 14,
                 180,
-                "No available actions",
+                text::no_actions(language),
                 style.foreground,
             );
         } else {
@@ -567,11 +560,7 @@ pub(crate) fn paint_notifications(
                 height,
                 14,
                 138,
-                &if large_font {
-                    format!("Actions ({})", notice.actions.len())
-                } else {
-                    format!("Actions ({}) - Enter to use", notice.actions.len())
-                },
+                &text::actions_header(language, large_font, notice.actions.len()),
                 style.foreground,
             );
             for (position, action) in notice
@@ -614,11 +603,7 @@ pub(crate) fn paint_notifications(
             height,
             14,
             120,
-            if state.show_history {
-                "No past alerts"
-            } else {
-                "No active alerts"
-            },
+            text::empty(language, state.show_history),
             style.foreground,
         );
     } else {
@@ -653,7 +638,7 @@ pub(crate) fn paint_notifications(
                 18,
                 y + 10,
                 if summary.is_empty() {
-                    "(No title)"
+                    text::untitled(language)
                 } else {
                     &summary
                 },
@@ -669,13 +654,7 @@ pub(crate) fn paint_notifications(
         height,
         14,
         279,
-        if large_font {
-            "Esc"
-        } else if state.detail_id.is_some() {
-            "Esc List"
-        } else {
-            "Esc Back"
-        },
+        text::footer_back(language, large_font, state.detail_id.is_some()),
         style.foreground,
     );
     draw_text(
@@ -684,7 +663,7 @@ pub(crate) fn paint_notifications(
         height,
         98,
         279,
-        if large_font { "R" } else { "R Refresh" },
+        text::footer_refresh(language, large_font),
         style.foreground,
     );
     draw_text(
@@ -693,17 +672,7 @@ pub(crate) fn paint_notifications(
         height,
         193,
         279,
-        if large_font {
-            if state.selected_id().is_some() {
-                "Del"
-            } else {
-                "N/A"
-            }
-        } else if state.selected_id().is_some() {
-            "Del Dismiss"
-        } else {
-            "Unavailable"
-        },
+        text::footer_dismiss(language, large_font, state.selected_id().is_some()),
         style.foreground,
     );
 }

@@ -11,6 +11,8 @@ use std::{
 use serde::{Deserialize, Serialize};
 use unicode_segmentation::UnicodeSegmentation;
 
+use crate::ui_language::Language;
+
 const MAX_RESPONSE: u64 = 512 * 1024;
 const MAX_PRIVATE_MUTATION: usize = 8192;
 const MUTATION_UNCONFIRMED: &str = "RicePop action unconfirmed; refresh before retry";
@@ -191,6 +193,9 @@ pub struct State {
     pub revision: u64,
     pub silent_loading: bool,
     pub sync_error: bool,
+    /// UI language of the inbox's own labels (see `ricepop_text`). Snapshot
+    /// at session creation; English unless the locale selects a catalog.
+    pub language: Language,
     next_refresh: Option<Instant>,
     // The native font can advance 16px instead of the legacy 8px. Keep
     // wrapping, pagination, pointer hits and accessibility on one width.
@@ -201,6 +206,13 @@ pub struct State {
 }
 
 impl State {
+    pub fn with_language(language: Language) -> Self {
+        Self {
+            language,
+            ..Self::default()
+        }
+    }
+
     fn reset_wheel(&mut self) {
         self.wheel_area = None;
         self.wheel_remainder = 0.0;

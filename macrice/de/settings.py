@@ -6,6 +6,8 @@ program exits on close and does not replace a distribution settings daemon.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 from pathlib import Path
 import shutil
@@ -381,6 +383,7 @@ class RiceSpiceWindow:
         self.closed = False
         self._ricepop_signals = None
         self._ricepop_focus_buttons = {}
+        self._ricepop_rendered_digest = None
         self._ricepop_dirty = False
         self._ricepop_open_pending = False
         self._ricepop_owner_epoch = 0
@@ -561,6 +564,7 @@ class RiceSpiceWindow:
         # Never retain stale buttons or their private notification metadata
         # when leaving the inbox/window.
         self._ricepop_focus_buttons = {}
+        self._ricepop_rendered_digest = None
         self._ricepop_dirty = False
         self._ricepop_open_pending = False
         if signals is not None:
@@ -1117,6 +1121,20 @@ class RiceSpiceWindow:
         # Live Mako changes replace the whole view. Keep keyboard focus on
         # the exact still-current action; never restore it using only an ID
         # or its visible label after the notification owner/content changes.
+        container = getattr(self, "content", None)
+        # The 3 s open-inbox readback finds an unchanged inbox almost always.
+        # Replacing every widget then would throw away keyboard focus that sits
+        # on a (selectable, focusable) row label -- a keyboard user tabbing
+        # through the rows was sent back to the top of the window every few
+        # seconds. An identical verified snapshot keeps the live widgets. Only
+        # a digest is kept, never the private text, and it dies with the view.
+        digest = hashlib.sha256(json.dumps(
+            snapshot, sort_keys=True, default=repr).encode("utf-8", "replace")).digest()
+        if (container is not None and getattr(self, "_ricepop_signals", None) is not None
+                and getattr(self, "_ricepop_inbox_widgets", ())
+                and digest == getattr(self, "_ricepop_rendered_digest", None)):
+            return
+        self._ricepop_rendered_digest = digest
         previous_focus = None
         for key, button in getattr(self, "_ricepop_focus_buttons", {}).items():
             is_focus = getattr(button, "is_focus", None)
@@ -1124,7 +1142,6 @@ class RiceSpiceWindow:
                 previous_focus = key
                 break
         self._ricepop_focus_buttons = {}
-        container = getattr(self, "content", None)
         if container is not None:
             for widget in getattr(self, "_ricepop_inbox_widgets", ()):
                 widget.destroy()

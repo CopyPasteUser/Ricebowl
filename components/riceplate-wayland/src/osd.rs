@@ -4,6 +4,7 @@
 use std::time::{Duration, Instant};
 
 use crate::system_status::{Audio, ControlAction, SystemStatus};
+use crate::ui_language::Language;
 
 pub const WIDTH: u32 = 248;
 pub const HEIGHT: u32 = 70;
@@ -12,48 +13,6 @@ pub const LIFETIME: Duration = Duration::from_millis(1800);
 /// technology must be able to announce, so it stays up longer than a volume
 /// confirmation. It is still bounded and never takes keyboard focus.
 pub const FAILURE_LIFETIME: Duration = Duration::from_millis(4000);
-
-/// Only UI-owned OSD labels are translated. Status values still come from
-/// verified Linux service readback, never from a fabricated locale backend.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Language {
-    English,
-    German,
-}
-
-impl Language {
-    fn parse(locale: &str) -> Self {
-        // GNU LANGUAGE can be a colon-delimited preference; the first entry
-        // is the requested UI language. Never treat "debug" as German.
-        let primary = locale.split(':').next().unwrap_or("");
-        let language = primary.split(['_', '-', '.', '@']).next().unwrap_or("");
-        if language.eq_ignore_ascii_case("de") {
-            Self::German
-        } else {
-            Self::English
-        }
-    }
-
-    fn from_env() -> Self {
-        // Snapshot at session creation, not once per OSD or frame. LC_ALL
-        // takes precedence over message/desktop locale and LANG.
-        for key in ["LC_ALL", "LANGUAGE", "LC_MESSAGES", "LANG"] {
-            if let Ok(value) = std::env::var(key) {
-                if !value.is_empty() {
-                    return Self::parse(&value);
-                }
-            }
-        }
-        Self::English
-    }
-
-    fn label(self, english: &'static str, german: &'static str) -> &'static str {
-        match self {
-            Self::English => english,
-            Self::German => german,
-        }
-    }
-}
 
 /// Generic, fixed-text failure categories for operations the user started
 /// and that failed after the control had already closed (a launcher, a
@@ -463,16 +422,6 @@ mod tests {
         state.forget_audio();
         assert!(!state.observe_external(&Audio::Volume(70), now));
         assert!(state.observe_external(&Audio::Muted, now));
-    }
-
-    #[test]
-    fn locale_selection_is_exact_and_never_reinterprets_untrusted_prefixes() {
-        for locale in ["de", "de_DE.UTF-8", "de-AT", "de:en", "de_DE@euro"] {
-            assert_eq!(Language::parse(locale), Language::German, "{locale}");
-        }
-        for locale in ["C", "C.UTF-8", "en_US.UTF-8", "debug", "", "fr_FR"] {
-            assert_eq!(Language::parse(locale), Language::English, "{locale}");
-        }
     }
 
     #[test]

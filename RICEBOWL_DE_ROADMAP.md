@@ -3059,6 +3059,29 @@ details in `docs/sg2-adapter-state-inventory.md`, `docs/sg4-creator-export-revie
 and `docs/sg-remaining-work-packages.md`.
 
 
+### SG3 GTK keyboard, German native inbox and RTL run order (27 November 2026; local evidence)
+
+The old note "a real `wtype` Tab/Return is not delivered to GTK3 toplevels" is
+resolved: the window is Wayland-native and active and every key reaches
+`key-press-event`; GDK3 simply never reports the *highest keycode* of `wtype`'s
+throw-away keymap to the key-binding lookup, so the last key of each `wtype`
+call does nothing. A trailing unbound pad key in the same real `wtype` call
+fixes it (no AT-SPI fake), and `smoke_sg3_ricepop_native_labwc.sh chrome` now
+proves Tab traversal, Return and space on the RicePop inbox (exact
+`ActionInvoked`, exact dismissal), including a negative control that pins the
+cause. The first real traversal exposed a product bug (the 3 s readback of an
+unchanged inbox rebuilt the widgets and dropped focus on a row label); an
+identical snapshot now keeps them. The OSD's language selection moved to one
+core `ui_language.rs`; the native inbox (both popup layouts and the
+accessibility tree) reads the same selection through `ricepop_text.rs`, with
+German proven in `luna-de` by accessible names and compositor ink widths.
+BiDi run order of a mixed Latin/Arabic summary is checked in real pixels
+(`luna`, `luna-nofonts`); right-alignment of RTL paragraphs stays unsupported
+(`docs/sg7-unsupported-error-states.md`). Not claimed: a real backlight/Orca,
+keyboard traversal of other GTK windows, translation of non-inbox/OSD labels,
+exact-head CI. Rows 3.1/3.2 of `docs/sg-remaining-work-packages.md` are DONE
+locally with those items listed open.
+
 ### SG1 visible failure notices, busy file operations and output hotplug (26 November 2026; local evidence)
 
 A failure that happens after its control closed (failed Start launch, absent

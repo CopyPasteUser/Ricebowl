@@ -201,8 +201,10 @@ output pixels) and drives it through `sg4_creator_gui_roundtrip_driver.py`:
 | Identity | the installed recipe and the authored draft are equal after the product's strict validation (21 fields); the stored JSON differs only by the omitted default `menu.presentation: tabs`; the installed ID/semantic hash equal the authored ones |
 | Preview | *Render preview* shows the real native capture of the imported rice (caption `Native RicePlate · 1366 × 768 · scale 1.0`, its Classic Teal desktop on screen), not the schematic |
 
-Platform notes (honest limits): `wtype` key events do not reach GTK3 toplevels in
-this harness, so no GTK keyboard traversal is claimed. The buttons that open a
+Platform notes (honest limits): a `wtype` key sent alone or as the last key of a call
+does nothing in a GTK3 toplevel (GDK3 ignores the highest keycode of `wtype`'s throw-away
+keymap for key bindings; a trailing pad key fixes it, see WP3.1), so no GTK keyboard
+traversal is claimed for these dialogs. The buttons that open a
 modal chooser/dialog are pressed with **real compositor pointer events**, because an
 AT-SPI `doAction` that opens `Gtk.Dialog.run()` makes the application's AT-SPI
 service unresponsive while the dialog is open (reproduced with a plain

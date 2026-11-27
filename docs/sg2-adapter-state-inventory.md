@@ -114,7 +114,7 @@ inked and different in every state:
 * Limits: fake providers only (no real polkit/NetworkManager/BlueZ acceptance); confirmation dialogs
   (Wi-Fi switch, NTP off, Suspend) are answered by the fixture because a modal `Dialog.run()` freezes
   AT-SPI (the Creator smokes exercise real dialogs); non-Luna window for ten pages, Luna window for
-  the taskbar page; `wtype` keys do not reach GTK3 here, so no keyboard traversal is claimed.
+  the taskbar page; no keyboard traversal of these pages is claimed. (Root cause of the old "`wtype` keys do not reach GTK3" note, 27 Nov: GDK3 ignores the *highest keycode* of `wtype`'s throw-away keymap for key bindings, so a key sent alone or last does nothing; a trailing pad key in the same `wtype` call fixes it - proven for the RicePop inbox in `smoke_sg3_ricepop_native_labwc.sh chrome`, not yet applied to these pages.)
 * **Product bugs found and fixed** (`tests/test_de_settings_status_strip.py`): (1) the status line was
   the last child of the *scrolled* page, so on the long Network/Notifications pages a denial or
   busy message was below the fold and invisible; it now lives in a fixed strip under the page.
