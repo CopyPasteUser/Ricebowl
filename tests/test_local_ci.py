@@ -447,6 +447,10 @@ class EndToEndTests(unittest.TestCase):
                 {"id": "portal-gpu-frame", "status": "BLOCKED"}]
         self.assertTrue(lci.is_complete(recs, ["a", "portal-gpu-frame"], True))
         self.assertFalse(lci.is_complete(recs[1:], ["a", "portal-gpu-frame"], True))
+        # The receipt validator must agree with is_complete for this case.
+        receipt = make_receipt({"a": "PASS", "portal-gpu-frame": "BLOCKED"})
+        self.assertTrue(receipt["complete"])
+        self.assertEqual(lci.validate_receipt(receipt, ["a", "portal-gpu-frame"]), [])
 
     def test_all_pass_catalog_is_complete(self):
         self.fake = (self.fake[0], self.fake[1], self.fake[2])

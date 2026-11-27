@@ -419,7 +419,8 @@ def validate_receipt(obj: object, catalog_ids: Sequence[str] | None = None) -> l
     expected = is_complete([r for r in steps if isinstance(r, dict)], ids, bool(obj["tree_clean"]))
     if obj["complete"] != expected:
         problems.append(f"complete={obj['complete']} contradicts the step results")
-    if obj["complete"] and any(r.get("status") != "PASS" for r in steps if isinstance(r, dict)):
+    if obj["complete"] and any(r.get("status") != "PASS" and r.get("id") not in DISPATCH_ONLY
+                               for r in steps if isinstance(r, dict)):
         problems.append("complete receipt contains a non-PASS step")
     counts = obj["counts"]
     tally = {s: sum(1 for r in steps if isinstance(r, dict) and r.get("status") == s) for s in STATUSES}
