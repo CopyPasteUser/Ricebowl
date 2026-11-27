@@ -1,0 +1,21 @@
+{
+  "cargo": "cargo 1.88.0 (873a06493 2025-05-10)",
+  "cargo_lock_sha256": "98af96d446adb8fc2ac65cae1bb0ff1bd45de01d6ef6c47f04055133fa743e3c",
+  "dpkg": "Debian 'dpkg-deb' package archive backend version 1.22.6 (amd64).",
+  "hardware_accepted": false,
+  "hostname_sha256": "5bce98f73f3ed0c837f2729ed9509b38ea66a156db7f653356cb6fe37b366e85",
+  "packages": {
+    "ricebowl-riceplate-native_0.1.0~preview2_amd64.deb": "372a1dcffe961c266d3d3fbf9c28d071bd626e8ad9572b12f51f2e85ea179fb5",
+    "ricebowl-wayland-core_0.1.0~preview2_all.deb": "5357f4a36ad518878dcb7a8f28a9b9f536c908e18e65b3b02ebf8e8c5dcfbe45",
+    "ricebowl-wayland-desktop_0.1.0~preview3_amd64.deb": "f8d7b2022e0b33a75e829977ff67b000d32bcc17b91920628d746af99b1addc7",
+    "ricebowl-wayland-session_0.1.0~preview3_all.deb": "bad8d2fa3d9be513b513d0090a418c0c3375adf20076e2892fc7e88eb8b40d5e"
+  },
+  "runner_image": "ubuntu24",
+  "runner_image_version": "local-24.04",
+  "runner_name": "local-ci-session-b",
+  "rustc": "rustc 1.88.0 (6b00bc388 2025-06-23)",
+  "schema_version": 1,
+  "source_date_epoch": "1795778126",
+  "source_sha": "1b10db548ba1e11345b1941c79d581f788be9aee",
+  "worker": "host-b"
+}
