@@ -21,6 +21,7 @@ class RiceSpiceBusyActionTests(unittest.TestCase):
             executor=SimpleNamespace(submit=submit),
             GLib=SimpleNamespace(idle_add=idle.append),
             _state=states.append,
+            status=SimpleNamespace(get_text=lambda: states[-1] if states else ""),
             _ricepop_open_pending=False, _ricepop_dirty=False,
         )
         return page, pending, idle, states

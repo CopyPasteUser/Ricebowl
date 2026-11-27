@@ -360,6 +360,7 @@ class InboxSignalTests(unittest.TestCase):
             executor=SimpleNamespace(submit=submit),
             GLib=SimpleNamespace(idle_add=lambda callback: idle.append(callback)),
             _state=statuses.append, _render_notification_inbox=rendered.append,
+            status=SimpleNamespace(get_text=lambda: statuses[-1] if statuses else ""),
         )
         page._background = lambda work, done: settings.RiceSpiceWindow._background(
             page, work, done)

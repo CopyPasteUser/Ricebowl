@@ -113,6 +113,9 @@ LUNA_CONTROL_CATEGORIES = (
 )
 
 
+WORKING_TEXT = "Working with system services…"
+
+
 def denial_or_error_text(exc: BaseException) -> str:
     """One user-visible wording for every polkit/NetworkManager refusal."""
     if isinstance(exc, backend.SettingsDenied):
@@ -199,7 +202,8 @@ CSS = b"""
 .ricespice-action { background: #2b6697; color: #fff; padding: 9px 14px;
   border-radius: 6px; text-shadow: none; }
 .ricespice-action:hover { background: #377eaf; }
-.ricespice-state { padding: 13px 0 4px; color: #244c6e; }
+.ricespice-state { padding: 8px 32px 10px; color: #244c6e; background: #eff3f7;
+  border-top: 1px solid #d3dde7; }
 """
 
 # Applied only to XP Luna. Other rices retain their existing appearance.
@@ -278,7 +282,8 @@ LUNA_CSS = b"""
   color: #1c4e92; font-weight: bold; margin: 12px 0 5px;
 }
 .ricespice-luna .ricespice-note { color: #586577; }
-.ricespice-luna .ricespice-state { color: #2a4b75; }
+.ricespice-luna .ricespice-state { padding: 6px 19px; color: #2a4b75; background: #ffffff;
+  border-top: 1px solid #a9bfdc; }
 .ricespice-luna .luna-category-row {
   background: transparent; border: 1px solid transparent;
   box-shadow: none; border-radius: 0;
@@ -521,9 +526,18 @@ class RiceSpiceWindow:
             for key, title, _description in self.sections:
                 add_nav(key, title)
 
+        # The status line (busy / denied / unavailable / verified readback) lives in
+        # a fixed strip BELOW the scrolled page, not at the end of the scrolled
+        # content: on a long page (Network) it was below the fold, so a denial of a
+        # control at the top was not visible without scrolling.
+        page_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        body.pack_start(page_column, True, True, 0)
         viewport = Gtk.ScrolledWindow()
         viewport.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        body.pack_start(viewport, True, True, 0)
+        page_column.pack_start(viewport, True, True, 0)
+        self.status = self._label("", css="ricespice-state")
+        self.status.set_no_show_all(True)
+        page_column.pack_end(self.status, False, False, 0)
         self.content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=13)
         self.content.get_style_context().add_class("ricespice-content")
         viewport.add(self.content)
@@ -660,6 +674,7 @@ class RiceSpiceWindow:
 
     def _state(self, message: str):
         self.status.set_text(message)
+        self.status.set_visible(bool(message))
 
     def _show_content(self):
         """Finish a dynamic view with a real GTK relayout.
@@ -692,7 +707,7 @@ class RiceSpiceWindow:
             return
         self.busy = True
         serial = self.generation
-        self._state("Working with system services…")
+        self._state(WORKING_TEXT)
         try:
             future = self.executor.submit(work)
         except RuntimeError:
@@ -714,6 +729,11 @@ class RiceSpiceWindow:
                     done(finished.result())
                 except Exception as exc:
                     self._state(denial_or_error_text(exc))
+                # A read whose page states its own outcome in the body (for example
+                # "Wi-Fi radio/scan unavailable") must not keep claiming that the
+                # request is still running.
+                if not self.busy and self.status.get_text() == WORKING_TEXT:
+                    self._state("")
                 if self._ricepop_open_pending:
                     self._open_ricepop_inbox()
                 if self._ricepop_dirty:
@@ -743,8 +763,7 @@ class RiceSpiceWindow:
             self._selecting_nav = False
         for widget in tuple(self.content.get_children()):
             widget.destroy()
-        self.status = self._label("", css="ricespice-state")
-        self.content.pack_end(self.status, False, False, 0)
+        self._state("")
         if self.breadcrumb is not None:
             title = next((text for key, text, _desc in LUNA_SECTIONS if key == name),
                          "Search results" if name == "search" else "All settings")

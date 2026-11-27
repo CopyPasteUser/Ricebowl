@@ -94,6 +94,33 @@ Paths are `tests/<file>::<Class>::<test>`; abbreviations below expand `<file>::<
 
 WP2.2: every `gap` cell is covered by a cited test or marked `n/a` with a reason. WP2.3: no `gap` and no `~` remain in the matrix: each former partial cell is `ok` with a cited test or `n/a` with a stated reason. All results are fake-provider/private-subprocess/headless-GTK evidence, not real polkit/NetworkManager/BlueZ/logind on hardware.
 
+## WP2.4 real-labwc GUI pass (27 Nov 2026, local)
+
+`scripts/smoke_sg2_settings_gui_labwc.sh` (+ `scripts/sg2_settings_gui_driver.py`, wired into the
+native workflow) runs the real `macrice.de.settings.launch()` GTK3 Wayland window under a real
+disposable labwc, once per page (network, audio, notifications, bluetooth, displays, input,
+accessibility, timezone, power, appearance, and the Luna-only taskbar), with the repository's own
+fake providers (`FakeAdapters`, `FakePreferences`) at the service boundary. Per page, with real
+pointer clicks and an external AT-SPI client (role/SHOWING/text of the status widget, presence and
+SENSITIVE state of the control) plus a `grim` crop of that widget's real pixels, which must be
+inked and different in every state:
+
+* baseline; **denied** (typed polkit text on adapter-backed pages, `Unavailable or denied: [Errno 13]
+  Permission denied` on the file-store pages; control stays enabled, exactly one provider call, no
+  replay); **busy** (a write held in flight shows `Working with system services…`, a second real
+  click shows `System request in progress; retry this action when it finishes.` and the provider
+  sees one call, not two; the released write completes once with its readback); **unavailable**
+  (the provider's own error is painted and the write control is withheld).
+* Limits: fake providers only (no real polkit/NetworkManager/BlueZ acceptance); confirmation dialogs
+  (Wi-Fi switch, NTP off, Suspend) are answered by the fixture because a modal `Dialog.run()` freezes
+  AT-SPI (the Creator smokes exercise real dialogs); non-Luna window for ten pages, Luna window for
+  the taskbar page; `wtype` keys do not reach GTK3 here, so no keyboard traversal is claimed.
+* **Product bugs found and fixed** (`tests/test_de_settings_status_strip.py`): (1) the status line was
+  the last child of the *scrolled* page, so on the long Network/Notifications pages a denial or
+  busy message was below the fold and invisible; it now lives in a fixed strip under the page.
+  (2) A read whose page states its own outcome in the body (provider unavailable) left
+  `Working with system services…` on screen indefinitely; it is cleared when the request ends.
+
 ## Top gaps (ranked by user impact/safety)
 
 1. ~~**Polkit/NotAuthorized denial for timezone, NTP, clock** (T1-T3)~~ **Closed at the adapter level (DT1)**: typed `SettingsDenied`, shown by the GUI as the same wording as NetworkManager. Remaining: GUI widget state after denial and a disposable system-bus polkit denial. Original gap: `_timedatectl` returned one generic "denied" error for any non-zero exit. Add a fake-`timedatectl` subprocess test (pattern of SP1) exiting 1 with an "Access denied" stderr, asserting a typed, non-retrying message and an untouched GUI state; then a disposable system-bus polkit denial.
