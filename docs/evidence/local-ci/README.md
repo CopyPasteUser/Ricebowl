@@ -133,6 +133,18 @@ installs or reconfigures anything on the host. Specific tooling:
   the runner itself never writes `/usr`) and a DRM render node
   (`portal-gpu-frame`, dispatch-only, see above).
 
+`portal-strict-frame` note: the CI-only PipeWire link helper
+(`scripts/ci_portal_pipewire_link.py`) refuses to run unless it is on a
+disposable runner. Local CI deliberately never sets `GITHUB_ACTIONS`, so the
+step exports `RICEBOWL_LOCAL_CI_DISPOSABLE=1`, which the helper accepts in its
+place (the same marker `ci_portal_generic_remote.py` honours). Without it the
+helper crashed ("Refusing to link outside strict disposable CI"), nothing
+linked the portal's `Video/Source` to the consumer, PipeWire never negotiated
+buffers ("No buffer available from PipeWire stream", node stuck `suspended`)
+and the frame probe timed out. Every strict assertion is unchanged; the
+container's PipeWire/WirePlumber/GStreamer stack is sufficient (receipt:
+real `PORTAL_FRAME_OK` 1280x720 BGRx frame, `PORTAL_STRICT_OK`).
+
 Workflow steps that are **not** translated (and why) are printed by `--list`
 and enforced by `tests/test_local_ci.py`: apt installs and apt-mirror rewrites,
 the hosted GitHub Release creation, sigstore attestations, the SG6 compare/attest
