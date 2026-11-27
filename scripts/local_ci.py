@@ -864,18 +864,41 @@ def collect_artifacts(ctx: Context, results: dict[str, dict]) -> dict:
     return artifacts
 
 
+WORK_DIR_NAME = "rbci-work"
+
+
 def execute(args: argparse.Namespace, repo: str, sha: str, commit_date: str, out: Path) -> int:
     ids, auto = select_steps(args.steps)
     install_proxy_ca()
-    base = Path(tempfile.mkdtemp(prefix="rbci.", dir=args.tmp_base))
-    base.chmod(0o755)
+    # A fixed work path, like the hosted runners' fixed checkout path: the
+    # clone's absolute path ends up in build outputs (e.g. Rust panic
+    # locations in riceplate-native), so a random temp directory would make
+    # two sessions' packages differ.  An exclusive lock serializes runs.
+    import fcntl
+    tmp_base = Path(args.tmp_base or tempfile.gettempdir())
+    tmp_base.mkdir(parents=True, exist_ok=True)
+    base = tmp_base / WORK_DIR_NAME
+    lock = open(tmp_base / (WORK_DIR_NAME + ".lock"), "w")
     try:
-        return _execute(args, repo, sha, out, ids, auto, base)
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        lock.close()
+        raise LocalCIError(f"another local CI run holds {base}") from None
+    try:
+        if base.is_symlink() or (base.exists() and not base.is_dir()):
+            raise LocalCIError(f"refusing unexpected work path {base}")
+        shutil.rmtree(base, ignore_errors=True)  # stale tree of an interrupted run
+        base.mkdir(mode=0o755)
+        base.chmod(0o755)
+        try:
+            return _execute(args, repo, sha, out, ids, auto, base)
+        finally:
+            if args.keep:
+                print(f"local-ci: kept work dir {base}", file=sys.stderr)
+            else:
+                shutil.rmtree(base, ignore_errors=True)
     finally:
-        if args.keep:
-            print(f"local-ci: kept work dir {base}", file=sys.stderr)
-        else:
-            shutil.rmtree(base, ignore_errors=True)
+        lock.close()
 
 
 def _execute(args: argparse.Namespace, repo: str, sha: str, out: Path, ids: list[str],
