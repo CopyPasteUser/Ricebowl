@@ -28,6 +28,11 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
+### SG7 local dossier replaces the hosted Actions collector (27 November 2026; local evidence only)
+
+- `scripts/sg7_local_dossier.py` builds the SG7 exact-main dossier from a committed, complete local CI receipt (validated with `local_ci.validate_receipt`) plus an optional two-session SG6 comparison, reporting the comparison as missing/verified/invalid and listing hardware/owner items as not certified. First dossier: [main `1b10db5`](docs/evidence/sg7/1b10db548ba1.md): local CI passed, 21/21 areas, SG6 comparison **missing**, not ready for formal review.
+- Bounded no-follow receipt reads and write-once 0600 publication were ported from draft PR #596 (left untouched); its Actions-run/live-PR snapshot logic is obsolete without hosted Actions and was not ported. No SG gate or hardware sign-off changes.
+
 ### SG1 panel keyboard lease on newer labwc and the last inventory gaps (27 November 2026; local evidence only)
 
 - **Fix:** on labwc >= 0.7.2 a neutral taskbar click's keyboard lease was dropped by the compositor the moment it was granted (the Exclusive -> OnDemand downgrade makes labwc move the keyboard to the topmost window; 0.7.1 kept it only while no window existed). A panel lease now stays Exclusive for its bounded life and ends 250 ms after the pointer leaves the panel, so it cannot stop a window from taking the keyboard. `smoke_sg1_interaction_labwc.sh` stage `panelnav` fails on the old binary under the pinned 0.7.2 and passes on 0.7.1 and 0.7.2.

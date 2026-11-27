@@ -148,8 +148,8 @@ real `PORTAL_FRAME_OK` 1280x720 BGRx frame, `PORTAL_STRICT_OK`).
 Workflow steps that are **not** translated (and why) are printed by `--list`
 and enforced by `tests/test_local_ci.py`: apt installs and apt-mirror rewrites,
 the hosted GitHub Release creation, sigstore attestations, the SG6 compare/attest
-jobs (replaced by the two-session procedure below), the SG7 dossier collector and
-`check_release_workflows.py` (both query the hosted Actions API), and the portal
+jobs (replaced by the two-session procedure below), the SG7 dossier collector (replaced by
+`scripts/sg7_local_dossier.py`, see below) and `check_release_workflows.py` (both query the hosted Actions API), and the portal
 backend build/registration (system-wide install). The test fails if a workflow
 `run:` step is neither mapped to a local step nor listed with a reason.
 
@@ -200,6 +200,22 @@ shows repeatable bytes across two fresh VMs only. `pkg-build` also needs to run
 on the same SHA as the rest of the receipt: the per-session `receipt.json`
 records the package SHA-256s under `artifacts.sg6_packages`, so the full-catalog
 receipt and the two-session comparison can be read together.
+
+## SG7 dossier from a receipt
+
+After a complete receipt for the exact main SHA is committed (and, optionally,
+`sg6-comparison.json` beside it), build the exact-main dossier locally:
+
+```sh
+python3 scripts/sg7_local_dossier.py --sha <40-hex> \
+    --output docs/evidence/sg7/<sha12>.json --markdown docs/evidence/sg7/<sha12>.md
+```
+
+It validates the receipt with `validate_receipt`, maps the 21 SG7 acceptance
+areas onto local steps, reports the SG6 comparison as missing/verified/invalid
+and lists hardware and owner items as not certified; output is write-once.
+It consumes a finished receipt, so it is not a step inside `local_ci.sh`. See
+[docs/sg7-exact-main-matrix.md](../../sg7-exact-main-matrix.md).
 
 ## Provisioning a fresh cloud container
 

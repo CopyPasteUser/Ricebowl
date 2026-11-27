@@ -197,6 +197,7 @@ class LocalDossierTests(unittest.TestCase):
         self.assertIn("**missing**", text)
         self.assertIn("physical hardware accepted: false", text)
         self.assertIn("Not certified", text)
+        self.assertIn("Receipt catalog", text)
 
 
 @unittest.skipUnless(REAL_RECEIPT.is_file(), "committed local CI receipt not in this checkout")

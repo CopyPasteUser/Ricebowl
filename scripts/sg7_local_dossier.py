@@ -280,6 +280,11 @@ def render_markdown(report: dict) -> str:
            f"- SG6 two-session package comparison: **{cmp_['status']}**. {cmp_['detail']}",
            f"- Ready for formal review: **{str(report['ready_for_formal_review']).lower()}**; "
            "formal SG6/SG7 closed: false; physical hardware accepted: false",
+           (f"- Receipt catalog `{r['catalog_sha256'][:12]}`; the checkout that generated this dossier has "
+            f"`{r['checkout_catalog_sha256'][:12]}` ("
+            + ("same catalog" if r["catalog_matches_checkout"] else
+               "different: later commits changed local CI step scripts; the receipt's own per-step hashes apply")
+            + ")" if "catalog_sha256" in r else "- Receipt catalog: unavailable (receipt did not validate)"),
            f"- Release sign-off JSON: `{report['release_signoff']['status']}` (never inferred from CI)", ""]
     if report["blockers"]:
         out += ["## Blockers", ""] + [f"- {b}" for b in report["blockers"]] + [""]
