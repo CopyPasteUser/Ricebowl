@@ -183,3 +183,13 @@ shows repeatable bytes across two fresh VMs only. `pkg-build` also needs to run
 on the same SHA as the rest of the receipt: the per-session `receipt.json`
 records the package SHA-256s under `artifacts.sg6_packages`, so the full-catalog
 receipt and the two-session comparison can be read together.
+
+## Provisioning a fresh cloud container
+
+Claude Code cloud sessions run `.claude/hooks/session-start.sh` at start,
+which calls `scripts/local_ci/provision.sh` (root, idempotent, installs only
+what is missing: every workflow apt package, the `rbdev` user and venv,
+Rust 1.88.0, the pinned labwc 0.7.2, `rb-sync`/`rb-run`, and starts `dockerd`
+for the packaging steps). The hook does nothing outside a cloud session
+(`CLAUDE_CODE_REMOTE` unset) or as non-root. In any other disposable
+container, run `sudo scripts/local_ci/provision.sh` once.
