@@ -720,6 +720,13 @@ def step_env(ctx: Context, shim: Path) -> dict[str, str]:
     for key in PASS_THROUGH_ENV:
         if key in os.environ:
             env[key] = os.environ[key]
+    # Use the workflows' pinned Rust when it is installed, so build/lint
+    # results match the pin instead of the host's default toolchain.
+    pinned = Path(env["RUSTUP_HOME"]) / "toolchains" / f"{PINNED_RUST}-x86_64-unknown-linux-gnu"
+    if "RUSTUP_TOOLCHAIN" in os.environ:
+        env["RUSTUP_TOOLCHAIN"] = os.environ["RUSTUP_TOOLCHAIN"]
+    elif pinned.is_dir():
+        env["RUSTUP_TOOLCHAIN"] = PINNED_RUST
     ca = Path("/usr/local/share/rb-proxy-ca.crt")
     if ca.is_file():
         for key in ("SSL_CERT_FILE", "GIT_SSL_CAINFO", "CURL_CA_BUNDLE", "CARGO_HTTP_CAINFO",
