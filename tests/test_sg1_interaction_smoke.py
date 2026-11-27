@@ -100,9 +100,9 @@ class InteractionSmokeContractTests(unittest.TestCase):
                                 text=True, check=False)
         self.assertEqual(syntax.returncode, 0, syntax.stderr)
         for stage in ("windows", "launcher", "clock", "sni", "notices", "files", "panelnav",
-                      "outputs"):
+                      "quick", "kbfocus", "busy", "outputs"):
             self.assertIn(f"stage_{stage}() {{", self.source)
-        self.assertIn("for s in windows launcher clock sni notices files panelnav outputs; do run_stage",
+        self.assertIn("for s in windows launcher clock sni notices files panelnav quick kbfocus busy outputs; do run_stage",
                       self.source)
         self.assertNotIn("sudo ", self.source)
 
@@ -117,6 +117,25 @@ class InteractionSmokeContractTests(unittest.TestCase):
                 "the panel keyboard lease was dropped by the compositor",
                 "the window did not get the keyboard after the lease ended"):
             self.assertIn(needle, stage)
+
+    def test_gap_closing_stages_use_real_input_and_real_failures(self):
+        for stage, needles in {
+                "quick": ('"$clicker" 151 748 1366 768',           # terminal quick-launch
+                          "echo fail >\"$SG1I_QL_MODE\"",          # a helper that exits 1
+                          "a parallel launcher was started",
+                          "$runtime/emptybin",                       # helpers really absent
+                          "show-desktop did not minimize the window"),
+                "kbfocus": ('"$probe" overlay exclusive',          # real focus thief
+                            "a burst of neutral panel clicks",
+                            "keys typed into the thief activated the panel",
+                            "the panel did not recover after the focus theft"),
+                "busy": ("settings_shim slow",
+                         "wtype -M ctrl -k a -m ctrl -s 120 -d 30 \"$runtime/run-slow\"",
+                         "notification provider helpers ran in parallel",
+                         "the Notifications worker did not recover")}.items():
+            body = self.source.split(f"stage_{stage}() {{", 1)[1].split("\n}\n", 1)[0]
+            for needle in needles:
+                self.assertIn(needle, body, f"{stage}: {needle}")
 
     def test_negative_paths_stay_genuine(self):
         # Real denials and real focus theft, never a unit-level stand-in.

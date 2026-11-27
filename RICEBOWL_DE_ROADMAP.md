@@ -28,6 +28,13 @@ interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.
 Optional RiceClip/RiceShot P1 features remain outside the core release block.
 
+### SG1 panel keyboard lease on newer labwc and the last inventory gaps (27 November 2026; local evidence only)
+
+- **Fix:** on labwc >= 0.7.2 a neutral taskbar click's keyboard lease was dropped by the compositor the moment it was granted (the Exclusive -> OnDemand downgrade makes labwc move the keyboard to the topmost window; 0.7.1 kept it only while no window existed). A panel lease now stays Exclusive for its bounded life and ends 250 ms after the pointer leaves the panel, so it cannot stop a window from taking the keyboard. `smoke_sg1_interaction_labwc.sh` stage `panelnav` fails on the old binary under the pinned 0.7.2 and passes on 0.7.1 and 0.7.2.
+- **Inventory:** the last 14 gap cells of the SG1 control/state inventory are closed (12 compositor receipts from the new `quick`, `kbfocus` and `busy` stages and `smoke_sg1_status_labwc.sh` `focus_phase`, 2 genuine n/a). Counts: 79 compositor, 27 unit-only, 0 gaps, 48 n/a.
+- **Local CI:** `portal-strict-frame` failed locally only because its CI-only PipeWire link helper insisted on `GITHUB_ACTIONS=true`; it now accepts the local-CI disposable marker and the strict frame assertions pass unchanged.
+- This is software evidence on a headless labwc; no SG gate, hardware sign-off or hosted-CI requirement changes.
+
 ### SG2 explicit busy/error feedback for real RiceSpice service actions (17 November 2026; CI candidate)
 
 - RiceSpice's shared asynchronous service worker previously discarded

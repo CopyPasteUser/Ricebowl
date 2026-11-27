@@ -376,7 +376,7 @@ jobs:
             timeout -k 5s 200s sh scripts/smoke_sg3_ricepop_native_labwc.sh "$mode"
           done
       - name: Prove SG1 window/launcher/clock/SNI/failure-notice/desktop-file/output interaction negatives under labwc
-        run: timeout -k 5s 600s sh scripts/smoke_sg1_interaction_labwc.sh
+        run: timeout -k 5s 900s sh scripts/smoke_sg1_interaction_labwc.sh
       - name: Prove interactive pointer/keyboard/popup/error/AT-SPI behavior of both imported Creator rices (Heritage, Orbit) under labwc
         run: timeout -k 5s 300s sh scripts/smoke_sg4_imported_rices_labwc.sh
       - name: Prove RiceSpice denied/busy/unavailable states on every settings page (real GTK under labwc, fake providers)

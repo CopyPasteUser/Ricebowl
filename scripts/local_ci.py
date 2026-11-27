@@ -150,7 +150,7 @@ CATALOG: tuple[Step, ...] = (
     _s("mako-build", 480, "build", requires="cmd:git cmd:meson cmd:ninja pkgconfig:wayland-client "
        "pkgconfig:pango pkgconfig:cairo pkgconfig:libsystemd pkgconfig:wayland-protocols"),
     _s("sg3-ricepop", 920, "compositor", needs="rust-build mako-build", requires=NATIVE),
-    _s("sg1-interaction", 720, "compositor", needs="rust-build", requires=NATIVE),
+    _s("sg1-interaction", 1020, "compositor", needs="rust-build", requires=NATIVE),
     _s("sg4-imported-rices", 420, "compositor", needs="rust-build", requires=NATIVE),
     _s("sg2-settings-gui", 540, "compositor", needs="rust-build", requires=NATIVE),
     _s("sg4-creator-gui-roundtrip", 960, "compositor", needs="rust-build", requires=NATIVE),

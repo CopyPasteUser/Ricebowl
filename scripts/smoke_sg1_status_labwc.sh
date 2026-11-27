@@ -46,13 +46,14 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 self="$root/scripts/smoke_sg1_status_labwc.sh"
 native="$root/components/riceplate-wayland/target/release/riceplate-native"
 clicker="$root/components/riceplate-wayland/target/release/examples/wayland_pointer_click"
+probe="$root/components/riceplate-wayland/target/release/riceplate_focus_probe"
 
 if [ "${1:-}" != --inner ]; then
     for command in dbus-run-session labwc wlr-randr wtype grim sha256sum; do
         command -v "$command" >/dev/null || { echo "Missing $command" >&2; exit 77; }
     done
-    test -x "$native" && test -x "$clicker" || {
-        echo "Build native release binary and wayland_pointer_click example first" >&2
+    test -x "$native" && test -x "$clicker" && test -x "$probe" || {
+        echo "Build native release binary, riceplate_focus_probe and wayland_pointer_click example first" >&2
         exit 77
     }
     runtime=$(mktemp -d)
@@ -92,10 +93,11 @@ state="$runtime/state"
 receipts="$state/receipts"
 shots=${SG1_STATUS_SHOTS:-}
 export SG1_STATE_DIR="$state"
-plate= keyboard_keeper= compositor=
+plate= keyboard_keeper= compositor= thief=
 rice=
 
 cleanup() {
+    [ -z "$thief" ] || { kill "$thief" 2>/dev/null || :; wait "$thief" 2>/dev/null || :; }
     [ -z "$plate" ] || { kill "$plate" 2>/dev/null || :; wait "$plate" 2>/dev/null || :; }
     [ -z "$keyboard_keeper" ] || { kill "$keyboard_keeper" 2>/dev/null || :; wait "$keyboard_keeper" 2>/dev/null || :; }
     [ -z "$compositor" ] || { kill "$compositor" 2>/dev/null || :; wait "$compositor" 2>/dev/null || :; }
@@ -682,6 +684,59 @@ battery_phase() {
     pass "battery is read-only: Power Meter menu opens/closes, no provider call, no mutation"
 }
 
+focus_phase() {
+    # Focus loss (Luna): an external Exclusive layer client takes the keyboard
+    # while the volume status menu is open. The menu closes (pixels), keys typed
+    # afterwards reach only the thief (no provider call, no mutation), the
+    # thief's exit dispatches nothing stale, and a fresh open + Return applies
+    # exactly one mutation per gesture. An ordinary toplevel cannot steal from
+    # an Exclusive layer in labwc, so a layer client is the faithful thief.
+    park
+    set_mode ok
+    keys -k Escape        # the previous phase leaves its status menu open
+    settle 1
+    renew_keyboard_seat   # a stale disconnected wtype keyboard starves layer clients (WP0.1)
+    idle=$(region_hash 1078 520 272 160)
+    before=$(mutations)
+    click 1083 748
+    settle .6
+    [ "$(region_hash 1078 520 272 160)" != "$idle" ] || fail "volume status menu did not open before the focus theft"
+    WAYLAND_DISPLAY=wayland-0 "$probe" overlay exclusive >"$runtime/status-thief.log" 2>&1 &
+    thief=$!
+    n=0
+    while ! grep -q 'event=keyboard_enter' "$runtime/status-thief.log" 2>/dev/null; do
+        n=$((n + 1)); [ "$n" -lt 50 ] || fail "external client never took keyboard focus from the status menu"
+        sleep .1
+    done
+    settle .4
+    [ "$(region_hash 1078 520 272 160)" = "$idle" ] || fail "status menu stayed open after keyboard focus loss"
+    keys -k Return -s 150 -k Return
+    n=0
+    while ! grep -q 'event=keyboard_press' "$runtime/status-thief.log" 2>/dev/null; do
+        n=$((n + 1)); [ "$n" -lt 30 ] || fail "keys typed after focus loss did not reach the new focus owner"
+        sleep .1
+    done
+    settle .6
+    [ "$(mutations)" -eq "$before" ] || fail "keys typed into the thief reached the status menu (provider mutation)"
+    keys -k Escape
+    n=0
+    while kill -0 "$thief" 2>/dev/null && [ "$n" -lt 30 ]; do n=$((n + 1)); sleep .1; done
+    wait "$thief" 2>/dev/null || :
+    thief=
+    settle .6
+    [ "$(mutations)" -eq "$before" ] || fail "thief exit dispatched a stale status action"
+    # Recovery: fresh gestures apply exactly one mutation each (mute twice
+    # restores the state the next phases expect).
+    renew_keyboard_seat
+    press_keys mute
+    expect_mutations $((before + 1)) "recovery after focus theft"
+    expect_last_mutation "$(argv_for mute)" "recovery after focus theft"
+    park
+    press_keys mute
+    expect_mutations $((before + 2)) "second recovery gesture"
+    pass "status menu focus theft: menu closes, keys reach only the thief, nothing stale dispatched, fresh gestures apply one mutation each"
+}
+
 run_rice() {
     rice=$1
     recipe=$2
@@ -698,6 +753,7 @@ run_rice() {
     error_phase
     noop_phase
     slow_phase
+    [ "$rice" != luna ] || focus_phase
     hang_phase
     [ "$rice" != luna ] || battery_phase
     unavailable_phase

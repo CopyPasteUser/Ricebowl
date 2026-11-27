@@ -16,6 +16,10 @@
 #             provider, tray provider) reach the user as a visible, AT-SPI-
 #             exposed, self-clearing notice (both rices)
 #   panelnav: neutral-click panel keyboard lease with a window mapped (WP1.9)
+#   quick   : Luna quick-launch buttons (terminal/launcher/show-desktop): running,
+#             failing and missing helpers
+#   kbfocus : panel keyboard lease burst, focus theft and recovery (both rices)
+#   busy    : Luna clock helper, Run command and Notifications provider still busy
 #   outputs : output scale change, hot-unplug/re-plug and hot-add while the Luna
 #             Start menu, a tray popup, the calendar, the Run dialog and a
 #             desktop context menu are open (own two-output compositor; last)
@@ -48,7 +52,7 @@ if [ "${1:-}" != --inner ]; then
 fi
 
 runtime=$SG1I_RUNTIME
-stages=${SG1I_STAGES:-windows launcher clock sni notices files panelnav outputs}
+stages=${SG1I_STAGES:-windows launcher clock sni notices files panelnav quick kbfocus busy outputs}
 cp "$root/examples/wayland/xp-luna-columns.json" "$runtime/luna.json"
 chmod 0600 "$runtime/luna.json"
 export XDG_CONFIG_HOME="$runtime/config"
@@ -271,11 +275,14 @@ stage_windows() {
 # =========================================================================
 settings_shim() {
     # settings_shim MODE: ok | fail | denied | absent for `ricebowl`.
-    rm -f "$runtime/shims/ricebowl"
+    rm -f "$runtime/shims/ricebowl" "$runtime/ricebowl.slow"
     [ "$1" != absent ] || return 0
+    export SG1I_RICEBOWL_SLOW="$runtime/ricebowl.slow"
     cat >"$runtime/shims/ricebowl" <<'SHIM'
 #!/bin/sh
 { printf 'call'; for a in "$@"; do printf ' %s' "$a"; done; printf '\n'; } >>"$SG1I_RICEBOWL_LOG"
+[ ! -e "${SG1I_RICEBOWL_SLOW:-/nonexistent}" ] || sleep 4
+echo end >>"$SG1I_RICEBOWL_LOG"
 [ ! -e "$SG1I_RICEBOWL_FAIL" ] || exit 3
 exit 0
 SHIM
@@ -284,6 +291,8 @@ SHIM
         denied) chmod 0600 "$runtime/shims/ricebowl";;
         fail) : >"$runtime/ricebowl.fail";;
         ok) rm -f "$runtime/ricebowl.fail";;
+        slow) rm -f "$runtime/ricebowl.fail"; : >"$runtime/ricebowl.slow";;
+        slowfail) : >"$runtime/ricebowl.fail"; : >"$runtime/ricebowl.slow";;
     esac
 }
 zombie_children() {
@@ -1622,8 +1631,314 @@ SHIM
     rm -f "$runtime/shims/fuzzel"
 }
 
+# =========================================================================
+# WP1.1 gap cells, Luna quick-launch row: the three taskbar quick-launch
+# buttons (applications = the external launcher, terminal = `foot`,
+# show-desktop) with private `foot`/`fuzzel` shims that log every spawn.
+#   Pend/Busy  a helper that keeps running is not an error; every click is
+#              exactly one spawn (terminal), the single-child launcher refuses a
+#              parallel second one (applications)
+#   Err        a helper that exits 1 shows the generic notice, is not replayed
+#   Unav       a missing helper shows the notice at once; recovery spawns again
+#   Focus      see stage_kbfocus (the panel keyboard path to the same buttons)
+# =========================================================================
+ql_shims() {
+    for tool in foot fuzzel; do
+        cat >"$runtime/shims/$tool" <<SHIM
+#!/bin/sh
+printf '$tool\n' >>"\$SG1I_QL_LOG"
+case \$(cat "\$SG1I_QL_MODE") in
+    fail) exit 1;;
+    slow) sleep 9;;
+esac
+exit 0
+SHIM
+        chmod 0700 "$runtime/shims/$tool"
+    done
+}
+stage_quick() {
+    set_mode 1366x768
+    notice_home
+    mkdir -p -m 0700 "$runtime/emptybin"
+    export SG1I_QL_LOG="$runtime/quick.log" SG1I_QL_MODE="$runtime/quick.mode"
+    : >"$SG1I_QL_LOG"; echo slow >"$SG1I_QL_MODE"
+    ql_shims
+    ql_count() { count_lines "$SG1I_QL_LOG" "$1"; }
+    log=$runtime/plate-quick.log
+    renew_keyboard_seat
+    start_full "$runtime/luna.json" "$log" "PATH=$runtime/shims:$PATH"
+    grim "$runtime/quick-base.png"
+    # Pend: a terminal that keeps running is one spawn and not an error.
+    "$clicker" 151 748 1366 768 >/dev/null
+    wait_count "$SG1I_QL_LOG" foot 1 30 || fail "quick-launch terminal did not spawn"
+    expect_no_notice "$runtime/quick-base.png"
+    # Busy: two more clicks while it still runs are two more spawns, no drop, no merge.
+    "$clicker" 151 748 1366 768 >/dev/null; "$clicker" 151 748 1366 768 >/dev/null
+    wait_count "$SG1I_QL_LOG" foot 3 30 || fail "quick-launch terminal clicks while busy were dropped"
+    sleep .6
+    [ "$(ql_count foot)" = 3 ] || fail "a quick-launch terminal click was duplicated ($(ql_count foot))"
+    expect_no_notice "$runtime/quick-base.png" 1
+    # Busy (launcher): the single-child launcher refuses a parallel second one.
+    "$clicker" 118 748 1366 768 >/dev/null
+    wait_count "$SG1I_QL_LOG" fuzzel 1 30 || fail "quick-launch applications did not spawn the launcher"
+    "$clicker" 118 748 1366 768 >/dev/null; "$clicker" 118 748 1366 768 >/dev/null
+    wait_count "$log" 'external launcher already active' 1 30 || fail "second launcher click while one runs was not refused"
+    sleep .5
+    [ "$(ql_count fuzzel)" = 1 ] || fail "a parallel launcher was started ($(ql_count fuzzel))"
+    expect_no_notice "$runtime/quick-base.png" 1
+    # Err: the terminal exits 1 -> generic notice, no replay, clears.
+    echo fail >"$SG1I_QL_MODE"
+    "$clicker" 151 748 1366 768 >/dev/null
+    wait_count "$SG1I_QL_LOG" foot 4 30 || fail "failing terminal was not started"
+    expect_notice 'Command: Could not run' "$runtime/quick-base.png"
+    sleep .8
+    [ "$(ql_count foot)" = 4 ] || fail "failing terminal was replayed ($(ql_count foot))"
+    expect_notice_clears "$runtime/quick-base.png"
+    # Recovery: a good terminal spawns once and shows no notice.
+    echo ok >"$SG1I_QL_MODE"
+    "$clicker" 151 748 1366 768 >/dev/null
+    wait_count "$SG1I_QL_LOG" foot 5 30 || fail "terminal did not recover"
+    sleep .6
+    [ "$(ql_count foot)" = 5 ] || fail "recovery spawned more than once"
+    expect_no_notice "$runtime/quick-base.png" 1
+    # show-desktop: really minimizes and restores a mapped window (pending
+    # intent resolved by the compositor state, nothing replayed).
+    win_client
+    wait_ready "$log" 1 'active=true minimized=false' || fail "quick: window never became active"
+    sleep .6
+    from=$(next_line "$log")
+    "$clicker" 185 748 1366 768 >/dev/null
+    wait_ready "$log" "$from" 'minimized=true' || fail "quick: show-desktop did not minimize the window"
+    from=$(next_line "$log")
+    "$clicker" 185 748 1366 768 >/dev/null
+    wait_ready "$log" "$from" 'active=true minimized=false' || fail "quick: a second show-desktop did not restore the window"
+    kill "$client"; wait "$client" 2>/dev/null || :; client=
+    kill -0 "$plate" || fail "quick: RicePlate died"
+    stop_plate
+    echo "SG1 luna: quick-launch terminal/launcher/show-desktop: running helper is no error, one spawn per click, single launcher child, failing helper shows the notice once, show-desktop round trip PASS"
+    # Unav: helpers missing -> the notice appears at once; nothing hangs.
+    log=$runtime/plate-quick-absent.log
+    renew_keyboard_seat
+    start_full "$runtime/luna.json" "$log" "PATH=$runtime/emptybin"
+    grim "$runtime/quick-base2.png"
+    "$clicker" 151 748 1366 768 >/dev/null
+    wait_count "$log" 'cannot run terminal: No such file' 1 30 || fail "absent terminal was not logged"
+    expect_notice 'Command: Could not run' "$runtime/quick-base2.png"
+    expect_notice_clears "$runtime/quick-base2.png"
+    "$clicker" 118 748 1366 768 >/dev/null
+    wait_count "$log" 'cannot open application launcher: No such file' 1 30 || fail "absent launcher was not logged"
+    expect_notice 'Launcher: Not available' "$runtime/quick-base2.png"
+    expect_notice_clears "$runtime/quick-base2.png"
+    kill -0 "$plate" || fail "quick: RicePlate died with the helpers missing"
+    stop_plate
+    rm -f "$runtime/shims/foot" "$runtime/shims/fuzzel"
+    echo "SG1 luna: quick-launch with terminal/launcher helpers missing shows the notice and clears PASS"
+}
+
+# =========================================================================
+# WP1.1 gap cells, keyboard focus paths (both rices): Busy = repeated neutral
+# gestures in a burst, Focus/Recov = an external Exclusive layer client takes
+# the keyboard from a panel lease. Keys come from one wtype started before the
+# gesture (see stage_panelnav). Chrome: Tab+Return = the launcher; Luna:
+# Tab x3 + Return = the quick-launch terminal (Start, applications, terminal).
+# =========================================================================
+stage_kbfocus() {
+    set_mode 1366x768
+    export SG1I_QL_LOG="$runtime/quick.log" SG1I_QL_MODE="$runtime/quick.mode"
+    echo ok >"$SG1I_QL_MODE"
+    ql_shims
+    for rice in chrome luna; do
+        recipe=chrome tool=fuzzel
+        keys="-k Tab -s 200 -k Return"
+        if [ "$rice" = luna ]; then
+            recipe=$runtime/luna.json tool=foot
+            keys="-k Tab -s 200 -k Tab -s 200 -k Tab -s 200 -k Return"
+        fi
+        log=$runtime/plate-kbfocus-$rice.log
+        : >"$SG1I_QL_LOG"
+        renew_keyboard_seat
+        start_plate "$recipe" "$log" "PATH=$runtime/shims:$PATH"
+        sleep .6
+        # Busy: a burst of three neutral gestures leaves one working lease.
+        wtype -s 4000 $keys >/dev/null 2>&1 &
+        sender=$!
+        sleep 1.2
+        seen=$(count_lines "$log" 'compositor confirmed panel keyboard focus')
+        rel=$(count_lines "$log" 'panel keyboard focus released')
+        "$clicker" 900 748 1366 768 >/dev/null; "$clicker" 905 748 1366 768 >/dev/null; "$clicker" 910 748 1366 768 >/dev/null
+        wait_count "$log" 'compositor confirmed panel keyboard focus' $((seen + 1)) 30 \
+            || fail "$rice: a burst of neutral clicks never obtained keyboard focus"
+        wait "$sender" || :
+        wait_count "$SG1I_QL_LOG" "$tool" 1 30 || fail "$rice: the keys after a burst of gestures did not reach the panel"
+        sleep .8
+        [ "$(count_lines "$SG1I_QL_LOG" "$tool")" = 1 ] || fail "$rice: the burst produced more than one activation"
+        [ "$(count_lines "$log" 'panel keyboard focus released')" -gt "$rel" ] || fail "$rice: the burst left a stale lease after activation"
+        echo "SG1 $rice: a burst of neutral panel clicks leaves exactly one working keyboard lease (one activation) PASS"
+        # Focus: the lease is stolen by an exclusive external client; the keys
+        # reach only the thief and nothing is activated.
+        : >"$SG1I_QL_LOG"
+        wtype -s 5500 $keys >/dev/null 2>&1 &
+        sender=$!
+        sleep 1.2
+        seen=$(count_lines "$log" 'compositor confirmed panel keyboard focus')
+        rel=$(count_lines "$log" 'panel keyboard focus released')
+        "$clicker" 900 748 1366 768 >/dev/null
+        wait_count "$log" 'compositor confirmed panel keyboard focus' $((seen + 1)) 30 \
+            || fail "$rice: neutral panel click did not obtain keyboard focus"
+        "$probe" overlay exclusive >"$runtime/kb-thief.log" 2>&1 &
+        thief=$!
+        wait_count "$runtime/kb-thief.log" 'event=keyboard_enter' 1 50 || fail "$rice: external client never took the keyboard from the lease"
+        wait_count "$log" 'panel keyboard focus released' $((rel + 1)) 30 || fail "$rice: the stolen lease was not released"
+        wait "$sender" || :
+        wait_count "$runtime/kb-thief.log" 'event=keyboard_press' 1 30 || fail "$rice: keys after the theft did not reach the new focus owner"
+        sleep .6
+        [ "$(count_lines "$SG1I_QL_LOG" "$tool")" = 0 ] || fail "$rice: keys typed into the thief activated the panel"
+        wtype -k Escape
+        n=0; while kill -0 "$thief" 2>/dev/null && [ "$n" -lt 30 ]; do n=$((n + 1)); sleep .1; done
+        wait "$thief" 2>/dev/null || :; thief=
+        sleep .5
+        [ "$(count_lines "$SG1I_QL_LOG" "$tool")" = 0 ] || fail "$rice: the thief's exit activated a stale panel target"
+        # Recov: a fresh gesture + the same keys activates exactly once.
+        renew_keyboard_seat
+        wtype -s 3500 $keys >/dev/null 2>&1 &
+        sender=$!
+        sleep 1.2
+        seen=$(count_lines "$log" 'compositor confirmed panel keyboard focus')
+        "$clicker" 900 748 1366 768 >/dev/null
+        wait_count "$log" 'compositor confirmed panel keyboard focus' $((seen + 1)) 30 \
+            || fail "$rice: no keyboard focus after the theft ended"
+        wait "$sender" || :
+        wait_count "$SG1I_QL_LOG" "$tool" 1 30 || fail "$rice: the panel did not recover after the focus theft"
+        sleep .8
+        [ "$(count_lines "$SG1I_QL_LOG" "$tool")" = 1 ] || fail "$rice: recovery activated more than once"
+        kill -0 "$plate" || fail "$rice: RicePlate died"
+        stop_plate
+        echo "SG1 $rice: an exclusive external client takes the panel lease: keys reach only it, nothing stale activates; a fresh gesture recovers with one activation PASS"
+    done
+    rm -f "$runtime/shims/foot" "$runtime/shims/fuzzel"
+}
+
+# =========================================================================
+# WP1.1 gap cells, Luna Busy: clock settings helper still running, Run
+# command still running, Notifications provider slow.
+# =========================================================================
+stage_busy() {
+    set_mode 1366x768
+    notice_home
+    mkdir -p -m 0700 "$runtime/emptybin"
+    export SG1I_RICEBOWL_LOG="$runtime/ricebowl-busy.log" SG1I_RICEBOWL_FAIL="$runtime/ricebowl.fail"
+    rm -f "$SG1I_RICEBOWL_LOG"
+    # ---- clock: a slow settings helper (4 s) ------------------------------
+    settings_shim slow
+    log=$runtime/plate-busy-clock.log
+    renew_keyboard_seat
+    start_plate "$runtime/luna.json" "$log" "PATH=$runtime/shims"
+    luna_clock_menu_open
+    wtype -k Return
+    wait_count "$SG1I_RICEBOWL_LOG" 'call de settings --luna --page timezone' 1 30 || fail "slow settings provider was not invoked"
+    # While it still runs, another gesture is exactly one more call.
+    renew_keyboard_seat
+    luna_clock_menu_open
+    wtype -k Return
+    wait_count "$SG1I_RICEBOWL_LOG" 'call de settings --luna --page timezone' 2 30 || fail "a second clock gesture while the helper ran was dropped"
+    sleep 5.5
+    [ "$(count_lines "$SG1I_RICEBOWL_LOG" 'call ')" = 2 ] || fail "the clock helper was replayed or duplicated ($(count_lines "$SG1I_RICEBOWL_LOG" 'call '))"
+    [ "$(zombie_children)" = 0 ] || fail "finished slow settings helpers left a zombie child"
+    kill -0 "$plate" || fail "busy: RicePlate died on the clock"
+    stop_plate
+    echo "SG1 luna: slow clock settings helper: one call per gesture while it runs, no replay, no zombie PASS"
+
+    # ---- Run: a command that keeps running ---------------------------------
+    cat >"$runtime/run-slow" <<WITNESS
+#!/bin/sh
+echo started >>"$runtime/run-slow.log"
+sleep 5
+WITNESS
+    cat >"$runtime/run-ok" <<WITNESS
+#!/bin/sh
+echo ran >>"$runtime/run-ok.log"
+WITNESS
+    chmod 0700 "$runtime/run-slow" "$runtime/run-ok"
+    rm -f "$runtime/run-slow.log" "$runtime/run-ok.log"
+    log=$runtime/plate-busy-run.log
+    # Private PATH: a host `pactl` would leave its own (bounded, unrelated)
+    # defunct audio-observer child that the zombie check must not count.
+    start_full "$runtime/luna.json" "$log" "PATH=$runtime/shims"
+    grim "$runtime/busy-base.png"
+    open_run() {
+        renew_keyboard_seat
+        "$clicker" 35 748 1366 768 >/dev/null; sleep .7
+        "$clicker" 316 580 1366 768 >/dev/null; sleep .8
+        grim "$runtime/busy-run-open.png"
+        [ "$(region_changed "$runtime/busy-base.png" "$runtime/busy-run-open.png" 459 268 448 232)" -gt 800 ] \
+            || fail "luna: the Run dialog did not open"
+    }
+    open_run
+    wtype -M ctrl -k a -m ctrl -s 120 -d 30 "$runtime/run-slow" -s 150 -k Return
+    wait_count "$runtime/run-slow.log" started 1 30 || fail "the slow Run command did not start"
+    sleep .6
+    grim "$runtime/busy-run-after.png"
+    [ "$(region_changed "$runtime/busy-base.png" "$runtime/busy-run-after.png" 459 268 448 232)" -lt 100 ] \
+        || fail "luna: the Run dialog stayed open after starting a long-running command"
+    # While it still runs the dialog opens again and runs a second command once.
+    open_run
+    wtype -M ctrl -k a -m ctrl -s 120 -d 30 "$runtime/run-ok" -s 150 -k Return
+    wait_count "$runtime/run-ok.log" ran 1 30 || fail "a Run command was blocked while the first still ran"
+    sleep .8
+    [ "$(wc -l <"$runtime/run-ok.log")" = 1 ] && [ "$(wc -l <"$runtime/run-slow.log")" = 1 ] \
+        || fail "Run duplicated or replayed a command"
+    sleep 5
+    [ "$(zombie_children)" = 0 ] || fail "finished Run commands left a zombie child"
+    expect_no_notice "$runtime/busy-base.png" 1
+    kill -0 "$plate" || fail "busy: RicePlate died on Run"
+    stop_plate
+    echo "SG1 luna: Run with a command that keeps running: dialog closes, next Run works, one execution each, no zombie, no notice PASS"
+
+    # ---- Notifications: a slow, failing provider ---------------------------
+    settings_shim slowfail
+    rm -f "$SG1I_RICEBOWL_LOG"
+    log=$runtime/plate-busy-notif.log
+    renew_keyboard_seat
+    start_plate "$runtime/luna.json" "$log" "PATH=$runtime/shims"
+    "$clicker" 35 748 1366 768 >/dev/null; sleep .7
+    "$clicker" 340 527 1366 768 >/dev/null
+    wait_count "$SG1I_RICEBOWL_LOG" 'call de notifications-owned --json' 1 40 || fail "the Notifications entry never asked the provider"
+    # Refresh (r) three times while the provider is still busy: the request
+    # queue is one deep, so the burst never becomes a storm of parallel helpers.
+    wtype -k r -s 80 -k r -s 80 -k r
+    sleep 11
+    n=$(count_lines "$SG1I_RICEBOWL_LOG" 'call de notifications-owned --json')
+    [ "$n" -ge 2 ] || fail "the queued refresh was never served ($n calls)"
+    /usr/bin/python3 - "$SG1I_RICEBOWL_LOG" <<'PY' || fail "notification provider helpers ran in parallel"
+import sys
+running = peak = 0
+for line in open(sys.argv[1]):
+    if line.startswith("call "):
+        running += 1
+        peak = max(peak, running)
+    elif line.startswith("end"):
+        running -= 1
+assert peak == 1, f"peak concurrency {peak}"
+PY
+    # Closing the inbox ends any retry cycle: nothing is replayed afterwards.
+    wtype -k Escape -k Escape; sleep 5
+    n=$(count_lines "$SG1I_RICEBOWL_LOG" 'call de notifications-owned --json')
+    sleep 5
+    [ "$(count_lines "$SG1I_RICEBOWL_LOG" 'call de notifications-owned --json')" = "$n" ] || fail "the closed Notifications inbox kept calling the provider"
+    [ "$(zombie_children)" = 0 ] || fail "finished notification providers left a zombie child"
+    # Recovery: the worker is free again and serves a fresh open.
+    "$clicker" 35 748 1366 768 >/dev/null; sleep .7
+    "$clicker" 340 527 1366 768 >/dev/null
+    wait_count "$SG1I_RICEBOWL_LOG" 'call de notifications-owned --json' $((n + 1)) 40 || fail "the Notifications worker did not recover after a busy burst"
+    sleep 5
+    kill -0 "$plate" || fail "busy: RicePlate died on Notifications"
+    stop_plate
+    echo "SG1 luna: Notifications with a slow failing provider: a refresh burst never runs two helpers at once, closing the inbox stops the calls, the worker recovers PASS"
+    settings_shim absent
+}
+
 run_stage() {
     case " $stages " in *" $1 "*) "stage_$1";; esac
 }
-for s in windows launcher clock sni notices files panelnav outputs; do run_stage "$s"; done
+for s in windows launcher clock sni notices files panelnav quick kbfocus busy outputs; do run_stage "$s"; done
 echo "PASS smoke_sg1_interaction_labwc ($stages)"
