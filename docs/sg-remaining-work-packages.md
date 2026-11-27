@@ -10,7 +10,7 @@ It closes nothing and changes no percentage. Open PRs at snapshot: #601 (SG1),
 **Where:** `L` = runnable locally in a disposable headless labwc session
 (the `ricebowl` cloud environment: labwc 0.7.1, Mako 1.8, non-root `rbdev`,
 helpers `rb-sync`/`rb-run`). `L!` = local, but blocked by WP0 first.
-`CI` = needs exact-head/exact-main hosted Actions (not before December 2026).
+`CI` = needs a local CI receipt (`scripts/local_ci.sh`) on the exact head/final `main` SHA; hosted Actions are no longer used (27 Nov 2026).
 `OWNER` = owner decision or review. Physical hardware is not an SG item.
 **Model hint:** `S` = routine fix/test (Sonnet, medium), `O` = diagnosis,
 races, protocol or security-sensitive design (Opus, high).
@@ -127,4 +127,4 @@ in `/home/rbdev/Ricebowl/components/riceplate-wayland`, then `chown`).
 
 WP0 → inventories 1.1 and 2.1 (cheap, make "done" measurable) → SG5 and SG1
 (hardest, mostly `O`) → SG2/SG3 (mostly `S`) → SG4 (needs owner decisions
-4.4/4.5) → SG7 (December, CI). One lane and one WP per session.
+4.4/4.5) → local CI receipt on final `main` → SG7. One lane and one WP per session.

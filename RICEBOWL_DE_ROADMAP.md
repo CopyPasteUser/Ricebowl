@@ -16,6 +16,13 @@ only with real implementation + negative tests + exact-head and post-merge
 evidence; no invented progress percentage. Existing native features documented
 below remain valuable incremental evidence, not blanket release acceptance.
 
+**Evidence policy (27 Nov 2026):** GitHub Actions are no longer used. Every
+"exact-head CI", "exact-main CI" or "hosted CI" requirement in this roadmap
+is met by a local CI receipt (`scripts/local_ci.sh` on a fresh clone of the
+exact SHA, committed under `docs/evidence/local-ci/`); see the
+[integration contract](docs/de-integration-governance.md). Earlier hosted run
+links stay valid as historical evidence.
+
 After all shared software gates pass, polish XP Luna's OS-specific visual and
 interaction fidelity through the shared engine. Only then perform the physical
 Mint/ThinkPad/GPU/Orca/multi-monitor sign-off in `RELEASE_1_0_GATES.md`.

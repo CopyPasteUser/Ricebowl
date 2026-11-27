@@ -29,9 +29,17 @@ and release requirements in this document remain in effect. The integration
 lane remains responsible for shared hotspots, cross-lane interfaces and final
 release acceptance, but is not a mandatory hand-off for independent lane PRs.
 
-- **No GitHub Actions until December 2026.** Do not dispatch, rerun or use
-  hosted Actions as a substitute for local testing. Every new branch commit
-  and every merge commit must contain `[skip ci]` in its commit message.
+- **Local CI replaces GitHub Actions (owner decision, 27 Nov 2026).** Hosted
+  GitHub Actions are not used and are not required. Do not dispatch or rerun
+  them. Every new branch commit and every merge commit keeps `[skip ci]` so a
+  push never starts hosted runs. Wherever this contract, AGENTS.md, the
+  roadmap or a gate says *exact-head CI*, *exact-main CI* or *hosted CI*, the
+  required evidence is a **local CI receipt**: `scripts/local_ci.sh` run on a
+  fresh clone of that exact SHA in the isolated `ricebowl` environment
+  (non-root, real labwc/Mako/Rust tooling), with the committed receipt under
+  `docs/evidence/local-ci/` recording SHA, tool versions, every step's result
+  and log hashes. A step that cannot run locally is reported as BLOCKED with
+  the reason, never as passed.
 - Self-merge is permitted only for **the lane's own strictly owned files**,
   after a real full-checkout local test run appropriate to the change. Tests
   must be executed on the exact PR head; source excerpts, mocked snippets and
@@ -57,10 +65,12 @@ release acceptance, but is not a mandatory hand-off for independent lane PRs.
   test outputs. If any prerequisite remains unavailable, report
   **BLOCKED / NOT MERGED**. Avoid speculative "five-minute fixes" passed off
   as closure of an entire shared software gate.
-- This temporary integration exception does **not** replace exact-main
-  hosted-CI evidence required for formal SG acceptance or 1.0 release
-  certification. Those signoffs remain open until their own contractual
-  requirements can actually be met after December.
+- Formal SG acceptance and 1.0 release certification use the local CI
+  receipt of the exact final `main` SHA. Evidence that inherently needs two
+  independent builders (reproducible-package comparison) uses two separate
+  fresh `ricebowl` cloud sessions building the same SHA; document it as such,
+  not as independent hosted provenance. Physical-device checks stay separate
+  and are never inferred from local CI.
 
 ## Four development lanes and integration lane
 
