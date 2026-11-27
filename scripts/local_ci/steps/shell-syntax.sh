@@ -7,7 +7,8 @@ sh -n scripts/smoke_sg1_sni_labwc.sh
 sh -n scripts/smoke_sg1_window_recovery_labwc.sh
 sh -n scripts/smoke_sg1_status_labwc.sh
 sh -n scripts/smoke_sg3_ricepop_native_labwc.sh
-/usr/bin/python3 -m py_compile scripts/smoke_sg3_ricepop_native_driver.py
+/usr/bin/python3 -m py_compile scripts/smoke_sg3_ricepop_native_driver.py scripts/gtk_keyboard.py
+sh -n scripts/smoke_sg4_creator_full_login_labwc.sh
 sh -n scripts/smoke_sg1_interaction_labwc.sh
 sh -n scripts/smoke_sg4_imported_rices_labwc.sh
 /usr/bin/python3 -m py_compile scripts/sg4_imported_rices_setup.py scripts/sg4_atspi_probe.py

@@ -381,6 +381,9 @@ class RiceSpiceWindow:
         self.generation = 0
         self.busy = False
         self.closed = False
+        # (widget class name, ordinal among that class) of the page control that held keyboard
+        # focus when the same page was re-rendered; restored once the new page has settled.
+        self._focus_return = None
         self._ricepop_signals = None
         self._ricepop_focus_buttons = {}
         self._ricepop_rendered_digest = None
@@ -694,6 +697,8 @@ class RiceSpiceWindow:
         if parent is not None:
             parent.queue_resize()
         self.window.queue_resize()
+        if self._focus_return is not None:
+            self._restore_focus()
 
     def _background(self, work: Callable[[], object], done: Callable[[object], None]):
         if self.closed:
@@ -748,8 +753,82 @@ class RiceSpiceWindow:
 
         future.add_done_callback(complete)
 
+    def _page_controls(self):
+        """The focusable controls of the current page, in tree (Tab) order."""
+        Gtk = self.Gtk
+        kinds = (Gtk.Button, Gtk.Entry, Gtk.ComboBox, Gtk.Scale, Gtk.Switch)
+        found = []
+
+        def visit(widget):
+            if isinstance(widget, kinds):
+                found.append(widget)
+            if isinstance(widget, Gtk.Container):
+                for child in widget.get_children():
+                    visit(child)
+        visit(self.content)
+        return found
+
+    def _remember_focus(self, same_view: bool):
+        """Note which control of the page holds keyboard focus before the page is rebuilt.
+
+        A write re-renders its page from the provider's state and destroys every widget,
+        including the focused control; GTK then leaves the window with no focus and a keyboard
+        user is sent back to the start of the window after every action (found by the real
+        keyboard pass in scripts/sg2_settings_gui_driver.py). Navigating to another page is
+        not a re-render: the focus is then in the sidebar or the user's choice.
+        """
+        self._focus_return = None
+        if not same_view:
+            return
+        focus = self.window.get_focus()
+        if focus is None or not focus.is_ancestor(self.content):
+            return
+        controls = self._page_controls()
+        kind = type(focus)
+        same = [widget for widget in controls if type(widget) is kind]
+        if focus in same and focus in controls:
+            self._focus_return = (kind, same.index(focus), controls.index(focus))
+
+    def _restore_focus(self):
+        """Give the rebuilt page's control at the same position the focus back, unless the
+        user already moved it (focus anywhere, the sidebar included, is respected)."""
+        if self._focus_return is None or self.busy:
+            return                            # nothing to do, or the provider read has not settled
+        (kind, ordinal, overall), self._focus_return = self._focus_return, None
+        focus = self.window.get_focus()
+        if focus is not None and focus is not self.window:
+            return
+        controls = self._page_controls()
+        same = [widget for widget in controls if type(widget) is kind]
+        # Same kind of control at the same position (the label may have changed: Disable ->
+        # Enable). If it is gone or no longer usable (Save after a save), the nearest usable
+        # control, looking backwards first: that is where the keyboard user was.
+        candidates = [same[min(ordinal, len(same) - 1)]] if same else []
+        candidates += controls[min(overall, len(controls) - 1)::-1] + controls[overall + 1:]
+        target = next((widget for widget in candidates
+                       if widget.get_sensitive() and widget.get_visible()), None)
+        if target is not None:
+            target.grab_focus()
+            # The page was just rebuilt, so its scroll position is back at the top and the new
+            # widgets have no allocation yet: GTK's own scroll-to-focus has nothing to measure.
+            # Once the layout is done, bring the control into view (a control near the foot of a
+            # long page, such as the Do Not Disturb switch, would otherwise be focused off screen).
+            self.GLib.idle_add(self._reveal, target)
+
+    def _reveal(self, widget):
+        Gtk = self.Gtk
+        if self.closed or not widget.get_mapped():
+            return False
+        scrolled = widget.get_ancestor(Gtk.ScrolledWindow)
+        if scrolled is not None and scrolled.get_child() is not None:
+            coords = widget.translate_coordinates(scrolled.get_child(), 0, 0)
+            if coords is not None:
+                scrolled.get_vadjustment().clamp_page(coords[1], coords[1] + widget.get_allocated_height())
+        return False
+
     def _begin_view(self, name: str):
         """Cancel stale results and switch views without changing any system state."""
+        self._remember_focus(name == self.page)
         self.generation += 1
         self.busy = False
         self._stop_ricepop_signals()

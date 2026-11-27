@@ -27,6 +27,9 @@ from pathlib import Path
 
 import pyatspi
 
+import gtk_keyboard
+from gtk_keyboard import Fail
+
 ROOT = Path(os.environ["SG3_ROOT"])
 RUNTIME = Path(os.environ["SG3_RUNTIME"])
 CLICKER = os.environ["SG3_CLICKER"]
@@ -51,10 +54,6 @@ mako: subprocess.Popen | None = None
 monitor: subprocess.Popen | None = None
 gtk: subprocess.Popen | None = None     # the RiceSpice window (chrome)
 receipts: list[str] = []
-
-
-class Fail(Exception):
-    pass
 
 
 def passed(cell: str) -> None:
@@ -91,27 +90,10 @@ def key(name: str, pause: float = 0.25) -> None:
     time.sleep(pause)
 
 
-# GTK3 keyboard input (WP3.1, closed 27 Nov). Root cause of the long-standing
-# "a real wtype Tab/Return is not delivered to GTK3 toplevels" note, measured
-# with a plain two-button Gtk.Window under both labwc 0.7.1 and 0.7.2: the key
-# IS delivered (wl_keyboard.enter, key-press-event with the right keyval) and
-# the window is Wayland-native, but wtype uploads a throw-away keymap holding
-# ONLY the keysyms of that invocation (<K1>=9, <K2>=10, ...) and GDK3's
-# Wayland keymap (`gdk_keymap_get_entries_for_keyval`) never reports the
-# HIGHEST keycode of a keymap. GTK3 key bindings (Tab -> move-focus, Return ->
-# activate-default, space -> activate) are matched through that lookup, so the
-# last key of every wtype keymap is delivered to the widget as a plain event
-# and then does nothing. A normal keyboard keymap has hundreds of keycodes, so
-# real hardware is unaffected. The fix is a real-input one, not a fake: every
-# GTK key is sent with a trailing, unbound pad key in the SAME wtype keymap, so
-# the key under test is never the highest keycode. The pad key goes to the same
-# real labwc virtual keyboard and is ignored by the page.
-GTK_PAD_KEY = "F35"
-
-
-def gtk_key(name: str, pause: float = 0.2) -> None:
-    wtype("-k", name, "-k", GTK_PAD_KEY)
-    time.sleep(pause)
+# GTK3 keyboard input: every GTK key is sent with a trailing unbound pad key (root cause and
+# explanation in gtk_keyboard.py, the helper shared with the SG2 and SG4 GUI smokes).
+GTK_PAD_KEY = gtk_keyboard.GTK_PAD_KEY
+gtk_key = gtk_keyboard.gtk_key
 
 
 # --------------------------------------------------------------- AT-SPI ----
@@ -1207,23 +1189,15 @@ def gfocus() -> list[str]:
 GTK_BUSY = "System request in progress; retry this action when it finishes."
 
 
+def gtk_busy() -> bool:
+    return any(r["role"] == "label" and r["name"] == GTK_BUSY for r in gsnap())
+
+
 def gtk_activate(name: str, done, message: str, attempts: int = 4) -> int:
-    """Real key on the focused control until `done()` holds. The one tolerated
-    miss is the product's own visible refusal: a window that is mid-readback
-    (the 3 s inbox refresh) answers a state-changing click with the status text
-    GTK_BUSY instead of acting, so the key is repeated once the request ended.
-    Any other silent miss fails. Returns the number of key presses."""
-    for attempt in range(1, attempts + 1):
-        gtk_key(name)
-        try:
-            wait_for(done, message, 2.5)
-            return attempt
-        except Fail:
-            require(any(r["role"] == "label" and r["name"] == GTK_BUSY for r in gsnap()),
-                    "%s: the key neither acted nor produced the busy refusal; tree: %s" % (
-                        message, gdump()))
-            time.sleep(0.6)
-    raise Fail("%s: still refused as busy after %d presses" % (message, attempts))
+    """Real key on the focused control until `done()` holds (see gtk_keyboard.activate: the one
+    tolerated miss is the product's visible busy refusal GTK_BUSY)."""
+    return gtk_keyboard.activate(name, done, message, busy=gtk_busy, describe=gdump,
+                                 attempts=attempts)
 
 
 def gdump() -> str:
@@ -1235,39 +1209,15 @@ def gdump() -> str:
 
 
 def gtk_tab_to(name: str, limit: int = 90) -> int:
-    """Real Tab key presses until `name` holds focus. Every press must change the
-    focused accessible; some stops (a combo box's inner widget) expose no
-    accessible of their own and read as empty focus, which is itself a change."""
-    trail: list[str] = []
-    for count in range(limit + 1):
-        focus = gfocus()
-        trail.append("/".join(focus))
-        if name in focus:
-            return count
-        gtk_key("Tab")
-        if focus:
-            # A live inbox update can rebuild the page under the focused row label
-            # (closed notifications move to the history section a moment later) and
-            # drop focus; one more real Tab then continues from the page start.
-            for retry in range(3):
-                try:
-                    wait_for(lambda: gfocus() != focus, "focus moved by Tab", 3.0)
-                    break
-                except Fail:
-                    if retry == 2:
-                        raise Fail("a real Tab did not move GTK focus from %r towards %r; tree: %s" % (
-                            focus, name, gdump())) from None
-                    gtk_key("Tab")
-        else:
-            time.sleep(0.3)
-    raise Fail("Tab never reached %r within %d presses; focus trail: %r" % (name, limit, trail[-40:]))
+    """Real Tab key presses until `name` holds focus (see gtk_keyboard.tab_to)."""
+    return gtk_keyboard.tab_to(name, gfocus, limit=limit, describe=gdump)
 
 
 def gtk_keyboard_open_inbox() -> None:
     """Real keyboard only: Tab across the RiceSpice window to the inbox button,
     Return opens it. Includes the negative control that pins the root cause."""
     focus = wait_for(gfocus, "a GTK control holds keyboard focus after launch")
-    wtype("-k", "Tab")   # UNPADDED: the one key of this keymap is its highest keycode
+    gtk_keyboard.unpadded_key("Tab")   # UNPADDED: the one key of this keymap is its highest keycode
     time.sleep(0.8)
     require(gfocus() == focus,
             "an unpadded single-key wtype Tab moved GTK focus: GDK no longer drops the "
@@ -1293,7 +1243,7 @@ def gtk_keyboard_rows(reply_id: int) -> None:
     reply = "Reply synthetic notification from %s: Bravo updated" % APP
     gtk_tab_to(reply)
     before = len(action_events())
-    wtype("-k", "Return")   # unpadded: ignored by GTK3 (same limit as above)
+    gtk_keyboard.unpadded_key("Return")   # unpadded: ignored by GTK3 (same limit as above)
     time.sleep(1.0)
     require(len(action_events()) == before, "an unpadded Return activated the action")
     presses = gtk_activate("Return", lambda: len(action_events()) == before + 1,

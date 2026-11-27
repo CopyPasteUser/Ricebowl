@@ -140,6 +140,19 @@ def initial_window_size(monitor_width: int, monitor_height: int) -> tuple[int, i
     return width, height
 
 
+def keyboard_skips_collapsed(expander, body) -> None:
+    """Keep a collapsed GtkExpander's body out of the keyboard focus chain.
+
+    GTK3 hides a collapsed expander's child with `child_visible`, but the child stays in the
+    Tab chain: found by the real-labwc keyboard traversal (scripts/sg4_creator_gui_roundtrip_driver.py
+    `keyboard`), five invisible stops (the hint list and the four region spin buttons) took
+    focus, and arrow keys changed the hidden values. Insensitive widgets are skipped by Tab;
+    each child keeps its own sensitivity flag, so expanding restores exactly the previous state.
+    """
+    body.set_sensitive(expander.get_expanded())
+    expander.connect("notify::expanded", lambda widget, _param: body.set_sensitive(widget.get_expanded()))
+
+
 def run() -> int:
     if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
         print("Rice Creator needs a graphical desktop session.", file=__import__("sys").stderr)
@@ -527,6 +540,7 @@ def run() -> int:
             mapping_body.set_margin_top(8)
             mapping_body.set_margin_bottom(7)
             mapping_expander.add(mapping_body)
+            keyboard_skips_collapsed(mapping_expander, mapping_body)
             mapping_controls = Gtk.Box(spacing=6)
             mapping_body.pack_start(mapping_controls, False, False, 0)
             self.mapping_analyze = self._button("Analyze offline", self._mapping_analyze)
@@ -556,6 +570,7 @@ def run() -> int:
             region_body.set_margin_top(8)
             region_body.set_margin_bottom(7)
             region_expander.add(region_body)
+            keyboard_skips_collapsed(region_expander, region_body)
             region_body.pack_start(self._text(
                 "Draw up to eight rectangles on the screenshot, or enter their source-pixel "
                 "coordinates below. Measure → adjust the draft in the inspector → Save version "
@@ -942,6 +957,7 @@ def run() -> int:
                 grid.set_margin_top(10)
                 grid.set_margin_bottom(12)
                 expander.add(grid)
+                keyboard_skips_collapsed(expander, grid)
                 for index, (path, label, kind, options) in enumerate(fields):
                     label_widget = self._text(label, "hub-body")
                     label_widget.set_size_request(112, -1)
@@ -986,6 +1002,7 @@ def run() -> int:
             self.layout_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
             self.layout_box.set_margin_top(8)
             expander.add(self.layout_box)
+            keyboard_skips_collapsed(expander, self.layout_box)
             self.panel_mode = Gtk.ComboBoxText()
             self.panel_mode.append("wide", "Wide layout · standard screens")
             self.panel_mode.append("compact", "Compact layout · narrow screens")
@@ -1008,6 +1025,7 @@ def run() -> int:
             body.set_margin_top(10)
             body.set_margin_bottom(12)
             expander.add(body)
+            keyboard_skips_collapsed(expander, body)
             body.pack_start(self._text(
                 "Choose an included wallpaper or a verified private PNG. "
                 "Import never changes the current desktop.",
@@ -1187,6 +1205,7 @@ def run() -> int:
             body.set_margin_top(10)
             body.set_margin_bottom(12)
             expander.add(body)
+            keyboard_skips_collapsed(expander, body)
             body.pack_start(self._text(
                 "Each component has a stable ID, an approved status or action binding "
                 "and a short label. Existing desktop and panel references stay checked.",
@@ -1241,6 +1260,7 @@ def run() -> int:
             body.set_margin_top(10)
             body.set_margin_bottom(12)
             expander.add(body)
+            keyboard_skips_collapsed(expander, body)
             if self.working["schema_version"] == 10:
                 body.pack_start(self._text(
                     "This saved draft uses schema v10. Upgrade to v11 in a new private "
@@ -1581,6 +1601,7 @@ def run() -> int:
             body.set_margin_top(10)
             body.set_margin_bottom(10)
             expander.add(body)
+            keyboard_skips_collapsed(expander, body)
             body.pack_start(self._text("Choose a layer or click it on the canvas.",
                                        "creator-layer-hint", wrap=True), False, False, 0)
             self.layer_list = Gtk.ListBox()

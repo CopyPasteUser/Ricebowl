@@ -27,6 +27,8 @@ from pathlib import Path
 import pyatspi
 from gi.repository import Atspi, GLib
 
+import gtk_keyboard
+
 Atspi.set_timeout(8000, 8000)
 
 ROOT = Path(os.environ["SG4G_ROOT"])
@@ -37,13 +39,12 @@ PACKS = RUNTIME / "packs"
 SHOTS = RUNTIME / "shots"
 TEMPLATE = "Heritage Composer"
 TEMPLATE_KEY = "heritage-composer"
-PROFILES = {name: RUNTIME / name for name in ("author", "importer", "session")}
+PROFILES = {name: RUNTIME / name for name in ("author", "importer", "keys", "session")}
 receipts: list[str] = []
 creator: subprocess.Popen | None = None
 
 
-class Fail(Exception):
-    pass
+Fail = gtk_keyboard.Fail
 
 
 def passed(cell: str) -> None:
@@ -451,6 +452,165 @@ print(json.dumps({"rices": rices, "drafts": drafts, "selection": recipes.current
     stop_creator()
 
 
+# ===================================================================== keyboard ===
+# Stage `keyboard`: REAL keyboard traversal and activation of the GTK Creator (WP4.2). Every key
+# is a real compositor key from `wtype`; because GDK3 drops the highest keycode of wtype's
+# throw-away keymap, each GTK key carries an unbound pad key (scripts/gtk_keyboard.py). Focus
+# and results are read back from AT-SPI (the FOCUSED state, dialog roles, sensitivity) and from
+# the profile's files; nothing is pressed with the pointer or an AT-SPI action except the
+# file-name field of a save chooser (EditableText: typing a path is not what is under test).
+TOOLBAR = ("← Previous version", "Review & save…", "Render preview", "Export RicePack…")
+TEMPLATE_BUTTONS = ("Heritage Modern", "Orbit Studio", "Heritage Composer", "Orbit Composer",
+                    "Classic shell", "Chrome shell")
+SIDEBAR_BUTTONS = ("Edit installed rice…", "Import RicePack…", "Install / switch…")
+
+
+def focused_stops() -> list[str]:
+    return gtk_keyboard.focused_stops(application())
+
+
+stop_name = gtk_keyboard.stop_name
+
+
+def focused_names() -> list[str]:
+    return [stop_name(s) for s in focused_stops()]
+
+
+def key_describe() -> str:
+    return "focus=%r status=%r" % (focused_stops(), [n.name for n in find("label")][:6])
+
+
+def tab_to(name: str, limit: int = 60) -> int:
+    """Real Tab presses until the control named `name` holds focus."""
+    return gtk_keyboard.tab_to(name, focused_stops, limit=limit, describe=key_describe,
+                               matches=lambda stop: stop_name(stop) == name)
+
+
+def keyboard_stage() -> None:
+    drafts_before: list = []
+    start_creator("keys")
+    baseline_digest = tree_digest("keys")
+
+    # --- traversal: Tab visits every sensitive main control and wraps ------------------------
+    first = wait_for(focused_stops, "a Creator control holds keyboard focus after launch", 20)
+    require([stop_name(f) for f in first] == [TEMPLATE_BUTTONS[0]], "unexpected initial focus: %r" % first)
+    trail = [first]
+    previous = first
+    for _ in range(80):
+        gtk_keyboard.gtk_key("Tab", pause=0.25)
+        # Every press must change the focused accessible; a stop that exposes no accessible
+        # of its own (an inner widget of a combo box) reads as empty focus, itself a change.
+        current = wait_for(lambda: (lambda now: [now] if now != previous else None)(focused_stops()),
+                           "a real Tab moves keyboard focus off %r" % previous, 6)[0]
+        previous = current
+        # The first stop's position moves when focus scrolled the pane: wrap on its name.
+        if [stop_name(c) for c in current] == [stop_name(f) for f in first]:
+            break
+        trail.append(current)
+    else:
+        raise Fail("Tab never wrapped to the first control; trail: %r" % trail)
+    trail = [stop_name(t[0]) if t else "" for t in trail]
+    named = [t for t in trail if t]
+    missing = [n for n in TEMPLATE_BUTTONS + SIDEBAR_BUTTONS if n not in named]
+    require(not missing, "Tab did not reach %r; trail: %r" % (missing, trail))
+    require(not any(t in named for t in TOOLBAR),
+            "Tab reached a toolbar button that has no draft to act on: %r" % trail)
+    for name in TEMPLATE_BUTTONS + SIDEBAR_BUTTONS:
+        require(named.count(name) == 1, "%r is focused %d times in one Tab cycle" % (
+            name, named.count(name)))
+    passed("keyboard: %d real Tab presses visit all %d template/sidebar controls once each and wrap to "
+           "%r (trail: %s)" % (len(trail), len(TEMPLATE_BUTTONS) + len(SIDEBAR_BUTTONS), trail[0],
+                               " > ".join(t or "·" for t in trail)))
+
+    # --- Return opens a modal chooser, Escape closes it, nothing changed -----------------------
+    # Negative control first: with focus on a non-template button an UNPADDED Tab (the one key of
+    # wtype's keymap is its highest keycode) is dropped by GDK3, the padded one moves focus. (The
+    # six template buttons are not usable for this: the window routes their Tab/Return itself.)
+    tab_to("Import RicePack…")
+    here = focused_stops()
+    gtk_keyboard.unpadded_key("Tab")
+    time.sleep(0.8)
+    require(focused_stops() == here, "an unpadded single-key wtype Tab moved Creator focus: GDK no longer "
+            "drops the highest keycode of a wtype keymap, so GTK_PAD_KEY can be retired")
+    passed("keyboard: an unpadded one-key wtype Tab leaves focus on 'Import RicePack…' (GDK drops the highest "
+           "keycode of wtype's keymap); the padded real Tab is what the traversal above used")
+    gtk_keyboard.gtk_key("Return", pause=0.5)
+    chooser = one("file chooser", "Import a RicePack", timeout=20)
+    gtk_keyboard.gtk_key("Escape", pause=0.5)
+    wait_for(lambda: not find("file chooser", "Import a RicePack"), "Escape closed the import chooser", 10)
+    require(label_text("RicePack ") is None and tree_digest("keys") == baseline_digest,
+            "cancelling the import chooser changed the profile or the status line")
+    wait_for(lambda: focused_names() == ["Import RicePack…"],
+             "keyboard focus returns to 'Import RicePack…' after the chooser closed", 10)
+    passed("keyboard: Return on the focused 'Import RicePack…' opens the real chooser; Escape closes it and "
+           "focus returns to the button; the profile's config/state is byte-identical, no status shown")
+
+    # --- space activates a template (GTK's own binding: the window's key handler ignores space) ------
+    tab_to(TEMPLATE_BUTTONS[2])
+    gtk_keyboard.gtk_key("space", pause=0.5)
+    created = status_of("Private schema-v11 draft created")
+    drafts = backend("keys", "print(json.dumps([[d.recipe_id, d.name] for d in creator_workspace.list_drafts()]))")
+    require(len(drafts) == 1 and drafts[0][1].startswith(TEMPLATE), "space did not create exactly one %s draft: %r" % (
+        TEMPLATE, drafts))
+    after_create = wait_for(focused_stops, "keyboard focus after creating the draft", 10)
+    require(stop_name(after_create[0]) == TEMPLATE_BUTTONS[2],
+            "keyboard focus left the activated template: %r" % after_create)
+    for name in TOOLBAR[2:]:      # "Review & save…" waits for a change; "Previous version" for a history
+        require(one("push button", name).getState().contains(pyatspi.STATE_SENSITIVE),
+                "toolbar button %r is not enabled for the new draft" % name)
+    passed("keyboard: Tab to %r + a real space creates one private draft (%r)" % (TEMPLATE_BUTTONS[2], created))
+
+    # --- keyboard export: Return, Escape, then the whole review through the keyboard ---------------
+    destination = PACKS / "keys-export.ricepack"
+
+    def open_export_review():
+        # The toolbar precedes the sidebar in the Tab order, and a loaded draft's inspector has
+        # well over a hundred stops: a keyboard user reaches Export by tabbing round the window.
+        reached = tab_to("Export RicePack…", limit=320)
+        gtk_keyboard.gtk_key("Return", pause=0.5)
+        chooser = one("file chooser", "Export validated RicePack", timeout=20)
+        one("text", under=chooser, timeout=10).queryEditableText().setTextContents(str(destination))
+        # The save chooser's default response is its "Export RicePack" button.
+        gtk_keyboard.gtk_key("Return", pause=0.5)
+        return one("dialog", "Review portable RicePack", timeout=20), reached
+
+    review, reached = open_export_review()
+    export = one("push button", "Export reviewed bytes", under=review)
+    require(not export.getState().contains(pyatspi.STATE_SENSITIVE),
+            "export button is enabled before the review was acknowledged")
+    gtk_keyboard.gtk_key("Escape", pause=0.5)
+    wait_for(lambda: not find("dialog", "Review portable RicePack"), "Escape closed the review dialog", 10)
+    require(not destination.exists(), "Escape on the review dialog still wrote the RicePack")
+    wait_for(lambda: focused_names() == ["Export RicePack…"],
+             "keyboard focus returns to 'Export RicePack…' after the review closed", 10)
+    passed("keyboard: %d real Tab presses (the loaded draft's inspector is in the chain) reach 'Export RicePack…'; "
+           "Return opens the chooser, Return in it opens the review; Escape closes the review, the export "
+           "button stayed disabled, no file was written, focus is back on the button" % reached)
+    review, _ = open_export_review()
+    acknowledgement = "I reviewed the package contents"
+    gtk_keyboard.tab_to(acknowledgement, focused_stops, limit=12, describe=key_describe,
+                        matches=lambda stop: stop_name(stop).startswith(acknowledgement))
+    gtk_keyboard.gtk_key("space", pause=0.5)
+    export = one("push button", "Export reviewed bytes", under=review)
+    wait_for(lambda: export.getState().contains(pyatspi.STATE_SENSITIVE),
+             "export enabled by the space key on the acknowledgement")
+    require(not destination.exists(), "the file exists before the export button was pressed")
+    tab_to("Export reviewed bytes", limit=8)
+    gtk_keyboard.gtk_key("Return", pause=0.5)
+    done = status_of("Reviewed RicePack created")
+    require("Not installed or applied" in done, "export status is not honest: " + done)
+    wait_for(destination.exists, "exported file on disk")
+    manifest = backend("keys", "print(json.dumps(pack.inspect_pack(__import__('pathlib').Path(%r))"
+                       "['manifest']['recipe']))" % str(destination))
+    require(manifest["id"] == drafts[0][0], "the pack carries a different recipe than the draft: %r" % manifest)
+    require(backend("keys", "print(json.dumps(recipes.current_selection()))") == ["classic", None],
+            "the keyboard export changed the saved selection")
+    passed("keyboard: second pass -- Tab to the acknowledgement + space enables the export, Tab to 'Export reviewed "
+           "bytes' + Return writes %s (%s); status %r; selection still classic" % (
+               destination.name, manifest["id"], done[:60]))
+    stop_creator()
+
+
 # ======================================================================= apply ===
 # Stage `apply`: the Creator's "Install / switch..." dialogs against a REAL supervised
 # nested session (`launcher.py de start --nested --panel native`, started by the script).
@@ -684,10 +844,352 @@ def apply_stage() -> None:
     stop_creator()
 
 
+# ======================================================================== login ===
+# Stage `login` (scripts/smoke_sg4_creator_full_login_labwc.sh): the Creator against the FULL,
+# non-nested session that the packaged login script started as the top-level compositor.
+def proc_env(pid: int) -> dict:
+    try:
+        raw = Path("/proc/%d/environ" % pid).read_bytes()
+    except OSError:
+        return {}
+    return dict(item.split("=", 1) for item in raw.decode(errors="replace").split("\0") if "=" in item)
+
+
+def runtime_processes() -> dict[int, tuple[str, str]]:
+    """Processes of this user that belong to the smoke's disposable runtime directory
+    (their environment carries its XDG_RUNTIME_DIR): pid -> (comm, command line)."""
+    mine = os.environ["XDG_RUNTIME_DIR"]
+    found = {}
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit() or int(entry.name) == os.getpid():
+            continue
+        try:
+            if entry.stat().st_uid != os.getuid():
+                continue
+            if proc_env(int(entry.name)).get("XDG_RUNTIME_DIR") != mine:
+                continue
+            state = (entry / "stat").read_text().rsplit(")", 1)[1].split()[0]
+            if state in ("Z", "X"):
+                continue
+            found[int(entry.name)] = ((entry / "comm").read_text().strip(),
+                                      (entry / "cmdline").read_bytes().decode(errors="replace").replace("\0", " "))
+        except OSError:
+            continue
+    return found
+
+
+OWNED_COMMS = ("labwc", "riceplate-nativ", "mako", "swaybg", "swayidle", "waybar", "swaylock")
+
+
+def session_processes() -> dict[int, tuple[str, str]]:
+    return {pid: (name, cmd) for pid, (name, cmd) in runtime_processes().items()
+            if name in OWNED_COMMS or "launcher.py de " in cmd}
+
+
+def named(processes: dict, comm: str) -> list[int]:
+    return sorted(pid for pid, (name, _cmd) in processes.items() if name == comm)
+
+
+def profile_files() -> dict[str, str]:
+    """Every file below the session profile (config, state, data), relative path -> SHA-256."""
+    base = PROFILES["session"]
+    files = {}
+    for path in sorted(base.rglob("*")):
+        relative = str(path.relative_to(base))
+        if path.is_symlink():
+            files[relative] = "symlink:" + os.readlink(path)
+        elif path.is_file():
+            files[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return files
+
+
+def owned_runtime_entries(runtime_dir: Path) -> list[str]:
+    """Runtime-directory entries that belong to the RiceBowl session (compositor socket and
+    lock, the supervisor socket, the private labwc/plate/pop directories)."""
+    return sorted(p.name for p in runtime_dir.iterdir()
+                  if p.name.startswith(("ricebowl", "wayland-")))
+
+
+LOGIN_STATE = RUNTIME / "login-state.json"
+LOGIN_PROFILE_FILES = ("config/ricebowl/recipes/.active-recipe", "config/ricebowl/recipes/.active-recipe.lock")
+
+
+def login_prologue() -> tuple[int, dict, dict]:
+    """The session is a real top-level full login (not nested, not a preview). Returns the
+    session pid, the process table and the pids of the long-lived session processes."""
+    global WIDTH, HEIGHT
+    WIDTH, HEIGHT = APPLY_W, APPLY_H
+    session_pid = int(os.environ["SG4G_SESSION_PID"])
+    procs = runtime_processes()
+    compositors = named(procs, "labwc")
+    require(compositors == [session_pid], "expected exactly the login's own labwc (pid %d): %r" % (
+        session_pid, compositors))
+    env = proc_env(session_pid)
+    require(env.get("RICEBOWL_DM_SESSION") == "1" and env.get("RICEBOWL_DE_NESTED") == "0"
+            and env.get("WLR_BACKENDS") == "headless" and "WAYLAND_DISPLAY" not in env
+            and env.get("RICEBOWL_DE_PANEL") == "native" and env.get("RICEBOWL_DE_LIVE") == "1",
+            "labwc did not start as the top-level full-login session: %r" % {
+                k: v for k, v in env.items() if k.startswith(("RICEBOWL", "WLR", "WAYLAND"))})
+    shells = named(procs, "riceplate-nativ")
+    require(len(shells) == 1, "expected exactly one native shell: %r" % shells)
+    status = live_cli("creator-live-status")
+    require(status.get("ok") and status["panel"] == "native" and status["next_login_persisted"] is True,
+            "the full-login supervisor does not report a persisting native session: %r" % status)
+    services = status["services"]
+    require(services.get("lock_guard") == "running" and services.get("notifications") == "running",
+            "the full-login session does not own its lock guard / notification host: %r" % services)
+    require(named(procs, "swayidle") and named(procs, "mako") and named(procs, "swaybg"),
+            "swayidle/mako/swaybg are not running in the session: %r" % sorted(
+                {name for name, _ in procs.values()}))
+    pids = {name: named(procs, name) for name in ("labwc", "mako", "swayidle", "swaybg", "riceplate-nativ")}
+    passed("login[%s]: the packaged login script started a top-level labwc (pid %d, headless backend, "
+           "RICEBOWL_DM_SESSION=1, RICEBOWL_DE_NESTED=0, no WAYLAND_DISPLAY) with exactly one "
+           "riceplate-native, swaybg, Mako and the swayidle lock guard; supervisor active=%s "
+           "next_login_persisted=true, lock guard %s, notifications %s, authorization %s (no agent "
+           "installed here)" % (sys.argv[2], session_pid, status["active"], services["lock_guard"],
+                                services["notifications"], services.get("authorization")))
+    return session_pid, status, pids
+
+
+def live_state() -> dict:
+    try:
+        return json.loads(LOGIN_STATE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def save_live_state(**values) -> None:
+    state = live_state()
+    state.update(values)
+    LOGIN_STATE.write_text(json.dumps(state), encoding="utf-8")
+
+
+def saved_shot(name: str):
+    from PIL import Image
+    image = Image.open(SHOTS / (name + ".png")).convert("RGB")
+    image.load()
+    return image
+
+
+def residue_check(files_before: dict, *, rice: str | None) -> None:
+    """After a logout: no process, no runtime entry, and in the profile only what the user
+    asked for (the installed rice and its draft) plus the selection state file."""
+    runtime_dir = Path(os.environ["XDG_RUNTIME_DIR"])
+    require(not session_processes(), "processes of the session survived the logout: %r" % session_processes())
+    left = owned_runtime_entries(runtime_dir) + sorted(
+        p.name for p in runtime_dir.iterdir() if p.name.startswith("ricebowl"))
+    require(not left, "the session left runtime entries behind: %r" % left)
+    after = profile_files()
+    removed = sorted(set(files_before) - set(after))
+    changed = sorted(k for k in files_before if k in after and files_before[k] != after[k]
+                     and k not in LOGIN_PROFILE_FILES)       # the selection state is rewritten
+    added = sorted(set(after) - set(files_before))
+    expected = {"config/ricebowl/recipes/%s.json" % rice} if rice else set()
+    unexpected = [k for k in added if k not in expected and k not in LOGIN_PROFILE_FILES
+                  and not k.startswith("state/ricebowl/creator/drafts/")]
+    require(not removed and not changed and not unexpected,
+            "unexpected profile residue: removed %r changed %r added %r" % (removed, changed, unexpected))
+
+
+def login_roundtrip() -> None:
+    """Session 1: install, apply and restore through the real Creator, then log out."""
+    session_pid, status, pids_before = login_prologue()
+    require(status["active"] == "classic" and not status["can_restore"], "fresh login: %r" % status)
+    runtime_dir = Path(os.environ["XDG_RUNTIME_DIR"])
+    selection_before = backend("session", "print(json.dumps(recipes.current_selection()))")
+    require(selection_before == ["classic", None], "fresh login selection is not classic: %r" % selection_before)
+    files_before = profile_files()
+    require(owned_runtime_entries(runtime_dir), "no session runtime entries before the Creator")
+
+    # --- the Creator inside the login: draft, install, apply -------------------------------------
+    start_creator("session")
+    act(one("push button", TEMPLATE))
+    status_of("Private schema-v11 draft created")
+    time.sleep(1.0)
+    classic_panel = shot("login-classic")
+    drafts = backend("session", "print(json.dumps([[d.recipe_id, d.semantic_sha256, d.name] "
+                     "for d in creator_workspace.list_drafts()]))")
+    require(len(drafts) == 1, "expected exactly one draft: %r" % drafts)
+    rice_id, sha, _draft_name = drafts[0]
+
+    open_wayland_menu("Install saved version…")
+    dialog, detail = live_dialog("Install this saved rice?")
+    act(one("push button", "Install version", under=dialog), closes=True)
+    done = status_of("Installed ")
+    require(done == "Installed %s. No desktop or login changed." % rice_id, "install status: " + done)
+    installed = backend("session", "print(json.dumps([[r.recipe_id, str(p)] for r, p in recipes.imported_recipes()]))")
+    require([row[0] for row in installed] == [rice_id], "install did not add exactly the draft: %r" % installed)
+    recipe_path = installed[0][1]
+    require(backend("session", "print(json.dumps(recipes.current_selection()))") == ["classic", None]
+            and native_shells(recipe_path) == 0, "installing changed the next-login selection or the desktop")
+
+    open_wayland_menu("Apply in Wayland…")
+    dialog, detail = live_dialog("Apply this saved rice to Wayland?")
+    require(rice_id in detail and "Current rice: classic" in detail
+            and "The choice also persists for the next login." in detail and "nested" not in detail,
+            "the apply dialog does not describe a persisting full-login apply: %r" % detail)
+    act(one("push button", "Apply live", under=dialog), closes=True)
+    done = wait_for(lambda: label_text("Active Wayland rice:") or label_text("Live change not confirmed"),
+                    "apply status", 120, 0.5)
+    require(done.startswith("Active Wayland rice: %s." % rice_id), "apply failed in the GUI: " + done)
+    st = wait_active(rice_id, "supervisor on the applied rice")
+    require(st["previous"] == "classic" and st["panel"] == "native" and st["next_login_persisted"] is True,
+            "supervisor state after apply: %r" % st)
+    time.sleep(1.0)
+    now = runtime_processes()
+    require(native_shells(recipe_path) == 1 and len(named(now, "riceplate-nativ")) == 1,
+            "expected exactly one native shell, the applied rice's: %r" % named(now, "riceplate-nativ"))
+    require(named(now, "riceplate-nativ") != pids_before["riceplate-nativ"], "the native shell was not replaced")
+    require(named(now, "labwc") == pids_before["labwc"] and named(now, "mako") == pids_before["mako"]
+            and named(now, "swayidle") == pids_before["swayidle"],
+            "the apply restarted the compositor, Mako or the lock guard: %r" % {
+                k: named(now, k) for k in ("labwc", "mako", "swayidle")})
+    require(len(named(now, "swaybg")) == 1 and named(now, "swaybg") != pids_before["swaybg"],
+            "the wallpaper process was not replaced exactly once")
+    require(strip_changed(classic_panel) > 0.02, "the panel pixels equal classic after the apply")
+    persisted = backend("session", "print(json.dumps(recipes.current_selection()))")
+    require(persisted == [rice_id, "classic"],
+            "the full-login apply did not persist the next-login selection: %r" % persisted)
+    passed("login[roundtrip]: Creator Apply in Wayland (dialog says the choice persists for the next login) -> "
+           "%r; supervisor active=%s previous=classic; one new riceplate-native and one new swaybg, "
+           "labwc/Mako/swayidle pids unchanged; panel pixels differ from classic; next-login selection "
+           "now %r" % (done[:48], rice_id, persisted))
+
+    # --- restore through the GUI ---------------------------------------------------------------------
+    open_wayland_menu("Restore previous rice…")
+    dialog, detail = live_dialog("Restore the previous Wayland rice?")
+    require("Current: %s" % rice_id in detail and "Restore: classic" in detail, "restore dialog: %r" % detail)
+    act(one("push button", "Restore live", under=dialog), closes=True)
+    restored = wait_for(lambda: label_text("Active Wayland rice: classic")
+                        or label_text("Live change not confirmed"), "restore status", 120, 0.5)
+    require(restored.startswith("Active Wayland rice: classic."), "restore failed in the GUI: " + restored)
+    wait_active("classic", "supervisor on classic after restore")
+    wait_for(lambda: native_shells(recipe_path) == 0, "the applied rice's native shell ends on restore", 30)
+    time.sleep(1.0)
+    now = runtime_processes()
+    require(len(named(now, "riceplate-nativ")) == 1 and len(named(now, "swaybg")) == 1
+            and named(now, "labwc") == pids_before["labwc"],
+            "restore left a duplicate shell/wallpaper or restarted labwc: %r" % {
+                k: named(now, k) for k in ("riceplate-nativ", "swaybg", "labwc")})
+    require(strip_changed(classic_panel) < 0.02, "the restored panel differs from the original classic panel")
+    selection_after = backend("session", "print(json.dumps(recipes.current_selection()))")
+    require(selection_after[0] == "classic", "the restore did not persist classic for the next login: %r" % selection_after)
+    passed("login[roundtrip]: Creator Restore previous rice -> %r; supervisor classic, native shell of %s gone, "
+           "one riceplate-native and one swaybg, panel pixels equal the original classic panel; next-login "
+           "selection back to %r (previous pointer %r kept for a rollback)" % (
+               restored[:40], rice_id, selection_after[0], selection_after[1]))
+    stop_creator()
+    save_live_state(rice_id=rice_id, sha=sha, recipe_path=recipe_path, draft_name=_draft_name)
+
+    logout(session_pid)
+    residue_check(files_before, rice=rice_id)
+    passed("login[roundtrip]: logout (labwc --exit) ends the login: no labwc/riceplate-native/swaybg/Mako/"
+           "swayidle process, no ricebowl-* or wayland-0 runtime entry; the profile holds only the installed rice, "
+           "its draft and the selection state (classic)")
+
+
+def login_persist() -> None:
+    """Session 2: apply again and log out WITHOUT restoring: the choice persists."""
+    session_pid, status, _pids = login_prologue()
+    state = live_state()
+    rice_id, recipe_path = state["rice_id"], state["recipe_path"]
+    require(status["active"] == "classic", "the next login after a restore is not classic: %r" % status)
+    require(native_shells(recipe_path) == 0, "a native shell of the installed rice is running before the apply")
+    start_creator("session")
+    act(one("push button", prefix=state["draft_name"]))          # reopen the saved draft
+    wait_for(lambda: find("label", prefix="Editing "), "draft reopened", 20)
+    time.sleep(1.0)
+    open_wayland_menu("Apply in Wayland…")
+    dialog, detail = live_dialog("Apply this saved rice to Wayland?")
+    require("The choice also persists for the next login." in detail, "apply dialog: %r" % detail)
+    act(one("push button", "Apply live", under=dialog), closes=True)
+    done = wait_for(lambda: label_text("Active Wayland rice:") or label_text("Live change not confirmed"),
+                    "apply status", 120, 0.5)
+    require(done.startswith("Active Wayland rice: %s." % rice_id), "apply failed in the GUI: " + done)
+    wait_active(rice_id, "supervisor on the applied rice")
+    require(native_shells(recipe_path) == 1, "expected one native shell for the applied rice")
+    stop_creator()           # the panel shot must not carry the Creator's task button
+    time.sleep(1.5)
+    shot("login-applied")
+    selection = backend("session", "print(json.dumps(recipes.current_selection()))")
+    require(selection == [rice_id, "classic"], "selection after the second apply: %r" % selection)
+    logout(session_pid)
+    require(not session_processes() and not owned_runtime_entries(Path(os.environ["XDG_RUNTIME_DIR"])),
+            "residue after the logout of the applied session")
+    passed("login[persist]: second session applies %s through the Creator and logs out WITHOUT restoring; "
+           "next-login selection %r" % (rice_id, selection))
+
+
+def login_relogin() -> None:
+    """Session 3 = the next login: it must come up on the applied rice; restore it, log out."""
+    session_pid, status, pids_before = login_prologue()
+    state = live_state()
+    rice_id, recipe_path = state["rice_id"], state["recipe_path"]
+    require(status["active"] == rice_id and status["previous"] == "classic" and status["can_restore"],
+            "the next login did not start on the applied rice with a classic rollback: %r" % status)
+    time.sleep(1.5)
+    require(native_shells(recipe_path) == 1 and len(named(runtime_processes(), "riceplate-nativ")) == 1,
+            "the next login does not run exactly one native shell of %s" % rice_id)
+    applied_now = shot("login-relogin-applied")
+    require(changed_fraction(saved_shot("login-applied"), applied_now,
+                             (0, APPLY_H - 64, APPLY_W, APPLY_H)) < 0.02,
+            "the next login's panel differs from the live-applied panel")
+    passed("login[relogin]: the next login starts on %s (supervisor active=%s previous=classic can_restore), "
+           "exactly one native shell on that recipe, panel pixels equal the live-applied panel of the previous "
+           "login" % (rice_id, rice_id))
+    files_before = profile_files()
+    start_creator("session")
+    time.sleep(1.0)
+    classic_panel = saved_shot("login-classic")
+    open_wayland_menu("Restore previous rice…")
+    dialog, detail = live_dialog("Restore the previous Wayland rice?")
+    require("Current: %s" % rice_id in detail and "Restore: classic" in detail, "restore dialog: %r" % detail)
+    act(one("push button", "Restore live", under=dialog), closes=True)
+    restored = wait_for(lambda: label_text("Active Wayland rice: classic")
+                        or label_text("Live change not confirmed"), "restore status", 120, 0.5)
+    require(restored.startswith("Active Wayland rice: classic."), "restore failed in the GUI: " + restored)
+    wait_active("classic", "supervisor on classic after restore")
+    wait_for(lambda: native_shells(recipe_path) == 0, "the applied rice's native shell ends on restore", 30)
+    time.sleep(1.0)
+    require(strip_changed(classic_panel) < 0.02, "the restored panel differs from the original classic panel")
+    selection = backend("session", "print(json.dumps(recipes.current_selection()))")
+    require(selection[0] == "classic", "the restore did not persist classic: %r" % selection)
+    stop_creator()
+    logout(session_pid)
+    residue_check(files_before, rice=rice_id)
+    passed("login[relogin]: Creator Restore in the next login -> classic, native shell gone, panel pixels equal "
+           "the original classic panel; next-login selection %r; after the logout no process, no runtime entry "
+           "and no profile change beyond the selection state" % (selection[0],))
+
+
+def login_stage() -> None:
+    {"roundtrip": login_roundtrip, "persist": login_persist, "relogin": login_relogin}[sys.argv[2]]()
+
+
+def logout(session_pid: int) -> None:
+    """End the session the way a logout does (`labwc --exit`) and wait for the login to end."""
+    subprocess.run(["labwc", "--exit"], env=dict(os.environ, LABWC_PID=str(session_pid)),
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+
+    def ended():
+        try:
+            state = Path("/proc/%d/stat" % session_pid).read_text().rsplit(")", 1)[1].split()[0]
+        except OSError:
+            return True
+        return state in ("Z", "X")
+    wait_for(ended, "the login session ends after labwc --exit", 30, 0.2)
+    wait_for(lambda: not session_processes(), "no process of the session is left running", 20, 0.3)
+
+
+
 def main() -> int:
     try:
         if len(sys.argv) > 1 and sys.argv[1] == "apply":
             apply_stage()
+        elif len(sys.argv) > 1 and sys.argv[1] == "keyboard":
+            keyboard_stage()
+        elif len(sys.argv) > 1 and sys.argv[1] == "login":
+            login_stage()
         else:
             authored = author_export()
             importer_run(authored)

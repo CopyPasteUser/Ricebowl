@@ -22,9 +22,10 @@ With no sub-command it is the DRIVER. Per RiceSpice page it proves the baseline,
     different in every state of the page;
   * the fake provider's call log: no replayed write, no write behind a refused
     busy click.
-Buttons are pressed with real compositor pointer events; check boxes use AT-SPI
-actions (a ``wtype`` key sent alone or last does nothing in a GTK3 toplevel: GDK3 ignores the
-highest keycode of wtype's keymap; see GTK_PAD_KEY in smoke_sg3_ricepop_native_driver.py).
+Buttons are pressed with real compositor pointer events; check boxes use AT-SPI actions. A
+second stage (``keyboard``, below) drives real ``wtype`` keys instead: a ``wtype`` key sent
+alone or last does nothing in a GTK3 toplevel (GDK3 ignores the highest keycode of wtype's
+keymap), so every key carries a pad key, see scripts/gtk_keyboard.py.
 
 Every receipt line is "PASS: <cell>".
 """
@@ -288,6 +289,8 @@ if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "app":
 import pyatspi  # noqa: E402  (driver only)
 from gi.repository import Atspi, GLib  # noqa: E402
 
+import gtk_keyboard  # noqa: E402
+
 Atspi.set_timeout(8000, 8000)
 CLICKER = os.environ.get("SG2G_CLICKER", "")
 WIDTH, HEIGHT = 1366, 768
@@ -296,8 +299,7 @@ receipts: list[str] = []
 process: subprocess.Popen | None = None
 
 
-class Fail(Exception):
-    pass
+Fail = gtk_keyboard.Fail
 
 
 def passed(cell: str) -> None:
@@ -559,11 +561,121 @@ def run_page(page: str) -> None:
     stop_app()
 
 
+# ===================================================================== keyboard ===
+# Stage `keyboard`: the SAME real pages driven by real `wtype` keys only (every key carries the
+# pad key, see scripts/gtk_keyboard.py): Tab until the page's control holds AT-SPI focus,
+# Return or space activates it, and the fake provider's call log proves exactly one call. No
+# pointer event and no AT-SPI action is involved. An unpadded key (the negative control that
+# pins the cause) must do nothing.
+def focused_stops() -> list[str]:
+    return gtk_keyboard.focused_stops(application())
+
+
+def focused_names() -> list[str]:
+    return [gtk_keyboard.stop_name(s) for s in focused_stops()]
+
+
+def key_describe() -> str:
+    return "focus=%r labels=%r" % (focused_stops(), [n.name for n in find("label")][:8])
+
+
+def tab_to(name: str, limit: int = 80) -> int:
+    return gtk_keyboard.tab_to(name, focused_stops, limit=limit, describe=key_describe,
+                               matches=lambda stop: gtk_keyboard.stop_name(stop) == name)
+
+
+def keyboard_busy() -> bool:
+    return label_with(REFUSED) is not None
+
+
+# page -> (key, outcome mode, expected status text): Return on a plain button, space on another,
+# a typed denial reached with the keyboard.
+KEYBOARD_PAGES = (
+    ("network", "Return", "ok"),
+    ("notifications", "space", "ok"),
+    ("bluetooth", "Return", "denied"),
+)
+
+
+def keyboard_page(page: str, key: str, outcome: str) -> None:
+    spec = PAGES[page]
+    CALLS.write_text("", encoding="utf-8")
+    set_mode("ok")
+    start_app(page, "ok")
+    wait_for(lambda: button(spec["control"]), "%s: control %r" % (page, spec["control"]), 30)
+    page_status_label(page, spec["base"])
+    presses = tab_to(spec["control"])
+    require(spec["control"] in focused_names(), "%s: Tab did not focus %r" % (page, spec["control"]))
+    # negative control: the highest keycode of a wtype keymap never activates anything in GTK3
+    gtk_keyboard.unpadded_key(key)
+    time.sleep(1.0)
+    require(calls() == [] and label_with(spec["base"]) is not None,
+            "%s: an unpadded %s activated the control (calls %r): GDK no longer drops the highest "
+            "keycode, so GTK_PAD_KEY can be retired" % (page, key, calls()))
+    set_mode(outcome)
+    expected = (DENIED_TYPED if spec["typed"] else DENIED_FILE) if outcome == "denied" else spec["done"]
+    presses_key = gtk_keyboard.activate(
+        key, lambda: label_with(expected) is not None, "%s: status %r after a real %s" % (page, expected, key),
+        busy=keyboard_busy, describe=key_describe)
+    time.sleep(0.8)
+    require(len(calls()) == 1, "%s: the real %s reached the provider %d times: %r" % (page, key, len(calls()), calls()))
+    still = focused_names()
+    require(still, "%s: keyboard focus was lost after the action (status %r)" % (page, expected))
+    passed("%s: %d real Tab presses reach %r; an unpadded %s does nothing; a real %s %s -> %r; the "
+           "provider saw exactly one call (%s); focus stays on %r%s" % (
+               page, presses, spec["control"], key, key,
+               "is denied" if outcome == "denied" else "acts", expected, calls()[0], still[0],
+               "" if presses_key == 1 else " (the earlier presses were refused as busy)"))
+    stop_app()
+
+
+def keyboard_taskbar() -> None:
+    """The Luna taskbar page: space toggles a check box (no provider call yet), the Save button
+    it enables takes Tab + Return and reaches the provider exactly once."""
+    spec = PAGES["taskbar"]
+    box_name = "Show Quick Launch buttons"
+    CALLS.write_text("", encoding="utf-8")
+    set_mode("ok")
+    start_app("taskbar", "ok")
+    wait_for(lambda: button(spec["control"]), "taskbar: control %r" % spec["control"], 30)
+    page_status_label("taskbar", spec["base"])
+    require(not sensitive(button(spec["control"])), "taskbar: save is enabled before any change")
+    presses = tab_to(box_name)
+
+    def checked() -> bool:
+        return find("check box", box_name)[0].getState().contains(pyatspi.STATE_CHECKED)
+
+    before = checked()
+    gtk_keyboard.gtk_key("space", pause=0.5)
+    wait_for(lambda: checked() != before, "taskbar: space toggled %r" % box_name, 4)
+    wait_for(lambda: sensitive(button(spec["control"])), "taskbar: the toggle enabled Save", 4)
+    require(calls() == [], "taskbar: toggling the check box already wrote: %r" % calls())
+    toggled = tab_to(spec["control"])
+    gtk_keyboard.activate("Return", lambda: len(calls()) == 1, "taskbar: Return on Save reached the provider",
+                          busy=keyboard_busy, describe=key_describe)
+    time.sleep(0.8)
+    require(calls() == ["taskbar.save"], "taskbar: unexpected provider calls %r" % calls())
+    require(focused_names(), "taskbar: keyboard focus was lost after the save")
+    passed("taskbar: %d real Tab presses reach the %r check box, a real space %s it (no provider call), %d more "
+           "Tabs reach the enabled Save button and a real Return sends exactly one provider call (%s)" % (
+               presses, box_name, "unticks" if before else "ticks", toggled, calls()[0]))
+    stop_app()
+
+
+def keyboard_stage() -> None:
+    for page, key, outcome in KEYBOARD_PAGES:
+        keyboard_page(page, key, outcome)
+    keyboard_taskbar()
+
+
 def main() -> int:
     try:
         wanted = [name for name in PAGES if name in os.environ.get("SG2G_PAGES", " ".join(PAGES)).split()]
-        for page in wanted:
-            run_page(page)
+        if os.environ.get("SG2G_ONLY") != "keyboard":
+            for page in wanted:
+                run_page(page)
+        if os.environ.get("SG2G_ONLY") != "pages":
+            keyboard_stage()
     except Fail as failure:
         print("SG2 settings GUI smoke FAILED: %s" % failure, file=sys.stderr)
         try:

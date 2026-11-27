@@ -54,6 +54,10 @@ on:
       - 'tests/test_sg4_imported_rices_smoke.py'
       - 'scripts/smoke_sg4_creator_gui_roundtrip_labwc.sh'
       - 'scripts/sg4_creator_gui_roundtrip_driver.py'
+      - 'scripts/smoke_sg4_creator_full_login_labwc.sh'
+      - 'scripts/gtk_keyboard.py'
+      - 'tests/test_creator_keyboard_focus.py'
+      - 'tests/test_de_settings_keyboard_focus.py'
       - 'tests/test_creator_window_size.py'
       - 'scripts/smoke_sg2_settings_gui_labwc.sh'
       - 'scripts/sg2_settings_gui_driver.py'
@@ -174,6 +178,10 @@ on:
       - 'tests/test_sg4_imported_rices_smoke.py'
       - 'scripts/smoke_sg4_creator_gui_roundtrip_labwc.sh'
       - 'scripts/sg4_creator_gui_roundtrip_driver.py'
+      - 'scripts/smoke_sg4_creator_full_login_labwc.sh'
+      - 'scripts/gtk_keyboard.py'
+      - 'tests/test_creator_keyboard_focus.py'
+      - 'tests/test_de_settings_keyboard_focus.py'
       - 'tests/test_creator_window_size.py'
       - 'scripts/smoke_sg2_settings_gui_labwc.sh'
       - 'scripts/sg2_settings_gui_driver.py'
@@ -322,6 +330,8 @@ jobs:
           /usr/bin/python3 -m py_compile scripts/sg4_imported_rices_setup.py scripts/sg4_atspi_probe.py
           sh -n scripts/smoke_sg4_creator_gui_roundtrip_labwc.sh
           /usr/bin/python3 -m py_compile scripts/sg4_creator_gui_roundtrip_driver.py
+          sh -n scripts/smoke_sg4_creator_full_login_labwc.sh
+          /usr/bin/python3 -m py_compile scripts/gtk_keyboard.py
           sh -n scripts/smoke_sg2_settings_gui_labwc.sh
           /usr/bin/python3 -m py_compile scripts/sg2_settings_gui_driver.py
           /usr/bin/python3 -m py_compile scripts/fixtures/sg1_sni_provider.py scripts/sg1_notice_probe.py
@@ -383,6 +393,8 @@ jobs:
         run: timeout -k 5s 480s sh scripts/smoke_sg2_settings_gui_labwc.sh
       - name: Prove the real GTK Creator export/import and install/apply/restore dialogs against a supervised session under labwc
         run: timeout -k 5s 900s sh scripts/smoke_sg4_creator_gui_roundtrip_labwc.sh
+      - name: Prove the real GTK Creator apply/restore/next-login against a full (non-nested) login session under labwc
+        run: timeout -k 5s 900s sh scripts/smoke_sg4_creator_full_login_labwc.sh
       # Ubuntu 24.04 packages labwc 0.7.1, which predates upstream's
       # input-method-v2/text-input-v3 implementation (introduced in 0.7.2).
       # Build the exact upstream commit in a disposable runner directory;

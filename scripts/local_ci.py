@@ -153,7 +153,13 @@ CATALOG: tuple[Step, ...] = (
     _s("sg1-interaction", 1020, "compositor", needs="rust-build", requires=NATIVE),
     _s("sg4-imported-rices", 420, "compositor", needs="rust-build", requires=NATIVE),
     _s("sg2-settings-gui", 540, "compositor", needs="rust-build", requires=NATIVE),
-    _s("sg4-creator-gui-roundtrip", 960, "compositor", needs="rust-build", requires=NATIVE),
+    # One step, two workflow steps: the Creator GUI smoke (round trip, keyboard, nested apply) and the
+    # full-login (non-nested) Creator smoke run back to back in scripts/local_ci/steps/.
+    _s("sg4-creator-gui-roundtrip", 1500, "compositor", needs="rust-build",
+       requires=NATIVE + " cmd:waybar cmd:swaylock cmd:swayidle cmd:mako",
+       also=(("riceplate-native.yml", "native-layer-shell",
+              "Prove the real GTK Creator apply/restore/next-login against a full (non-nested) login "
+              "session under labwc"),)),
     _s("sg5-labwc-pin", 60, "static", requires=f"file:{SG5_LABWC}/labwc"),
     _s("sg5-atspi", 180, "compositor", needs="rust-build sg5-labwc-pin",
        requires=NATIVE + " py:pyatspi file:/usr/libexec/at-spi-bus-launcher"),

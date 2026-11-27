@@ -41,7 +41,7 @@ runtime=$(mktemp -d -t ricebowl-sg4-gui-XXXXXXXX)
 chmod 0700 "$runtime"
 trap 'rm -rf -- "$runtime"' EXIT
 mkdir -m 0700 "$runtime/run" "$runtime/packs" "$runtime/shots" "$runtime/bin"
-for profile in author importer session; do
+for profile in author importer keys session; do
     mkdir -m 0700 "$runtime/$profile" "$runtime/$profile/home" \
         "$runtime/$profile/config" "$runtime/$profile/state"
 done
@@ -64,7 +64,8 @@ export GDK_BACKEND=wayland XDG_SESSION_TYPE=wayland RICEBOWL_DE_NESTED=1
 export SG4G_RUNTIME="$runtime" SG4G_ROOT="$root" SG4G_CLICKER="$clicker"
 export PATH="$release:$PATH"
 
-# Development aid: SG4G_ONLY=apply runs just stage 2.
+# Development aid: SG4G_ONLY=apply runs just stage 2; roundtrip / keyboard run just that part
+# of stage 1 (and stop there).
 status=0
 if [ "${SG4G_ONLY:-}" != apply ]; then
 set +e
@@ -94,7 +95,9 @@ timeout -k 5s "${SG4G_BUDGET:-420}s" dbus-run-session -- sh -eu -c '
     output=$(wlr-randr | sed -n "1s/[[:space:]].*//p")
     wlr-randr --output "$output" --custom-mode 1920x1080@60Hz --scale 1
     /usr/bin/python3 -c "import pyatspi; pyatspi.Registry.getDesktop(0).childCount" >/dev/null
-    /usr/bin/python3 "${SG4G_DRIVER:-$root/scripts/sg4_creator_gui_roundtrip_driver.py}" roundtrip
+    driver=${SG4G_DRIVER:-$root/scripts/sg4_creator_gui_roundtrip_driver.py}
+    if [ "${SG4G_ONLY:-}" != keyboard ]; then /usr/bin/python3 "$driver" roundtrip; fi
+    if [ "${SG4G_ONLY:-}" != roundtrip ]; then /usr/bin/python3 "$driver" keyboard; fi
 ' sh "$root" "$runtime"
 status=$?
 set -e
@@ -106,7 +109,8 @@ keep() {
 }
 keep
 [ "$status" -eq 0 ] || { echo "FAIL: SG4 Creator GUI round-trip smoke exited $status" >&2; exit "$status"; }
-[ "${SG4G_ONLY:-}" = apply ] || echo "PASS: SG4 real GTK Creator export -> import round trip"
+[ "${SG4G_ONLY:-}" = apply ] || echo "PASS: SG4 real GTK Creator export -> import round trip and real keyboard traversal"
+case "${SG4G_ONLY:-}" in roundtrip|keyboard) exit 0 ;; esac
 
 # ===========================================================================
 # Stage 2: apply / restore dialogs against a real supervised nested session.
