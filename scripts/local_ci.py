@@ -522,6 +522,11 @@ def prepare_clone(repo: str, sha: str, dest: Path, owner: str | None) -> str:
          "--", repo, str(dest)], capture_output=True, text=True, timeout=1800)
     if clone.returncode:
         raise LocalCIError(f"clone of {repo} failed: {clone.stderr.strip()[:300]}")
+    # A shallow source makes git ignore --local and copy only branches/tags;
+    # also carry the pinned historical baselines kept under refs/ci-baseline/.
+    subprocess.run(["git", "-c", "safe.directory=*", "-C", str(dest), "fetch", "--quiet", "--no-tags",
+                    "--", repo, "+refs/ci-baseline/*:refs/ci-baseline/*"],
+                   capture_output=True, text=True, timeout=600)
     co = _git(dest, "-c", "advice.detachedHead=false", "checkout", "--quiet", "--detach", sha, check=False)
     if co.returncode:
         raise LocalCIError(f"commit {sha} is not present in {repo}: {co.stderr.strip()[:300]}")
@@ -716,11 +721,6 @@ def step_env(ctx: Context, shim: Path) -> dict[str, str]:
         "LCI_CACHE": str(ctx.cache),
         "LCI_MAKO_BUILD": str(ctx.cache / f"mako-{MAKO_VERSION}-build"),
         "LCI_WORKER": ctx.worker,
-        # The source repo is root-owned; let the CI user fetch pinned baseline
-        # commits from it (git refuses "dubious ownership" otherwise).
-        "GIT_CONFIG_COUNT": "1",
-        "GIT_CONFIG_KEY_0": "safe.directory",
-        "GIT_CONFIG_VALUE_0": "*",
     }
     if ctx.release_tag:
         env["LCI_RELEASE_TAG"] = ctx.release_tag
