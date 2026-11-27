@@ -14,13 +14,7 @@ class DossierWriteError(ValueError):
     """An SG7 dossier could not be published atomically and exclusively."""
 
 
-def publish_dossier(path: Path, report: object) -> None:
-    """Write and fsync private JSON, then link it without replacing a target.
-
-    The temporary file is on the destination filesystem; hard-linking it is
-    atomic and fails with EEXIST for any existing target, including symlinks.
-    Never rename over a report from another run.
-    """
+def _publish(path: Path, render) -> None:
     temp_path: Path | None = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -29,8 +23,7 @@ def publish_dossier(path: Path, report: object) -> None:
                                          dir=path.parent, delete=False) as stream:
             temp_path = Path(stream.name)
             os.fchmod(stream.fileno(), 0o600)
-            json.dump(report, stream, sort_keys=True, indent=2, allow_nan=False)
-            stream.write("\n")
+            render(stream)
             stream.flush()
             os.fsync(stream.fileno())
         os.link(temp_path, path)
@@ -44,3 +37,23 @@ def publish_dossier(path: Path, report: object) -> None:
                 # The temporary file contains no credentials; a failed cleanup
                 # must never turn a failed publication into a success claim.
                 pass
+
+
+def publish_dossier(path: Path, report: object) -> None:
+    """Write and fsync private JSON, then link it without replacing a target.
+
+    The temporary file is on the destination filesystem; hard-linking it is
+    atomic and fails with EEXIST for any existing target, including symlinks.
+    Never rename over a report from another run.
+    """
+    def render(stream) -> None:
+        json.dump(report, stream, sort_keys=True, indent=2, allow_nan=False)
+        stream.write("\n")
+    _publish(path, render)
+
+
+def publish_text(path: Path, text: str) -> None:
+    """Same write-once, atomic, 0600 publication for a text companion file."""
+    if not isinstance(text, str):
+        raise DossierWriteError("SG7 dossier could not be safely published")
+    _publish(path, lambda stream: stream.write(text))

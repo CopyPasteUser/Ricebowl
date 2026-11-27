@@ -10,7 +10,7 @@ from threading import Barrier
 from pathlib import Path
 from unittest.mock import patch
 
-from scripts.sg7_dossier_io import DossierWriteError, publish_dossier
+from scripts.sg7_dossier_io import DossierWriteError, publish_dossier, publish_text
 
 
 class DossierIOTests(unittest.TestCase):
@@ -105,6 +105,23 @@ class DossierIOTests(unittest.TestCase):
                 publish_dossier(self.out, self.valid)
         self.assertEqual(self.out.read_text(), "racing publisher")
         self.assert_no_temp_files()
+
+    def test_text_companion_is_private_write_once_and_never_follows_symlinks(self):
+        note = self.out.parent / "dossier.md"
+        publish_text(note, "# note\n")
+        self.assertEqual(note.read_text(), "# note\n")
+        self.assertEqual(note.stat().st_mode & 0o777, 0o600)
+        with self.assertRaises(DossierWriteError):
+            publish_text(note, "other")
+        self.assertEqual(note.read_text(), "# note\n")
+        link = self.out.parent / "link.md"
+        link.symlink_to(note)
+        with self.assertRaises(DossierWriteError):
+            publish_text(link, "other")
+        with self.assertRaises(DossierWriteError):
+            publish_text(self.out.parent / "bad.md", b"bytes")
+        self.assertFalse((self.out.parent / "bad.md").exists())
+        self.assertEqual(list(self.out.parent.glob(".*.tmp")), [])
 
 
 if __name__ == "__main__":
