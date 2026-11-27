@@ -1627,7 +1627,11 @@ affecting XFCE, including a failed-session recovery. **Not yet signed off.**
   this monitor. The same 1.8 s input-transparent OSD remains the sole visual
   owner. Subsequent milestones added subscriber restart recovery, backlight
   OSD and active app actions; real hardware acceptance and optional
-  independent notification hosting remain open.
+  independent notification hosting remain open. The OSD decides "external
+  change" against the last level its own pipeline accounted for (sink event,
+  verified control readback), never against the 30 s status poll, so a poll
+  that reads a new level just before its sink event cannot swallow the OSD
+  (found by a flaky SG3 smoke; unit-tested in `osd.rs`).
 
 - [x] Add **actionable native RicePop notification details** without taking over
   notification delivery: selecting a row opens a bounded details view with

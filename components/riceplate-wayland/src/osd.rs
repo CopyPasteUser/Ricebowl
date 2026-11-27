@@ -202,6 +202,13 @@ pub struct State {
     /// Bumped every time a notice is presented (even with identical text), so
     /// the accessibility tree can announce each one as a NEW live node.
     generation: u64,
+    /// The last sink level the OSD pipeline has itself accounted for (an
+    /// observer event, a verified control readback, or the first/an
+    /// unavailable-recovery poll). External-change detection compares against
+    /// THIS, never against the panel's displayed status: the 30 s status poll
+    /// may adopt a new level moments before the sink event for that very
+    /// change is delivered, and must not make the event look like a duplicate.
+    audio_seen: Audio,
 }
 
 impl Default for State {
@@ -211,6 +218,7 @@ impl Default for State {
             deadline: None,
             language: Language::from_env(),
             generation: 0,
+            audio_seen: Audio::Unavailable,
         }
     }
 }
@@ -236,6 +244,35 @@ impl State {
         };
         self.present(notice, LIFETIME, now);
     }
+    /// An observer (sink event) readback. Shows the OSD when the level differs
+    /// from the last level the OSD accounted for, then remembers it.
+    pub fn observe_external(&mut self, current: &Audio, now: Instant) -> bool {
+        let previous = std::mem::replace(&mut self.audio_seen, current.clone());
+        self.show_external(&previous, current, now)
+    }
+
+    /// A periodic status poll. It never counts as having "seen" a level change
+    /// (only a sink event announces one), so a level the poll found first is
+    /// still shown when its event arrives. It does record the provider going
+    /// away and the very first reading, so recovery and startup stay silent.
+    pub fn note_polled_audio(&mut self, polled: &Audio) {
+        if matches!(polled, Audio::Unavailable) || matches!(self.audio_seen, Audio::Unavailable) {
+            self.audio_seen = polled.clone();
+        }
+    }
+
+    /// The verified readback after a RicePlate-originated volume action. The
+    /// action presents its own OSD, so the sink event it causes is a duplicate.
+    pub fn note_control_audio(&mut self, audio: &Audio) {
+        self.audio_seen = audio.clone();
+    }
+
+    /// The status owner went away: nothing is known, so the next reading is a
+    /// silent baseline rather than an external change.
+    pub fn forget_audio(&mut self) {
+        self.audio_seen = Audio::Unavailable;
+    }
+
     pub fn show_external(&mut self, previous: &Audio, current: &Audio, now: Instant) -> bool {
         // Never display a spurious OSD at startup, after missing services or
         // for a duplicate event following our own already-verified quick action.
@@ -377,6 +414,55 @@ mod tests {
         assert!(state.show_external(&Audio::Volume(55), &Audio::Muted, now));
         assert_eq!(state.current.as_ref().unwrap().value, "Muted");
         assert_eq!(state.timeout(now), Some(LIFETIME));
+    }
+
+    #[test]
+    fn poll_adopting_a_level_first_does_not_swallow_its_sink_event() {
+        // Regression: the 30 s status poll read the new level (30) a moment
+        // before the sink event for that change was delivered. The event then
+        // compared 30 against 30 and showed nothing.
+        let now = Instant::now();
+        let mut state = english_state();
+        state.note_polled_audio(&Audio::Volume(50)); // first reading: silent baseline
+        assert!(!state.observe_external(&Audio::Volume(50), now));
+        assert!(state.observe_external(&Audio::Volume(20), now));
+        state.note_polled_audio(&Audio::Volume(30)); // poll wins the race
+        assert!(state.observe_external(&Audio::Volume(30), now));
+        assert_eq!(state.current.as_ref().unwrap().value, "30%");
+        // ...and the event after that is a duplicate again.
+        state.current = None;
+        assert!(!state.observe_external(&Audio::Volume(30), now));
+        assert!(state.current.is_none());
+    }
+
+    #[test]
+    fn polls_keep_startup_and_unavailable_recovery_silent() {
+        let now = Instant::now();
+        let mut state = english_state();
+        // Event before the first poll: only a baseline.
+        assert!(!state.observe_external(&Audio::Volume(45), now));
+        assert!(state.observe_external(&Audio::Volume(55), now));
+        // The provider disappears (seen by a poll), then comes back.
+        state.note_polled_audio(&Audio::Unavailable);
+        assert!(!state.observe_external(&Audio::Volume(60), now));
+        assert!(state.observe_external(&Audio::Volume(65), now));
+        // A poll that recovers from Unavailable is a silent baseline too.
+        state.note_polled_audio(&Audio::Unavailable);
+        state.note_polled_audio(&Audio::Volume(40));
+        assert!(!state.observe_external(&Audio::Volume(40), now));
+        assert!(state.observe_external(&Audio::Volume(41), now));
+    }
+
+    #[test]
+    fn own_control_readback_makes_its_sink_event_a_duplicate() {
+        let now = Instant::now();
+        let mut state = english_state();
+        assert!(!state.observe_external(&Audio::Volume(50), now));
+        state.note_control_audio(&Audio::Volume(55));
+        assert!(!state.observe_external(&Audio::Volume(55), now));
+        state.forget_audio();
+        assert!(!state.observe_external(&Audio::Volume(70), now));
+        assert!(state.observe_external(&Audio::Muted, now));
     }
 
     #[test]

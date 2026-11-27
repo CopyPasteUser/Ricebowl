@@ -108,6 +108,7 @@ fn revoke_status_owner(app: &mut RicePlate, qh: &QueueHandle<RicePlate>) {
     app.control_pending = None;
     app.control_result = None;
     app.system_status = SystemStatus::default();
+    app.osd_state.forget_audio();
     app.menu_state.notice = Some("Hardware status unavailable");
     if previously_available {
         eprintln!("RicePlate: hardware status/control owner exited");
@@ -1069,17 +1070,20 @@ fn main() -> Result<(), Box<dyn Error>> {
                 if let channel::Event::Msg(message) = event {
                     let control_completed = matches!(&message, StatusEvent::Control { .. });
                     let status = match message {
-                        StatusEvent::State(status) => status,
+                        StatusEvent::State(status) => {
+                            // A poll is not an announcement of a change.
+                            app.osd_state.note_polled_audio(&status.audio);
+                            status
+                        }
                         StatusEvent::WorkerStopped => {
                             revoke_status_owner(app, &redraw_qh);
                             return;
                         }
                         StatusEvent::ObservedAudio(observed) => {
-                            if app.osd_state.show_external(
-                                &app.system_status.audio,
-                                &observed.audio,
-                                Instant::now(),
-                            ) {
+                            if app
+                                .osd_state
+                                .observe_external(&observed.audio, Instant::now())
+                            {
                                 app.redraw_osd();
                             }
                             let mut updated = app.system_status.clone();
@@ -1094,6 +1098,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         } => {
                             app.control_pending = None;
                             app.control_result = Some((action, success));
+                            app.osd_state.note_control_audio(&state.audio);
                             app.menu_state.notice = Some(if success {
                                 "Action applied"
                             } else {
@@ -6453,6 +6458,7 @@ impl RicePlate {
                 // A stale readback must never survive a verified disconnected
                 // worker, or make subsequent menu/AT-SPI actions look enabled.
                 self.system_status = SystemStatus::default();
+                self.osd_state.forget_audio();
                 self.control_pending = None;
             }
             if sent {
