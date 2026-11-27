@@ -152,6 +152,8 @@ CATALOG: tuple[Step, ...] = (
     _s("sg3-ricepop", 920, "compositor", needs="rust-build mako-build", requires=NATIVE),
     _s("sg1-interaction", 720, "compositor", needs="rust-build", requires=NATIVE),
     _s("sg4-imported-rices", 420, "compositor", needs="rust-build", requires=NATIVE),
+    _s("sg2-settings-gui", 540, "compositor", needs="rust-build", requires=NATIVE),
+    _s("sg4-creator-gui-roundtrip", 960, "compositor", needs="rust-build", requires=NATIVE),
     _s("sg5-labwc-pin", 60, "static", requires=f"file:{SG5_LABWC}/labwc"),
     _s("sg5-atspi", 180, "compositor", needs="rust-build sg5-labwc-pin",
        requires=NATIVE + " py:pyatspi file:/usr/libexec/at-spi-bus-launcher"),
