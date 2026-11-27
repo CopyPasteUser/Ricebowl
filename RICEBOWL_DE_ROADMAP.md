@@ -3082,6 +3082,28 @@ keyboard traversal of other GTK windows, translation of non-inbox/OSD labels,
 exact-head CI. Rows 3.1/3.2 of `docs/sg-remaining-work-packages.md` are DONE
 locally with those items listed open.
 
+### SG2/SG4 GTK keyboard traversal and a full-login Creator apply (27 November 2026; local evidence)
+
+The `wtype` pad-key technique of the SG3 note is now one shared helper (`scripts/gtk_keyboard.py`) and is applied to
+the other two GTK windows. **Creator:** real Tab/Return/space/Escape, with AT-SPI focus and state readback, traverse
+every template/sidebar control and wrap, open and cancel the import chooser, create a draft with space, and drive
+the whole export review (Escape closes the dialog with no file written; Tab + space on the acknowledgement and Tab +
+Return on *Export reviewed bytes* write the pack). **RiceSpice settings:** Tab to a page control and Return/space
+makes exactly one call at the provider (denied by keyboard shows the typed denial; a check box + Save on the Luna
+taskbar page makes one `taskbar.save`). Two product focus bugs found and fixed with tests: collapsed `GtkExpander`
+bodies in the Creator stayed in the Tab chain (invisible stops), and every RiceSpice write destroyed the focused
+control on re-render and dropped focus. The same 27 November work adds
+`scripts/smoke_sg4_creator_full_login_labwc.sh` (run by the local-CI step `sg4-creator-gui-roundtrip`): the unmodified packaged
+login script runs as the top-level session on a headless labwc (not `--nested`) and the real Creator installs,
+applies and restores a rice (supervisor `next_login_persisted=true`, one new native shell and wallpaper, pixels
+switch and return, selection persisted), a second login applies without restoring and the third login comes up on
+the applied rice and restores it; after each logout no process, runtime entry or unexpected profile file remains.
+Not claimed (hardware / login manager only): a display manager or greeter, logind seat/VT/DRM, systemd `--user`, a
+polkit agent, Orca, idle-lock triggering and a physical display; Shift+Tab; exact-head local CI receipt. Details in
+`docs/sg4-creator-export-review-qa.md`, `docs/sg2-adapter-state-inventory.md` and row 4.2 of
+`docs/sg-remaining-work-packages.md`.
+
+
 ### SG1 visible failure notices, busy file operations and output hotplug (26 November 2026; local evidence)
 
 A failure that happens after its control closed (failed Start launch, absent

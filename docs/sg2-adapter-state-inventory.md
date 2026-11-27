@@ -114,7 +114,27 @@ inked and different in every state:
 * Limits: fake providers only (no real polkit/NetworkManager/BlueZ acceptance); confirmation dialogs
   (Wi-Fi switch, NTP off, Suspend) are answered by the fixture because a modal `Dialog.run()` freezes
   AT-SPI (the Creator smokes exercise real dialogs); non-Luna window for ten pages, Luna window for
-  the taskbar page; no keyboard traversal of these pages is claimed. (Root cause of the old "`wtype` keys do not reach GTK3" note, 27 Nov: GDK3 ignores the *highest keycode* of `wtype`'s throw-away keymap for key bindings, so a key sent alone or last does nothing; a trailing pad key in the same `wtype` call fixes it - proven for the RicePop inbox in `smoke_sg3_ricepop_native_labwc.sh chrome`, not yet applied to these pages.)
+  the taskbar page; the pointer/AT-SPI pass above claims no keyboard path; the keyboard is the separate stage below. (Root cause of the old "`wtype` keys do not reach GTK3" note, 27 Nov: GDK3 ignores the *highest keycode* of `wtype`'s throw-away keymap for key bindings, so a key sent alone or last does nothing; a trailing pad key in the same `wtype` call fixes it, now in the shared `scripts/gtk_keyboard.py`.)
+* **Real keyboard (27 Nov, stage `keyboard` of the same smoke; `SG2G_ONLY=keyboard|pages` runs one half).** Real
+  `wtype` keys only, every key padded (`scripts/gtk_keyboard.py`); focus is read from AT-SPI (FOCUSED+SHOWING), the
+  result from the status label and the fake provider's call log. Per page: Tab until the control holds focus, an
+  *unpadded* Return/space is the negative control (nothing happens, zero provider calls), then the padded key.
+  Network: Return on *Disable Wi-Fi* -> `Wi-Fi radio: disabled`, one `set_wifi` call, focus on *Enable Wi-Fi*.
+  Notifications (control at the foot of a scrolled page, 29 Tabs): space on *Turn on Do Not Disturb* ->
+  `Do Not Disturb: on`, one `set_dnd`, focus on the (scrolled-into-view) *Turn off* button. Bluetooth: Return with the
+  provider denying -> the typed denial text, one `set_bluetooth_power`. Luna taskbar: space ticks *Show Quick Launch
+  buttons* (no call), Tab to the enabled *Save taskbar options…* + Return -> exactly one `taskbar.save`. A key that
+  lands while the page is mid-readback is repeated only on the product's visible
+  `System request in progress; retry this action when it finishes.`; any other silent miss fails the smoke.
+  Not covered: the other six pages by keyboard (the mechanism is the same widgets), Shift+Tab (`wtype` modifiers
+  cannot be combined with the pad key in the throw-away keymap), Orca, and real polkit/NetworkManager/BlueZ.
+* **Product bug found by the keyboard pass, fixed** (`tests/test_de_settings_keyboard_focus.py`): every write re-rendered
+  its page from the provider's state and destroyed all widgets, the focused control included; GTK left the window
+  with no focus, so a keyboard user restarted from the top of the window after every action. `RiceSpiceWindow` now
+  remembers the focused control (class + position) before a same-page rebuild and, once the provider read settled,
+  focuses the control at that position or, when it is gone or no longer usable (a Save button after saving), the nearest
+  usable one, scrolled into view after the layout; a focus the user moved meanwhile, and navigation to another page,
+  are never overridden.
 * **Product bugs found and fixed** (`tests/test_de_settings_status_strip.py`): (1) the status line was
   the last child of the *scrolled* page, so on the long Network/Notifications pages a denial or
   busy message was below the fold and invisible; it now lives in a fixed strip under the page.

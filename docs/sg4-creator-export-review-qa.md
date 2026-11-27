@@ -201,10 +201,10 @@ output pixels) and drives it through `sg4_creator_gui_roundtrip_driver.py`:
 | Identity | the installed recipe and the authored draft are equal after the product's strict validation (21 fields); the stored JSON differs only by the omitted default `menu.presentation: tabs`; the installed ID/semantic hash equal the authored ones |
 | Preview | *Render preview* shows the real native capture of the imported rice (caption `Native RicePlate · 1366 × 768 · scale 1.0`, its Classic Teal desktop on screen), not the schematic |
 
-Platform notes (honest limits): a `wtype` key sent alone or as the last key of a call
-does nothing in a GTK3 toplevel (GDK3 ignores the highest keycode of `wtype`'s throw-away
-keymap for key bindings; a trailing pad key fixes it, see WP3.1), so no GTK keyboard
-traversal is claimed for these dialogs. The buttons that open a
+Platform notes (honest limits): this stage is a pointer/AT-SPI pass; the keyboard pass is the
+`keyboard` stage below (a `wtype` key sent alone or as the last key of a call does nothing in a
+GTK3 toplevel: GDK3 ignores the highest keycode of `wtype`'s throw-away keymap for key bindings,
+and a trailing pad key fixes it, see WP3.1 and `scripts/gtk_keyboard.py`). The buttons that open a
 modal chooser/dialog are pressed with **real compositor pointer events**, because an
 AT-SPI `doAction` that opens `Gtk.Dialog.run()` makes the application's AT-SPI
 service unresponsive while the dialog is open (reproduced with a plain
@@ -247,11 +247,74 @@ Product bugs found by this pass and fixed (tests: `tests/test_creator_window_siz
    button's popover opens upward (a downward popover is clipped at the sidebar foot).
 
 Limits (honest): confirmation dialogs are real, but the buttons are pressed by AT-SPI
-`doAction` inside the dialog and real pointer events outside (see above); no GTK
-keyboard traversal is claimed. A *nested* session only: a full-login apply (which
-persists the next-login selection) is the 4.3 CLI path and physical-device work. The
-horizontal minimum of the editing panes (about 1530 px) is unchanged: below that width
+`doAction` inside the dialog and real pointer events outside (see above); the keyboard
+and the full-login (non-nested) apply are the next two sections. This stage is a *nested*
+session. The horizontal minimum of the editing panes (about 1530 px) is unchanged: below that width
 the panes scroll horizontally rather than shrink.
+
+## Creator GTK keyboard traversal and activation (WP4.2, 27 Nov, local)
+
+Stage `keyboard` of `scripts/smoke_sg4_creator_gui_roundtrip_labwc.sh` (`SG4G_ONLY=keyboard` runs it alone; about
+110 s; 6 receipts, 2 consecutive local passes together with the other stages) starts the real Creator in a fresh
+profile on the same labwc as stage 1 and uses **only real compositor keys** (`wtype`, every key with the trailing
+unbound pad key from `scripts/gtk_keyboard.py`, the one helper shared with the RiceSpice and RicePop smokes) and
+**AT-SPI readback** (FOCUSED+SHOWING, dialog roles, SENSITIVE, the status line, the profile's files). The only
+non-key input is `EditableText` on the save chooser's file-name field (typing a path is not under test).
+
+| Step | Receipt |
+| --- | --- |
+| Traversal | initial focus is the first template; 19 real Tab presses visit all nine template/sidebar controls (six templates, *Edit installed rice…*, *Import RicePack…*, *Install / switch…*) exactly once each and wrap to the first; the toolbar buttons are skipped while they have no draft to act on |
+| Negative control | with focus on *Import RicePack…* an **unpadded** `wtype` Tab leaves focus unchanged, a padded one moves it (the smoke fails the day GDK3 stops dropping the highest keycode, so the pad key can be retired) |
+| Return + Escape | Return on *Import RicePack…* opens the real chooser; Escape closes it, focus is back on the button, the profile's config/state is byte-identical and no status is shown |
+| Space | Tab to *Heritage Composer* + space creates exactly one private draft (space is GTK's own binding; the window's template key handler only routes Tab/Return); the activated template keeps focus; *Render preview* and *Export RicePack…* become enabled |
+| Export, Escape | 152 Tabs round the window (the loaded draft's inspector, over a hundred stops, is in the chain; the toolbar precedes the sidebar) reach *Export RicePack…*; Return opens the chooser, a path in the name field and Return open the review; *Export reviewed bytes* is disabled; Escape closes the review, no file is written, focus returns to *Export RicePack…* |
+| Export, keyboard | second pass: Tab + space on *I reviewed the package contents…* enables the export (no file yet), Tab + Return on *Export reviewed bytes* writes the pack (`Reviewed RicePack created: … Not installed or applied`), the manifest carries the draft's ID, the saved selection stays `classic` |
+
+**Product bug found and fixed** (`tests/test_creator_keyboard_focus.py`): the bodies of collapsed `GtkExpander`s
+(*Reference mapping*, *Region QA*, and any collapsed inspector section) stayed in the keyboard focus chain. The first
+real Tab cycle stopped five times on invisible controls (the hint list's scroll pane and the four region spin
+buttons, all reported at the same off-screen position) and arrow keys would have changed hidden values. The bodies
+are now insensitive while collapsed (each child keeps its own sensitivity flag, so expanding restores exactly the
+previous state); every `Gtk.Expander` in `creator_gui.py` goes through `keyboard_skips_collapsed`, which a test pins.
+
+Limits: Shift+Tab is not possible (`wtype` modifiers cannot be combined with the pad key in the throw-away keymap);
+the *tabbing distance to the toolbar* (152 presses with a draft loaded) is a usability finding, not fixed here (a
+skip-to-toolbar accelerator would be a product change); the window's pre-existing `_template_key_navigation` handler
+(a workaround written before the root cause was known; `smoke_creator_gui_labwc.sh` still relies on it because it
+sends unpadded keys) is left in place; Orca and a physical keyboard are not part of this evidence.
+
+## Creator apply/restore against a full (non-nested) login session (WP4.2, 27 Nov, local)
+
+Everything above that applies live ran against a *nested* supervisor (`de start --nested`), which never persists the
+next-login selection and owns no lock guard or notification host. `scripts/smoke_sg4_creator_full_login_labwc.sh`
+(second workflow step of the local-CI step `sg4-creator-gui-roundtrip`, added to the native workflow; about 45 s for the three logins) starts the **unmodified
+packaged login script** `packaging/wayland/ricebowl-wayland-session --native` - the command
+`ricebowl-native.desktop` executes - with no `WAYLAND_DISPLAY`/`DISPLAY`, so it exports `RICEBOWL_DM_SESSION=1` and
+`exec`s `ricebowl de start --panel native` without `--nested`. labwc is the top compositor (headless backend),
+`session.shell()` runs in full-login mode (`RICEBOWL_DE_NESTED=0`: swayidle lock guard, Mako owned by the session, the
+supervisor persists the next-login selection) and `riceplate-native` is the panel. Three logins run in a row on one
+private profile and one private user bus (as a user bus outlives logins):
+
+| Login | Receipt |
+| --- | --- |
+| `roundtrip` | **Top-level proof:** exactly one labwc process of the runtime (the login's own, pid = the login script's), its environment has `RICEBOWL_DM_SESSION=1`, `RICEBOWL_DE_NESTED=0`, `WLR_BACKENDS=headless`, `RICEBOWL_DE_PANEL=native`, `RICEBOWL_DE_LIVE=1` and no `WAYLAND_DISPLAY`; one `riceplate-native`, `swaybg`, Mako and `swayidle`; supervisor `next_login_persisted=true`, lock guard and notifications `running`, authorization `unavailable` (no polkit agent installed here). **Apply:** draft + *Install saved version…* (selection and desktop unchanged), *Apply in Wayland…* dialog says `The choice also persists for the next login.` (and not "nested"), *Apply live* -> `Active Wayland rice: <id>`; supervisor `active=<id> previous=classic`, one **new** `riceplate-native` (on that recipe) and one new `swaybg`, labwc/Mako/swayidle pids unchanged, panel pixels differ from classic, next-login selection `[<id>, classic]`. **Restore:** *Restore previous rice…* -> `Active Wayland rice: classic`, the rice's shell is gone, one shell and one wallpaper, panel pixels equal the original classic panel, selection `classic` (previous pointer `<id>` kept for rollback). **Logout** (`labwc --exit`): no labwc/`riceplate-native`/`swaybg`/Mako/`swayidle` process of the runtime, no `ricebowl-*`, `wayland-0` or `wayland-0.lock` runtime entry, and the profile gained only the installed rice, its draft and the selection state file (`.active-recipe` + its lock), nothing changed or removed |
+| `persist` | a second login on the same profile (comes up on classic) applies the saved rice through the Creator and logs out **without** restoring; selection `[<id>, classic]`, no process or runtime entry left |
+| `relogin` | **the next login** comes up on the applied rice (supervisor `active=<id> previous=classic can_restore`), exactly one native shell on that recipe, panel pixels equal the live-applied panel of the previous login; the Creator restores classic (dialog names `Current: <id>` / `Restore: classic`), shell gone, panel pixels equal the original classic panel, selection `classic`; after the last logout no process, no runtime entry and no profile change beyond the selection state |
+
+Seams, all private and listed in the script header: HOME/XDG are a disposable profile with the user-local
+`~/.local/bin/ricebowl` entry the login script falls back to when `/usr/bin/ricebowl-wayland-app` is not installed;
+`labwc` on `PATH` is the real compositor with one extra window rule appended to the session's private `rc.xml`
+(window at 0,0, no server decoration, so AT-SPI coordinates map to pixels); the output is resized to 1366x768 with
+`wlr-randr`.
+
+**Not exercised here (hardware / login-manager only, stays open):** a display manager or greeter starting the session
+(the script runs the same entry directly), logind seat/VT/DRM acquisition and libseat (the headless backend replaces
+them), systemd `--user` (the bus is the disposable `dbus-run-session` bus, so `systemctl --user import-environment`
+fails harmlessly), a polkit authentication agent (none installed; the supervisor reports the honest
+`authorization: unavailable`), Orca, suspend/resume and the idle-lock timeout (the lock guard is shown running, not
+triggered), and a physical display. **Residue note:** a full-login apply + restore leaves `.active-recipe`
+(`current=classic`, `previous=<applied id>`), the rollback pointer the supervisor keeps by design; the next login
+still starts classic (the `relogin` receipt shows the opposite direction, applied -> next login).
 
 ## Remaining blocking SG4 sign-offs
 
