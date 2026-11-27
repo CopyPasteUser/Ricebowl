@@ -16,8 +16,12 @@ from pathlib import Path
 
 if __package__:
     from .ci_wayland_resource_smoke import LIMITS, Sample
+    from .sg7_safe_receipt_io import read_regular_bytes
+    from .sg7_dossier_io import DossierWriteError, publish_dossier
 else:
     from ci_wayland_resource_smoke import LIMITS, Sample
+    from sg7_safe_receipt_io import read_regular_bytes
+    from sg7_dossier_io import DossierWriteError, publish_dossier
 
 CYCLES = 3
 FIELDS = frozenset(Sample.__dataclass_fields__)
@@ -50,7 +54,7 @@ def _read(path: Path) -> tuple[dict, str]:
     if path.is_symlink() or not path.is_file():
         raise EvidenceError(f"Missing or symlinked resource receipt: {path.name}")
     try:
-        data = path.read_bytes()
+        data = read_regular_bytes(path, limit=8192)
         if not 0 < len(data) <= 8192:
             raise EvidenceError(f"Empty or oversized resource receipt: {path.name}")
         obj = json.loads(data.decode("utf-8"), object_pairs_hook=_unique_pairs)
@@ -65,7 +69,7 @@ def _cpu_receipt(path: Path, baseline: dict, after: dict, cycle: int) -> tuple[f
     if path.is_symlink() or not path.is_file():
         raise EvidenceError(f"Missing or symlinked CPU receipt: cycle {cycle}")
     try:
-        data = path.read_bytes()
+        data = read_regular_bytes(path, limit=4096)
         if not 0 < len(data) <= 4096:
             raise EvidenceError(f"Oversized CPU receipt: cycle {cycle}")
         row = json.loads(data.decode("utf-8"), object_pairs_hook=_unique_pairs)
@@ -195,11 +199,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         report = verify(args.directory, args.source_commit)
         target = args.directory / "sg7-resource-acceptance.json"
-        # Never overwrite or follow a pre-existing proof file.
-        with target.open("x", encoding="utf-8") as stream:
-            json.dump(report, stream, indent=2, sort_keys=True)
-            stream.write("\n")
-    except (EvidenceError, OSError) as exc:
+        # Publication is atomic and exclusive: no partial JSON report on error.
+        publish_dossier(target, report)
+    except (DossierWriteError, EvidenceError, OSError) as exc:
         print(f"SG7 resource evidence: BLOCKED — {exc}", file=sys.stderr)
         return 1
     print(f"Verified {CYCLES} real labwc switch, CPU and teardown receipts for {args.source_commit}")

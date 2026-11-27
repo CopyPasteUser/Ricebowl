@@ -2,8 +2,12 @@
 from __future__ import annotations
 
 import importlib.util
+import io
+import json
 import sys
+import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
@@ -22,12 +26,14 @@ class MatrixTests(unittest.TestCase):
         for i, (path, name) in enumerate(sg7.REQUIRED.items(), 1):
             self.runs.append({"id": i, "name": name, "path": path,
                               "head_sha": SHA, "head_branch": "main", "event": "push",
+                              "run_attempt": 1,
                               "status": "completed", "conclusion": "success"})
             self.jobs[path] = []
             for job_name in sg7.REQUIRED_JOBS[path]:
                 steps = [{"name": step, "status": "completed", "conclusion": "success"}
                          for _, p, j, step in sg7.CHECKS if p == path and j == job_name]
-                self.jobs[path].append({"run_id": i, "name": job_name,
+                self.jobs[path].append({"run_id": i, "run_attempt": 1,
+                                         "head_sha": SHA, "name": job_name,
                                          "status": "completed", "conclusion": "success",
                                          "steps": steps})
 
@@ -77,11 +83,150 @@ class MatrixTests(unittest.TestCase):
         job["run_id"] = 999
         self.assertFalse(self.matrix()["ready_for_formal_review"])
 
+    def test_job_from_different_or_unverified_run_attempt_is_blocked(self):
+        path = ".github/workflows/riceplate-native.yml"
+        job = self.jobs[path][0]
+        for attempt in (0, 2, True, None):
+            with self.subTest(attempt=attempt):
+                job["run_attempt"] = attempt
+                report = self.matrix()
+                self.assertFalse(report["ready_for_formal_review"])
+                self.assertEqual(report["workflows"][path]["run_id"], 2)
+                self.assertEqual(next(check for check in report["checks"]
+                    if check["id"] == "native-headless-labwc")["status"], "blocked")
+        job["run_attempt"] = 1
+        self.assertTrue(self.matrix()["ready_for_formal_review"])
+
+    def test_job_with_mismatched_source_sha_never_certifies_any_step(self):
+        path = ".github/workflows/riceplate-native.yml"
+        job = self.jobs[path][0]
+        job["head_sha"] = "b" * 40
+        self.assertFalse(self.matrix()["ready_for_formal_review"])
+        failed = [step for step in self.matrix()["checks"] if
+                  step["workflow"] == path and step["status"] == "blocked"]
+        self.assertTrue(failed)
+        job["head_sha"] = SHA
+        self.assertTrue(self.matrix()["ready_for_formal_review"])
+
     def test_pr_head_untrusted_and_missing_path_filtered_run(self):
         removed = self.runs.pop()
         self.assertFalse(self.matrix()["ready_for_formal_review"])
         self.runs.append(dict(removed, event="pull_request", head_branch="feature"))
         self.assertFalse(self.matrix()["ready_for_formal_review"])
+
+    def test_collector_rechecks_live_main_and_open_prs_before_publication(self):
+        old_pr = (590, 'c' * 40, True)
+        changed_head = (590, 'd' * 40, True)
+        replacement_pr = (597, 'c' * 40, True)
+        for initial_prs, final_context, expected in (
+            ((), (SHA, ()), 0),
+            ((), ('b' * 40, ()), 2),
+            ((), (SHA, (old_pr,)), 2),
+            ((old_pr,), (SHA, (changed_head,)), 2),
+            ((old_pr,), (SHA, (replacement_pr,)), 2),
+            ((old_pr,), (SHA, ((590, 'c' * 40, False),)), 2),
+        ):
+            with self.subTest(initial=initial_prs, final=final_context), tempfile.TemporaryDirectory() as folder:
+                output = Path(folder) / 'software-matrix.json'
+                env = {'GITHUB_SHA': SHA, 'GITHUB_REPOSITORY': REPO, 'GH_TOKEN': 'test-only-token'}
+                with (patch.dict(sg7.os.environ, env),
+                      patch.object(sg7, '_live_context',
+                                   side_effect=[(SHA, initial_prs), final_context]) as live,
+                      patch.object(sg7, 'fetch_evidence',
+                                   return_value={'workflow_runs': self.runs}),
+                      patch.object(sg7, 'fetch_job_evidence',
+                                   return_value=self.jobs),
+                      patch('sys.stderr', new_callable=io.StringIO)):
+                    self.assertEqual(sg7.main(['--output', str(output)]), expected)
+                self.assertEqual(live.call_count, 2)
+                self.assertEqual(output.exists(), expected == 0)
+                if expected == 0:
+                    self.assertTrue(json.loads(output.read_text())['ready_for_formal_review'])
+
+    def test_live_context_pins_pr_identity_head_and_draft(self):
+        def pr(number, digest='b' * 40, draft=True):
+            return {'number': number, 'head': {'sha': digest}, 'draft': draft}
+
+        main = {'object': {'sha': SHA}}
+        with patch.object(sg7, '_get_json', side_effect=[main,
+                            [pr(10), pr(4, 'c' * 40, False)]]):
+            sha, snapshot = sg7._live_context(REPO, 'fixture-token')
+        self.assertEqual(sha, SHA)
+        self.assertEqual(snapshot, ((4, 'c' * 40, False), (10, 'b' * 40, True)))
+
+        for invalid in (
+            [pr(4), pr(4)],
+            [pr(True)],
+            [pr(4, 'bad')],
+            [pr(4, draft=None)],
+            [None],
+        ):
+            with self.subTest(invalid=invalid), patch.object(
+                    sg7, '_get_json', side_effect=[main, invalid]):
+                with self.assertRaises(ValueError):
+                    sg7._live_context(REPO, 'fixture-token')
+
+    def test_collector_refuses_new_or_rerun_trusted_workflow_during_collection(self):
+        initial = [dict(row) for row in self.runs]
+        pending = dict(initial[0], id=100, status="in_progress", conclusion=None)
+        failed = dict(initial[0], id=100, status="completed", conclusion="failure")
+        rerun = dict(initial[0], run_attempt=2)
+        for replacement in (
+            initial + [pending],
+            initial + [failed],
+            [rerun, *initial[1:]],
+        ):
+            with self.subTest(replacement=replacement), tempfile.TemporaryDirectory() as folder:
+                output = Path(folder) / "software-matrix.json"
+                env = {"GITHUB_SHA": SHA, "GITHUB_REPOSITORY": REPO,
+                       "GH_TOKEN": "test-only-token"}
+                with (patch.dict(sg7.os.environ, env),
+                      patch.object(sg7, "_live_context", return_value=(SHA, ())) as live,
+                      patch.object(sg7, "fetch_evidence", side_effect=[
+                          {"workflow_runs": initial}, {"workflow_runs": replacement}
+                      ]) as fetched,
+                      patch.object(sg7, "fetch_job_evidence", return_value=self.jobs),
+                      patch("sys.stderr", new_callable=io.StringIO)):
+                    self.assertEqual(sg7.main(["--output", str(output)]), 2)
+                self.assertEqual(fetched.call_count, 2)
+                self.assertEqual(live.call_count, 1,
+                                 "Changing workflow evidence fails before last context check")
+                self.assertFalse(output.exists(),
+                                 "No green evidence dossier for a changed workflow snapshot")
+
+    def test_collector_never_overwrites_existing_evidence(self):
+        # Even a passing matrix must not replace another process's dossier.
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / "software-matrix.json"
+            output.write_text("earlier report", encoding="utf-8")
+            env = {"GITHUB_SHA": SHA, "GITHUB_REPOSITORY": REPO,
+                   "GH_TOKEN": "test-only-token"}
+            with (patch.dict(sg7.os.environ, env),
+                  patch.object(sg7, "_live_context", return_value=(SHA, ())),
+                  patch.object(sg7, "fetch_evidence",
+                               return_value={"workflow_runs": self.runs}),
+                  patch.object(sg7, "fetch_job_evidence", return_value=self.jobs),
+                  patch("sys.stderr", new_callable=io.StringIO)):
+                self.assertEqual(sg7.main(["--output", str(output)]), 2)
+            self.assertEqual(output.read_text(), "earlier report")
+            self.assertEqual(list(Path(folder).glob(".*.tmp")), [])
+
+    def test_collector_fails_without_partial_output_if_report_is_unserializable(self):
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / "software-matrix.json"
+            env = {"GITHUB_SHA": SHA, "GITHUB_REPOSITORY": REPO,
+                   "GH_TOKEN": "test-only-token"}
+            invalid_report = {"unserializable": object()}
+            with (patch.dict(sg7.os.environ, env),
+                  patch.object(sg7, "_live_context", return_value=(SHA, ())),
+                  patch.object(sg7, "fetch_evidence",
+                               return_value={"workflow_runs": self.runs}),
+                  patch.object(sg7, "fetch_job_evidence", return_value=self.jobs),
+                  patch.object(sg7, "evaluate", return_value=invalid_report),
+                  patch("sys.stderr", new_callable=io.StringIO)):
+                self.assertEqual(sg7.main(["--output", str(output)]), 2)
+            self.assertFalse(output.exists())
+            self.assertEqual(list(Path(folder).glob(".*.tmp")), [])
 
     def test_invalid_sources_cannot_be_laundered(self):
         for sha in ("b" * 39, "B" * 40, "", "../main"):

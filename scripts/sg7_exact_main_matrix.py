@@ -19,6 +19,8 @@ from check_release_workflows import (
     REQUIRED, REQUIRED_JOBS, WorkflowGateError, fetch_evidence,
     fetch_job_evidence, validate_runs, validate_jobs,
 )
+from sg7_evidence_snapshot import trusted_run_snapshot
+from sg7_dossier_io import publish_dossier
 
 # Exact step names are deliberately strict: renamed/skipped/missing acceptance
 # steps must be reviewed and reflected in the dossier, never silently passed.
@@ -60,7 +62,8 @@ SHA_PATTERN = re.compile(r"[0-9a-f]{40}\Z")
 REPO_PATTERN = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
 
 
-def _unique_job(jobs: object, name: str, run_id: int) -> dict | None:
+def _unique_job(jobs: object, name: str, run_id: int, run_attempt: int,
+                source_sha: str) -> dict | None:
     if not isinstance(jobs, list) or len(jobs) > 1000:
         return None
     matching = [job for job in jobs if isinstance(job, dict) and job.get("name") == name]
@@ -68,6 +71,9 @@ def _unique_job(jobs: object, name: str, run_id: int) -> dict | None:
         return None
     job = matching[0]
     if (type(job.get("run_id")) is not int or job["run_id"] != run_id
+            or type(job.get("run_attempt")) is not int
+            or job["run_attempt"] != run_attempt
+            or job.get("head_sha") != source_sha
             or job.get("status") != "completed" or job.get("conclusion") != "success"):
         return None
     return job
@@ -124,7 +130,9 @@ def evaluate(evidence: object, jobs_by_workflow: object, *, sha: str,
     checks = []
     for code, path, job_name, step_name in CHECKS:
         run = selected.get(path)
-        job = _unique_job(jobs_by_workflow.get(path), job_name, run["id"]) if run else None
+        job = (_unique_job(jobs_by_workflow.get(path), job_name,
+                           run["id"], run.get("run_attempt"), sha)
+               if run else None)
         steps = job.get("steps") if job else None
         matching = ([step for step in steps if isinstance(step, dict) and step.get("name") == step_name]
                     if isinstance(steps, list) else [])
@@ -159,7 +167,12 @@ def _get_json(url: str, token: str) -> object:
         return json.load(stream)
 
 
-def _live_context(repository: str, token: str) -> tuple[str, int]:
+def _live_context(repository: str, token: str) -> tuple[str, tuple[tuple[int, str, bool], ...]]:
+    """Capture the actual open PR heads, not just their number.
+
+    A PR can close while another opens, or be force-pushed, leaving the same
+    count. Neither event may be hidden by a count-only context comparison.
+    """
     prefix = f"https://api.github.com/repos/{repository}"
     main = _get_json(prefix + "/git/ref/heads/main", token)
     sha = main.get("object", {}).get("sha") if isinstance(main, dict) else None
@@ -168,7 +181,20 @@ def _live_context(repository: str, token: str) -> tuple[str, int]:
     prs = _get_json(prefix + "/pulls?state=open&per_page=100", token)
     if not isinstance(prs, list) or len(prs) >= 100:
         raise ValueError("Open PR list unavailable or truncated")
-    return sha, len(prs)
+    identities = []
+    for pr in prs:
+        if not isinstance(pr, dict):
+            raise ValueError("Malformed live PR inventory")
+        number, head, draft = pr.get("number"), pr.get("head"), pr.get("draft")
+        head_sha = head.get("sha") if isinstance(head, dict) else None
+        if (type(number) is not int or number <= 0
+                or not isinstance(head_sha, str)
+                or not SHA_PATTERN.fullmatch(head_sha) or type(draft) is not bool):
+            raise ValueError("Untrusted live PR identity or head SHA")
+        identities.append((number, head_sha, draft))
+    if len(set(number for number, _, _ in identities)) != len(identities):
+        raise ValueError("Duplicate PR in live inventory")
+    return sha, tuple(sorted(identities))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -183,8 +209,9 @@ def main(argv: list[str] | None = None) -> int:
         print("SG7: invalid or untrusted runner context", file=sys.stderr)
         return 2
     try:
-        main_sha, open_prs = _live_context(repo, token)
+        main_sha, open_pr_snapshot = _live_context(repo, token)
         evidence = fetch_evidence(repo, sha, token)
+        initial_runs = trusted_run_snapshot(evidence, sha, REQUIRED)
         # The release-verifier selects all-or-nothing job identities; if any
         # workflow is missing we still output explicit per-check blockers.
         try:
@@ -193,11 +220,22 @@ def main(argv: list[str] | None = None) -> int:
         except WorkflowGateError:
             jobs = {}
         report = evaluate(evidence, jobs, sha=sha, main_sha=main_sha,
-                          repository=repo, open_prs=open_prs)
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        with args.output.open("x", encoding="utf-8") as stream:
-            json.dump(report, stream, sort_keys=True, indent=2)
-            stream.write("\n")
+                          repository=repo, open_prs=len(open_pr_snapshot))
+        # Jobs may finish, fail, or be rerun while their earlier green state
+        # is being read. Refetch the trusted run identities and attempts:
+        # final context checks alone do not detect same-main Actions races.
+        current_runs = trusted_run_snapshot(fetch_evidence(repo, sha, token),
+                                             sha, REQUIRED)
+        if current_runs != initial_runs:
+            raise ValueError("Trusted workflow run state changed during SG7 evidence collection")
+        # Evidence collection makes several remote API requests. A merge or
+        # newly opened PR during that interval invalidates the initial
+        # main/PR snapshot, even when every retrieved Actions job was green.
+        # Re-read both immediately before publishing any acceptance dossier.
+        final_main_sha, final_open_pr_snapshot = _live_context(repo, token)
+        if (final_main_sha, final_open_pr_snapshot) != (main_sha, open_pr_snapshot):
+            raise ValueError("Live main or PR identity/head changed during SG7 evidence collection")
+        publish_dossier(args.output, report)
     except (OSError, ValueError, urllib.error.URLError, WorkflowGateError) as exc:
         print(f"SG7: evidence collection failed closed: {exc}", file=sys.stderr)
         return 2

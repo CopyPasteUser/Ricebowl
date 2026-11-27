@@ -2,11 +2,15 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from scripts.verify_sg7_resource_receipts import EvidenceError, main, verify
+from scripts.sg7_safe_receipt_io import ReceiptReadError
+from scripts.sg7_dossier_io import DossierWriteError
 
 SHA = "a" * 40
 BASELINE = {
@@ -79,8 +83,18 @@ class SG7ResourceReceiptTests(unittest.TestCase):
         self.assertEqual(main(["--directory", str(self.folder), "--source-commit", SHA]), 0)
         manifest = json.loads((self.folder / "sg7-resource-acceptance.json").read_text())
         self.assertEqual(manifest, result)
+        self.assertEqual((self.folder / "sg7-resource-acceptance.json").stat().st_mode & 0o777, 0o600)
         # Re-runs may not silently overwrite an earlier evidence receipt.
         self.assertEqual(main(["--directory", str(self.folder), "--source-commit", SHA]), 1)
+
+    def test_manifest_write_failure_does_not_claim_success_or_leave_partial_proof(self):
+        target = self.folder / "sg7-resource-acceptance.json"
+        with patch("scripts.verify_sg7_resource_receipts.publish_dossier",
+                   side_effect=DossierWriteError("atomic publication denied")):
+            self.assertEqual(main(["--directory", str(self.folder),
+                                   "--source-commit", SHA]), 1)
+        self.assertFalse(target.exists())
+        self.assertFalse(any(self.folder.glob(".sg7-resource-acceptance.json.*.tmp")))
 
     def test_missing_and_symlinked_receipts_are_not_trusted(self):
         self.path(2).unlink()
@@ -89,6 +103,22 @@ class SG7ResourceReceiptTests(unittest.TestCase):
         self.path(2).symlink_to(self.path(3))
         with self.assertRaisesRegex(EvidenceError, "symlinked"):
             verify(self.folder, SHA)
+
+    def test_fifo_and_failed_descriptor_reads_never_certify_receipts(self):
+        # A nonregular path cannot be trusted even if created between
+        # enumeration and the actual receipt read.
+        self.path(2).unlink()
+        os.mkfifo(self.path(2))
+        with self.assertRaises(EvidenceError):
+            verify(self.folder, SHA)
+        self.path(2).unlink()
+        self.write(2, self.read(1))
+        # The IO helper is invoked for each actual JSON read. Its refusal
+        # must fail the complete verification, not be skipped as missing.
+        with patch("scripts.verify_sg7_resource_receipts.read_regular_bytes",
+                   side_effect=ReceiptReadError("changed during read")):
+            with self.assertRaisesRegex(EvidenceError, "Malformed resource receipt"):
+                verify(self.folder, SHA)
 
     def test_reject_forged_or_invalid_source_and_final_copy(self):
         with self.assertRaisesRegex(EvidenceError, "source SHA"):

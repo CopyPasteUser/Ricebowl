@@ -19,6 +19,52 @@ login, XFCE state, package installation or release sign-off JSON.
    remain open until separately evidenced. Do **not** close the remaining SG1–SG5/SG7 items in #417 or tag 1.0
    because this dossier is green.
 
+**Context-race hardening (23 November 2026):** the collector reads the
+live `main` commit and **every open PR number, HEAD SHA and Draft flag**
+*twice*: before querying Actions and again after all workflow/job evidence
+has been evaluated. It also fetches the required **trusted
+exact-source workflow run list a second time** and compares every accepted
+run ID, attempt, status and conclusion. New failed/pending runs, reruns,
+force-pushed PR heads and renamed/replaced PRs therefore block dossier
+publication. The second workflow fetch happens before the final live
+main/PR check. Any inconsistent snapshot fails **without writing a dossier**.
+This narrows the stale-result window but is not an atomic GitHub transaction;
+no report may bypass the later exact-source review or hardware gates.
+
+**Standalone verification (23 November):** the exact committed
+SG7 workflow-snapshot code passes **9/9** isolated Python 3.13 unit tests,
+and the atomic-file-receipt reader passes **5/5** local Linux tests.
+These test synthetic evidence/descriptor edge cases, **not** the full
+`scripts/sg7_exact_main_matrix.py` integration, a real compositor or
+source-locked Native/Portal job logs. The collector now requires explicit
+GitHub `run_attempt` values instead of assuming the first attempt when
+the API field is missing.
+
+**Atomic dossier publication (23 November):** the SG7 collector no longer
+streams JSON directly into its final report path. It creates a private 0600
+temporary file on the destination filesystem, serializes with strict JSON
+(no NaN), flushes and `fsync`s it, then uses an exclusive hard link to
+publish the complete inode in one step. Existing files and symlinks are
+never overwritten; errors remove temporary output. Nine local Linux
+Python regression tests verify completed write, existing file/symlink,
+invalid serialization, non-finite floats, link/fsync failures and both simulated and genuinely
+concurrent competing writers. The same publisher now also protects
+`sg7-resource-acceptance.json` emitted by
+`scripts/verify_sg7_resource_receipts.py`; writer refusal yields an explicit
+BLOCKED status. Collector- and resource-verifier-level negative cases are
+present but require complete repository test execution before merge.
+This is atomic **publication**, not a signed receipt or global
+transactional snapshot.
+
+**Per-job provenance (23 November):** before treating an executed step as
+successful, the SG7 validator additionally requires the GitHub job's
+`run_id`, explicit `run_attempt` **and `head_sha`** to match the
+selected exact-main workflow. The read-only GitHub API confirms those
+fields are present on this repository's historical job records. New
+negative unit cases check stale/missing attempts and a mismatched
+source SHA. These tests still need full-checkout execution; no CI run
+was started.
+
 The dossier binds each accepted claim to the **latest trusted main run** of
 its named workflow and an **executed successful step** within the required
 job, rather than to the run's aggregate green status alone. Acceptance labels
@@ -51,7 +97,17 @@ rebuild/attestation tests remain authoritative for their own scope.
   login/hardware sign-off. Verify its result on the *final main SHA*
   for later exact-final-main release review; SG6's software acceptance is
   already documented at the pinned SHA.
-- The three native `compare-replaced` cycles now check the previous
+- The SG7 resource verifier now reads each raw cycle JSON and CPU receipt
+through a bounded, no-follow descriptor instead of a separate pathname
+check followed by `Path.read_bytes()`. It rejects directories, FIFOs,
+symlinks, oversized files, in-flight size/metadata changes **and
+atomic pathname replacement** without blocking on special files. The new standard-library helper has independent
+negative Linux tests; this is integrity hardening for **software-only
+receipts**, not a source signature, proof of their measurement origin or a
+physical system benchmark. Full repository and compositor tests are still
+required for acceptance.
+
+The three native `compare-replaced` cycles now check the previous
   RicePlate PID/start-time disappears, and record independent `/proc`
   utime+stime intervals alongside PSS/RSS/threads/FDs. The source-bound
   resource verifier validates each same-process CPU sample, its tick-rate
