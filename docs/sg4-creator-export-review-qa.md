@@ -187,8 +187,8 @@ Platform limits and findings (nothing here is fixed by the smoke):
 
 ## Creator GUI export -> import round trip (WP4.2, 27 Nov)
 
-`scripts/smoke_sg4_creator_gui_roundtrip_labwc.sh` (about 30 s, local only, not in
-any workflow) starts the real `launcher.py creator` window on a headless labwc
+`scripts/smoke_sg4_creator_gui_roundtrip_labwc.sh` stage 1 (about 30 s; wired into
+the native workflow on 27 Nov, runs from December) starts the real `launcher.py creator` window on a headless labwc
 (`GDK_BACKEND=wayland`, 1920x1080 so the grown window fits, every window placed at
 0,0 without server decoration by a `windowRule` so AT-SPI window coordinates map to
 output pixels) and drives it through `sg4_creator_gui_roundtrip_driver.py`:
@@ -208,9 +208,48 @@ AT-SPI `doAction` that opens `Gtk.Dialog.run()` makes the application's AT-SPI
 service unresponsive while the dialog is open (reproduced with a plain
 `MessageDialog`); inside the dialogs the driver uses AT-SPI actions, EditableText
 and pointer clicks on the places sidebar and file rows. The Creator window is
-taller/wider than a 1366x768 output once a draft is loaded (the default 1280 px
-window grows past 1488 px), which is why this smoke runs at 1920x1080; that layout
-limit is not fixed here.
+taller/wider than a 1366x768 output once a draft was loaded (minimum request about
+1530x1030 px), which is why stage 1 runs at 1920x1080. That layout limit is **fixed in
+the product on 27 Nov** (see the next section); stage 1 stays at 1920x1080 only because
+its native *Render preview* capture is a 1366x768 image.
+
+## Creator GUI install / apply / restore dialogs (WP4.2, 27 Nov, local)
+
+Stage 2 of the same script starts a REAL supervised nested session
+(`launcher.py de start --nested --panel native --recipe classic`: real labwc, the real
+`riceplate-native` shell, the real live supervisor socket) at **1366x768** and drives the
+real Creator in that session's profile. The only seam is a `labwc` wrapper on `PATH`
+that appends the same `windowRule` as stage 1 (window at 0,0, no server decoration) to
+the session's private `rc.xml` before the real labwc starts; `--exit`/`--reconfigure`
+pass through. Session tools `foot`/`fuzzel`/`gio`/`ricebowl` are logging no-op shims.
+
+| Step | Receipt |
+| --- | --- |
+| Window fits | with a draft loaded the Creator frame is 1280x696 at 0,0, inside the 1366x768 output; toolbar and status line stay fixed, the editing panes scroll |
+| Install | *Install / switch…* (menu button) -> *Install saved version…* (real pointer clicks) -> the real confirmation dialog names the ID and SHA-256 prefix and says neither desktop changes; *Install version* -> `Installed <id>. No desktop or login changed.`; exactly that rice is installed; selection and running desktop still `classic` |
+| Negative 1: cancelled apply | *Apply in Wayland…* -> dialog names the ID, `Current rice: classic` and `nested session; the choice will not persist` -> *Cancel* -> `Live change cancelled. Desktop unchanged.`; supervisor still `classic`, no shell for the rice, panel pixels unchanged |
+| Negative 2: refused after confirmation | the desktop is moved by the CLI while the dialog is open; *Apply live* -> `Live change not confirmed: Active rice changed; review again` (never `Active Wayland rice`); the supervisor keeps exactly the state the other caller left |
+| GUI restore | *Restore previous rice…* -> dialog names `Current: <id>` / `Restore: classic` -> *Restore live* -> `Active Wayland rice: classic. …`; supervisor `classic`, the rice's native shell is gone |
+| Real apply + restore | *Apply live* -> `Active Wayland rice: <id>. …`; supervisor `active=<id> previous=classic`, exactly one `riceplate-native` on that recipe, panel pixels differ from classic, nothing persisted for next login; *Restore live* -> classic again, shell gone, panel pixels equal the classic panel |
+| Negative 3: supervisor unavailable | a Creator whose `WAYLAND_DISPLAY` is a second name for the compositor socket has no `ricebowl-live-<display>.sock`: *Apply in Wayland…* -> `Live change unavailable: No responsive RiceBowl live Wayland supervisor`; no dialog, session untouched |
+
+Product bugs found by this pass and fixed (tests: `tests/test_creator_window_size.py`):
+
+1. The *Install / switch…* popover opened as an **empty bubble**: a `Gtk.Popover`'s
+   content is not reached by the window's `show_all()`. Only programmatic `clicked()`
+   calls had exercised the menu before.
+2. The editing panes demanded about 1530x1030 px, so the window ran off a 1366x768
+   output (the right inspector and the toolbar's Render/Export buttons were clipped,
+   the foot of the sidebar unreachable). The panes now scroll (`creator-main-scroll`),
+   the default size is clamped to the output (`initial_window_size`), and the menu
+   button's popover opens upward (a downward popover is clipped at the sidebar foot).
+
+Limits (honest): confirmation dialogs are real, but the buttons are pressed by AT-SPI
+`doAction` inside the dialog and real pointer events outside (see above); no GTK
+keyboard traversal is claimed. A *nested* session only: a full-login apply (which
+persists the next-login selection) is the 4.3 CLI path and physical-device work. The
+horizontal minimum of the editing panes (about 1530 px) is unchanged: below that width
+the panes scroll horizontally rather than shrink.
 
 ## Remaining blocking SG4 sign-offs
 
@@ -220,10 +259,11 @@ limit is not fixed here.
   geometry, clipping, text and hit-target tolerances; interactive Wayland
   pointer/keyboard, error-state, popup and accessibility checks. A static
   PNG cannot validate those interactions.
-- Real GUI export→import and Creator-exit→supervisor apply/restore, including
-  terminated Creator, interrupted journal, malformed configuration and
-  subsequent login/restart, using controlled disposable sessions. Python
-  supervisor tests do not alone certify a real compositor.
+- ~~Real GUI export→import and Creator-exit→supervisor apply/restore~~ proven
+  locally (27 Nov): terminated Creator, interrupted journal, malformed configuration
+  and restart in `tests/test_sg4_apply_restore_robustness.py`; the GTK export→import
+  and the install/apply/restore dialogs above. Exact-head CI and keyboard traversal
+  of the GTK Creator remain open.
 - Independent rights audit for every artwork, font, icon, wallpaper and
   attribution chain; the `rights_independently_verified` field remains false.
 - Integration lane review of this draft, current-main rebase if necessary,

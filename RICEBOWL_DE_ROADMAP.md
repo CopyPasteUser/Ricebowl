@@ -3023,6 +3023,26 @@ focus cycle/candidates/composition pixels, physical IME/Orca. SG5 remains open;
 details in `docs/sg5-text-input-atspi-acceptance.md`.
 
 
+### SG2 RiceSpice GUI states and SG4 Creator apply/restore dialogs under labwc (27 November 2026; local evidence)
+
+A real-labwc GUI pass (`scripts/smoke_sg2_settings_gui_labwc.sh`) runs the real RiceSpice
+window for every settings page with the repository's fake providers and proves **denied**,
+**busy** and **unavailable** visibly: external AT-SPI text/state, real pointer clicks and a
+`grim` crop of the status widget that differs per state. It found and fixed two product
+bugs: the status line was below the fold of the scrolled page (now a fixed strip) and a
+stale `Working with system services…` stayed after an unavailable read. The Creator smoke
+(`scripts/smoke_sg4_creator_gui_roundtrip_labwc.sh`) gains a second stage that drives the
+real *Install / switch…* dialogs against a real supervised nested session (install,
+cancelled apply, apply refused after confirmation, GUI restore, real apply/restore,
+supervisor unavailable) and fixed the empty *Install / switch…* popover and the Creator
+window running off a 1366x768 output. SG3 row 3.4 was verified against the existing
+real-Mako-1.11 modes and needed no new code. Both smokes are wired into the native
+workflow. Not claimed: real polkit/NetworkManager/BlueZ acceptance, GTK keyboard
+traversal, a full-login Creator apply, exact-head CI or hardware. SG2 and SG4 stay open;
+details in `docs/sg2-adapter-state-inventory.md`, `docs/sg4-creator-export-review-qa.md`
+and `docs/sg-remaining-work-packages.md`.
+
+
 ### SG1 visible failure notices, busy file operations and output hotplug (26 November 2026; local evidence)
 
 A failure that happens after its control closed (failed Start launch, absent

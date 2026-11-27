@@ -128,6 +128,18 @@ def _node_template(choice: str) -> dict:
     raise creator_structure.StructureError("Unsupported panel primitive")
 
 
+def initial_window_size(monitor_width: int, monitor_height: int) -> tuple[int, int]:
+    """Default Creator size: 1280x820, clamped so the window opens inside the output.
+
+    Found by the real-labwc Creator smoke: at 1366x768 the fixed 1280x820 default (and the
+    ~1030 px minimum height of the unscrolled editing panes) put the window past the
+    bottom of the output. Never below the declared 820x560 minimum request.
+    """
+    width = min(1280, max(820, monitor_width - 24))
+    height = min(820, max(560, monitor_height - 72))
+    return width, height
+
+
 def run() -> int:
     if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
         print("Rice Creator needs a graphical desktop session.", file=__import__("sys").stderr)
@@ -180,7 +192,14 @@ def run() -> int:
         def __init__(self, application):
             super().__init__(application=application, title="Rice Creator · RiceBowl")
             self.set_name("ricebowl-window")
-            self.set_default_size(1280, 820)
+            try:
+                monitor = Gdk.Display.get_default().get_monitor(0)
+                area = monitor.get_workarea() if monitor is not None else None
+            except (AttributeError, TypeError):
+                area = None
+            self.set_default_size(*(initial_window_size(area.width, area.height)
+                                    if area is not None and area.width > 0 and area.height > 0
+                                    else (1280, 820)))
             self.set_size_request(820, 560)
             self.info: workspace.DraftInfo | None = None
             self.baseline: dict | None = None
@@ -290,7 +309,14 @@ def run() -> int:
                 toolbar.pack_start(button, False, False, 0)
 
             self.main = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
-            outer.pack_start(self.main, True, True, 0)
+            # The editing panes need ~1530x1030 px once a draft is loaded. Scroll them
+            # instead of forcing the toplevel past a 1366x768 output (the toolbar and
+            # status line stay fixed outside the scroller).
+            main_scroll = Gtk.ScrolledWindow()
+            main_scroll.set_name("creator-main-scroll")
+            main_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+            main_scroll.add(self.main)
+            outer.pack_start(main_scroll, True, True, 0)
             sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
             sidebar.set_name("creator-sidebar")
             sidebar.set_border_width(14)
@@ -340,6 +366,10 @@ def run() -> int:
             wayland_actions.set_border_width(10)
             self.wayland_menu.add(wayland_actions)
             self.wayland_btn.set_popover(self.wayland_menu)
+            # The button sits at the foot of the sidebar: a downward popover is clipped to
+            # a couple of pixels in a 1366x768 window (found by the real-labwc Creator smoke).
+            self.wayland_btn.set_direction(Gtk.ArrowType.UP)
+            self.wayland_menu.set_position(Gtk.PositionType.TOP)
             self.install_btn = self._button("Install saved version…", self._install_draft)
             self.fork_btn = self._button("Fork as new rice ID", self._fork_draft)
             self.apply_btn = self._button("Apply in Wayland…", lambda _: self._live_action("apply"))
@@ -347,6 +377,10 @@ def run() -> int:
                                             lambda _: self._live_action("restore"))
             for button in (self.install_btn, self.fork_btn, self.apply_btn, self.restore_btn):
                 wayland_actions.pack_start(button, False, False, 0)
+            # A Gtk.Popover's content is not reached by the window's show_all(): without
+            # this the "Install / switch..." popover opened as an empty bubble (found by the
+            # real-labwc Creator smoke; only programmatic clicks had ever exercised it).
+            wayland_actions.show_all()
             self.install_btn.set_tooltip_text("Copy the validated saved version into your private rice collection")
             self.fork_btn.set_tooltip_text("Keep the full layout under a fresh ID when another version is installed")
             self.apply_btn.set_tooltip_text("Only in a running opt-in RiceBowl Wayland session")

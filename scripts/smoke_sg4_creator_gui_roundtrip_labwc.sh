@@ -1,7 +1,15 @@
 #!/bin/sh
-# SG4 WP4.2: real GTK Rice Creator click-through of Export RicePack -> Import
-# RicePack under a disposable headless labwc.
+# SG4 WP4.2: real GTK Rice Creator click-through under a disposable headless labwc.
 #
+# Stage 1 (round trip): Export RicePack -> Import RicePack.
+# Stage 2 (apply): the Creator's "Install / switch..." dialogs (Install saved
+# version, Apply in Wayland, Restore previous rice) against a REAL supervised nested
+# session (`launcher.py de start --nested --panel native`, real labwc + riceplate-native):
+# install, a cancelled apply, an apply the supervisor refuses after confirmation, a
+# GUI restore, the real apply + restore, and a Creator with no supervisor at all
+# (honest error). The Creator window must also fit the 1366x768 output.
+#
+# --- stage 1 ---
 # The real `launcher.py creator` window (GDK_BACKEND=wayland) is driven in two
 # fresh profiles: an AUTHOR profile creates a Heritage Composer draft and exports
 # it through the real "Export RicePack..." file chooser and review dialog; a
@@ -32,8 +40,8 @@ test -x "$clicker" && test -x "$release/riceplate-native" || {
 runtime=$(mktemp -d -t ricebowl-sg4-gui-XXXXXXXX)
 chmod 0700 "$runtime"
 trap 'rm -rf -- "$runtime"' EXIT
-mkdir -m 0700 "$runtime/run" "$runtime/packs" "$runtime/shots"
-for profile in author importer; do
+mkdir -m 0700 "$runtime/run" "$runtime/packs" "$runtime/shots" "$runtime/bin"
+for profile in author importer session; do
     mkdir -m 0700 "$runtime/$profile" "$runtime/$profile/home" \
         "$runtime/$profile/config" "$runtime/$profile/state"
 done
@@ -56,6 +64,9 @@ export GDK_BACKEND=wayland XDG_SESSION_TYPE=wayland RICEBOWL_DE_NESTED=1
 export SG4G_RUNTIME="$runtime" SG4G_ROOT="$root" SG4G_CLICKER="$clicker"
 export PATH="$release:$PATH"
 
+# Development aid: SG4G_ONLY=apply runs just stage 2.
+status=0
+if [ "${SG4G_ONLY:-}" != apply ]; then
 set +e
 timeout -k 5s "${SG4G_BUDGET:-420}s" dbus-run-session -- sh -eu -c '
     root=$1; runtime=$2
@@ -83,12 +94,91 @@ timeout -k 5s "${SG4G_BUDGET:-420}s" dbus-run-session -- sh -eu -c '
     output=$(wlr-randr | sed -n "1s/[[:space:]].*//p")
     wlr-randr --output "$output" --custom-mode 1920x1080@60Hz --scale 1
     /usr/bin/python3 -c "import pyatspi; pyatspi.Registry.getDesktop(0).childCount" >/dev/null
-    /usr/bin/python3 "${SG4G_DRIVER:-$root/scripts/sg4_creator_gui_roundtrip_driver.py}"
+    /usr/bin/python3 "${SG4G_DRIVER:-$root/scripts/sg4_creator_gui_roundtrip_driver.py}" roundtrip
 ' sh "$root" "$runtime"
 status=$?
 set -e
-if [ -n "${SG4G_KEEP_DIR:-}" ]; then
-    cp "$runtime"/shots/*.png "$runtime"/*.log "$SG4G_KEEP_DIR"/ 2>/dev/null || :
 fi
+keep() {
+    if [ -n "${SG4G_KEEP_DIR:-}" ]; then
+        cp "$runtime"/shots/*.png "$runtime"/*.log "$SG4G_KEEP_DIR"/ 2>/dev/null || :
+    fi
+}
+keep
 [ "$status" -eq 0 ] || { echo "FAIL: SG4 Creator GUI round-trip smoke exited $status" >&2; exit "$status"; }
-echo "PASS: SG4 real GTK Creator export -> import round trip"
+[ "${SG4G_ONLY:-}" = apply ] || echo "PASS: SG4 real GTK Creator export -> import round trip"
+
+# ===========================================================================
+# Stage 2: apply / restore dialogs against a real supervised nested session.
+# ===========================================================================
+for command in waybar swaylock; do
+    command -v "$command" >/dev/null 2>&1 || { echo "Missing $command" >&2; exit 77; }
+done
+test -x "$release/riceplate-native" || { echo "Build riceplate-native first" >&2; exit 77; }
+rm -f "$XDG_RUNTIME_DIR"/wayland-0 "$XDG_RUNTIME_DIR"/wayland-0.lock
+real_labwc=$(command -v labwc)
+bin="$runtime/bin"
+# Logging shims: the session's launcher/terminal tools are never the real ones.
+for tool in foot fuzzel gio ricebowl; do
+    printf '#!/bin/sh\nexit 0\n' >"$bin/$tool"
+done
+# The only seam: this `labwc` is the real compositor with ONE extra window rule (every
+# window at 0,0 without server decoration, as in stage 1) appended to the session's
+# private rc.xml before it starts; every other invocation (--exit, --reconfigure) passes
+# straight through.
+cat >"$bin/labwc" <<WRAP
+#!/bin/sh
+if [ "\${1:-}" = --config-dir ]; then
+    sed -i 's#</labwc_config>#<windowRules><windowRule identifier="*" serverDecoration="no"><action name="MoveTo" x="0" y="0"/></windowRule></windowRules></labwc_config>#' "\$2/rc.xml"
+fi
+exec "$real_labwc" "\$@"
+WRAP
+chmod 0700 "$bin"/*
+export HOME="$runtime/session/home" XDG_CONFIG_HOME="$runtime/session/config" \
+    XDG_STATE_HOME="$runtime/session/state" XDG_DATA_HOME="$runtime/session/home/.local/share"
+set +e
+timeout -k 5s "${SG4G_BUDGET_APPLY:-420}s" dbus-run-session -- sh -eu -c '
+    root=$1; runtime=$2; release=$3; bin=$4
+    session=
+    keeper=
+    cleanup() {
+        for pid in "$keeper" "$session"; do
+            if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || :; fi
+        done
+        for pid in "$keeper" "$session"; do
+            if [ -n "$pid" ]; then wait "$pid" 2>/dev/null || :; fi
+        done
+    }
+    trap cleanup EXIT
+    PATH="$bin:$release:$PATH" /usr/bin/python3 "$root/launcher.py" de start --nested --panel native \
+        --recipe classic >"$runtime/session.log" 2>&1 &
+    session=$!
+    n=0
+    while [ ! -S "$XDG_RUNTIME_DIR/wayland-0" ] || [ ! -S "$XDG_RUNTIME_DIR/ricebowl-live-wayland-0.sock" ]; do
+        n=$((n + 1))
+        if [ "$n" -ge 120 ] || ! kill -0 "$session" 2>/dev/null; then
+            sed -n "1,40p" "$runtime/session.log" >&2; echo "supervised session did not come up" >&2; exit 1
+        fi
+        sleep 0.25
+    done
+    export WAYLAND_DISPLAY=wayland-0
+    wtype -k F13 -s 1800000 -k F13 >"$runtime/keeper.log" 2>&1 &
+    keeper=$!
+    output=$(wlr-randr | sed -n "1s/[[:space:]].*//p")
+    wlr-randr --output "$output" --custom-mode 1366x768@60Hz --scale 1
+    sleep 2
+    /usr/bin/python3 -c "import pyatspi; pyatspi.Registry.getDesktop(0).childCount" >/dev/null
+    PATH="$bin:$release:$PATH" /usr/bin/python3 "${SG4G_DRIVER:-$root/scripts/sg4_creator_gui_roundtrip_driver.py}" apply
+    # End the session the way a logout does, then require no residue.
+    LABWC_PID=$session labwc --exit >/dev/null 2>&1 || :
+    n=0
+    while kill -0 "$session" 2>/dev/null && [ "$n" -lt 100 ]; do n=$((n + 1)); sleep 0.1; done
+    if kill -0 "$session" 2>/dev/null; then echo "labwc --exit did not end the session" >&2; exit 1; fi
+    wait "$session" 2>/dev/null || :
+    session=
+' sh "$root" "$runtime" "$release" "$bin"
+status=$?
+set -e
+keep
+[ "$status" -eq 0 ] || { echo "FAIL: SG4 Creator GUI apply/restore smoke exited $status" >&2; exit "$status"; }
+echo "PASS: SG4 real GTK Creator install/apply/restore dialogs against a supervised session"
