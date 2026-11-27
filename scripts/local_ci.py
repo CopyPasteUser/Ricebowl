@@ -27,6 +27,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Callable, Iterable, Sequence
@@ -694,7 +695,9 @@ class Context:
 def step_env(ctx: Context, shim: Path) -> dict[str, str]:
     env = {
         "PATH": f"{shim}:/root/.cargo/bin:{SAFE_BASE_PATH}",
-        "HOME": "/home/" + ctx.runner.user if Path("/home/" + ctx.runner.user).is_dir() else str(ctx.work),
+        # A fresh HOME per run, like a fresh hosted runner: no state shared with the
+        # developer's own session or with a concurrent smoke on the same host.
+        "HOME": str(ctx.work / "home"),
         "USER": ctx.runner.user, "LOGNAME": ctx.runner.user,
         "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "TERM": "dumb",
         "XDG_RUNTIME_DIR": "",
@@ -788,6 +791,9 @@ def run_one(ctx: Context, step: Step, env: dict[str, str], log: Path) -> tuple[s
             terminate_group(proc)
             code = 124
             proc.wait()
+        except BaseException:                   # SIGINT/SIGTERM to the runner: leave no compositor behind
+            terminate_group(proc)
+            raise
         else:
             terminate_group(proc, grace=1.0)    # no leaked compositors/daemons between steps
         stream.write(f"\n# exit {code}{' (runner timeout)' if timed_out else ''}\n".encode())
@@ -853,7 +859,7 @@ def _execute(args: argparse.Namespace, repo: str, sha: str, out: Path, ids: list
     clone = base / "src"
     commit_date = prepare_clone(repo, sha, clone, ctx_user)
     work = base
-    for sub in ("rt", "tmp", "steps"):
+    for sub in ("rt", "tmp", "steps", "home"):
         (work / sub).mkdir()
     for step in CATALOG:
         shutil.copy2(step.script, work / "steps" / step.script.name)
@@ -1054,8 +1060,15 @@ def default_out(repo: str, sha: str) -> Path:
     return base / "docs" / "evidence" / "local-ci" / sha[:12]
 
 
+def _interrupt(signum: int, _frame: object) -> None:
+    raise KeyboardInterrupt(f"signal {signum}")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    previous = None
+    if threading.current_thread() is threading.main_thread():
+        previous = signal.signal(signal.SIGTERM, _interrupt)   # let `finally` remove the temp clone
     try:
         if args.list:
             print_list()
@@ -1071,6 +1084,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     except LocalCIError as exc:
         print(f"local-ci: refused: {exc}", file=sys.stderr)
         return 2
+    except KeyboardInterrupt:
+        print("local-ci: interrupted; no receipt written", file=sys.stderr)
+        return 130
+    finally:
+        if previous is not None:
+            signal.signal(signal.SIGTERM, previous)
 
 
 if __name__ == "__main__":
