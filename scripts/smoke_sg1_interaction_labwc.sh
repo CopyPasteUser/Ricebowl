@@ -15,6 +15,7 @@
 #   notices : failures that happen after their control closed (launcher, Settings
 #             provider, tray provider) reach the user as a visible, AT-SPI-
 #             exposed, self-clearing notice (both rices)
+#   panelnav: neutral-click panel keyboard lease with a window mapped (WP1.9)
 #   outputs : output scale change, hot-unplug/re-plug and hot-add while the Luna
 #             Start menu, a tray popup, the calendar, the Run dialog and a
 #             desktop context menu are open (own two-output compositor; last)
@@ -47,7 +48,7 @@ if [ "${1:-}" != --inner ]; then
 fi
 
 runtime=$SG1I_RUNTIME
-stages=${SG1I_STAGES:-windows launcher clock sni notices files outputs}
+stages=${SG1I_STAGES:-windows launcher clock sni notices files panelnav outputs}
 cp "$root/examples/wayland/xp-luna-columns.json" "$runtime/luna.json"
 chmod 0600 "$runtime/luna.json"
 export XDG_CONFIG_HOME="$runtime/config"
@@ -1517,8 +1518,112 @@ WITNESS
     rm -f "$runtime/shims/gio"
 }
 
+# =========================================================================
+# WP1.9  panel keyboard navigation after the explicit neutral-space gesture
+# (PR #601's concern). Real labwc, real pointer click, real wtype keys, both
+# rices, WITH an application window mapped (labwc >= 0.7.2 hands the keyboard
+# to the topmost toplevel when a layer is downgraded Exclusive -> OnDemand, so
+# the lease used to be lost the moment it was granted; labwc 0.7.1 only kept it
+# when no window existed). Required: the lease survives a multi-second hold,
+# Tab+Return reach the launcher exactly once, and a pointer move to a window
+# releases the Exclusive lease so that window takes the keyboard again.
+# `PATH=/opt/labwc-sg5:$PATH` (the pinned labwc 0.7.2) runs it on 0.7.2.
+# Each wtype invocation attaches a NEW virtual keyboard, which makes labwc
+# re-announce the seat and the pointer "leave" every surface; the keys are
+# therefore sent by one wtype started BEFORE the gesture and sleeping until
+# after it (the attach-time leave is spent before the click).
+# =========================================================================
+stage_panelnav() {
+    set_mode 1366x768
+    cat >"$runtime/shims/fuzzel" <<SHIM
+#!/bin/sh
+echo fuzzel >>"$runtime/panelnav-actions.log"
+SHIM
+    chmod 0700 "$runtime/shims/fuzzel"
+    win_keys() { tr '\n' , <"$runtime/win-keys.log"; }
+    released() { echo $(( $(count_lines "$log" 'panel keyboard focus released') - rel )); }
+    pn_start() { # pn_start RICE: shell + a window echoing typed lines
+        recipe=chrome
+        [ "$1" != luna ] || recipe=$runtime/luna.json
+        log=$runtime/plate-panelnav-$1-$2.log
+        : >"$runtime/panelnav-actions.log"; : >"$runtime/win-keys.log"
+        renew_keyboard_seat
+        start_plate "$recipe" "$log" "PATH=$runtime/shims:$PATH"
+        foot --app-id=ricebowl-sg1-int --title=SG1-Int sh -c "cat >>$runtime/win-keys.log" \
+            >"$runtime/foot.log" 2>&1 &
+        client=$!
+        wait_ready "$log" 1 'active=true minimized=false' || fail "$1: window never became active"
+        sleep 1
+    }
+    pn_gesture() { # neutral panel space, clear of the task buttons and the tray
+        seen=$(count_lines "$log" 'compositor confirmed panel keyboard focus')
+        rel=$(count_lines "$log" 'panel keyboard focus released')
+        "$clicker" 900 748 1366 768 >/dev/null
+        wait_count "$log" 'compositor confirmed panel keyboard focus' $((seen + 1)) 30 \
+            || fail "$1: neutral panel click did not obtain compositor keyboard focus"
+    }
+    pn_stop() {
+        stop_plate
+        kill "$client" 2>/dev/null || :; wait "$client" 2>/dev/null || :; client=
+    }
+    for rice in chrome luna; do
+        pn_start "$rice" hold
+        grim "$runtime/panelnav-$rice-base.png"
+        # 0. Control: a click on the window sends keys to it.
+        "$clicker" 400 300 1366 768 >/dev/null; sleep .5
+        wtype -k c -k Return; sleep .5
+        [ "$(win_keys)" = c, ] || fail "$rice: control: the window did not receive typed keys ($(win_keys))"
+        # 1+2. Lease, then a 3 s hold before Tab and Return arrive.
+        wtype -s 4500 -k Tab -s 300 -k Return >/dev/null 2>&1 &
+        sender=$!
+        sleep 1.2
+        pn_gesture "$rice"
+        [ "$(wc -l <"$runtime/panelnav-actions.log")" = 0 ] || fail "$rice: the neutral click launched something"
+        sleep 2.2
+        [ "$(released)" = 0 ] || fail "$rice: the panel keyboard lease was dropped by the compositor without any key or pointer action"
+        # 3. Tab then Return activate the launcher exactly once.
+        wait "$sender" || :
+        if [ "$rice" = chrome ]; then
+            wait_count "$runtime/panelnav-actions.log" fuzzel 1 30 || fail "chrome: Tab+Return after the gesture did not reach the launcher"
+            sleep .4
+            [ "$(wc -l <"$runtime/panelnav-actions.log")" = 1 ] || fail "chrome: the launcher ran more than once"
+        else
+            tries=0
+            while :; do
+                grim "$runtime/panelnav-luna-menu.png"
+                [ "$(region_changed "$runtime/panelnav-luna-base.png" "$runtime/panelnav-luna-menu.png" 0 0 1366 705)" -gt 20000 ] && break
+                tries=$((tries + 1)); [ "$tries" -lt 20 ] || fail "luna: Tab+Return after the gesture did not open the Start menu"
+                sleep .2
+            done
+        fi
+        [ "$(win_keys)" = c, ] || fail "$rice: keys meant for the panel lease leaked into the window ($(win_keys))"
+        [ "$(released)" -ge 1 ] || fail "$rice: activation did not spend the panel lease"
+        pn_stop
+        echo "SG1 $rice: neutral-click panel lease survives a hold with a window mapped; Tab+Return activate the launcher once PASS"
+    done
+    # 4. Pointer leave releases the lease: after a panel gesture the user
+    # clicks a window; that window must take the keyboard (an Exclusive lease
+    # that outlived the pointer would swallow its keys until the 5 s deadline).
+    for rice in chrome luna; do
+        pn_start "$rice" leave
+        wtype -s 4500 -k x -k Return >/dev/null 2>&1 &
+        sender=$!
+        sleep 1.2
+        pn_gesture "$rice"
+        "$clicker" 400 300 1366 768 >/dev/null
+        wait_count "$log" 'panel keyboard focus released' $((rel + 1)) 20 \
+            || fail "$rice: moving the pointer to a window did not release the panel lease"
+        wait "$sender" || :
+        sleep .5
+        [ "$(win_keys)" = x, ] || fail "$rice: the window did not get the keyboard after the lease ended ($(win_keys))"
+        pn_stop
+        echo "SG1 $rice: pointer leave releases the panel lease; the clicked window gets the keyboard PASS"
+    done
+    rm -f "$runtime/shims/fuzzel"
+}
+
 run_stage() {
     case " $stages " in *" $1 "*) "stage_$1";; esac
 }
-for s in windows launcher clock sni notices files outputs; do run_stage "$s"; done
+for s in windows launcher clock sni notices files panelnav outputs; do run_stage "$s"; done
 echo "PASS smoke_sg1_interaction_labwc ($stages)"

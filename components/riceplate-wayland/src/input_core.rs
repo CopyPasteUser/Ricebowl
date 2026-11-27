@@ -143,6 +143,50 @@ impl PanelPointerVisual {
     }
 }
 
+/// What a temporary 8x8 keyboard-focus lease was requested for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DesktopFocusKind {
+    File,
+    Shortcut,
+    Panel,
+}
+
+impl DesktopFocusKind {
+    /// Whether the compositor-confirmed lease is downgraded from Exclusive to
+    /// OnDemand. labwc >= 0.7.2 treats that commit on the focused layer as
+    /// "give focus up" and moves it to the topmost toplevel (or nowhere), so a
+    /// panel gesture would lose the keyboard it had just been granted; labwc
+    /// 0.7.1 happened to keep it only when no window existed. A panel lease
+    /// therefore stays Exclusive for its bounded life and is instead released
+    /// by `releases_on_pointer_leave`, so it can never keep a window from
+    /// taking the keyboard when the user moves on. File and shortcut leases
+    /// keep the downgrade: they are not anchored to one pointer surface.
+    pub(crate) fn downgrades_to_on_demand(self) -> bool {
+        !matches!(self, Self::Panel)
+    }
+
+    /// A panel lease belongs to the pointer hovering that panel: once the
+    /// pointer leaves it (to click a window, say) the exclusive grab is spent
+    /// after `POINTER_LEAVE_GRACE`.
+    pub(crate) fn releases_on_pointer_leave(self) -> bool {
+        matches!(self, Self::Panel)
+    }
+}
+
+/// How long a panel lease outlives the pointer leaving its panel. Not zero:
+/// the compositor delivers wl_pointer.leave and then, when the pointer device
+/// itself disappears (the only pointer is virtual, or it is unplugged; also
+/// every input-device hotplug in a headless labwc), removes the pointer
+/// capability in the same batch. That is not the user moving on, so the leave
+/// is only provisional until the grace period passes.
+pub(crate) const POINTER_LEAVE_GRACE: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// The lease expiry after a provisional pointer leave: never later than the
+/// original expiry, and at most `POINTER_LEAVE_GRACE` from now.
+pub(crate) fn expiry_after_pointer_leave(original: Instant, now: Instant) -> Instant {
+    original.min(now + POINTER_LEAVE_GRACE)
+}
+
 /// Opt-in desktop focus intent. This is not a Wayland focus request:
 /// only a compositor wl_keyboard.enter can confirm ownership. In particular,
 /// Bottom-layer OnDemand surfaces may never receive focus on labwc.
@@ -435,6 +479,33 @@ impl<S: PartialEq, O: PartialEq, W: PartialEq + Clone> DesktopFocusLease<S, O, W
 mod tests {
     use super::*;
     use crate::recipe::Widget;
+
+    #[test]
+    fn only_a_panel_lease_stays_exclusive_and_is_released_by_pointer_leave() {
+        use super::DesktopFocusKind::{File, Panel, Shortcut};
+        // Panel: Exclusive -> OnDemand makes labwc >= 0.7.2 drop the keyboard,
+        // so it keeps Exclusive and ends when the pointer leaves the panel.
+        assert!(!Panel.downgrades_to_on_demand());
+        assert!(Panel.releases_on_pointer_leave());
+        // File/shortcut leases keep the downgrade (Exclusive would stop an
+        // ordinary toplevel taking focus) and are not tied to a pointer leave.
+        for kind in [File, Shortcut] {
+            assert!(kind.downgrades_to_on_demand());
+            assert!(!kind.releases_on_pointer_leave());
+        }
+    }
+
+    #[test]
+    fn pointer_leave_only_shortens_a_panel_lease_to_a_short_grace() {
+        let now = Instant::now();
+        let original = now + std::time::Duration::from_secs(5);
+        let shortened = expiry_after_pointer_leave(original, now);
+        assert_eq!(shortened, now + POINTER_LEAVE_GRACE);
+        assert!(shortened < original);
+        // A lease about to expire anyway is never extended by a leave.
+        let soon = now + std::time::Duration::from_millis(40);
+        assert_eq!(expiry_after_pointer_leave(soon, now), soon);
+    }
 
     #[test]
     fn recently_closed_focus_surface_remains_identifiable_for_late_keyboard_leave() {

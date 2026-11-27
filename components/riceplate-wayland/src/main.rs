@@ -1458,6 +1458,16 @@ enum DesktopFocusTarget {
     Panel(wl_surface::WlSurface),
 }
 
+impl DesktopFocusTarget {
+    fn kind(&self) -> input_core::DesktopFocusKind {
+        match self {
+            Self::File(_) => input_core::DesktopFocusKind::File,
+            Self::Shortcut(_) => input_core::DesktopFocusKind::Shortcut,
+            Self::Panel(_) => input_core::DesktopFocusKind::Panel,
+        }
+    }
+}
+
 /// Focus is granted only by a real wl_keyboard.enter after a user click.
 /// This 8px overlay has a bounded hitbox and expires; no global grab exists.
 struct DesktopKeyboardFocusLayer {
@@ -1466,8 +1476,28 @@ struct DesktopKeyboardFocusLayer {
     configured: bool,
     target: DesktopFocusTarget,
     expires: Instant,
+    /// The expiry to restore when a panel lease's pointer leave turns out to
+    /// be provisional (pointer back on the panel, or its capability removed).
+    expiry_before_pointer_leave: Option<Instant>,
     typed: String,
     last_typed: Instant,
+}
+
+impl DesktopKeyboardFocusLayer {
+    fn pointer_left_panel(&mut self, now: Instant) {
+        if self.target.kind().releases_on_pointer_leave()
+            && self.expiry_before_pointer_leave.is_none()
+        {
+            self.expiry_before_pointer_leave = Some(self.expires);
+            self.expires = input_core::expiry_after_pointer_leave(self.expires, now);
+        }
+    }
+
+    fn pointer_leave_was_provisional(&mut self) {
+        if let Some(expires) = self.expiry_before_pointer_leave.take() {
+            self.expires = expires;
+        }
+    }
 }
 
 struct DesktopWidgetLayer {
@@ -2179,6 +2209,7 @@ impl RicePlate {
             configured: false,
             target,
             expires: Instant::now() + Duration::from_secs(5),
+            expiry_before_pointer_leave: None,
             typed: String::new(),
             last_typed: Instant::now(),
         });
@@ -12382,6 +12413,11 @@ impl SeatHandler for RicePlate {
         capability: Capability,
     ) {
         if capability == Capability::Pointer && self.seat_assignments.release_pointer(&seat) {
+            // The pointer device vanished: the preceding wl_pointer.leave was
+            // not the user moving to another surface.
+            if let Some(focus) = self.desktop_keyboard_focus_layer.as_mut() {
+                focus.pointer_leave_was_provisional();
+            }
             if let Some(pointer) = self.pointer.take() {
                 pointer.release();
             }
@@ -12499,6 +12535,9 @@ impl KeyboardHandler for RicePlate {
             {
                 // Exclusive is needed only for acquiring initial focus from
                 // labwc when Bottom-layer desktop icons cannot focus directly.
+                // (A panel lease is the exception, see DesktopFocusKind: on
+                // labwc >= 0.7.2 the downgrade makes the compositor drop the
+                // keyboard it just granted; it is released on pointer leave.)
                 // Downgrade the confirmed, 8px temporary Overlay surface to
                 // OnDemand immediately. Retaining Exclusive here can prevent
                 // ordinary XDG toplevels from obtaining keyboard focus even
@@ -12506,7 +12545,9 @@ impl KeyboardHandler for RicePlate {
                 // Ownership still requires the exact compositor-confirmed
                 // wl_keyboard.enter, and Leave always revokes the lease.
                 if let Some(focus) = self.desktop_keyboard_focus_layer.as_ref() {
-                    if focus.surface.wl_surface() == surface {
+                    if focus.surface.wl_surface() == surface
+                        && focus.target.kind().downgrades_to_on_demand()
+                    {
                         focus
                             .surface
                             .set_keyboard_interactivity(KeyboardInteractivity::OnDemand);
@@ -14570,6 +14611,21 @@ impl PointerHandler for RicePlate {
             } else {
                 continue;
             };
+            // A panel keyboard lease is anchored to the pointer being on that
+            // panel: an Exclusive grab must not outlive the user moving on to
+            // a window (labwc refuses to focus toplevels while it is held).
+            // The leave is provisional for a short grace, see
+            // input_core::POINTER_LEAVE_GRACE.
+            if let Some(focus) = self.desktop_keyboard_focus_layer.as_mut() {
+                if matches!(&focus.target, DesktopFocusTarget::Panel(panel) if panel == &event.surface)
+                {
+                    if matches!(event.kind, PointerEventKind::Leave { .. }) {
+                        focus.pointer_left_panel(Instant::now());
+                    } else {
+                        focus.pointer_leave_was_provisional();
+                    }
+                }
+            }
             if self.luna_options.auto_hide && self.recipe.id == "xp-luna-columns" {
                 match event.kind {
                     PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {

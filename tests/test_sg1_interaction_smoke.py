@@ -99,11 +99,24 @@ class InteractionSmokeContractTests(unittest.TestCase):
         syntax = subprocess.run(["sh", "-n", str(SMOKE)], capture_output=True,
                                 text=True, check=False)
         self.assertEqual(syntax.returncode, 0, syntax.stderr)
-        for stage in ("windows", "launcher", "clock", "sni", "notices", "files", "outputs"):
+        for stage in ("windows", "launcher", "clock", "sni", "notices", "files", "panelnav",
+                      "outputs"):
             self.assertIn(f"stage_{stage}() {{", self.source)
-        self.assertIn("for s in windows launcher clock sni notices files outputs; do run_stage",
+        self.assertIn("for s in windows launcher clock sni notices files panelnav outputs; do run_stage",
                       self.source)
         self.assertNotIn("sudo ", self.source)
+
+    def test_panelnav_stage_uses_a_real_window_and_real_keys(self):
+        stage = self.source.split("stage_panelnav() {", 1)[1].split("\nrun_stage() {", 1)[0]
+        for needle in (
+                "foot --app-id=ricebowl-sg1-int",                 # a real toplevel is mapped
+                "wtype -s 4500 -k Tab -s 300 -k Return",          # real keys after a 3 s hold
+                '"$clicker" 900 748 1366 768',                    # neutral panel space
+                "compositor confirmed panel keyboard focus",
+                "panel keyboard focus released",
+                "the panel keyboard lease was dropped by the compositor",
+                "the window did not get the keyboard after the lease ended"):
+            self.assertIn(needle, stage)
 
     def test_negative_paths_stay_genuine(self):
         # Real denials and real focus theft, never a unit-level stand-in.
