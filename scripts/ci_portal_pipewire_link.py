@@ -52,8 +52,12 @@ def verified_video_ports(objects: object) -> tuple[int, int] | None:
 
 def checked_runtime() -> None:
     env = os.environ
+    # Disposable runner: hosted Actions, or a local-CI step in a container
+    # provisioned for it (same rule as scripts/ci_portal_generic_remote.py).
+    if (env.get("GITHUB_ACTIONS") != "true"
+            and env.get("RICEBOWL_LOCAL_CI_DISPOSABLE") != "1"):
+        raise RuntimeError("Refusing to link outside strict disposable CI")
     if any(env.get(k) != v for k, v in {
-        "GITHUB_ACTIONS": "true",
         "RICEBOWL_PORTAL_CAPTURE_CI": "1",
         "RICEBOWL_PORTAL_STRICT_CI": "1",
         "RICEBOWL_PORTAL_BACKEND": "generic",
