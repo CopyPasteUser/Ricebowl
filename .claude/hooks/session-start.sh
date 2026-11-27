@@ -6,6 +6,16 @@ if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ] || [ "$(id -u)" -ne 0 ]; then
   exit 0
 fi
 cd "${CLAUDE_PROJECT_DIR:-.}"
+# scripts/local_ci/steps/pkg-upgrade-rollback.sh needs two pinned historical
+# baselines; the session checkout is shallow, so keep them under local refs.
+for sha in b3d615a7cc508049050eb06c7952ef5a8d26e598 c8274dee78386124470cb5ff9a4d2768bb019126; do
+  if ! git cat-file -e "$sha^{commit}" 2>/dev/null; then
+    git fetch -q --no-tags origin "$sha" >&2 || echo "session-start: could not fetch baseline $sha" >&2
+  fi
+  if git cat-file -e "$sha^{commit}" 2>/dev/null; then
+    git update-ref "refs/ci-baseline/${sha:0:7}" "$sha"
+  fi
+done
 # Skip when this hook and the provision script are unchanged since the last
 # successful run in this container (the hash file lives in the container).
 hashes=/var/cache/ricebowl-local-ci/.session-start.sha256

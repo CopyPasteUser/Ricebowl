@@ -716,6 +716,11 @@ def step_env(ctx: Context, shim: Path) -> dict[str, str]:
         "LCI_CACHE": str(ctx.cache),
         "LCI_MAKO_BUILD": str(ctx.cache / f"mako-{MAKO_VERSION}-build"),
         "LCI_WORKER": ctx.worker,
+        # The source repo is root-owned; let the CI user fetch pinned baseline
+        # commits from it (git refuses "dubious ownership" otherwise).
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "safe.directory",
+        "GIT_CONFIG_VALUE_0": "*",
     }
     if ctx.release_tag:
         env["LCI_RELEASE_TAG"] = ctx.release_tag
