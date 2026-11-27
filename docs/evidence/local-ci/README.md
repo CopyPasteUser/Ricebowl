@@ -77,7 +77,10 @@ FAIL/BLOCKED; `2` for usage errors and refusals.
 `"complete": true` means **all** of: the whole catalog (every step, not a subset)
 ran against a clean checkout of the exact SHA and **every** step is PASS. Any
 SKIPPED, FAIL or BLOCKED step makes the receipt incomplete, so a `--steps`
-subset is never complete. `--verify-receipt` recomputes the flag from the step
+subset is never complete. The one exception is `portal-gpu-frame`: its hosted
+job runs only on a manual `workflow_dispatch` with the `gpu` input on a
+self-hosted DRM runner, never in a normal run, so it is always recorded but
+does not gate `complete` (`DISPATCH_ONLY` in `scripts/local_ci.py`). `--verify-receipt` recomputes the flag from the step
 records and rejects a receipt whose flag disagrees.
 
 A complete receipt is the local replacement for green hosted CI on that SHA. It is
@@ -124,9 +127,11 @@ installs or reconfigures anything on the host. Specific tooling:
   `pactl` (`ricespice-pulse`), a Docker daemon reachable by `rbdev`
   (`pkg-docker-install`, `pkg-upgrade-rollback`, `mint-compat`), the pinned
   third-party portal backend installed at
-  `/usr/libexec/xdg-desktop-portal-generic` by the operator
-  (`portal-strict-frame`; local CI never writes `/usr`) and a DRM render node
-  (`portal-gpu-frame`, which mirrors the manual self-hosted `gpu` input).
+  `/usr/libexec/xdg-desktop-portal-generic` (`portal-strict-frame`; built and
+  registered once per disposable container by
+  `scripts/local_ci/provision_portal_backend.sh`, which `provision.sh` calls —
+  the runner itself never writes `/usr`) and a DRM render node
+  (`portal-gpu-frame`, dispatch-only, see above).
 
 Workflow steps that are **not** translated (and why) are printed by `--list`
 and enforced by `tests/test_local_ci.py`: apt installs and apt-mirror rewrites,

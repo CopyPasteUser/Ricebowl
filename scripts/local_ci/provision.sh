@@ -96,6 +96,10 @@ cd /home/rbdev/Ricebowl && exec runuser -u rbdev -- env HOME=/home/rbdev LANG=C.
 RUN
 chmod 0755 /usr/local/bin/rb-sync /usr/local/bin/rb-run
 
+# Pinned software-SHM portal backend for portal-strict-frame (writes /usr like
+# the hosted disposable runner; only in this disposable container).
+bash "$(dirname "$0")/provision_portal_backend.sh"
+
 # Docker packaging steps need a daemon; start one if installed and not running.
 if command -v dockerd >/dev/null && ! docker info >/dev/null 2>&1; then
   nohup dockerd >/var/log/rb-dockerd.log 2>&1 &

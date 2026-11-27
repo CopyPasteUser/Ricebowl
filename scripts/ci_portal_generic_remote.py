@@ -129,7 +129,10 @@ def patch_stream_buffers(source: str) -> str:
 
 
 def main() -> int:
-    if os.environ.get("GITHUB_ACTIONS") != "true":
+    # Only on a disposable runner: hosted Actions, or a local-CI cloud container
+    # provisioned by scripts/local_ci/provision_portal_backend.sh.
+    if (os.environ.get("GITHUB_ACTIONS") != "true"
+            and os.environ.get("RICEBOWL_LOCAL_CI_DISPOSABLE") != "1"):
         raise RuntimeError("CI fixture must never modify a developer or production install")
     if len(sys.argv) != 3:
         raise SystemExit("usage: ci_portal_generic_remote.py .ci-generic-portal/src/pipewire/mod.rs .ci-generic-portal/src/pipewire/stream.rs")

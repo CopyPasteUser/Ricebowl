@@ -442,6 +442,12 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual(receipt["auto_included_steps"], ["prod"])
         self.assertEqual(status["dep"]["status"], "PASS")
 
+    def test_dispatch_only_gpu_step_does_not_gate_complete(self):
+        recs = [{"id": "a", "status": "PASS"},
+                {"id": "portal-gpu-frame", "status": "BLOCKED"}]
+        self.assertTrue(lci.is_complete(recs, ["a", "portal-gpu-frame"], True))
+        self.assertFalse(lci.is_complete(recs[1:], ["a", "portal-gpu-frame"], True))
+
     def test_all_pass_catalog_is_complete(self):
         self.fake = (self.fake[0], self.fake[1], self.fake[2])
         self.assertEqual(self.run_main(), 0)

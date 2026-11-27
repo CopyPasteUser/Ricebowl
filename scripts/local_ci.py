@@ -240,8 +240,8 @@ NOT_TRANSLATED: tuple[tuple[str, str, str, str], ...] = (
      "builds the third-party portal backend that is then installed system-wide; operator step"),
     ("wayland-portal-strict.yml", "portal-strict-software-frame",
      "Register backend only inside the disposable CI VM",
-     "sudo-installs into /usr; local CI never writes the host system (portal-strict-frame is BLOCKED "
-     "unless the operator installed the pinned backend)"),
+     "sudo-installs into /usr; done once per disposable container by scripts/local_ci/provision.sh "
+     "(local CI itself never writes the host; portal-strict-frame is BLOCKED without it)"),
     ("wayland-portal-strict.yml", "portal-gpu-frame",
      "Install disposable compositor, portal, PipeWire and GStreamer", "apt install; replaced by preflight"),
     ("wayland-session.yml", "session-smoke", "Install native Wayland compositor and shell dependencies",
@@ -326,11 +326,19 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+# Steps whose hosted job runs only on an explicit workflow_dispatch input on
+# special hardware (``portal-gpu-frame``: ``inputs.gpu`` on a self-hosted
+# DRM runner).  A normal hosted run never executes them, so they do not gate
+# ``complete``; they are still recorded (usually BLOCKED) in every receipt.
+DISPATCH_ONLY = frozenset({"portal-gpu-frame"})
+
+
 def is_complete(step_records: Sequence[dict], catalog_ids: Iterable[str], tree_clean: bool) -> bool:
-    """Complete = clean checkout and *every* catalog step ran and passed."""
+    """Complete = clean checkout and every non-dispatch-only catalog step ran and passed."""
     by_id = {r["id"]: r for r in step_records}
     return bool(tree_clean) and all(
-        sid in by_id and by_id[sid].get("status") == "PASS" for sid in catalog_ids)
+        sid in by_id and by_id[sid].get("status") == "PASS"
+        for sid in catalog_ids if sid not in DISPATCH_ONLY)
 
 
 def overall_exit_code(step_records: Sequence[dict]) -> int:
