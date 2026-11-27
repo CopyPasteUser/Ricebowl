@@ -217,7 +217,9 @@ NOT_TRANSLATED: tuple[tuple[str, str, str, str], ...] = (
     ("sg6-cross-runner.yml", "attest", "Require unchanged main before signing comparison",
      "sigstore/OIDC attestation is hosted-only; local receipts replace it"),
     ("sg7-exact-main.yml", "dossier", "Collect trusted exact-main workflow and job steps",
-     "queries the hosted Actions API; the local receipt of the exact SHA replaces the dossier"),
+     "queries the hosted Actions API; replaced by scripts/sg7_local_dossier.py, which consumes the "
+     "finished local receipt (and optional sg6-comparison.json) of the exact SHA, so it runs after "
+     "local_ci.sh and cannot be a step inside the run it certifies"),
     ("wayland-portal-strict.yml", "portal-unit", "Use signed public Ubuntu archive on this disposable runner",
      "rewrites apt mirrors with sudo; never done on the development host"),
     ("wayland-portal-strict.yml", "portal-unit", "Install Python GIO bindings for protocol tests",

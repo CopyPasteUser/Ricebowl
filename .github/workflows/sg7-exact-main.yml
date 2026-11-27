@@ -19,8 +19,8 @@ jobs:
           persist-credentials: false
       - name: Verify SG7 exact-main collector unit tests
         run: |
-          /usr/bin/python3 -m unittest tests.test_release_workflows tests.test_sg7_exact_main_matrix -v
-          /usr/bin/python3 -m py_compile scripts/sg7_exact_main_matrix.py
+          /usr/bin/python3 -m unittest tests.test_release_workflows tests.test_sg7_exact_main_matrix tests.test_sg7_safe_receipt_io tests.test_sg7_dossier_io tests.test_sg7_local_dossier -v
+          /usr/bin/python3 -m py_compile scripts/sg7_exact_main_matrix.py scripts/sg7_safe_receipt_io.py scripts/sg7_dossier_io.py scripts/sg7_local_dossier.py
       - name: Collect trusted exact-main workflow and job steps
         env:
           GH_TOKEN: ${{ github.token }}
