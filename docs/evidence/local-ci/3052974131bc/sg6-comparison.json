@@ -1,0 +1,29 @@
+{
+  "byte_identical_package_count": 4,
+  "cargo_lock_sha256": "98af96d446adb8fc2ac65cae1bb0ff1bd45de01d6ef6c47f04055133fa743e3c",
+  "distinct_hostname_hashes_observed": false,
+  "hardware_accepted": false,
+  "independent_external_provenance_certified": false,
+  "limitations": [
+    "Two GitHub-hosted runner VMs in one workflow are not independent third-party builders",
+    "Runner names distinguish hosted jobs; neither names nor hostnames cryptographically attest machines",
+    "Hostname hashes may match on different hosted runners and are diagnostic only",
+    "Attestation binds comparison artifacts to Actions identity, not reproducible toolchain sources",
+    "No Mint/ThinkPad, GPU, default-login or hardware sign-off"
+  ],
+  "packages": {
+    "ricebowl-riceplate-native_0.1.0~preview2_amd64.deb": "adc63ca4fac6223fbd578fad45f4fdb1d376f5a6b967b50c4b1357b4b498afe2",
+    "ricebowl-wayland-core_0.1.0~preview2_all.deb": "8c3d686883b06c21af48e27cc1d580b989f5f26830af616ba6c66e16f65fab20",
+    "ricebowl-wayland-desktop_0.1.0~preview3_amd64.deb": "3f3157b8d251322b49dff7491ca49f521317883d77a9ecaee88b5a1b8683c8c1",
+    "ricebowl-wayland-session_0.1.0~preview3_all.deb": "eff2e9dc08b1865534497f4fe5e6ca747b57932023cbc5a3b0e8bcc4b5a1f12e"
+  },
+  "runner_image_versions": {
+    "host-a": "local-24.04",
+    "host-b": "local-24.04"
+  },
+  "same_runner_os_and_build_tools": true,
+  "schema_version": 1,
+  "separate_runner_names_observed": true,
+  "software_ci_only": true,
+  "source_sha": "3052974131bcb945d5727d8549131f3e831ab279"
+}
