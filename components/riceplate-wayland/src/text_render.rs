@@ -4,7 +4,11 @@
 //! Optional native fonts are supplied by validated recipes; no global font
 //! changes or text worker are needed.
 
-use crate::{raster::fill_rect, recipe::PanelStyle};
+use crate::{
+    bidi_layout::{BaseDirection, LineLayout},
+    raster::fill_rect,
+    recipe::PanelStyle,
+};
 use font8x8::{UnicodeFonts, BASIC_FONTS, GREEK_FONTS, HIRAGANA_FONTS, LATIN_FONTS, MISC_FONTS};
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -148,6 +152,90 @@ pub(crate) fn draw_rice_text(
     );
 }
 
+/// Paint `text` in paragraph direction `base` with the rice's face.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn draw_rice_text_dir(
+    canvas: &mut [u8],
+    width: u32,
+    height: u32,
+    x: u32,
+    y: u32,
+    text: &str,
+    base: BaseDirection,
+    color: u32,
+    style: &PanelStyle,
+) {
+    if let Some(font) = style.native_art.as_ref().and_then(|art| art.font.as_ref()) {
+        font.draw_dir(
+            canvas,
+            width,
+            height,
+            x,
+            y,
+            text,
+            base,
+            color,
+            style.font_bold,
+        );
+        return;
+    }
+    draw_bitmap_text_dir(
+        canvas,
+        width,
+        height,
+        x,
+        y,
+        text,
+        base,
+        color,
+        style.font_scale,
+        style.font_bold,
+    );
+}
+
+/// Painted geometry of one line in the face `draw_rice_text_dir` uses: the
+/// shaped/proportional native font, or one bitmap cell per grapheme.
+pub(crate) fn rice_line_layout(text: &str, base: BaseDirection, style: &PanelStyle) -> LineLayout {
+    if let Some(font) = style.native_art.as_ref().and_then(|art| art.font.as_ref()) {
+        return font.line_layout(text, base);
+    }
+    let scale = style.font_scale;
+    LineLayout::from_visual_measure(text, base, |visual| text_pixel_width(visual, scale))
+}
+
+/// Paint an already fitted single-line label inside `[left, right)`,
+/// aligned to its paragraph's *start* edge: left for LTR, right (trailing)
+/// for an RTL paragraph. `base` should be resolved from the complete label
+/// (UAX #9 P2/P3) so a truncated prefix keeps the label's direction; its
+/// logical-end ellipsis then paints at the visual left of an RTL label.
+/// LTR labels are painted exactly as `draw_rice_text` at `left`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn draw_rice_text_in(
+    canvas: &mut [u8],
+    width: u32,
+    height: u32,
+    (left, right): (u32, u32),
+    y: u32,
+    text: &str,
+    base: BaseDirection,
+    color: u32,
+    style: &PanelStyle,
+) {
+    let base = base.resolve(text);
+    if base == BaseDirection::Ltr {
+        draw_rice_text_dir(canvas, width, height, left, y, text, base, color, style);
+        return;
+    }
+    let line = rice_line_layout(text, base, style);
+    let x = left.saturating_add(line.align_offset(right.saturating_sub(left)));
+    draw_rice_text_dir(canvas, width, height, x, y, text, base, color, style);
+}
+
+/// The direction a label keeps when painted in a fitted (truncated) form.
+pub(crate) fn label_direction(label: &str) -> BaseDirection {
+    BaseDirection::Auto.resolve(label)
+}
+
 pub(crate) fn draw_bitmap_text(
     canvas: &mut [u8],
     width: u32,
@@ -159,7 +247,34 @@ pub(crate) fn draw_bitmap_text(
     scale: u32,
     bold: bool,
 ) {
-    let visual = crate::bidi_layout::visual_order(text);
+    draw_bitmap_text_dir(
+        canvas,
+        width,
+        height,
+        x,
+        y,
+        text,
+        BaseDirection::Auto,
+        color,
+        scale,
+        bold,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn draw_bitmap_text_dir(
+    canvas: &mut [u8],
+    width: u32,
+    height: u32,
+    x: u32,
+    y: u32,
+    text: &str,
+    base: BaseDirection,
+    color: u32,
+    scale: u32,
+    bold: bool,
+) {
+    let visual = crate::bidi_layout::visual_order_dir(text, base);
     for (offset, cluster) in visual.graphemes(true).enumerate() {
         // The 8x8 table has no combining/ligature shaping. Never paint one
         // misleading '?' per scalar in a user-perceived glyph or detach a
@@ -363,6 +478,87 @@ mod tests {
                 assert!(rice_text_width(&actual, &luna) <= available);
             }
         }
+    }
+
+    #[test]
+    fn rtl_labels_align_to_the_trailing_edge_with_the_ellipsis_at_the_left() {
+        let mut luna = crate::recipe::parse(
+            include_str!("../../../examples/wayland/xp-luna-columns.json"),
+            Some("xp-luna-columns"),
+        )
+        .unwrap();
+        luna.native_art =
+            Some(crate::style_art::load(luna.artwork.as_ref().unwrap(), luna.font_scale).unwrap());
+        let (width, height) = (160_u32, 24_u32);
+        let paint = |text: &str, base: BaseDirection| {
+            let mut canvas = vec![0_u8; (width * height * 4) as usize];
+            draw_rice_text_in(
+                &mut canvas,
+                width,
+                height,
+                (10, 150),
+                4,
+                text,
+                base,
+                0xffff_ffff,
+                &luna,
+            );
+            canvas
+        };
+        let ink = |canvas: &[u8]| {
+            let columns: Vec<u32> = (0..width)
+                .filter(|&x| (0..height).any(|y| canvas[((y * width + x) * 4 + 3) as usize] != 0))
+                .collect();
+            (columns[0], *columns.last().unwrap())
+        };
+        // LTR labels are byte-identical to the historical left-aligned paint.
+        let mut legacy = vec![0_u8; (width * height * 4) as usize];
+        draw_rice_text(
+            &mut legacy,
+            width,
+            height,
+            10,
+            4,
+            "Taskbar",
+            0xffff_ffff,
+            &luna,
+        );
+        assert_eq!(paint("Taskbar", BaseDirection::Auto), legacy);
+        // An RTL paragraph ends at the right edge of its box.
+        let hebrew = paint("שלום", BaseDirection::Auto);
+        let (left, right) = ink(&hebrew);
+        assert!(
+            (147..=150).contains(&right) && left > 60,
+            "ink {left}..{right}"
+        );
+        // A fitted RTL label cuts its logical end; the ellipsis is painted
+        // at the visual left and the logical start stays at the right edge.
+        let label = "שלום עולם ומלואו";
+        let fitted = fit_rice_text(label, 60, &luna);
+        assert!(
+            fitted.ends_with('…') && fitted.starts_with("של"),
+            "{fitted}"
+        );
+        let base = label_direction(label);
+        assert_eq!(base, BaseDirection::Rtl);
+        assert!(crate::bidi_layout::visual_order_dir(&fitted, base).starts_with('…'));
+        let (left, right) = ink(&paint(&fitted, base));
+        assert!(
+            (147..=150).contains(&right) && left >= 88,
+            "ink {left}..{right}"
+        );
+        // A truncated RTL label that lost every strong letter keeps the
+        // label's direction instead of flipping to LTR.
+        let digits = "123 שלום";
+        assert_eq!(label_direction(digits), BaseDirection::Rtl);
+        let shown = "123 …";
+        let (_, right) = ink(&paint(shown, label_direction(digits)));
+        assert!(right >= 147, "forced RTL stays right-aligned");
+        assert_eq!(
+            ink(&paint(shown, BaseDirection::Auto)).0,
+            10,
+            "Auto would be LTR"
+        );
     }
 
     #[test]

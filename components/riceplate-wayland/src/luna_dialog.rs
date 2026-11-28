@@ -1,6 +1,7 @@
 //! XP Luna's native Run/Help and confirmed Desktop file dialogs.
 //! Only explicit user input may
 //! launch programs; never interpret recipe data or invoke a command shell.
+use crate::bidi_layout::{BaseDirection, LineLayout};
 use std::path::Path;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -48,27 +49,26 @@ pub struct State {
     pub pressed: Option<Hit>,
 }
 
-/// Pixel position of each *logical* caret in the visible, painted run.
-/// The visual measurement callback must not apply Unicode BiDi a second
-/// time. Text and the permutation are bounded by MAX_INPUT scalars.
-pub(crate) fn bidi_caret_pixels<F: Fn(&str) -> u32>(
-    display: &str,
-    measure_visual: &F,
-) -> Option<Vec<u32>> {
-    let map = crate::bidi_layout::visual_cluster_map(display)?;
-    let clusters: Vec<&str> = display.graphemes(true).collect();
-    let mut visual_text = String::with_capacity(display.len());
-    let mut visual_edges = Vec::with_capacity(clusters.len() + 1);
-    visual_edges.push(0);
-    for logical in &map.visual_to_logical {
-        visual_text.push_str(clusters[*logical]);
-        visual_edges.push(measure_visual(&visual_text));
-    }
-    Some(
-        (0..=clusters.len())
-            .map(|caret| visual_edges[map.caret_edge(caret)])
-            .collect(),
-    )
+/// One painted line of the Run/Rename editor. Every x is relative to the
+/// field's text box origin.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EditorView {
+    /// The visible logical substring (paint with `base`, at `text_x`).
+    pub text: String,
+    /// Resolved paragraph direction of the whole line.
+    pub base: BaseDirection,
+    /// Start of the painted line: 0 for LTR, right-aligned for RTL.
+    pub text_x: u32,
+    pub caret_x: u32,
+    /// Live IME preedit underline rectangles (empty without preedit).
+    pub underline: Vec<(u32, u32)>,
+}
+
+struct VisibleLine {
+    start: usize,
+    text: String,
+    line: LineLayout,
+    offset: u32,
 }
 
 impl State {
@@ -373,104 +373,99 @@ impl State {
         (start, end)
     }
 
-    /// Calculate the visible input and caret from the exact active font
-    /// metrics. Never clip a combining cluster or position a caret inside
-    /// the invisible half of an emoji during horizontal scrolling.
-    pub fn input_view<F: Fn(&str) -> u32>(&self, max_width: u32, measure: F) -> (String, u32) {
+    /// The editor paragraph's base direction: UAX #9 P2/P3 over the whole
+    /// committed line (not only its scrolled, visible part). An RTL
+    /// paragraph is painted right-aligned in the field.
+    pub fn paragraph_direction(&self) -> BaseDirection {
+        BaseDirection::Auto.resolve(&self.input)
+    }
+
+    /// Visible logical range and its painted layout in the field. All
+    /// returned pixel positions are relative to the field's text box origin;
+    /// `offset` is where the line starts (nonzero for RTL alignment).
+    fn visible_layout<F: Fn(&str) -> u32, L: Fn(&str, BaseDirection) -> LineLayout>(
+        &self,
+        max_width: u32,
+        measure: &F,
+        layout: &L,
+    ) -> VisibleLine {
         let points = self.boundaries();
-        let (start, end) = self.visible_range(max_width, &measure, &points);
-        let cursor = self.cursor.min(points.len() - 1);
-        let display = self.input[points[start]..points[end]].to_owned();
-        let prefix = &self.input[points[start]..points[cursor]];
-        (display, measure(prefix).min(max_width.saturating_sub(1)))
+        let (start, end) = self.visible_range(max_width, measure, &points);
+        let text = self.input[points[start]..points[end]].to_owned();
+        let line = layout(&text, self.paragraph_direction());
+        // Mirror the LTR rule of `visible_range`: keep 2px for the caret
+        // beyond the line's start edge, here the right edge of the box.
+        let offset = line.align_offset(max_width.saturating_sub(2));
+        VisibleLine {
+            start,
+            text,
+            line,
+            offset,
+        }
+    }
+
+    /// Calculate the visible input and caret from the exact active font
+    /// metrics (LTR measurement model). Never clip a combining cluster or
+    /// position a caret inside the invisible half of an emoji.
+    #[cfg(test)]
+    pub fn input_view<F: Fn(&str) -> u32>(&self, max_width: u32, measure: F) -> (String, u32) {
+        self.input_view_bidi(max_width, &measure, |text, base| {
+            LineLayout::from_visual_measure(text, base, &measure)
+        })
     }
 
     /// Place the caret at the nearest *painted* complete glyph boundary.
-    /// A scrolled field must not select hidden characters. x is relative to
-    /// the rendered input text origin in the native dialog.
+    /// A scrolled field must not select hidden characters.
+    #[cfg(test)]
     pub fn place_cursor_at<F: Fn(&str) -> u32>(
         &mut self,
         x: f64,
         max_width: u32,
         measure: F,
     ) -> bool {
-        if !self.editable() || !x.is_finite() || max_width == 0 {
-            return false;
-        }
-        let points = self.boundaries();
-        let (start, end) = self.visible_range(max_width, &measure, &points);
-        let x = x.clamp(0.0, f64::from(max_width));
-        let mut selected = start;
-        let mut previous = 0_u32;
-        for index in start..end {
-            let next = measure(&self.input[points[start]..points[index + 1]]);
-            let midpoint = f64::from(previous) + f64::from(next.saturating_sub(previous)) / 2.0;
-            if x < midpoint {
-                break;
-            }
-            selected = index + 1;
-            previous = next;
-        }
-        let changed = self.cursor != selected || self.selection_anchor.is_some();
-        self.cursor = selected;
-        self.selection_anchor = None;
-        if changed {
-            self.preedit = None;
-        }
-        changed
+        self.place_cursor_at_bidi(x, max_width, &measure, |text, base| {
+            LineLayout::from_visual_measure(text, base, &measure)
+        })
     }
 
-    /// BiDi-aware painted caret position, using the same visible logical
-    /// substring and glyph advances as the native renderer. Existing LTR
-    /// input keeps the allocation-free, legacy hit-testing behavior.
-    pub fn input_view_bidi<F: Fn(&str) -> u32, G: Fn(&str) -> u32>(
+    /// Painted caret x relative to the text box, from the same visible
+    /// logical substring, paragraph direction and glyph advances as the
+    /// native renderer (`layout`). RTL paragraphs are right-aligned.
+    #[cfg(test)]
+    pub fn input_view_bidi<F: Fn(&str) -> u32, L: Fn(&str, BaseDirection) -> LineLayout>(
         &self,
         max_width: u32,
         measure: F,
-        measure_visual: G,
+        layout: L,
     ) -> (String, u32) {
-        let (display, legacy_x) = self.input_view(max_width, &measure);
-        let points = self.boundaries();
-        let (start, end) = self.visible_range(max_width, &measure, &points);
-        let logical_caret = self.cursor.min(end).saturating_sub(start);
-        let x = bidi_caret_pixels(&display, &measure_visual)
-            .and_then(|edges| edges.get(logical_caret).copied())
-            .unwrap_or(legacy_x);
-        (display, x.min(max_width.saturating_sub(1)))
+        let visible = self.visible_layout(max_width, &measure, &layout);
+        let local = self
+            .cursor
+            .saturating_sub(visible.start)
+            .min(visible.line.len());
+        let x = visible.offset + visible.line.caret_x(local);
+        (visible.text, x.min(max_width.saturating_sub(1)))
     }
 
-    /// Map a pointer position back to a complete logical grapheme boundary,
-    /// including reversed RTL runs. Ties prefer the existing caret where
-    /// two logical positions share the same visual BiDi boundary.
-    pub fn place_cursor_at_bidi<F: Fn(&str) -> u32, G: Fn(&str) -> u32>(
+    /// Map a pointer position (relative to the text box) back to a complete
+    /// logical grapheme boundary, including reversed RTL runs and the
+    /// right-aligned RTL paragraph. Ties prefer the existing caret where two
+    /// logical positions share the same visual BiDi boundary.
+    pub fn place_cursor_at_bidi<F: Fn(&str) -> u32, L: Fn(&str, BaseDirection) -> LineLayout>(
         &mut self,
         x: f64,
         max_width: u32,
         measure: F,
-        measure_visual: G,
+        layout: L,
     ) -> bool {
         if !self.editable() || !x.is_finite() || max_width == 0 {
             return false;
         }
-        let points = self.boundaries();
-        let (start, end) = self.visible_range(max_width, &measure, &points);
-        let display = &self.input[points[start]..points[end]];
-        let Some(edges) = bidi_caret_pixels(display, &measure_visual) else {
-            return self.place_cursor_at(x, max_width, measure);
-        };
-        let x = x.clamp(0.0, f64::from(max_width));
+        let visible = self.visible_layout(max_width, &measure, &layout);
+        let x = x.clamp(0.0, f64::from(max_width)) - f64::from(visible.offset);
         let old = self.cursor;
-        let mut selected = start;
-        let mut best = f64::INFINITY;
-        for (at, pixel) in edges.into_iter().enumerate() {
-            let target = start + at;
-            let distance = (x - f64::from(pixel)).abs();
-            if distance < best || (distance == best && target == old) {
-                best = distance;
-                selected = target;
-            }
-        }
-        self.cursor = selected;
+        let prefer = old.saturating_sub(visible.start);
+        self.cursor = visible.start + visible.line.hit(x, prefer);
         let changed = self.cursor != old || self.selection_anchor.is_some();
         self.selection_anchor = None;
         if changed {
@@ -479,14 +474,15 @@ impl State {
         changed
     }
 
-    /// Visible highlight segments in painted order, clipped to the same
-    /// one-line viewport and measured with the same visual glyph advances
-    /// as the cursor. Disjoint BiDi ranges are not joined into a false span.
-    pub fn selection_pixels<F: Fn(&str) -> u32, G: Fn(&str) -> u32>(
+    /// Visible highlight rectangles in painted order, clipped to the same
+    /// one-line viewport and measured with the same glyph advances as the
+    /// caret. A logical selection crossing a BiDi level boundary is painted
+    /// as several disjoint rectangles, never one false span.
+    pub fn selection_pixels<F: Fn(&str) -> u32, L: Fn(&str, BaseDirection) -> LineLayout>(
         &self,
         max_width: u32,
         measure: F,
-        measure_visual: G,
+        layout: L,
     ) -> Vec<(u32, u32)> {
         let Some((lower, upper)) = self.selected_graphemes() else {
             return Vec::new();
@@ -494,33 +490,24 @@ impl State {
         if max_width == 0 {
             return Vec::new();
         }
-        let points = self.boundaries();
-        let (start, end) = self.visible_range(max_width, &measure, &points);
-        if lower >= end || upper <= start || start == end {
+        let visible = self.visible_layout(max_width, &measure, &layout);
+        let end = visible.start + visible.line.len();
+        if lower >= end || upper <= visible.start || visible.line.len() == 0 {
             return Vec::new();
         }
-        let visible = &self.input[points[start]..points[end]];
-        let clusters: Vec<&str> = visible.graphemes(true).collect();
-        let order = crate::bidi_layout::visual_cluster_map(visible)
-            .map(|map| map.visual_to_logical)
-            .unwrap_or_else(|| (0..clusters.len()).collect());
-        let mut prefix = String::with_capacity(visible.len());
-        let mut spans: Vec<(u32, u32)> = Vec::new();
-        for logical in order {
-            let left = measure_visual(&prefix).min(max_width);
-            prefix.push_str(clusters[logical]);
-            let right = measure_visual(&prefix).min(max_width);
-            if start + logical >= lower && start + logical < upper && right > left {
-                if let Some(last) = spans.last_mut() {
-                    if last.1 == left {
-                        last.1 = right;
-                        continue;
-                    }
-                }
-                spans.push((left, right));
-            }
-        }
-        spans
+        let local = |index: usize| index.clamp(visible.start, end) - visible.start;
+        visible
+            .line
+            .spans(local(lower), local(upper))
+            .into_iter()
+            .map(|(left, right)| {
+                (
+                    (visible.offset + left).min(max_width),
+                    (visible.offset + right).min(max_width),
+                )
+            })
+            .filter(|(left, right)| right > left)
+            .collect()
     }
 
     /// The text-input-v3 protocol expresses all offsets in UTF-8 *bytes*.
@@ -598,16 +585,33 @@ impl State {
 
     /// Paint preedit at its logical insertion point, with IME-specified
     /// caret and underline. This is a view only: the committed input remains
-    /// unchanged until a valid Done commit transaction arrives.
-    pub fn input_view_composing<F: Fn(&str) -> u32, G: Fn(&str) -> u32>(
+    /// unchanged until a valid Done commit transaction arrives. The paragraph
+    /// direction includes the preedit, exactly as the line would commit.
+    pub fn view<F: Fn(&str) -> u32, L: Fn(&str, BaseDirection) -> LineLayout>(
         &self,
         max_width: u32,
         measure: F,
-        measure_visual: G,
-    ) -> (String, u32, Option<(u32, u32)>) {
+        layout: L,
+    ) -> EditorView {
+        let plain = |state: &State| {
+            let visible = state.visible_layout(max_width, &measure, &layout);
+            let local = state
+                .cursor
+                .saturating_sub(visible.start)
+                .min(visible.line.len());
+            let caret = visible.offset + visible.line.caret_x(local);
+            (visible, caret.min(max_width.saturating_sub(1)))
+        };
+        let finish =
+            |(visible, caret_x): (VisibleLine, u32), underline: Vec<(u32, u32)>| EditorView {
+                base: visible.line.direction(),
+                text_x: visible.offset,
+                text: visible.text,
+                caret_x,
+                underline,
+            };
         let Some(preedit) = self.preedit.as_ref() else {
-            let (text, caret) = self.input_view_bidi(max_width, measure, measure_visual);
-            return (text, caret, None);
+            return finish(plain(self), Vec::new());
         };
         let mut preview = self.clone();
         preview.preedit = None;
@@ -619,8 +623,7 @@ impl State {
         let (selection_start, _) = self.selected_graphemes().unwrap_or((caret, caret));
         let insertion = points[selection_start];
         if !preview.commit_text(&preedit.text) {
-            let (text, caret) = self.input_view_bidi(max_width, measure, measure_visual);
-            return (text, caret, None);
+            return finish(plain(self), Vec::new());
         }
         let end = insertion + preedit.text.len();
         // The preedit may join existing graphemes on either side: adding
@@ -637,26 +640,40 @@ impl State {
         // IMEs use scalar-aligned UTF-8 offsets, not necessarily grapheme
         // boundaries. Never expose a caret inside a visual cluster.
         preview.cursor = composed_points.partition_point(|&byte| byte < caret_byte);
-        let (display, caret) = preview.input_view_bidi(max_width, &measure, &measure_visual);
-        let points = preview.boundaries();
-        let (first, last) = preview.visible_range(max_width, &measure, &points);
-        let edges = bidi_caret_pixels(&display, &measure_visual);
-        let display_points: Vec<usize> = display
-            .grapheme_indices(true)
-            .map(|(i, _)| i)
-            .chain(std::iter::once(display.len()))
+        let (visible, caret_x) = plain(&preview);
+        let last = visible.start + visible.line.len();
+        let local = |index: usize| index.clamp(visible.start, last) - visible.start;
+        // A preedit crossing a BiDi level boundary is underlined as several
+        // painted rectangles, like a selection.
+        let underline = visible
+            .line
+            .spans(local(begin_cursor), local(end_cursor))
+            .into_iter()
+            .map(|(left, right)| {
+                (
+                    (visible.offset + left).min(max_width.saturating_sub(1)),
+                    (visible.offset + right).min(max_width.saturating_sub(1)),
+                )
+            })
             .collect();
-        let locate = |cursor: usize| {
-            let local = cursor.saturating_sub(first).min(last - first);
-            edges
-                .as_ref()
-                .map(|pixel| pixel[local])
-                .unwrap_or_else(|| measure(&display[..display_points[local]]))
-                .min(max_width.saturating_sub(1))
-        };
-        let a = locate(begin_cursor);
-        let b = locate(end_cursor);
-        (display, caret, Some((a.min(b), a.max(b))))
+        finish((visible, caret_x), underline)
+    }
+
+    /// [`Self::view`] as `(visible text, caret x, preedit underline extent)`.
+    pub fn input_view_composing<F: Fn(&str) -> u32, L: Fn(&str, BaseDirection) -> LineLayout>(
+        &self,
+        max_width: u32,
+        measure: F,
+        layout: L,
+    ) -> (String, u32, Option<(u32, u32)>) {
+        let view = self.view(max_width, measure, layout);
+        let extent = view
+            .underline
+            .iter()
+            .map(|&(left, _)| left)
+            .min()
+            .zip(view.underline.iter().map(|&(_, right)| right).max());
+        (view.text, view.caret_x, extent)
     }
 
     /// A tiny argv lexer, not a shell. Only explicit user keystrokes feed
@@ -774,6 +791,13 @@ pub fn parse_argv(raw: &str) -> Result<Vec<String>, &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 8px per grapheme, the same model as the `metric` closures.
+    fn cells(text: &str, base: BaseDirection) -> LineLayout {
+        LineLayout::from_visual_measure(text, base, |visual| {
+            visual.graphemes(true).count() as u32 * 8
+        })
+    }
 
     #[test]
     fn clipboard_selection_is_grapheme_bounded_and_cut_replaces_atomically() {
@@ -997,7 +1021,7 @@ mod tests {
         pending.preedit(Some(" あ".to_string()), 4, 4);
         assert!(state.apply_ime(&pending));
         let metric = |text: &str| (text.graphemes(true).count() as u32) * 8;
-        let (painted, caret, underline) = state.input_view_composing(200, metric, metric);
+        let (painted, caret, underline) = state.input_view_composing(200, metric, cells);
         assert_eq!(painted, "foot あ");
         assert_eq!(caret, 48);
         assert_eq!(underline, Some((32, 48)));
@@ -1006,7 +1030,7 @@ mod tests {
         assert!(state.move_cursor(CursorMove::Home));
         assert!(state.preedit.is_none());
         assert_eq!(
-            state.input_view_composing(200, metric, metric),
+            state.input_view_composing(200, metric, cells),
             ("foot".into(), 0, None)
         );
     }
@@ -1022,7 +1046,7 @@ mod tests {
         pending.preedit(Some("\u{301}".into()), 0, 0);
         assert!(state.apply_ime(&pending));
         assert_eq!(
-            state.input_view_composing(200, metric, metric),
+            state.input_view_composing(200, metric, cells),
             ("e\u{301}".into(), 8, Some((0, 8)))
         );
         assert_eq!(state.input, "e", "preedit must not mutate Run argv");
@@ -1041,7 +1065,7 @@ mod tests {
         pending.preedit(Some("a\u{301}".into()), 1, 1);
         assert!(state.apply_ime(&pending));
         assert_eq!(
-            state.input_view_composing(200, metric, metric),
+            state.input_view_composing(200, metric, cells),
             ("e\u{301}a\u{301}".into(), 16, Some((8, 16)))
         );
         assert_eq!(state.input, "e\u{301}");
@@ -1058,7 +1082,7 @@ mod tests {
         pending.preedit(Some("\u{200d}".into()), 3, 3);
         assert!(state.apply_ime(&pending));
         assert_eq!(
-            state.input_view_composing(200, metric, metric),
+            state.input_view_composing(200, metric, cells),
             ("👩‍💻".into(), 8, Some((0, 8)))
         );
         assert_eq!(state.input, "👩💻");
@@ -1073,7 +1097,7 @@ mod tests {
         let mut pending = crate::native_ime::Pending::default();
         pending.preedit(Some("é".to_owned()), 2, 2);
         assert!(state.apply_ime(&pending));
-        let (painted, caret, underline) = state.input_view_composing(200, metric, metric);
+        let (painted, caret, underline) = state.input_view_composing(200, metric, cells);
         assert_eq!(painted, "é");
         assert_eq!(caret, 8);
         assert_eq!(underline, Some((0, 8)));
@@ -1102,7 +1126,7 @@ mod tests {
             state.apply_ime(&pending),
             "selected characters must not count against the preview limit"
         );
-        let (painted, caret, underline) = state.input_view_composing(200, metric, metric);
+        let (painted, caret, underline) = state.input_view_composing(200, metric, cells);
         assert_eq!(painted, "日本語");
         assert_eq!(caret, 24);
         assert_eq!(underline, Some((0, 24)));
@@ -1132,7 +1156,7 @@ mod tests {
         pending.reset();
         pending.preedit(Some("漢".to_owned()), 3, 3);
         assert!(mixed.apply_ime(&pending));
-        let (painted, _, underline) = mixed.input_view_composing(200, metric, metric);
+        let (painted, _, underline) = mixed.input_view_composing(200, metric, cells);
         assert_eq!(painted, "漢👩‍💻-suffix");
         assert!(underline.is_some());
         assert_eq!(mixed.input, "prefix-👩‍💻-suffix");
@@ -1172,14 +1196,35 @@ mod tests {
         assert_eq!(state.cursor, 1);
         assert_eq!(state.input, "אבג", "never reorder stored filename/argv");
 
+        // LTR paragraph painted "abc גבא": End is the right edge; each Left
+        // crosses exactly one painted cluster (א, ב, ג, then the space).
         let mut mixed = State::new(Kind::FileRename);
         assert!(mixed.commit_text("abc אבג"));
         assert_eq!(mixed.cursor, 7);
+        let mut walk = Vec::new();
+        while mixed.move_cursor(CursorMove::Left) {
+            walk.push(mixed.cursor);
+        }
+        assert_eq!(walk, [5, 6, 4, 3, 2, 1, 0]);
+        assert!(mixed.move_cursor(CursorMove::Right));
+        assert_eq!(mixed.cursor, 1);
+        assert!(mixed.move_cursor(CursorMove::End));
         assert!(mixed.move_cursor(CursorMove::Left));
-        assert_eq!(mixed.cursor, 3, "cross the run boundary visually");
         assert!(mixed.move_cursor(CursorMove::Right));
         assert_eq!(mixed.cursor, 7);
         assert_eq!(mixed.input, "abc אבג");
+
+        // RTL paragraph painted "abc גבא": Home is the right edge, End the
+        // left edge, and Left walks one painted cluster at a time.
+        let mut rtl = State::new(Kind::Run);
+        assert!(rtl.commit_text("אבג abc"));
+        assert!(rtl.move_cursor(CursorMove::Home));
+        let mut walk = Vec::new();
+        while rtl.move_cursor(CursorMove::Left) {
+            walk.push(rtl.cursor);
+        }
+        assert_eq!(walk, [1, 2, 3, 4, 6, 5, 7]);
+        assert_eq!(rtl.input, "אבג abc", "AT-SPI offsets stay logical");
 
         let mut ltr = State::new(Kind::Run);
         assert!(ltr.commit_text("A👩‍💻B"));
@@ -1193,33 +1238,43 @@ mod tests {
         let measure = |s: &str| (s.graphemes(true).count() * 8) as u32;
         let mut state = State::new(Kind::FileRename);
         assert!(state.commit_text("אבג"));
+        // Right-aligned in an 80px field (2px kept for the caret): the
+        // 24px line spans 54..78. End = left edge, Home = right edge.
         assert_eq!(
-            state.input_view_bidi(80, measure, measure),
-            ("אבג".into(), 0)
+            state.input_view_bidi(80, measure, cells),
+            ("אבג".into(), 54)
         );
         assert!(state.move_cursor(CursorMove::Home));
         assert_eq!(
-            state.input_view_bidi(80, measure, measure),
-            ("אבג".into(), 24)
+            state.input_view_bidi(80, measure, cells),
+            ("אבג".into(), 78)
         );
-        assert!(state.place_cursor_at_bidi(9.0, 80, measure, measure));
+        let view = state.view(80, measure, cells);
+        assert_eq!((view.text_x, view.base), (54, BaseDirection::Rtl));
+        assert!(state.place_cursor_at_bidi(63.0, 80, measure, cells));
         assert_eq!(state.cursor, 2);
         assert!(state.enter("Z"));
         assert_eq!(state.input, "אבZג");
         assert!(state.erase());
         assert_eq!(state.input, "אבג");
+        // Clicking the empty left part of an RTL field selects the end.
+        assert!(state.place_cursor_at_bidi(3.0, 80, measure, cells));
+        assert_eq!(state.cursor, 3);
 
         let mut mixed = State::new(Kind::FileRename);
         assert!(mixed.commit_text("abc אבג"));
         assert!(mixed.move_cursor(CursorMove::Home));
         assert_eq!(
-            mixed.input_view_bidi(80, measure, measure),
+            mixed.input_view_bidi(80, measure, cells),
             ("abc אבג".into(), 0)
         );
-        assert!(mixed.place_cursor_at_bidi(55.0, 80, measure, measure));
-        assert_eq!(mixed.cursor, 4, "the RTL run starts at its right edge");
-        assert!(mixed.place_cursor_at_bidi(33.0, 80, measure, measure));
-        assert_eq!(mixed.cursor, 7, "the RTL run ends at its left edge");
+        assert_eq!(mixed.view(80, measure, cells).text_x, 0, "LTR stays left");
+        assert!(mixed.place_cursor_at_bidi(33.0, 80, measure, cells));
+        assert_eq!(mixed.cursor, 4, "after the space, LTR affinity");
+        assert!(mixed.place_cursor_at_bidi(49.0, 80, measure, cells));
+        assert_eq!(mixed.cursor, 5, "between the painted ב and א");
+        assert!(mixed.place_cursor_at_bidi(55.0, 80, measure, cells));
+        assert_eq!(mixed.cursor, 7, "the right edge is the logical end");
     }
 
     #[test]
@@ -1227,22 +1282,16 @@ mod tests {
         let measure = |s: &str| (s.graphemes(true).count() * 8) as u32;
         let mut state = State::new(Kind::FileRename);
         assert!(state.commit_text("אבגדה"));
-        assert_eq!(
-            state.input_view_bidi(18, measure, measure),
-            ("דה".into(), 0)
-        );
-        assert!(state.place_cursor_at_bidi(15.0, 18, measure, measure));
+        assert_eq!(state.input_view_bidi(18, measure, cells), ("דה".into(), 0));
+        assert!(state.place_cursor_at_bidi(15.0, 18, measure, cells));
         assert_eq!(state.cursor, 3);
-        assert_eq!(
-            state.input_view_bidi(18, measure, measure),
-            ("בג".into(), 0)
-        );
+        assert_eq!(state.input_view_bidi(18, measure, cells), ("בג".into(), 0));
         // A joined emoji is one grapheme/caret, even inside a BiDi run.
         let mut emoji = State::new(Kind::FileRename);
         assert!(emoji.commit_text("אב👩‍💻"));
         assert!(emoji.move_cursor(CursorMove::Home));
-        assert_eq!(emoji.input_view_bidi(80, measure, measure).1, 24);
-        assert!(emoji.place_cursor_at_bidi(1.0, 80, measure, measure));
+        assert_eq!(emoji.input_view_bidi(80, measure, cells).1, 78);
+        assert!(emoji.place_cursor_at_bidi(1.0, 80, measure, cells));
         assert_eq!(emoji.cursor, 3);
     }
 
@@ -1352,7 +1401,7 @@ mod tests {
         assert!(state.move_cursor_select(CursorMove::Home, true));
         assert_eq!(state.selected_graphemes(), Some((0, 4)));
         let measure = |t: &str| (t.graphemes(true).count() * 8) as u32;
-        assert!(state.place_cursor_at_bidi(8.0, 80, measure, measure));
+        assert!(state.place_cursor_at_bidi(8.0, 80, measure, cells));
         assert!(state.selected_graphemes().is_none());
         assert_eq!(state.input, "abcdef");
     }
@@ -1379,13 +1428,68 @@ mod tests {
         let measure = |t: &str| (t.graphemes(true).count() * 8) as u32;
         // Two separate painted ranges across the LTR/RTL run boundary.
         assert_eq!(
-            state.selection_pixels(80, measure, measure),
+            state.selection_pixels(80, measure, cells),
             vec![(16, 32), (48, 56)]
         );
         assert_eq!(state.surrounding_selection(), ("abc אבג".into(), 6, 2));
         assert!(state.delete());
         assert_eq!(state.input, "abבג");
         assert_eq!(state.cursor, 2);
+    }
+
+    #[test]
+    fn rtl_paragraph_selection_is_right_aligned_disjoint_rectangles() {
+        let measure = |t: &str| (t.graphemes(true).count() * 8) as u32;
+        let mut state = State::new(Kind::Run);
+        // Painted "abc גבא" right-aligned at 22..78 in an 80px field.
+        assert!(state.commit_text("אבג abc"));
+        assert_eq!(state.view(80, measure, cells).text_x, 22);
+        // Logical 2..5 = "ג", space, "a": the Latin "a" is painted at the
+        // far left of the line, "ג " in the middle: two rectangles.
+        state.selection_anchor = Some(2);
+        state.cursor = 5;
+        assert_eq!(
+            state.selection_pixels(80, measure, cells),
+            vec![(22, 30), (46, 62)]
+        );
+        // Shift+Left in the RTL run extends the logical selection while the
+        // painted caret moves left; offsets stay logical for AT-SPI.
+        assert!(state.move_cursor(CursorMove::Home));
+        assert!(state.move_cursor_select(CursorMove::Left, true));
+        assert!(state.move_cursor_select(CursorMove::Left, true));
+        assert_eq!(state.selected_graphemes(), Some((0, 2)));
+        assert_eq!(state.selection_pixels(80, measure, cells), vec![(62, 78)]);
+        assert_eq!(state.surrounding_selection(), ("אבג abc".into(), 4, 0));
+    }
+
+    #[test]
+    fn rtl_ime_preedit_is_inserted_at_the_logical_caret() {
+        let measure = |t: &str| (t.graphemes(true).count() * 8) as u32;
+        let mut state = State::new(Kind::Run);
+        assert!(state.commit_text("שלום"));
+        assert!(state.move_cursor(CursorMove::Home));
+        assert!(state.move_cursor(CursorMove::Left));
+        assert!(state.move_cursor(CursorMove::Left));
+        assert_eq!(state.cursor, 2, "two painted steps left of the right edge");
+        let mut pending = crate::native_ime::Pending::default();
+        pending.preedit(Some("ab".into()), 2, 2);
+        assert!(state.apply_ime(&pending));
+        // Preview "שלabום" (logical): painted "םוabלש", right-aligned at
+        // 30..78. The preedit sits between the logical neighbours ל and ו.
+        let view = state.view(80, measure, cells);
+        assert_eq!(view.text, "שלabום");
+        assert_eq!((view.text_x, view.base), (30, BaseDirection::Rtl));
+        assert_eq!(view.underline, vec![(46, 62)]);
+        // Logical caret after "b" at the boundary to the RTL run: the outer
+        // (paragraph-level) run's affinity puts it at the leading edge of ו.
+        assert_eq!(view.caret_x, 46);
+        assert_eq!(state.input, "שלום", "preedit is never committed early");
+        assert_eq!(state.surrounding_text(), ("שלום".into(), 4));
+        pending.reset();
+        pending.commit(Some("ab".into()));
+        assert!(state.apply_ime(&pending));
+        assert_eq!(state.input, "שלabום");
+        assert_eq!(state.cursor, 4);
     }
 
     #[test]

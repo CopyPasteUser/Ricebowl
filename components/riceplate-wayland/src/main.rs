@@ -3820,7 +3820,7 @@ impl RicePlate {
         let (_, x, _) = dialog.state.input_view_composing(
             282,
             |text| luna_dialog_text_width(&self.recipe, text),
-            |visual| luna_dialog_visual_width(&self.recipe, visual),
+            |text, base| luna_dialog_layout(&self.recipe, text, base),
         );
         ime.input.set_surrounding_text(text, cursor, anchor);
         ime.input.set_text_change_cause(cause);
@@ -9151,6 +9151,37 @@ fn paint_popup_label(
     }
 }
 
+/// [`paint_popup_label`] for an app-provided label inside `[left, right)`:
+/// an RTL paragraph (direction of the complete `source` label) aligns to the
+/// trailing edge. LTR labels paint exactly as before.
+#[allow(clippy::too_many_arguments)]
+fn paint_popup_label_in(
+    canvas: &mut [u8],
+    width: u32,
+    height: u32,
+    span: (u32, u32),
+    y: u32,
+    label: &str,
+    source: &str,
+    color: u32,
+    style: &PanelStyle,
+) {
+    let base = text_render::label_direction(source);
+    if base == bidi_layout::BaseDirection::Ltr {
+        paint_popup_label(canvas, width, height, span.0, y, label, color, style);
+    } else if style.id == "xp-luna-columns" {
+        text_render::draw_rice_text_in(canvas, width, height, span, y, label, base, color, style);
+    } else {
+        let line = bidi_layout::LineLayout::from_visual_measure(label, base, |visual| {
+            text_pixel_width(visual, 1)
+        });
+        let x = span.0 + line.align_offset(span.1.saturating_sub(span.0));
+        text_render::draw_bitmap_text_dir(
+            canvas, width, height, x, y, label, base, color, 1, false,
+        );
+    }
+}
+
 fn paint_tray_popup(
     canvas: &mut [u8],
     style: &PanelStyle,
@@ -9239,13 +9270,14 @@ fn paint_tray_popup(
             );
         }
         let title: String = fit_cells(&entry.title, 26, style);
-        paint_popup_label(
+        paint_popup_label_in(
             canvas,
             width,
             height,
-            42,
+            (42, width.saturating_sub(18)),
             top + 11,
             &title,
+            &entry.title,
             if luna && popup.selected == popup.first + row {
                 0xffff_ffff
             } else {
@@ -9539,7 +9571,17 @@ fn paint_tray_menu(canvas: &mut [u8], style: &PanelStyle, popup: &tray::MenuPopu
                 255,
             ])
         };
-        paint_popup_label(canvas, width, height, 32, top + 11, &label, color, style);
+        paint_popup_label_in(
+            canvas,
+            width,
+            height,
+            (32, width.saturating_sub(28)),
+            top + 11,
+            &label,
+            &row.label,
+            color,
+            style,
+        );
         if matches!(&row.kind, tray::MenuKind::Submenu(_)) {
             paint_popup_label(
                 canvas,
@@ -9879,15 +9921,8 @@ fn menu_preedit_line(
         .map(|(index, _)| index)
         .chain(std::iter::once(text.len()))
         .collect::<Vec<_>>();
-    let bidi = luna_dialog::bidi_caret_pixels(&text, &|part| luna_dialog_visual_width(style, part));
-    let position = |cluster: usize| {
-        bidi.as_ref()
-            .map_or_else(
-                || rice_text_width(&text[..points[cluster]], style),
-                |edges| edges[cluster],
-            )
-            .min(available.saturating_sub(1))
-    };
+    let layout = text_render::rice_line_layout(&text, bidi_layout::BaseDirection::Auto, style);
+    let position = |cluster: usize| layout.caret_x(cluster).min(available.saturating_sub(1));
     let start = position(
         points
             .partition_point(|&byte| byte <= end_of_committed)
@@ -10530,13 +10565,19 @@ fn paint_menu_state(
                     } else {
                         tile.y + 12
                     };
-                    draw_rice_text(
+                    // An RTL app/action name aligns to the tile's trailing
+                    // edge; its logical-end ellipsis then paints at the left.
+                    text_render::draw_rice_text_in(
                         canvas,
                         width,
                         height,
-                        tile.x + text_inset,
+                        (
+                            tile.x + text_inset,
+                            (tile.x + tile.width).saturating_sub(11),
+                        ),
                         text_y,
                         &short,
+                        text_render::label_direction(&label),
                         tile_fg,
                         style,
                     );
@@ -10613,17 +10654,18 @@ fn paint_menu_state(
                     35
                 }) / style.font_scale as usize;
                 let short_label: String = fit_cells(&label, max_chars as u32, style);
-                draw_rice_text(
+                text_render::draw_rice_text_in(
                     canvas,
                     width,
                     height,
-                    action_x + 12,
+                    (action_x + 12, width.saturating_sub(20)),
                     top + if style.font_scale == 1 {
                         16
                     } else {
                         native_menu::ACTION_HEIGHT.saturating_sub(8 * style.font_scale) / 2
                     },
                     &format!("{}{}", if pinned { "* " } else { "" }, short_label),
+                    text_render::label_direction(&label),
                     if (label.contains("(unavailable)") || disabled_control) && style.disabled != 0
                     {
                         style.disabled
@@ -10768,15 +10810,14 @@ fn luna_dialog_text_width(style: &PanelStyle, text: &str) -> u32 {
         )
 }
 
-fn luna_dialog_visual_width(style: &PanelStyle, visual: &str) -> u32 {
-    style
-        .native_art
-        .as_ref()
-        .and_then(|art| art.font.as_ref())
-        .map_or_else(
-            || text_pixel_width(visual, style.font_scale.max(1)),
-            |font| font.measure_visual_text(visual),
-        )
+/// The painted line geometry of the Run/Rename field: identical glyph
+/// advances, run order and paragraph direction as `draw_rice_text_dir`.
+fn luna_dialog_layout(
+    style: &PanelStyle,
+    text: &str,
+    base: bidi_layout::BaseDirection,
+) -> bidi_layout::LineLayout {
+    text_render::rice_line_layout(text, base, style)
 }
 
 fn luna_dialog_primary_label(kind: luna_dialog::Kind) -> &'static str {
@@ -10867,15 +10908,18 @@ fn paint_luna_dialog(canvas: &mut [u8], style: &PanelStyle, state: &luna_dialog:
             fill_rect(canvas, w, h, 120, 113, 302, 28, 0xffff_ffff);
             // Use the same font advances as actual glyph drawing: a
             // proportional selected font must not misplace the caret.
-            let (text, cursor_x, composing) = state.input_view_composing(
+            // One layout (font advances, BiDi order, paragraph direction)
+            // drives the painted text, its RTL right alignment, the caret,
+            // the selection rectangles and the preedit underline.
+            let view = state.view(
                 282,
                 |value| luna_dialog_text_width(style, value),
-                |visual| luna_dialog_visual_width(style, visual),
+                |text, base| luna_dialog_layout(style, text, base),
             );
             for (left, right) in state.selection_pixels(
                 282,
                 |value| luna_dialog_text_width(style, value),
-                |visual| luna_dialog_visual_width(style, visual),
+                |text, base| luna_dialog_layout(style, text, base),
             ) {
                 if right > left {
                     // Pale selection remains legible with the ordinary
@@ -10883,13 +10927,23 @@ fn paint_luna_dialog(canvas: &mut [u8], style: &PanelStyle, state: &luna_dialog:
                     fill_rect(canvas, w, h, 128 + left, 118, right - left, 20, 0xffa9_d0fa);
                 }
             }
-            draw_rice_text(canvas, w, h, 128, 122, &text, 0xff10_2849, style);
-            if let Some((a, b)) = composing {
+            text_render::draw_rice_text_dir(
+                canvas,
+                w,
+                h,
+                128 + view.text_x,
+                122,
+                &view.text,
+                view.base,
+                0xff10_2849,
+                style,
+            );
+            for &(a, b) in &view.underline {
                 // Underline only live, noncommitted preedit; not stored in the
                 // command buffer, and never painted after a focus teardown.
                 fill_rect(canvas, w, h, 128 + a, 138, (b - a).max(1), 1, 0xff19_61bb);
             }
-            fill_rect(canvas, w, h, 128 + cursor_x, 120, 2, 16, 0xff10_2849);
+            fill_rect(canvas, w, h, 128 + view.caret_x, 120, 2, 16, 0xff10_2849);
             let notice = state
                 .notice
                 .unwrap_or(if state.kind == luna_dialog::Kind::Run {
@@ -13709,7 +13763,7 @@ impl PointerHandler for RicePlate {
                                 event.position.0 - 128.0,
                                 282,
                                 |text| luna_dialog_text_width(style, text),
-                                |visual| luna_dialog_visual_width(style, visual),
+                                |text, base| luna_dialog_layout(style, text, base),
                             )
                         });
                         if moved || repaint {
@@ -17218,9 +17272,10 @@ mod tests {
         };
         let ltr_paragraph = row("Abc אבג");
         let rtl_paragraph = row("אבג Abc");
-        // Paragraph direction does not change what is drawn left to right:
-        // "Abc", the space, then the Hebrew run reversed (three cells).
-        assert_eq!(ltr_paragraph, rtl_paragraph);
+        // Both paint "Abc", the space, then the Hebrew run reversed (three
+        // cells) left to right. The LTR paragraph starts at the row inset;
+        // the RTL paragraph (first strong letter Hebrew, UAX #9 P2/P3) is
+        // aligned to the trailing edge, mirroring the 18px inset.
         assert!(shows_text(
             &ltr_paragraph,
             width,
@@ -17229,11 +17284,62 @@ mod tests {
             "Abc ???",
             style.active
         ));
-        // A pure RTL summary is also drawn in visual order, start-aligned
-        // (right alignment of RTL paragraphs is not implemented), and the
-        // logical order is only ever reordered for display.
+        assert_ne!(ltr_paragraph, rtl_paragraph);
+        assert!(shows_text(
+            &rtl_paragraph,
+            width,
+            width - 18 - 7 * 8,
+            100,
+            "Abc ???",
+            style.active
+        ));
+        // Painting never rewrites the logical summary.
         assert_eq!(&*crate::bidi_layout::visual_order("אבג Abc"), "Abc גבא");
         assert_ne!(row("Abc"), ltr_paragraph);
+        // The inbox cuts a long summary at its logical end (35 graphemes);
+        // for an RTL summary that keeps the right-aligned logical start.
+        let long = row(&format!("{}Z", "א".repeat(40)));
+        assert!(shows_text(
+            &long,
+            width,
+            width - 18 - 35 * 8,
+            100,
+            &"?".repeat(35),
+            style.active
+        ));
+        // A label wider than its budget ends in an ellipsis at the logical
+        // end: the visual LEFT of an RTL paragraph, the right of an LTR one.
+        let fitted = |label: &str| {
+            let mut canvas = vec![0_u8; 120 * 8 * 4];
+            overlay_renderer::draw_notification_text(
+                &mut canvas,
+                120,
+                8,
+                10,
+                0,
+                label,
+                0xffff_ffff,
+                &style,
+            );
+            canvas
+        };
+        let hebrew = fitted("אבגדהוזחטיכלמנס");
+        assert!(shows_text(
+            &hebrew,
+            120,
+            14,
+            0,
+            &format!("…{}", "?".repeat(11)),
+            0
+        ));
+        assert!(shows_text(
+            &fitted("Abcdefghijklmnopq"),
+            120,
+            10,
+            0,
+            "Abcdefghijklmnopq",
+            0
+        ));
     }
 
     #[test]

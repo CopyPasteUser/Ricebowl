@@ -7,6 +7,8 @@
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ShapedGlyph {
     pub(crate) id: u16,
+    /// UTF-8 byte offset of the glyph's cluster in the shaped segment.
+    pub(crate) cluster: u32,
     pub(crate) advance: f32,
     pub(crate) x_offset: f32,
     pub(crate) y_offset: f32,
@@ -69,6 +71,7 @@ pub(crate) fn shape_with_face(
             let id = u16::try_from(glyph.glyph_id).ok()?;
             Some(ShapedGlyph {
                 id,
+                cluster: glyph.cluster,
                 advance: position.x_advance as f32 * factor,
                 x_offset: position.x_offset as f32 * factor,
                 y_offset: position.y_offset as f32 * factor,

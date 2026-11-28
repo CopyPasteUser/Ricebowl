@@ -4,13 +4,17 @@
 //! routines consume bounded immutable snapshots. No new notification host.
 
 use crate::{
+    bidi_layout::BaseDirection,
     calendar::{self, CalendarState},
     native_menu,
     raster::{fill_rect, fill_rounded_rect},
     recipe::PanelStyle,
     ricepop::{self, State as NotificationState},
     ricepop_text as text,
-    text_render::{draw_auxiliary_text, draw_text, text_pixel_width},
+    text_render::{
+        draw_auxiliary_text, draw_bitmap_text_dir, draw_rice_text_in, draw_text, label_direction,
+        text_pixel_width,
+    },
 };
 use chrono::Datelike;
 
@@ -25,6 +29,11 @@ fn notification_glyphs(value: &str, limit: usize) -> String {
 /// The notification center uses the same owner-private font as the rest of
 /// RicePlate. Only the opt-in font path needs a cell-aware width limit; the
 /// default path delegates unchanged to the legacy bitmap painter.
+///
+/// A label whose paragraph is RTL (UAX #9 P2/P3 over the complete label) is
+/// aligned to the trailing edge: the right margin mirrors the left inset `x`.
+/// Its fitted form cuts the logical end, so the ellipsis paints at the left.
+/// LTR labels keep their exact historical position, budget and pixels.
 pub(crate) fn draw_notification_text(
     canvas: &mut [u8],
     width: u32,
@@ -35,13 +44,24 @@ pub(crate) fn draw_notification_text(
     color: u32,
     style: &PanelStyle,
 ) {
-    if style
-        .native_art
-        .as_ref()
-        .and_then(|art| art.font.as_ref())
-        .is_none()
-    {
-        draw_text(canvas, width, height, x, y, label, color);
+    let base = label_direction(label);
+    let rtl = base == BaseDirection::Rtl;
+    // The mirrored right edge of an RTL label; LTR keeps the 8px margin.
+    let right = if rtl {
+        width.saturating_sub(x).max(x)
+    } else {
+        width.saturating_sub(8)
+    };
+    let font = style.native_art.as_ref().and_then(|art| art.font.as_ref());
+    if font.is_none() {
+        if rtl {
+            let budget = right.saturating_sub(x) / 8;
+            let shown = fit_cells_plain(label, budget as usize);
+            let x = right.saturating_sub(text_pixel_width(&shown, 1)).max(x);
+            draw_bitmap_text_dir(canvas, width, height, x, y, &shown, base, color, 1, false);
+        } else {
+            draw_text(canvas, width, height, x, y, label, color);
+        }
         return;
     }
     let available = width.saturating_sub(x).saturating_sub(8) / (8 * style.font_scale.max(1));
@@ -63,15 +83,39 @@ pub(crate) fn draw_notification_text(
     // scripts (CJK) have far larger measured advances and would run off the
     // popup, hiding their tail without any marker, so fit the real painted
     // advance with the same font that draws the text.
-    if let Some(font) = style.native_art.as_ref().and_then(|art| art.font.as_ref()) {
-        let pixels = width.saturating_sub(x).saturating_sub(8);
-        if font.measure_text(&shown) > pixels {
+    if let Some(font) = font {
+        let pixels = right.saturating_sub(x);
+        if font.measure_text_dir(&shown, base) > pixels {
             let source = label.trim_end_matches('…');
             let end = font.fitting_prefix_end(source, pixels, '…');
             shown = format!("{}…", &source[..end]);
         }
     }
-    draw_auxiliary_text(canvas, width, height, x, y, &shown, color, style);
+    draw_rice_text_in(
+        canvas,
+        width,
+        height,
+        (x, right),
+        y,
+        &shown,
+        base,
+        color,
+        style,
+    );
+}
+
+/// Bitmap-cell fit (one cell per grapheme) ending in an ellipsis cell.
+fn fit_cells_plain(label: &str, cells: usize) -> String {
+    use unicode_segmentation::UnicodeSegmentation;
+    if label.graphemes(true).count() <= cells {
+        return label.to_owned();
+    }
+    if cells == 0 {
+        return String::new();
+    }
+    let mut shown: String = label.graphemes(true).take(cells - 1).collect();
+    shown.push('…');
+    shown
 }
 
 pub(crate) fn paint_compact_notifications(

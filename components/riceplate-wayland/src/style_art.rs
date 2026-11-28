@@ -12,6 +12,7 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 
+use crate::bidi_layout::{BaseDirection, LineLayout};
 use crate::recipe::ArtworkSelection;
 use sha2::{Digest, Sha256};
 
@@ -37,6 +38,8 @@ struct Glyph {
 struct PositionedGlyph {
     face: FontFace,
     index: u16,
+    /// Logical extended-grapheme index in the laid-out label.
+    grapheme: u32,
     advance: f32,
     x_offset: f32,
     y_offset: f32,
@@ -67,13 +70,20 @@ pub struct FontSprites {
     system_fallback: bool,
 }
 
+/// One face's logical run: text plus `(byte offset, grapheme index)` pairs.
+type FaceSegment = (FontFace, String, Vec<(usize, u32)>);
+
+/// A shaped label is cached per paragraph direction: forcing the direction
+/// of a truncated label can change its run order.
+type LayoutKey = (BaseDirection, String);
+
 struct GlyphCache {
     glyphs: HashMap<GlyphKey, Glyph>,
     dynamic: VecDeque<GlyphKey>,
     shaped: HashMap<(FontFace, u16), Glyph>,
     shaped_dynamic: VecDeque<(FontFace, u16)>,
-    layouts: HashMap<String, Vec<PositionedGlyph>>,
-    layout_order: VecDeque<String>,
+    layouts: HashMap<LayoutKey, Vec<PositionedGlyph>>,
+    layout_order: VecDeque<LayoutKey>,
 }
 
 impl GlyphCache {
@@ -97,14 +107,14 @@ impl GlyphCache {
         self.shaped.insert(key, glyph);
     }
 
-    fn insert_layout(&mut self, label: &str, layout: Vec<PositionedGlyph>) {
+    fn insert_layout(&mut self, key: LayoutKey, layout: Vec<PositionedGlyph>) {
         if self.layout_order.len() >= SHAPED_LAYOUT_LIMIT {
             if let Some(oldest) = self.layout_order.pop_front() {
                 self.layouts.remove(&oldest);
             }
         }
-        self.layout_order.push_back(label.to_owned());
-        self.layouts.insert(label.to_owned(), layout);
+        self.layout_order.push_back(key.clone());
+        self.layouts.insert(key, layout);
     }
 }
 
@@ -477,11 +487,14 @@ impl FontSprites {
     }
 
     /// Logical-order runs of one face each (adjacent clusters merged); a
-    /// cluster no face covers becomes one visible `?` in the best face.
-    fn segment_clusters(&self, text: &str) -> Vec<(FontFace, String)> {
+    /// cluster no face covers becomes one visible `?` in the best face. Each
+    /// run lists `(byte offset in the run string, grapheme index in text)`
+    /// for every grapheme it contains.
+    fn segment_clusters(&self, text: &str) -> Vec<FaceSegment> {
         use unicode_segmentation::UnicodeSegmentation;
-        let mut segments: Vec<(FontFace, String)> = Vec::new();
-        for cluster in text.graphemes(true) {
+        let mut segments: Vec<FaceSegment> = Vec::new();
+        for (index, cluster) in text.graphemes(true).enumerate() {
+            let index = u32::try_from(index).unwrap_or(u32::MAX);
             let (face, chars) = match self.select_shaped_face(cluster) {
                 Some(face) => (face, cluster),
                 None => {
@@ -493,11 +506,12 @@ impl FontSprites {
             };
             if let Some(last) = segments.last_mut() {
                 if last.0 == face {
+                    last.2.push((last.1.len(), index));
                     last.1.push_str(chars);
                     continue;
                 }
             }
-            segments.push((face, chars.to_owned()));
+            segments.push((face, chars.to_owned(), vec![(0, index)]));
         }
         segments
     }
@@ -595,7 +609,13 @@ impl FontSprites {
     /// A source-locked, bounded OpenType layout: preserve the old zero-work
     /// ASCII fast path and bitmap profiles, but shape non-ASCII native text
     /// by logical script/direction runs *before* glyph rasterization.
+    #[cfg(test)]
     fn shape_layout(&self, text: &str) -> Option<Vec<PositionedGlyph>> {
+        self.shape_layout_dir(text, BaseDirection::Auto)
+    }
+
+    fn shape_layout_dir(&self, text: &str, base: BaseDirection) -> Option<Vec<PositionedGlyph>> {
+        use unicode_segmentation::UnicodeSegmentation;
         if !self.proportional
             || text.is_ascii()
             || text.len() > 2048
@@ -604,26 +624,38 @@ impl FontSprites {
         {
             return None;
         }
+        // Auto and the direction it resolves to lay out identically.
+        let base = base.resolve(text);
+        let key = (base, text.to_owned());
         {
             let guard = self.cache.lock().unwrap_or_else(|p| p.into_inner());
-            if let Some(cached) = guard.layouts.get(text) {
+            if let Some(cached) = guard.layouts.get(&key) {
                 return Some(cached.clone());
             }
         }
-        let info = unicode_bidi::BidiInfo::new(text, None);
+        let level = if base == BaseDirection::Rtl {
+            unicode_bidi::Level::rtl()
+        } else {
+            unicode_bidi::Level::ltr()
+        };
+        let info = unicode_bidi::BidiInfo::new(text, Some(level));
         let para = (info.paragraphs.len() == 1).then(|| &info.paragraphs[0])?;
         let (levels, visual_runs) = info.visual_runs(para, para.range.clone());
+        // Byte offset of every grapheme start: maps shaped clusters back to
+        // the logical grapheme that the editor caret and hit tests address.
+        let starts: Vec<usize> = text.grapheme_indices(true).map(|(at, _)| at).collect();
         let mut glyphs = Vec::new();
         for run in visual_runs {
             if !text.is_char_boundary(run.start) || !text.is_char_boundary(run.end) {
                 return None;
             }
             let rtl = levels.get(run.start).is_some_and(|l| l.is_rtl());
+            let first = u32::try_from(starts.partition_point(|&at| at < run.start)).ok()?;
             let mut segments = self.segment_clusters(&text[run]);
             if rtl {
                 segments.reverse();
             }
-            for (face, segment) in segments {
+            for (face, segment, graphemes) in segments {
                 let shaped = self.shape_face(face, &segment, rtl)?;
                 let (glyph_count, question) = self.glyph_limits(face);
                 for g in shaped {
@@ -633,9 +665,14 @@ impl FontSprites {
                     } else {
                         g.id
                     };
+                    let local = graphemes
+                        .partition_point(|&(offset, _)| offset <= g.cluster as usize)
+                        .saturating_sub(1);
+                    let grapheme = first + graphemes.get(local).map_or(0, |&(_, index)| index);
                     glyphs.push(PositionedGlyph {
                         face,
                         index: id,
+                        grapheme,
                         advance: g.advance,
                         x_offset: g.x_offset,
                         y_offset: g.y_offset,
@@ -647,8 +684,52 @@ impl FontSprites {
             }
         }
         let mut guard = self.cache.lock().unwrap_or_else(|p| p.into_inner());
-        guard.insert_layout(text, glyphs.clone());
+        guard.insert_layout(key, glyphs.clone());
         Some(glyphs)
+    }
+
+    /// Per-grapheme advances, in logical order, of the shaped layout that
+    /// `draw_dir` paints. A ligature spanning several graphemes (lam-alef)
+    /// shares its advance evenly between them, so every grapheme keeps a
+    /// distinct caret position inside the ligature.
+    fn shaped_grapheme_advances(&self, text: &str, base: BaseDirection) -> Option<Vec<f32>> {
+        use unicode_segmentation::UnicodeSegmentation;
+        let layout = self.shape_layout_dir(text, base)?;
+        let count = text.graphemes(true).count();
+        let mut advances = vec![0.0_f32; count];
+        let mut has_glyph = vec![false; count];
+        for glyph in &layout {
+            let index = glyph.grapheme as usize;
+            if index < count {
+                advances[index] += glyph.advance.max(0.0);
+                has_glyph[index] = true;
+            }
+        }
+        let mut index = 0;
+        while index < count {
+            let mut end = index + 1;
+            while end < count && !has_glyph[end] {
+                end += 1;
+            }
+            if has_glyph[index] && end - index > 1 {
+                let share = advances[index] / (end - index) as f32;
+                advances[index..end]
+                    .iter_mut()
+                    .for_each(|value| *value = share);
+            }
+            index = end;
+        }
+        Some(advances)
+    }
+
+    /// The painted geometry of `text` in paragraph direction `base`: the same
+    /// shaped (or per-letter) advances that `draw_dir` uses, so alignment,
+    /// carets, hit tests and selections match the glyphs on screen.
+    pub(crate) fn line_layout(&self, text: &str, base: BaseDirection) -> LineLayout {
+        if let Some(advances) = self.shaped_grapheme_advances(text, base) {
+            return LineLayout::from_advances(text, base, &advances);
+        }
+        LineLayout::from_visual_measure(text, base, |visual| self.measure_visual_text(visual))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -921,14 +1002,18 @@ impl FontSprites {
     }
 
     pub fn measure_text(&self, text: &str) -> u32 {
-        if let Some(layout) = self.shape_layout(text) {
+        self.measure_text_dir(text, BaseDirection::Auto)
+    }
+
+    pub(crate) fn measure_text_dir(&self, text: &str, base: BaseDirection) -> u32 {
+        if let Some(layout) = self.shape_layout_dir(text, base) {
             return layout
                 .iter()
                 .map(|g| g.advance.max(0.0))
                 .sum::<f32>()
                 .ceil() as u32;
         }
-        let visual = crate::bidi_layout::visual_order(text);
+        let visual = crate::bidi_layout::visual_order_dir(text, base);
         self.measure_visual_text(&visual)
     }
 
@@ -943,11 +1028,39 @@ impl FontSprites {
         color: u32,
         bold: bool,
     ) {
-        if let Some(layout) = self.shape_layout(text) {
+        self.draw_dir(
+            canvas,
+            width,
+            height,
+            x,
+            y,
+            text,
+            BaseDirection::Auto,
+            color,
+            bold,
+        );
+    }
+
+    /// Paint one line in paragraph direction `base` (UAX #9 P2/P3 for
+    /// `Auto`). Uses exactly the glyph run order of [`Self::line_layout`].
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn draw_dir(
+        &self,
+        canvas: &mut [u8],
+        width: u32,
+        height: u32,
+        x: u32,
+        y: u32,
+        text: &str,
+        base: BaseDirection,
+        color: u32,
+        bold: bool,
+    ) {
+        if let Some(layout) = self.shape_layout_dir(text, base) {
             self.paint_shaped(canvas, width, height, x, y, color, bold, &layout);
             return;
         }
-        let visual = crate::bidi_layout::visual_order(text);
+        let visual = crate::bidi_layout::visual_order_dir(text, base);
         let mut cache = self
             .cache
             .lock()
@@ -1119,7 +1232,7 @@ mod tests {
                 let (display, x) = state.input_view_bidi(
                     400,
                     |text| font.measure_text(text),
-                    |visual| font.measure_visual_text(visual),
+                    |text, base| font.line_layout(text, base),
                 );
                 assert_eq!(display, label, "no clipping at 400px");
                 x
@@ -1316,7 +1429,7 @@ mod tests {
         let segments = font.segment_clusters("ab हिन्दी cd 日本語 \u{10FFFF}");
         let shown: Vec<(bool, &str)> = segments
             .iter()
-            .map(|(face, text)| (matches!(face, FontFace::System(_)), text.as_str()))
+            .map(|(face, text, _)| (matches!(face, FontFace::System(_)), text.as_str()))
             .collect();
         assert_eq!(
             shown,
@@ -1330,7 +1443,7 @@ mod tests {
             "Latin stays on the primary face; scripts become one run each; an \
              uncovered cluster is one primary '?'"
         );
-        let (face, _) = &segments[1];
+        let (face, _, _) = &segments[1];
         assert_eq!(
             *face,
             FontFace::System(0),
@@ -1394,6 +1507,67 @@ mod tests {
         // Mixed text keeps Latin on the primary face; logical text unchanged.
         let mixed = "Run हिन्दी 日本語";
         assert!(font.measure_text(mixed) > font.measure_text("Run  "));
+    }
+
+    #[test]
+    fn rtl_shaped_lines_are_right_aligned_with_carets_on_painted_glyph_edges() {
+        use crate::bidi_layout::BaseDirection;
+        use unicode_segmentation::UnicodeSegmentation;
+        assert!(
+            std::path::Path::new("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf").exists(),
+            "FONT UNAVAILABLE: install fonts-dejavu-core; Arabic/Hebrew layout NOT verified"
+        );
+        let font = latin_with_system_fallback();
+        for label in ["مرحبا", "שלום", "مرحبا Abc", "abc שלום 123", "لا"] {
+            let line = font.line_layout(label, BaseDirection::Auto);
+            let count = label.graphemes(true).count();
+            let rtl = !label.starts_with("abc");
+            assert_eq!(line.is_rtl(), rtl, "{label}: UAX #9 P2/P3");
+            // Alignment uses the width the glyphs are painted with.
+            assert_eq!(line.width(), font.measure_text(label), "{label}");
+            assert_eq!(
+                line.align_offset(200),
+                if rtl { 200 - line.width() } else { 0 }
+            );
+            let (left, right) = ink_columns(&font, label, 200).expect("real glyph ink");
+            assert!(
+                left <= 2 && right + 3 >= line.width(),
+                "{label}: ink {left}..{right}"
+            );
+            // Home/End sit on the paragraph's start/end edges.
+            let (home, end) = (line.caret_x(0), line.caret_x(count));
+            if rtl {
+                assert_eq!((home, end), (line.width(), 0), "{label}");
+            } else {
+                assert_eq!((home, end), (0, line.width()), "{label}");
+            }
+            // Every logical caret is a distinct painted position, including
+            // the two graphemes of the lam-alef ligature.
+            let mut xs: Vec<u32> = (0..=count).map(|c| line.caret_x(c)).collect();
+            xs.sort_unstable();
+            xs.dedup();
+            assert_eq!(xs.len(), count + 1, "{label}: {xs:?}");
+        }
+        // A pure RTL word: carets strictly decrease in logical order.
+        let word = font.line_layout("مرحبا", BaseDirection::Auto);
+        let xs: Vec<u32> = (0..=5).map(|c| word.caret_x(c)).collect();
+        assert!(xs.windows(2).all(|pair| pair[1] < pair[0]), "{xs:?}");
+        // Painting in a forced direction matches the forced layout.
+        let mut auto = vec![0_u8; 200 * 32 * 4];
+        let mut forced = auto.clone();
+        font.draw(&mut auto, 200, 32, 0, 2, "مرحبا Abc", 0xffff_ffff, false);
+        font.draw_dir(
+            &mut forced,
+            200,
+            32,
+            0,
+            2,
+            "مرحبا Abc",
+            BaseDirection::Ltr,
+            0xffff_ffff,
+            false,
+        );
+        assert_ne!(auto, forced, "LTR base puts the Arabic run first");
     }
 
     #[test]
