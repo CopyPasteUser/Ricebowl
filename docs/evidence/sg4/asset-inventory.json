@@ -23,107 +23,143 @@
    "window-chrome": 336
   },
   "by_flag": {
-   "RF01": 3,
-   "RF02": 3,
-   "RF03": 1,
-   "RF04": 2,
+   "RF04": 1,
    "RF05": 4,
-   "RF06": 1,
-   "RF07": 1,
-   "RF08": 1,
    "RF09": 105,
    "RF10": 101,
-   "RF11": 9,
+   "RF11": 7,
    "RF12": 1,
    "RF13": 1,
    "RF14": 11
   },
-  "flagged_files": 237
+  "flagged_files": 230
  },
  "flag_catalogue": {
   "RF01": {
    "severity": "high",
    "title": "Lookalike of a proprietary OS logo",
    "detail": "Four-pane perspective window mark / wallpaper emblem evokes the Windows 10 logo; AGENTS.md forbids copying proprietary logos.",
-   "recommended_action": "Replace the four-pane mark with an unmistakably original penguin/bowl mark, or record an explicit owner risk acceptance."
+   "recommended_action": "Replace the four-pane mark with an unmistakably original penguin/bowl mark, or record an explicit owner risk acceptance.",
+   "status": "resolved",
+   "resolution": "ten-start.svg, ten-blue.jpg, ten-midnight.jpg replaced by original bowl-of-light artwork from scripts/build_original_artwork.py; no four-pane mark remains.",
+   "commits": [
+    "e328d68"
+   ]
   },
   "RF02": {
    "severity": "medium",
    "title": "Composition modelled on a proprietary default wallpaper",
    "detail": "Light-beam hero composition modelled on the Windows 10 default wallpaper.",
-   "recommended_action": "Owner visual comparison; redraw the beam geometry or accept the risk in writing."
+   "recommended_action": "Owner visual comparison; redraw the beam geometry or accept the risk in writing.",
+   "status": "resolved",
+   "resolution": "windows10-bloom.svg and the ten wallpapers redrawn as a fan of rays and ripples rising from a bowl (different composition from the Windows 10 hero image).",
+   "commits": [
+    "e328d68"
+   ]
   },
   "RF03": {
    "severity": "high",
    "title": "Likely lookalike of a proprietary wallpaper, source undocumented",
    "detail": "Photographic green-hill / blue-sky / cloud scene evoking Windows XP 'Bliss'; no generator produces these bytes and no author, tool or prompt is recorded.",
-   "recommended_action": "Owner to confirm provenance and generation records, or replace with a clearly original scene."
+   "recommended_action": "Owner to confirm provenance and generation records, or replace with a clearly original scene.",
+   "status": "resolved",
+   "resolution": "luna-hills.jpg replaced by a procedurally drawn terraced-ridge dusk scene (scripts/build_original_artwork.py).",
+   "commits": [
+    "e328d68"
+   ]
   },
   "RF04": {
    "severity": "medium",
    "title": "Raster artwork with undocumented origin",
    "detail": "Hand-reviewed raster not reproduced by any in-repo generator and not named in CONTRIBUTORS.md.",
-   "recommended_action": "Record author/tool, generation prompt and terms of use, or replace."
+   "recommended_action": "Record author/tool, generation prompt and terms of use, or replace.",
+   "status": "partially-resolved",
+   "resolution": "luna-hills.jpg now has a generator and provenance; frutiger-future.jpg remains open.",
+   "commits": [
+    "e328d68"
+   ]
   },
   "RF05": {
    "severity": "medium",
    "title": "AI-generated artwork: no per-file record",
    "detail": "CONTRIBUTORS.md says it was generated with OpenAI image tools; prompts, date, account terms and any style reference are not recorded. AI output may not carry copyright, and the 'Aero Seven' names/Frutiger-Aero look imitate Windows 7 era artwork.",
-   "recommended_action": "Archive prompts and generation records, confirm the tool terms allow MIT redistribution, and confirm no proprietary reference image was supplied."
+   "recommended_action": "Archive prompts and generation records, confirm the tool terms allow MIT redistribution, and confirm no proprietary reference image was supplied.",
+   "status": "open"
   },
   "RF06": {
    "severity": "medium",
    "title": "Third-party brand palette in a logo",
    "detail": "2x2 rounded squares in the exact Google brand colours (#4285f4 #ea4335 #fbbc04 #34a853).",
-   "recommended_action": "Recolour to a RiceBowl palette or replace the mark."
+   "recommended_action": "Recolour to a RiceBowl palette or replace the mark.",
+   "status": "resolved",
+   "resolution": "ricebowl-chrome-start.svg is a bowl-in-circle launcher glyph in the RiceBowl Chrome palette; no Google brand colours.",
+   "commits": [
+    "e328d68"
+   ]
   },
   "RF07": {
    "severity": "medium",
    "title": "Bundled font bytes not matched to an upstream release",
    "detail": "Internal version string is Liberation Sans 2.1.5 (OFL-1.1) but the sha256 differs from Debian fonts-liberation's file of the same version; unmodified status (OFL reserved font name 'Liberation') is therefore unverified.",
-   "recommended_action": "Compare against the upstream 2.1.5 release tarball; if modified, rename or replace."
+   "recommended_action": "Compare against the upstream 2.1.5 release tarball; if modified, rename or replace.",
+   "status": "resolved",
+   "resolution": "Old file differed from Debian's 2.1.5 only in the FFTM build timestamp and derived checksums (unmodified rebuild); replaced by the checksummed Debian/Ubuntu fonts-liberation 1:2.1.5-3 file; assets/fonts/PROVENANCE.md. Upstream tarball comparison remains an owner task.",
+   "commits": [
+    "8ddd4f9"
+   ]
   },
   "RF08": {
    "severity": "medium",
    "title": "OFL notice not confirmed in packaged builds",
    "detail": "The font is embedded in the native binary via include_bytes!, but the Debian build scripts install no copyright/licence file for it.",
-   "recommended_action": "Ship assets/fonts/LiberationSans-LICENSE.txt in every package that embeds the font."
+   "recommended_action": "Ship assets/fonts/LiberationSans-LICENSE.txt in every package that embeds the font.",
+   "status": "resolved",
+   "resolution": "ricebowl-riceplate-native installs copyright and LiberationSans-LICENSE.txt under /usr/share/doc/ricebowl-riceplate-native/; verify_wayland_package_set.sh enforces it.",
+   "commits": [
+    "8ddd4f9"
+   ]
   },
   "RF09": {
    "severity": "low",
    "title": "Tracked bytes differ from generator output",
    "detail": "The in-repo generator rebuilds this file with different bytes, so the tracked version was edited by hand or by an earlier generator revision and is not reproducible.",
-   "recommended_action": "Owner accepts hand edits as original or re-commits generator output."
+   "recommended_action": "Owner accepts hand edits as original or re-commits generator output.",
+   "status": "open"
   },
   "RF10": {
    "severity": "medium",
    "title": "Documentation capture of OS-imitating UI",
    "detail": "Real screenshot containing flagged wallpapers/logos and third-party application UI (Thunar, GTK widgets, system fonts). Not a runtime asset.",
-   "recommended_action": "Resolve the flags on the artwork shown; confirm screenshots are acceptable to publish."
+   "recommended_action": "Resolve the flags on the artwork shown; confirm screenshots are acceptable to publish.",
+   "status": "open"
   },
   "RF11": {
    "severity": "low",
    "title": "Penguin mascot resembles Tux",
    "detail": "Linux penguin artwork is declared original, but Tux (Larry Ewing) is a licensed work.",
-   "recommended_action": "Owner confirms the drawings are independent, or adds Tux attribution."
+   "recommended_action": "Owner confirms the drawings are independent, or adds Tux attribution.",
+   "status": "open"
   },
   "RF12": {
    "severity": "low",
    "title": "macOS-styled glyph or tile",
    "detail": "Rounded-tile Control-Center style icon in Apple's system blue (#0a84ff); filename names macOS.",
-   "recommended_action": "Owner visual comparison against Apple artwork; rename if needed."
+   "recommended_action": "Owner visual comparison against Apple artwork; rename if needed.",
+   "status": "open"
   },
   "RF13": {
    "severity": "info",
    "title": "Proprietary font names referenced",
    "detail": "CSS names proprietary families (e.g. Tahoma, Segoe UI) only as fallbacks; no such font file is shipped.",
-   "recommended_action": "None required beyond confirming no proprietary font is bundled."
+   "recommended_action": "None required beyond confirming no proprietary font is bundled.",
+   "status": "open"
   },
   "RF14": {
    "severity": "low",
    "title": "Bundled recipe carries no provenance block",
    "detail": "Bundled example/default recipe has no author, licence or origin field; it references wallpapers and the bundled font by name.",
-   "recommended_action": "Attach provenance when the recipe is published as a RicePack."
+   "recommended_action": "Attach provenance when the recipe is published as a RicePack.",
+   "status": "open"
   }
  },
  "external_references": [
@@ -198,13 +234,13 @@
   },
   {
    "path": "assets/fonts/LiberationSans-LICENSE.txt",
-   "sha256": "f32df582a2aab128c07b2f7e36e7b928dc5f6bd82657b905c04f91459f9e5cf9",
-   "size": 5756,
+   "sha256": "93fed46019c38bbe566b479d22148e2e8a1e85ada614accb0211c37b2c61c19b",
+   "size": 4414,
    "category": "font-licence",
    "rices": [],
    "users": [],
-   "declared_licence": "OFL-1.1 text (Debian copyright format)",
-   "origin": "third-party licence text for Liberation Sans",
+   "declared_licence": "OFL-1.1 text (verbatim upstream LICENSE)",
+   "origin": "third-party licence text for Liberation Sans: the LICENSE file of the Liberation Fonts 2.1.5 release, byte for byte",
    "generated_by": null,
    "generator_reproduces_tracked_bytes": null,
    "flags": [],
@@ -212,13 +248,14 @@
   },
   {
    "path": "assets/fonts/LiberationSans-Regular.ttf",
-   "sha256": "bade59d822652f76e6941aa87b40a87c13d1cc70db98ededb5011127efafd1d3",
+   "sha256": "4659bc0c58c5028dd488ec928d41d9265db43d9b669fc14ca8b0832daca7b144",
    "size": 410820,
    "category": "font",
    "rices": [
     "all native-Wayland rices (builtin font)"
    ],
    "users": [
+    "assets/fonts/PROVENANCE.md",
     "components/riceplate-wayland/src/native_shaping.rs",
     "components/riceplate-wayland/src/style_art.rs",
     "components/riceplate-wayland/src/system_fallback.rs",
@@ -227,13 +264,10 @@
     "tests/test_sg4_creator_release.py"
    ],
    "declared_licence": "OFL-1.1 (assets/fonts/LiberationSans-LICENSE.txt)",
-   "origin": "third-party: Liberation Sans 2.1.5, (c) Google/Red Hat; embedded in riceplate-wayland via include_bytes!",
+   "origin": "third-party, unmodified: Liberation Sans Regular 2.1.5, (c) Google/Red Hat; Debian/Ubuntu fonts-liberation 1:2.1.5-3 build of the upstream 2.1.5 source; see assets/fonts/PROVENANCE.md; embedded in riceplate-wayland via include_bytes!; OFL notice installed in ricebowl-riceplate-native",
    "generated_by": null,
    "generator_reproduces_tracked_bytes": null,
-   "flags": [
-    "RF07",
-    "RF08"
-   ],
+   "flags": [],
    "first_commit": "3d6b5fd 2026-11-19"
   },
   {
@@ -440,10 +474,12 @@
    "users": [
     "WINDOWS7.md",
     "assets/trusted-ricebowl-classic-before-fidelity.json",
+    "assets/trusted-ricebowl-sg4-original-art.json",
     "assets/trusted-ricehub-assets.json",
     "docs/sg4-asset-rights-audit.md",
     "scripts/build_aero_assets.py",
-    "scripts/build_ten_assets.py"
+    "scripts/build_ten_assets.py",
+    "tests/test_sg4_original_artwork.py"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "original project asset (CONTRIBUTORS.md / RICEHUB.md state RiceBowl bundles no Microsoft or Apple artwork)",
@@ -633,6 +669,7 @@
     "WINDOWS7.md",
     "assets/trusted-ricebowl-classic-before-fidelity.json",
     "assets/trusted-ricebowl-frutiger-before-aqua.json",
+    "assets/trusted-ricebowl-sg4-original-art.json",
     "assets/trusted-ricebowl-ten-before-fidelity.json",
     "assets/trusted-ricehub-assets.json",
     "macrice/installer.py",
@@ -640,8 +677,7 @@
     "tests/test_classic_98.py",
     "tests/test_heritage.py",
     "tests/test_ricebowl_branding.py",
-    "tests/test_ten.py",
-    "tests/test_windows10_fidelity.py"
+    "tests/test_ten.py"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "original project asset (CONTRIBUTORS.md / RICEHUB.md state RiceBowl bundles no Microsoft or Apple artwork)",
@@ -730,6 +766,7 @@
     "WINDOWS7.md",
     "assets/trusted-ricebowl-classic-before-fidelity.json",
     "assets/trusted-ricebowl-frutiger-before-aqua.json",
+    "assets/trusted-ricebowl-sg4-original-art.json",
     "assets/trusted-ricebowl-ten-before-fidelity.json",
     "assets/trusted-ricehub-assets.json"
    ],
@@ -1295,10 +1332,12 @@
    "users": [
     "WINDOWS7.md",
     "assets/trusted-ricebowl-classic-before-fidelity.json",
+    "assets/trusted-ricebowl-sg4-original-art.json",
     "assets/trusted-ricehub-assets.json",
     "docs/sg4-asset-rights-audit.md",
     "scripts/build_aero_assets.py",
-    "scripts/build_ten_assets.py"
+    "scripts/build_ten_assets.py",
+    "tests/test_sg4_original_artwork.py"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "original project asset (CONTRIBUTORS.md / RICEHUB.md state RiceBowl bundles no Microsoft or Apple artwork)",
@@ -1331,8 +1370,8 @@
   },
   {
    "path": "assets/icons/RiceHub-Chrome-Icons/scalable/apps/ricebowl-start.svg",
-   "sha256": "1d259d42ff4becdccbabdc1deccd5e4fc6c484b8e244bb2db38fbbb97967c430",
-   "size": 427,
+   "sha256": "3caf56bd1e58deb03c4f5c104b3382cf7b5a314b5354867bf4b5e8329c05e905",
+   "size": 595,
    "category": "icon",
    "rices": [
     "chromeos"
@@ -1340,19 +1379,20 @@
    "users": [
     "assets/trusted-ricebowl-classic-before-fidelity.json",
     "assets/trusted-ricebowl-frutiger-before-aqua.json",
+    "assets/trusted-ricebowl-sg4-original-art.json",
     "assets/trusted-ricehub-assets.json"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "original project asset (CONTRIBUTORS.md / RICEHUB.md state RiceBowl bundles no Microsoft or Apple artwork)",
-   "generated_by": "scripts/build_heritage_assets.py",
+   "generated_by": "scripts/build_original_artwork.py + scripts/build_heritage_assets.py",
    "generator_reproduces_tracked_bytes": true,
    "flags": [],
    "first_commit": "3d6b5fd 2026-11-19"
   },
   {
    "path": "assets/icons/RiceHub-Chrome-Icons/scalable/apps/ricehub-start.svg",
-   "sha256": "1d259d42ff4becdccbabdc1deccd5e4fc6c484b8e244bb2db38fbbb97967c430",
-   "size": 427,
+   "sha256": "3caf56bd1e58deb03c4f5c104b3382cf7b5a314b5354867bf4b5e8329c05e905",
+   "size": 595,
    "category": "icon",
    "rices": [
     "chromeos"
@@ -1360,19 +1400,20 @@
    "users": [
     "assets/trusted-ricebowl-classic-before-fidelity.json",
     "assets/trusted-ricebowl-frutiger-before-aqua.json",
+    "assets/trusted-ricebowl-sg4-original-art.json",
     "assets/trusted-ricehub-assets.json"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "original project asset (CONTRIBUTORS.md / RICEHUB.md state RiceBowl bundles no Microsoft or Apple artwork)",
-   "generated_by": "scripts/build_heritage_assets.py",
+   "generated_by": "scripts/build_original_artwork.py + scripts/build_heritage_assets.py",
    "generator_reproduces_tracked_bytes": true,
    "flags": [],
    "first_commit": "3d6b5fd 2026-11-19"
   },
   {
    "path": "assets/icons/RiceHub-Chrome-Icons/scalable/apps/start-here.svg",
-   "sha256": "1d259d42ff4becdccbabdc1deccd5e4fc6c484b8e244bb2db38fbbb97967c430",
-   "size": 427,
+   "sha256": "3caf56bd1e58deb03c4f5c104b3382cf7b5a314b5354867bf4b5e8329c05e905",
+   "size": 595,
    "category": "icon",
    "rices": [
     "chromeos"
@@ -1381,6 +1422,7 @@
     "WINDOWS7.md",
     "assets/trusted-ricebowl-classic-before-fidelity.json",
     "assets/trusted-ricebowl-frutiger-before-aqua.json",
+    "assets/trusted-ricebowl-sg4-original-art.json",
     "assets/trusted-ricebowl-ten-before-fidelity.json",
     "assets/trusted-ricehub-assets.json",
     "macrice/installer.py",
@@ -1388,12 +1430,11 @@
     "tests/test_classic_98.py",
     "tests/test_heritage.py",
     "tests/test_ricebowl_branding.py",
-    "tests/test_ten.py",
-    "tests/test_windows10_fidelity.py"
+    "tests/test_ten.py"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "original project asset (CONTRIBUTORS.md / RICEHUB.md state RiceBowl bundles no Microsoft or Apple artwork)",
-   "generated_by": "scripts/build_heritage_assets.py",
+   "generated_by": "scripts/build_original_artwork.py + scripts/build_heritage_assets.py",
    "generator_reproduces_tracked_bytes": true,
    "flags": [],
    "first_commit": "3d6b5fd 2026-11-19"
@@ -1468,8 +1509,8 @@
   },
   {
    "path": "assets/icons/RiceHub-Chrome-Icons/scalable/apps/xfce4-menu.svg",
-   "sha256": "1d259d42ff4becdccbabdc1deccd5e4fc6c484b8e244bb2db38fbbb97967c430",
-   "size": 427,
+   "sha256": "3caf56bd1e58deb03c4f5c104b3382cf7b5a314b5354867bf4b5e8329c05e905",
+   "size": 595,
    "category": "icon",
    "rices": [
     "chromeos"
@@ -1478,12 +1519,13 @@
     "WINDOWS7.md",
     "assets/trusted-ricebowl-classic-before-fidelity.json",
     "assets/trusted-ricebowl-frutiger-before-aqua.json",
+    "assets/trusted-ricebowl-sg4-original-art.json",
     "assets/trusted-ricebowl-ten-before-fidelity.json",
     "assets/trusted-ricehub-assets.json"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "original project asset (CONTRIBUTORS.md / RICEHUB.md state RiceBowl bundles no Microsoft or Apple artwork)",
-   "generated_by": "scripts/build_heritage_assets.py",
+   "generated_by": "scripts/build_original_artwork.py + scripts/build_heritage_assets.py",
    "generator_reproduces_tracked_bytes": true,
    "flags": [],
    "first_commit": "3d6b5fd 2026-11-19"
@@ -1841,10 +1883,12 @@
    "users": [
     "WINDOWS7.md",
     "assets/trusted-ricebowl-classic-before-fidelity.json",
+    "assets/trusted-ricebowl-sg4-original-art.json",
     "assets/trusted-ricehub-assets.json",
     "docs/sg4-asset-rights-audit.md",
     "scripts/build_aero_assets.py",
-    "scripts/build_ten_assets.py"
+    "scripts/build_ten_assets.py",
+    "tests/test_sg4_original_artwork.py"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "original project asset (CONTRIBUTORS.md / RICEHUB.md state RiceBowl bundles no Microsoft or Apple artwork)",
@@ -1936,6 +1980,7 @@
    "users": [
     "assets/trusted-ricebowl-classic-before-fidelity.json",
     "assets/trusted-ricebowl-frutiger-before-aqua.json",
+    "assets/trusted-ricebowl-sg4-original-art.json",
     "assets/trusted-ricehub-assets.json"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
@@ -1956,6 +2001,7 @@
    "users": [
     "assets/trusted-ricebowl-classic-before-fidelity.json",
     "assets/trusted-ricebowl-frutiger-before-aqua.json",
+    "assets/trusted-ricebowl-sg4-original-art.json",
     "assets/trusted-ricehub-assets.json"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
@@ -1977,6 +2023,7 @@
     "WINDOWS7.md",
     "assets/trusted-ricebowl-classic-before-fidelity.json",
     "assets/trusted-ricebowl-frutiger-before-aqua.json",
+    "assets/trusted-ricebowl-sg4-original-art.json",
     "assets/trusted-ricebowl-ten-before-fidelity.json",
     "assets/trusted-ricehub-assets.json",
     "macrice/installer.py",
@@ -1984,8 +2031,7 @@
     "tests/test_classic_98.py",
     "tests/test_heritage.py",
     "tests/test_ricebowl_branding.py",
-    "tests/test_ten.py",
-    "tests/test_windows10_fidelity.py"
+    "tests/test_ten.py"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "original project asset (CONTRIBUTORS.md / RICEHUB.md state RiceBowl bundles no Microsoft or Apple artwork)",
@@ -2106,6 +2152,7 @@
     "WINDOWS7.md",
     "assets/trusted-ricebowl-classic-before-fidelity.json",
     "assets/trusted-ricebowl-frutiger-before-aqua.json",
+    "assets/trusted-ricebowl-sg4-original-art.json",
     "assets/trusted-ricebowl-ten-before-fidelity.json",
     "assets/trusted-ricehub-assets.json"
    ],
@@ -2469,10 +2516,12 @@
    "users": [
     "WINDOWS7.md",
     "assets/trusted-ricebowl-classic-before-fidelity.json",
+    "assets/trusted-ricebowl-sg4-original-art.json",
     "assets/trusted-ricehub-assets.json",
     "docs/sg4-asset-rights-audit.md",
     "scripts/build_aero_assets.py",
-    "scripts/build_ten_assets.py"
+    "scripts/build_ten_assets.py",
+    "tests/test_sg4_original_artwork.py"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "original project asset (CONTRIBUTORS.md / RICEHUB.md state RiceBowl bundles no Microsoft or Apple artwork)",
@@ -2533,6 +2582,7 @@
    "users": [
     "assets/trusted-ricebowl-classic-before-fidelity.json",
     "assets/trusted-ricebowl-frutiger-before-aqua.json",
+    "assets/trusted-ricebowl-sg4-original-art.json",
     "assets/trusted-ricehub-assets.json"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
@@ -2553,6 +2603,7 @@
    "users": [
     "assets/trusted-ricebowl-classic-before-fidelity.json",
     "assets/trusted-ricebowl-frutiger-before-aqua.json",
+    "assets/trusted-ricebowl-sg4-original-art.json",
     "assets/trusted-ricehub-assets.json"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
@@ -2574,6 +2625,7 @@
     "WINDOWS7.md",
     "assets/trusted-ricebowl-classic-before-fidelity.json",
     "assets/trusted-ricebowl-frutiger-before-aqua.json",
+    "assets/trusted-ricebowl-sg4-original-art.json",
     "assets/trusted-ricebowl-ten-before-fidelity.json",
     "assets/trusted-ricehub-assets.json",
     "macrice/installer.py",
@@ -2581,8 +2633,7 @@
     "tests/test_classic_98.py",
     "tests/test_heritage.py",
     "tests/test_ricebowl_branding.py",
-    "tests/test_ten.py",
-    "tests/test_windows10_fidelity.py"
+    "tests/test_ten.py"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "original project asset (CONTRIBUTORS.md / RICEHUB.md state RiceBowl bundles no Microsoft or Apple artwork)",
@@ -2671,6 +2722,7 @@
     "WINDOWS7.md",
     "assets/trusted-ricebowl-classic-before-fidelity.json",
     "assets/trusted-ricebowl-frutiger-before-aqua.json",
+    "assets/trusted-ricebowl-sg4-original-art.json",
     "assets/trusted-ricebowl-ten-before-fidelity.json",
     "assets/trusted-ricehub-assets.json"
    ],
@@ -3052,10 +3104,12 @@
    "users": [
     "WINDOWS7.md",
     "assets/trusted-ricebowl-classic-before-fidelity.json",
+    "assets/trusted-ricebowl-sg4-original-art.json",
     "assets/trusted-ricehub-assets.json",
     "docs/sg4-asset-rights-audit.md",
     "scripts/build_aero_assets.py",
-    "scripts/build_ten_assets.py"
+    "scripts/build_ten_assets.py",
+    "tests/test_sg4_original_artwork.py"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "original project asset (CONTRIBUTORS.md / RICEHUB.md state RiceBowl bundles no Microsoft or Apple artwork)",
@@ -3129,6 +3183,7 @@
    "users": [
     "assets/trusted-ricebowl-classic-before-fidelity.json",
     "assets/trusted-ricebowl-frutiger-before-aqua.json",
+    "assets/trusted-ricebowl-sg4-original-art.json",
     "assets/trusted-ricehub-assets.json"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
@@ -3652,6 +3707,7 @@
    "users": [
     "assets/trusted-ricebowl-classic-before-fidelity.json",
     "assets/trusted-ricebowl-frutiger-before-aqua.json",
+    "assets/trusted-ricebowl-sg4-original-art.json",
     "assets/trusted-ricehub-assets.json"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
@@ -3673,6 +3729,7 @@
     "WINDOWS7.md",
     "assets/trusted-ricebowl-classic-before-fidelity.json",
     "assets/trusted-ricebowl-frutiger-before-aqua.json",
+    "assets/trusted-ricebowl-sg4-original-art.json",
     "assets/trusted-ricebowl-ten-before-fidelity.json",
     "assets/trusted-ricehub-assets.json",
     "macrice/installer.py",
@@ -3680,8 +3737,7 @@
     "tests/test_classic_98.py",
     "tests/test_heritage.py",
     "tests/test_ricebowl_branding.py",
-    "tests/test_ten.py",
-    "tests/test_windows10_fidelity.py"
+    "tests/test_ten.py"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "original project asset (CONTRIBUTORS.md / RICEHUB.md state RiceBowl bundles no Microsoft or Apple artwork)",
@@ -3834,6 +3890,7 @@
     "WINDOWS7.md",
     "assets/trusted-ricebowl-classic-before-fidelity.json",
     "assets/trusted-ricebowl-frutiger-before-aqua.json",
+    "assets/trusted-ricebowl-sg4-original-art.json",
     "assets/trusted-ricebowl-ten-before-fidelity.json",
     "assets/trusted-ricehub-assets.json"
    ],
@@ -4186,8 +4243,8 @@
   },
   {
    "path": "assets/icons/RiceHub-Ten-Penguin/scalable/apps/applications-other.svg",
-   "sha256": "404664157c0a7a32d14d27f984ae01d5555a7651b6ce00641b5b5bb41f354b7f",
-   "size": 299,
+   "sha256": "ec90e9e6735353c1dc64159a0651d6dd751e49a4201544ec8d1c146b7d0d90d4",
+   "size": 655,
    "category": "icon",
    "rices": [
     "windows10"
@@ -4195,10 +4252,12 @@
    "users": [
     "WINDOWS7.md",
     "assets/trusted-ricebowl-classic-before-fidelity.json",
+    "assets/trusted-ricebowl-sg4-original-art.json",
     "assets/trusted-ricehub-assets.json",
     "docs/sg4-asset-rights-audit.md",
     "scripts/build_aero_assets.py",
-    "scripts/build_ten_assets.py"
+    "scripts/build_ten_assets.py",
+    "tests/test_sg4_original_artwork.py"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "original project asset (CONTRIBUTORS.md / RICEHUB.md state RiceBowl bundles no Microsoft or Apple artwork)",
@@ -4231,27 +4290,28 @@
   },
   {
    "path": "assets/icons/RiceHub-Ten-Penguin/scalable/apps/ricehub-ten.svg",
-   "sha256": "d92a76bc56a0ce860d72a193c75f8ef522c1545ca651f5ed1d2dc5be57399f1a",
-   "size": 617,
+   "sha256": "c4b81e0965fc0f5b542195943ee8ee625ab312bda113f1d899ecc83cc6e04669",
+   "size": 640,
    "category": "icon",
    "rices": [
     "windows10"
    ],
    "users": [
+    "assets/trusted-ricebowl-sg4-original-art.json",
     "assets/trusted-ricebowl-ten-before-fidelity.json",
     "assets/trusted-ricehub-assets.json"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "original project asset (CONTRIBUTORS.md / RICEHUB.md state RiceBowl bundles no Microsoft or Apple artwork)",
-   "generated_by": "scripts/build_ten_assets.py",
+   "generated_by": "scripts/build_original_artwork.py + scripts/build_ten_assets.py",
    "generator_reproduces_tracked_bytes": true,
    "flags": [],
    "first_commit": "3d6b5fd 2026-11-19"
   },
   {
    "path": "assets/icons/RiceHub-Ten-Penguin/scalable/apps/start-here.svg",
-   "sha256": "d92a76bc56a0ce860d72a193c75f8ef522c1545ca651f5ed1d2dc5be57399f1a",
-   "size": 617,
+   "sha256": "c4b81e0965fc0f5b542195943ee8ee625ab312bda113f1d899ecc83cc6e04669",
+   "size": 640,
    "category": "icon",
    "rices": [
     "windows10"
@@ -4260,6 +4320,7 @@
     "WINDOWS7.md",
     "assets/trusted-ricebowl-classic-before-fidelity.json",
     "assets/trusted-ricebowl-frutiger-before-aqua.json",
+    "assets/trusted-ricebowl-sg4-original-art.json",
     "assets/trusted-ricebowl-ten-before-fidelity.json",
     "assets/trusted-ricehub-assets.json",
     "macrice/installer.py",
@@ -4267,12 +4328,11 @@
     "tests/test_classic_98.py",
     "tests/test_heritage.py",
     "tests/test_ricebowl_branding.py",
-    "tests/test_ten.py",
-    "tests/test_windows10_fidelity.py"
+    "tests/test_ten.py"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "original project asset (CONTRIBUTORS.md / RICEHUB.md state RiceBowl bundles no Microsoft or Apple artwork)",
-   "generated_by": "scripts/build_ten_assets.py",
+   "generated_by": "scripts/build_original_artwork.py + scripts/build_ten_assets.py",
    "generator_reproduces_tracked_bytes": true,
    "flags": [],
    "first_commit": "3d6b5fd 2026-11-19"
@@ -4347,8 +4407,8 @@
   },
   {
    "path": "assets/icons/RiceHub-Ten-Penguin/scalable/apps/xfce4-menu.svg",
-   "sha256": "d92a76bc56a0ce860d72a193c75f8ef522c1545ca651f5ed1d2dc5be57399f1a",
-   "size": 617,
+   "sha256": "c4b81e0965fc0f5b542195943ee8ee625ab312bda113f1d899ecc83cc6e04669",
+   "size": 640,
    "category": "icon",
    "rices": [
     "windows10"
@@ -4357,12 +4417,13 @@
     "WINDOWS7.md",
     "assets/trusted-ricebowl-classic-before-fidelity.json",
     "assets/trusted-ricebowl-frutiger-before-aqua.json",
+    "assets/trusted-ricebowl-sg4-original-art.json",
     "assets/trusted-ricebowl-ten-before-fidelity.json",
     "assets/trusted-ricehub-assets.json"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "original project asset (CONTRIBUTORS.md / RICEHUB.md state RiceBowl bundles no Microsoft or Apple artwork)",
-   "generated_by": "scripts/build_ten_assets.py",
+   "generated_by": "scripts/build_original_artwork.py + scripts/build_ten_assets.py",
    "generator_reproduces_tracked_bytes": true,
    "flags": [],
    "first_commit": "3d6b5fd 2026-11-19"
@@ -4634,8 +4695,8 @@
   },
   {
    "path": "assets/ricebowl-chrome-start.svg",
-   "sha256": "1d259d42ff4becdccbabdc1deccd5e4fc6c484b8e244bb2db38fbbb97967c430",
-   "size": 427,
+   "sha256": "3caf56bd1e58deb03c4f5c104b3382cf7b5a314b5354867bf4b5e8329c05e905",
+   "size": 595,
    "category": "logo-or-mark",
    "rices": [
     "chromeos"
@@ -4647,15 +4708,15 @@
     "macrice/hub_art.py",
     "macrice/installer.py",
     "scripts/build_heritage_assets.py",
-    "tests/test_ricebowl_artwork_generation.py"
+    "scripts/build_original_artwork.py",
+    "tests/test_ricebowl_artwork_generation.py",
+    "tests/test_sg4_original_artwork.py"
    ],
-   "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
-   "origin": "original project asset (CONTRIBUTORS.md / RICEHUB.md state RiceBowl bundles no Microsoft or Apple artwork)",
-   "generated_by": null,
-   "generator_reproduces_tracked_bytes": null,
-   "flags": [
-    "RF06"
-   ],
+   "declared_licence": "MIT (repo-wide LICENSE); original work generated by scripts/build_original_artwork.py",
+   "origin": "original, generated in-repo by scripts/build_original_artwork.py (deterministic, offline Pillow/hand-written SVG; no photographs, no AI inference); replaces earlier OS-lookalike artwork (SG4 RF01-RF03/RF06)",
+   "generated_by": "scripts/build_original_artwork.py",
+   "generator_reproduces_tracked_bytes": true,
+   "flags": [],
    "first_commit": "3d6b5fd 2026-11-19"
   },
   {
@@ -5875,8 +5936,8 @@
   },
   {
    "path": "assets/ten-start.svg",
-   "sha256": "d92a76bc56a0ce860d72a193c75f8ef522c1545ca651f5ed1d2dc5be57399f1a",
-   "size": 617,
+   "sha256": "c4b81e0965fc0f5b542195943ee8ee625ab312bda113f1d899ecc83cc6e04669",
+   "size": 640,
    "category": "logo-or-mark",
    "rices": [
     "windows10"
@@ -5889,18 +5950,16 @@
     "macrice/hub_art.py",
     "macrice/ten.py",
     "macrice/windows10_proto.py",
+    "scripts/build_original_artwork.py",
     "scripts/build_ten_assets.py",
     "tests/test_ten.py",
     "tests/test_windows10_fidelity.py"
    ],
-   "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
-   "origin": "original project asset (CONTRIBUTORS.md / RICEHUB.md state RiceBowl bundles no Microsoft or Apple artwork)",
-   "generated_by": null,
-   "generator_reproduces_tracked_bytes": null,
-   "flags": [
-    "RF01",
-    "RF11"
-   ],
+   "declared_licence": "MIT (repo-wide LICENSE); original work generated by scripts/build_original_artwork.py",
+   "origin": "original, generated in-repo by scripts/build_original_artwork.py (deterministic, offline Pillow/hand-written SVG; no photographs, no AI inference); replaces earlier OS-lookalike artwork (SG4 RF01-RF03/RF06)",
+   "generated_by": "scripts/build_original_artwork.py",
+   "generator_reproduces_tracked_bytes": true,
+   "flags": [],
    "first_commit": "3d6b5fd 2026-11-19"
   },
   {
@@ -14971,8 +15030,8 @@
   },
   {
    "path": "assets/wallpapers/luna-hills.jpg",
-   "sha256": "bb843f5783c29661797112dfd7514998f56c2cef94d6a9d6b2923e79d5b23d1b",
-   "size": 423426,
+   "sha256": "b7eba05d904d85a4147b6b9c8c89eb8be1c44691d2ae614d4efb743018b5f556",
+   "size": 276812,
    "category": "wallpaper",
    "rices": [
     "winxp"
@@ -14988,23 +15047,20 @@
     "macrice/de/taskotto.py",
     "macrice/heritage.py",
     "scripts/build_heritage_assets.py",
-    "scripts/smoke_luna_hotkeys.sh",
-    "scripts/smoke_luna_window_chrome.sh"
+    "scripts/build_original_artwork.py",
+    "scripts/smoke_luna_hotkeys.sh"
    ],
-   "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
-   "origin": "unknown raster: hand-reviewed file, not reproduced by any generator; not named in CONTRIBUTORS.md",
-   "generated_by": null,
-   "generator_reproduces_tracked_bytes": null,
-   "flags": [
-    "RF03",
-    "RF04"
-   ],
+   "declared_licence": "MIT (repo-wide LICENSE); original work generated by scripts/build_original_artwork.py",
+   "origin": "original, generated in-repo by scripts/build_original_artwork.py (deterministic, offline Pillow/hand-written SVG; no photographs, no AI inference); replaces earlier OS-lookalike artwork (SG4 RF01-RF03/RF06)",
+   "generated_by": "scripts/build_original_artwork.py",
+   "generator_reproduces_tracked_bytes": true,
+   "flags": [],
    "first_commit": "3d6b5fd 2026-11-19"
   },
   {
    "path": "assets/wallpapers/ten-blue.jpg",
-   "sha256": "a8db650a14a302065e785311c6c4242748294c11bd77afd15d5037da2453483b",
-   "size": 69028,
+   "sha256": "d62a661571a66b46cbd72f559857070f51d51db62e55a7d3867cc32c330d5a4f",
+   "size": 133145,
    "category": "wallpaper",
    "rices": [
     "windows10"
@@ -15017,23 +15073,21 @@
     "macrice/de/taskotto.py",
     "macrice/rice.py",
     "macrice/ten_shell.py",
+    "scripts/build_original_artwork.py",
     "scripts/build_ten_assets.py",
     "tests/test_windows10_fidelity.py"
    ],
-   "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
-   "origin": "generated in-repo (Pillow; four-pane light motif plus penguin)",
-   "generated_by": "scripts/build_ten_assets.py",
+   "declared_licence": "MIT (repo-wide LICENSE); original work generated by scripts/build_original_artwork.py",
+   "origin": "original, generated in-repo by scripts/build_original_artwork.py (deterministic, offline Pillow/hand-written SVG; no photographs, no AI inference); replaces earlier OS-lookalike artwork (SG4 RF01-RF03/RF06)",
+   "generated_by": "scripts/build_original_artwork.py + scripts/build_ten_assets.py",
    "generator_reproduces_tracked_bytes": true,
-   "flags": [
-    "RF01",
-    "RF02"
-   ],
+   "flags": [],
    "first_commit": "3d6b5fd 2026-11-19"
   },
   {
    "path": "assets/wallpapers/ten-midnight.jpg",
-   "sha256": "c04c25c87b7e3d763dc10e15f0554edd14641724914aac0bef8d749f725e79c6",
-   "size": 61912,
+   "sha256": "43ef2ff1e5e37b2a16fba30205df59864ecab9479987fcd2632fb8c1cf646ad1",
+   "size": 127032,
    "category": "wallpaper",
    "rices": [
     "windows10"
@@ -15044,23 +15098,21 @@
     "macrice/de/recipes.py",
     "macrice/de/taskotto.py",
     "macrice/rice.py",
+    "scripts/build_original_artwork.py",
     "scripts/build_ten_assets.py",
     "tests/test_windows10_fidelity.py"
    ],
-   "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
-   "origin": "generated in-repo (Pillow; four-pane light motif plus penguin)",
-   "generated_by": "scripts/build_ten_assets.py",
+   "declared_licence": "MIT (repo-wide LICENSE); original work generated by scripts/build_original_artwork.py",
+   "origin": "original, generated in-repo by scripts/build_original_artwork.py (deterministic, offline Pillow/hand-written SVG; no photographs, no AI inference); replaces earlier OS-lookalike artwork (SG4 RF01-RF03/RF06)",
+   "generated_by": "scripts/build_original_artwork.py + scripts/build_ten_assets.py",
    "generator_reproduces_tracked_bytes": true,
-   "flags": [
-    "RF01",
-    "RF02"
-   ],
+   "flags": [],
    "first_commit": "3d6b5fd 2026-11-19"
   },
   {
    "path": "assets/windows10-bloom.svg",
-   "sha256": "c846258abe49ab5c5636f788bdc2eed128b9df30e2f594f16dfad0c11808aac0",
-   "size": 1571,
+   "sha256": "208bd095dcfc871e6d4ba8580ae811329b92591ce53af28e1871c018be96a0e5",
+   "size": 2248,
    "category": "logo-or-mark",
    "rices": [
     "windows10"
@@ -15068,16 +15120,15 @@
    "users": [
     "docs/sg4-asset-rights-audit.md",
     "macrice/windows10_proto.py",
+    "scripts/build_original_artwork.py",
+    "tests/test_sg4_original_artwork.py",
     "tests/test_windows10.py"
    ],
-   "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
-   "origin": "original project asset (CONTRIBUTORS.md / RICEHUB.md state RiceBowl bundles no Microsoft or Apple artwork)",
-   "generated_by": null,
-   "generator_reproduces_tracked_bytes": null,
-   "flags": [
-    "RF02",
-    "RF11"
-   ],
+   "declared_licence": "MIT (repo-wide LICENSE); original work generated by scripts/build_original_artwork.py",
+   "origin": "original, generated in-repo by scripts/build_original_artwork.py (deterministic, offline Pillow/hand-written SVG; no photographs, no AI inference); replaces earlier OS-lookalike artwork (SG4 RF01-RF03/RF06)",
+   "generated_by": "scripts/build_original_artwork.py",
+   "generator_reproduces_tracked_bytes": true,
+   "flags": [],
    "first_commit": "3d6b5fd 2026-11-19"
   },
   {

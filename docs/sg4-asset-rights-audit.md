@@ -6,8 +6,16 @@ done from the repository, not legal advice and not a rights verification.
 owner signs off (see [Owner sign-off](#owner-sign-off)). Nothing in this change
 sets it to `True`.
 
+- **Update after the first review (this branch):** the policy-violating artwork was fixed
+  at the source, not risk-accepted. **RF01, RF02, RF03, RF06 resolved in `e328d68`**
+  (original generated artwork, see [Resolved flags](#resolved-flags)); **RF07, RF08
+  resolved in `8ddd4f9`** (font replaced by a checksummed distribution build with documented
+  provenance; OFL notice installed in the native package). RF04 is resolved for
+  `luna-hills.jpg` only. The per-file tables below describe the new bytes; flag text in the
+  red-flag table is kept for the record and marked RESOLVED. Nothing here changes
+  `rights_independently_verified`.
 - Baseline: `main@e1be418`. All 772 inventoried files share one first-add commit
-  (`3d6b5fd`, 2026-11-19, a squashed import), so `git log` carries **no per-asset
+  (`3d6b5fd`, 2026-11-19, a squashed import; the replacement files carry newer commits), so `git log` carries **no per-asset
   authorship history**. Authorship therefore rests on the declarations below.
 - Machine-readable inventory: [`evidence/sg4/asset-inventory.json`](evidence/sg4/asset-inventory.json)
   (path, sha256, size, category, rices, users, declared licence, origin,
@@ -36,7 +44,10 @@ sets it to `True`.
    (and `build_heritage_assets.main(classic_only=True)`) was run with Pillow 13.0.0
    and every written file compared by sha256: **441 files written, 336 identical,
    105 differ** (Classic and Frutiger chrome and GTK, five `index.theme`, one
-   Classic icon). `_save()` in `build_heritage_assets.py` deliberately never
+   Classic icon). After `e328d68`, `scripts/build_original_artwork.py` was run the same way: all
+   of its outputs reproduce byte-for-byte, which adds 4 newly listed files (445 written, 340
+   identical, 105 differ; its other outputs replace entries that were already listed).
+   `_save()` in `build_heritage_assets.py` deliberately never
    overwrites wallpapers, and 42 curated SVGs are protected by
    `scripts/ricebowl_artwork.py`; those files are hand-curated, not generated.
 4. **Visual spot check (author of this audit, not a legal review).** Contact
@@ -58,7 +69,7 @@ statements are the whole declared provenance.
 
 ## Summary counts
 
-772 files, 9.1 MB; **237 carry at least one flag** (95 of these are documentation
+772 files, 9.1 MB; **230 carry at least one flag** (95 of these are documentation
 captures, 105 are generator-drift files).
 
 | Category | Files | Notes |
@@ -70,14 +81,15 @@ captures, 105 are generator-drift files).
 | theme-config | 15 | `index.theme`, `themerc`, waybar CSS |
 | logo-or-mark | 11 | start buttons, avatars, marks, one wallpaper SVG |
 | recipe-pack | 11 | 9 examples + 2 bundled recipes |
-| wallpaper | 10 | 4 generated (one flat colour), 4 AI-declared, 2 undocumented |
+| wallpaper | 10 | 5 generated (one flat colour), 4 AI-declared, 1 undocumented |
 | gtk-theme | 7 | `gtk.css`, one per theme |
 | dock-theme / icon-theme-config / preview-image | 6 / 6 / 6 | |
 | component-icon | 4 | macmenu, control-center |
 | font / font-licence | 1 / 1 | Liberation Sans Regular, OFL-1.1 |
 
-Flag counts: RF01 3, RF02 3, RF03 1, RF04 2, RF05 4, RF06 1, RF07 1, RF08 1,
-RF09 105, RF10 101, RF11 9, RF12 1, RF13 1, RF14 11 (a file may carry several).
+Flag counts now: RF04 1, RF05 4, RF09 105, RF10 101, RF11 7, RF12 1, RF13 1, RF14 11
+(a file may carry several). RF01, RF02, RF03, RF06, RF07 and RF08 no longer attach to any file
+(baseline counts were RF01 3, RF02 3, RF03 1, RF04 2, RF06 1, RF07 1, RF08 1, RF11 9).
 
 ## Per-category tables
 
@@ -88,8 +100,8 @@ all single-purpose files and group the bulk sets.
 
 | Path | sha256 (12) | Size | Used by | Declared | Flags |
 | --- | --- | ---: | --- | --- | --- |
-| `assets/fonts/LiberationSans-Regular.ttf` | `bade59d82265` | 410820 | `riceplate-wayland` (`native_shaping.rs`, `style_art.rs`, `system_fallback.rs`) via `include_bytes!`; every native rice's builtin Luna UI font | OFL-1.1, Liberation Sans 2.1.5, (c) 2010 Google / 2012 Red Hat, reserved font name "Liberation"; text in `assets/fonts/LiberationSans-LICENSE.txt` | RF07, RF08 |
-| `assets/fonts/LiberationSans-LICENSE.txt` | `-` | 5756 | licence text | Debian copyright format, SIL OFL 1.1 | - |
+| `assets/fonts/LiberationSans-Regular.ttf` | `4659bc0c58c5` | 410820 | `riceplate-wayland` (`native_shaping.rs`, `style_art.rs`, `system_fallback.rs`) via `include_bytes!`; every native rice's builtin Luna UI font | OFL-1.1, Liberation Sans 2.1.5, (c) 2010 Google / 2012 Red Hat, reserved font name "Liberation"; unmodified Debian/Ubuntu `fonts-liberation` 1:2.1.5-3 file; provenance in `assets/fonts/PROVENANCE.md` | - (RF07, RF08 resolved) |
+| `assets/fonts/LiberationSans-LICENSE.txt` | `93fed46019c3` | 4414 | licence text, installed in `ricebowl-riceplate-native` as `/usr/share/doc/ricebowl-riceplate-native/LiberationSans-LICENSE.txt` | verbatim upstream `LICENSE` of Liberation Fonts 2.1.5 (copyright notice + SIL OFL 1.1) | - |
 
 The 8x8 bitmap face used by `text_render.rs` is the `font8x8` crate, not a tracked
 file. Proprietary font names (Tahoma, Segoe UI, Trebuchet...) appear only as CSS/GTK
@@ -103,10 +115,10 @@ fallbacks (RF13), never as files.
 | `assets/wallpapers/aurora-night.jpg` | `69fbbd1595ca` | 159853 | macOS Aurora | same | RF05 |
 | `assets/wallpapers/aero-seven-blue.jpg` | `6704b2bb592e` | 144418 | Aero | same ("Frutiger Aero-inspired Windows 7") | RF05 |
 | `assets/wallpapers/aero-seven-night.jpg` | `46616a5cfaa6` | 148484 | Aero | same | RF05 |
-| `assets/wallpapers/luna-hills.jpg` | `bb843f5783c2` | 423426 | XP Luna (also used by every Luna smoke/native recipe) | undocumented photographic raster; evokes XP "Bliss" | RF03, RF04 |
+| `assets/wallpapers/luna-hills.jpg` | `b7eba05d904d` | 276812 | XP Luna (also used by every Luna smoke/native recipe) | `build_original_artwork.py` (reproduced): terraced rice-hill ridges at dusk, streak clouds, low sun; replaces the Bliss-like photograph (was `bb843f5783c2`) | - (RF03, RF04 resolved) |
 | `assets/wallpapers/frutiger-future.jpg` | `74a48991233e` | 417646 | Frutiger | undocumented raster | RF04 |
-| `assets/wallpapers/ten-blue.jpg` | `a8db650a14a3` | 69028 | Windows 10 | `build_ten_assets.py` (reproduced) | RF01, RF02 |
-| `assets/wallpapers/ten-midnight.jpg` | `c04c25c87b7e` | 61912 | Windows 10 | `build_ten_assets.py` (reproduced) | RF01, RF02 |
+| `assets/wallpapers/ten-blue.jpg` | `d62a661571a6` | 133145 | Windows 10 | `build_original_artwork.py` via `build_ten_assets.py` (reproduced): "bowl of light", a bowl with a fan of rays and ripples; replaces the four-pane scene (was `a8db650a14a3`) | - (RF01, RF02 resolved) |
+| `assets/wallpapers/ten-midnight.jpg` | `43ef2ff1e5e3` | 127032 | Windows 10 | same, dark variant (was `c04c25c87b7e`) | - (RF01, RF02 resolved) |
 | `assets/wallpapers/chrome-pastel.jpg` | `4ad3dc13c974` | 64252 | ChromeOS | `build_chrome_assets.py` (reproduced) | - |
 | `assets/wallpapers/classic-teal.jpg` | `6ecc5e45ad56` | 24588 | Windows 98 | flat `#008080` via `build_heritage_assets.py` (reproduced) | - |
 
@@ -114,9 +126,9 @@ fallbacks (RF13), never as files.
 
 | Path | Rice | Declared / observed | Flags |
 | --- | --- | --- | --- |
-| `assets/ten-start.svg` | Windows 10 | "Original four-pane light icon ... A Windows-10-shaped desktop affordance" (its own comment); renders as the Windows logo with a penguin in one pane | RF01, RF11 |
-| `assets/windows10-bloom.svg` | Windows 10 prototype | light-beam composition modelled on the Windows 10 hero wallpaper | RF02, RF11 |
-| `assets/ricebowl-chrome-start.svg` | ChromeOS | four rounded squares in Google brand hexes | RF06 |
+| `assets/ten-start.svg` | Windows 10 | now an original rice bowl with three rising rays (`build_original_artwork.py`); the old four-pane mark with a penguin pane is gone | - (RF01 resolved; RF11 no longer applies) |
+| `assets/windows10-bloom.svg` | Windows 10 prototype | now a fan of rays and ripples rising from a bowl; the old side-beam lit-window composition is gone | - (RF02 resolved) |
+| `assets/ricebowl-chrome-start.svg` | ChromeOS | now a launcher circle with a bowl glyph and three pastel dots in the RiceBowl Chrome palette (`#4a7ed4`, `#293b57`, `#86a9e6`, `#8fd3c1`, `#f0b99b`); the four Google-brand squares are gone | - (RF06 resolved) |
 | `assets/aero-penguin.svg`, `ricebowl-classic-start.svg`, `ricebowl-xp-user.svg`, `macrice-symbolic.svg` | Aero / Win98 / XP / MacRice | declared original penguin art | RF11 |
 | `assets/ricebowl-xp-start.svg`, `ricebowl-frutiger-start.svg`, `ricebowl-symbolic.svg`, `ricehub-symbolic.svg` | XP / Frutiger / core | original orb/bowl marks; no flag | - |
 | `components/macmenu/assets/macmenu-{app,penguin,penguin-ink}.svg` | macOS | declared original single-ink penguin | RF11 |
@@ -126,6 +138,7 @@ fallbacks (RF13), never as files.
 
 | Set | Files | Rice | Generator and reproduction | Flags |
 | --- | ---: | --- | --- | --- |
+| `assets/icons/RiceHub-Ten-Penguin`, `RiceHub-Chrome-Icons` start aliases | 7 (also counted below) | windows10 / chromeos | byte-identical copies of the new start marks; the Ten "all apps" glyph is now a 3x3 grid instead of four blue squares | - |
 | `assets/themes/RiceHub-Aero` (xfwm4 48 + gtk + 2 config) | 51 | aero | `build_aero_assets.py`, reproduced (gtk hand-curated) | - |
 | `assets/themes/RiceHub-Chrome` | 51 | chromeos | `build_chrome_assets.py`, reproduced | - |
 | `assets/themes/RiceHub-Luna` | 51 | winxp | `build_heritage_assets.py`, chrome reproduced | - |
@@ -178,20 +191,52 @@ risk acceptance.
 
 | ID | Sev | Assets | Problem | Recommended action |
 | --- | --- | --- | --- | --- |
-| RF01 | **high** | `assets/ten-start.svg`, `assets/wallpapers/ten-blue.jpg`, `assets/wallpapers/ten-midnight.jpg` | Four-pane perspective window mark (the Start icon renders as the Windows logo with a penguin pane; the wallpapers draw the same panes). AGENTS.md forbids copying proprietary logos. | Replace with a clearly original mark (penguin or bowl only, no four-pane grid) and regenerate; or owner records risk acceptance. |
-| RF03 | **high** | `assets/wallpapers/luna-hills.jpg` | Green hill, blue sky and clouds in the XP "Bliss" composition; photographic raster with no recorded author, tool or prompt. Also the capture background of the Luna smokes and native recipes. | Confirm provenance and generation records or replace with a distinct original scene. |
-| RF02 | medium | `assets/windows10-bloom.svg`, ten wallpapers | Light-beam hero composition modelled on the Windows 10 default wallpaper. | Owner visual comparison; redraw beams. |
-| RF04 | medium | `luna-hills.jpg`, `frutiger-future.jpg` | Hand-reviewed rasters not produced by any generator and not named in `CONTRIBUTORS.md`. | Record author/tool/prompt/terms. |
+| RF01 | ~~high~~ **RESOLVED** `e328d68` | `assets/ten-start.svg`, `assets/wallpapers/ten-blue.jpg`, `assets/wallpapers/ten-midnight.jpg` | Four-pane perspective window mark (the Start icon renders as the Windows logo with a penguin pane; the wallpapers draw the same panes). AGENTS.md forbids copying proprietary logos. | Replace with a clearly original mark (penguin or bowl only, no four-pane grid) and regenerate; or owner records risk acceptance. |
+| RF03 | ~~high~~ **RESOLVED** `e328d68` | `assets/wallpapers/luna-hills.jpg` | Green hill, blue sky and clouds in the XP "Bliss" composition; photographic raster with no recorded author, tool or prompt. Also the capture background of the Luna smokes and native recipes. | Confirm provenance and generation records or replace with a distinct original scene. |
+| RF02 | ~~medium~~ **RESOLVED** `e328d68` | `assets/windows10-bloom.svg`, ten wallpapers | Light-beam hero composition modelled on the Windows 10 default wallpaper. | Owner visual comparison; redraw beams. |
+| RF04 | medium (`luna-hills.jpg` resolved `e328d68`; `frutiger-future.jpg` open) | `luna-hills.jpg`, `frutiger-future.jpg` | Hand-reviewed rasters not produced by any generator and not named in `CONTRIBUTORS.md`. | Record author/tool/prompt/terms. |
 | RF05 | medium | `aurora-day`, `aurora-night`, `aero-seven-blue`, `aero-seven-night` (`.jpg`) | AI-generated (declared). No prompts, dates or terms recorded; AI output may not be copyrightable; "Aero Seven" imitates Windows 7 artwork names/looks. | Archive generation records, confirm tool terms allow MIT redistribution, confirm no proprietary reference image was used. |
-| RF06 | medium | `assets/ricebowl-chrome-start.svg` | Google brand colours in a 2x2 mark. | Recolour or replace. |
-| RF07 | medium | `assets/fonts/LiberationSans-Regular.ttf` | Name table says Liberation Sans 2.1.5 (OFL-1.1) but sha256 `bade59d8...` differs from Debian `fonts-liberation`'s 2.1.5 file (`4659bc0c...`). If modified, OFL forbids the reserved name "Liberation". | Compare with upstream release tarball; replace with the exact upstream file or rename. |
-| RF08 | medium | same font | Embedded in the binary, but the Debian build scripts (`scripts/build_wayland_*_deb.sh`, `build_riceplate_native_deb.sh`) install no copyright/licence file for it. | Install `LiberationSans-LICENSE.txt` (e.g. `/usr/share/doc/<pkg>/copyright`) in every package embedding it. |
+| RF06 | ~~medium~~ **RESOLVED** `e328d68` | `assets/ricebowl-chrome-start.svg` | Google brand colours in a 2x2 mark. | Recolour or replace. |
+| RF07 | ~~medium~~ **RESOLVED** `8ddd4f9` | `assets/fonts/LiberationSans-Regular.ttf` | Name table says Liberation Sans 2.1.5 (OFL-1.1) but sha256 `bade59d8...` differs from Debian `fonts-liberation`'s 2.1.5 file (`4659bc0c...`). If modified, OFL forbids the reserved name "Liberation". | Compare with upstream release tarball; replace with the exact upstream file or rename. |
+| RF08 | ~~medium~~ **RESOLVED** `8ddd4f9` | same font | Embedded in the binary, but the Debian build scripts (`scripts/build_wayland_*_deb.sh`, `build_riceplate_native_deb.sh`) install no copyright/licence file for it. | Install `LiberationSans-LICENSE.txt` (e.g. `/usr/share/doc/<pkg>/copyright`) in every package embedding it. |
 | RF10 | medium | 101 captures and previews | Screenshots show the assets above plus third-party UI (Thunar, GTK widgets, system fonts). | Resolve the artwork flags; decide whether captures stay public. |
 | RF09 | low | 105 files: Classic and Frutiger `xfwm4`, both `gtk.css`, 5 `index.theme`, Classic `applications-other.svg` | Generator output no longer matches tracked bytes, so those files are edited by hand or by an older generator and not reproducible. | Accept as hand-authored or re-commit generator output. |
 | RF11 | low | 9 penguin SVGs | Tux-like penguin; Tux (Larry Ewing) is a licensed work. | Confirm independent drawing or add attribution. |
 | RF12 | low | `components/control-center/assets/macos-control-center.svg` | Apple-style tile and system blue; filename names macOS. | Owner visual comparison; rename. |
 | RF14 | low | 11 recipes | No provenance block. | Attach when published as RicePacks. |
 | RF13 | info | `RiceHub-Frutiger` `gtk.css` | Names proprietary families as fallbacks only. | None. |
+
+### Resolved flags
+
+Resolved at the source (original artwork generated in-repo, not a risk acceptance). Provenance for
+all of it: `scripts/build_original_artwork.py` (deterministic Pillow / hand-written SVG; no network,
+no AI inference, no input photograph), licence = the repository's MIT `LICENSE`, recorded per file in
+`asset-inventory.json` (`origin`, `declared_licence`, `generated_by`) and reproduced byte-for-byte in
+`generator-reproduction.json`. `tests/test_sg4_original_artwork.py` pins the output.
+
+| Flag | Before | After | Commit |
+| --- | --- | --- | --- |
+| RF01 | `ten-start.svg` (and its `start-here`/`xfce4-menu`/`ricehub-ten` aliases): four-pane window mark with a penguin pane; `ten-blue.jpg`/`ten-midnight.jpg`: lit four-pane window plus side beams | rice bowl with three rising rays; wallpapers show the same bowl with a fan of rays and ripples. No window/pane grid anywhere (the Ten "all apps" icon is now a 3x3 grid) | `e328d68` |
+| RF02 | `windows10-bloom.svg` and the ten wallpapers: beam composition modelled on the Windows 10 hero image | fan of rays rising from a bowl plus concentric ripples; different geometry, source position and subject | `e328d68` |
+| RF03, RF04 (`luna-hills.jpg`) | single green hill under a blue cumulus sky, undocumented photographic raster | five receding terraced rice-hill ridges at dusk, streak clouds, low sun; procedurally drawn, same name/size/format (1920x1080 JPEG) | `e328d68` |
+| RF06 | 2x2 rounded squares in the exact Google brand hexes | launcher circle with a bowl glyph; none of `#4285f4 #ea4335 #fbbc04 #34a853` | `e328d68` |
+| RF07 | font sha256 `bade59d8...` did not match Debian's 2.1.5 file | font replaced with the Debian/Ubuntu `fonts-liberation` 1:2.1.5-3 file `4659bc0c...`; the old file differed in 10 bytes (FFTM build timestamp and derived checksums only), so it was an unmodified rebuild, not a modified font; details and sources in `assets/fonts/PROVENANCE.md` | `8ddd4f9` |
+| RF08 | no copyright/licence in the native `.deb` | `ricebowl-riceplate-native` installs `/usr/share/doc/ricebowl-riceplate-native/copyright` and `LiberationSans-LICENSE.txt` (verbatim upstream `LICENSE` with the Liberation copyright notice); `scripts/verify_wayland_package_set.sh` refuses a native package without them | `8ddd4f9` |
+
+Installed icon bundles that still hold the old start marks / Ten all-apps icon remain upgradable:
+`assets/trusted-ricebowl-sg4-original-art.json` lists their previous blobs for
+`macrice/asset_upgrade.py`.
+
+**Still open after these fixes.**
+
+- The replaced art changes what the real rices show, so every capture that contains it is now
+  stale and must be re-captured on a running desktop: `screenshots/current/{windows10*,winxp*,chromeos*}.webp`,
+  `screenshots/wayland/luna-*.webp` (and `heritage`, `menu`, `orbit`, `workspace` where the
+  Luna/Ten/Chrome art is visible), `components/*/screenshots` if they show a Start mark, and the
+  derived `assets/hub-previews/{windows10,winxp,chromeos}.jpg`. They are deliberately not edited
+  here (RF10 stays open until they are regenerated).
+- Owner visual check of the new artwork; the upstream `liberation-fonts-ttf-2.1.5.tar.gz`
+  sha256 comparison could not be done from the build sandbox (see `assets/fonts/PROVENANCE.md`).
 
 Nothing found: no embedded cursors, sounds, proprietary icon sets, Microsoft or
 Apple bitmap files, or Material/Roboto/Inter files. `CONTRIBUTORS.md` also states
@@ -221,13 +266,16 @@ field stays `False`.
 
 **Checklist (owner).**
 
-- [ ] Reviewed RF01 and RF03 artwork; each replaced or risk accepted in writing
-  (assets: `ten-start.svg`, `ten-blue.jpg`, `ten-midnight.jpg`, `luna-hills.jpg`).
-- [ ] RF02, RF04, RF05, RF06, RF12: decision recorded (replace / accept /
+- [ ] Reviewed RF01 and RF03 artwork; **replaced with original generated art in `e328d68`**
+  (assets: `ten-start.svg`, `ten-blue.jpg`, `ten-midnight.jpg`, `luna-hills.jpg`); owner to
+  eyeball the new files and re-capture the stale screenshots listed above.
+- [ ] RF02 and RF06 replaced (`e328d68`), RF04 for `luna-hills.jpg` replaced; RF04
+  (`frutiger-future.jpg`), RF05, RF12: decision recorded (replace / accept /
   documents attached). For AI wallpapers, generation records and tool terms
   stored with a link here.
-- [ ] RF07: font compared against the upstream Liberation 2.1.5 tarball (record
-  the upstream sha256); RF08: licence file installed in packages.
+- [ ] RF07: font replaced by a checksummed distribution build with documented provenance
+  (`8ddd4f9`); owner/maintainer still to compare with the upstream release tarball and record its
+  sha256. RF08: licence file installed in the package (done, `8ddd4f9`).
 - [ ] RF09, RF11, RF14: accepted or tracked as follow-ups.
 - [ ] Visual spot check of icon sets (`RiceHub-Aero`, `-Luna-Icons`) and window
   chrome against the reference OS artwork they imitate.

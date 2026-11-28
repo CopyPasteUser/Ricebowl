@@ -1,4 +1,5 @@
 {
+ "addendum": "SG4 RF01-RF03/RF06 follow-up: scripts/build_original_artwork.py (Pillow 13.0.0) was run into a scratch directory and every file it writes (3 start-mark/wallpaper SVGs, their icon-theme aliases and 3 wallpapers) was compared by sha256 with the tracked file: all identical. These entries replace or extend the earlier baseline; the 'method' text and the counts describe main e1be418 plus the 4 newly listed files.",
  "files": {
   "assets/icons/RiceHub-Aero/scalable/apps/accessories-calculator.svg": {
    "reproduces_tracked_bytes": true,
@@ -93,24 +94,28 @@
   "assets/icons/RiceHub-Chrome-Icons/scalable/apps/ricebowl-start.svg": {
    "reproduces_tracked_bytes": true,
    "scripts": [
+    "scripts/build_original_artwork.py",
     "scripts/build_heritage_assets.py"
    ]
   },
   "assets/icons/RiceHub-Chrome-Icons/scalable/apps/ricehub-start.svg": {
    "reproduces_tracked_bytes": true,
    "scripts": [
+    "scripts/build_original_artwork.py",
     "scripts/build_heritage_assets.py"
    ]
   },
   "assets/icons/RiceHub-Chrome-Icons/scalable/apps/start-here.svg": {
    "reproduces_tracked_bytes": true,
    "scripts": [
+    "scripts/build_original_artwork.py",
     "scripts/build_heritage_assets.py"
    ]
   },
   "assets/icons/RiceHub-Chrome-Icons/scalable/apps/xfce4-menu.svg": {
    "reproduces_tracked_bytes": true,
    "scripts": [
+    "scripts/build_original_artwork.py",
     "scripts/build_heritage_assets.py"
    ]
   },
@@ -489,18 +494,21 @@
   "assets/icons/RiceHub-Ten-Penguin/scalable/apps/ricehub-ten.svg": {
    "reproduces_tracked_bytes": true,
    "scripts": [
+    "scripts/build_original_artwork.py",
     "scripts/build_ten_assets.py"
    ]
   },
   "assets/icons/RiceHub-Ten-Penguin/scalable/apps/start-here.svg": {
    "reproduces_tracked_bytes": true,
    "scripts": [
+    "scripts/build_original_artwork.py",
     "scripts/build_ten_assets.py"
    ]
   },
   "assets/icons/RiceHub-Ten-Penguin/scalable/apps/xfce4-menu.svg": {
    "reproduces_tracked_bytes": true,
    "scripts": [
+    "scripts/build_original_artwork.py",
     "scripts/build_ten_assets.py"
    ]
   },
@@ -508,6 +516,18 @@
    "reproduces_tracked_bytes": true,
    "scripts": [
     "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/ricebowl-chrome-start.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_original_artwork.py"
+   ]
+  },
+  "assets/ten-start.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_original_artwork.py"
    ]
   },
   "assets/themes/RiceHub-Aero/xfwm4/bottom-active.png": {
@@ -2685,16 +2705,30 @@
     "scripts/build_heritage_assets.py"
    ]
   },
+  "assets/wallpapers/luna-hills.jpg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_original_artwork.py"
+   ]
+  },
   "assets/wallpapers/ten-blue.jpg": {
    "reproduces_tracked_bytes": true,
    "scripts": [
+    "scripts/build_original_artwork.py",
     "scripts/build_ten_assets.py"
    ]
   },
   "assets/wallpapers/ten-midnight.jpg": {
    "reproduces_tracked_bytes": true,
    "scripts": [
+    "scripts/build_original_artwork.py",
     "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/windows10-bloom.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_original_artwork.py"
    ]
   }
  },
@@ -2702,7 +2736,7 @@
  "schema": 1,
  "summary": {
   "differ": 105,
-  "files_written_by_generators": 441,
-  "identical": 336
+  "files_written_by_generators": 445,
+  "identical": 340
  }
 }
