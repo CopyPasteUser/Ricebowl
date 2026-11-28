@@ -1,0 +1,2708 @@
+{
+ "files": {
+  "assets/icons/RiceHub-Aero/scalable/apps/accessories-calculator.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Aero/scalable/apps/accessories-text-editor.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Aero/scalable/apps/applications-other.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Aero/scalable/apps/ricehub-aero.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Aero/scalable/apps/start-here.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Aero/scalable/apps/xfce4-menu.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Aero/scalable/places/computer.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Aero/scalable/places/folder-documents.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Aero/scalable/places/folder-download.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Aero/scalable/places/folder-music.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Aero/scalable/places/folder-pictures.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Chrome-Icons/index.theme": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Chrome-Icons/scalable/apps/accessories-calculator.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Chrome-Icons/scalable/apps/accessories-text-editor.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Chrome-Icons/scalable/apps/applications-other.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Chrome-Icons/scalable/apps/ricebowl-start.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Chrome-Icons/scalable/apps/ricehub-start.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Chrome-Icons/scalable/apps/start-here.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Chrome-Icons/scalable/apps/xfce4-menu.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Chrome-Icons/scalable/places/computer.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Classic-Icons/index.theme": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Classic-Icons/scalable/apps/accessories-calculator.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Classic-Icons/scalable/apps/accessories-text-editor.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Classic-Icons/scalable/apps/applications-other.svg": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Classic-Icons/scalable/apps/ricebowl-start.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Classic-Icons/scalable/apps/ricehub-start.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Classic-Icons/scalable/apps/start-here.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Classic-Icons/scalable/apps/xfce4-menu.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Classic-Icons/scalable/places/computer.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Frutiger-Icons/index.theme": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Frutiger-Icons/scalable/apps/accessories-calculator.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Frutiger-Icons/scalable/apps/accessories-text-editor.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Frutiger-Icons/scalable/apps/applications-other.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Frutiger-Icons/scalable/apps/ricebowl-start.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Frutiger-Icons/scalable/apps/ricehub-start.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Frutiger-Icons/scalable/apps/start-here.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Frutiger-Icons/scalable/apps/xfce4-menu.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Frutiger-Icons/scalable/places/computer.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/index.theme": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/accessories-calculator.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/accessories-text-editor.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/applications-other.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricebowl-start.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-luna-cp-accessibility.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_luna_control_icons.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-luna-cp-accounts.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_luna_control_icons.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-luna-cp-appearance.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_luna_control_icons.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-luna-cp-audio.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_luna_control_icons.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-luna-cp-hardware.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_luna_control_icons.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-luna-cp-network.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_luna_control_icons.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-luna-cp-performance.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_luna_control_icons.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-luna-cp-programs.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_luna_control_icons.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-luna-cp-regional.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_luna_control_icons.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-luna-task-audio-card.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_luna_control_icons.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-luna-task-battery.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_luna_control_icons.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-luna-task-bluetooth.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_luna_control_icons.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-luna-task-input-keyboard.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_luna_control_icons.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-luna-task-input-mouse.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_luna_control_icons.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-luna-task-network-workgroup.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_luna_control_icons.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-luna-task-preferences-desktop-accessibility.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_luna_control_icons.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-luna-task-preferences-desktop-default-applications.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_luna_control_icons.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-luna-task-preferences-desktop-notification.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_luna_control_icons.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-luna-task-preferences-desktop-theme.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_luna_control_icons.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-luna-task-preferences-desktop-wallpaper.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_luna_control_icons.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-luna-task-preferences-system-time.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_luna_control_icons.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-luna-task-preferences-system-windows.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_luna_control_icons.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-luna-task-preferences-system.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_luna_control_icons.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-luna-task-printer.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_luna_control_icons.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-luna-task-system-log-out.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_luna_control_icons.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-luna-task-system-search.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_luna_control_icons.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-luna-task-system-software-install.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_luna_control_icons.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-luna-task-system-users.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_luna_control_icons.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-luna-task-utilities-system-monitor.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_luna_control_icons.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-luna-task-video-display.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_luna_control_icons.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/ricehub-start.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/start-here.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/apps/xfce4-menu.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Luna-Icons/scalable/places/computer.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Ten-Penguin/index.theme": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Ten-Penguin/scalable/apps/accessories-calculator.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Ten-Penguin/scalable/apps/accessories-text-editor.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Ten-Penguin/scalable/apps/applications-other.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Ten-Penguin/scalable/apps/ricehub-ten.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Ten-Penguin/scalable/apps/start-here.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Ten-Penguin/scalable/apps/xfce4-menu.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/icons/RiceHub-Ten-Penguin/scalable/places/computer.svg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/bottom-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/bottom-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/bottom-left-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/bottom-left-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/bottom-right-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/bottom-right-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/close-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/close-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/close-prelight.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/close-pressed.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/hide-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/hide-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/hide-prelight.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/hide-pressed.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/left-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/left-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/maximize-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/maximize-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/maximize-prelight.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/maximize-pressed.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/menu-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/menu-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/menu-prelight.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/menu-pressed.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/right-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/right-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/shade-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/shade-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/shade-prelight.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/shade-pressed.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/stick-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/stick-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/stick-prelight.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/stick-pressed.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/title-1-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/title-1-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/title-2-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/title-2-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/title-3-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/title-3-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/title-4-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/title-4-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/title-5-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/title-5-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/top-left-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/top-left-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/top-right-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Aero/xfwm4/top-right-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_aero_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/gtk-3.0/gtk.css": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/index.theme": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/bottom-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/bottom-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/bottom-left-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/bottom-left-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/bottom-right-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/bottom-right-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/close-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/close-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/close-prelight.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/close-pressed.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/hide-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/hide-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/hide-prelight.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/hide-pressed.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/left-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/left-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/maximize-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/maximize-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/maximize-prelight.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/maximize-pressed.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/menu-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/menu-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/menu-prelight.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/menu-pressed.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/right-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/right-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/shade-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/shade-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/shade-prelight.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/shade-pressed.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/stick-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/stick-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/stick-prelight.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/stick-pressed.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/themerc": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/title-1-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/title-1-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/title-2-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/title-2-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/title-3-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/title-3-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/title-4-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/title-4-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/title-5-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/title-5-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/top-left-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/top-left-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/top-right-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Chrome/xfwm4/top-right-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/gtk-3.0/gtk.css": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/index.theme": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/bottom-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/bottom-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/bottom-left-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/bottom-left-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/bottom-right-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/bottom-right-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/close-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/close-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/close-prelight.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/close-pressed.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/hide-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/hide-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/hide-prelight.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/hide-pressed.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/left-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/left-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/maximize-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/maximize-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/maximize-prelight.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/maximize-pressed.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/menu-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/menu-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/menu-prelight.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/menu-pressed.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/right-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/right-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/shade-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/shade-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/shade-prelight.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/shade-pressed.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/stick-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/stick-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/stick-prelight.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/stick-pressed.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/themerc": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/title-1-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/title-1-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/title-2-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/title-2-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/title-3-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/title-3-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/title-4-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/title-4-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/title-5-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/title-5-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/top-left-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/top-left-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/top-right-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Classic/xfwm4/top-right-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/gtk-3.0/gtk.css": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/index.theme": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/bottom-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/bottom-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/bottom-left-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/bottom-left-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/bottom-right-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/bottom-right-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/close-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/close-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/close-prelight.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/close-pressed.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/hide-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/hide-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/hide-prelight.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/hide-pressed.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/left-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/left-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/maximize-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/maximize-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/maximize-prelight.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/maximize-pressed.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/menu-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/menu-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/menu-prelight.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/menu-pressed.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/right-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/right-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/shade-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/shade-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/shade-prelight.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/shade-pressed.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/stick-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/stick-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/stick-prelight.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/stick-pressed.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/themerc": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/title-1-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/title-1-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/title-2-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/title-2-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/title-3-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/title-3-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/title-4-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/title-4-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/title-5-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/title-5-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/top-left-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/top-left-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/top-right-active.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Frutiger/xfwm4/top-right-inactive.png": {
+   "reproduces_tracked_bytes": false,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/bottom-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/bottom-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/bottom-left-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/bottom-left-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/bottom-right-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/bottom-right-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/close-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/close-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/close-prelight.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/close-pressed.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/hide-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/hide-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/hide-prelight.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/hide-pressed.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/left-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/left-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/maximize-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/maximize-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/maximize-prelight.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/maximize-pressed.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/menu-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/menu-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/menu-prelight.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/menu-pressed.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/right-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/right-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/shade-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/shade-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/shade-prelight.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/shade-pressed.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/stick-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/stick-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/stick-prelight.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/stick-pressed.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/themerc": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/title-1-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/title-1-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/title-2-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/title-2-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/title-3-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/title-3-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/title-4-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/title-4-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/title-5-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/title-5-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/top-left-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/top-left-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/top-right-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Luna/xfwm4/top-right-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/gtk-3.0/gtk.css": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/index.theme": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/bottom-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/bottom-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/bottom-left-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/bottom-left-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/bottom-right-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/bottom-right-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/close-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/close-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/close-prelight.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/close-pressed.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/hide-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/hide-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/hide-prelight.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/hide-pressed.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/left-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/left-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/maximize-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/maximize-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/maximize-prelight.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/maximize-pressed.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/menu-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/menu-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/menu-prelight.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/menu-pressed.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/right-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/right-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/shade-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/shade-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/shade-prelight.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/shade-pressed.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/stick-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/stick-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/stick-prelight.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/stick-pressed.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/themerc": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/title-1-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/title-1-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/title-2-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/title-2-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/title-3-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/title-3-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/title-4-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/title-4-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/title-5-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/title-5-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/top-left-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/top-left-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/top-right-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Dark/xfwm4/top-right-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/gtk-3.0/gtk.css": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/index.theme": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/bottom-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/bottom-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/bottom-left-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/bottom-left-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/bottom-right-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/bottom-right-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/close-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/close-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/close-prelight.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/close-pressed.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/hide-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/hide-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/hide-prelight.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/hide-pressed.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/left-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/left-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/maximize-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/maximize-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/maximize-prelight.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/maximize-pressed.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/menu-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/menu-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/menu-prelight.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/menu-pressed.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/right-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/right-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/shade-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/shade-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/shade-prelight.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/shade-pressed.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/stick-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/stick-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/stick-prelight.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/stick-pressed.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/themerc": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/title-1-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/title-1-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/title-2-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/title-2-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/title-3-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/title-3-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/title-4-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/title-4-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/title-5-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/title-5-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/top-left-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/top-left-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/top-right-active.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/themes/RiceHub-Ten-Light/xfwm4/top-right-inactive.png": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/wallpapers/chrome-pastel.jpg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_chrome_assets.py",
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/wallpapers/classic-teal.jpg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_heritage_assets.py"
+   ]
+  },
+  "assets/wallpapers/ten-blue.jpg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  },
+  "assets/wallpapers/ten-midnight.jpg": {
+   "reproduces_tracked_bytes": true,
+   "scripts": [
+    "scripts/build_ten_assets.py"
+   ]
+  }
+ },
+ "method": "On main e1be418, assets/, scripts/ and macrice/ were copied to a scratch directory without version-control metadata; each of scripts/build_{aero,chrome,ten,heritage}_assets.py and scripts/build_luna_control_icons.py was run with Pillow 13.0.0, plus build_heritage_assets.main(classic_only=True) for the Classic teal wallpaper. Every file under assets/ written by a generator was compared by sha256 with the tracked file. Files not listed here were not written by any generator run: hand-curated SVGs protected by scripts/ricebowl_artwork.py, wallpapers protected by _save() in build_heritage_assets.py, or files with no generator.",
+ "schema": 1,
+ "summary": {
+  "differ": 105,
+  "files_written_by_generators": 441,
+  "identical": 336
+ }
+}
