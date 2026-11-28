@@ -33,6 +33,8 @@
 
 These are actual applications rendered under XFWM4 in virtual X11 at 1600×900, not mockups. The [successful 5 November 2026 CI run](https://github.com/CopyPasteUser/RiceBowl/actions/runs/42045518423) captured commit [`cdf458a`](https://github.com/CopyPasteUser/RiceBowl/commit/cdf458a899051d26f563ce0c7eddfea7e2c61ab7). The [manifest](manifest.json) records original and converted image hashes; compact 1024×768 captures are in the CI artifact. Historical `0.9.1` capture filenames are script compatibility names, not the tested release version.
 
+**Recapture (28 November 2026):** the Windows 10, XP Luna and ChromeOS images (and the matching Hub previews) were re-captured locally from the same capture scripts after commit `edff3f6` replaced their start marks and wallpapers with original artwork; the [manifest](manifest.json) lists them under `recaptures`. Aero, Windows 98, Frutiger and MacMenu are unchanged from the CI run above.
+
 Virtual-X11 captures do not establish physical Mint/XFCE hardware, suspend or multi-monitor acceptance. Unavailable device features in CI are shown honestly.
 
 </details>

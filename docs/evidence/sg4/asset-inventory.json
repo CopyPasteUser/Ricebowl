@@ -292,8 +292,8 @@
   },
   {
    "path": "assets/hub-previews/chromeos.jpg",
-   "sha256": "bcc14def6dad22f3e8bf8df6c2dd318deaabea7319e700f0e9009f3377251aa4",
-   "size": 49138,
+   "sha256": "6aeadf86c89511842342f61e5f4ae4beddce529fe09c65cef43abdd9f534f4a2",
+   "size": 45015,
    "category": "preview-image",
    "rices": [
     "chromeos"
@@ -353,8 +353,8 @@
   },
   {
    "path": "assets/hub-previews/windows10.jpg",
-   "sha256": "802f03495d8a4cdbda4faa38926b07b0a10a46b5dc20d6741933a0ae4d21d206",
-   "size": 58232,
+   "sha256": "d13bf10c3d957f655c2ca99804533f5f71c01f66db6e87740d278b864d31b55d",
+   "size": 58329,
    "category": "preview-image",
    "rices": [
     "windows10"
@@ -373,8 +373,8 @@
   },
   {
    "path": "assets/hub-previews/winxp.jpg",
-   "sha256": "72e2e42ef1b363b71f26396b04c1dc97c727ec45645205056f97a6c5a0cba359",
-   "size": 135081,
+   "sha256": "dd3aa36d0f98f60f9c777824a69e3ab44ce8edd0012370ff67f6b5db67ed3e63",
+   "size": 92183,
    "category": "preview-image",
    "rices": [
     "winxp"
@@ -15612,8 +15612,8 @@
   },
   {
    "path": "screenshots/current/chromeos-controls.webp",
-   "sha256": "523fe10d1c9ae03b38527e4f4bc247041c58176f16e77498c0d179e0e70db752",
-   "size": 28920,
+   "sha256": "97fda3292cce7fe6d5d863a888ce4d7e4d293eaabc91c58e4e54653bbf0c46b0",
+   "size": 26426,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -15631,8 +15631,8 @@
   },
   {
    "path": "screenshots/current/chromeos-notifications.webp",
-   "sha256": "a24b9565250a96b21d1e3593d27e23c938a2d61789001e628dae60179ffa079c",
-   "size": 28482,
+   "sha256": "dfd7e58509f41a9a8655fec98a8054b91deabd4e87cc6bf607fa96d82dcafd23",
+   "size": 26600,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -15650,8 +15650,8 @@
   },
   {
    "path": "screenshots/current/chromeos-settings.webp",
-   "sha256": "ae43b9f789a9a52bc3eaa184afc54e24e7887cbc5963a1f0150807b37086b3fc",
-   "size": 30294,
+   "sha256": "939af216509903137552f2f7308401f11c0e9e05bdb1b678471468d7678193f4",
+   "size": 27018,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -15669,8 +15669,8 @@
   },
   {
    "path": "screenshots/current/chromeos-start.webp",
-   "sha256": "72afe0534068dd307a26d041f4729dd13452ed7f95bda99556ec2ce153a60ffc",
-   "size": 35888,
+   "sha256": "9200ec2957113c82911af25e9485ce605b807b902f650f4bed464d76e85c37d7",
+   "size": 31208,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -15689,8 +15689,8 @@
   },
   {
    "path": "screenshots/current/chromeos-workspace.webp",
-   "sha256": "b6620e00fc57d48351ad9b8d1d4340c4eb1b6e5a3a913957a7bb563b6e8981e1",
-   "size": 30038,
+   "sha256": "27313a8ec1b3906f9492f086d9c23c934db9ebcd8d35c83d4f69d57fc2f14105",
+   "size": 27484,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -15842,8 +15842,8 @@
   },
   {
    "path": "screenshots/current/windows10-actions-expanded.webp",
-   "sha256": "337c50cf39591733fdf426ae0e4fc2351ac0a13ffda5346457718f8f8718e840",
-   "size": 30460,
+   "sha256": "249446184917f06c52b1a33a8aa3545a621e714c2f51bfc52006de4d3a18092c",
+   "size": 34518,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -15861,8 +15861,8 @@
   },
   {
    "path": "screenshots/current/windows10-audio.webp",
-   "sha256": "8ca2a5f7fe9b7356dbfbb5219802a373b4fe58b9044fdd7e5cddd65876c14a12",
-   "size": 21220,
+   "sha256": "ae3e9d9004b74dabd834d2b3a410a7ed595ffc7a5ade42f26750aa77d3d38693",
+   "size": 25490,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -15880,8 +15880,8 @@
   },
   {
    "path": "screenshots/current/windows10-calendar.webp",
-   "sha256": "e39e64241f4adb7133bb32fed04a5118ab4ec6b3810698655441a401e7011b3f",
-   "size": 26376,
+   "sha256": "74b019d0dcfed7e8f540f762754c075697722e5f0051e1cefd78f7055946dad7",
+   "size": 31016,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -15899,8 +15899,8 @@
   },
   {
    "path": "screenshots/current/windows10-controls.webp",
-   "sha256": "c383452eae29c2ad2c22e9a812cfc8fba2904b4013bbf88aec353441e73afeab",
-   "size": 28692,
+   "sha256": "e6063cdaf895b78501105907fa1e6fda2b3482d70a811c584260e36e44493e16",
+   "size": 32748,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -15919,8 +15919,8 @@
   },
   {
    "path": "screenshots/current/windows10-letters.webp",
-   "sha256": "6c347f9a027368629e71fc8493e85cc52f7e0bc899a771a12ad845e273bc6e12",
-   "size": 29760,
+   "sha256": "0d8694bb06ce41152ffa86f4981f01872874afc70254a052c9245556b62bda2b",
+   "size": 31020,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -15938,8 +15938,8 @@
   },
   {
    "path": "screenshots/current/windows10-network.webp",
-   "sha256": "9dadeb8b35608573f7ccec43dedba183232adbd32b6c51a2ecf7c5153cc0dd8b",
-   "size": 21568,
+   "sha256": "0f378e3f89fef4311490a0e06abdad1678663f00203c1e2fa23e0f50d4cb73d7",
+   "size": 25874,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -15957,8 +15957,8 @@
   },
   {
    "path": "screenshots/current/windows10-settings-apps.webp",
-   "sha256": "57d1fa894b67830266534230acc47741a7739ba3ee5dbc1bb8d61686d92d96e6",
-   "size": 34010,
+   "sha256": "12612618b68b63ebe2ce57704307c9a930de14d8fd0df0ad704e881b441bfc61",
+   "size": 33734,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -15976,8 +15976,8 @@
   },
   {
    "path": "screenshots/current/windows10-settings-home.webp",
-   "sha256": "5b6ba4b854f736aad91ece54f56d7f2e9485fe5b555af7de280fe8703f1a6e62",
-   "size": 43336,
+   "sha256": "927b3a7e84df75bd89aedb53daf4be686f6ad0dcc2a7dd262f8125620935971f",
+   "size": 39930,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -15995,8 +15995,8 @@
   },
   {
    "path": "screenshots/current/windows10-settings-sound.webp",
-   "sha256": "db9afe00744e8f1e9c621290dcee54d1b4d507f3497b2a933de57af756574003",
-   "size": 29660,
+   "sha256": "e326d17ad6d847014ddc9b6b8c8595192a665ea8980b0eec99b8051370e1d3ca",
+   "size": 30924,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -16014,8 +16014,8 @@
   },
   {
    "path": "screenshots/current/windows10-settings-storage.webp",
-   "sha256": "c5f7022ddc385f8cc7b3386e5f7ed71d72b2163c582a852db3d3a625b8c18f3d",
-   "size": 28682,
+   "sha256": "ac42439d338a81b5ae6b30527d3f1be7eb0cb2c92dc9dded11b1cfe1b95dab06",
+   "size": 29432,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -16033,8 +16033,8 @@
   },
   {
    "path": "screenshots/current/windows10-start.webp",
-   "sha256": "0ae66b30dac2f3830f88164d50a204f031bd60640e5bb1f7ee2437588ed08248",
-   "size": 32364,
+   "sha256": "4e5351c05ca91bcecf63f187e7194d03f27d7848387caf276234bb5c874fef69",
+   "size": 33668,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -16054,8 +16054,8 @@
   },
   {
    "path": "screenshots/current/windows10-task-view.webp",
-   "sha256": "4664c3ba156c370c0ead807e88aaf02aa36cd5f3b91caa40766d9d8e2f08e5fc",
-   "size": 17864,
+   "sha256": "8cabeeed84c111fd86a831c6695562eafd6e34f6416ee182d817565d93646e07",
+   "size": 21124,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -16073,8 +16073,8 @@
   },
   {
    "path": "screenshots/current/windows10-workspace.webp",
-   "sha256": "d6c0353075eec19e53b37fe2efad8fa9feef6965ab7d553fd6dff894a9ca6740",
-   "size": 28528,
+   "sha256": "0b6fbb178975efa86900d9873589072e74f3f43de2b03d746ec92187456ad207",
+   "size": 30986,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -16092,8 +16092,8 @@
   },
   {
    "path": "screenshots/current/winxp-classic.webp",
-   "sha256": "95c67e405300a53199a8921eb1ac0cae4154e9881c9c5fbf6d51667a8c7b9d91",
-   "size": 149450,
+   "sha256": "36e54197a8113bc6a36de0babb1fda1b12b1e65b5f2cf941380884e967731931",
+   "size": 87852,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -16111,8 +16111,8 @@
   },
   {
    "path": "screenshots/current/winxp-controls.webp",
-   "sha256": "b2decb34b043dcec0cb416ecd17150ba71d1061d8e6316afe684e5f40b08bb38",
-   "size": 156800,
+   "sha256": "86748f52952457cd82a2e98d7e4cbbd38c6d5a3e5e445bd0c84024b404faee26",
+   "size": 96140,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -16130,8 +16130,8 @@
   },
   {
    "path": "screenshots/current/winxp-detail.webp",
-   "sha256": "dccb2b741fb0b24d18ad16f18d14720a6ef99dc7b78885ac5d140bb75ae0cbcf",
-   "size": 140986,
+   "sha256": "147c488179cd7f7bde69582f0f15c3f3787e66c75f83bbe8c44482ccffd0f212",
+   "size": 78888,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -16149,8 +16149,8 @@
   },
   {
    "path": "screenshots/current/winxp-notification-icons.webp",
-   "sha256": "0aa206822cb35c16d056fc912e99c922d8d5019d2fc07f701b4c72f2f5c1ff5c",
-   "size": 151106,
+   "sha256": "7de27e3f822d75e4d61692d81f70b62460fe9ccbf5b39868466eb479e34e8b88",
+   "size": 83000,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -16168,8 +16168,8 @@
   },
   {
    "path": "screenshots/current/winxp-programs.webp",
-   "sha256": "23bc41eb555abcedb435e5ee829f1c1607cd90f74eed75afbcb7066507a15625",
-   "size": 140508,
+   "sha256": "090841ebfaa8aea799c4ef91555bea474830855b14a5a32460bf6d0296a023ae",
+   "size": 72422,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -16187,8 +16187,8 @@
   },
   {
    "path": "screenshots/current/winxp-properties.webp",
-   "sha256": "62b959930e020dd23f27de12beb7340385a2f3101dd7fdfe3d628647bee81822",
-   "size": 145766,
+   "sha256": "43226a49fa306fe6478daa820571569bb617e456d2aaf68862d01adf416e4fef",
+   "size": 79608,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -16206,8 +16206,8 @@
   },
   {
    "path": "screenshots/current/winxp-run.webp",
-   "sha256": "57c0b8e5cffa99f5cab1247059d44016a9843f1f587efcb7b1849b85cb6ad66a",
-   "size": 145986,
+   "sha256": "8b96e0dfed0b126566581fb4066a8ace68ce7bbee137dd69f47d32a1af97efe8",
+   "size": 77622,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -16225,8 +16225,8 @@
   },
   {
    "path": "screenshots/current/winxp-start.webp",
-   "sha256": "6116da25da84262a8f651f7cde16f78bcdd4e4f627ed5ffe5f2316937a8bd46b",
-   "size": 141450,
+   "sha256": "24b80fb016d936bfd372c7bad5118533f2b94fa3f146a2157cda380eb5d33679",
+   "size": 75124,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -16245,8 +16245,8 @@
   },
   {
    "path": "screenshots/current/winxp-tray-audio.webp",
-   "sha256": "3fb204f7c08caf5f2bcc3fc90ee18f7d13524a0b33c29e4d75c72f7755eae9d4",
-   "size": 132264,
+   "sha256": "1a3b853fc218bc54ac8a43ce5fc00075cd476846d165a7bfb356ec3b0022c36e",
+   "size": 63256,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -16264,8 +16264,8 @@
   },
   {
    "path": "screenshots/current/winxp-tray-battery.webp",
-   "sha256": "b6e5259cd4190e579b8a83b0ec1f6fa141846a553235e5b6eb04e88875845576",
-   "size": 135650,
+   "sha256": "f0ee30d16fdda125a3dc4daf4744c33939935aa0b192d3dd8e58585d01459957",
+   "size": 64570,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -16283,8 +16283,8 @@
   },
   {
    "path": "screenshots/current/winxp-tray-bluetooth.webp",
-   "sha256": "24d52ddc8ebd89e096737d5c23bb03997849276a93d673c5d9be775b80551747",
-   "size": 136370,
+   "sha256": "697a6cd0ae0309946760b8192c4e5155f4b7b5cbe76169e84ccf9ca97becd8ee",
+   "size": 67106,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -16302,8 +16302,8 @@
   },
   {
    "path": "screenshots/current/winxp-tray-clock.webp",
-   "sha256": "988a8ca7c6481eec7baffb98a6231a121577e618cea50fe850a9f89af75338e3",
-   "size": 138432,
+   "sha256": "48351af26b410c476a8a91cf85d703d57baf36733f051dcfeb83c119b3e2c9a8",
+   "size": 69934,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -16321,8 +16321,8 @@
   },
   {
    "path": "screenshots/current/winxp-tray-network.webp",
-   "sha256": "3ca1ffd40e4c539c892318ff8eab5a7e978e927ed87b1f896afe390770534ee4",
-   "size": 129898,
+   "sha256": "66a85eba0fdcc63443a204393ce221af59f1ac46bdc454b0e5cda79cb79c4cfd",
+   "size": 65938,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -16340,8 +16340,8 @@
   },
   {
    "path": "screenshots/current/winxp-workspace.webp",
-   "sha256": "adac4bd63cfb376ecdbb2f67a5807be5c4ac620a93a3e88ea64ffff41083e298",
-   "size": 106220,
+   "sha256": "314ee25e9860da5b06917ab00a3093ecbbea0d5553db95a3fe8efd517e0d00b0",
+   "size": 62448,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -16378,8 +16378,8 @@
   },
   {
    "path": "screenshots/wayland/luna-all-programs-20261113.webp",
-   "sha256": "2da33ca5c20c4462ebed8ece7acc73af3925f016c8de826934390742dbc6910a",
-   "size": 68074,
+   "sha256": "b285eda50d0f9788a6222269c284d005ee91c5ae49bb59cd1f359e1022b8e37c",
+   "size": 36412,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -16398,8 +16398,8 @@
   },
   {
    "path": "screenshots/wayland/luna-calendar-20261113.webp",
-   "sha256": "18fee132969a945aa22769e60b5af941961aff498ac51d40c04474cc5165313c",
-   "size": 63106,
+   "sha256": "213063353dff86a4cef39c24b2b92190c0501bdd9d96d3f3d754907c68990717",
+   "size": 49344,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -16454,8 +16454,8 @@
   },
   {
    "path": "screenshots/wayland/luna-context-20261113.webp",
-   "sha256": "7c3a98f30ddb71a3a381dff976653cf381c0473a92ea87f663e8d568d9c12a66",
-   "size": 99180,
+   "sha256": "3c834b18a4d45ef38bccb0ba1a79b45a417a52f37eb038cedb51b0e3435252dd",
+   "size": 52768,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -16475,8 +16475,8 @@
   },
   {
    "path": "screenshots/wayland/luna-desktop-20261113.webp",
-   "sha256": "1f3e05263ead213312c1a5a73ae058ce13c1ade99d82f7edff29ca9e52eaa982",
-   "size": 101706,
+   "sha256": "c14465847b440a4cd694e7577a73112ecd4868791cf19f081c4a1c4c753ab6ff",
+   "size": 53716,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -16496,11 +16496,14 @@
   },
   {
    "path": "screenshots/wayland/luna-desktop.webp",
-   "sha256": "fc77d65c955c680fc8901c761f1cdcf206dd662cc556be01b93bd51fd5eef418",
-   "size": 106294,
+   "sha256": "a29514552e84bf64476eb6761486aa9da7a44e3ef078da9b1f1bab3d4aa9e676",
+   "size": 53530,
    "category": "documentation-capture",
    "rices": [],
-   "users": [],
+   "users": [
+    "screenshots/wayland/recapture-20261128-provenance.json",
+    "scripts/recapture_wayland_gallery.py"
+   ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "captured: real GTK/X11 or labwc+RicePlate screenshot of the running desktop",
    "generated_by": null,
@@ -16643,8 +16646,8 @@
   },
   {
    "path": "screenshots/wayland/luna-help-20261113.webp",
-   "sha256": "40fecf1547f6067b1cfb3965b77feeded43e56bd8b1070d322e72a30db6555cd",
-   "size": 104692,
+   "sha256": "a85bdf86388cd07ec71f565c7bd38cc76a0a80aa9c8035f171e833c1627a258e",
+   "size": 61122,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -16664,11 +16667,14 @@
   },
   {
    "path": "screenshots/wayland/luna-icons-after.webp",
-   "sha256": "9f19f4cfd36b7065b5516dcc6561bacaa36c13ef1e8dcef06d321da489808731",
-   "size": 95824,
+   "sha256": "a29514552e84bf64476eb6761486aa9da7a44e3ef078da9b1f1bab3d4aa9e676",
+   "size": 53530,
    "category": "documentation-capture",
    "rices": [],
-   "users": [],
+   "users": [
+    "screenshots/wayland/recapture-20261128-provenance.json",
+    "scripts/recapture_wayland_gallery.py"
+   ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "captured: real GTK/X11 or labwc+RicePlate screenshot of the running desktop",
    "generated_by": null,
@@ -16680,11 +16686,14 @@
   },
   {
    "path": "screenshots/wayland/luna-icons-before.webp",
-   "sha256": "902161e287876a329c0c9e448fb97ae92dd4fa4aff215c262946225fa2614473",
-   "size": 95836,
+   "sha256": "3851ea07840ce3657818bf6391137757315d66cfdf93fe7fec7a789fc9719bde",
+   "size": 52266,
    "category": "documentation-capture",
    "rices": [],
-   "users": [],
+   "users": [
+    "screenshots/wayland/recapture-20261128-provenance.json",
+    "scripts/recapture_wayland_gallery.py"
+   ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "captured: real GTK/X11 or labwc+RicePlate screenshot of the running desktop",
    "generated_by": null,
@@ -16696,11 +16705,14 @@
   },
   {
    "path": "screenshots/wayland/luna-icons-menu.webp",
-   "sha256": "211fd897ae29cbf98c820b389bc58e604e93e9cf3619a1a6088697d1fd9ea745",
-   "size": 90014,
+   "sha256": "76841efd004fca9b97bad439737daa79731e357777e937bc340dfaec99699127",
+   "size": 54276,
    "category": "documentation-capture",
    "rices": [],
-   "users": [],
+   "users": [
+    "screenshots/wayland/recapture-20261128-provenance.json",
+    "scripts/recapture_wayland_gallery.py"
+   ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "captured: real GTK/X11 or labwc+RicePlate screenshot of the running desktop",
    "generated_by": null,
@@ -16712,12 +16724,14 @@
   },
   {
    "path": "screenshots/wayland/luna-live-1024.webp",
-   "sha256": "e233cfe906673cccd0e662e82a0eb048bb45d606aeaa2765b5ce4f9d121d7018",
-   "size": 68274,
+   "sha256": "1beed0524a61e399550a3d0f600a0c05ce31db356c9b17113dbc76626b9efb64",
+   "size": 42454,
    "category": "documentation-capture",
    "rices": [],
    "users": [
-    "screenshots/wayland/README.md"
+    "screenshots/wayland/README.md",
+    "screenshots/wayland/recapture-20261128-provenance.json",
+    "scripts/recapture_wayland_gallery.py"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "captured: real GTK/X11 or labwc+RicePlate screenshot of the running desktop",
@@ -16730,12 +16744,14 @@
   },
   {
    "path": "screenshots/wayland/luna-live-fullhd.webp",
-   "sha256": "f9720411cd4c8bb3eb3a8ab7826d503b033af75fb97b75436277c8d3c6fa1542",
-   "size": 95246,
+   "sha256": "a90c45936355120d8f01cca034f18c2224e6d1adeec281a68e88f787c1d6f8fc",
+   "size": 48712,
    "category": "documentation-capture",
    "rices": [],
    "users": [
-    "screenshots/wayland/README.md"
+    "screenshots/wayland/README.md",
+    "screenshots/wayland/recapture-20261128-provenance.json",
+    "scripts/recapture_wayland_gallery.py"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "captured: real GTK/X11 or labwc+RicePlate screenshot of the running desktop",
@@ -16748,12 +16764,14 @@
   },
   {
    "path": "screenshots/wayland/luna-live-scale125.webp",
-   "sha256": "3ae8f9d8d979f76662e1b862200666bcfa038dee89c0d8fe6c4ab955045756f5",
-   "size": 86952,
+   "sha256": "8e7ce54a7eea07fd706b6a06ad9accda1c61e35dc59cccb42999827aa9d6c0d1",
+   "size": 50006,
    "category": "documentation-capture",
    "rices": [],
    "users": [
-    "screenshots/wayland/README.md"
+    "screenshots/wayland/README.md",
+    "screenshots/wayland/recapture-20261128-provenance.json",
+    "scripts/recapture_wayland_gallery.py"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "captured: real GTK/X11 or labwc+RicePlate screenshot of the running desktop",
@@ -16814,12 +16832,14 @@
   },
   {
    "path": "screenshots/wayland/luna-osd-default.webp",
-   "sha256": "173ec968685ac6e45392ebc8b3c17031babf9b5438b5f786198267b98cbeb23d",
-   "size": 3904,
+   "sha256": "6f77a37d43eca899186ec55d8c69b49515e3fdbda4cc190cc58155cce6b97280",
+   "size": 1512,
    "category": "documentation-capture",
    "rices": [],
    "users": [
-    "RICEBOWL_DE_ROADMAP.md"
+    "RICEBOWL_DE_ROADMAP.md",
+    "screenshots/wayland/recapture-20261128-provenance.json",
+    "scripts/recapture_wayland_gallery.py"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "captured: real GTK/X11 or labwc+RicePlate screenshot of the running desktop",
@@ -16832,12 +16852,14 @@
   },
   {
    "path": "screenshots/wayland/luna-osd-font.webp",
-   "sha256": "1b51293e629596f17bfaa0fce08fea44e22956f1dc102e2a362a1cc96e2bb47a",
-   "size": 3678,
+   "sha256": "8bb7130e312ef19ab5e45d2a6f40013195ff38257c115146aa1ca57abcf1cab3",
+   "size": 1488,
    "category": "documentation-capture",
    "rices": [],
    "users": [
-    "RICEBOWL_DE_ROADMAP.md"
+    "RICEBOWL_DE_ROADMAP.md",
+    "screenshots/wayland/recapture-20261128-provenance.json",
+    "scripts/recapture_wayland_gallery.py"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "captured: real GTK/X11 or labwc+RicePlate screenshot of the running desktop",
@@ -16850,11 +16872,14 @@
   },
   {
    "path": "screenshots/wayland/luna-pointer-closed.webp",
-   "sha256": "b6cf0d5463dd44bcfd7857b1e19ab947d0b58f056243b3d0ff5dde27e7fc205d",
-   "size": 73344,
+   "sha256": "cd0b35f2d1e6bb7b2c97b36303e18815d79fb39936b31053c88504f5890b88bf",
+   "size": 42532,
    "category": "documentation-capture",
    "rices": [],
-   "users": [],
+   "users": [
+    "screenshots/wayland/recapture-20261128-provenance.json",
+    "scripts/recapture_wayland_gallery.py"
+   ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "captured: real GTK/X11 or labwc+RicePlate screenshot of the running desktop",
    "generated_by": null,
@@ -16866,11 +16891,14 @@
   },
   {
    "path": "screenshots/wayland/luna-pointer-find-hover.webp",
-   "sha256": "a53e84d40876e5d96c40c920b3a50ce01b929866adfe61d5d90a889c53737b0a",
-   "size": 71022,
+   "sha256": "aac5ad4b4eba01cf529fcdd51e93d95b70f8f1d3679f55e9b09e521d9fc3a474",
+   "size": 36070,
    "category": "documentation-capture",
    "rices": [],
-   "users": [],
+   "users": [
+    "screenshots/wayland/recapture-20261128-provenance.json",
+    "scripts/recapture_wayland_gallery.py"
+   ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "captured: real GTK/X11 or labwc+RicePlate screenshot of the running desktop",
    "generated_by": null,
@@ -16898,11 +16926,14 @@
   },
   {
    "path": "screenshots/wayland/luna-pointer-find-paged.webp",
-   "sha256": "9854456b3759a5fe282f2c9b7d7dabdb397e1d53d096d666cb1c550d9be23d45",
-   "size": 69470,
+   "sha256": "67f8d37ea0c73744447c08ece9d6b9cf12c3fe138c66f7aefe161bf3fb20b242",
+   "size": 35894,
    "category": "documentation-capture",
    "rices": [],
-   "users": [],
+   "users": [
+    "screenshots/wayland/recapture-20261128-provenance.json",
+    "scripts/recapture_wayland_gallery.py"
+   ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "captured: real GTK/X11 or labwc+RicePlate screenshot of the running desktop",
    "generated_by": null,
@@ -16914,12 +16945,14 @@
   },
   {
    "path": "screenshots/wayland/luna-pointer-find.webp",
-   "sha256": "8749c6be37e0bd448636003dff4fa2ff003cc8c02140ba59aa008867432d5f1f",
-   "size": 70836,
+   "sha256": "79f3b8a44b44012394f509ca2088f2fc72086f016a2ff07c5d7cff420de5a729",
+   "size": 36124,
    "category": "documentation-capture",
    "rices": [],
    "users": [
-    "screenshots/wayland/README.md"
+    "screenshots/wayland/README.md",
+    "screenshots/wayland/recapture-20261128-provenance.json",
+    "scripts/recapture_wayland_gallery.py"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "captured: real GTK/X11 or labwc+RicePlate screenshot of the running desktop",
@@ -16932,11 +16965,14 @@
   },
   {
    "path": "screenshots/wayland/luna-pointer-open.webp",
-   "sha256": "f0072b1ccdf63b151a8d4f05fef8871eb133fefcfb166de30dc43e56f06c0989",
-   "size": 68184,
+   "sha256": "1beed0524a61e399550a3d0f600a0c05ce31db356c9b17113dbc76626b9efb64",
+   "size": 42454,
    "category": "documentation-capture",
    "rices": [],
-   "users": [],
+   "users": [
+    "screenshots/wayland/recapture-20261128-provenance.json",
+    "scripts/recapture_wayland_gallery.py"
+   ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "captured: real GTK/X11 or labwc+RicePlate screenshot of the running desktop",
    "generated_by": null,
@@ -16948,11 +16984,14 @@
   },
   {
    "path": "screenshots/wayland/luna-pointer-saved.webp",
-   "sha256": "1f85b1b48c5782e8aec944bc35ce26c48f97c15c8f53f5025ec3456903a9798e",
-   "size": 67290,
+   "sha256": "73b5455c5ac056da8a88dbd7d714bede15c5a67c6830fb22408c626b9314acb7",
+   "size": 35228,
    "category": "documentation-capture",
    "rices": [],
-   "users": [],
+   "users": [
+    "screenshots/wayland/recapture-20261128-provenance.json",
+    "scripts/recapture_wayland_gallery.py"
+   ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "captured: real GTK/X11 or labwc+RicePlate screenshot of the running desktop",
    "generated_by": null,
@@ -16964,8 +17003,8 @@
   },
   {
    "path": "screenshots/wayland/luna-properties-20261113.webp",
-   "sha256": "fa7c417af39142a82d70a2d866532c3fbea992647f554d40083c5084bfe4bd97",
-   "size": 99290,
+   "sha256": "ba692ce6dbc64cf9f02dde771fd7d64938738ca3fc396446f4a22e933f3aed8c",
+   "size": 52968,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -16985,8 +17024,8 @@
   },
   {
    "path": "screenshots/wayland/luna-run-20261113.webp",
-   "sha256": "6ccfba7e2d92a5b16c94d728a3475b7d5f8c0fc468368b8b0c8e1db8477fe97b",
-   "size": 99800,
+   "sha256": "588b195cf1bc9135cd3644ef93057522ce7b8b1ecc843cce012369b94758e719",
+   "size": 56924,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -17006,12 +17045,14 @@
   },
   {
    "path": "screenshots/wayland/luna-saved-pinned-rightclick.webp",
-   "sha256": "78cfe672804074275449c380db4582e68511c25beb6b11ae02c591219860e7ed",
-   "size": 68306,
+   "sha256": "dc555b6786492982eaab75dc1692702cedfad46ba7accbcd01a7db5702d40cc0",
+   "size": 35134,
    "category": "documentation-capture",
    "rices": [],
    "users": [
-    "screenshots/wayland/README.md"
+    "screenshots/wayland/README.md",
+    "screenshots/wayland/recapture-20261128-provenance.json",
+    "scripts/recapture_wayland_gallery.py"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "captured: real GTK/X11 or labwc+RicePlate screenshot of the running desktop",
@@ -17024,11 +17065,14 @@
   },
   {
    "path": "screenshots/wayland/luna-saved-unpinned-rightclick.webp",
-   "sha256": "f07a35eca9c2c983d0202d69f05d1138ced0be7f1cff22faecf1d5a94c8658a3",
-   "size": 67412,
+   "sha256": "44a8f1fac8acd054748a7f38163be17850b4cc7f9cba9d51ea8ec7cb19d28b56",
+   "size": 34742,
    "category": "documentation-capture",
    "rices": [],
-   "users": [],
+   "users": [
+    "screenshots/wayland/recapture-20261128-provenance.json",
+    "scripts/recapture_wayland_gallery.py"
+   ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "captured: real GTK/X11 or labwc+RicePlate screenshot of the running desktop",
    "generated_by": null,
@@ -17040,8 +17084,8 @@
   },
   {
    "path": "screenshots/wayland/luna-start-20261113.webp",
-   "sha256": "90b16c545aaa8d5cc030782413b1490bf5bf778f42852c23af67d47792b6ea11",
-   "size": 95774,
+   "sha256": "675f26c4ed7a353dec0d2576b9c2c6e1b58ebf3cbcabaf40412a35fd9ec75466",
+   "size": 54308,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -17062,8 +17106,8 @@
   },
   {
    "path": "screenshots/wayland/luna-titlebar-20261113.webp",
-   "sha256": "0fcec5154f2c8b84c01a1c2d37ff6ec01b5ce9210ca74dc64adcbd0f272ecbbe",
-   "size": 92030,
+   "sha256": "20e6d9cdfdb071a810ee8bfcbda83676f3f932dc0d690a642ec0a5c02f9d1aef",
+   "size": 58856,
    "category": "documentation-capture",
    "rices": [],
    "users": [
@@ -17118,12 +17162,14 @@
   },
   {
    "path": "screenshots/wayland/luna-window-chrome.webp",
-   "sha256": "16c9cf344f4d9c51b89bc3b50b180d3076f9d2ed468507d52af7c4aae6a82724",
-   "size": 89570,
+   "sha256": "20e6d9cdfdb071a810ee8bfcbda83676f3f932dc0d690a642ec0a5c02f9d1aef",
+   "size": 58856,
    "category": "documentation-capture",
    "rices": [],
    "users": [
-    "screenshots/wayland/README.md"
+    "screenshots/wayland/README.md",
+    "screenshots/wayland/recapture-20261128-provenance.json",
+    "scripts/recapture_wayland_gallery.py"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "captured: real GTK/X11 or labwc+RicePlate screenshot of the running desktop",
@@ -17136,12 +17182,14 @@
   },
   {
    "path": "screenshots/wayland/luna-window-default.webp",
-   "sha256": "dd889debd7f89126beae76251d44c22e2fd107c6f739bdc9808b513d22c669b3",
-   "size": 89220,
+   "sha256": "5a50a7dbcae80234da8d025fa6cc3a46ed5eea0c84ff8aa03bfe515aafca2187",
+   "size": 58808,
    "category": "documentation-capture",
    "rices": [],
    "users": [
-    "screenshots/wayland/README.md"
+    "screenshots/wayland/README.md",
+    "screenshots/wayland/recapture-20261128-provenance.json",
+    "scripts/recapture_wayland_gallery.py"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "captured: real GTK/X11 or labwc+RicePlate screenshot of the running desktop",
@@ -17191,12 +17239,14 @@
   },
   {
    "path": "screenshots/wayland/workspace.webp",
-   "sha256": "b9491644eceec2a17a1d0c1995d85c77187edc6f450e230d300765380acec822",
-   "size": 16152,
+   "sha256": "1f0bc47d73410fd465f4ffa9d09b4aff9c099dedf266140d4f8c7900a2ca63e7",
+   "size": 20594,
    "category": "documentation-capture",
    "rices": [],
    "users": [
-    "WAYLAND_PROGRESS.md"
+    "WAYLAND_PROGRESS.md",
+    "screenshots/wayland/recapture-20261128-provenance.json",
+    "scripts/recapture_wayland_gallery.py"
    ],
    "declared_licence": "MIT (repo-wide LICENSE; no per-asset licence declaration)",
    "origin": "captured: real GTK/X11 or labwc+RicePlate screenshot of the running desktop",

@@ -42,15 +42,22 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def import_gallery(source: Path, destination: Path, *, ci_run: int, commit: str) -> dict:
-    if ci_run <= 0 or not re.fullmatch(r"[0-9a-f]{40}", commit):
+def import_gallery(source: Path, destination: Path, *, ci_run: int, commit: str,
+                   local: bool = False) -> dict:
+    """``local=True`` imports PNGs from a local run of the same native smoke scripts
+    (no hosted CI run and no ``capture-manifest.json``); the provenance file then
+    records ``ci_run: null`` and a local-origin note instead of a run ID."""
+    if not re.fullmatch(r"[0-9a-f]{40}", commit) or (not local and ci_run <= 0):
         raise ValueError("A positive CI run ID and full 40-character commit SHA are required")
-    manifest = json.loads((source / "capture-manifest.json").read_text("utf-8"))
-    if manifest.get("source_commit") != commit or manifest.get("environment") != EXPECTED_ENV:
-        raise ValueError("Artifact does not match the specified revision or native capture environment")
-    receipts = {record["file"]: record for record in manifest.get("captures", [])}
-    if not receipts:
-        raise ValueError("Native capture manifest has no source receipts")
+    if local:
+        receipts = {}
+    else:
+        manifest = json.loads((source / "capture-manifest.json").read_text("utf-8"))
+        if manifest.get("source_commit") != commit or manifest.get("environment") != EXPECTED_ENV:
+            raise ValueError("Artifact does not match the specified revision or native capture environment")
+        receipts = {record["file"]: record for record in manifest.get("captures", [])}
+        if not receipts:
+            raise ValueError("Native capture manifest has no source receipts")
 
     # Stage and validate *all* frames before any public screenshot is replaced.
     destination.mkdir(parents=True, exist_ok=True)
@@ -87,10 +94,13 @@ def import_gallery(source: Path, destination: Path, *, ci_run: int, commit: str)
                 "source_manifest_verified": receipt is not None,
             })
         provenance = {
-            "ci_run": ci_run,
+            "ci_run": None if local else ci_run,
             "source_commit": commit,
             "environment": EXPECTED_ENV,
-            "source": "Native RicePlate CI: genuine headless labwc/grim compositor PNG",
+            "source": ("Local run of scripts/smoke_riceplate_native.sh and scripts/smoke_luna_window_chrome.sh "
+                       "after the original-artwork replacement: genuine headless labwc/grim compositor PNG"
+                       if local else
+                       "Native RicePlate CI: genuine headless labwc/grim compositor PNG"),
             "images": records,
         }
         (stage / "luna-gallery-provenance-20261113.json").write_text(
@@ -107,9 +117,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", required=True, type=Path)
     parser.add_argument("--destination", default=Path("screenshots/wayland"), type=Path)
-    parser.add_argument("--ci-run", required=True, type=int)
+    parser.add_argument("--ci-run", type=int, default=0)
+    parser.add_argument("--local", action="store_true",
+                        help="source PNGs come from a local smoke run, not a hosted CI artifact")
     parser.add_argument("--source-commit", required=True)
     args = parser.parse_args()
     result = import_gallery(args.source, args.destination, ci_run=args.ci_run,
-                            commit=args.source_commit)
+                            commit=args.source_commit, local=args.local)
     print(f"Published {len(result['images'])} native screenshots from {result['source_commit']}")

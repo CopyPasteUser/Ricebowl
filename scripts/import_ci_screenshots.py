@@ -52,8 +52,20 @@ VERSIONS["macmenu-dark"] = "ricebowl-macmenu-dark-current.png"
 
 
 def import_gallery(archive: Path, destination: Path, *, run_id: int,
-                   source_commit: str) -> dict:
-    if run_id <= 0 or not re.fullmatch(r"[0-9a-f]{40}", source_commit):
+                   source_commit: str, only: tuple[str, ...] | None = None,
+                   origin: str | None = None) -> dict:
+    """Import a capture archive.
+
+    ``only`` selects a subset of gallery stems for a partial *recapture*: just
+    those images (and their manifest entries) are replaced, every other image and
+    the original CI provenance stay untouched. ``origin`` then describes the
+    local capture environment instead of a hosted CI run.
+    """
+    if only is not None:
+        unknown = sorted(set(only) - set(VERSIONS))
+        if unknown:
+            raise ValueError(f"Unknown gallery images: {', '.join(unknown)}")
+    if only is None and run_id <= 0 or not re.fullmatch(r"[0-9a-f]{40}", source_commit):
         raise ValueError("Provide an exact GitHub Actions run ID and 40-digit commit SHA")
     archive_digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     fingerprints: set[str] = set()
@@ -68,6 +80,8 @@ def import_gallery(archive: Path, destination: Path, *, run_id: int,
             tempfile.TemporaryDirectory(prefix="ricebowl-screenshot-", dir=destination.parent)))
         zipped = resources.enter_context(ZipFile(archive))
         for stem, source_name in VERSIONS.items():
+            if only is not None and stem not in only:
+                continue
             try:
                 member = zipped.getinfo(source_name)
             except KeyError as exc:
@@ -110,6 +124,9 @@ def import_gallery(archive: Path, destination: Path, *, run_id: int,
         # A historically clipped control panel could still be a valid PNG.
         # Check content in the actual expected region, not just dimensions.
         for profile in PROFILES:
+            if only is not None and not (
+                    f"{profile}-start" in only and f"{profile}-controls" in only):
+                continue
             with (Image.open(temp / f"{profile}-start.webp") as start,
                   Image.open(temp / f"{profile}-controls.webp") as controls):
                 region = ((460, 170, 1140, 750) if profile in
@@ -121,6 +138,30 @@ def import_gallery(archive: Path, destination: Path, *, run_id: int,
                 changed = sum(1 for color in difference.getdata() if max(color) > 18)
                 if changed < 20_000:
                     raise ValueError(f"Control panel appears invisible: {profile}")
+
+        if only is not None:
+            previous = json.loads((destination / "manifest.json").read_text(encoding="utf-8"))
+            for item in manifest_images:
+                item["source_commit"] = source_commit
+            replaced = {item["file"]: item for item in manifest_images}
+            merged = [replaced.pop(item["file"], item) for item in previous["images"]]
+            if replaced:
+                raise ValueError("Partial recapture would add images: " + ", ".join(replaced))
+            metadata = dict(previous)
+            metadata["images"] = merged
+            metadata.setdefault("recaptures", []).append({
+                "capture_origin": origin or "local RiceBowl capture, native GTK3/XFWM4 virtual X11",
+                "source_commit": source_commit,
+                "source_archive_sha256": archive_digest,
+                "imported_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "files": sorted(item["file"] for item in manifest_images),
+            })
+            (temp / "manifest.json").write_text(
+                json.dumps(metadata, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            for item in manifest_images:
+                os.replace(temp / item["file"], destination / item["file"])
+            os.replace(temp / "manifest.json", destination / "manifest.json")
+            return metadata
 
         metadata = {
             "format": 1,
@@ -143,12 +184,18 @@ def import_gallery(archive: Path, destination: Path, *, run_id: int,
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("archive", type=Path, help="Downloaded green-CI artifact ZIP")
-    parser.add_argument("--run-id", type=int, required=True)
+    parser.add_argument("--run-id", type=int, default=0,
+                        help="GitHub Actions run ID (not used with --only)")
+    parser.add_argument("--only", nargs="+", metavar="STEM",
+                        help="partial recapture: replace only these gallery images")
+    parser.add_argument("--origin", help="capture environment note for --only")
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--destination", type=Path, default=DESTINATION)
     args = parser.parse_args()
     metadata = import_gallery(args.archive, args.destination,
-                              run_id=args.run_id, source_commit=args.source_commit)
+                              run_id=args.run_id, source_commit=args.source_commit,
+                              only=tuple(args.only) if args.only else None,
+                              origin=args.origin)
     print(f"Imported {len(metadata['images'])} authentic X11 screenshots "
           f"from run {metadata['run_id']}")
 

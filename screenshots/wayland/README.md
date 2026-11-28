@@ -8,6 +8,8 @@ They were recorded in an isolated headless compositor with a pixman renderer
 and virtual input. They show the experimental Wayland desktop, **not**
 physical-hardware acceptance or completed Windows XP fidelity.
 
+> **Recapture (28 November 2026):** after the original-artwork replacement, the Luna previews that showed the old wallpaper were re-captured from a local run of the same native smoke scripts (genuine headless labwc + RicePlate; provenance in [`recapture-20261128-provenance.json`](recapture-20261128-provenance.json) and [`luna-gallery-provenance-20261113.json`](luna-gallery-provenance-20261113.json)). Older dated captions below still cite the original CI runs for their text; those images now come from the local recapture. A few historical comparison images (for example `luna-fidelity-*`, `luna-ui-font-*`, `luna-menu*`, `luna-font`, `luna-pointer-find-paged-counter`) still show the previous wallpaper and are pending re-capture.
+
 ## XP Luna · Live XDG file desktop (14 November 2026)
 
 These **four new 1366×768 screenshots** come from the *same actual native labwc + RicePlate compositor session* in [successful capture CI #43593535063](https://github.com/CopyPasteUser/Ricebowl/actions/runs/43593535063). The tested source is [`0779d2e0`](https://github.com/CopyPasteUser/Ricebowl/commit/0779d2e0b903db496105d0f6be2f7b7b166509c8); none of the desktop surfaces was mocked, drawn, retouched or composited into these screenshots. The CI-only test directory and file names are disposable.
