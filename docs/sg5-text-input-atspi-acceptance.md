@@ -21,7 +21,7 @@ Do not count menu-search keyboard navigation as full native IME and AT-SPI parit
 | --- | --- | --- | --- |
 | UTF-8 / UAX #29 | e + combining U+0301, German flag, woman-technologist ZWJ, thumbs-up with modifier | no split graphemes under caret, selection, delete, clipping | Rust tests in luna_dialog, native_menu, text_render |
 | Clipboard | selected multi-grapheme Run / Rename text | Ctrl+C/Ctrl+X/Ctrl+V must preserve UTF-8, selection and focus without shell execution | **Merged #557** implements seat-scoped `wl_data_device` ownership/receive and atomic validation; `scripts/smoke_luna_atspi.sh` includes real external `wl-copy`/`wl-paste` round trips and negative invalid-text coverage; the Rename field also has an external `wl-copy` paste-in and copy-out receipt (27 Nov, local, WP5.3). Revalidate on final exact-main source; do not infer physical acceptance |
-| BiDi | abc + Hebrew, mixed Arabic ABC 42 | logical storage; visual caret and arrow movement via same visible substring | Rust bidi_layout/luna_dialog tests; real RTL client review open |
+| BiDi | abc + Hebrew, mixed Arabic ABC 42, مرحبا, שלום, abc שלום 123 | logical storage and AT-SPI offsets; UAX #9 P2/P3 paragraph direction; RTL paragraphs right-aligned; caret from the bidi visual map (outer-run affinity), visual Left/Right, logical Home/End, multi-rectangle selection, preedit at the logical caret | Rust `bidi_layout`/`luna_dialog`/`style_art`/`text_render` tests; real-labwc Run field typed Arabic, Hebrew and mixed text with `grim` ink/caret pixels (28 November section) |
 | Arabic/Indic | Arabic salaam, Hindi हिन्दी | OpenType GSUB/GPOS and nonzero bounded glyph positions only if real font covers glyphs | style_art/native_shaping Rust tests; **positive Hindi GSUB/GPOS + grapheme caret tests pass locally with installed `fonts-lohit-deva`** (see 27 November section); native compositor rendering of shaped Indic text now works through the trusted system font fallback (28 November section) |
 | CJK | 日本語, 中文, 한국어 | UTF-8 commits and clearly rendered fallback where coverage unavailable; never label '?' as CJK success | existing missing-cmap tests; **positive CJK advance/caret/pixel tests pass locally with installed `fonts-wqy-microhei`**; native compositor positive CJK/Hangul rendering through the system font fallback passes locally (28 November section) |
 | Missing fonts/glyphs | U+10FFFF and missing joined emoji | visible replacement metrics and pixels; no false font-coverage success | existing negative style_art tests plus the 27 November Hindi/CJK/Hangul replacement-pixel Rust and real-labwc (AT-SPI + `grim`) matrix |
@@ -244,13 +244,60 @@ the rendering paths after those points. Python `unittest discover`: 2003 OK
 (4 skipped). Not claimed: SG5 closure, exact-head CI, physical Fcitx/IBus/Orca,
 RTL Arabic/Hebrew compositor review, non-Luna (cell-metric) faces.
 
+## RTL paragraph direction, alignment and bidi caret (28 November 2026; local evidence)
+
+One core model, `bidi_layout::LineLayout`, now drives every single-line native
+text surface that shows user or app text: the paragraph direction is UAX #9
+P2/P3 (first strong letter, isolates skipped, LTR default) unless the widget
+forces one (`BaseDirection`); display order is the bidi reordering at that
+base level. The layout carries the painted x of every visual cluster edge,
+taken from the same glyph advances the painter uses (OpenType-shaped
+per-grapheme advances, a ligature such as lam-alef split between its
+graphemes; per-letter advances for unshaped text; one cell per grapheme for
+the bitmap face).
+
+- **Alignment.** RTL paragraphs align to the trailing (right) edge in the
+  RicePop inbox rows/detail/actions, Start-menu tiles and action rows, tray
+  popup and tray menu labels, and the Run/Rename editor. A label keeps the
+  direction of its complete text after fitting; fitting cuts the logical end,
+  so the ellipsis paints at the visual left of an RTL label. LTR labels keep
+  their exact historical pixels (byte-identical regression test).
+- **Caret.** The caret x of a logical index is the edge of the bidi visual map;
+  at a level boundary it takes the affinity of the *outer* run (lower
+  embedding level, ties to the preceding grapheme; start/end of paragraph
+  count as base level). Home/End stay logical, so in an RTL paragraph Home is
+  the right edge and End the left edge. Left/Right move **visually** (one
+  painted cluster per key); AT-SPI text, caret and selection offsets and
+  text-input-v3 surrounding text stay logical and unchanged.
+- **Selection / IME.** A logical selection or preedit crossing a level boundary
+  paints as several rectangles. The preedit is inserted at the logical caret
+  and the paragraph direction includes it.
+
+Rust tests: base direction (Arabic, Hebrew, neutral-first, digits-first,
+isolates, mixed), forced direction, alignment, ellipsis side, caret x across
+LTR/RTL boundaries, arrow walks in LTR and RTL paragraphs, selection
+rectangles, shaped Arabic/Hebrew carets with the installed DejaVu face, RTL
+IME preedit. Compositor (`scripts/smoke_luna_atspi.sh`, labwc 0.7.2 under
+`/opt/labwc-sg5`): `wtype` types مرحبا, שלום and `abc שלום 123` into Run; the
+AT-SPI probe reads the logical text and caret after each key; the `grim` field
+crop (`scripts/sg5_field_geometry.py`) shows the RTL ink ending at the text box
+right edge (x 288 of 290, left half empty), the End caret at the ink's left
+edge, Home at x 290, Left/Right moving the painted caret one cluster; the mixed
+LTR paragraph stays left-aligned with End at the ink's right edge and the first
+Left landing on logical caret 5 (crossing the visually rightmost shin).
+`SG5_KEEP_DIR` keeps the crops. The SG3 `luna`/`luna-nofonts` smoke shows an
+RTL notification summary ending at the row's right inset (without system
+fonts the Arabic row is one `?` per grapheme, still right-aligned). Not claimed: UI
+chrome mirroring for RTL locales, multi-line bidi paragraphs, exact-head CI,
+physical Fcitx/IBus/Orca review.
+
 ## Remaining blockers before issue #417 SG5 can be checked
 
 - The external IME v2 -> compositor -> v3 **Run** protocol smoke passed #551 head (Native 44673725266). **Rename** and its dialog focus leave/re-enter now pass locally (labwc 0.7.2, 26 November 2026, see above; not yet on exact-head CI). Still open: menu-surface focus leave/re-enter and real candidate selection/RTL flows. One scripted Japanese transaction is not full IME parity.
 - Native Run/Rename clipboard shortcuts are already **merged in #557**, and the current source contains live `wl-copy` ↔ native editor ↔ `wl-paste` regression steps. Full cross-app selection transfer/focus/cleanup must still be confirmed on the exact final source in a private labwc session; the historical merge does not by itself certify the final SG5 matrix.
 - Start Menu Search and All Programs both pass the external keyboard/AT-SPI editing smoke. The menu v3 focus target, preedit and commit handling, deletion and composition painting remain open. [SG5 issue #595](https://github.com/CopyPasteUser/Ricebowl/issues/595)
 - Real XDG Rename AT-SPI focus/text/caret/selection/cancel client PASSED #551 exact-head CI (Native 44673725266); Rename IME protocol and focus cycle covered locally; AT-SPI action invocation for the Rename menu item and OK/Rename/Cancel dialog buttons, plus refused/cancelled/confirmed transitions, now pass locally (27 November, not yet on exact-head CI). Trash and Properties actions are not driven by the smoke.
-- Positive Hindi/CJK/Hangul: shaping, caret metrics and real compositor glyphs are proven locally with the trusted system font fallback (28 November); private recipe fonts remain unshaped and 1 MiB-capped by design and do not use it. Still open: RTL Arabic/Hebrew client review (the DejaVu candidate exists but has no compositor evidence), exact-head CI, and physical-device review.
+- Positive Hindi/CJK/Hangul: shaping, caret metrics and real compositor glyphs are proven locally with the trusted system font fallback (28 November); private recipe fonts remain unshaped and 1 MiB-capped by design and do not use it. Arabic/Hebrew RTL paragraphs (direction, right alignment, caret, arrows) now have local compositor evidence (28 November section). Still open: exact-head CI and physical-device review.
 - After software gates, **physical** Mint/ThinkPad Fcitx/IBus, Orca, mixed-DPI/GPU rendering and keyboard-layout switching. Physical acceptance is not claimed by CI.
 
 No proprietary fonts, resident polling service, unsafe recipe execution or modification of XFCE/X11 defaults are introduced.

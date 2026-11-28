@@ -1013,6 +1013,8 @@ SCRIPTS = {
     "arabic": ("مرحبا", "?????"),
     "hangul": ("한국어", "???"),
 }
+# Paragraphs whose first strong letter is RTL (UAX #9 P2/P3): right-aligned.
+RTL_SCRIPTS = {"arabic"}
 
 
 def show_only(summary: str, body: str = "", actions=()) -> None:
@@ -1057,28 +1059,68 @@ def script_matrix_negative() -> None:
     """System fonts hidden (kill switch only): one visible '?' per grapheme, never blank."""
     shots = script_shots(True)
     for name in SCRIPTS:
-        require(shots[(name, "script")] == shots[(name, "question")],
-                "%s without fonts is not the visible '?' replacement" % name)
+        if name in RTL_SCRIPTS:
+            # An RTL paragraph is right-aligned while the literal "?????" is
+            # LTR (left-aligned): compare the painted run, not its position.
+            script = summary_ink(shots[(name, "script")], shots["blank"])
+            question = summary_ink(shots[(name, "question")], shots["blank"])
+            require(abs((script[1] - script[0]) - (question[1] - question[0])) <= 2,
+                    "%s without fonts is not one visible '?' per grapheme: ink %d..%d vs %d..%d"
+                    % ((name,) + script + question))
+            require(445 <= script[1] <= 456 and 24 <= question[0] <= 32,
+                    "%s without fonts lost its RTL right alignment: ink %d..%d" % ((name,) + script))
+        else:
+            require(shots[(name, "script")] == shots[(name, "question")],
+                    "%s without fonts is not the visible '?' replacement" % name)
         require(shots[(name, "script")] != shots["blank"], "%s vanished without fonts" % name)
     passed("negative: system fonts hidden -> every script shows one visible '?' per grapheme, never blank")
     makoctl("dismiss", "-a")
     close_inbox()
 
 
+def summary_ink(shot: bytes, reference: bytes) -> tuple[int, int]:
+    """Painted column extent of the summary line of a captured row card.
+
+    The summary band is the set of card rows where `shot` differs from
+    `reference` (another summary); inside it, ink is every pixel that is not
+    the band's dominant (card) colour, within the card's inner columns."""
+    from PIL import Image
+    size = (480, 80)
+    image = Image.frombytes("RGB", size, shot)
+    other = Image.frombytes("RGB", size, reference)
+    rows = [y for y in range(size[1])
+            if any(image.getpixel((x, y)) != other.getpixel((x, y)) for x in range(size[0]))]
+    require(rows, "summary band not found: the two summaries painted identically")
+    band = [(x, y) for y in range(rows[0], rows[-1] + 1) for x in range(15, 466)]
+    colours: dict = {}
+    for point in band:
+        colour = image.getpixel(point)
+        colours[colour] = colours.get(colour, 0) + 1
+    background = max(colours, key=colours.get)
+    columns = sorted({x for x, y in band if image.getpixel((x, y)) != background})
+    require(columns, "summary band has no ink")
+    return columns[0], columns[-1]
+
+
 def rtl_layout(fonts: bool) -> None:
     """Mixed-direction summaries are laid out by the shared single-line BiDi
     layout in REAL compositor pixels (UAX #9 runs, whole grapheme clusters), and
-    the accessibility text keeps the logical order. Native rows are start-aligned
-    (RTL paragraphs are not right-aligned: documented unsupported)."""
+    the accessibility text keeps the logical order. The paragraph direction
+    comes from the first strong letter (UAX #9 P2/P3): an LTR paragraph starts
+    at the row's left inset, an RTL paragraph is aligned to the trailing (right)
+    inset. The row card is 320 logical px painted into a 480 px popup (x1.5):
+    text insets 18 logical px -> x 27 (left) and x 453 (right)."""
     word = "مرحبا"
     ltr_para = "Abc " + word            # first strong letter is Latin: LTR paragraph
     rtl_para = word + " Abc"            # first strong letter is Arabic: RTL paragraph
     wrong_order = "Abc " + word[::-1]   # the Arabic run in the opposite logical order
+    pure = "שלום עולם"                   # Hebrew only: RTL paragraph
     close_inbox()
     notify(".", body="", actions=())
     open_inbox()
     shots = {}
-    for name, text in (("ltr", ltr_para), ("rtl", rtl_para), ("rev", wrong_order), ("latin", "Abc")):
+    for name, text in (("ltr", ltr_para), ("rtl", rtl_para), ("rev", wrong_order),
+                       ("latin", "Abc"), ("hebrew", pure)):
         show_only(text)
         row = find_button(inbox(), T_ROW % APP + text)
         require(row is not None, "accessible name of the %s row is not the logical text" % name)
@@ -1086,19 +1128,30 @@ def rtl_layout(fonts: bool) -> None:
     blank = (show_only("."), capture_popup("bidi-blank"))[1]
     require(shots["ltr"] != blank and shots["latin"] != blank, "a bidi row rendered as nothing")
     require(shots["ltr"] != shots["latin"], "the Arabic run was not drawn at all")
-    # Visually the Latin run is on the left in both paragraphs: the paragraph's
-    # base direction must not change the painted order of the runs.
-    require(shots["ltr"] == shots["rtl"],
-            "paragraph direction changed the painted order of the Latin and Arabic runs")
+    ltr = summary_ink(shots["ltr"], shots["latin"])
+    rtl = summary_ink(shots["rtl"], shots["latin"])
+    hebrew = summary_ink(shots["hebrew"], shots["latin"])
+    # Both paragraphs paint "Abc", a space, then the Arabic run (visual order).
+    require(24 <= ltr[0] <= 32 and ltr[1] < 300,
+            "LTR paragraph is not start(left)-aligned: ink %d..%d" % ltr)
+    require(445 <= rtl[1] <= 456 and rtl[0] > 150,
+            "RTL paragraph is not right-aligned: ink %d..%d" % rtl)
+    require(445 <= hebrew[1] <= 456 and hebrew[0] > 150,
+            "Hebrew RTL paragraph is not right-aligned: ink %d..%d" % hebrew)
+    require(abs((ltr[1] - ltr[0]) - (rtl[1] - rtl[0])) <= 3,
+            "the LTR and RTL paragraphs did not paint the same visual run sequence: "
+            "widths %d vs %d" % (ltr[1] - ltr[0], rtl[1] - rtl[0]))
     if fonts:
         require(shots["ltr"] != shots["rev"],
                 "the Arabic run is not painted in its own (visual) order")
-        passed("inbox rows: a mixed Latin/Arabic summary is laid out by the BiDi algorithm in real pixels "
-               "(Latin first in LTR and RTL paragraphs alike, the Arabic run reversed for display, "
-               "AT-SPI text stays logical)")
+        passed("inbox rows: a mixed Latin/Arabic summary is laid out by the BiDi algorithm in real pixels; "
+               "LTR paragraph start-aligned (ink x %d..%d), RTL paragraphs right-aligned "
+               "(Arabic-first ink x %d..%d, Hebrew ink x %d..%d), AT-SPI text stays logical"
+               % (ltr + rtl + hebrew))
     else:
-        passed("negative (no system fonts): the same mixed-direction summaries still pair up in run "
-               "order with one '?' per Arabic grapheme; AT-SPI text stays logical")
+        passed("negative (no system fonts): the same mixed-direction summaries pair up in run order with "
+               "one '?' per Arabic grapheme, RTL paragraphs right-aligned (ink x %d..%d); "
+               "AT-SPI text stays logical" % rtl)
     makoctl("dismiss", "-a")
     close_inbox()
 

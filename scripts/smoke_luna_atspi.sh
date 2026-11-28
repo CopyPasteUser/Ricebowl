@@ -356,6 +356,98 @@ dbus-run-session -- sh -eu -c '
     check_script positive hangul "한국어" 3 "???"
     kill -0 "$plate"
     echo "SG5: Hindi/CJK/Hangul: AT-SPI keeps real text, trusted system-font glyphs painted (non-blank, not the ? replacement) PASS"
+    # SG5 BiDi in the real Run field, typed through the labwc keyboard. A
+    # paragraph whose first strong letter is Arabic/Hebrew (UAX #9 P2/P3) is
+    # right-aligned: the ink ends at the text box right edge (field x 290) and
+    # the left half stays empty. An LTR paragraph with an RTL run stays
+    # left-aligned. The painted caret follows the visual BiDi map for
+    # Home/End/Left/Right (pixels from grim); the AT-SPI text and caret offsets
+    # stay logical. Field-local x: text box 10..292.
+    geom() {
+        shot "$1"
+        # Optional evidence copy of the field captures (never user data).
+        if [ -n "${SG5_KEEP_DIR:-}" ]; then cp "$runtime/$1.png" "$SG5_KEEP_DIR/"; fi
+        /usr/bin/python3 "$root/scripts/sg5_field_geometry.py" "$runtime/$1.png"
+    }
+    bidi_fail() { echo "SG5 BiDi: $*" >&2; exit 1; }
+    within() { d=$(($1 - $2)); [ "$d" -le "$3" ] && [ "$d" -ge "-$3" ]; }
+    check_rtl() {
+        tag=$1; text=$2; n=$3
+        wtype -M logo -k r -m logo
+        probe --text "" --caret 0
+        wtype "$text"
+        probe --text "$text" --caret "$n"
+        # shellcheck disable=SC2046
+        set -- $(geom "bidi-$tag-end")
+        left=$1; right=$2; end=$3
+        [ "$end" != none ] && [ "$left" != none ] || bidi_fail "$tag: no caret/ink painted"
+        [ "$right" -ge 284 ] && [ "$right" -le 292 ] ||
+            bidi_fail "$tag: ink right edge $right is not at the field right edge (290)"
+        [ "$left" -ge 150 ] || bidi_fail "$tag: ink in the left half of the field ($left)"
+        within "$left" "$end" 3 || bidi_fail "$tag: End caret $end is not at the ink left edge $left"
+        wtype -k Home
+        probe --text "$text" --caret 0
+        # shellcheck disable=SC2046
+        set -- $(geom "bidi-$tag-home")
+        home=$3
+        [ "$home" = 290 ] || bidi_fail "$tag: Home caret $home is not at the right edge (290)"
+        wtype -k Left
+        probe --text "$text" --caret 1
+        # shellcheck disable=SC2046
+        set -- $(geom "bidi-$tag-left")
+        [ "$3" -lt $((home - 2)) ] && [ "$3" -gt $((end + 2)) ] ||
+            bidi_fail "$tag: Left from Home painted at $3 (Home $home, End $end)"
+        wtype -k End
+        probe --text "$text" --caret "$n"
+        # shellcheck disable=SC2046
+        set -- $(geom "bidi-$tag-end2")
+        [ "$3" = "$end" ] || bidi_fail "$tag: End caret moved from $end to $3"
+        wtype -k Right
+        probe --text "$text" --caret $((n - 1))
+        # shellcheck disable=SC2046
+        set -- $(geom "bidi-$tag-right")
+        [ "$3" -gt $((end + 2)) ] && [ "$3" -lt "$home" ] ||
+            bidi_fail "$tag: Right from End painted at $3 (Home $home, End $end)"
+        wtype -k Escape
+        probe --absent
+        echo "SG5 BiDi: $tag RTL paragraph right-aligned (ink $left..$right), carets End=$end Home=$home, Left/Right visual, AT-SPI logical PASS"
+    }
+    check_rtl arabic "مرحبا" 5
+    check_rtl hebrew "שלום" 4
+    # LTR paragraph (first strong letter Latin), painted "abc 123 םולש".
+    mixed="abc שלום 123"
+    wtype -M logo -k r -m logo
+    probe --text "" --caret 0
+    wtype "$mixed"
+    probe --text "$mixed" --caret 12
+    # shellcheck disable=SC2046
+    set -- $(geom bidi-mixed-end)
+    left=$1; right=$2; end=$3
+    [ "$end" != none ] && [ "$left" != none ] || bidi_fail "mixed: no caret/ink painted"
+    [ "$left" -le 13 ] || bidi_fail "mixed: LTR paragraph not left-aligned (ink starts at $left)"
+    [ "$right" -lt 200 ] || bidi_fail "mixed: ink reaches $right; the right side must stay empty"
+    within "$end" "$right" 3 || bidi_fail "mixed: End caret $end is not at the ink right edge $right"
+    wtype -k Left
+    # The first Left crosses the visually rightmost cluster (Hebrew shin),
+    # logical caret 5; the painted caret moves left.
+    probe --text "$mixed" --caret 5
+    # shellcheck disable=SC2046
+    set -- $(geom bidi-mixed-left)
+    [ "$3" -lt $((end - 2)) ] && [ "$3" -gt 60 ] || bidi_fail "mixed: Left from End painted at $3"
+    wtype -k Home
+    probe --text "$mixed" --caret 0
+    # shellcheck disable=SC2046
+    set -- $(geom bidi-mixed-home)
+    [ "$3" = 10 ] || bidi_fail "mixed: Home caret $3 is not at the left edge (10)"
+    wtype -k Right
+    probe --text "$mixed" --caret 1
+    # shellcheck disable=SC2046
+    set -- $(geom bidi-mixed-right)
+    [ "$3" -gt 12 ] && [ "$3" -lt 30 ] || bidi_fail "mixed: Right from Home painted at $3"
+    wtype -k Escape
+    probe --absent
+    kill -0 "$plate"
+    echo "SG5 BiDi: mixed LTR paragraph \"$mixed\" left-aligned (ink $left..$right), End=$end, visual arrows, AT-SPI logical PASS"
     # Register a separate input-method-v2 producer *before* re-focusing Run.
     # Its preedit, commit and byte deletion must traverse labwc to the
     # unmodified text-input-v3 application and return as surrounding text.

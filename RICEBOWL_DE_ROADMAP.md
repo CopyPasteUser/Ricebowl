@@ -3039,6 +3039,26 @@ focus cycle/candidates/composition pixels, physical IME/Orca. SG5 remains open;
 details in `docs/sg5-text-input-atspi-acceptance.md`.
 
 
+### SG5 RTL paragraph direction, right alignment and bidi caret (28 November 2026; local evidence)
+
+`bidi_layout::LineLayout` is the one core single-line layout for native labels
+and the Run/Rename editor: UAX #9 P2/P3 paragraph direction (or a
+widget-forced one), bidi display order at that level, and painted cluster edges
+from the painter's own advances (shaped per grapheme). RTL paragraphs are
+right-aligned in inbox, menu and tray labels and the editor; fitting cuts the
+logical end so the ellipsis is at the visual left; LTR pixels are unchanged.
+Editor carets use the visual map with outer-run affinity, Left/Right move
+visually, Home/End stay logical, selections/preedit paint as several
+rectangles, and AT-SPI/IME offsets stay logical. This replaces the
+"leading-edge affinity" of the 16 November caret slice and removes the
+"RTL paragraphs are not right-aligned" entry from
+`docs/sg7-unsupported-error-states.md`. Proven by Rust tests and the real-labwc
+Run field (Arabic, Hebrew, mixed text, `grim` caret/ink pixels) plus the SG3
+RTL inbox row; details in `docs/sg5-text-input-atspi-acceptance.md`. Not
+claimed: RTL UI-chrome mirroring, multi-line bidi, exact-head CI, physical
+IME/Orca. SG5 remains open.
+
+
 ### SG2 RiceSpice GUI states and SG4 Creator apply/restore dialogs under labwc (27 November 2026; local evidence)
 
 A real-labwc GUI pass (`scripts/smoke_sg2_settings_gui_labwc.sh`) runs the real RiceSpice
@@ -3076,8 +3096,8 @@ core `ui_language.rs`; the native inbox (both popup layouts and the
 accessibility tree) reads the same selection through `ricepop_text.rs`, with
 German proven in `luna-de` by accessible names and compositor ink widths.
 BiDi run order of a mixed Latin/Arabic summary is checked in real pixels
-(`luna`, `luna-nofonts`); right-alignment of RTL paragraphs stays unsupported
-(`docs/sg7-unsupported-error-states.md`). Not claimed: a real backlight/Orca,
+(`luna`, `luna-nofonts`); right-alignment of RTL paragraphs followed on
+28 November (see the SG5 RTL paragraph note). Not claimed: a real backlight/Orca,
 keyboard traversal of other GTK windows, translation of non-inbox/OSD labels,
 exact-head CI. Rows 3.1/3.2 of `docs/sg-remaining-work-packages.md` are DONE
 locally with those items listed open.
