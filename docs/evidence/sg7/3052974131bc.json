@@ -1,0 +1,1244 @@
+{
+  "blockers": [],
+  "checks": [
+    {
+      "evidence_type": "local CI receipt step(s); not an independent or signed receipt",
+      "id": "python-x11",
+      "job": "test",
+      "local_statuses": {
+        "components-tests": "PASS",
+        "py-compile": "PASS",
+        "py-tests": "PASS",
+        "x11-gallery": "PASS",
+        "x11-gtk-unit": "PASS",
+        "x11-hub-creator-smoke": "PASS",
+        "x11-luna-panel-capture": "PASS",
+        "x11-shell-smoke": "PASS"
+      },
+      "local_steps": [
+        "py-compile",
+        "py-tests",
+        "x11-gtk-unit",
+        "x11-luna-panel-capture",
+        "x11-hub-creator-smoke",
+        "x11-shell-smoke",
+        "x11-gallery",
+        "components-tests"
+      ],
+      "status": "passed",
+      "step": "Validate and test the suite",
+      "workflow": ".github/workflows/ci.yml"
+    },
+    {
+      "evidence_type": "local CI receipt step(s); not an independent or signed receipt",
+      "id": "rust-test-clippy-build",
+      "job": "native-layer-shell",
+      "local_statuses": {
+        "py-native-unit": "PASS",
+        "rust-build": "PASS",
+        "rust-clippy": "PASS",
+        "rust-test": "PASS",
+        "shell-syntax": "PASS"
+      },
+      "local_steps": [
+        "shell-syntax",
+        "py-native-unit",
+        "rust-test",
+        "rust-clippy",
+        "rust-build"
+      ],
+      "status": "passed",
+      "step": "Build and test native RicePlate",
+      "workflow": ".github/workflows/riceplate-native.yml"
+    },
+    {
+      "evidence_type": "local CI receipt step(s); not an independent or signed receipt",
+      "id": "native-clean-elf",
+      "job": "native-layer-shell",
+      "local_statuses": {
+        "rust-repro": "PASS"
+      },
+      "local_steps": [
+        "rust-repro"
+      ],
+      "status": "passed",
+      "step": "Verify same-source native ELF reproducibility from a fresh target",
+      "workflow": ".github/workflows/riceplate-native.yml"
+    },
+    {
+      "evidence_type": "local CI receipt step(s); not an independent or signed receipt",
+      "id": "native-four-package-build",
+      "job": "native-layer-shell",
+      "local_statuses": {
+        "pkg-core-desktop": "PASS"
+      },
+      "local_steps": [
+        "pkg-core-desktop"
+      ],
+      "status": "passed",
+      "step": "Package complete standalone Wayland app and aggregate desktop",
+      "workflow": ".github/workflows/riceplate-native.yml"
+    },
+    {
+      "evidence_type": "local CI receipt step(s); not an independent or signed receipt",
+      "id": "native-package-safety",
+      "job": "native-layer-shell",
+      "local_statuses": {
+        "pkg-verify-set": "PASS"
+      },
+      "local_steps": [
+        "pkg-verify-set"
+      ],
+      "status": "passed",
+      "step": "Reject inconsistent or unsafe Wayland release packages",
+      "workflow": ".github/workflows/riceplate-native.yml"
+    },
+    {
+      "evidence_type": "local CI receipt step(s); not an independent or signed receipt",
+      "id": "native-clean-worktree-rebuild",
+      "job": "native-layer-shell",
+      "local_statuses": {
+        "pkg-clean-rebuild": "PASS"
+      },
+      "local_steps": [
+        "pkg-clean-rebuild"
+      ],
+      "status": "passed",
+      "step": "Rebuild all four packages from clean tracked source",
+      "workflow": ".github/workflows/riceplate-native.yml"
+    },
+    {
+      "evidence_type": "local CI receipt step(s); not an independent or signed receipt",
+      "id": "native-package-corruption",
+      "job": "native-layer-shell",
+      "local_statuses": {
+        "pkg-tamper": "PASS"
+      },
+      "local_steps": [
+        "pkg-tamper"
+      ],
+      "status": "passed",
+      "step": "Reject source-stamped but payload-tampered core package",
+      "workflow": ".github/workflows/riceplate-native.yml"
+    },
+    {
+      "evidence_type": "local CI receipt step(s); not an independent or signed receipt",
+      "id": "ubuntu-disposable-install-purge",
+      "job": "native-layer-shell",
+      "local_statuses": {
+        "pkg-docker-install": "PASS"
+      },
+      "local_steps": [
+        "pkg-docker-install"
+      ],
+      "status": "passed",
+      "step": "Install, reinstall and purge complete preview in disposable Ubuntu",
+      "workflow": ".github/workflows/riceplate-native.yml"
+    },
+    {
+      "evidence_type": "local CI receipt step(s); not an independent or signed receipt",
+      "id": "ubuntu-upgrade-downgrade-recovery",
+      "job": "native-layer-shell",
+      "local_statuses": {
+        "pkg-upgrade-rollback": "PASS"
+      },
+      "local_steps": [
+        "pkg-upgrade-rollback"
+      ],
+      "status": "passed",
+      "step": "Upgrade real previous Debian previews, reject corruption and roll back",
+      "workflow": ".github/workflows/riceplate-native.yml"
+    },
+    {
+      "evidence_type": "local CI receipt step(s); not an independent or signed receipt",
+      "id": "native-headless-labwc",
+      "job": "native-layer-shell",
+      "local_statuses": {
+        "native-smoke": "PASS"
+      },
+      "local_steps": [
+        "native-smoke"
+      ],
+      "status": "passed",
+      "step": "Boot native Wayland layer surface",
+      "workflow": ".github/workflows/riceplate-native.yml"
+    },
+    {
+      "evidence_type": "local CI receipt step(s); not an independent or signed receipt",
+      "id": "native-dynamic-rices",
+      "job": "native-layer-shell",
+      "local_statuses": {
+        "shared-engine-smoke": "PASS"
+      },
+      "local_steps": [
+        "shared-engine-smoke"
+      ],
+      "status": "passed",
+      "step": "Prove shared Rice engine across three native compositor-confirmed live layouts",
+      "workflow": ".github/workflows/riceplate-native.yml"
+    },
+    {
+      "evidence_type": "local CI receipt step(s); not an independent or signed receipt",
+      "id": "native-resource-growth",
+      "job": "native-layer-shell",
+      "local_statuses": {
+        "sg7-resource-receipts": "PASS"
+      },
+      "local_steps": [
+        "sg7-resource-receipts"
+      ],
+      "status": "passed",
+      "step": "Verify SG7 compositor resource growth receipts at exact source SHA",
+      "workflow": ".github/workflows/riceplate-native.yml"
+    },
+    {
+      "evidence_type": "local CI receipt step(s); not an independent or signed receipt",
+      "id": "native-session-crash-recovery",
+      "job": "native-layer-shell",
+      "local_statuses": {
+        "creator-teardown": "PASS"
+      },
+      "local_steps": [
+        "creator-teardown"
+      ],
+      "status": "passed",
+      "step": "Prove Creator teardown after real success and injected failures",
+      "workflow": ".github/workflows/riceplate-native.yml"
+    },
+    {
+      "evidence_type": "local CI receipt step(s); not an independent or signed receipt",
+      "id": "native-xwayland",
+      "job": "native-layer-shell",
+      "local_statuses": {
+        "xwayland-taskbar": "PASS"
+      },
+      "local_steps": [
+        "xwayland-taskbar"
+      ],
+      "status": "passed",
+      "step": "Prove legacy XWayland application uses native RicePlate taskbar",
+      "workflow": ".github/workflows/riceplate-native.yml"
+    },
+    {
+      "evidence_type": "local CI receipt step(s); not an independent or signed receipt",
+      "id": "native-creator-dual-rices",
+      "job": "native-layer-shell",
+      "local_statuses": {
+        "creator-composers-render": "PASS"
+      },
+      "local_steps": [
+        "creator-composers-render"
+      ],
+      "status": "passed",
+      "step": "Render two distinct Composer rices through native labwc",
+      "workflow": ".github/workflows/riceplate-native.yml"
+    },
+    {
+      "evidence_type": "local CI receipt step(s); not an independent or signed receipt",
+      "id": "wayland-session",
+      "job": "session-smoke",
+      "local_statuses": {
+        "session-boot": "PASS"
+      },
+      "local_steps": [
+        "session-boot"
+      ],
+      "status": "passed",
+      "step": "Boot actual labwc and Waybar headlessly",
+      "workflow": ".github/workflows/wayland-session.yml"
+    },
+    {
+      "evidence_type": "local CI receipt step(s); not an independent or signed receipt",
+      "id": "wayland-real-mako",
+      "job": "session-smoke",
+      "local_statuses": {
+        "mako111-real": "PASS"
+      },
+      "local_steps": [
+        "mako111-real"
+      ],
+      "status": "passed",
+      "step": "Verify real source-locked Mako 1.11 notification arrivals in labwc",
+      "workflow": ".github/workflows/wayland-session.yml"
+    },
+    {
+      "evidence_type": "local CI receipt step(s); not an independent or signed receipt",
+      "id": "portal-negative-unit",
+      "job": "portal-unit",
+      "local_statuses": {
+        "portal-unit": "PASS"
+      },
+      "local_steps": [
+        "portal-unit"
+      ],
+      "status": "passed",
+      "step": "Test negative paths and validate shell / Python syntax",
+      "workflow": ".github/workflows/wayland-portal-strict.yml"
+    },
+    {
+      "evidence_type": "local CI receipt step(s); not an independent or signed receipt",
+      "id": "portal-pixman-repeated",
+      "job": "portal-pixman-repeat",
+      "local_statuses": {
+        "portal-pixman-repeat": "PASS"
+      },
+      "local_steps": [
+        "portal-pixman-repeat"
+      ],
+      "status": "passed",
+      "step": "Repeat existing pixman acceptance and verify no runtime leftovers",
+      "workflow": ".github/workflows/wayland-portal-strict.yml"
+    },
+    {
+      "evidence_type": "local CI receipt step(s); not an independent or signed receipt",
+      "id": "portal-crash-recovery",
+      "job": "portal-pixman-repeat",
+      "local_statuses": {
+        "portal-crash-recovery": "PASS"
+      },
+      "local_steps": [
+        "portal-crash-recovery"
+      ],
+      "status": "passed",
+      "step": "Crash labwc before socket creation and verify runtime recovery",
+      "workflow": ".github/workflows/wayland-portal-strict.yml"
+    },
+    {
+      "evidence_type": "local CI receipt step(s); not an independent or signed receipt",
+      "id": "portal-strict-software-frame",
+      "job": "portal-strict-software-frame",
+      "local_statuses": {
+        "portal-strict-frame": "PASS"
+      },
+      "local_steps": [
+        "portal-strict-frame"
+      ],
+      "status": "passed",
+      "step": "Strict no-DRM ScreenCast from real wlroots SHM frames to GStreamer",
+      "workflow": ".github/workflows/wayland-portal-strict.yml"
+    }
+  ],
+  "evidence_source": "local CI receipt (scripts/local_ci.sh); hosted GitHub Actions are not used",
+  "formal_sg6_closed": false,
+  "formal_sg7_closed": false,
+  "kind": "sg7-local-dossier",
+  "local_ci_execution": "passed",
+  "physical_hardware_accepted": false,
+  "ready_for_formal_review": true,
+  "receipt": {
+    "artifacts": {
+      "preview_packages": {
+        "ricebowl-riceplate-native_0.1.0~preview2_amd64.deb": "adc63ca4fac6223fbd578fad45f4fdb1d376f5a6b967b50c4b1357b4b498afe2",
+        "ricebowl-wayland-core_0.1.0~preview2_all.deb": "8c3d686883b06c21af48e27cc1d580b989f5f26830af616ba6c66e16f65fab20",
+        "ricebowl-wayland-desktop_0.1.0~preview3_amd64.deb": "3f3157b8d251322b49dff7491ca49f521317883d77a9ecaee88b5a1b8683c8c1",
+        "ricebowl-wayland-session_0.1.0~preview3_all.deb": "eff2e9dc08b1865534497f4fe5e6ca747b57932023cbc5a3b0e8bcc4b5a1f12e"
+      },
+      "sg6_packages": {
+        "ricebowl-riceplate-native_0.1.0~preview2_amd64.deb": "adc63ca4fac6223fbd578fad45f4fdb1d376f5a6b967b50c4b1357b4b498afe2",
+        "ricebowl-wayland-core_0.1.0~preview2_all.deb": "8c3d686883b06c21af48e27cc1d580b989f5f26830af616ba6c66e16f65fab20",
+        "ricebowl-wayland-desktop_0.1.0~preview3_amd64.deb": "3f3157b8d251322b49dff7491ca49f521317883d77a9ecaee88b5a1b8683c8c1",
+        "ricebowl-wayland-session_0.1.0~preview3_all.deb": "eff2e9dc08b1865534497f4fe5e6ca747b57932023cbc5a3b0e8bcc4b5a1f12e"
+      },
+      "sg6_worker": "host-a"
+    },
+    "catalog_matches_checkout": true,
+    "catalog_sha256": "02a5561954246e414d4321d6536d6f75d14da0e6f1004273c44f39c3cdc99a32",
+    "checkout_catalog_sha256": "02a5561954246e414d4321d6536d6f75d14da0e6f1004273c44f39c3cdc99a32",
+    "commit_date": "2026-11-28T08:21:45+00:00",
+    "committed_and_unmodified": true,
+    "complete": true,
+    "counts": {
+      "BLOCKED": 1,
+      "FAIL": 0,
+      "PASS": 79,
+      "SKIPPED": 0
+    },
+    "dispatch_only_steps": {
+      "portal-gpu-frame": "BLOCKED"
+    },
+    "file_sha256": "2b8455a1ce0f95d6fe4df20e88c32d1f4ce98c16f7653604645da76ebda6eb2b",
+    "finished_at": "2026-11-28T10:21:23+00:00",
+    "host": {
+      "id": "ubuntu",
+      "pretty_name": "Ubuntu 24.04.5 LTS",
+      "version_id": "24.04"
+    },
+    "kernel": "6.18.44-fc-v880 #1 SMP PREEMPT_DYNAMIC @0",
+    "modified_tracked_files": [],
+    "path": "docs/evidence/local-ci/3052974131bc/receipt.json",
+    "run_as": "rbdev",
+    "runner_name": "local-ci-vm",
+    "rust_toolchain_pin": {
+      "actual": "1.88.0",
+      "matches": true,
+      "pinned": "1.88.0"
+    },
+    "sha": "3052974131bcb945d5727d8549131f3e831ab279",
+    "started_at": "2026-11-28T09:32:24+00:00",
+    "step_count": 80,
+    "tree_clean": true,
+    "tree_clean_after_run": true,
+    "worker": "host-a"
+  },
+  "release_signoff": {
+    "file_sha256": "fd063e720e78b508e5e20cf9a36287cccb39b8208724dcacfcb8b3cf4dc4bfa4",
+    "path": ".github/release-signoff-1.0.json",
+    "status": "pending"
+  },
+  "schema_version": 1,
+  "sg6_two_session_comparison": {
+    "detail": "Four .deb files byte-identical across two fresh local sessions with distinct runner names (software evidence only; two cloud sessions are not independent builders).",
+    "file_sha256": "8e9e11702d9fb3bb7ae93350f50e0859e1a639b2f3baeca78f55e0db129e687a",
+    "path": "docs/evidence/local-ci/3052974131bc/sg6-comparison.json",
+    "problems": [],
+    "status": "verified"
+  },
+  "software_ci_only": true,
+  "source_sha": "3052974131bcb945d5727d8549131f3e831ab279",
+  "unverified_requirements": [
+    "Hardware: physical Mint/ThinkPad login, DRM/GPU (the dispatch-only portal-gpu-frame step is not required and is BLOCKED without a render node), Flatpak consent, real Orca/IME sign-off",
+    "Owner: .github/release-signoff-1.0.json hardware sign-off is separate and is never inferred from CI",
+    "SG7: sustained idle CPU, long-running leak and cold-login latency on real hardware (local headless soak and three CI process-replacement cycles are not a hardware benchmark)",
+    "SG1-SG5: full final integrated functionality/accessibility parity beyond the passing smokes",
+    "Provenance: the local CI receipt is unsigned (no sigstore/OIDC attestation) and only as trustworthy as the host and the person who committed it",
+    "SG6: two cloud sessions are not independent third-party builders; the Mint-compatible checks run in a local Docker container, not on Linux Mint hardware"
+  ],
+  "workflow_steps": [
+    {
+      "id": "py-compile",
+      "job": "test",
+      "log_sha256": "065e36a481e8ddf19afcf046c2c7d099dedeaff4d55b6173a8ec51618422a24e",
+      "script_sha256": "3f4aa07aeba5f06942dd0988f8349bb5a9f503f378fcd48fb6e6a33736b28b30",
+      "status": "PASS",
+      "step": "Validate and test the suite [compileall]",
+      "workflow": "ci.yml"
+    },
+    {
+      "id": "py-tests",
+      "job": "test",
+      "log_sha256": "851fc9b47ed0bd04c989c3221b365c5c16e4fb0a93acb510562b7aab7d08e7d5",
+      "script_sha256": "ddd564723a82ad248220c5494757b0d50ea5a7a19a84b1b90473e6565ed3a4c8",
+      "status": "PASS",
+      "step": "Validate and test the suite [unittest discover]",
+      "workflow": "ci.yml"
+    },
+    {
+      "id": "native-syntax",
+      "job": "native-layer-shell",
+      "log_sha256": "e69e37c7393078408934283b1b2e1465b2e2a33825858503055834514f78e1d2",
+      "script_sha256": "7807005c065d586a91b5fb4b75059eddd180c6a09a9eceee7d99fd5b223b08df",
+      "status": "PASS",
+      "step": "Fail fast on SG5 external harness syntax",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "shell-syntax",
+      "job": "native-layer-shell",
+      "log_sha256": "2460ebe70a3ba18fbb49e6bdc7988204c0697c3413d128bde201f26fe4dd3224",
+      "script_sha256": "fd67e413377916a4f5cf56204803068416bd6bd91e10828fc49885463bb2822e",
+      "status": "PASS",
+      "step": "Build and test native RicePlate [harness syntax checks]",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "py-native-unit",
+      "job": "native-layer-shell",
+      "log_sha256": "d9089ac3abd59797d70fd4640bc909123622ae0a1b96b8e9531245246c6240cb",
+      "script_sha256": "fc7c634fc964bddb8b4dc4eea571072f8d5652292516c2c6add3be52807bcd52",
+      "status": "PASS",
+      "step": "Build and test native RicePlate [Python unit tests]",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "sg7-matrix-unit",
+      "job": "dossier",
+      "log_sha256": "a4af077df85c3e4a07eea388c9b1ab72898d15063dc39ab76486ac88b23a0f55",
+      "script_sha256": "4725ab1920b91b8275ae40af674762b88b3b07f1df4e28680079490f1632bff3",
+      "status": "PASS",
+      "step": "Verify SG7 exact-main collector unit tests",
+      "workflow": "sg7-exact-main.yml"
+    },
+    {
+      "id": "release-contract",
+      "job": "source-gate",
+      "log_sha256": "8fe0074d17c394032badb3834a9d03a62f14c2528a2593ed2b959122e1494c5b",
+      "script_sha256": "d3ccb54d371a3d34913216a1c704fb5981640e09a35db9cc08ebafa62da55ad9",
+      "status": "PASS",
+      "step": "Require matching version and documented hardware approval for stable 1.0",
+      "workflow": "release-candidate.yml"
+    },
+    {
+      "id": "release-workflows-unit",
+      "job": "source-gate",
+      "log_sha256": "3564336493172f1bbee9a7cda977a8489105aadbee8d4fa3064df1ccb5e974c8",
+      "script_sha256": "0a575f6f326d6c02a0d8b42726c484af20df26720eb91bed2add21eb13771de3",
+      "status": "PASS",
+      "step": "Require exact-source main CI for candidate and stable artifacts",
+      "workflow": "release-candidate.yml"
+    },
+    {
+      "id": "release-source-verify",
+      "job": "publish-ricebowl",
+      "log_sha256": "8031660f92d2e982e691b4c8f9ba78eba81139b13cad903579a69eb13d2ab276",
+      "script_sha256": "8e3f7d863add749eb3d770f76fccde24b242143f4b91e631ad659270e420a25e",
+      "status": "PASS",
+      "step": "Verify release source and package",
+      "workflow": "ci.yml"
+    },
+    {
+      "id": "release-source-archive",
+      "job": "source-gate",
+      "log_sha256": "045a686b22cd5095fc6bfe149097e43726bcf80e0085bce8c07b8e5c3f661571",
+      "script_sha256": "b6cc72977507fd28adc23f0bc610b4dff02e729fbf9c6fd7a253ff968b5e7919",
+      "status": "PASS",
+      "step": "Produce source archive and checksum",
+      "workflow": "release-candidate.yml"
+    },
+    {
+      "id": "portal-unit",
+      "job": "portal-unit",
+      "log_sha256": "f2fa7e0288d3d02090ec0d9c001ddeba13bb12e13bee21fb0f8f08af96aeedb4",
+      "script_sha256": "040870e7de1eed040bc358233bc482640ea7d5dbb4d18771de0d653c18f469af",
+      "status": "PASS",
+      "step": "Test negative paths and validate shell / Python syntax",
+      "workflow": "wayland-portal-strict.yml"
+    },
+    {
+      "id": "session-unit",
+      "job": "session-smoke",
+      "log_sha256": "7fec62bdb099a2c55af010b812312f95c364f0996e53e373978bb1e7da387a08",
+      "script_sha256": "846c778b371e232a31e68d1109c6066bfb93ee10f1c1c3e77e4abb255b6b964f",
+      "status": "PASS",
+      "step": "Validate and test isolated session runtime",
+      "workflow": "wayland-session.yml"
+    },
+    {
+      "id": "ricespice-pulse",
+      "job": "session-smoke",
+      "log_sha256": "f08eb4aebbd763f1e1a1dccf29e729803af126fde056b2a53086a052323bc645",
+      "script_sha256": "80afc39b04761a57954bbb1efeae522a3bf639b992267912d3bac9b9dbd8c3a2",
+      "status": "PASS",
+      "step": "Validate and test isolated session runtime [PulseAudio smoke]",
+      "workflow": "wayland-session.yml"
+    },
+    {
+      "id": "rust-fmt",
+      "job": null,
+      "log_sha256": "297ecb36ef33cefa59c138cc04c055e83ebc4be0e3b22a536070bd5a65493fbf",
+      "script_sha256": "1c4b64c9ab2554279bb3465c6a8ecb5d05b39205a3d35384d5db7b5eb1aedc2f",
+      "status": "PASS",
+      "step": "(none) -- local-only addition; no hosted workflow runs rustfmt.",
+      "workflow": null
+    },
+    {
+      "id": "rust-test",
+      "job": "native-layer-shell",
+      "log_sha256": "398f21587bbb9a962da9ab4ab1651e8830a3a7f75ed871014b7e45fad6d30183",
+      "script_sha256": "fc4c3573494d06a2881cd747312a7c96dd3f8492a6da9b2978bdd7419361e135",
+      "status": "PASS",
+      "step": "Build and test native RicePlate [cargo test]",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "rust-clippy",
+      "job": "native-layer-shell",
+      "log_sha256": "0f42e20e9595e3d350c969a25ccf5fc385d79da7cb66cf2328f640c0f8e9994a",
+      "script_sha256": "aeb5f99700e67f134c763d85552df19aa1a4008d52011eda2cc18f36694cfa6e",
+      "status": "PASS",
+      "step": "Build and test native RicePlate [cargo clippy]",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "rust-build",
+      "job": "native-layer-shell",
+      "log_sha256": "b65def4d33aa18f2f38648c48d385e0eab1de2f84b70359478cd4987da3c1cc5",
+      "script_sha256": "ac4e7d6ae5b1711bb283f4ed62cd32591b6711b7c64d45c2176355067f36c7aa",
+      "status": "PASS",
+      "step": "Build and test native RicePlate [release build and examples]",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "rust-repro",
+      "job": "native-layer-shell",
+      "log_sha256": "ba2be5ea9a2fd4a6554281a442d7c4147575bc8b8b3e7b1e708ef4bab8f25696",
+      "script_sha256": "7cc20931c1333c4f8e41ca63d449ebb289f3bb11324ab4be9401b05cdf6cf51a",
+      "status": "PASS",
+      "step": "Verify same-source native ELF reproducibility from a fresh target",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "pkg-build",
+      "job": "build",
+      "log_sha256": "9a730284284e6cb19ed88b268559107db7c2c9ee42d8abbcb120ea2d9836a4db",
+      "script_sha256": "08c108fe79a1fc1d686e478e73e1b6e1ad108214f0090827cb3fc307d4e89d52",
+      "status": "PASS",
+      "step": "Independently compile, package and verify from exact committed source",
+      "workflow": "sg6-cross-runner.yml"
+    },
+    {
+      "id": "x11-gtk-unit",
+      "job": "test",
+      "log_sha256": "6fdf68a629771d7d327de78a5594292971a19f85edde7922195cde976b413331",
+      "script_sha256": "3cc131e35f40889d41e99b9e69626949bf41c2d8015b8e2cba910c6a7717dfd1",
+      "status": "PASS",
+      "step": "Validate and test the suite [GTK unit suites under Xvfb]",
+      "workflow": "ci.yml"
+    },
+    {
+      "id": "x11-luna-panel-capture",
+      "job": "test",
+      "log_sha256": "cb5cf8759bc59ca86a25d9f705badada2719eccec36ae455c5d99ece94d07033",
+      "script_sha256": "31f580219ab5057cdd7e5bb0dae46fb4020e7cc5da5b57d5a0841a51e20105a6",
+      "status": "PASS",
+      "step": "Validate and test the suite [Luna Control Panel capture]",
+      "workflow": "ci.yml"
+    },
+    {
+      "id": "x11-hub-creator-smoke",
+      "job": "test",
+      "log_sha256": "09ea570bcc94a9c2f64dcb7332791bb211cd6ad997165bb73ab206d6cbdf2467",
+      "script_sha256": "17913bf1c0e46f9b45930bd8bdab9ab7804f2ce89eb697251cf7fd01c9f739a8",
+      "status": "PASS",
+      "step": "Validate and test the suite [hub and Creator smoke]",
+      "workflow": "ci.yml"
+    },
+    {
+      "id": "x11-shell-smoke",
+      "job": "test",
+      "log_sha256": "32d61e7b07083a0b231321dc895ef062cfcde3dd6427c8fca3d34756e4645085",
+      "script_sha256": "f890bcde174bea9d22df1e9b1b7fe8ef6a0b71d7bfdf135db1433cafa854bdd9",
+      "status": "PASS",
+      "step": "Validate and test the suite [shell smoke tests]",
+      "workflow": "ci.yml"
+    },
+    {
+      "id": "x11-gallery",
+      "job": "test",
+      "log_sha256": "6073f6e31dc3d7b80359a1fab196433402c6ef04d6de733b0154422897813367",
+      "script_sha256": "23511789ed604954483578ea7786f2ddfa2201f3809f6d305c9779f4f888a04e",
+      "status": "PASS",
+      "step": "Validate and test the suite [screenshot gallery and compact-screen captures]",
+      "workflow": "ci.yml"
+    },
+    {
+      "id": "components-tests",
+      "job": "test",
+      "log_sha256": "7bc7a7cc7ff2a21bb0b3887edec099f9b6a20f014a19ab3014742c163972753c",
+      "script_sha256": "59f1a1d86fe1f53f9ffbe8efa83b9dfa390f2b2f13bd766971a7814397ba415d",
+      "status": "PASS",
+      "step": "Validate and test the suite [macmenu, macbar, control-center]",
+      "workflow": "ci.yml"
+    },
+    {
+      "id": "pkg-preview-artifact",
+      "job": "native-layer-shell",
+      "log_sha256": "d3c2740e8be8c1baa38b2d789103936109bc85a55e7e6f75b12b4c25bc42f8d3",
+      "script_sha256": "9af518fc6b1e483b6d29ef198c8268de96d83013094556ead26a21cf1b811a7a",
+      "status": "PASS",
+      "step": "Prepare native preview artifact with build provenance",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "pkg-native-deb",
+      "job": "native-layer-shell",
+      "log_sha256": "a1ddc1da6ac8619ac2f710a48ef3e9623934592b487702319455d1a64ac20416",
+      "script_sha256": "a7a8df4cace061371d8972633980d029044845510fcb5de7eac731bfb7d9505e",
+      "status": "PASS",
+      "step": "Build reproducible, removable native amd64 preview package",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "pkg-session-deb",
+      "job": "native-layer-shell",
+      "log_sha256": "c9f7b1c0983312a365df18e313f342979ba81abddb0dd6cc418e740649720238",
+      "script_sha256": "a9e694c942c3eb37170363340cd692cf3c894bff70e817c41eee5868b3aed944",
+      "status": "PASS",
+      "step": "Validate native login and both reproducible preview packages together",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "pkg-core-desktop",
+      "job": "native-layer-shell",
+      "log_sha256": "63f37cc4881ba25a1d9f99c3aa94ab2568535a18bdc0fb5e02f36fe55b973be2",
+      "script_sha256": "6dae847edfa7e4dcfa4c73944df2e91ce82dbd00a75252112e459936258fc14e",
+      "status": "PASS",
+      "step": "Package complete standalone Wayland app and aggregate desktop",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "pkg-verify-set",
+      "job": "native-layer-shell",
+      "log_sha256": "0f18488ab0f5c86f0ae4183745bffa51f372c0f47f5a4c156765de02a6feaea7",
+      "script_sha256": "37a089fcfe3a77770b62d69a0e49aa36a6382ecc84e99ed337b866d171a7604b",
+      "status": "PASS",
+      "step": "Reject inconsistent or unsafe Wayland release packages",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "pkg-clean-rebuild",
+      "job": "native-layer-shell",
+      "log_sha256": "eaaca03a875c34087ba6baefd7ea4b8384a51a51ef131c62ef67c40e24fb67ae",
+      "script_sha256": "4d63bf79b7ee3cbf3f1c3fc6a905e791393e27abc3df252966f1d2b40d50a8b4",
+      "status": "PASS",
+      "step": "Rebuild all four packages from clean tracked source",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "pkg-tamper",
+      "job": "native-layer-shell",
+      "log_sha256": "ec30283c7219ef1a856040ae507842cea4d9674702ae733c804cf344cedc1c5f",
+      "script_sha256": "2ee49a3e50d5b5aa48e50836b8d01c4e85c33c42fff5c27338abdda8aa1b23b3",
+      "status": "PASS",
+      "step": "Reject source-stamped but payload-tampered core package",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "pkg-source-identity",
+      "job": "attest-native-preview",
+      "log_sha256": "4233827dbecb2200c1688978325fe0ae36282603588b4a61a7b8717e3c36bdab",
+      "script_sha256": "53d736ca67d81a5a3ef5bd26e49288df30cb245f158b7f6911c7068f39cc132e",
+      "status": "PASS",
+      "step": "Verify downloaded package and committed-source identity",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "pkg-docker-install",
+      "job": "native-layer-shell",
+      "log_sha256": "5727afa4785310a3790c72888bf48e4d1802a7e58aa3d3e8e801341ab96036d1",
+      "script_sha256": "15af522b72be24ea5614929f7c0d1d4cf33e18a0168e0602fdbd591d8ca1f073",
+      "status": "PASS",
+      "step": "Install, reinstall and purge complete preview in disposable Ubuntu",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "pkg-upgrade-rollback",
+      "job": "native-layer-shell",
+      "log_sha256": "bb6c727ef0f995b23406fca8ab55ac74095c2b7ede6d9e6748e028242df9fea8",
+      "script_sha256": "e1acc415090597adecbe52ab9abe7e6ca8ad18aa49c5878a824e13fdd2bd9211",
+      "status": "PASS",
+      "step": "Upgrade all historical Debian components, inject failures and recover",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "mint-compat",
+      "job": "sg6-mint221-compat",
+      "log_sha256": "b9164e8d764a7444ac0b61e71194fdc438ba8c2d6e4fee5c6f9c5c7b9faf6124",
+      "script_sha256": "71c882fb60d4c30a7d611a5f84574390f6b894b612f7ff37e06f0165503745a4",
+      "status": "PASS",
+      "step": "Install and recover four exact-source packages in isolated Mint 22.1",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "creator-examples-validate",
+      "job": "native-layer-shell",
+      "log_sha256": "80870f486a10f862c58fa9d54a8abceb2e217861db8d5851b88ad399843112bd",
+      "script_sha256": "7149d0fd412f13fc02fc0818613b47b17958d8c6d963c926655662e78b3060fd",
+      "status": "PASS",
+      "step": "Validate both declarative Creator examples",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "creator-supervisor-e2e",
+      "job": "native-layer-shell",
+      "log_sha256": "7ab5bcb267f2fa5d5ab365a3618e3278b0714c4064548a0d36c158ce3a349947",
+      "script_sha256": "cd52977fcc08cbea5d1de1694b6e0f769512d58d64e3db7ab5d74c6f6075b508",
+      "status": "PASS",
+      "step": "Prove Creator install and recovery through the real Wayland supervisor socket",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "calendar-analyzer-unit",
+      "job": "native-layer-shell",
+      "log_sha256": "c411200cdd7274e34a54e6ccf30e130bc5af3bdea9a0e74d96cbff4f1c5aa165",
+      "script_sha256": "756a14b6ba21126401f36aa950b8bc8d17fc0459751dde3aedb121badd725613",
+      "status": "PASS",
+      "step": "Validate two-output calendar pixel analyzer",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "menu-analyzer-unit",
+      "job": "native-layer-shell",
+      "log_sha256": "bde4f2f7ab00ff9abf49ed73c198b6c38bbf036d16d6d81c746898b47774642f",
+      "script_sha256": "5c2f67ae252c21d2d5c8caf27ab625ce5d61ad72ad64f0603f69f98deb19d7e4",
+      "status": "PASS",
+      "step": "Validate two-output menu pixel analyzer",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "sg4-creator-gtk-input",
+      "job": "sg4-creator-gtk-input",
+      "log_sha256": "4a4b3273418060bb4d6f4db0b694a0e9b7a77d24b7d15886f94a550291be87c5",
+      "script_sha256": "feba8a802d49567c71b201ec7fcac785d1f481eca2454d151fc1eb382bf483a5",
+      "status": "PASS",
+      "step": "Verify real Wayland Tab/Return reaches both GTK Creator templates",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "sg1-sni",
+      "job": "native-layer-shell",
+      "log_sha256": "ac083074ee9d264a58c1519fcc4c311c151abe2f5c4508dc4cc59e973f66418a",
+      "script_sha256": "a91240190089f826401cdc691f29db4ef1cbe94d114a4111e9a8c518c456580a",
+      "status": "PASS",
+      "step": "Prove real SNI provider owner lifecycle on Chrome and XP Luna under labwc",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "sg1-window-recovery",
+      "job": "native-layer-shell",
+      "log_sha256": "9de0e83146e39459052d105e1ac7ad5fed90a0cd8adc33d2010b8e4ed68e8d5a",
+      "script_sha256": "b1fa5ad53e5472a49cab45d654392ebed33d1a2e1a3df72971495617a63f08f3",
+      "status": "PASS",
+      "step": "Prove real SG1 window minimize/restore/close recovery on Chrome and XP Luna",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "sg1-status",
+      "job": "native-layer-shell",
+      "log_sha256": "803ab0d7b319abe1756054dd4d35a13a603e053546a8c056bd7def74a5d2b518",
+      "script_sha256": "d96935cda235eb1726743a258e53bb9504e0dbde542f8c3f24552b0a9e6b1840",
+      "status": "PASS",
+      "step": "Prove honest native status controls (Wi-Fi/volume/mute) under labwc",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "mako-build",
+      "job": "native-layer-shell",
+      "log_sha256": "da8f3d796b889be61c5d06546f2610156ad1c3e883f58b220b3863676ca21152",
+      "script_sha256": "3d5e87f949187f27b8684edaa89ad1a1c070aa9cc2345c6b2d2da0c1dc09faa8",
+      "status": "PASS",
+      "step": "Build source-locked real Mako 1.11 for SG3 only",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "sg3-ricepop",
+      "job": "native-layer-shell",
+      "log_sha256": "cd82b5d1db3e3e6baee23c2a10355f6fb625a3d35790d519912796748324bc72",
+      "script_sha256": "4bf660b7fcc67b825910e3b2e35743540dd051ea2f4ac80eff3b9fe7f6de576b",
+      "status": "PASS",
+      "step": "Prove native RicePop inbox against real Mako 1.11 under labwc",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "sg1-interaction",
+      "job": "native-layer-shell",
+      "log_sha256": "607e68e4c018ab2850e517f9dcb65ffb40b34a0abd28cbaa679201fcb2edafc6",
+      "script_sha256": "c631402ba834454312eb40a4a80d1f6ad32d292a6ea806e72b1d38e8553db40f",
+      "status": "PASS",
+      "step": "Prove SG1 window/launcher/clock/SNI/failure-notice/desktop-file/output interaction negatives under labwc",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "sg4-imported-rices",
+      "job": "native-layer-shell",
+      "log_sha256": "d46d7f7978b6ab6e0b006e08582b6400a62e365f9751762a43db76d60b94a29f",
+      "script_sha256": "6ef4a631bd0b85307f5405549cc0d2916f902ebe18b2848b974f9106dd430d29",
+      "status": "PASS",
+      "step": "Prove interactive pointer/keyboard/popup/error/AT-SPI behavior of both imported Creator rices (Heritage, Orbit) under labwc",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "sg2-settings-gui",
+      "job": "native-layer-shell",
+      "log_sha256": "d9bae76b27958183142a081e318d2149b3b76906eb197ea3d575007f51df2afe",
+      "script_sha256": "a4f1ee1b7e84686542c0d6ca81b19bd918bcfe309b9fb92fccd7926eeab96b1c",
+      "status": "PASS",
+      "step": "Prove RiceSpice denied/busy/unavailable states on every settings page (real GTK under labwc, fake providers)",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "sg4-creator-gui-roundtrip",
+      "job": "native-layer-shell",
+      "log_sha256": "cfe01dec0f6bd0bbfc667cd133acdc41551fb56f2cea510aac8b053a9f79e8ff",
+      "script_sha256": "e9d3d9ab9903dad606f8c102cbd8928e38b61eb575e571d619bf2a0652bbd987",
+      "status": "PASS",
+      "step": "Prove the real GTK Creator export/import and install/apply/restore dialogs against a supervised session under labwc",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "sg5-labwc-pin",
+      "job": "native-layer-shell",
+      "log_sha256": "0ef024eb68287d45f834ec675cb6e321ca17106cafadeb5d8af4a076964457d5",
+      "script_sha256": "ec1143400c483628edff058f1d12c7459d624734241a165b537caee36b5970cf",
+      "status": "PASS",
+      "step": "Build source-locked IME-capable labwc for SG5 only",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "sg5-atspi",
+      "job": "native-layer-shell",
+      "log_sha256": "bdb5dc9391789ddba917b24b5c33e562374e26529abb094ed92e46893c38490c",
+      "script_sha256": "3f8b92332ea7e16758d9562f70d4c9793eff68c46a54f3255174ed3aa4a770a7",
+      "status": "PASS",
+      "step": "Verify real input-method-v2 transactions and AT-SPI against native Run",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "portal-smoke",
+      "job": "native-layer-shell",
+      "log_sha256": "f45bc3a82b61ffbdf0bd7fce9c94daa5967db7c9539109fbafac8044ded5c261",
+      "script_sha256": "85faac7cd939d4cf9704b3d118be89fcde303c7a1a51b1a90ff2d3d9f5d75a33",
+      "status": "PASS",
+      "step": "Validate portal screenshot and headless ScreenCast negotiation",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "native-smoke",
+      "job": "native-layer-shell",
+      "log_sha256": "d58b8a195ec47dbae693db68c3626bd1f4495ba9d155a6354f498654e9c969f1",
+      "script_sha256": "31b3ead80e02894d9b80992560290a31a9b9c3c393484ad059f2e6dd6968bedc",
+      "status": "PASS",
+      "step": "Boot native Wayland layer surface",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "shared-engine-smoke",
+      "job": "native-layer-shell",
+      "log_sha256": "78866740c959ee5c34e9d371f91c49ef6f59a3451e7cb5aad4da85509e39b61a",
+      "script_sha256": "a4f23597b876fe600cfafc60d9dc97ebcb8c6c7d0a08dfd70490a8339f693358",
+      "status": "PASS",
+      "step": "Prove shared Rice engine across three native compositor-confirmed live layouts",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "sg7-resource-receipts",
+      "job": "native-layer-shell",
+      "log_sha256": "235a75cdb8f9a6a8cc84bdbf9828007b5f917dca24d7ea710fafe62d09cdb386",
+      "script_sha256": "836386118a8babc696737dc28697015755c53d42e5e512cde0bb2ed0cb2c3c54",
+      "status": "PASS",
+      "step": "Verify SG7 compositor resource growth receipts at exact source SHA",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "windows-taskbar",
+      "job": "native-layer-shell",
+      "log_sha256": "a3b796083310408bcf1a6f34b52b344ed51f862e3da0cf498cf1f67d44e08304",
+      "script_sha256": "9bbec8a9aee05bd7762ba864f6ce8893912f0427bab77de8ddb5fd5afb3b5e69",
+      "status": "PASS",
+      "step": "Prove live Wayland application taskbar lifecycle",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "luna-show-desktop",
+      "job": "native-layer-shell",
+      "log_sha256": "d8379c62616ccca098f7d1c838d352200243b172ab27715342ee6bd2c23f7b49",
+      "script_sha256": "c513bffd59845824c8da0b932c3027df6b539bb83ddf2994aa09f2f851ea6610",
+      "status": "PASS",
+      "step": "Prove XP Luna Show Desktop with real Wayland window and screenshot changes",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "chrome-window-lifecycle",
+      "job": "native-layer-shell",
+      "log_sha256": "6ef7cde1f7aacb88348955e6ea7a2f27b50f9931d3618f5740b7d85d9bdee3b9",
+      "script_sha256": "884d9342e0cbddb41db0b42078ab5649f800df18a425d0a729086fec982f6e5e",
+      "status": "PASS",
+      "step": "Verify real Chrome-rice Wayland window lifecycle",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "luna-autohide",
+      "job": "native-layer-shell",
+      "log_sha256": "09bc7837819db344825bb49ef7fb5d796321388f9f759cdab29be313fe581347",
+      "script_sha256": "373e334fa7472ceec557d79a6a8003d0ff8647215135ccda50aee22f9d5c6611",
+      "status": "PASS",
+      "step": "Prove real XP Luna Auto-hide and Start popup lifecycle",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "xwayland-taskbar",
+      "job": "native-layer-shell",
+      "log_sha256": "f1555b2eb0b0703d6d93816a73d4768db51274496adcd8aa62057344979b4245",
+      "script_sha256": "601cc98ac81b500b64f08ace7e78a61da2e2bec32cc3940ddb774a8ff63aeb33",
+      "status": "PASS",
+      "step": "Prove legacy XWayland application uses native RicePlate taskbar",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "clipboard",
+      "job": "native-layer-shell",
+      "log_sha256": "4ca8413ce81ee7a2c6662e89faf55533167500b3cd891ff87738442370b01cf3",
+      "script_sha256": "00e115945b4c8764c4f4099f80281febca5690cbcb306869167b4f77c9860d7a",
+      "status": "PASS",
+      "step": "Prove bidirectional Wayland and XWayland clipboard",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "multioutput",
+      "job": "native-layer-shell",
+      "log_sha256": "536d8f7fc9358c14ed5a4b2e87542b53dece2fc25da1351dfe18bd6c5d0fd931",
+      "script_sha256": "3e3dbfc6812be7b6fe1c5dc034a3bd5dce6c30c3e50a3dc0ecbc2b035e15df82",
+      "status": "PASS",
+      "step": "Prove two native outputs, secondary calendar/menu and hotplug",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "creator-headless-render",
+      "job": "native-layer-shell",
+      "log_sha256": "49889693a090ad6226b8e2f05d357b5b1061bfdcbffb622de92ca1262865ea31",
+      "script_sha256": "75bb15de43eee0b85c58e62424202c3ba7601401fe34ecd5826a0062ece3b5c9",
+      "status": "PASS",
+      "step": "Render validated recipe in isolated Creator compositor",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "creator-teardown",
+      "job": "native-layer-shell",
+      "log_sha256": "fe471105632b5e479ba6811ade68783f4ef7b801c119d7861501b2ec6d986aa0",
+      "script_sha256": "293b4c71c19cc61510d10618aa52e6a93a1e23de7149d5e7e6ca487d163f7367",
+      "status": "PASS",
+      "step": "Prove Creator teardown after real success and injected failures",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "capture-validation",
+      "job": "native-layer-shell",
+      "log_sha256": "c5a4e806ae329290770ce9888283aed7af37dc7dc4e8b920c797124e6b1207b7",
+      "script_sha256": "9c50c1d731b2855d5b9cfa98b3f7f917ae93cf9a620ca27045b2aa8e73ca1c01",
+      "status": "PASS",
+      "step": "Validate and record real multi-resolution captures",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "luna-window-chrome",
+      "job": "native-layer-shell",
+      "log_sha256": "a1991c9f22957cfa5808fa79717c0092a87ac8323044edaf6a9cf11a057c6825",
+      "script_sha256": "1dacb3c9607d34f7260286c93a7a2a161bd9417c8bf2e7808fb290fa191bf911",
+      "status": "PASS",
+      "step": "Capture reversible Luna compositor window decorations",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "luna-hotkeys",
+      "job": "native-layer-shell",
+      "log_sha256": "bfa8415c26901c70b8fa151c9a268715e5feafa23e639421060af8a1e349fc27",
+      "script_sha256": "d19ad8ee1bc831cce564788629df6ad494ab7dfdf04ec0f000b833a212ee71b0",
+      "status": "PASS",
+      "step": "Verify real XP Super+D/E/R shortcuts and native Run dialog",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "creator-examples-render",
+      "job": "native-layer-shell",
+      "log_sha256": "8991c4acc36bd558019e9f2787eab2aefb4d10a3c07a46142f3c69671a6a54b7",
+      "script_sha256": "e87c3ba646e148999d50951f849d7805c2c76950ff270ba2d7decd2966d232d6",
+      "status": "PASS",
+      "step": "Render both Creator demonstrators at four real output geometries",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "creator-composers-render",
+      "job": "native-layer-shell",
+      "log_sha256": "47ffc779a139ab3d612e4875d7a48e0bbcf3a533542474348ae01e7775e1896d",
+      "script_sha256": "536edcbf43a3189382c4d6fd90c937907e1c82591024dd99652b6c71db1e0cf6",
+      "status": "PASS",
+      "step": "Render two distinct Composer rices through native labwc",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "creator-handoff-render",
+      "job": "native-layer-shell",
+      "log_sha256": "fdedcad841a92df95e7e7da6d5301e64d98bfc4e2019f3fda4b8987d7fc81f08",
+      "script_sha256": "45932da1a41fa9482b982b9c9e75addc1c6cbb1b79ecb73a09452e852d1850b4",
+      "status": "PASS",
+      "step": "Render installed Creator drafts in real isolated Wayland compositors",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "creator-gtk-wayland",
+      "job": "native-layer-shell",
+      "log_sha256": "d2c0dd1260d8fbd5378cc85c716f72dd83690a4f19d6c72b5ec2a9adca00b3a3",
+      "script_sha256": "a692f433a32657f0c164f4be36aa574ad094705671123de848b5e0cbdb11429b",
+      "status": "PASS",
+      "step": "Test real Wayland GTK Creator keyboard focus for both Composer rices",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "id": "portal-pixman-repeat",
+      "job": "portal-pixman-repeat",
+      "log_sha256": "6d6b490359deb9243e14a9b2a3ad7cca9175b145b1a97f9e39938e27b56a079b",
+      "script_sha256": "657cd97c71d7111ffa0af2c875b706a06fcb51e4b79496b66f7c7b92cc923123",
+      "status": "PASS",
+      "step": "Repeat existing pixman acceptance and verify no runtime leftovers",
+      "workflow": "wayland-portal-strict.yml"
+    },
+    {
+      "id": "portal-crash-recovery",
+      "job": "portal-pixman-repeat",
+      "log_sha256": "808e7cc4f3d8b95ddee92c5c72c195efe7f4859fde6c11215155e8c9e3e53a66",
+      "script_sha256": "a949433922fcd564a8bf216e05374680a6fd0e5d9a91ce8b8758d4dd7e13d378",
+      "status": "PASS",
+      "step": "Crash labwc before socket creation and verify runtime recovery",
+      "workflow": "wayland-portal-strict.yml"
+    },
+    {
+      "id": "portal-strict-frame",
+      "job": "portal-strict-software-frame",
+      "log_sha256": "cfdd6087a4a3788c11bbdbfa741944a0247f8aa7c9162cb301235958582a7bed",
+      "script_sha256": "0d32be51a72a98ad808131a56d6f8d3cb2548798f12f3a76e31e5d2ce13f81d0",
+      "status": "PASS",
+      "step": "Strict no-DRM ScreenCast from real wlroots SHM frames to GStreamer",
+      "workflow": "wayland-portal-strict.yml"
+    },
+    {
+      "id": "portal-gpu-frame",
+      "job": "portal-gpu-frame",
+      "log_sha256": null,
+      "script_sha256": "5f8f46e1c3598af3ec391d3a7eef226d7b283297416688b3f7c2a991055dcdd2",
+      "status": "BLOCKED",
+      "step": "Strict ScreenCast and real frame acceptance (fail closed)",
+      "workflow": "wayland-portal-strict.yml"
+    },
+    {
+      "id": "session-deb",
+      "job": "session-smoke",
+      "log_sha256": "c6402bc88a18af2dee1a53e15fbe2cb50e4e663b4c3b7873bb30d5828329697b",
+      "script_sha256": "fe3780320976bf2cd830efea36674745afdb76b7becc2d2d3571abbb5da7bbbe",
+      "status": "PASS",
+      "step": "Build non-installed login session package",
+      "workflow": "wayland-session.yml"
+    },
+    {
+      "id": "session-boot",
+      "job": "session-smoke",
+      "log_sha256": "2207026bae7756820737e37b4960bb032e707764f34f265c2b2e2d8bccccc4d3",
+      "script_sha256": "bba1fb26872aafe0ab93f5c42c0c85cb50ac58db2e6ff23c1f7430888e1c26f9",
+      "status": "PASS",
+      "step": "Boot actual labwc and Waybar headlessly",
+      "workflow": "wayland-session.yml"
+    },
+    {
+      "id": "mako111-real",
+      "job": "session-smoke",
+      "log_sha256": "20495e548b8c08d331b2b3918c495eb077e520ffa1fc7f9283b8003576e6e2c7",
+      "script_sha256": "87c407d10d656998fc9fb4ea235859d6b633244819899035aa395befd5249d09",
+      "status": "PASS",
+      "step": "Verify real source-locked Mako 1.11 notification arrivals in labwc",
+      "workflow": "wayland-session.yml"
+    },
+    {
+      "id": "luna-settings-labwc",
+      "job": "session-smoke",
+      "log_sha256": "00176135119134a906c22cb646f40c5c6a107c0967859e64c58362e5790a1966",
+      "script_sha256": "b3464b700e638b6cadf7bc1e6e7ca90f20385a3cb7b146e167391a7041956c99",
+      "status": "PASS",
+      "step": "Capture real Luna GTK system UI under native labwc",
+      "workflow": "wayland-session.yml"
+    }
+  ],
+  "workflow_steps_not_translated": [
+    {
+      "job": "test",
+      "reason": "apt install on a disposable runner; replaced by the per-step tool preflight",
+      "step": "Install GTK introspection for Linux tests",
+      "workflow": "ci.yml"
+    },
+    {
+      "job": "publish-ricebowl",
+      "reason": "creates a hosted GitHub Release with gh; local CI publishes nothing",
+      "step": "Create release if absent",
+      "workflow": "ci.yml"
+    },
+    {
+      "job": "sg4-creator-gtk-input",
+      "reason": "apt install; replaced by preflight",
+      "step": "Install only the GTK/headless Wayland keyboard dependencies",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "job": "native-layer-shell",
+      "reason": "apt install; replaced by preflight",
+      "step": "Install native Wayland and keyboard build dependencies",
+      "workflow": "riceplate-native.yml"
+    },
+    {
+      "job": "build",
+      "reason": "apt install; replaced by preflight",
+      "step": "Install native Debian build prerequisites",
+      "workflow": "sg6-cross-runner.yml"
+    },
+    {
+      "job": "compare",
+      "reason": "needs the packages of two independent builders; run `local_ci.sh --compare-sg6 A B` on the two sessions' artifacts instead (also checks no hosted main ref)",
+      "step": "Require exact trusted checkout and compare four true package bytes",
+      "workflow": "sg6-cross-runner.yml"
+    },
+    {
+      "job": "attest",
+      "reason": "sigstore/OIDC attestation is hosted-only; local receipts replace it",
+      "step": "Require unchanged main before signing comparison",
+      "workflow": "sg6-cross-runner.yml"
+    },
+    {
+      "job": "dossier",
+      "reason": "queries the hosted Actions API; replaced by scripts/sg7_local_dossier.py, which consumes the finished local receipt (and optional sg6-comparison.json) of the exact SHA, so it runs after local_ci.sh and cannot be a step inside the run it certifies",
+      "step": "Collect trusted exact-main workflow and job steps",
+      "workflow": "sg7-exact-main.yml"
+    },
+    {
+      "job": "portal-unit",
+      "reason": "rewrites apt mirrors with sudo; never done on the development host",
+      "step": "Use signed public Ubuntu archive on this disposable runner",
+      "workflow": "wayland-portal-strict.yml"
+    },
+    {
+      "job": "portal-unit",
+      "reason": "apt install; replaced by preflight",
+      "step": "Install Python GIO bindings for protocol tests",
+      "workflow": "wayland-portal-strict.yml"
+    },
+    {
+      "job": "portal-pixman-repeat",
+      "reason": "rewrites apt mirrors with sudo; never done on the development host",
+      "step": "Use signed public Ubuntu archive on this disposable runner",
+      "workflow": "wayland-portal-strict.yml"
+    },
+    {
+      "job": "portal-pixman-repeat",
+      "reason": "apt install; replaced by preflight",
+      "step": "Install disposable pixman compositor and portal runtime",
+      "workflow": "wayland-portal-strict.yml"
+    },
+    {
+      "job": "portal-strict-software-frame",
+      "reason": "rewrites apt mirrors with sudo; never done on the development host",
+      "step": "Use signed public Ubuntu archive on this disposable runner",
+      "workflow": "wayland-portal-strict.yml"
+    },
+    {
+      "job": "portal-strict-software-frame",
+      "reason": "apt install; replaced by preflight",
+      "step": "Install isolated software compositor and PipeWire development prerequisites",
+      "workflow": "wayland-portal-strict.yml"
+    },
+    {
+      "job": "portal-strict-software-frame",
+      "reason": "patches third-party source and only runs when GITHUB_ACTIONS=true; operator-installed backend instead",
+      "step": "Repair only the disposable backend's invalid remote FD connection",
+      "workflow": "wayland-portal-strict.yml"
+    },
+    {
+      "job": "portal-strict-software-frame",
+      "reason": "builds the third-party portal backend that is then installed system-wide; operator step",
+      "step": "Compile pinned third-party backend with CI-only private remote",
+      "workflow": "wayland-portal-strict.yml"
+    },
+    {
+      "job": "portal-strict-software-frame",
+      "reason": "sudo-installs into /usr; done once per disposable container by scripts/local_ci/provision.sh (local CI itself never writes the host; portal-strict-frame is BLOCKED without it)",
+      "step": "Register backend only inside the disposable CI VM",
+      "workflow": "wayland-portal-strict.yml"
+    },
+    {
+      "job": "portal-gpu-frame",
+      "reason": "apt install; replaced by preflight",
+      "step": "Install disposable compositor, portal, PipeWire and GStreamer",
+      "workflow": "wayland-portal-strict.yml"
+    },
+    {
+      "job": "session-smoke",
+      "reason": "apt install (and apt-mirror rewrite); replaced by preflight",
+      "step": "Install native Wayland compositor and shell dependencies",
+      "workflow": "wayland-session.yml"
+    }
+  ]
+}
