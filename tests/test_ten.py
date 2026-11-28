@@ -31,7 +31,7 @@ class TenTests(unittest.TestCase):
                 for state in ("active", "inactive", "prelight", "pressed"):
                     self.assertTrue((chrome / f"{button}-{state}.png").is_file())
         mark = (root / "assets/ten-start.svg").read_text(encoding="utf-8")
-        self.assertIn("RiceBowl Ten Penguin", mark)
+        self.assertIn("RiceBowl Ten Start", mark)
         self.assertNotIn("M2 4 12", mark)
         self.assertEqual(mark, (root / "assets/icons/RiceHub-Ten-Penguin/scalable/apps/start-here.svg")
                          .read_text(encoding="utf-8"))

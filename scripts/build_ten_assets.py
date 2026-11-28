@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw
 from ricebowl_artwork import write_generated_icon
 
 
@@ -136,7 +136,7 @@ ART = {
     "apps/preferences-system.svg": '<circle cx="32" cy="32" r="24" fill="#0078d7"/><circle cx="32" cy="32" r="14" stroke="white" stroke-width="7" fill="none"/><circle cx="32" cy="32" r="5" fill="white"/>',
     "apps/accessories-calculator.svg": '<rect x="12" y="6" width="40" height="52" fill="#0078d7"/><path d="M19 19h26M19 30h6m8 0h6m-20 9h6m8 0h6m-20 9h6m8 0h6" stroke="white" stroke-width="5"/>',
     "apps/accessories-text-editor.svg": '<rect x="12" y="6" width="42" height="52" fill="#f0f5f9" stroke="#0078d7" stroke-width="3"/><path d="M20 19h25m-25 9h25m-25 9h20m-20 9h25" stroke="#3995d9" stroke-width="3"/>',
-    "apps/applications-other.svg": '<rect x="6" y="6" width="24" height="24" fill="#0078d7"/><rect x="34" y="6" width="24" height="24" fill="#0078d7"/><rect x="6" y="34" width="24" height="24" fill="#0078d7"/><rect x="34" y="34" width="24" height="24" fill="#0078d7"/>',
+    "apps/applications-other.svg": '<rect x="8" y="8" width="12" height="12" rx="2" fill="#0078d7"/><rect x="26" y="8" width="12" height="12" rx="2" fill="#0078d7"/><rect x="44" y="8" width="12" height="12" rx="2" fill="#0078d7"/><rect x="8" y="26" width="12" height="12" rx="2" fill="#0078d7"/><rect x="26" y="26" width="12" height="12" rx="2" fill="#0078d7"/><rect x="44" y="26" width="12" height="12" rx="2" fill="#0078d7"/><rect x="8" y="44" width="12" height="12" rx="2" fill="#0078d7"/><rect x="26" y="44" width="12" height="12" rx="2" fill="#0078d7"/><rect x="44" y="44" width="12" height="12" rx="2" fill="#0078d7"/>',
 }
 
 
@@ -158,67 +158,19 @@ def icons() -> None:
             '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
             + artwork + '</svg>\n',
         )
+    # assets/ten-start.svg is owned by build_original_artwork.py; these are byte-identical aliases.
     logo = (ROOT / "assets/ten-start.svg").read_text(encoding="utf-8")
     for name in ("start-here", "xfce4-menu", "ricehub-ten"):
         (root / "scalable/apps" / (name + ".svg")).write_text(logo, encoding="utf-8")
 
 
 def wallpapers() -> None:
+    """Bowl-of-light wallpapers; drawn by build_original_artwork.py (no four-pane / hero-image motif)."""
+    from build_original_artwork import ten_wallpaper, JPEG_QUALITY
+
     root = ROOT / "assets/wallpapers"
-    width, height = 1920, 1080
-    for name, upper, lower, strength in (
-        ("ten-blue.jpg", (2, 21, 64), (4, 63, 126), 1.0),
-        ("ten-midnight.jpg", (2, 11, 34), (8, 28, 71), 0.67),
-    ):
-        # A ten-era four-pane light source in deep cobalt: independently drawn,
-        # perspective-shifted geometry, not the Windows wallpaper binary.
-        image = Image.new("RGB", (width, height), upper)
-        draw = ImageDraw.Draw(image)
-        for y in range(height):
-            fraction = y / height
-            color = tuple(int(upper[i] * (1 - fraction) + lower[i] * fraction)
-                          for i in range(3))
-            draw.line((0, y, width, y), fill=color)
-        beam = Image.new("RGBA", (width, height))
-        bd = ImageDraw.Draw(beam)
-        origin = (1420, 536)
-        for index, edge in enumerate((
-            [(0, 0), (650, 0)], [(0, 1080), (550, 1080)],
-            [(0, 200), (0, 740)], [(0, 890), (900, 1080)],
-        )):
-            bd.polygon([origin, *edge], fill=(32, 150, 250, int((30 + 13 * index) * strength)))
-        image = Image.alpha_composite(image.convert("RGBA"),
-                                      beam.filter(ImageFilter.GaussianBlur(42)))
-        flare = Image.new("RGBA", (width, height))
-        fd = ImageDraw.Draw(flare)
-        fd.ellipse((940, 130, 1780, 975), fill=(28, 145, 239, int(85 * strength)))
-        fd.ellipse((1165, 280, 1625, 795), fill=(113, 214, 255, int(84 * strength)))
-        image = Image.alpha_composite(image, flare.filter(ImageFilter.GaussianBlur(118)))
-        panes = Image.new("RGBA", (width, height))
-        pane = ImageDraw.Draw(panes)
-        # One vertical and one horizontal separation are enough to suggest the
-        # iconic window proportions without copying its exact glyph.
-        shapes = (
-            [(1143, 314), (1368, 283), (1368, 524), (1143, 524)],
-            [(1390, 281), (1636, 246), (1636, 524), (1390, 524)],
-            [(1143, 545), (1368, 545), (1368, 788), (1143, 753)],
-            [(1390, 545), (1636, 545), (1636, 820), (1390, 790)],
-        )
-        for index, points in enumerate(shapes):
-            pane.polygon(points, fill=(101, 209, 255, int((105 + 12 * index) * strength)))
-        glow = panes.filter(ImageFilter.GaussianBlur(34))
-        image = Image.alpha_composite(image, glow)
-        image = Image.alpha_composite(image, panes)
-        # A small, subtle Linux-penguin silhouette replaces any Windows badge.
-        # It is a detail in the lower-right pane, not an oversized mascot.
-        penguin = ImageDraw.Draw(image, "RGBA")
-        penguin.ellipse((1503, 694, 1544, 767), fill=(4, 54, 111, 112))
-        penguin.ellipse((1513, 720, 1534, 759), fill=(196, 243, 255, 130))
-        penguin.ellipse((1515, 717, 1520, 721), fill=(3, 30, 72, 160))
-        penguin.ellipse((1528, 717, 1533, 721), fill=(3, 30, 72, 160))
-        penguin.polygon([(1521, 727), (1524, 724), (1528, 727), (1524, 730)],
-                        fill=(255, 196, 99, 170))
-        image.convert("RGB").save(root / name, "JPEG", quality=92, optimize=True)
+    for name, variant in (("ten-blue.jpg", "blue"), ("ten-midnight.jpg", "midnight")):
+        ten_wallpaper(variant).save(root / name, "JPEG", quality=JPEG_QUALITY, optimize=True)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "comment": "Verified managed icon blobs from main f7e36bf (before SG4 RF01/RF06 original-artwork replacement of the Ten Start mark, the Ten all-apps grid and the Chrome launcher mark); user customizations are not trusted.",
+  "files": {
+    "assets/icons/RiceHub-Ten-Penguin/scalable/apps/start-here.svg": [
+      "99b82511aec700e95df513b83439dd3416de6f7b"
+    ],
+    "assets/icons/RiceHub-Ten-Penguin/scalable/apps/xfce4-menu.svg": [
+      "99b82511aec700e95df513b83439dd3416de6f7b"
+    ],
+    "assets/icons/RiceHub-Ten-Penguin/scalable/apps/ricehub-ten.svg": [
+      "99b82511aec700e95df513b83439dd3416de6f7b"
+    ],
+    "assets/icons/RiceHub-Ten-Penguin/scalable/apps/applications-other.svg": [
+      "82a79f2034ca06874cbccb5cba5d34f111ff50e6"
+    ],
+    "assets/icons/RiceHub-Chrome-Icons/scalable/apps/start-here.svg": [
+      "8d99d32324e100b6e69dabbcc14fdbf3a456c433"
+    ],
+    "assets/icons/RiceHub-Chrome-Icons/scalable/apps/xfce4-menu.svg": [
+      "8d99d32324e100b6e69dabbcc14fdbf3a456c433"
+    ],
+    "assets/icons/RiceHub-Chrome-Icons/scalable/apps/ricehub-start.svg": [
+      "8d99d32324e100b6e69dabbcc14fdbf3a456c433"
+    ],
+    "assets/icons/RiceHub-Chrome-Icons/scalable/apps/ricebowl-start.svg": [
+      "8d99d32324e100b6e69dabbcc14fdbf3a456c433"
+    ]
+  }
+}

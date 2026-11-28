@@ -653,20 +653,10 @@ def _save(image, name):
 
 
 def _luna():
-    image = _vertical((37, 119, 219), (197, 227, 252))
-    draw = ImageDraw.Draw(image)
-    draw.ellipse((1335, 140, 1515, 320), fill=(240, 248, 220))
-    for x, y, radius in ((240, 180, 90), (370, 195, 115), (480, 165, 80),
-                         (1050, 265, 85), (1195, 290, 110)):
-        draw.ellipse((x-radius, y-radius//2, x+radius, y+radius//2), fill=(246, 251, 255))
-    draw.ellipse((-450, 360, 1550, 1880), fill=(73, 157, 56))
-    draw.ellipse((670, 435, 2340, 1980), fill=(83, 183, 53))
-    draw.ellipse((-300, 580, 1290, 2020), fill=(58, 151, 43))
-    draw.arc((20, 385, 1940, 1795), start=206, end=332, fill=(155, 216, 99), width=17)
-    for x in range(20, 1850, 135):
-        y = int(835 + 64 * math.sin(x / 210))
-        draw.line((x, y, x+7, y-32), fill=(144, 213, 94), width=3)
-    _save(image, "luna-hills.jpg")
+    # Original terraced-hills scene from build_original_artwork.py (replaces the old
+    # Bliss-like single-hill picture; see docs/sg4-asset-rights-audit.md RF03).
+    from build_original_artwork import luna_hills
+    _save(luna_hills(), "luna-hills.jpg")
 
 
 def _classic():
