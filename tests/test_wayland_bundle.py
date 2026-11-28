@@ -156,6 +156,11 @@ class WaylandBundleTests(unittest.TestCase):
                 ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
                 text=True, timeout=10).strip()
             shutil.copy2("/bin/true", fixture / "usr/bin/riceplate-native")
+            doc = fixture / "usr/share/doc/ricebowl-riceplate-native"
+            doc.mkdir(parents=True)
+            shutil.copy2(ROOT / "packaging/wayland/native-copyright", doc / "copyright")
+            shutil.copy2(ROOT / "assets/fonts/LiberationSans-LICENSE.txt",
+                         doc / "LiberationSans-LICENSE.txt")
             native_digest = hashlib.sha256(
                 (fixture / "usr/bin/riceplate-native").read_bytes()).hexdigest()
             (fixture / "DEBIAN/control").write_text(
@@ -205,6 +210,22 @@ class WaylandBundleTests(unittest.TestCase):
                                    str(native), str(desktop))
                     self.assertNotEqual(rejected.returncode, 0, rejected.stdout)
                     self.assertIn("Unsafe Wayland session entry", rejected.stderr)
+
+            # RF08: a native package that embeds Liberation Sans without its OFL notice is refused.
+            for label, relative in (("font-licence", "LiberationSans-LICENSE.txt"),
+                                    ("copyright", "copyright")):
+                with self.subTest(missing_notice=label):
+                    stage = folder / f"nonotice-{label}-stage"
+                    unpacked = run("dpkg-deb", "-R", str(native), str(stage))
+                    self.assertEqual(unpacked.returncode, 0, unpacked.stderr)
+                    (stage / "usr/share/doc/ricebowl-riceplate-native" / relative).unlink()
+                    altered = folder / f"nonotice-{label}.deb"
+                    built = run("dpkg-deb", "--build", "--root-owner-group", str(stage), str(altered))
+                    self.assertEqual(built.returncode, 0, built.stderr)
+                    rejected = run("bash", str(VERIFY), str(core), str(session), str(altered),
+                                   str(desktop))
+                    self.assertNotEqual(rejected.returncode, 0, rejected.stdout)
+                    self.assertIn("Missing runtime or login entry", rejected.stderr)
 
             # Archive safety checks permit 0644 regular files, but a valid
             # preview install must retain executable launcher entrypoints.

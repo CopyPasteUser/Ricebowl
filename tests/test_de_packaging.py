@@ -134,6 +134,14 @@ class SessionPackageTests(unittest.TestCase):
                                check=True, timeout=10)
                 self.assertEqual((Path(extracted) / "usr/bin/riceplate-native").read_bytes(),
                                  source.read_bytes())
+                # The binary embeds Liberation Sans (SIL OFL 1.1): notice + licence must ship (RF08).
+                docs = Path(extracted) / "usr/share/doc/ricebowl-riceplate-native"
+                self.assertEqual((docs / "LiberationSans-LICENSE.txt").read_bytes(),
+                                 (project_root() / "assets/fonts/LiberationSans-LICENSE.txt").read_bytes())
+                self.assertEqual((docs / "copyright").read_bytes(),
+                                 (project_root() / "packaging/wayland/native-copyright").read_bytes())
+                self.assertIn("Copyright (c) 2012 Red Hat, Inc.",
+                              (docs / "LiberationSans-LICENSE.txt").read_text(encoding="utf-8"))
             result = subprocess.run(["sh", str(script), str(source), str(first)],
                                     capture_output=True, text=True, check=False, timeout=10)
             self.assertNotEqual(result.returncode, 0)

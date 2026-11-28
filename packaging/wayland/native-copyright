@@ -1,0 +1,42 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: RiceBowl
+Source: https://github.com/CopyPasteUser/Ricebowl
+Comment: The riceplate-native binary embeds one font file (Liberation Sans Regular
+ 2.1.5, unmodified) with include_bytes!. Its licence and copyright notice are
+ installed next to this file as LiberationSans-LICENSE.txt, as the SIL OFL requires
+ for bundled copies. The statically linked Rust crates keep their own licences; they
+ are listed in components/riceplate-wayland/Cargo.lock in the source tree and are
+ not enumerated in this file.
+
+Files: *
+Copyright: 2026 CopyPasteUser and MacRice contributors
+ Digitized data copyright (c) 2010 Google Corporation with Reserved Font Arimo, Tinos and Cousine.
+ Copyright (c) 2012 Red Hat, Inc. with Reserved Font Name Liberation.
+License: MIT and SIL-OFL-1.1
+Comment: MIT covers the RiceBowl program code. SIL-OFL-1.1 covers the embedded
+ Liberation Sans font only.
+
+License: MIT
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to deal
+ in the Software without restriction, including without limitation the rights
+ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+ .
+ The above copyright notice and this permission notice shall be included in all
+ copies or substantial portions of the Software.
+ .
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ SOFTWARE.
+
+License: SIL-OFL-1.1
+ This Font Software is licensed under the SIL Open Font License, Version 1.1.
+ The full text, with the Liberation copyright notice, is in
+ /usr/share/doc/ricebowl-riceplate-native/LiberationSans-LICENSE.txt and is also
+ available with a FAQ at http://scripts.sil.org/OFL

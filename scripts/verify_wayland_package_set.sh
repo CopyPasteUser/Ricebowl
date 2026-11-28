@@ -84,7 +84,10 @@ for i in "${!files[@]}"; do
             1:usr/share/wayland-sessions/ricebowl-native.desktop|\
             1:usr/share/xdg-desktop-portal/ricebowl-portals.conf|\
             1:usr/lib/systemd/user/ricebowl-session.target|\
-            2:usr|2:usr/bin|2:usr/bin/riceplate-native) ;;
+            2:usr|2:usr/bin|2:usr/bin/riceplate-native|\
+            2:usr/share|2:usr/share/doc|2:usr/share/doc/ricebowl-riceplate-native|\
+            2:usr/share/doc/ricebowl-riceplate-native/copyright|\
+            2:usr/share/doc/ricebowl-riceplate-native/LiberationSans-LICENSE.txt) ;;
             *) echo "Unexpected installed path in $package: $relative" >&2; exit 1 ;;
         esac
     done < <(find "$extracted" -mindepth 1 -print0)
@@ -188,12 +191,23 @@ for required in \
     "$work/package-0/usr/lib/ricebowl-wayland/launcher.py" \
     "$work/package-0/usr/lib/ricebowl-wayland/macrice/de/session.py" \
     "$work/package-1/usr/share/wayland-sessions/ricebowl.desktop" \
-    "$work/package-2/usr/bin/riceplate-native"; do
+    "$work/package-2/usr/bin/riceplate-native" \
+    "$work/package-2/usr/share/doc/ricebowl-riceplate-native/copyright" \
+    "$work/package-2/usr/share/doc/ricebowl-riceplate-native/LiberationSans-LICENSE.txt"; do
     if [[ ! -f "$required" ]]; then
         echo "Missing runtime or login entry: $required" >&2
         exit 1
     fi
 done
+# The native binary embeds Liberation Sans (SIL OFL 1.1): the OFL requires the
+# copyright notice and licence text to accompany every bundled copy.
+font_notice="$work/package-2/usr/share/doc/ricebowl-riceplate-native/LiberationSans-LICENSE.txt"
+if ! grep -Fq 'SIL OPEN FONT LICENSE Version 1.1' "$font_notice" || \
+   ! grep -Fq 'Copyright (c) 2012 Red Hat, Inc.' "$font_notice" || \
+   ! grep -Fq 'SIL-OFL-1.1' "$work/package-2/usr/share/doc/ricebowl-riceplate-native/copyright"; then
+    echo "Native package lacks the Liberation Sans OFL notice" >&2
+    exit 1
+fi
 if find "$work/package-3" -type f -print -quit | grep -q .; then
     echo "The desktop meta package must not install files" >&2
     exit 1

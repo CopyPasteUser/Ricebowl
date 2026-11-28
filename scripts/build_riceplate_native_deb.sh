@@ -74,17 +74,33 @@ if [ -z "$dependencies" ]; then
 fi
 mkdir -p "$package_root/DEBIAN"
 control="$project_root/packaging/wayland/native-control.in"
+# The binary embeds Liberation Sans (SIL OFL 1.1) via include_bytes!, so the
+# package must carry the copyright notice and the licence text (OFL condition 2).
+copyright_file="$project_root/packaging/wayland/native-copyright"
+font_licence="$project_root/assets/fonts/LiberationSans-LICENSE.txt"
 if command -v git >/dev/null 2>&1 && \
    git -C "$project_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     command -v tar >/dev/null 2>&1 || { echo "tar is required" >&2; exit 1; }
-    git -C "$project_root" archive -o "$stage/control.tar" HEAD -- packaging/wayland/native-control.in
+    git -C "$project_root" archive -o "$stage/control.tar" HEAD -- \
+        packaging/wayland/native-control.in packaging/wayland/native-copyright \
+        assets/fonts/LiberationSans-LICENSE.txt
     mkdir -p -- "$stage/source"
     tar -xf "$stage/control.tar" -C "$stage/source"
     control="$stage/source/packaging/wayland/native-control.in"
+    copyright_file="$stage/source/packaging/wayland/native-copyright"
+    font_licence="$stage/source/assets/fonts/LiberationSans-LICENSE.txt"
 fi
 if [ ! -f "$control" ] || [ -L "$control" ]; then
     echo "Native control source is missing or a symlink" >&2; exit 1
 fi
+for notice in "$copyright_file" "$font_licence"; do
+    if [ ! -f "$notice" ] || [ -L "$notice" ]; then
+        echo "Native licence notice is missing or a symlink: $notice" >&2; exit 1
+    fi
+done
+doc_dir="$package_root/usr/share/doc/ricebowl-riceplate-native"
+install -D -m 0644 "$copyright_file" "$doc_dir/copyright"
+install -D -m 0644 "$font_licence" "$doc_dir/LiberationSans-LICENSE.txt"
 awk -v depends="$dependencies" \
     '/^Description:/ {print "Depends: " depends} {print}' \
     "$control" > "$package_root/DEBIAN/control"
